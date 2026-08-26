@@ -5,9 +5,10 @@ from uuid import UUID
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
 
+from products.dashboards.backend.facade.enums import PrivilegeLevel, RestrictionLevel
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 class UserPermissions:
@@ -99,12 +100,12 @@ class UserPermissions:
         return {membership.organization_id: membership for membership in memberships}
 
     @cached_property
-    def dashboard_privileges(self) -> dict[int, Dashboard.PrivilegeLevel]:
+    def dashboard_privileges(self) -> dict[int, PrivilegeLevel]:
         try:
             from ee.models import DashboardPrivilege
 
             rows = DashboardPrivilege.objects.filter(user=self.user).values_list("dashboard_id", "level")
-            return {dashboard_id: cast(Dashboard.PrivilegeLevel, level) for dashboard_id, level in rows}
+            return {dashboard_id: cast(PrivilegeLevel, level) for dashboard_id, level in rows}
         except ImportError:
             return {}
 
@@ -114,7 +115,7 @@ class UserPermissions:
         Prefetch all AccessControl entries for teams in user's organizations.
         Returns a dict mapping team_id to list of access control entries.
         """
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         organization_ids = list(self.organizations.keys())
         # Get all access controls for teams in these organizations
@@ -142,7 +143,7 @@ class UserPermissions:
         AccessControl row can name a role belonging to a different organization, so callers have to
         look roles up under the organization of the team being resolved.
         """
-        from ee.models.rbac.role import RoleMembership
+        from products.access_control.backend.models.role import RoleMembership
 
         result: dict[UUID, set[UUID]] = {}
         for organization_id, role_id in RoleMembership.objects.filter(user=self.user).values_list(
@@ -226,7 +227,7 @@ class UserTeamPermissions:
         # Rules naming this user — directly, or through a role they hold. These decide on their
         # own: the highest of them wins, and an explicit "none" is a denial rather than a miss
         # that falls through to the team default. Same explicit-wins precedence as
-        # `_object_access_level_from_rows` in `posthog/rbac/user_access_control.py`.
+        # `_object_access_level_from_rows` in `products/access_control/backend/facade/user_access_control.py`.
         explicit_access_levels = [
             ac["access_level"]
             for ac in access_controls
@@ -250,7 +251,7 @@ class UserTeamPermissions:
         if default_access_level is not None:
             return self._highest_membership_level([default_access_level])
 
-        # No access control row in the database, admin by default. See: `default_access_level()` in `posthog/rbac/user_access_control.py`
+        # No access control row in the database, admin by default. See: `default_access_level()` in `products/access_control/backend/facade/user_access_control.py`
         return OrganizationMembership.Level.ADMIN
 
     @staticmethod
@@ -277,11 +278,11 @@ class UserDashboardPermissions:
         self.dashboard = dashboard
 
     @cached_property
-    def effective_restriction_level(self) -> Dashboard.RestrictionLevel:
+    def effective_restriction_level(self) -> RestrictionLevel:
         return (
-            Dashboard.RestrictionLevel(self.dashboard.restriction_level)
+            RestrictionLevel(self.dashboard.restriction_level)
             if cast(Organization, self.p.current_organization).is_feature_available(AvailableFeature.ACCESS_CONTROL)
-            else Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
+            else RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
         )
 
     @cached_property
@@ -299,24 +300,24 @@ class UserDashboardPermissions:
         )
 
     @cached_property
-    def effective_privilege_level(self) -> Dashboard.PrivilegeLevel:
+    def effective_privilege_level(self) -> PrivilegeLevel:
         if (
             # Checks can be skipped if the dashboard in on the lowest restriction level
-            self.effective_restriction_level == Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
+            self.effective_restriction_level == RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
             # Users with restriction rights can do anything
             or self.can_restrict
         ):
             # Returning the highest access level if no checks needed
-            return Dashboard.PrivilegeLevel.CAN_EDIT
+            return PrivilegeLevel.CAN_EDIT
 
         # We return lowest access level if there's no explicit privilege for this user
-        return self.p.dashboard_privileges.get(self.dashboard.pk, Dashboard.PrivilegeLevel.CAN_VIEW)
+        return self.p.dashboard_privileges.get(self.dashboard.pk, PrivilegeLevel.CAN_VIEW)
 
     @cached_property
     def can_edit(self) -> bool:
-        if self.effective_restriction_level < Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT:
+        if self.effective_restriction_level < RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT:
             return True
-        return self.effective_privilege_level >= Dashboard.PrivilegeLevel.CAN_EDIT
+        return self.effective_privilege_level >= PrivilegeLevel.CAN_EDIT
 
 
 class UserInsightPermissions:
@@ -325,21 +326,21 @@ class UserInsightPermissions:
         self.insight = insight
 
     @cached_property
-    def effective_restriction_level(self) -> Dashboard.RestrictionLevel:
+    def effective_restriction_level(self) -> RestrictionLevel:
         if len(self.insight_dashboards) == 0:
-            return Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
+            return RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
 
         return max(self.p.dashboard(dashboard).effective_restriction_level for dashboard in self.insight_dashboards)
 
     @cached_property
-    def effective_privilege_level(self) -> Dashboard.PrivilegeLevel:
+    def effective_privilege_level(self) -> PrivilegeLevel:
         if len(self.insight_dashboards) == 0:
-            return Dashboard.PrivilegeLevel.CAN_EDIT
+            return PrivilegeLevel.CAN_EDIT
 
         if any(self.p.dashboard(dashboard).can_edit for dashboard in self.insight_dashboards):
-            return Dashboard.PrivilegeLevel.CAN_EDIT
+            return PrivilegeLevel.CAN_EDIT
         else:
-            return Dashboard.PrivilegeLevel.CAN_VIEW
+            return PrivilegeLevel.CAN_VIEW
 
     @cached_property
     def insight_dashboards(self):

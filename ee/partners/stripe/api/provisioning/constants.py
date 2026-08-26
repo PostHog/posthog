@@ -69,18 +69,10 @@ SERVICES_CACHE_EXPIRES_KEY = "stripe_provisioning:services:expires_at"
 SERVICES_CACHE_STORE_TTL = 86400
 
 # ---------------------------------------------------------------------------
-# Rate limiting - fixed-window counters keyed within this namespace on a fixed
-# Stripe identity. Limits come from RATE_LIMIT_DEFAULTS; a value <= 0 disables
-# the limit for that endpoint.
+# Rate limiting - token buckets keyed within this namespace on a fixed Stripe
+# identity. Budgets are hardcoded in throttling.py.
 # ---------------------------------------------------------------------------
 
-RATE_LIMIT_CACHE_PREFIX = "stripe_provisioning_rate:"
-RATE_LIMIT_WINDOW_SECONDS = 3600
-RATE_LIMIT_DEFAULTS: dict[str, int] = {
-    "account_requests": 10,
-    "token_exchanges": 20,
-    "resource_creates": 20,
-}
 RATE_LIMIT_EVENT_NAMES: dict[str, str] = {
     "account_requests": "account_request",
     "token_exchanges": "token_exchange",

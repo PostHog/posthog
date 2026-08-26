@@ -424,6 +424,49 @@ export interface DataCatalogMetricRunApi {
     instructions: string | null
 }
 
+/**
+ * Input for the bulk metric actions: the metric names to act on.
+ */
+export interface DataCatalogMetricBulkNamesRequestApi {
+    /**
+     * Names of the metrics to act on, at most 100. Duplicates are collapsed.
+     * @minItems 1
+     * @maxItems 100
+     * @items.maxLength 128
+     */
+    names: string[]
+}
+
+/**
+ * A metric the bulk action did not act on, and why.
+ */
+export interface DataCatalogMetricBulkSkipApi {
+    /** Name of the metric that was skipped. */
+    name: string
+    /** Why it was skipped, e.g. 'Not found', 'Already approved', 'Drifted from its source insight'. */
+    reason: string
+}
+
+/**
+ * Outcome of a bulk approve: what changed, and what was left alone.
+ */
+export interface DataCatalogMetricBulkApproveApi {
+    /** The metrics that are now approved, freshly serialized. */
+    approved: DataCatalogMetricApi[]
+    /** Requested metrics that were not approved, with reasons. */
+    skipped: DataCatalogMetricBulkSkipApi[]
+}
+
+/**
+ * Outcome of a bulk delete: which names are gone, and what was left alone.
+ */
+export interface DataCatalogMetricBulkDeleteApi {
+    /** Names of the metrics that were deleted, now free for reuse. */
+    deleted: string[]
+    /** Requested metrics that were not deleted, with reasons. */
+    skipped: DataCatalogMetricBulkSkipApi[]
+}
+
 export interface DataCatalogRelationshipProposalApi {
     readonly id: string
     /**

@@ -38,15 +38,20 @@ const MOVE: LayoutOperation[] = [
   { op: "update_placement", id: "p1", changes: { x: 1 } },
 ];
 
-function layoutAt(versionId: string): CanvasLayoutResult {
+function layoutAt(versionId: string, x = 0): CanvasLayoutResult {
   return {
     layout: {
       schemaVersion: 1,
       grid: { columns: 6, rowHeight: 96, gap: 8 },
-      placements: [],
+      placements: [{ id: "p1", status: "live", x, y: 0, w: 1, h: 1 }],
     },
     currentVersionId: versionId,
   };
+}
+
+function placedX(): number | undefined {
+  return queryClient.getQueryData<CanvasLayoutResult>(LAYOUT_KEY)?.layout
+    .placements[0]?.x;
 }
 
 let queryClient: QueryClient;
@@ -101,6 +106,58 @@ describe("usePatchLayout", () => {
 
     expect(expected).toEqual(["v1", "v2"]);
     expect(queryClient.getQueryData(LAYOUT_KEY)).toEqual(layoutAt("v3"));
+  });
+
+  // The canvas renders the layout cache, so an edit that waits for its patch
+  // is an edit the user watches snap back for the length of a round trip.
+  it("shows an edit before its patch is sent", async () => {
+    let releasePatch = (): void => {};
+    const inFlight = new Promise<void>((resolve) => {
+      releasePatch = resolve;
+    });
+    mocks.patchLayout.mockImplementationOnce(async () => {
+      await inFlight;
+      return layoutAt("v2", 1);
+    });
+
+    const { result } = renderHook(() => usePatchLayout("canvas-1"), {
+      wrapper,
+    });
+    await act(async () => {
+      const patched = result.current.patch(MOVE);
+      expect(placedX()).toBe(1);
+      releasePatch();
+      await patched;
+    });
+  });
+
+  // Two drags inside one round trip: adopting the first patch's document bare
+  // would drop the second drag back to the first one's cell until it answers.
+  it("keeps a later gesture when an earlier patch answers", async () => {
+    let releaseFirst = (): void => {};
+    const firstInFlight = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    mocks.patchLayout
+      .mockImplementationOnce(async () => {
+        await firstInFlight;
+        return layoutAt("v2", 1);
+      })
+      .mockImplementationOnce(async () => layoutAt("v3", 2));
+
+    const { result } = renderHook(() => usePatchLayout("canvas-1"), {
+      wrapper,
+    });
+    await act(async () => {
+      const first = result.current.patch(MOVE);
+      const second = result.current.patch([
+        { op: "update_placement", id: "p1", changes: { x: 2 } },
+      ]);
+      releaseFirst();
+      await first;
+      expect(placedX()).toBe(2);
+      await second;
+    });
   });
 
   // A rejected patch must not wedge the queue: the next gesture still runs.

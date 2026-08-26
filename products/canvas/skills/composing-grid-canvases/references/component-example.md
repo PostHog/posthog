@@ -99,7 +99,8 @@ export default function WelcomeChecklist() {
   const done = checked ? ITEMS.filter((item) => checked[item.id]).length : 0
 
   return (
-    <div className="flex h-full flex-col gap-2 overflow-y-auto p-3">
+    // The component root must resolve height against its placement iframe viewport.
+    <div className="flex h-screen flex-col gap-2 overflow-y-auto p-3">
       <div className="flex items-baseline justify-between gap-2">
         <Text weight="medium">Welcome to PostHog</Text>
         {checked ? (
@@ -141,4 +142,5 @@ export default function WelcomeChecklist() {
 - Imports only from the platform allowlist (`react`, `@posthog/quill`, `lucide-react`, `recharts`, `dayjs`).
 - `ph` is a host-injected global — never import it, and feature-detect optional surfaces like `ph.state` so the widget degrades instead of crashing on an older runtime.
 - Loading state renders a skeleton, never a blank; every async access has a `.catch` that lands in a renderable state.
-- Fill 100% of the box (`h-full`) and let content scroll; the user controls the placement's size.
+- Fill the placement iframe viewport (`h-screen`) and let content scroll; `h-full` cannot resolve
+  on the root because the published artifact shell has no explicit height.

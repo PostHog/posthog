@@ -53,7 +53,7 @@ class TestEndpointOpenAPISpec(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response_schema["properties"]["results"]["type"], "array")
 
     def test_openapi_spec_with_variables(self):
-        from products.product_analytics.backend.models.insight_variable import InsightVariable
+        from products.product_analytics.backend.facade.models import InsightVariable
 
         variable = InsightVariable.objects.create(
             team=self.team,
@@ -93,7 +93,7 @@ class TestEndpointOpenAPISpec(ClickhouseTestMixin, APIBaseTest):
 
     def test_openapi_spec_marks_hogql_variables_without_default_as_required(self):
         """Regression for #54605."""
-        from products.product_analytics.backend.models.insight_variable import InsightVariable
+        from products.product_analytics.backend.facade.models import InsightVariable
 
         with_default = InsightVariable.objects.create(
             team=self.team,
@@ -151,7 +151,7 @@ class TestEndpointOpenAPISpec(ClickhouseTestMixin, APIBaseTest):
 
     def test_openapi_spec_keeps_request_body_optional_when_all_variables_have_defaults(self):
         """When every HogQL variable has a default value, nothing is required."""
-        from products.product_analytics.backend.models.insight_variable import InsightVariable
+        from products.product_analytics.backend.facade.models import InsightVariable
 
         variable = InsightVariable.objects.create(
             team=self.team,
@@ -211,7 +211,7 @@ class TestEndpointOpenAPISpec(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(schema_non_materialized.get("required"), ["$browser"])
 
     def test_openapi_spec_variable_types(self):
-        from products.product_analytics.backend.models.insight_variable import InsightVariable
+        from products.product_analytics.backend.facade.models import InsightVariable
 
         test_cases = [
             (InsightVariable.Type.NUMBER, "number", None),
@@ -544,7 +544,7 @@ class TestEndpointOpenAPIRequiredVariables(ClickhouseTestMixin, APIBaseTest):
         """Inline HogQL substitutes defaults/NULLs for missing variables — that's a coherent
         contract. The OpenAPI spec must not mark inline HogQL variables required, or generated
         SDKs would reject calls that are legal at runtime."""
-        from products.product_analytics.backend.models.insight_variable import InsightVariable
+        from products.product_analytics.backend.facade.models import InsightVariable
 
         InsightVariable.objects.create(
             team=self.team,
@@ -579,7 +579,7 @@ class TestEndpointOpenAPIRequiredVariables(ClickhouseTestMixin, APIBaseTest):
         spec must mark every variable required — unlike the inline path, which substitutes
         defaults/NULLs and stays optional."""
         from products.endpoints.backend.openapi import _build_variables_schema
-        from products.product_analytics.backend.models.insight_variable import InsightVariable
+        from products.product_analytics.backend.facade.models import InsightVariable
 
         with_default = InsightVariable.objects.create(
             team=self.team,

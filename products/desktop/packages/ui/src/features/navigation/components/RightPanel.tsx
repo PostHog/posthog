@@ -1,10 +1,4 @@
-import {
-  ChatCircleIcon,
-  GitDiffIcon,
-  type Icon,
-  PackageIcon,
-  PulseIcon,
-} from "@phosphor-icons/react";
+import { ArrowsHorizontalIcon } from "@phosphor-icons/react";
 import {
   Button,
   Tooltip,
@@ -20,57 +14,43 @@ import {
 } from "@posthog/ui/features/code-review/components/LazyReviewPages";
 import { preloadReviewPages } from "@posthog/ui/features/code-review/components/preloadReviewPages";
 import { useReviewNavigationStore } from "@posthog/ui/features/code-review/reviewNavigationStore";
-import { openRightPanelSide } from "@posthog/ui/features/navigation/rightPanelSide";
+import { PanelResizeHandle } from "@posthog/ui/features/navigation/components/PanelResizeHandle";
+import { RightPanelButtons } from "@posthog/ui/features/navigation/components/RightPanelButtons";
+import {
+  RightPanelSurface,
+  SLIDE_MS,
+} from "@posthog/ui/features/navigation/components/RightPanelSurface";
+import { resolvePanelGeometry } from "@posthog/ui/features/navigation/rightPanelGeometry";
+import {
+  openRightPanelSide,
+  SIDES,
+  SWITCHER_WIDTH_PX,
+} from "@posthog/ui/features/navigation/rightPanelSide";
+import { useActiveSession } from "@posthog/ui/features/navigation/useActiveSession";
 import { useCommentFocusRequest } from "@posthog/ui/features/sessions/useCommentFocusRequest";
 import {
   useSessionArtifactCount,
   useSessionIsWorking,
 } from "@posthog/ui/features/sessions/useSessionArtifactCount";
-import { TIP_KEYS } from "@posthog/ui/features/settings/tipKeys";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { useIsCloudTask } from "@posthog/ui/features/workspace/useWorkspace";
-import {
-  ResizableSidebar,
-  SLIDE_MS,
-} from "@posthog/ui/primitives/ResizableSidebar";
-import { TeachingTip } from "@posthog/ui/primitives/TeachingTip";
+import { useParentWidth } from "@posthog/ui/primitives/hooks/useObservedWidth";
 import { useQuery } from "@tanstack/react-query";
-import { useParams } from "@tanstack/react-router";
-import { useCallback, useEffect, useState } from "react";
 import {
-  DEFAULT_RIGHT_PANEL_SIDE,
-  RIGHT_PANEL_MIN_WIDTH,
+  memo,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import {
   type RightPanelSide,
   resolveArtifactMark,
   resolveRightPanelSide,
   useRightPanelStore,
 } from "../rightPanelStore";
-
-const SIDES: Record<RightPanelSide, { label: string; Icon: Icon }> = {
-  timeline: { label: "Timeline", Icon: PulseIcon },
-  artifacts: { label: "Artifacts", Icon: PackageIcon },
-  comments: { label: "Comments", Icon: ChatCircleIcon },
-  changes: { label: "Changes", Icon: GitDiffIcon },
-};
-
-const SIDE_ORDER: readonly RightPanelSide[] = [
-  "timeline",
-  "artifacts",
-  "comments",
-  "changes",
-];
-
-/**
- * The room the switcher takes at the right of the row, covering SIDE_ORDER at
- * icon-sm. The panel's header row leaves it free for the title, and while the
- * panel is closed the content pane's own chrome (the tab strip and its split
- * and close controls) keeps out of it through CONTENT_CHROME_RIGHT_VAR.
- */
-export const SWITCHER_WIDTH_PX = 112;
-
-/** The one lesson this switcher teaches: where a run's deliverables land. */
-const ARTIFACTS_PANEL_TIP = TIP_KEYS.sessionArtifactsLocation;
 
 /** The task the right panel talks about: the one on the current route. */
 function useRightPanelTask(taskId: string): Task | null {
@@ -87,134 +67,26 @@ function useRightPanelTask(taskId: string): Task | null {
 /** Which panel this session has open. */
 function useActiveSide(taskId: string): RightPanelSide | null {
   const stored = useRightPanelStore((s) => s.sideByKey[taskId]);
+  const closedByDefault = useRightPanelStore((s) => s.closedByDefault);
   const reviewMode = useReviewNavigationStore(
     (s) => s.reviewModes[taskId] ?? "closed",
   );
   return resolveRightPanelSide({
     stored,
+    closedByDefault,
     isReviewOpen: reviewMode !== "closed",
   });
 }
 
-/** One side's button: opens that panel, or closes it when it is the one open. */
-function SideButton({
-  side,
-  active,
-  taskId,
-  marked = false,
-}: {
-  side: RightPanelSide;
-  active: RightPanelSide | null;
-  taskId: string;
-  /** Something has arrived on this side that the panel hasn't shown yet. */
-  marked?: boolean;
-}) {
-  const { label, Icon } = SIDES[side];
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <Button
-            variant="default"
-            size="icon-sm"
-            aria-label={marked ? `${label} (new)` : label}
-            data-selected={active === side || undefined}
-            onClick={() =>
-              openRightPanelSide(active === side ? null : side, taskId)
-            }
-            className="relative text-muted-foreground data-selected:bg-fill-selected data-selected:text-foreground"
-          >
-            <Icon size={16} />
-            {marked && (
-              // Ringed in the row's own background so the dot still reads
-              // where it overlaps the icon's strokes.
-              <span
-                aria-hidden
-                className="absolute top-0.5 right-0.5 size-1.5 rounded-full bg-primary ring-2 ring-background"
-              />
-            )}
-          </Button>
-        }
-      />
-      <TooltipContent side="bottom">{label}</TooltipContent>
-    </Tooltip>
-  );
-}
-
-/**
- * The panel's own switcher: one button per side, the active one toggling the
- * panel closed. It sits a row below the header band, pinned to the right edge,
- * and stays there whether the panel is open or closed, because the panel slides
- * out from under it.
- */
-export function RightPanelButtons({
-  active,
-  taskId,
-  hasNewArtifacts,
-  offerArtifactsTip = false,
-  artifactCount,
-}: {
-  active: RightPanelSide | null;
-  taskId: string;
-  /** Artifacts have arrived that this session's panel hasn't shown yet. */
-  hasNewArtifacts: boolean;
-  /** The turn that produced them has ended, so the tip can point at where they went. */
-  offerArtifactsTip?: boolean;
-  /** How many the session has, so each new one is a fresh chance to teach. */
-  artifactCount?: number;
-}) {
-  return (
-    <TooltipProvider delay={400}>
-      <div className="pointer-events-auto flex shrink-0 items-center gap-0.5">
-        {SIDE_ORDER.map((side) =>
-          side === "artifacts" ? (
-            <TeachingTip
-              key={side}
-              id={ARTIFACTS_PANEL_TIP}
-              open={offerArtifactsTip}
-              // The mark stays up until the panel is opened, so `open` can hold
-              // across several runs. The count is what separates them, and it
-              // is why asking for more artifacts offers the tip again.
-              moment={artifactCount}
-              message="New artifacts show up here"
-            >
-              <SideButton
-                side={side}
-                active={active}
-                taskId={taskId}
-                marked={hasNewArtifacts}
-              />
-            </TeachingTip>
-          ) : (
-            <SideButton
-              key={side}
-              side={side}
-              active={active}
-              taskId={taskId}
-            />
-          ),
-        )}
-      </div>
-    </TooltipProvider>
-  );
-}
-
-/**
- * Whether a session has artifacts its panel hasn't shown yet. The first count a
- * session reports is taken as seen, so a session opened long after its run
- * doesn't announce work the reader already knows about; from there the mark
- * clears whenever the panel is on Artifacts.
- */
+/** Artifacts a session's panel hasn't shown yet. */
 function useNewArtifacts(
   taskId: string,
   task: Task | null,
   active: RightPanelSide | null,
 ): { hasNew: boolean; count: number } {
   const count = useSessionArtifactCount(task);
-  // The count covers the latest run only, so the baseline is keyed per run too.
-  // A resume run replaces `latest_run` with a fresh, smaller manifest; a
-  // per-task baseline would then hold the old run's higher total and swallow the
-  // new run's first deliverables until they passed it.
+  // Keyed per run: a resume replaces `latest_run` with a smaller manifest, and a
+  // per-task baseline would swallow the new run's first deliverables.
   const seenKey = `${taskId}:${task?.latest_run?.id ?? ""}`;
   const seen = useRightPanelStore((s) => s.seenArtifactCountByKey[seenKey]);
   const markArtifactsSeen = useRightPanelStore((s) => s.markArtifactsSeen);
@@ -222,8 +94,7 @@ function useNewArtifacts(
     count,
     seen,
     isShowingArtifacts: active === "artifacts",
-    // The count reads zero until the task resolves and a manifest source lands.
-    // Not ready yet means don't take that zero as the seen baseline.
+    // The count reads zero until a manifest lands; don't bank that as seen.
     ready: task !== null,
   });
 
@@ -243,19 +114,91 @@ function ChangesPanelContent({ task }: { task: Task }) {
 }
 
 /**
- * The panel's title and contents fade with its slide, so the two read as one
- * movement: in over the slide's own duration, out quicker, so the panel is
- * already gone as the column finishes closing.
+ * Takes the panel out to the whole row and back. Active at full width however
+ * the panel got there - a drag to the far edge lands where the button does.
  */
-const PANEL_FADE_OUT_MS = 120;
+function ExpandButton({
+  active,
+  onToggle,
+}: {
+  active: boolean;
+  onToggle: () => void;
+}) {
+  const label = active ? "Shrink panel" : "Expand panel";
+  return (
+    <TooltipProvider delay={400}>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              variant="default"
+              size="icon-sm"
+              aria-label={label}
+              data-selected={active || undefined}
+              onClick={onToggle}
+              className="text-muted-foreground data-selected:bg-fill-selected data-selected:text-foreground"
+            >
+              <ArrowsHorizontalIcon size={16} />
+            </Button>
+          }
+        />
+        <TooltipContent side="bottom">{label}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
+/** What the panel's title reads like. */
+const PANEL_TITLE_CLASS = "min-w-0 flex-1 truncate font-medium text-[13px]";
+
+/** Stops short of the corner the switcher floats over. */
+function PanelHeader({
+  title,
+  children,
+}: {
+  title: ReactNode;
+  children?: ReactNode;
+}) {
+  return (
+    <div
+      className="flex h-[32px] shrink-0 items-center gap-0.5 border-border border-b pl-3"
+      style={{ paddingRight: SWITCHER_WIDTH_PX }}
+    >
+      {title}
+      {children}
+    </div>
+  );
+}
 
 /**
- * The side to draw, which outlasts the one that is open: a closing panel has to
- * keep its title and contents on screen to fade them out, then drop them. A
- * drag that is still held keeps them, since dragging back out brings the same
- * panel in and rebuilding it mid-drag would stutter.
+ * Memoized: the row's width is observed a level up, and without this every tick
+ * of that observer would re-render a mounted review page.
  */
-function useFadingSide(
+const PanelContent = memo(function PanelContent({
+  task,
+  side,
+}: {
+  task: Task | null;
+  side: RightPanelSide;
+}) {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      {task &&
+        (side === "changes" ? (
+          <ChangesPanelContent task={task} />
+        ) : (
+          <ActivityPanelBody task={task} tab={side} canOpenInPlace />
+        ))}
+    </div>
+  );
+});
+
+/**
+ * The side to draw, which outlasts the one that is open: a closing panel needs
+ * its contents on screen to slide them out. A held drag keeps them, since
+ * dragging back out brings the same panel in.
+ */
+function useDrawnSide(
   active: RightPanelSide | null,
   held: boolean,
 ): RightPanelSide | null {
@@ -267,31 +210,22 @@ function useFadingSide(
       return;
     }
     if (held) return;
-    const timer = setTimeout(() => setDrawn(null), PANEL_FADE_OUT_MS);
+    const timer = setTimeout(() => setDrawn(null), SLIDE_MS);
     return () => clearTimeout(timer);
   }, [active, held]);
 
   return drawn;
 }
 
-/**
- * Every side the panel shows belongs to a session, so the column keeps to a
- * session's own page and nothing below this runs anywhere else.
- */
+/** Every side belongs to a session, so nothing below this runs elsewhere. */
 export function RightPanel() {
-  const taskId = useParams({ strict: false }).taskId;
-  // Keyed by session: the panel holds per-session state (which side is drawn,
-  // which comment request it has taken), and carrying that across a navigation
-  // draws the previous session's panel over the new one for a frame.
+  const { taskId } = useActiveSession();
+  // Keyed by session: carrying per-session state across a navigation draws the
+  // previous session's panel over the new one for a frame.
   return taskId ? <SessionRightPanel key={taskId} taskId={taskId} /> : null;
 }
 
-/**
- * The right panel column: a push column beside the content, one panel at a
- * time, shared resizable width. Its switcher is pinned to the top right of the
- * column and outlives any one panel, so the panel opens and closes beneath a
- * row of buttons that never move.
- */
+/** One panel at a time, under a switcher that outlives any one of them. */
 function SessionRightPanel({ taskId }: { taskId: string }) {
   const task = useRightPanelTask(taskId);
   const active = useActiveSide(taskId);
@@ -300,81 +234,76 @@ function SessionRightPanel({ taskId }: { taskId: string }) {
     task,
     active,
   );
-  // Only once the agent has stopped: a tip that lands mid-turn points at a
-  // list that is still filling.
+  // A tip that lands mid-turn points at a list that is still filling.
   const isWorking = useSessionIsWorking(task);
   useCommentFocusRequest(taskId, () => openRightPanelSide("comments", taskId));
 
   const width = useRightPanelStore((s) => s.width);
   const setWidth = useRightPanelStore((s) => s.setWidth);
   const isResizing = useRightPanelStore((s) => s.isResizing);
-  const setIsResizing = useRightPanelStore((s) => s.setIsResizing);
+  const setExpandedForKey = useRightPanelStore((s) => s.setExpandedForKey);
+  const wantsExpanded = useRightPanelStore(
+    (s) => s.expandedByKey[taskId] ?? false,
+  );
 
+  const panelRef = useRef<HTMLDivElement>(null);
+  const rowWidth = useParentWidth(panelRef);
   const open = active != null;
-  const drawn = useFadingSide(active, isResizing);
+  // A closed panel has nothing to expand, so the row waits for it to open again.
+  const expanded = open && wantsExpanded;
+  const drawn = useDrawnSide(active, isResizing);
+
+  const geometry = resolvePanelGeometry({
+    storedWidth: width,
+    rowWidth,
+    open,
+    expanded,
+  });
+  const uncover = useCallback(() => {
+    setExpandedForKey(taskId, false);
+    setWidth(geometry.uncoveredWidth);
+  }, [geometry.uncoveredWidth, setExpandedForKey, setWidth, taskId]);
 
   useEffect(() => preloadReviewPages(), []);
 
-  // Dragging the handle past the panel's floor closes it, and dragging back out
-  // while still holding brings it in again. The drag holds the closing panel's
-  // contents, so `drawn` is the side to put back; the fallback only stands in
-  // for a reopen that starts from no panel at all.
-  const setOpen = useCallback(
-    (next: boolean) =>
-      openRightPanelSide(
-        next ? (drawn ?? DEFAULT_RIGHT_PANEL_SIDE) : null,
-        taskId,
-      ),
-    [drawn, taskId],
-  );
-
   return (
     <>
-      <ResizableSidebar
+      <RightPanelSurface
+        panelRef={panelRef}
         open={open}
+        expanded={expanded}
         width={width}
-        setWidth={setWidth}
+        geometry={geometry}
         isResizing={isResizing}
-        setIsResizing={setIsResizing}
-        side="right"
-        minWidth={RIGHT_PANEL_MIN_WIDTH}
-        setOpen={setOpen}
+        onUncover={uncover}
       >
-        <div
-          className="flex h-full min-h-0 flex-col bg-background transition-opacity ease-out motion-reduce:transition-none"
-          style={{
-            opacity: open ? 1 : 0,
-            transitionDuration: open
-              ? `${SLIDE_MS}ms`
-              : `${PANEL_FADE_OUT_MS}ms`,
-          }}
-        >
-          {drawn && (
-            <>
-              <div
-                className="flex h-[32px] shrink-0 items-center border-border border-b pl-3"
-                style={{ paddingRight: SWITCHER_WIDTH_PX }}
-              >
-                <span className="min-w-0 truncate font-medium text-[13px]">
-                  {SIDES[drawn].label}
-                </span>
-              </div>
-              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-                {task &&
-                  (drawn === "changes" ? (
-                    <ChangesPanelContent task={task} />
-                  ) : (
-                    <ActivityPanelBody task={task} tab={drawn} canOpenInPlace />
-                  ))}
-              </div>
-            </>
-          )}
-        </div>
-      </ResizableSidebar>
-      {/* Outside the sliding column, so the buttons hold their place while the
-          panel comes and goes under them. It has to outrank the panel's closed
-          layer, which sweeps across this corner at z-50 on the way out; the
-          row's own `isolate` keeps that rank from reaching the app's overlays. */}
+        {drawn && (
+          <>
+            <PanelHeader
+              title={
+                <span className={PANEL_TITLE_CLASS}>{SIDES[drawn].label}</span>
+              }
+            >
+              <ExpandButton
+                active={geometry.atFullWidth}
+                onToggle={() =>
+                  geometry.atFullWidth
+                    ? uncover()
+                    : setExpandedForKey(taskId, true)
+                }
+              />
+            </PanelHeader>
+            <PanelContent task={task} side={drawn} />
+            <PanelResizeHandle
+              taskId={taskId}
+              panelRef={panelRef}
+              rowWidth={rowWidth}
+            />
+          </>
+        )}
+      </RightPanelSurface>
+      {/* Outside the panel, so the buttons hold their place while it slides.
+          The row's `isolate` keeps this rank off the app's overlays. */}
       <div
         className="pointer-events-none absolute top-0 right-0 z-60 flex h-[32px] items-center justify-end pr-2"
         style={{ width: SWITCHER_WIDTH_PX }}

@@ -41,6 +41,12 @@ from products.customer_analytics.backend.facade.hogql import (
     account_tagged_items,
     accounts,
     custom_property_definitions,
+    feature_request_account_links,
+    feature_request_evidence,
+    feature_request_history,
+    feature_request_product_area_links,
+    feature_request_product_areas,
+    feature_requests,
 )
 from products.warehouse_sources.backend.facade.types import DIRECT_ENGINE_BY_SOURCE_TYPE
 
@@ -1733,6 +1739,30 @@ error_tracking_assignment_rules: PostgresTable = PostgresTable(
     },
 )
 
+error_tracking_severity_rules: PostgresTable = PostgresTable(
+    name="error_tracking_severity_rules",
+    postgres_table_name="posthog_errortrackingseverityrule",
+    access_scope="error_tracking",
+    description="Ordered rules that assign severity to newly created error tracking issues; one row per rule.",
+    fields={
+        "id": StringDatabaseField(name="id", description="Rule UUID."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "severity": StringDatabaseField(
+            name="severity", description="Severity assigned when the rule is the first match."
+        ),
+        "order_key": IntegerDatabaseField(name="order_key", description="Evaluation order; lower runs first."),
+        "filters": StringJSONDatabaseField(
+            name="filters", description="JSON conditions a new issue's event must match for the rule to apply."
+        ),
+        "bytecode": StringJSONDatabaseField(name="bytecode", description="Compiled Hog bytecode for the filters."),
+        "disabled_data": StringJSONDatabaseField(
+            name="disabled_data", nullable=True, description="JSON state when the rule is disabled; NULL when active."
+        ),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the rule was created."),
+        "updated_at": DateTimeDatabaseField(name="updated_at", description="When the rule was last updated."),
+    },
+)
+
 error_tracking_bypass_rules: PostgresTable = PostgresTable(
     name="error_tracking_bypass_rules",
     postgres_table_name="posthog_errortrackingbypassrule",
@@ -2849,6 +2879,9 @@ class SystemTables(TableNode):
         ),
         "error_tracking_issues": TableNode(name="error_tracking_issues", table=error_tracking_issues),
         "error_tracking_releases": TableNode(name="error_tracking_releases", table=error_tracking_releases),
+        "error_tracking_severity_rules": TableNode(
+            name="error_tracking_severity_rules", table=error_tracking_severity_rules
+        ),
         "error_tracking_symbol_sets": TableNode(name="error_tracking_symbol_sets", table=error_tracking_symbol_sets),
         "error_tracking_suppression_rules": TableNode(
             name="error_tracking_suppression_rules", table=error_tracking_suppression_rules
@@ -2859,6 +2892,18 @@ class SystemTables(TableNode):
         "experiments": TableNode(name="experiments", table=experiments),
         "exports": TableNode(name="exports", table=exports),
         "feature_flags": TableNode(name="feature_flags", table=feature_flags),
+        "feature_request_account_links": TableNode(
+            name="feature_request_account_links", table=feature_request_account_links
+        ),
+        "feature_request_evidence": TableNode(name="feature_request_evidence", table=feature_request_evidence),
+        "feature_request_history": TableNode(name="feature_request_history", table=feature_request_history),
+        "feature_request_product_area_links": TableNode(
+            name="feature_request_product_area_links", table=feature_request_product_area_links
+        ),
+        "feature_request_product_areas": TableNode(
+            name="feature_request_product_areas", table=feature_request_product_areas
+        ),
+        "feature_requests": TableNode(name="feature_requests", table=feature_requests),
         "file_system": TableNode(name="file_system", table=file_system),
         "groups": TableNode(name="groups", table=groups),
         "group_type_mappings": TableNode(name="group_type_mappings", table=group_type_mappings),

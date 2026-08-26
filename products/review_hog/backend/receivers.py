@@ -52,7 +52,7 @@ from products.signals.backend.report_generation.resolve_reviewers import resolve
 from products.stamphog.backend.facade.inbox_hooks import register_inbox_acting_reviewer_resolver
 
 # This module loads during django.setup() (AppConfig.ready() wires the receiver), and
-# posthog/test/test_startup_import_budget.py forbids temporalio/modal/openai/anthropic at setup —
+# posthog/test/repo_invariants/test_startup_import_budget.py forbids temporalio/modal/openai/anthropic at setup —
 # the temporal client and the stamphog task module reach all four, so those two imports stay
 # function-local in _start_review / _start_stamphog_review per the budget test's own prescription.
 

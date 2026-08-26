@@ -4,6 +4,8 @@ Tests for tool_formatter.py - available tools section formatting.
 Tests cover array and dictionary formats, multiple provider formats, and edge cases.
 """
 
+from parameterized import parameterized
+
 from ..tool_formatter import format_tools
 
 
@@ -319,3 +321,16 @@ class TestEdgeCases:
         # Should be collapsed with threshold=2 (3 > 2)
         assert "<<<TOOLS_EXPANDABLE|" in result
         assert "AVAILABLE TOOLS: 3" in result
+
+    @parameterized.expand(
+        [
+            ("list", ["query", "limit"]),
+            ("string", "query"),
+        ]
+    )
+    def test_unusable_properties_schema_still_renders_the_tool(self, _name, properties):
+        tools = [{"name": "search", "description": "Search things.", "input_schema": {"properties": properties}}]
+
+        result = "\n".join(format_tools(tools))
+
+        assert "search()" in result

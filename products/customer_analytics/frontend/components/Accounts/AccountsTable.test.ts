@@ -50,7 +50,7 @@ describe('getCanonicalPropertyTab', () => {
         ({ name, is_canonical: isCanonical }) as CustomPropertyDefinitionApi
 
     it('routes the last Slack message to the channel summaries', () => {
-        expect(getCanonicalPropertyTab(definition('Last Slack message at', true))).toBe('summaries')
+        expect(getCanonicalPropertyTab(definition('Last Slack message at', true))).toBe('conversations')
     })
 
     it('does not link an ordinary property a user happened to name the same', () => {

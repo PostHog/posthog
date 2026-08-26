@@ -26,6 +26,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
+from products.signals.backend.daily_limit import capture_signal_report_daily_limit_paused, daily_report_limit_gate
 from products.signals.backend.models import SignalReport
 from products.signals.backend.quota import (
     capture_signal_report_quota_paused,
@@ -48,7 +49,6 @@ from products.signals.backend.temporal.inbox_notification import (
     InboxNotificationInput,
     SignalReportInboxNotificationWorkflow,
 )
-from products.signals.backend.temporal.report_canvas import ReportCanvasWorkflowInput, SignalReportCanvasWorkflow
 from products.signals.backend.temporal.report_safety_judge import SafetyJudgeInput, report_safety_judge_activity
 from products.signals.backend.temporal.signal_queries import (
     FetchSignalsForReportInput,
@@ -115,7 +115,7 @@ def _capture_report_event(
         )
 
 
-@dataclass
+@frozen
 class ReportDecision:
     title: str
     summary: str
@@ -125,6 +125,12 @@ class ReportDecision:
     # a JSON set, `[]` to clear, or `None` to leave the column alone. `None` for the no-repo branch,
     # which does no research.
     charts: list[dict[str, Any]] | None = None
+    # Suggested prompts to store with the title/summary. Always `[]`, because every decision carries
+    # a freshly written title and summary, and the pipeline does not author questions yet: whatever a
+    # scout suggested was written against the prose this decision replaces, so leaving it would put
+    # questions about the old report under the new one. Not a constant so the pipeline can author its
+    # own set later without moving the write.
+    suggested_prompts: list[str] = field(default_factory=list)
     # Which of the two doors into PENDING_INPUT produced this decision, so telemetry can tell a
     # broken repo-selection integration apart from the agent legitimately asking for human input.
     # Irrelevant (left `None`) unless `choice == ActionabilityChoice.REQUIRES_HUMAN_INPUT`.
@@ -230,14 +236,31 @@ class SignalReportSummaryWorkflow:
                 return fetch_result
         return fetch_result
 
-    async def _start_report_canvas(self, inputs: SignalReportSummaryWorkflowInputs) -> None:
+    async def _replay_removed_report_canvas(self, inputs: SignalReportSummaryWorkflowInputs) -> None:
+        # Executions that were in flight when the report-canvas pipeline was removed have those
+        # commands in their history and have to reissue them to replay. `patched()` is False only
+        # while replaying a history without the marker, so a live run never gets past the guard and
+        # no canvas is ever generated. Activity and workflow are named by string because the code
+        # behind them is gone; replay only matches the names. Delete once no execution predating the
+        # removal is still open.
+        if workflow.patched("signals-report-canvases-removed"):
+            return
         if not workflow.patched("signals-report-canvases"):
             return
         try:
+            if workflow.patched("signals-report-canvases-parent-gate"):
+                enabled = await workflow.execute_activity(
+                    "report_canvases_enabled_activity",
+                    inputs.team_id,
+                    start_to_close_timeout=timedelta(minutes=1),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+                if not enabled:
+                    return
             await workflow.start_child_workflow(
-                SignalReportCanvasWorkflow.run,
-                ReportCanvasWorkflowInput(team_id=inputs.team_id, report_id=inputs.report_id),
-                id=SignalReportCanvasWorkflow.workflow_id_for(inputs.team_id, inputs.report_id),
+                "signal-report-canvas",
+                {"team_id": inputs.team_id, "report_id": inputs.report_id},
+                id=f"signals-report-canvas:{inputs.team_id}:{inputs.report_id}",
                 task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
                 parent_close_policy=ParentClosePolicy.ABANDON,
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
@@ -246,7 +269,7 @@ class SignalReportSummaryWorkflow:
         except temporalio.exceptions.WorkflowAlreadyStartedError:
             pass
         except Exception:
-            workflow.logger.exception(f"Failed to start report canvas generation for {inputs.report_id}")
+            workflow.logger.exception(f"Failed to replay report canvas commands for {inputs.report_id}")
 
     async def _run_once(self, inputs: SignalReportSummaryWorkflowInputs, log: FilteringBoundLogger) -> bool:
         """Run a single report generation cycle. Returns True if new signals arrived and another cycle is needed."""
@@ -436,12 +459,13 @@ class SignalReportSummaryWorkflow:
                         signal_count=signal_count,
                         source_products=source_products,
                         charts=decision.charts,
+                        suggested_prompts=decision.suggested_prompts,
                         pending_reason=decision.pending_reason,
                     ),
                     start_to_close_timeout=timedelta(minutes=1),
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )
-                await self._start_report_canvas(inputs)
+                await self._replay_removed_report_canvas(inputs)
                 # No loop, human input is required
                 return False
             # 6. Mark ready and check if new signals arrived during the run
@@ -455,6 +479,7 @@ class SignalReportSummaryWorkflow:
                     processed_signal_count=signal_count,
                     source_products=source_products,
                     charts=decision.charts,
+                    suggested_prompts=decision.suggested_prompts,
                 ),
                 start_to_close_timeout=timedelta(minutes=1),
                 retry_policy=RetryPolicy(maximum_attempts=3),
@@ -463,7 +488,7 @@ class SignalReportSummaryWorkflow:
             if has_new_signals:
                 log.info("Report has new signals since run started, looping")
             else:  # Only emit the notification if we're not going to immediately re-run
-                await self._start_report_canvas(inputs)
+                await self._replay_removed_report_canvas(inputs)
                 # Publish is best-effort: a Kafka/notification failure shouldn't flip a
                 # successfully-generated READY report to FAILED.
                 try:
@@ -543,9 +568,12 @@ class CheckReportQuotaGateInput:
 @close_db_connections
 async def check_report_quota_gate_activity(input: CheckReportQuotaGateInput) -> bool:
     """Whether the summary workflow must pause at `stage`: the team's org is over its self-driving
-    credits quota and enforcement is on. Emits `signal_report_quota_paused` whenever the team is limited,
-    enforced or not, so the dark-launch would-block volume is measurable. Never raises: any
-    failure resolves to False (run proceeds), matching the quota module's fail-open policy.
+    credits quota with enforcement on, or the team hit its daily report limit. Emits
+    `signal_report_quota_paused` whenever the team is quota-limited, enforced or not, so the
+    dark-launch would-block volume is measurable, and `signal_report_daily_limit_paused` when the
+    daily limit binds; both fire when both limits are hit, keeping each event stream complete for
+    its own gate. Never raises: any failure resolves to False (run proceeds), matching both
+    modules' fail-open policy.
     """
     try:
         team = await Team.objects.select_related("organization").aget(pk=input.team_id)
@@ -554,7 +582,12 @@ async def check_report_quota_gate_activity(input: CheckReportQuotaGateInput) -> 
             capture_signal_report_quota_paused(
                 team, report_id=input.report_id, stage=input.stage, enforced=gate.enforced
             )
-        return gate.enforced
+        daily_gate = await database_sync_to_async(daily_report_limit_gate, thread_sensitive=False)(team)
+        if daily_gate.limited:
+            capture_signal_report_daily_limit_paused(
+                team, report_id=input.report_id, stage=input.stage, gate=daily_gate
+            )
+        return gate.enforced or daily_gate.limited
     except Exception:
         record_quota_check_failed_open()
         logger.exception(
@@ -674,7 +707,7 @@ async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> 
     )
 
 
-@dataclass
+@frozen
 class MarkReportReadyInput:
     team_id: int
     report_id: str
@@ -686,6 +719,10 @@ class MarkReportReadyInput:
     # `[]` to clear, or `None` to leave the column untouched. Defaults to `None` so an older workflow
     # history that predates this field replays cleanly.
     charts: list[dict[str, Any]] | None = None
+    # Suggested prompts to write alongside title/summary, same three states and same replay-safe
+    # default. The research pipeline passes `[]`: it doesn't author questions yet, and the ones a
+    # scout wrote were written against the summary this transition is replacing.
+    suggested_prompts: list[str] | None = None
 
 
 @temporalio.activity.defn
@@ -707,6 +744,9 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
             if input.charts is not None:
                 report.charts = input.charts
                 updated_fields = [*updated_fields, "charts"]
+            if input.suggested_prompts is not None:
+                report.suggested_prompts = input.suggested_prompts
+                updated_fields = [*updated_fields, "suggested_prompts"]
             report.save(update_fields=updated_fields)
             # Loop to re-research only if new signals arrived and we're within the cap; past
             # RERESEARCH_MAX_SIGNALS the report stays READY instead of re-running over a large set.
@@ -814,7 +854,7 @@ async def mark_report_failed_activity(input: MarkReportFailedInput) -> None:
     )
 
 
-@dataclass
+@frozen
 class MarkReportPendingInput:
     team_id: int
     report_id: str
@@ -825,6 +865,8 @@ class MarkReportPendingInput:
     source_products: list[str] = field(default_factory=list)
     # See MarkReportReadyInput.charts — written in the same transaction as the draft title/summary.
     charts: list[dict[str, Any]] | None = None
+    # See MarkReportReadyInput.suggested_prompts — same transaction, same three states.
+    suggested_prompts: list[str] | None = None
     # Coarse cause of the transition ("repo_selection_required" / "agent_requested"), see
     # ReportDecision.pending_reason.
     pending_reason: str | None = None
@@ -848,6 +890,9 @@ async def mark_report_pending_input_activity(input: MarkReportPendingInput) -> N
             if input.charts is not None:
                 report.charts = input.charts
                 updated_fields = [*updated_fields, "charts"]
+            if input.suggested_prompts is not None:
+                report.suggested_prompts = input.suggested_prompts
+                updated_fields = [*updated_fields, "suggested_prompts"]
             # Read by capture_status_change_analytics's post_save receiver (same instance, same
             # transaction) — not a model field, so it never persists past this save.
             report._pending_reason = input.pending_reason  # type: ignore[attr-defined]

@@ -25,8 +25,8 @@ from pydantic import BaseModel, Field
 from posthog.llm.semantic_enrichment import get_team_business_context
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.rbac.user_access_control import UserAccessControl
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.scanner_config import scanner_config_error
 from products.replay_vision.backend.tag_suggestions import _product_taxonomy
@@ -352,7 +352,11 @@ def _generate(*, user_content: str, team_id: int, distinct_id: str) -> _LlmDraft
             config=config,
             posthog_distinct_id=distinct_id,
             posthog_trace_id=str(uuid.uuid4()),
-            posthog_properties={"ai_product": "replay_vision", "feature": "draft_scanner_from_goal"},
+            posthog_properties={
+                "ai_product": "replay_vision",
+                "feature": "draft_scanner_from_goal",
+                "team_id": team_id,
+            },
             posthog_groups={"project": str(team_id)},
         )
 

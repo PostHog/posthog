@@ -35,7 +35,7 @@ from products.experiments.backend.hogql_queries.error_handling import (
 )
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
-from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
+from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method, sanitize_non_finite
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
@@ -649,7 +649,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 client_query_id=client_query_id,
             )
             result = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
-            result_dict = result.model_dump(mode="json")
+            result_dict = sanitize_non_finite(result.model_dump(mode="json"))
 
             _store_result(
                 experiment_id=experiment_id,

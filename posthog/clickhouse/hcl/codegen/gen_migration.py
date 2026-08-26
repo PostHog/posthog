@@ -53,7 +53,30 @@ HCLEXP = os.path.join(HCL_DIR, "bin", "hclexp")
 # Canonical role order for emitted node_roles (mirrors ALL_ROLES in migration 0273).
 # Only roles present in the manifest appear; the rest are listed for stable ordering
 # if/when they are uncommented there.
-ROLE_ORDER = ["data", "endpoints", "aux", "ai_events", "sessions", "logs", "ops"]
+ROLE_ORDER = ["data", "endpoints", "aux", "ai_events", "sessions", "logs", "ops", "events", "small", "medium"]
+
+# Manifest roles are named after the hostClusterRole macro, which is the NodeRole *value*.
+# For most roles the member name is that value uppercased; the ingestion members are not.
+NODE_ROLE_MEMBERS = {
+    "events": "INGESTION_EVENTS",
+    "small": "INGESTION_SMALL",
+    "medium": "INGESTION_MEDIUM",
+}
+
+# Manifest roles that are modeled for drift detection but are NOT migration targets:
+# they have no NodeRole member, so run_sql_with_exceptions cannot address them. A
+# statement that also lands on one of these nodes is emitted without it (as it always
+# was) and annotated, rather than silently losing the role.
+NON_TARGET_ROLES = {
+    "batch_exports": "dump-baselined; no NodeRole member",
+    "all": "the local-single dev node; mirrors what migrations produce",
+}
+
+# Envs that mirror what the migrations produce rather than declaring intent, so they
+# must not drive codegen. `local-single` is the one-node dev stack: it hosts every
+# role's objects under the synthetic role `all`, so planning against it would emit each
+# statement a second time, targeted at a role that is not a deploy target.
+CODEGEN_SKIP_ENVS = {"local-single"}
 
 
 def run(cmd: list[str]) -> str:
@@ -83,12 +106,19 @@ def manifest_roles(env: str) -> list[str]:
 
 
 def golden_name(role: str) -> str:
-    """Windows-safe on-disk basename for a role's golden/sql files (mirrors lib.sh).
+    """On-disk basename for a role's golden/sql files (mirrors lib.sh).
 
     `aux` is a reserved DOS device name that can't be a path component on Windows, so
-    its files are stored as `auxiliary`. The role identity itself is unchanged.
+    its files are stored as `auxiliary`. The ingestion roles are named after their
+    hostClusterRole macro, which is too terse to read as a filename. The role identity
+    itself is unchanged in both cases.
     """
-    return {"aux": "auxiliary"}.get(role, role)
+    return {
+        "aux": "auxiliary",
+        "events": "ingestion_events",
+        "small": "ingestion_small",
+        "medium": "ingestion_medium",
+    }.get(role, role)
 
 
 def golden_at_ref(ref: str, env: str, role: str) -> str:
@@ -142,6 +172,8 @@ def main() -> None:
     envs_for_role: dict[str, set[str]] = {}
     env_roles: OrderedDict[str, list[str]] = OrderedDict()  # env -> roles, in manifest order
     for env in manifest_envs():
+        if env in CODEGEN_SKIP_ENVS:
+            continue
         env_roles[env] = manifest_roles(env)
         for role in env_roles[env]:
             envs_for_role.setdefault(role, set()).add(env)
@@ -188,18 +220,26 @@ def main() -> None:
         raise SystemExit("No DDL generated — the HCL has no changes vs the goldens.")
 
     notes = [f"# UNSAFE (review/recreate by hand): {obj} — {reason}" for obj, reason in sorted(unsafe_notes.items())]
+    untargetable_notes: dict[str, str] = {}  # object -> roles the migration cannot address
     operations = []
     for sql in sorted(merged, key=lambda s: order_key[s]):
         entry = merged[sql]
         op, roles, envs = entry["op"], entry["roles"], entry["envs"]
+        if unknown := sorted(set(roles) - set(ROLE_ORDER) - set(NON_TARGET_ROLES)):
+            raise SystemExit(
+                f"role(s) {unknown} surfaced by plan but absent from ROLE_ORDER — "
+                "add them there (they are migration targets) or to NON_TARGET_ROLES"
+            )
         node_roles = [r for r in ROLE_ORDER if r in roles]
+        if untargetable := sorted(set(roles) & set(NON_TARGET_ROLES)):
+            untargetable_notes.setdefault(op["object"], ", ".join(f"{r} ({NON_TARGET_ROLES[r]})" for r in untargetable))
         replicated = op["replicated"]
         is_alter_repl = op["kind"] == "ALTER" and replicated
         sharded = replicated and "data" in roles
         # Env-specific if the statement is absent from some env that hosts these roles.
-        full_envs = set().union(*(envs_for_role[r] for r in roles))
+        full_envs = set().union(*(envs_for_role.get(r, set()) for r in roles))
         gate = "" if envs >= full_envs else f"  # NOTE: only {sorted(envs)} — gate with settings.CLOUD_DEPLOYMENT"
-        roles_src = "[" + ", ".join(f"NodeRole.{r.upper()}" for r in node_roles) + "]"
+        roles_src = "[" + ", ".join(f"NodeRole.{NODE_ROLE_MEMBERS.get(r, r.upper())}" for r in node_roles) + "]"
         operations.append(
             "    run_sql_with_exceptions(\n"
             f"        {sql!r},\n"
@@ -217,6 +257,10 @@ def main() -> None:
         "from posthog.clickhouse.client.connection import NodeRole\n"
         "from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions\n\n"
     )
+    notes += [
+        f"# NOTE: {obj} also lives on non-targetable node(s): {who} — this migration cannot create it there"
+        for obj, who in sorted(untargetable_notes.items())
+    ]
     if notes:
         body += "\n".join(notes) + "\n\n"
     body += "operations = [\n" + "\n".join(operations) + "\n]\n"

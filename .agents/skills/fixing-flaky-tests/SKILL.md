@@ -25,10 +25,11 @@ Before any of these: **measure, don't assume.** Flaky-vs-deterministic, and the 
 
 For triaging a red CI run (finding and classifying the failure), use the `debugging-ci-failures` skill first — this skill takes over once the failure is classified as a flaky test.
 For writing new Playwright tests that aren't flaky, use the `playwright-test` skill.
+`investigating-ci-failures` (green/red boundary) and `diagnosing-ci-and-merge-bottlenecks` (the `engineering-analytics-flaky-tests` tool's caveats) are product skills under `products/engineering_analytics/skills/`, not invocable here: read their `SKILL.md` at that path.
 
 ## 1. Measure the failure rate — from GitHub, not from a digest
 
-The GitHub Actions API (or GitHub MCP) is the source of truth. `hogli ci:insights` is a digest, not an oracle — it can mislabel flaky-vs-deterministic, misstate the rate, and lag the API. Use it to _validate_ a hypothesis or pull historical context, never as the first move or the classification authority.
+The GitHub Actions API (or GitHub MCP) is the source of truth. `hogli ci:insights` is a digest, not an oracle — it can mislabel flaky-vs-deterministic, it lags the API until GitHub's webhook settles, and it cannot give you a rate at all: it reports absolute counts, because CI emits failures but omits ordinary passing runs, so there is no denominator. Use it to _validate_ a hypothesis or pull historical context, never as the first move or the classification authority.
 
 Establish the timeline yourself from raw run data:
 
@@ -49,7 +50,7 @@ Read the timeline before you classify:
 
 - **Interleaved pass/fail on adjacent commits** — the same unchanged test verified passing in some runs, failing in others → genuinely **flaky**; continue here.
 - **A long unbroken failure streak** (say 30+ consecutive) is statistically incompatible with a flake — at any per-run rate below ~95%, `p^30 ≈ 0`. That is a **deterministic regression**: go to `debugging-ci-failures` and find the introducing commit (step 4).
-- **Both at once** is common: a latent flake whose rate jumped to ~100%. Find the transition (last green → first red); that boundary, not the digest's one-line guess, is what tells you what tipped it.
+- **Both at once** is common: a latent flake whose rate jumped to ~100%. Find the transition (last green → first red); that boundary, not the digest's one-line verdict, is what tells you what tipped it. `products/engineering_analytics/skills/investigating-ci-failures/` has the boundary query if the failure reached master.
 
 If a failure is reported as (or you suspect it is) **consistent**, don't serialize — measure the rate and attempt a repro **in parallel**.
 
@@ -59,10 +60,13 @@ Then confirm it is not already handled:
 
 ```bash
 git log --oneline -10 -- <test_file_path>          # recently fixed already?
-hogli ci:insights search "<test name or error>"    # historical context / existing fix — corroborate against the run data, do not trust blindly
+hogli ci:insights search "<test name or error>"    # cross-run history — corroborate against the run data, do not trust blindly
 ```
 
-An insight with a **merged fix** means the flake may already be resolved — read the fix, confirm _against the run data_ that it covers this failure, and report instead of re-fixing.
+`search` reports two surfaces; read each for what it actually claims:
+
+- **broken tests** (recent failure fingerprints, last 2 days). A `potentially_resolved` state means that job's latest default-branch run is green again — weak evidence a fix landed, not proof. Confirm _against the run data_ that it covers this failure before reporting instead of re-fixing.
+- **test health** (ranked by blast radius; the same spans the `engineering-analytics-flaky-tests` MCP tool reads). `confirmed_flake` is the only classification backed by proof: one commit both failed and passed the test in the same matrix job, via a re-run attempt going green or an in-job retry. A pass in a different matrix leg is not recovery. `suspected_regression` means no recovery was recorded — absence of proof, not proof of a regression, so treat it as real until your own run data says otherwise.
 
 ### Corroborate with Trunk Flaky Tests
 
@@ -272,7 +276,7 @@ Run the surrounding file/suite once to confirm nothing depended on it, and carry
 
 ```text
 Test:            <file path>::<test name>
-Observed in CI:  <measured rate from run data, e.g. 8/45 runs over 3h (gh run list); ci:insights corroborates>
+Observed in CI:  <measured rate from run data, e.g. 8/45 runs over 3h (gh run list); ci:insights state corroborates>
 Local repro:     <command + conditions, e.g. 3/20 failures with neighbor X, maxWorkers=2 | not reproducible locally>
 Root cause:      <one or two sentences>
 Outcome:         fixed | re-leveled (<from> → <to>) | deleted

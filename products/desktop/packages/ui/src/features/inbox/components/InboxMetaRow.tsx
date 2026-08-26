@@ -3,7 +3,7 @@ import { Flex } from "@radix-ui/themes";
 import type { ReactNode } from "react";
 
 const META_ROW_CLASS =
-  "cursor-default select-none text-[12px] text-gray-10 leading-none";
+  "cursor-default select-none text-[13px] text-gray-10 leading-none";
 
 interface InboxMetaRowProps {
   children: ReactNode;
@@ -26,7 +26,7 @@ export function InboxMetaRow({ children, className }: InboxMetaRowProps) {
 export function InboxMetaSeparator() {
   return (
     <span
-      className="shrink-0 select-none px-0.5 text-(--gray-9) text-[13px] leading-none"
+      className="shrink-0 select-none px-0.5 text-(--gray-9) text-[14px] leading-none"
       aria-hidden
     >
       ·
@@ -35,7 +35,8 @@ export function InboxMetaSeparator() {
 }
 
 interface InboxMetaTextProps {
-  children: ReactNode;
+  /** Optional so the element can be a Base UI `render` target, which injects them. */
+  children?: ReactNode;
   className?: string;
   mono?: boolean;
 }

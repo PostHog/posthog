@@ -136,7 +136,6 @@ export PERSONS_DB_WRITER_URL=${PERSONS_DB_WRITER_URL:-$PERSONS_DATABASE_URL}
 export PERSONS_DB_READER_URL=${PERSONS_DB_READER_URL:-$PERSONS_READONLY_DATABASE_URL}
 export BEHAVIORAL_COHORTS_DATABASE_URL=${BEHAVIORAL_COHORTS_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/behavioral_cohorts}
 export FLAGS_READ_STORE_DATABASE_URL=${FLAGS_READ_STORE_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/flags_read_store}
-export CYCLOTRON_DATABASE_URL=${CYCLOTRON_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/cyclotron}
 export CYCLOTRON_NODE_DATABASE_URL=${CYCLOTRON_NODE_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/cyclotron_node}
 
 # Clean up orphaned dev processes left behind by a previous unclean shutdown.

@@ -104,6 +104,7 @@ class CustomPromptSandboxContext:
     agent server's default when ``None``. Used by evals to pin a specific
     model so cross-run comparisons are stable."""
     runtime_adapter: str | None = None
+    runtime: str = "acp"
     """The agent runtime that serves ``model`` (``"claude"`` → Anthropic, ``"codex"`` → OpenAI).
     Set it alongside a non-default ``model``: the agent server derives the provider from the runtime,
     so a model handed over with no runtime can't be routed and falls back to the server default.
@@ -237,6 +238,8 @@ async def create_task_and_trigger(
         sandbox_environment_id=context.sandbox_environment_id,
         model=context.model,
         runtime_adapter=context.runtime_adapter,
+        runtime=context.runtime,
+        pending_user_message=description if context.runtime == "pi" else None,
         reasoning_effort=context.reasoning_effort,
         initial_permission_mode=context.initial_permission_mode,
         internal=internal,

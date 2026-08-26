@@ -1,10 +1,9 @@
-import type { AccountCustomPropertyFilter } from '~/types'
-
 import { ColumnConfigurationApi } from 'products/product_analytics/frontend/generated/api.schemas'
 
 import { ACCOUNTS_DEFAULT_COLUMNS, AccountColumnDisplayState } from './accountsColumnConfigLogic'
 import type { AccountSortOrder, RoleFilterValue } from './accountsLogic'
 import type { AccountsOverviewTile, TileFilter } from './accountsOverviewTilesLogic'
+import type { AccountFilter } from './accountsPropertyFilters'
 import { DEFAULT_TILES } from './constants'
 
 export interface AccountsViewFilters {
@@ -13,7 +12,7 @@ export interface AccountsViewFilters {
     unassigned: boolean
     assignedTo: RoleFilterValue
     tileFilter: TileFilter | null
-    customProperties: AccountCustomPropertyFilter[]
+    customProperties: AccountFilter[]
 }
 
 export interface AccountsViewProperties {

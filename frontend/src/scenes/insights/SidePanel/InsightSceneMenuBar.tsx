@@ -275,6 +275,7 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
                                     startExport({
                                         export_format: ExporterFormat.PNG,
                                         insight: insight.id,
+                                        insightShortId: insight.short_id,
                                         export_context: exportContext,
                                     })
                                 }

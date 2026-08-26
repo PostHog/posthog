@@ -168,7 +168,7 @@ class TestRetentionDataWarehouse24hWindow(ClickhouseTestMixin, APIBaseTest):
             _create_event(team=self.team, event=event, distinct_id=distinct_id, timestamp=timestamp)
         flush_persons_and_events()
 
-    def _create_renewals_table(self, table_name: str, rows: list[list[object]]) -> str:
+    def _create_renewals_table(self, table_name: str, rows: list[list[object]], actor_column_type: str = "UUID") -> str:
         # Single-purpose table (every row is a renewal), so the retention entity needs no property filter — exercises
         # the no-property data warehouse return predicate (constant True) where >= t_0 is the only join discriminator.
         return self._create_data_warehouse_table(
@@ -176,7 +176,7 @@ class TestRetentionDataWarehouse24hWindow(ClickhouseTestMixin, APIBaseTest):
             table_name=table_name,
             header=["id", "person_id", "occurred_at"],
             rows=rows,
-            table_columns={"id": "Int64", "person_id": "UUID", "occurred_at": "DateTime64(3, 'UTC')"},
+            table_columns={"id": "Int64", "person_id": actor_column_type, "occurred_at": "DateTime64(3, 'UTC')"},
         )
 
     @staticmethod
@@ -224,14 +224,18 @@ class TestRetentionDataWarehouse24hWindow(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(day_0["values"][1]["count"], 1)  # interval 1: user-1
         self.assertEqual(day_0["values"][2]["count"], 0)
 
-    def test_dwh_start_events_return_24h_window(self):
+    # This shape joins the two scans on actor_id, which needs one common key type: a warehouse actor
+    # column typed anything but UUID has no supertype with events.person_id.
+    @parameterized.expand([("UUID",), ("String",)])
+    def test_dwh_start_events_return_24h_window(self, actor_column_type: str):
         person_ids = self._create_people()
         signups_table = self._create_renewals_table(
-            "warehouse_signups_b",
+            f"warehouse_signups_b_{actor_column_type.lower()}",
             rows=[
                 [1, person_ids["user-1"], "2025-01-01 09:00:00"],
                 [2, person_ids["user-2"], "2025-01-02 09:00:00"],
             ],
+            actor_column_type=actor_column_type,
         )
         self._create_events(
             [

@@ -32,6 +32,7 @@ from oauth2_provider.views import (
     UserInfoView,
 )
 from oauth2_provider.views.mixins import OAuthLibMixin
+from oauthlib.common import Request as OauthlibRequest
 from oauthlib.oauth2 import InvalidGrantError
 from redis.exceptions import RedisError
 from rest_framework import serializers, status
@@ -57,7 +58,7 @@ from posthog.api.oauth.client_assertion import (
     resolve_client_assertion,
     verify_client_assertion,
 )
-from posthog.api.oauth.client_auth import client_credentials_from_basic_auth, verify_client_secret
+from posthog.api.oauth.client_auth import verify_client_secret
 from posthog.api.oauth.mcp_resource_scopes import build_oauth_mcp_consent_context
 from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated_session
 from posthog.middleware import is_read_only_impersonation
@@ -69,6 +70,7 @@ from posthog.models.oauth import (
     TokenEndpointAuthMethod,
     lock_oauth_connection,
     revoke_oauth_session,
+    revoke_oauth_token_family,
 )
 from posthog.scopes import (
     ALWAYS_ALLOWED_SCOPES,
@@ -693,6 +695,13 @@ class OAuthValidator(OAuth2Validator):
         - a token that never held any scope refreshes as an empty grant instead.
           Rejecting that one would loop, since re-authorizing returns the same empty
           grant; its 403s by scope are where the client should find out.
+        - except for first-party apps, where an empty grant is rejected
+          (`invalid_grant`). `/authorize` auto-grants first-party requests their full
+          clamped scope set with no consent screen, so re-authorization cannot return
+          another empty grant and the loop above does not apply. A scope-less token
+          only arises for them as a corruption artifact (e.g. a refresh racing the
+          reuse-protection mass revoke), and letting it refresh forever leaves the
+          client silently 403ing on every resource call instead of re-authorizing.
 
         An empty `ceiling_scopes` (no ceiling) is a no-op. Refresh never enforces the
         required floor — a token consented below a later-declared required set keeps
@@ -710,6 +719,16 @@ class OAuthValidator(OAuth2Validator):
             application = rt.application if rt else None
 
         narrowed = narrow_scopes_to_ceiling(original_list, getattr(application, "ceiling_scopes", None) or [])
+        if narrowed == [] and getattr(application, "is_first_party", False):
+            logger.warning(
+                "oauth_empty_scope_refresh_rejected",
+                client_name=getattr(application, "name", "unknown"),
+                app_id=str(getattr(application, "pk", "unknown")),
+            )
+            raise InvalidGrantError(
+                description="Token carries no scopes; re-authorize to obtain a scoped token.",
+                request=request,
+            )
         if narrowed is None:
             # Raised inside oauthlib's validate_token_request, which create_token_response
             # wraps and turns into an RFC 6749 `invalid_grant` 400 — not a 500.
@@ -848,6 +867,53 @@ class OAuthValidator(OAuth2Validator):
             client_id_prefix=str(getattr(request.client, "client_id", "")[:8]),
             refresh_token_id=str(refresh_token_instance.pk),
         )
+
+    def validate_refresh_token(self, refresh_token, client, request, *args, **kwargs):
+        """Fork of django-oauth-toolkit 3.2.x ``OAuth2Validator.validate_refresh_token``
+        with the reuse-protection family sweep made set-based.
+
+        Upstream revokes the compromised family one row at a time (``related_rt.revoke()``
+        per member). Each row costs a ``SELECT ... FOR UPDATE`` plus access-token cleanup,
+        even when already revoked, and a rotating session grows its family by one row per
+        refresh, so a long-lived client that keeps re-presenting a stale token turns every
+        ``/oauth/token`` request into hundreds of serial row-locking queries.
+
+        Everything here is upstream line for line except the two blocks marked
+        "PostHog:" below. ``test_oauth_validator_fork.py`` pins the upstream sources this
+        fork was taken from, so a django-oauth-toolkit upgrade that touches any of them
+        fails CI until this method is re-reviewed against the new upstream. Known hazards
+        when moving to 3.4+: refresh tokens are looked up by SHA-256 ``token_checksum``
+        there (the ``token`` column loses its unique index and is blank under
+        hashed-at-rest storage, so the ``token=`` filter below would lose its index or
+        match nothing), and ``request.refresh_token`` must become the raw presented token
+        rather than ``rt.token``.
+        """
+        # Upstream verbatim from here to the sweep, with RefreshToken resolved to our
+        # swapped OAuthRefreshToken model.
+        rt = OAuthRefreshToken.objects.filter(token=refresh_token).select_related("access_token").first()
+
+        if not rt:
+            return False
+
+        if rt.revoked is not None and rt.revoked <= timezone.now() - timedelta(
+            seconds=oauth2_settings.REFRESH_TOKEN_GRACE_PERIOD_SECONDS
+        ):
+            if oauth2_settings.REFRESH_TOKEN_REUSE_PROTECTION and rt.token_family:
+                # PostHog: upstream loops `related_rt.revoke()` over the whole family
+                # here. This batched sweep is the reason the method is forked.
+                revoke_oauth_token_family(rt)
+            return False
+
+        # Upstream verbatim: attach the validated token for get_original_scopes and
+        # save_bearer_token, which read request.refresh_token_instance.
+        request.user = rt.user
+        request.refresh_token = rt.token
+        request.refresh_token_instance = rt
+
+        # PostHog: upstream returns `rt.application == client`. Django model equality is
+        # pk-based and False against None, so this is equivalent while avoiding a lazy
+        # load of the Application row.
+        return client is not None and rt.application_id == client.pk
 
     def revoke_token(self, token, token_type_hint, request, *args, **kwargs):
         """
@@ -1996,23 +2062,39 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
             return True, request
         return super().verify_request(request)
 
+    def authenticate_client(self, request):
+        """Authenticate the client and record which application was verified.
+
+        The base mixin returns only a bool and discards the oauthlib request that holds the
+        verified ``client``, so the ownership check would otherwise have to re-derive the
+        caller's identity from request fields. Those fields lie: an ``Authorization: Basic``
+        header or a ``client_id`` body param can name any client without proving anything,
+        while authentication may have succeeded through an entirely different credential. The
+        only trustworthy identity is the one the validator bound to the request during
+        verification, so capture it here for get_token_response to read back.
+        """
+        core = self.get_oauthlib_core()
+        uri, http_method, body, headers = core._extract_params(request)
+        oauth_request = OauthlibRequest(uri, http_method, body, headers)
+        if not core.server.request_validator.authenticate_client(oauth_request):
+            return False
+        request.oauth_authenticated_client = oauth_request.client
+        return True
+
     def _client_credentials_client_id(self, request) -> str | None:
-        """The client_id that authenticated this request via client credentials, or None.
+        """The effective_client_id the server verified via client credentials, or None.
 
         None means the request reached us through the bearer-token path instead (self-
-        introspection or the `introspection` scope): ClientProtectedResourceMixin.dispatch
-        only sets `resource_owner` on that path, since a successful `authenticate_client`
-        (the client-credentials path) skips it entirely. The client_id is read back rather
-        than re-verified, because dispatch already proved this request holds a valid secret
-        for it.
+        introspection or the `introspection` scope), where ClientProtectedResourceMixin.dispatch
+        sets `resource_owner` rather than authenticating a client. On the client-credentials
+        path the identity comes only from the application the validator actually verified (see
+        authenticate_client), never from unverified request headers or body params.
         """
         if hasattr(request, "resource_owner"):
             return None
 
-        credentials = client_credentials_from_basic_auth(request)
-        if credentials is not None:
-            return credentials.client_id
-        return request.POST.get("client_id") or None
+        client = getattr(request, "oauth_authenticated_client", None)
+        return client.effective_client_id if client is not None else None
 
     def get_token_response(self, request, token_value=None):
         """
@@ -2031,6 +2113,14 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
 
         credential_client_id = self._client_credentials_client_id(request)
 
+        # The bearer path (self-introspection or the `introspection` scope) is governed by
+        # scope, not by client identity, and never reaches here. On the client-credentials
+        # path, treating an unidentifiable caller as exempt from the ownership check below
+        # would be indistinguishable from disclosing any token to anyone.
+        is_client_credentials = not hasattr(request, "resource_owner")
+        if is_client_credentials and credential_client_id is None:
+            return JsonResponse({"active": False}, status=200)
+
         # Try access token first (indexed lookup via token_checksum)
         token_checksum = hashlib.sha256(token_value.encode("utf-8")).hexdigest()
         try:
@@ -2041,8 +2131,13 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
         if access_token:
             # A client-credentials caller may only introspect its own tokens. Being
             # confidential is not a meaningful barrier on its own, since /oauth/register/
-            # issues a confidential client_id and secret to anyone who asks.
-            if credential_client_id and getattr(access_token.application, "client_id", None) != credential_client_id:
+            # issues a confidential client_id and secret to anyone who asks. Compared against
+            # effective_client_id, not client_id, since a CIMD client's wire identity is its
+            # metadata URL, never the opaque client_id column.
+            if (
+                credential_client_id
+                and getattr(access_token.application, "effective_client_id", None) != credential_client_id
+            ):
                 return JsonResponse({"active": False}, status=200)
             # RFC 7662 Section 2.2: expired tokens MUST return {"active": false}
             if not access_token.is_valid():
@@ -2068,7 +2163,10 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
             refresh_token = None
 
         if refresh_token:
-            if credential_client_id and getattr(refresh_token.application, "client_id", None) != credential_client_id:
+            if (
+                credential_client_id
+                and getattr(refresh_token.application, "effective_client_id", None) != credential_client_id
+            ):
                 return JsonResponse({"active": False}, status=200)
             # Refresh tokens lack scope and exp fields on AbstractRefreshToken,
             # so we only return the fields that are available

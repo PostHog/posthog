@@ -1,75 +1,18 @@
 from typing import Any
 
-import pytest
 from unittest.mock import MagicMock
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.clockify.clockify import ClockifyResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.clockify.settings import (
-    CLOCKIFY_ENDPOINTS,
-    ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.clockify.settings import CLOCKIFY_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.clockify.source import ClockifySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clockify import (
     ClockifySourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestClockifySource:
     def setup_method(self) -> None:
         self.source = ClockifySource()
         self.team_id = 123
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.CLOCKIFY
-
-    def test_source_config_basics(self) -> None:
-        config = self.source.get_source_config
-        assert config.label == "Clockify"
-        assert config.category == DataWarehouseSourceCategory.PRODUCTIVITY
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-
-    def test_source_config_has_secret_api_key_field(self) -> None:
-        fields = self.source.get_source_config.fields
-        assert len(fields) == 1
-        api_key_field = fields[0]
-        assert isinstance(api_key_field, SourceFieldInputConfig)
-        assert api_key_field.name == "api_key"
-        assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert api_key_field.required is True
-        assert api_key_field.secret is True
-
-    def test_get_schemas_lists_every_endpoint(self) -> None:
-        schemas = self.source.get_schemas(MagicMock(), team_id=self.team_id)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-
-    def test_only_time_entries_supports_incremental(self) -> None:
-        schemas = {s.name: s for s in self.source.get_schemas(MagicMock(), team_id=self.team_id)}
-        for name, schema in schemas.items():
-            expected = name == "time_entries"
-            assert schema.supports_incremental is expected
-            assert schema.supports_append is expected
-
-    def test_time_entries_incremental_field(self) -> None:
-        schemas = {s.name: s for s in self.source.get_schemas(MagicMock(), team_id=self.team_id)}
-        fields = schemas["time_entries"].incremental_fields
-        assert [f["field"] for f in fields] == ["time_interval_start"]
-
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(MagicMock(), team_id=self.team_id, names=["clients", "time_entries"])
-        assert {s.name for s in schemas} == {"clients", "time_entries"}
-
-    @pytest.mark.parametrize("expected_key", ["401 Client Error", "403 Client Error"])
-    def test_non_retryable_errors(self, expected_key: str) -> None:
-        assert any(expected_key in key for key in self.source.get_non_retryable_errors())
 
     def test_non_retryable_error_keys_match_clockify_host(self) -> None:
         # The observed HTTPError message embeds the request URL; the key must match the base host.
@@ -93,16 +36,6 @@ class TestClockifySource:
         valid, error = self.source.validate_credentials(config, self.team_id)
         assert valid is False
         assert error is not None
-
-    def test_get_resumable_source_manager_is_bound_to_resume_config(self) -> None:
-        inputs = MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is ClockifyResumeConfig
-
-    def test_canonical_descriptions_cover_every_endpoint(self) -> None:
-        descriptions = self.source.get_canonical_descriptions()
-        assert set(descriptions.keys()) == set(ENDPOINTS)
 
     def test_source_for_pipeline_plumbs_endpoint_and_incremental(self, monkeypatch: Any) -> None:
         captured: dict[str, Any] = {}

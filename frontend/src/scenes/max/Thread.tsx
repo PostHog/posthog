@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import React, { useLayoutEffect, useMemo, useState } from 'react'
+import React, { useCallback, useLayoutEffect, useMemo, useState } from 'react'
 
 import {
     IconChevronRight,
@@ -68,6 +68,7 @@ import { PendingApproval, RecordingUniversalFilters, Region } from '~/types'
 import {
     AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM,
     getThinkingMessageFromResponse,
+    messageRatingsLogic,
     runStreamLogic,
     useAttachedContext,
     useForegroundStream,
@@ -82,6 +83,8 @@ import {
     ReplayVisionScanWidget,
     ResourcesBar,
     ThreadView,
+    TurnFeedbackActions,
+    type TurnTrailer,
 } from 'products/posthog_ai/frontend/api/primitives'
 import { LogEntry } from 'products/posthog_ai/frontend/lib/parse-logs'
 import { isPiTaskRuntime } from 'products/posthog_ai/frontend/types/taskTypes'
@@ -92,7 +95,6 @@ import { MaxWebAnalyticsNudge } from './components/MaxWebAnalyticsNudge'
 import { ContextSummary } from './Context'
 import { DangerousOperationApprovalCard } from './DangerousOperationApprovalCard'
 import { FeedbackPrompt } from './FeedbackPrompt'
-import { maxMessageRatingsLogic } from './logics/maxMessageRatingsLogic'
 import { EnhancedToolCall, ToolRegistration, getToolDefinitionFromToolCall } from './max-constants'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { SIDE_PANEL_PANEL_ID, ThreadMessage, maxLogic } from './maxLogic'
@@ -148,6 +150,19 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
         className
     )
 
+    const renderTurnTrailer = useCallback(
+        (trailer: TurnTrailer): JSX.Element | null =>
+            sandboxConversationKey ? (
+                <TurnFeedbackActions
+                    sessionId={sandboxConversationKey}
+                    turnIndex={trailer.turnIndex}
+                    isLastTurn={trailer.isLastTurn}
+                    turnText={trailer.turnText}
+                />
+            ) : null,
+        [sandboxConversationKey]
+    )
+
     if (isPiTask) {
         return <LemonBanner type="info">Pi session logs aren't available in PostHog yet.</LemonBanner>
     }
@@ -165,7 +180,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                     props={{ streamKey: sandboxConversationKey, conversationId: sandboxConversationKey }}
                 >
                     {/* The live Max column owns scroll via ThreadAutoScroller — render rows in flow, not virtualized. */}
-                    <ThreadView virtualized={false} />
+                    <ThreadView virtualized={false} renderTurnTrailer={renderTurnTrailer} />
                 </BindLogic>
             </div>
         )
@@ -185,7 +200,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                     logic={runStreamLogic}
                     props={{ streamKey: sandboxConversationKey, conversationId: sandboxConversationKey }}
                 >
-                    <ThreadView virtualized={false} />
+                    <ThreadView virtualized={false} renderTurnTrailer={renderTurnTrailer} />
                 </BindLogic>
             </div>
         )
@@ -207,18 +222,20 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
  */
 function LegacyThread({ showTrailers }: { showTrailers: boolean }): JSX.Element | null {
     const { conversationLoading, messagesLoading, conversationId } = useValues(maxLogic)
-    const { threadGrouped, streamingActive, threadLoading, sandboxEntries } = useValues(maxThreadLogic)
+    const { threadGrouped, streamingActive, threadLoading, sandboxEntries, canCreateTicket } = useValues(maxThreadLogic)
     const sandboxModeEnabled = useFeatureFlag('PHAI_SANDBOX_MODE')
     const { isPromptVisible, isDetailedFeedbackVisible, isThankYouVisible, traceId } = useFeedback(conversationId)
 
+    // Gated on eligibility so the create-ticket affordance never renders for orgs the support
+    // panel would turn away — e.g. from an old conversation that contains a past /ticket summary.
     const ticketPromptData = useMemo(
-        () => getTicketPromptData(threadGrouped, streamingActive),
-        [threadGrouped, streamingActive]
+        () => (canCreateTicket ? getTicketPromptData(threadGrouped, streamingActive) : { needed: false }),
+        [threadGrouped, streamingActive, canCreateTicket]
     )
 
     const ticketSummaryData = useMemo(
-        () => getTicketSummaryData(threadGrouped, streamingActive),
-        [threadGrouped, streamingActive]
+        () => (canCreateTicket ? getTicketSummaryData(threadGrouped, streamingActive) : null),
+        [threadGrouped, streamingActive, canCreateTicket]
     )
 
     return (conversationLoading || messagesLoading) && threadGrouped.length === 0 ? (
@@ -1328,8 +1345,8 @@ function SuccessActions({
     content?: string | null
 }): JSX.Element {
     const { traceId: logicTraceId } = useValues(maxThreadLogic)
-    const { ratingForTraceId } = useValues(maxMessageRatingsLogic)
-    const { setRatingForTraceId } = useActions(maxMessageRatingsLogic)
+    const { ratingForKey } = useValues(messageRatingsLogic)
+    const { setRating } = useActions(messageRatingsLogic)
     const { retryLastMessage } = useActions(maxThreadLogic)
     const { user } = useValues(userLogic)
     const { isDev, preflight } = useValues(preflightLogic)
@@ -1338,7 +1355,7 @@ function SuccessActions({
     // Use the context trace_id if available (for reloaded conversations), otherwise fall back to logic's traceId
     const traceId = contextTraceId || logicTraceId
 
-    const rating = ratingForTraceId(traceId)
+    const rating = ratingForKey(traceId)
     const [feedback, setFeedback] = useState<string>('')
     const [feedbackInputStatus, setFeedbackInputStatus] = useState<'hidden' | 'pending' | 'submitted'>('hidden')
 
@@ -1346,7 +1363,7 @@ function SuccessActions({
         if (rating || !traceId) {
             return // Already rated
         }
-        setRatingForTraceId({ traceId, rating: newRating })
+        setRating({ key: traceId, rating: newRating })
         posthog.captureTraceMetric(traceId, 'quality', newRating)
         if (newRating === 'bad') {
             setFeedbackInputStatus('pending')

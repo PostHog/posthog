@@ -63,6 +63,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     config
         .validate_fencing_timescales()
         .expect("Invalid fencing configuration");
+    config
+        .validate_shutdown_budgets()
+        .expect("Invalid shutdown configuration");
     validate_table_name(&config.fallback_table).expect("Invalid FALLBACK_TABLE");
 
     // Initialize tracing
@@ -99,16 +102,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // stop in phase 1, only after the drain finishes — signalling them
     // together with coordination black-holed every partition for the whole
     // drain (dead server, still the registered owner). The coordination
-    // graceful window must exceed the pod's drain timeout (30s) plus the pre-revoke fence's short bound (3s), and the
-    // global timeout must fit both phases.
+    // window must fit the pod's whole teardown — drain, fence, keepalive
+    // join, revoke — and the global timeout both phases;
+    // `validate_lease_timescales` refuses a configuration that breaks
+    // the first relation at startup.
     let mut manager = Manager::builder("personhog-leader")
-        .with_global_shutdown_timeout(Duration::from_secs(60))
+        .with_global_shutdown_timeout(config.global_shutdown_timeout())
         .build();
 
     let grpc_handle = manager.register(
         "grpc-server",
         ComponentOptions::new()
-            .with_graceful_shutdown(Duration::from_secs(15))
+            .with_graceful_shutdown(config.phase1_graceful_shutdown())
             .with_shutdown_phase(1),
     );
     let metrics_handle = manager.register(
@@ -117,7 +122,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     let coordination_handle = manager.register(
         "coordination",
-        ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(35)),
+        ComponentOptions::new().with_graceful_shutdown(config.coordination_graceful_shutdown()),
     );
     let kafka_handle = manager.register(
         "kafka-producer",
@@ -125,7 +130,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // spawned after the producer is built normally completes well
         // inside it.
         ComponentOptions::new()
-            .with_graceful_shutdown(Duration::from_secs(15))
+            .with_graceful_shutdown(config.phase1_graceful_shutdown())
             .with_shutdown_phase(1),
     );
 
@@ -551,17 +556,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         (None, String::new(), None)
     };
 
+    // Timescale and concurrency knobs come from `base_pod_config`, the
+    // same values `validate_lease_timescales` summed at startup; only
+    // the identity fields, which no validation reads, are filled here.
     let pod_config = PodConfig {
         pod_name: config.pod_name.clone(),
         generation,
         controller,
-        lease_ttl: config.lease_ttl,
-        heartbeat_interval: config.heartbeat_interval(),
         advertise_address: Some(advertise_address),
-        // Zero would park every warm on an unobtainable permit and wedge
-        // handoffs; treat it as fully sequential instead.
-        warm_concurrency: config.warm_concurrency.max(1),
-        ..Default::default()
+        ..config.base_pod_config()
     };
 
     // Open connections up front: warms cluster in deploy bursts, and a

@@ -3,9 +3,13 @@ import type { PropsWithChildren, UIEvent } from 'react'
 
 import { IconClock, IconListTree } from '@posthog/icons'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { IconFingerprint } from 'lib/lemon-ui/icons'
 import { Tabs, TabsContent, TabsList, TabsTrigger, Tooltip, TooltipContent, TooltipTrigger } from 'lib/ui/quill'
 
+import { errorTrackingIssueSceneLogic } from '../../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 import { MiniBreakdowns } from '../Breakdowns/MiniBreakdowns'
+import { FingerprintPreview } from '../FingerprintPreview/FingerprintPreview'
 import { issueFilterPreviewLogic } from './issueFilterPreviewLogic'
 import { TimeFilterPreview } from './TimeFilterPreview'
 
@@ -20,7 +24,10 @@ export function IssueFilterPreviewPanel({
     onScrollNearEnd,
 }: PropsWithChildren<IssueFilterPreviewPanelProps>): JSX.Element {
     const { activePreview } = useValues(issueFilterPreviewLogic)
+    const { issueId } = useValues(errorTrackingIssueSceneLogic)
     const { setActivePreview } = useActions(issueFilterPreviewLogic)
+    const hasFingerprintMap = useFeatureFlag('ERROR_TRACKING_FINGERPRINT_MAP')
+    const selectedPreview = !hasFingerprintMap && activePreview === 'fingerprints' ? 'time' : activePreview
 
     const handleScroll = (event: UIEvent<HTMLDivElement>): void => {
         const { clientHeight, scrollHeight, scrollTop } = event.currentTarget
@@ -35,9 +42,13 @@ export function IssueFilterPreviewPanel({
                 <div className="max-h-1/2 shrink-0 overflow-y-auto overscroll-y-none">
                     <Tabs
                         orientation="vertical"
-                        value={activePreview}
+                        value={selectedPreview}
                         onValueChange={(preview) => {
-                            if (preview === 'time' || preview === 'properties') {
+                            if (
+                                preview === 'time' ||
+                                preview === 'properties' ||
+                                (hasFingerprintMap && preview === 'fingerprints')
+                            ) {
                                 setActivePreview(preview)
                             }
                         }}
@@ -77,6 +88,22 @@ export function IssueFilterPreviewPanel({
                                 </TooltipTrigger>
                                 <TooltipContent side="right">Properties</TooltipContent>
                             </Tooltip>
+                            {hasFingerprintMap && (
+                                <Tooltip>
+                                    <TooltipTrigger
+                                        render={
+                                            <TabsTrigger
+                                                value="fingerprints"
+                                                aria-label="Fingerprints"
+                                                className="!size-8 !flex-none !justify-center !p-0"
+                                            />
+                                        }
+                                    >
+                                        <IconFingerprint />
+                                    </TooltipTrigger>
+                                    <TooltipContent side="right">Fingerprints</TooltipContent>
+                                </Tooltip>
+                            )}
                         </TabsList>
                         <TabsContent value="time" className="min-w-0 !flex-none flex-1">
                             <TimeFilterPreview />
@@ -84,6 +111,11 @@ export function IssueFilterPreviewPanel({
                         <TabsContent value="properties" className="min-w-0 !flex-none flex-1">
                             <MiniBreakdowns />
                         </TabsContent>
+                        {hasFingerprintMap && (
+                            <TabsContent value="fingerprints" className="min-w-0 !flex-none flex-1">
+                                <FingerprintPreview issueId={issueId} />
+                            </TabsContent>
+                        )}
                     </Tabs>
                 </div>
                 {children}

@@ -414,12 +414,10 @@ def _issues_parent_row_filter(cutoff_last_seen: datetime | None) -> ParentRowFil
     reader applies, so an incremental run stops reading issues it would only discard. The
     per-row check stays the authority, and the floor is never tighter than it.
 
-    The window half is the same constant `issue_events` and `issue_hashes` use, so all three
-    children fan out over one row set instead of each bounding the parent differently. It does
-    drop issues this iterator used to yield, in the two cases where the per-row check bounded
-    nothing: a full refresh (no cutoff at all) and a watermark older than the window. Those are
-    issues Sentry's own listing no longer returns, so the API path never fanned out over them
-    either.
+    The window half caps a watermark older than the window from widening the scan back out.
+    The no-watermark case never reaches this filter: `sentry_source` sends full refreshes down
+    the API parent path, because Sentry clamps its listing to the org's plan retention and a
+    snapshot floor cannot reproduce that bound — see SENTRY_FANOUT_PARENT_WINDOW.
     """
     return dataclasses.replace(ISSUES_PARENT_ROW_FILTER, not_before=cutoff_last_seen)
 
@@ -457,6 +455,7 @@ def _iter_issue_tag_values_rows(
     resumable_source_manager: Optional[ResumableSourceManager[SentryResumeConfig]] = None,
     incremental_last_seen_max: Any = None,
     issues_table: Optional["ParentTableRef"] = None,
+    issues_snapshot_at: datetime | None = None,
 ) -> Iterator[dict[str, Any]]:
     cutoff_last_seen = _parse_datetime_value(incremental_last_seen_max)
     use_warehouse_parent = issues_table is not None
@@ -656,11 +655,16 @@ def _iter_issue_tag_values_rows(
 
                 should_stop = False
                 for row in rows:
-                    if cutoff_last_seen is not None:
-                        row_last_seen = _parse_datetime_value(row.get("lastSeen"))
-                        if row_last_seen is not None and row_last_seen <= cutoff_last_seen:
+                    row_last_seen = _parse_datetime_value(row.get("lastSeen"))
+                    if cutoff_last_seen is not None and row_last_seen is not None:
+                        if row_last_seen <= cutoff_last_seen:
                             should_stop = True
                             break
+                    if issues_snapshot_at is not None and row_last_seen is not None:
+                        if row_last_seen > issues_snapshot_at:
+                            # Newer than the issues snapshot this run fanned out over. Values are
+                            # returned newest-first, so skip past it rather than stopping.
+                            continue
 
                     row["issue_id"] = issue_id
                     row["tag_key"] = tag_key
@@ -1275,26 +1279,46 @@ def sentry_source(
         headers = _auth_headers(auth_token)
         incremental_last_seen_max = db_incremental_field_last_value if should_use_incremental_field else None
         issues_table: ParentTableRef | None = None
-        if use_warehouse_parent:
+        issues_snapshot_at: datetime | None = None
+        # Warehouse reuse only with a watermark: the per-row cutoff then bounds the fan-out to
+        # issues newer than the last run, the regime whose volume matched the API path in
+        # production. Without one (a full refresh), the only available floor is our window
+        # constant, and Sentry clamps its own listing to the org plan retention below it --
+        # see SENTRY_FANOUT_PARENT_WINDOW -- so the API path is the only faithful parent.
+        if use_warehouse_parent and _parse_datetime_value(incremental_last_seen_max) is not None:
             if team_id is None or not source_id:
                 raise ValueError("team_id and source_id are required when reading the issues parent from the warehouse")
             # noqa reason: keeps deltalake/pyarrow off the import path of this module (imported
             # by the API process for schema discovery) — the reader stack loads only when syncing.
             from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (  # noqa: PLC0415
+                parent_snapshot_covers_through,
                 try_resolve_parent_table,
             )
 
-            # Resolved here, in sync source-build context, never inside the iterator: its body
-            # runs on the pipeline's executor threads, where ad-hoc ORM reads hit the
-            # pooler-drop failure mode resolve_parent_table_ref documents.
-            issues_table = try_resolve_parent_table(
-                team_id=team_id,
-                source_id=source_id,
-                parent_name="issues",
-                required_columns=_ISSUES_PARENT_COLUMNS,
-                schema_name="issue_tag_values",
-                row_filter=_issues_parent_row_filter(_parse_datetime_value(incremental_last_seen_max)),
-            )
+            # How far the issues snapshot is guaranteed complete. The tag values fanned out below
+            # are fetched live, so emitting one past this point would carry the watermark over
+            # issues the snapshot has not shown yet, and the next floor would skip them for good.
+            # Read before the table is pinned, never after: a sync completing between the two
+            # reads would otherwise cap on the newer job while the fan-out reads the older
+            # snapshot. No completed sync means nothing to cap against, so take the API path.
+            issues_snapshot_at = parent_snapshot_covers_through(team_id, source_id, "issues")
+            if issues_snapshot_at is not None:
+                # Resolved here, in sync source-build context, never inside the iterator: its body
+                # runs on the pipeline's executor threads, where ad-hoc ORM reads hit the
+                # pooler-drop failure mode resolve_parent_table_ref documents.
+                issues_table = try_resolve_parent_table(
+                    team_id=team_id,
+                    source_id=source_id,
+                    parent_name="issues",
+                    required_columns=_ISSUES_PARENT_COLUMNS,
+                    schema_name="issue_tag_values",
+                    row_filter=_issues_parent_row_filter(_parse_datetime_value(incremental_last_seen_max)),
+                )
+                if issues_table is None:
+                    # The table turned out to be unreadable, so this run reads the live issues
+                    # API. That listing has no snapshot behind it, so capping against one would
+                    # drop fresh tag values the API path had no reason to hold back.
+                    issues_snapshot_at = None
         if resumable_source_manager is not None and resumable_source_manager.can_resume():
             # The pipeline reads this same Redis state to pick replace-vs-append for chunk 0,
             # so state the iterator will refuse has to go now, before it decides. Same
@@ -1310,6 +1334,7 @@ def sentry_source(
                 resumable_source_manager=resumable_source_manager,
                 incremental_last_seen_max=incremental_last_seen_max,
                 issues_table=issues_table,
+                issues_snapshot_at=issues_snapshot_at,
             ),
         )
 

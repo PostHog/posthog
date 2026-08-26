@@ -8,6 +8,8 @@ teams:
     # the channel just doesn't match it.
     ai-research:
         slack: '#team-ai-research'
+        # The team keeps bot output out of its own channel, so automation posts here instead.
+        notifications: '#bots-ai-research'
     batch-exports:
         slack: '#team-batch-exports'
     clickhouse:
@@ -87,6 +89,13 @@ rules:
       owners: team-data-stack
     - match: '/posthog/settings/email.py'
       owners: team-platform-features
+    - match:
+          - '/docs/internal/web-bot-auth-key-directory.md'
+          - '/posthog/settings/web_bot_auth.py'
+          - '/posthog/test/test_web_bot_auth.py'
+          - '/posthog/web_bot_auth.py'
+          - '/posthog/web_bot_auth_keys.py'
+      owners: ai-research
     - match: '/posthog/test/test_feature_flag_analytics.py'
       owners: team-feature-flags
     - match: '/services/llm-gateway/'
@@ -96,7 +105,8 @@ rules:
           - '/tools/hogli/'
           - '/tools/owners/'
           - '/tools/phrocs/'
-          - '/tools/pr-approval-agent/'
+      owners: team-devex
+    - match: '/products/stamphog/packages/pr-approval-agent/'
       owners: team-devex
     - match: '/tools/query-performance-ai/'
       owners: team-analytics-platform

@@ -21,7 +21,7 @@ from posthog.models.team import Team
 from posthog.oauth_provenance import get_oauth_client_id, is_first_party_oauth_client, is_interactive_desktop_grant
 from posthog.settings import SITE_URL
 from posthog.synthetic_user import SyntheticUser
-from posthog.temporal.oauth import POSTHOG_AI_OAUTH_APP_CLIENT_IDS
+from posthog.temporal.oauth import POSTHOG_AI_OAUTH_APP_CLIENT_IDS, SIGNALS_OAUTH_APP_CLIENT_IDS
 from posthog.utils import get_instance_realm
 
 if TYPE_CHECKING:
@@ -286,9 +286,13 @@ class EventSource(StrEnum):
     API = "api"
     CLI = "cli"
     POSTHOG_AI = "posthog_ai"
-    # Headless coding agents: the cloud agent, the local agent, signals scouts. Distinct from
-    # DESKTOP and MOBILE, which are apps a person is sitting in front of.
+    # Headless coding agents: the cloud agent and the local agent. Distinct from DESKTOP and
+    # MOBILE, which are apps a person is sitting in front of.
     POSTHOG_CODE = "posthog_code"
+    # Signals: scouts, report implementations, and scout chat. Every one of them mints under the
+    # Signals OAuth application, which is what tells them apart from the coding agents they
+    # otherwise look identical to.
+    SELF_DRIVING = "self_driving"
     DESKTOP = "desktop"
     MOBILE = "mobile"
     SLACK = "slack"
@@ -313,6 +317,7 @@ AGENT_EVENT_SOURCES = frozenset(
     {
         EventSource.MCP,
         EventSource.POSTHOG_CODE,
+        EventSource.SELF_DRIVING,
         EventSource.DESKTOP,
         EventSource.MOBILE,
         EventSource.SLACK,
@@ -337,6 +342,7 @@ MCP_TRANSPORT_EVENT_SOURCES = frozenset(
         EventSource.MOBILE,
         EventSource.SLACK,
         EventSource.POSTHOG_CODE,
+        EventSource.SELF_DRIVING,
     }
 )
 
@@ -427,8 +433,14 @@ def get_event_source(request) -> EventSource:
     # A token minted against the PostHog AI OAuth app is authoritative — the auth
     # credential can't be spoofed the way UA tokens and X-PostHog-Client can, so it
     # wins over every header-based branch below.
-    if get_oauth_client_id(request) in POSTHOG_AI_OAUTH_APP_CLIENT_IDS:
+    client_id = get_oauth_client_id(request)
+    if client_id in POSTHOG_AI_OAUTH_APP_CLIENT_IDS:
         return EventSource.POSTHOG_AI
+    # Same reasoning, and it has to sit above the user-agent branches for the same reason: a
+    # Signals run is a sandbox coding agent, so it carries the posthog-code user-agent and
+    # declares the posthog-code MCP consumer. Only the application it minted under separates it.
+    if client_id in SIGNALS_OAUTH_APP_CLIENT_IDS:
+        return EventSource.SELF_DRIVING
     user_agent = request.headers.get("user-agent", "") or ""
     if not isinstance(user_agent, str):
         user_agent = ""

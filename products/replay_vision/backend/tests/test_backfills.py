@@ -7,8 +7,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.utils import timezone
 
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.status import HTTP_429_TOO_MANY_REQUESTS
-from temporalio.exceptions import WorkflowAlreadyStartedError
+from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 
 from posthog.models import Organization, Team
 from posthog.redis import get_client
@@ -61,6 +62,8 @@ from products.replay_vision.backend.temporal.constants import (
     MAX_IN_FLIGHT_APPLIES_PER_BACKFILL,
     MAX_IN_FLIGHT_APPLIES_PER_SCANNER,
     MAX_IN_FLIGHT_APPLIES_PER_TEAM,
+    ON_DEMAND_RESERVED_SCANNER_SLOTS,
+    ON_DEMAND_RESERVED_TEAM_SLOTS,
     backfill_dispatch_budget,
     build_apply_scanner_workflow_id,
 )
@@ -108,11 +111,12 @@ def _make_backfill(scanner: ReplayScanner, **overrides) -> ReplayScannerBackfill
 @pytest.mark.parametrize(
     "scanner_in_flight,team_in_flight,backfill_in_flight,expected",
     [
-        # One case per cap that can win, plus the fully-saturated floor.
+        # One case per cap that can win, plus the fully-saturated floor. Scheduled dispatch caps
+        # exclude the slots reserved for on-demand admission.
         (0, 0, 0, MAX_IN_FLIGHT_APPLIES_PER_BACKFILL),
         (0, 0, MAX_IN_FLIGHT_APPLIES_PER_BACKFILL, 0),
-        (MAX_IN_FLIGHT_APPLIES_PER_SCANNER - 10, 0, 0, 10),
-        (0, MAX_IN_FLIGHT_APPLIES_PER_TEAM - 5, 0, 5),
+        (MAX_IN_FLIGHT_APPLIES_PER_SCANNER - ON_DEMAND_RESERVED_SCANNER_SLOTS - 10, 0, 0, 10),
+        (0, MAX_IN_FLIGHT_APPLIES_PER_TEAM - ON_DEMAND_RESERVED_TEAM_SLOTS - 5, 0, 5),
     ],
 )
 def test_backfill_dispatch_budget_takes_the_tightest_cap(
@@ -500,6 +504,25 @@ class TestBackfillTickActivities:
         assert not result.more_work_below_cursor
         assert result.next_cursor_end_time is None
         assert result.skipped_delta == 0
+
+    def test_unrunnable_exposure_filter_cancels_the_backfill(self) -> None:
+        # The candidate query raises PermissionDenied when the launcher was deleted or lost
+        # experiment access. Left RUNNING, the backfill would fail every minute forever while its
+        # unspent credits kept inflating the spend projection — the tick must cancel it terminally.
+        # Also pins the fail-closed manager path: the cancel runs outside request context, where a
+        # bare `objects` access raises TeamScopeError instead of cancelling.
+        scanner = _make_scanner()
+        backfill = _make_backfill(scanner)
+        with patch("products.replay_vision.backend.temporal.activities.backfill.WindowedCandidateQuery") as query_cls:
+            query_cls.return_value.run.side_effect = PermissionDenied("experiment access lost")
+            with pytest.raises(ApplicationError) as raised:
+                find_backfill_candidates_activity(
+                    FindBackfillCandidatesInputs(backfill_id=backfill.id, team_id=backfill.team_id, candidate_limit=50)
+                )
+        assert raised.value.non_retryable
+        backfill.refresh_from_db()
+        assert backfill.status == BackfillStatus.CANCELLED
+        assert backfill.finished_at is not None
 
     def test_excluded_sessions_are_walked_over_not_dispatched(self) -> None:
         # The cursor must pass an excluded session exactly as it passes an already-succeeded one.

@@ -101,7 +101,7 @@ function isDirectMessageItem(item: ConversationItem): boolean {
  * A plan presented for approval (the ExitPlanMode / switch_mode tool call,
  * rendered by PlanApprovalView). Keep it visible so the user can read it.
  */
-function isPlanItem(item: ConversationItem): boolean {
+export function isPlanItem(item: ConversationItem): boolean {
   return (
     item.type === "session_update" &&
     item.update.sessionUpdate === "tool_call" &&

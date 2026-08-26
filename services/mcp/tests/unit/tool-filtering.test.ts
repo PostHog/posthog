@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { OAUTH_SCOPES_HIDDEN, OAUTH_SCOPES_SUPPORTED } from '@/lib/constants'
+import { hasScope } from '@/lib/api'
 import type { EvaluatedFlags } from '@/lib/posthog/flags'
 import { SessionManager } from '@/lib/SessionManager'
 import { getToolsFromContext } from '@/tools'
@@ -445,6 +446,8 @@ describe('OAUTH_SCOPES_SUPPORTED completeness', () => {
     // (mirrors INTERNAL_API_SCOPE_OBJECTS in posthog/scopes.py). Tools may require them, but
     // they are intentionally absent from OAUTH_SCOPES_SUPPORTED, so exclude them here.
     const SERVER_MINT_ONLY_SCOPES = new Set([
+        'internal_run:read',
+        'loop_context_internal:write',
         'signal_scout_internal:read',
         'signal_scout_internal:write',
         'signal_scout_report:read',
@@ -476,6 +479,13 @@ describe('OAUTH_SCOPES_SUPPORTED completeness', () => {
             missing,
             `OAUTH_SCOPES_SUPPORTED is missing scopes used by tool definitions: ${missing.join(', ')}`
         ).toEqual([])
+    })
+})
+
+describe('server-minted scope matching', () => {
+    it('requires literal internal scopes instead of accepting a wildcard', () => {
+        expect(hasScope(['*'], 'loop_context_internal:write')).toBe(false)
+        expect(hasScope(['loop_context_internal:write'], 'loop_context_internal:write')).toBe(true)
     })
 })
 
@@ -774,22 +784,9 @@ describe('Tool Filtering - Feature Flags', () => {
     // need a different approach: directly test the filtering logic extracted
     // as a pure function.
 
-    // Since getToolsForFeatures is tightly coupled to getToolDefinitions,
-    // we'll test the filtering behavior by using real definitions plus
-    // verifying the feature flag logic with tools that already exist.
-    // We'll also add a tool definition with feature_flag to the real JSON
-    // as a fixture.
-
-    // Alternative: test the logic inline. getToolsForFeatures applies filters
-    // to entries from getToolDefinitions. We can test the filter predicate
-    // directly by examining what happens when we pass featureFlags to the
-    // real getToolsForFeatures — since no real tool has feature_flag set,
-    // featureFlags should have no effect on the real set.
-
     it('should not affect tools without feature_flag when featureFlags is provided', () => {
         const withoutFlags = getToolsForFeatures({})
         const withFlags = getToolsForFeatures({ featureFlags: { 'some-flag': true } })
-        // No real tool has feature_flag, so results should be identical
         expect(withFlags).toEqual(withoutFlags)
     })
 
@@ -810,6 +807,18 @@ describe('Tool Filtering - Feature Flags', () => {
         const on = getToolsForFeatures({ featureFlags: { 'notebooks-collaboration': true } })
         expect(on).toContain('notebook-edit')
         expect(on).not.toContain('notebooks-partial-update')
+    })
+
+    it('billing-mcp-read-tools flag gates billing read tools', () => {
+        const off = getToolsForFeatures({ featureFlags: { 'billing-mcp-read-tools': false } })
+        expect(off).not.toContain('billing-overview-get')
+        expect(off).not.toContain('billing-usage-get')
+        expect(off).not.toContain('billing-spend-get')
+
+        const on = getToolsForFeatures({ featureFlags: { 'billing-mcp-read-tools': true } })
+        expect(on).toContain('billing-overview-get')
+        expect(on).toContain('billing-usage-get')
+        expect(on).toContain('billing-spend-get')
     })
 
     it('revamped-py-notebooks flag swaps the notebook surface without duplicates', () => {
@@ -850,13 +859,13 @@ describe('Tool Filtering - Feature Flags', () => {
         const flags = getRequiredFeatureFlags()
         expect(flags).toEqual(
             expect.arrayContaining([
-                'logs-alerting',
                 'logs-anomalies',
                 'llm-analytics-datasets',
                 'tracing',
                 'visual-review',
                 'user-interviews',
                 'customer-analytics-csp',
+                'customer-analytics-feature-requests',
                 'notebooks-collaboration',
                 'revamped-py-notebooks',
                 'tasks',
@@ -876,14 +885,16 @@ describe('Tool Filtering - Feature Flags', () => {
                 'review-hog',
                 'warehouse-person-properties',
                 'billing-alerts',
+                'billing-mcp-read-tools',
                 'streamlit-apps',
                 'posthog-connect',
                 'experiment-behavior-comparison',
                 'data-warehouse-scene',
                 'data-quality-checks',
+                'context-layer',
             ])
         )
-        expect(flags).toHaveLength(31)
+        expect(flags).toHaveLength(33)
     })
 
     it('every loops tool is gated on the loops flag', () => {
@@ -894,6 +905,20 @@ describe('Tool Filtering - Feature Flags', () => {
         for (const [name, definition] of loopsTools) {
             expect({ name, feature_flag: definition.feature_flag }).toEqual({ name, feature_flag: 'loops' })
         }
+    })
+
+    it('keeps public context wiki tools separate from internal loop tools', () => {
+        const definitions = getToolDefinitions()
+        expect(definitions['context-wiki-page-update']!.required_scopes).toEqual(['organization:write'])
+        expect(definitions['loop-context-wiki-page-update']!.required_scopes).toEqual([
+            'task:write',
+            'loop_context_internal:write',
+        ])
+        expect(definitions['loop-channel-instructions-update']!.required_scopes).toEqual([
+            'task:write',
+            'loop_context_internal:write',
+        ])
+        expect(definitions['loop-channel-instructions-update']!.feature_flag).toBeUndefined()
     })
 
     // Exercise the real predicate (toolPassesFlagGate) over hand-rolled entries

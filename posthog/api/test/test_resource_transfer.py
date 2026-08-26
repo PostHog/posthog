@@ -12,15 +12,14 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.resource_transfer.resource_transfer import ResourceTransfer
 from posthog.models.scoping import team_scope
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.surveys.backend.models import Survey
-
-from ee.models.rbac.access_control import AccessControl
 
 
 class TestResourceTransferPreview(APIBaseTest):
@@ -887,7 +886,9 @@ class TestResourceTransferProjectAccessControl(APIBaseTest):
             ("search",),
         ]
     )
-    @patch("posthog.rbac.user_access_control.UserAccessControl.access_controls_supported", True)
+    @patch(
+        "products.access_control.backend.facade.user_access_control.UserAccessControl.access_controls_supported", True
+    )
     def test_blocked_for_user_without_project_access(self, endpoint: str) -> None:
         self.client.force_login(self.other_user)
         url, payload = self._endpoint_params(endpoint)
@@ -901,7 +902,9 @@ class TestResourceTransferProjectAccessControl(APIBaseTest):
             ("search", status.HTTP_200_OK),
         ]
     )
-    @patch("posthog.rbac.user_access_control.UserAccessControl.access_controls_supported", True)
+    @patch(
+        "products.access_control.backend.facade.user_access_control.UserAccessControl.access_controls_supported", True
+    )
     def test_allowed_for_user_with_project_access(self, endpoint: str, expected_status: int) -> None:
         url, payload = self._endpoint_params(endpoint)
         response = self.client.post(url, payload)

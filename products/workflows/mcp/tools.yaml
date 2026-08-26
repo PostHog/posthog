@@ -63,6 +63,9 @@ tools:
     hog-flows-email-sending-suspension-retrieve:
         operation: hog_flows_email_sending_suspension_retrieve
         enabled: false
+    hog-flows-invocation-results-count-retrieve:
+        operation: hog_flows_invocation_results_count_retrieve
+        enabled: false
     hog-flows-invocations-cancel-create:
         operation: hog_flows_invocations_cancel_create
         enabled: false

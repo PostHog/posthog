@@ -1,4 +1,5 @@
 import dataclasses
+from dataclasses import field
 from typing import TYPE_CHECKING, Any, Protocol
 
 from posthog.hogql.constants import HogQLDialect, HogQLGlobalSettings
@@ -8,6 +9,13 @@ if TYPE_CHECKING:
     from posthog.models.team import Team
 
     from products.warehouse_sources.backend.facade.models import ExternalDataSource
+
+from posthog.dataclasses import frozen
+
+
+@frozen
+class DirectQueryPrincipal:
+    value: str
 
 
 @dataclasses.dataclass(frozen=False)
@@ -20,6 +28,7 @@ class DirectQueryRequest:
     timings: HogQLTimings
     query_type: str
     debug: bool
+    principal: DirectQueryPrincipal | None = field(default=None)
     cancellation_token: str | None = None
 
 
