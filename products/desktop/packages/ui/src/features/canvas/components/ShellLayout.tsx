@@ -24,6 +24,7 @@ import {
   DropdownMenuTrigger,
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import { CanvasFileToSubmenu } from "@posthog/ui/features/canvas/components/CanvasFileToSubmenu";
 import { ChannelBreadcrumb } from "@posthog/ui/features/canvas/components/ChannelBreadcrumb";
 import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
 import { NewCanvasMenu } from "@posthog/ui/features/canvas/components/NewCanvasMenu";
@@ -215,6 +216,20 @@ function FreeformEditControls({
               ? `Unpin from ${containerNoun}`
               : `Pin to ${containerNoun}`}
           </DropdownMenuItem>
+          <CanvasFileToSubmenu
+            dashboardId={dashboardId}
+            currentChannelId={channelId}
+            surface="canvas"
+            // Follow the canvas into its new space: the header's breadcrumb,
+            // copy link, delete, and the sidebar scope all read the route's
+            // channel id, so without this they keep pointing at the old space.
+            onFiled={(targetChannelId) =>
+              void navigate({
+                to: "/spaces/$channelId/dashboards/$dashboardId",
+                params: { channelId: targetChannelId, dashboardId },
+              })
+            }
+          />
           <DropdownMenuItem
             variant="destructive"
             onClick={() => setConfirmDeleteOpen(true)}

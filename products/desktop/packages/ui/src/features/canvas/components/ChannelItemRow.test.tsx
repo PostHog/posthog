@@ -538,7 +538,7 @@ describe("ChannelItemRow", () => {
     expect(screen.queryByRole("button", { name: "Archive" })).toBeNull();
   });
 
-  it("does not offer filing for another user's canvas", async () => {
+  it("offers filing for another user's canvas — anyone in the space can file", async () => {
     const canvas = item({
       key: "canvas:c1",
       kind: "canvas",
@@ -555,7 +555,7 @@ describe("ChannelItemRow", () => {
     expect(
       await screen.findByRole("button", { name: "Pin" }, { timeout: 2000 }),
     ).not.toBeNull();
-    expect(screen.queryByRole("button", { name: "File to…" })).toBeNull();
+    expect(screen.getByRole("button", { name: "File to…" })).not.toBeNull();
   });
 
   it("confirms before deleting a canvas — it goes for the whole space", async () => {

@@ -302,10 +302,6 @@ export function ChannelItemRow({
     item.task != null &&
     item.authorUser?.id != null &&
     currentUser.data?.id === item.authorUser.id;
-  const canFileCanvas =
-    item.kind === "canvas" &&
-    item.authorUser?.id != null &&
-    currentUser.data?.id === item.authorUser.id;
   const handleDragStart = useCallback(
     (event: DragEvent) => {
       if (item.kind === "canvas") {
@@ -338,12 +334,11 @@ export function ChannelItemRow({
             title: item.title,
             isPinned: item.pinned,
             channelId,
-            ...(canFileCanvas
-              ? {
-                  onFile: (targetChannelId: string) =>
-                    actions.fileCanvas(item, targetChannelId),
-                }
-              : {}),
+            // Anyone in the space can file a canvas — the backend permits the
+            // move, and hunting for the row in the tree to right-click it is the
+            // only way there. No author gate.
+            onFile: (targetChannelId: string) =>
+              actions.fileCanvas(item, targetChannelId),
             onTogglePin: () => actions.togglePin(item),
             onAddToCommandCenter,
             // Confirm first, like the canvas menus in the artifacts grid and
@@ -365,15 +360,7 @@ export function ChannelItemRow({
           },
     // canHandoff rides on the currentUser query, so it belongs in deps for a
     // sign-in refresh to re-evaluate.
-    [
-      item,
-      channelId,
-      actions,
-      onAddToCommandCenter,
-      onRename,
-      canHandoff,
-      canFileCanvas,
-    ],
+    [item, channelId, actions, onAddToCommandCenter, onRename, canHandoff],
   );
 
   if (isEditing) {
