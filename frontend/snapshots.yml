@@ -7077,17 +7077,17 @@ snapshots:
     scenes-app-llm-observability-evaluationreportconfig--quill--light:
         hash: v1.k794b7964.e6179df07dd55d64e0140d40ac812feb4662e28e5bded7ce2cf9e2575f245626.4iGTruUDV858d17xZIUMJCG2xFeWLagkzakPS2Yw4Ps
     scenes-app-logs-sparkline--volume-by-severity--dark:
-        hash: v1.k794b7964.ff9970e481267669b2b5c3e97de2daa5027224b3185da86e7841374a1c0ba80e.sStnKO155v5mRB-N445BcUDcc21g3jAW21Y5mDWfENw
+        hash: v1.k794b7964.0342a42ad3e96fb82282914a3c60aedb873de9f8dfc94c850b22b3f7f17d56a0.c_sYZ1aNex35E-5hGq0aHwwV1MQCROpZBvMfAznRPoY
     scenes-app-logs-sparkline--volume-by-severity--light:
-        hash: v1.k794b7964.8de90a8725adae02f3eb5ddff7b67a8b82635f4ee91a6fc8af918f847f3112aa.b71G5RHdgthOOmza6oa2KGdiK2bsMtGDdql7kyjlEUE
+        hash: v1.k794b7964.fdb549dcf3c59090354438aee587b98a298d3cdaf32d46bb01120664dfb820d8.J4QV-kc6iGHQyb0jyu2jxRYMN7IHzeesVVecacobQtM
     scenes-app-logs-sparkline--with-incomplete-buckets--dark:
-        hash: v1.k794b7964.d18b5bd8acb1c3cc0a815e002bd50d8382c4ed2bcc0d52975188d10565c094e8.lDTMLtBVAMn0BR_tMDOTiJkqQgTSmRMrBHUVjhcmWng
+        hash: v1.k794b7964.0df6634617e8ad5287e72205e998d50e832e06589d89e161ab5518ade03151e3.yU5OwWdnPPC2lYuWj2U_rrXRao56W8ez8oHJu0vC3_0
     scenes-app-logs-sparkline--with-incomplete-buckets--light:
-        hash: v1.k794b7964.ffcdf956d00fbd9c97d8843d86e1781202ba0da513e45594267dba56443ad824.IjOA2xr2ZUEtBos84aXnc_oogjc71FmgQf0lZGnyndw
+        hash: v1.k794b7964.18fa93a8be6e2423e42ab0f14a17509ff5c4edd6035fc78ba1f425244f781536.TL1gdFYq0wZuy2JyglNVWW9A9SAeo9VHrA-GcLcx8GY
     scenes-app-logs-sparkline--with-visible-row-range--dark:
-        hash: v1.k794b7964.6e7205adb133ed51c4e5c4822801101628929a2670208a3380051bd366ef1014.CjJZblD1hifo0CPfzGvsF5nuJbYoq3jTSZ1ZT9uXJPk
+        hash: v1.k794b7964.949d98f13ddb2a20738728392f4abdd995f17e081cde68329c3f5df69c144332.6kxBdqQfe5E7FOA6XCF6SSk2bcFgBxWWxVc-LQpCd-8
     scenes-app-logs-sparkline--with-visible-row-range--light:
-        hash: v1.k794b7964.b0f371959dd1ba3224600f73c6ce704356527d7e47eb2059391a4c6c340a098b.-AV9dQHySpjijS8TCrCM0nW459TOjWY356UVly4uCoo
+        hash: v1.k794b7964.fb69358c8aeb58426a04c00facab5399cd68aa9de3e988e6aa8d25f29e8d4c83._7BbQGMxvbU8KHxD2hLOFTF3DLr1ii76MQFwh6ir0Uw
     scenes-app-marketing-analytics-cell-actions--campaign-cell-action-globally-mapped--dark:
         hash: v1.k794b7964.52cf1cc9ecc8ac0c8dc3ff23da8f0e0f2605629c3df6ecbb5ed9608f570c4784.NtNmI3-76PkNhp-wrgqn8-92duqzx8Svtopeh0m9xw8
     scenes-app-marketing-analytics-cell-actions--campaign-cell-action-globally-mapped--light:
