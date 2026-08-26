@@ -30,7 +30,8 @@ use std::time::Duration;
 use dashmap::DashMap;
 use ingestion_worker_proto::ingestion::worker::v1::worker_ingest_client::WorkerIngestClient;
 use ingestion_worker_proto::ingestion::worker::v1::{
-    ingest_stream_request, IngestStreamRequest, KafkaMessage, StreamHello, SubBatch, SubBatchStatus,
+    ingest_stream_request, ingest_stream_response, IngestStreamRequest, KafkaMessage, StreamHello,
+    SubBatch, SubBatchStatus,
 };
 use metrics::{counter, gauge};
 use tokio::sync::{mpsc, oneshot};
@@ -498,13 +499,15 @@ impl LaneRunner {
             };
 
             match ack {
-                Some(Ok(Some(response))) => {
-                    // Seq 0 is the worker's greeting (and any future
+                Some(Ok(Some(frame))) => {
+                    // `ready` is the worker's greeting (and any future
                     // keepalive): it exists to flush response headers, not to
-                    // resolve work — ignore it.
-                    if response.seq == 0 {
-                        continue;
-                    }
+                    // resolve work. A frame this consumer predates is ignored
+                    // the same way.
+                    let response = match frame.msg {
+                        Some(ingest_stream_response::Msg::Ack(ack)) => ack,
+                        Some(ingest_stream_response::Msg::Ready(_)) | None => continue,
+                    };
                     if response.status == SubBatchStatus::Failed as i32 {
                         warn!(
                             worker = %self.worker_url,

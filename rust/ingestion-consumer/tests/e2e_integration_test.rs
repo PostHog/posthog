@@ -37,7 +37,8 @@ use ingestion_worker_proto::ingestion::worker::v1::worker_ingest_server::{
     WorkerIngest as WorkerIngestService, WorkerIngestServer,
 };
 use ingestion_worker_proto::ingestion::worker::v1::{
-    ingest_stream_request, IngestStreamRequest, IngestStreamResponse, SubBatchStatus,
+    ingest_stream_request, ingest_stream_response, IngestStreamRequest, IngestStreamResponse,
+    StreamReady, SubBatchAck, SubBatchStatus,
 };
 
 const KAFKA_BROKERS: &str = "localhost:9092";
@@ -449,13 +450,10 @@ impl WorkerIngestService for FakeWorkerGrpc {
         let delivery_log = self.delivery_log.clone();
 
         tokio::spawn(async move {
-            // Mirror the real worker: greet with seq 0 so response headers
+            // Mirror the real worker: greet with `ready` so response headers
             // flush; the lane must ignore it.
             let _ = tx.send(Ok(IngestStreamResponse {
-                seq: 0,
-                status: SubBatchStatus::Ok as i32,
-                accepted: 0,
-                error: String::new(),
+                msg: Some(ingest_stream_response::Msg::Ready(StreamReady {})),
             }));
             let nack = |tx: &tokio::sync::mpsc::UnboundedSender<
                 Result<IngestStreamResponse, tonic::Status>,
@@ -463,10 +461,12 @@ impl WorkerIngestService for FakeWorkerGrpc {
                         seq: u64,
                         reason: &str| {
                 let _ = tx.send(Ok(IngestStreamResponse {
-                    seq,
-                    status: SubBatchStatus::Failed as i32,
-                    accepted: 0,
-                    error: reason.to_string(),
+                    msg: Some(ingest_stream_response::Msg::Ack(SubBatchAck {
+                        seq,
+                        status: SubBatchStatus::Failed as i32,
+                        accepted: 0,
+                        error: reason.to_string(),
+                    })),
                 }));
             };
             while let Ok(Some(frame)) = inbound.message().await {
@@ -515,10 +515,12 @@ impl WorkerIngestService for FakeWorkerGrpc {
                     accepted
                 };
                 let _ = tx.send(Ok(IngestStreamResponse {
-                    seq: sub_batch.seq,
-                    status: SubBatchStatus::Ok as i32,
-                    accepted: reported,
-                    error: String::new(),
+                    msg: Some(ingest_stream_response::Msg::Ack(SubBatchAck {
+                        seq: sub_batch.seq,
+                        status: SubBatchStatus::Ok as i32,
+                        accepted: reported,
+                        error: String::new(),
+                    })),
                 }));
             }
         });

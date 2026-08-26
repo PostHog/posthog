@@ -17,7 +17,8 @@ use ingestion_worker_proto::ingestion::worker::v1::worker_ingest_server::{
     WorkerIngest, WorkerIngestServer,
 };
 use ingestion_worker_proto::ingestion::worker::v1::{
-    ingest_stream_request, IngestStreamRequest, IngestStreamResponse, SubBatch, SubBatchStatus,
+    ingest_stream_request, ingest_stream_response, IngestStreamRequest, IngestStreamResponse,
+    StreamReady, SubBatch, SubBatchAck, SubBatchStatus,
 };
 use tokio::sync::{mpsc, Mutex};
 use tokio_stream::wrappers::UnboundedReceiverStream;
@@ -65,23 +66,22 @@ impl WorkerIngest for MockWorker {
         let manual = self.manual_acks.lock().await.take();
 
         tokio::spawn(async move {
-            // Mirror the real worker: greet with seq 0 so response headers
+            // Mirror the real worker: greet with `ready` so response headers
             // flush; the lane must ignore it.
             let _ = tx.send(Ok(IngestStreamResponse {
-                seq: 0,
-                status: SubBatchStatus::Ok as i32,
-                accepted: 0,
-                error: String::new(),
+                msg: Some(ingest_stream_response::Msg::Ready(StreamReady {})),
             }));
             if let Some(mut manual) = manual {
                 let tx = tx.clone();
                 tokio::spawn(async move {
                     while let Some((seq, accepted)) = manual.recv().await {
                         let _ = tx.send(Ok(IngestStreamResponse {
-                            seq,
-                            status: SubBatchStatus::Ok as i32,
-                            accepted,
-                            error: String::new(),
+                            msg: Some(ingest_stream_response::Msg::Ack(SubBatchAck {
+                                seq,
+                                status: SubBatchStatus::Ok as i32,
+                                accepted,
+                                error: String::new(),
+                            })),
                         }));
                     }
                 });
@@ -98,42 +98,52 @@ impl WorkerIngest for MockWorker {
                         match mode {
                             AckMode::Immediate => {
                                 let _ = tx.send(Ok(IngestStreamResponse {
-                                    seq,
-                                    status: SubBatchStatus::Ok as i32,
-                                    accepted,
-                                    error: String::new(),
+                                    msg: Some(ingest_stream_response::Msg::Ack(SubBatchAck {
+                                        seq,
+                                        status: SubBatchStatus::Ok as i32,
+                                        accepted,
+                                        error: String::new(),
+                                    })),
                                 }));
                             }
                             AckMode::NackSeq(nack) if seq == nack => {
                                 let _ = tx.send(Ok(IngestStreamResponse {
-                                    seq,
-                                    status: SubBatchStatus::Failed as i32,
-                                    accepted: 0,
-                                    error: "poisoned".to_string(),
+                                    msg: Some(ingest_stream_response::Msg::Ack(SubBatchAck {
+                                        seq,
+                                        status: SubBatchStatus::Failed as i32,
+                                        accepted: 0,
+                                        error: "poisoned".to_string(),
+                                    })),
                                 }));
                             }
                             AckMode::NackSeq(_) => {
                                 let _ = tx.send(Ok(IngestStreamResponse {
-                                    seq,
-                                    status: SubBatchStatus::Ok as i32,
-                                    accepted,
-                                    error: String::new(),
+                                    msg: Some(ingest_stream_response::Msg::Ack(SubBatchAck {
+                                        seq,
+                                        status: SubBatchStatus::Ok as i32,
+                                        accepted,
+                                        error: String::new(),
+                                    })),
                                 }));
                             }
                             AckMode::BusySeq(busy) if seq == busy => {
                                 let _ = tx.send(Ok(IngestStreamResponse {
-                                    seq,
-                                    status: SubBatchStatus::Busy as i32,
-                                    accepted: 0,
-                                    error: "at capacity".to_string(),
+                                    msg: Some(ingest_stream_response::Msg::Ack(SubBatchAck {
+                                        seq,
+                                        status: SubBatchStatus::Busy as i32,
+                                        accepted: 0,
+                                        error: "at capacity".to_string(),
+                                    })),
                                 }));
                             }
                             AckMode::BusySeq(_) => {
                                 let _ = tx.send(Ok(IngestStreamResponse {
-                                    seq,
-                                    status: SubBatchStatus::Ok as i32,
-                                    accepted,
-                                    error: String::new(),
+                                    msg: Some(ingest_stream_response::Msg::Ack(SubBatchAck {
+                                        seq,
+                                        status: SubBatchStatus::Ok as i32,
+                                        accepted,
+                                        error: String::new(),
+                                    })),
                                 }));
                             }
                             AckMode::Manual => {}
