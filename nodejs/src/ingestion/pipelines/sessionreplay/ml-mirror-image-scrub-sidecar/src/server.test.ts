@@ -3,6 +3,7 @@ import type { AddressInfo } from 'node:net'
 import sharp from 'sharp'
 
 import { blurOnly } from './blur.ts'
+import { register } from './metrics.ts'
 import { startServer } from './server.ts'
 
 const PNG = Buffer.from(
@@ -23,6 +24,7 @@ describe('image-scrub sidecar server', () => {
         base = `http://127.0.0.1:${(servers.scrub.address() as AddressInfo).port}`
         metricsBase = `http://127.0.0.1:${(servers.metrics.address() as AddressInfo).port}`
     })
+    beforeEach(() => register.resetMetrics())
     afterAll((done) => {
         let remaining = 2
         for (const server of [servers.scrub, servers.metrics]) {
@@ -42,6 +44,9 @@ describe('image-scrub sidecar server', () => {
     it('422s on undecodable bytes so the consumer skips them instead of retrying forever', async () => {
         const res = await fetch(`${base}/scrub`, { method: 'POST', body: Buffer.from('not-an-image') })
         expect(res.status).toBe(422)
+        expect(await (await fetch(`${metricsBase}/metrics`)).text()).toContain(
+            'ml_mirror_image_scrub_undecodable_total{reason="unsupported_format"} 1'
+        )
     })
 
     it('413s on a body over the size cap so the consumer skips it', async () => {
@@ -52,11 +57,17 @@ describe('image-scrub sidecar server', () => {
     it('422s a request with no body', async () => {
         const res = await fetch(`${base}/scrub`, { method: 'POST' })
         expect(res.status).toBe(422)
+        expect(await (await fetch(`${metricsBase}/metrics`)).text()).toContain(
+            'ml_mirror_image_scrub_undecodable_total{reason="invalid_body"} 1'
+        )
     })
 
     it('422s a truncated image (fails mid-decode, not just at the header)', async () => {
         const res = await fetch(`${base}/scrub`, { method: 'POST', body: PNG.subarray(0, 40) })
         expect(res.status).toBe(422)
+        expect(await (await fetch(`${metricsBase}/metrics`)).text()).toContain(
+            'ml_mirror_image_scrub_undecodable_total{reason="decode_failed"} 1'
+        )
     })
 
     it('422s an image whose PLUS metadata prohibits AI training', async () => {

@@ -1993,8 +1993,7 @@ class TestTaskAPI(BaseTaskAPITest):
     def test_discussion_note_skipped_when_user_lacks_skill_editor_access(self):
         # A caller who couldn't write a scout note by hand (no llm_skill editor access) can't plant one
         # via a discussion, even though creating the task needs only task:write.
-        from posthog.rbac.user_access_control import UserAccessControl
-
+        from products.access_control.backend.facade.user_access_control import UserAccessControl
         from products.signals.backend.models import SignalReport
 
         report = SignalReport.objects.create(team=self.team, title="Checkout errors spiked")
@@ -8125,8 +8124,8 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
 
         with (
             patch(
-                "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.Sandbox.get_by_id",
-                return_value=sandbox,
+                "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.get_sandbox_class_for_sandbox_id",
+                **{"return_value.get_by_id.return_value": sandbox},
             ),
             patch(
                 "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.publish_task_run_stream_complete",
@@ -8164,8 +8163,8 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
 
         with (
             patch(
-                "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.Sandbox.get_by_id",
-                return_value=sandbox,
+                "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.get_sandbox_class_for_sandbox_id",
+                **{"return_value.get_by_id.return_value": sandbox},
             ),
             patch(
                 "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.publish_task_run_stream_complete"
@@ -8198,8 +8197,8 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
 
         with (
             patch(
-                "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.Sandbox.get_by_id",
-                return_value=sandbox,
+                "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.get_sandbox_class_for_sandbox_id",
+                **{"return_value.get_by_id.return_value": sandbox},
             ),
             patch(
                 "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.publish_task_run_stream_complete",
@@ -10051,7 +10050,9 @@ class TestTaskRunLivingArtifactChartAPI(BaseTaskAPITest):
         response = self._post_chart(["task:write", "query:read"], {"name": "Chart", "query": self.CHART_QUERY})
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    @patch("posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_resource")
+    @patch(
+        "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_resource"
+    )
     @patch("products.tasks.backend.presentation.views.api.render_png_export")
     def test_session_auth_without_query_access_is_rejected(self, mock_render, mock_check):
         mock_check.side_effect = lambda resource, required_level: resource != "query"
@@ -10510,6 +10511,42 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         mock_signal_followup.side_effect = RuntimeError("temporal unavailable")
         task = self.create_task()
         run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            self._make_user_message(),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+        self.assertEqual(response.json()["error"], "Failed to queue user message for task run")
+
+    @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
+    def test_command_returns_409_when_user_message_workflow_has_ended(self, mock_signal_followup):
+        from temporalio.service import RPCError, RPCStatusCode
+
+        mock_signal_followup.side_effect = RPCError("workflow missing", RPCStatusCode.NOT_FOUND, b"")
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            self._make_user_message(),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(response.json()["error"], "Task run workflow has ended")
+
+    @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
+    def test_command_returns_502_while_warm_workflow_is_registering(self, mock_signal_followup):
+        from temporalio.service import RPCError, RPCStatusCode
+
+        mock_signal_followup.side_effect = RPCError("workflow missing", RPCStatusCode.NOT_FOUND, b"")
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+        run.state = {**run.state, "await_user_message": True}
+        run.save(update_fields=["state", "updated_at"])
 
         response = self.client.post(
             self._command_url(task, run),

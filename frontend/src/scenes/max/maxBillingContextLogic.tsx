@@ -3,7 +3,7 @@ import { objectsEqual } from 'kea-test-utils'
 
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { isAddonVisible } from 'scenes/billing/billing-utils'
+import { isAddonVisible, isUsageAtOrOverLimit } from 'scenes/billing/billing-utils'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { BillingSpendResponse, billingSpendLogic } from 'scenes/billing/billingSpendLogic'
 import { BillingUsageResponse, billingUsageLogic } from 'scenes/billing/billingUsageLogic'
@@ -181,7 +181,7 @@ export const billingToMaxContext = (
                     name: addon.name,
                     description: addon.description || '',
                     is_used: (addon.current_usage || 0) > 0,
-                    has_exceeded_limit: (addon.percentage_usage || 0) > 1,
+                    has_exceeded_limit: isUsageAtOrOverLimit(addon.percentage_usage),
                     current_usage: addon.current_usage || 0,
                     usage_limit: addon.usage_limit,
                     percentage_usage: addon.percentage_usage,
@@ -194,7 +194,7 @@ export const billingToMaxContext = (
             name: product.name,
             description: product.description || '',
             is_used: (product.current_usage || 0) > 0,
-            has_exceeded_limit: product.percentage_usage > 1,
+            has_exceeded_limit: isUsageAtOrOverLimit(product.percentage_usage),
             current_usage: product.current_usage,
             usage_limit: product.usage_limit,
             percentage_usage: product.percentage_usage || 0,

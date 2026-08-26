@@ -2115,6 +2115,13 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "repositories",
         "verified_pr_urls",
         "sandbox_id",
+        # Sandbox connection state is written only by the provisioning activity. A PATCHable
+        # sandbox_backend/sandbox_url would let a task controller point the account-wide hogland
+        # bearer (or the connect token) at an arbitrary server, so it stays server-owned.
+        "sandbox_backend",
+        "sandbox_url",
+        "sandbox_connect_token",
+        "sandbox_jwt_kid",
         "sandbox_cpu_cores",
         "sandbox_memory_gb",
         "sandbox_ttl_seconds",
@@ -3868,6 +3875,8 @@ def signal_task_run_user_message(
         )
     except RPCError as e:
         if e.status == RPCStatusCode.NOT_FOUND:
+            if not run.is_terminal and (run.state or {}).get("await_user_message"):
+                raise
             logger.warning("Follow-up signal target workflow gone for task run %s", run.id)
             return False
         raise
@@ -4144,11 +4153,17 @@ def get_task_run_sandbox_connection(
     if not run_state.sandbox_url:
         return contracts.TaskRunSandboxConnectionDTO(sandbox_url=None, sandbox_connect_token=None)
 
+    from products.tasks.backend.logic.services.agent_command import (  # noqa: PLC0415 — keep sandbox deps off the api import path
+        sandbox_transport_token,
+    )
+
     connection_token = _create(task_run=run, user_id=user_id, distinct_id=distinct_id)
+    transport_token, token_param = sandbox_transport_token(run.state, run_state.sandbox_url)
     return contracts.TaskRunSandboxConnectionDTO(
         sandbox_url=run_state.sandbox_url,
-        sandbox_connect_token=run_state.sandbox_connect_token,
+        sandbox_connect_token=transport_token,
         connection_token=connection_token,
+        sandbox_token_param=token_param,
     )
 
 

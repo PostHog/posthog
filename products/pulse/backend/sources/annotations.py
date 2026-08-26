@@ -5,8 +5,8 @@ from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from posthog.models.team import Team
-from posthog.rbac.user_access_control import UserAccessControl
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.annotations.backend.models import Annotation
 from products.pulse.backend.config import BriefSettings
 from products.pulse.backend.models import BriefConfig
