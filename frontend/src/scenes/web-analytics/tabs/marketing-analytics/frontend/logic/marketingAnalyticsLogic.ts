@@ -306,6 +306,7 @@ export interface marketingAnalyticsLogicValues {
     nativeSourcesHierarchyStatus: NativeSourceHierarchyStatus[]
     overviewQuery: MarketingAnalyticsAggregatedQuery
     setupSection: SetupSection
+    shouldFilterTestAccounts: boolean
     tileColumnSelection: validColumnsForTiles
     uniqueConversionGoalName: string
     validExternalTables: ExternalTable[]
@@ -433,6 +434,9 @@ export interface marketingAnalyticsLogicActions {
     }
     setSetupSection: (section: SetupSection) => {
         section: SetupSection
+    }
+    setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => {
+        shouldFilterTestAccounts: boolean
     }
     setTileColumnSelection: (column: validColumnsForTiles) => {
         column: validColumnsForTiles
@@ -574,7 +578,8 @@ export interface marketingAnalyticsLogicMeta {
             },
             compareFilter: CompareFilter,
             draftConversionGoal: ConversionGoalFilter | null,
-            integrationFilter: IntegrationFilter
+            integrationFilter: IntegrationFilter,
+            shouldFilterTestAccounts: any
         ) => MarketingAnalyticsAggregatedQuery
     }
 }
@@ -633,6 +638,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             interval,
         }),
         setIntegrationFilter: (integrationFilter: IntegrationFilter) => ({ integrationFilter }),
+        setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => ({ shouldFilterTestAccounts }),
         // Internal action for URL sync - updates state without triggering actionToUrl
         syncFromUrl: (params: {
             dateFrom?: string | null
@@ -707,6 +713,15 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                             ...(params.compare_to !== undefined ? { compare_to: params.compare_to } : {}),
                         }
                     },
+                },
+            ],
+            // Off by default, matching web analytics next door, so no existing team's numbers move until
+            // someone asks for it. Persisted per team the same way.
+            shouldFilterTestAccounts: [
+                false as boolean,
+                persistConfig,
+                {
+                    setShouldFilterTestAccounts: (_, { shouldFilterTestAccounts }) => shouldFilterTestAccounts,
                 },
             ],
             integrationFilter: [
@@ -1224,7 +1239,13 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             },
         ],
         overviewQuery: [
-            (s) => [s.dateFilter, s.compareFilter, s.draftConversionGoal, s.integrationFilter],
+            (s) => [
+                s.dateFilter,
+                s.compareFilter,
+                s.draftConversionGoal,
+                s.integrationFilter,
+                s.shouldFilterTestAccounts,
+            ],
             (
                 dateFilter: {
                     dateFrom: string | null
@@ -1233,7 +1254,8 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 },
                 compareFilter: CompareFilter,
                 draftConversionGoal: ConversionGoalFilter | null,
-                integrationFilter: IntegrationFilter
+                integrationFilter: IntegrationFilter,
+                shouldFilterTestAccounts: boolean
             ): MarketingAnalyticsAggregatedQuery => ({
                 kind: NodeKind.MarketingAnalyticsAggregatedQuery,
                 dateRange: {
@@ -1242,6 +1264,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 },
                 compareFilter,
                 properties: [],
+                filterTestAccounts: shouldFilterTestAccounts,
                 draftConversionGoal: draftConversionGoal || undefined,
                 integrationFilter,
             }),

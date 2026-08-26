@@ -6,6 +6,7 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FilterBar } from 'lib/components/FilterBar'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
+import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { Scene } from 'scenes/sceneTypes'
 
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
@@ -19,8 +20,8 @@ import { ConversionGoalModal } from './ConversionGoalModal'
 import { IntegrationFilter } from './IntegrationFilter'
 
 export const MarketingAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Element => {
-    const { compareFilter, dateFilter } = useValues(marketingAnalyticsLogic)
-    const { setCompareFilter, setDates } = useActions(marketingAnalyticsLogic)
+    const { compareFilter, dateFilter, shouldFilterTestAccounts } = useValues(marketingAnalyticsLogic)
+    const { setCompareFilter, setDates, setShouldFilterTestAccounts } = useActions(marketingAnalyticsLogic)
 
     return (
         <BindLogic logic={dataNodeCollectionLogic} props={{ key: MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
@@ -51,6 +52,13 @@ export const MarketingAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.
                         >
                             <AddIntegrationButton />
                         </Shortcut>
+                        {/* Only the event side honors this. Ad spend comes from the platforms, which
+                            never saw your staff, so the cost columns are unaffected either way. */}
+                        <TestAccountFilterSwitch
+                            checked={shouldFilterTestAccounts}
+                            onChange={setShouldFilterTestAccounts}
+                            size="small"
+                        />
                         <IntegrationFilter />
                         <DateFilter
                             allowTimePrecision

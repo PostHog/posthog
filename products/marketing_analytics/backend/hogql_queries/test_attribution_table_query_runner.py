@@ -127,6 +127,7 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
         date_to: str = "2023-01-31",
         lookback_days: int | None = None,
         allow_multiple_conversions: bool | None = None,
+        filter_test_accounts: bool = False,
     ):
         flush_persons_and_events()
         query = MarketingAnalyticsAttributionQuery(
@@ -137,6 +138,7 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
             excludeUnattributed=exclude_unattributed,
             lookbackWindowDays=lookback_days,
             allowMultipleConversionsPerVisitor=allow_multiple_conversions,
+            filterTestAccounts=filter_test_accounts,
             properties=[],
         )
         return MarketingAnalyticsAttributionQueryRunner(query=query, team=self.team).calculate()
@@ -145,6 +147,27 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
     def _by_breakdown(response) -> dict[str, dict[AttributionMode, float]]:
         """{breakdown value: {model: conversions}} — the shape every weight assertion needs."""
         return {row.breakdownValue: {cell.model: cell.conversions for cell in row.models} for row in response.results}
+
+    @parameterized.expand([("off", False, 2.0), ("on", True, 1.0)])
+    def test_filter_test_accounts_drops_internal_traffic(self, _name, filter_test_accounts, expected_conversions):
+        # Both arms have to honor the filter. Applied only to the conversion scan, the internal person's
+        # touchpoints still dilute every model's weights; applied only to the touchpoint scan, their
+        # conversion survives as unattributed. Asserting the conversion count catches either half.
+        self.team.test_account_filters = [
+            {"key": "email", "value": "@internal.example.com", "operator": "not_icontains", "type": "person"}
+        ]
+        self.team.save()
+        create_person(team=self.team, distinct_ids=["customer"], properties={"email": "buyer@example.com"})
+        create_person(team=self.team, distinct_ids=["staff"], properties={"email": "qa@internal.example.com"})
+        for distinct_id in ("customer", "staff"):
+            self._session(distinct_id, "2023-01-10T12:00:00Z", utm_source="google")
+            self._conversion(distinct_id, "2023-01-11T12:00:00Z")
+
+        rows = self._by_breakdown(
+            self._run(MarketingAnalyticsAttributionBreakdown.SOURCE, filter_test_accounts=filter_test_accounts)
+        )
+
+        self.assertEqual(rows["google"][AttributionMode.LAST_TOUCH], expected_conversions)
 
     def test_visitors_include_lookback_arrivals_that_can_earn_credit(self):
         # Credit looks back attribution_window_days before the date range, so reach must too: a visitor

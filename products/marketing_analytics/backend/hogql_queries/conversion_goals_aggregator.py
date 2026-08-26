@@ -71,10 +71,13 @@ class ConversionGoalsAggregator:
         if not self.processors:
             raise ValueError("Cannot create unified CTE without conversion goal processors")
 
-        # The touchpoints precompute is config-agnostic: every goal drives the exact same
+        # The touchpoints precompute is goal-agnostic: every goal drives the exact same
         # ensure_precomputed for the same window. Share one handle so it is materialized once for the
-        # whole read instead of once per goal.
-        touchpoints = SharedTouchpointsPrecompute(self.processors[0].team, self.config)
+        # whole read instead of once per goal. Every processor in a read carries the same query, so the
+        # first one's test-account setting speaks for all of them.
+        touchpoints = SharedTouchpointsPrecompute(
+            self.processors[0].team, self.config, self.processors[0].filter_test_accounts
+        )
 
         # Step 1: Generate individual conversion goal queries, parallelised across goals
         # so ensure_precomputed's PG+Redis+ClickHouse round-trips collapse to max(overhead).
