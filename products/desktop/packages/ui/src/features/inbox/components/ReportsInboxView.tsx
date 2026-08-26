@@ -131,9 +131,12 @@ export function ReportsInboxView() {
   const decisionCount = searchActive
     ? sections.decision.length
     : serverCounts.decision;
-  const monitoringCount = searchActive
-    ? sections.monitoring.length
-    : serverCounts.monitoring;
+  const attentionCount = searchActive
+    ? sections.attention.length
+    : serverCounts.attention;
+  const inProgressCount = searchActive
+    ? sections.inProgress.length
+    : serverCounts.inProgress;
   useTrackReportsInboxViewed({
     reports: scopedReports,
     totalCount: searchActive ? scopedReports.length : totalCount,
@@ -194,10 +197,13 @@ export function ReportsInboxView() {
   }
 
   const isEmpty = searchActive
-    ? sections.decision.length === 0 && sections.monitoring.length === 0
+    ? sections.decision.length === 0 &&
+      sections.attention.length === 0 &&
+      sections.inProgress.length === 0
     : !serverCounts.isLoading &&
       serverCounts.decision === 0 &&
-      serverCounts.monitoring === 0;
+      serverCounts.attention === 0 &&
+      serverCounts.inProgress === 0;
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-gray-1">
@@ -330,9 +336,14 @@ export function ReportsInboxView() {
                     emptyNote="Nothing waiting on you."
                   />
                   <InboxSection
-                    title="Monitoring"
-                    reports={sections.monitoring}
-                    count={monitoringCount}
+                    title="Needs attention"
+                    reports={sections.attention}
+                    count={attentionCount}
+                  />
+                  <InboxSection
+                    title="In progress"
+                    reports={sections.inProgress}
+                    count={inProgressCount}
                   />
                   {isFetchingNextPage && (
                     <div className="flex justify-center py-2">

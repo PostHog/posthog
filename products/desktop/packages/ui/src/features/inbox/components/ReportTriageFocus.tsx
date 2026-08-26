@@ -215,6 +215,9 @@ export function ReportTriageFocus({
             <span className="text-[13px] text-gray-10 tabular-nums">
               {clamped + 1} of {reports.length}
             </span>
+            <span className="text-[12.5px] text-gray-10">
+              Current scope and filters apply
+            </span>
           </div>
           <Button
             type="button"
