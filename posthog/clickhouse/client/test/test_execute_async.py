@@ -363,6 +363,23 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         assert result.error_message
         self.assertEqual(result.error_code, ClickHouseQueryMemoryLimitExceeded.default_code)
 
+    def test_async_query_non_user_safe_error_carries_error_code_without_message(self):
+        query = build_query("SELECT * FROM events")
+        query_id = uuid.uuid4().hex
+
+        with patch("posthog.api.services.query.process_query_dict", side_effect=Exception("sensitive detail")):
+            client.enqueue_process_query_task(
+                self.team, self.user.id, query, query_id=query_id, _test_only_bypass_celery=True
+            )
+
+        result = client.get_query_status(self.team.id, query_id)
+        self.assertTrue(result.error)
+        self.assertTrue(result.complete)
+        # The message stays hidden for a non-user-safe error, but the class name is carried as a
+        # machine-readable cause so callers can classify the failure.
+        self.assertIsNone(result.error_message)
+        self.assertEqual(result.error_code, "Exception")
+
     def test_async_query_server_errors(self):
         query = build_query("SELECT * FROM events")
 

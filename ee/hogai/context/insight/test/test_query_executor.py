@@ -396,6 +396,32 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
         self.assertIn("Query failed with error", str(context.exception))
 
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
+    @patch("ee.hogai.context.insight.query_executor.get_query_status")
+    async def test_async_query_polling_error_without_message_is_retryable(
+        self, mock_get_query_status, mock_process_query
+    ):
+        # A non-user-safe failure hides the message text but carries error_code. The step must retry
+        # (MaxToolRetryableError) and surface the cause, not dead-end on an opaque "Query failed".
+        mock_process_query.return_value = {"query_status": {"id": "test-query-id", "complete": False}}
+        mock_get_query_status.return_value = Mock(
+            model_dump=lambda mode: {
+                "id": "test-query-id",
+                "complete": True,
+                "error": True,
+                "error_message": None,
+                "error_code": "CHQueryErrorMemoryLimitExceeded",
+            }
+        )
+
+        query = AssistantTrendsQuery(series=[])
+
+        with patch("ee.hogai.context.insight.query_executor.asyncio.sleep"):
+            with self.assertRaises(MaxToolRetryableError) as context:
+                await self.query_runner.arun_and_format_query(query)
+
+        self.assertIn("CHQueryErrorMemoryLimitExceeded", str(context.exception))
+
     @override_settings(TEST=False)
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     async def test_execution_mode_in_production(self, mock_process_query):

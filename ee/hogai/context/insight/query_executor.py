@@ -442,7 +442,12 @@ class AssistantQueryExecutor:
                 if query_status.get("error"):
                     if error_message := query_status.get("error_message"):
                         raise APIException(error_message)
-                    raise Exception("Query failed")
+                    # The status hides the message text because it's not user-safe, but error_code
+                    # carries the machine-readable cause (a ClickHouse memory limit, an internal
+                    # error, a worker crash). These are transient, so retry instead of dead-ending
+                    # on an opaque "Query failed" that the report pipeline never retries.
+                    error_code = query_status.get("error_code")
+                    raise MaxToolRetryableError(f"Query failed: {error_code}" if error_code else "Query failed")
 
                 # Use the completed query results
                 response_dict = query_status["results"]
@@ -453,6 +458,7 @@ class AssistantQueryExecutor:
             HogQLNotImplementedError,
             ExposedCHQueryError,
             UserAccessControlError,
+            MaxToolRetryableError,
         ) as err:
             elapsed = time.time() - start_time
             # Handle known query execution errors with user-friendly messages
