@@ -3081,9 +3081,13 @@ snapshots:
     insights-trendsslopechart--with-legend--light:
         hash: v1.k794b7964.741230bf1c62eef2ad168576820c7b32c4d625c3930fed4a8290b64c89995acf.5S1wF2zrE9wuSnvvi_K2ke3N3ZDxGHbaXmhhKzO5NX4
     insights-variables--date-variable-input--dark:
-        hash: v1.k794b7964.9f55263cf42996613af3d9a4e643fd80f6cc106a45365d2dd4e271894850e217.v6mqgP6NMvMvOWrF2XuxcO5OS03GKEoGV9wMH6hRZ4o
+        hash: v1.k794b7964.fbfdd1ab9877182aad54b9e982528eefa2e6fcaa46dd3f456fb09008c8c75fd7.2UHdBAKQYuxX4igfiTSsjJsXkU4F-RYTg08z-HdCyks
     insights-variables--date-variable-input--light:
-        hash: v1.k794b7964.c1777f08d6a5dfa0dd5c18d3e4a0721c6f68e0b5e83850a01ffa549f5232fe0e.qTeNMD1AqBtCmBYDTSU2gjHY1kGCeXFPp0s7WhTrxgA
+        hash: v1.k794b7964.7d12e17009d1b61a69effad186e8ec6e543a4b35cf5a4dc28db076b947730a3b.6oJL6fvz-xFkp8cLiQhoN6_x5stTKMR3LFFv7Ag3nHw
+    insights-variables--date-variable-input-with-long-code-name--dark:
+        hash: v1.k794b7964.aa04b3084acd359081e1e092f8431bd4d48693f94ce0c2f36fc806113ce8a08f.eP9h3WgMVuGCUSzNkq4BxnskE8uW2GBLHNV_mb9Bz3c
+    insights-variables--date-variable-input-with-long-code-name--light:
+        hash: v1.k794b7964.f5568aae8786ef8ca0e998ac32fea8be5fddf4559ee00bf19cec72be78f10c0d.QxzRYYbgDUBH3s4E5FK1lQZdsJi1AMjjsZQKpfKPtYw
     insights-variables--relative-date-variable-input--dark:
         hash: v1.k794b7964.993cb47aaab3f9408430d0dcdda87e8eca9cb16c7681dcde25e58a4611f64828.c_7HSBE3vhm-UjRbxmi5mdL2bQKskYYJfcxIP1-a-Pw
     insights-variables--relative-date-variable-input--light:
