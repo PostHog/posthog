@@ -6,13 +6,14 @@ recognizable.
 
 import datetime as dt
 from dataclasses import asdict
+from typing import cast
 
 from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ParseError
+from rest_framework.exceptions import ParseError, PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -20,7 +21,8 @@ from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.event_usage import report_user_action
-from posthog.permissions import PostHogFeatureFlagPermission
+from posthog.models import User
+from posthog.permissions import PostHogFeatureFlagPermission, posthog_feature_flag_enabled
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 
 from products.metrics.backend.facade.api import (
@@ -37,6 +39,7 @@ from products.metrics.backend.facade.api import (
 )
 from products.metrics.backend.facade.contracts import (
     MAX_CLAUSES_PER_QUERY,
+    METRICS_ERROR_OVERLAYS_FEATURE_FLAG,
     METRICS_FEATURE_FLAG,
     MetricFilter,
     MetricGroupBy,
@@ -983,6 +986,16 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         """Error Tracking issue spikes detected in a time window — backs the
         metrics chart's error-spike overlay (PoC). Team-wide: not yet scoped
         to the metric's own service."""
+        # Layered on top of the viewset's `metrics` gate: the overlay is a PoC
+        # kept to staff only, so it needs its own flag even once metrics is on.
+        if not posthog_feature_flag_enabled(
+            METRICS_ERROR_OVERLAYS_FEATURE_FLAG,
+            str(cast(User, request.user).distinct_id),
+            organization_id=self.team.organization_id,
+            team_id=self.team.pk,
+        ):
+            raise PermissionDenied("The metrics error-spike overlay is not enabled for this user.")
+
         tag_queries(product=Product.METRICS, feature=Feature.QUERY)
 
         params = _MetricErrorSpikesParamsSerializer(data=request.query_params)

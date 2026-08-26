@@ -58,16 +58,29 @@ class TestMetricsErrorSpikesApi(APIBaseTest):
             current_bucket_value=10,
         )
 
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/metrics/error_spikes/",
-            {"dateFrom": (now - timedelta(hours=1)).isoformat()},
-        )
+        # The overlay is a staff-only PoC behind its own flag, on top of the
+        # `metrics` gate the conftest already enables — turn both on here.
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/metrics/error_spikes/",
+                {"dateFrom": (now - timedelta(hours=1)).isoformat()},
+            )
 
         assert response.status_code == status.HTTP_200_OK
         results = response.json()["results"]
         assert len(results) == 1
         assert results[0]["issue_id"] == str(issue.id)
         assert results[0]["issue_name"] == "Boom"
+
+    def test_is_forbidden_when_only_the_metrics_flag_is_enabled(self) -> None:
+        # The autouse conftest enables `metrics` but not `metrics-error-overlays`,
+        # so the endpoint must stay closed even though the rest of metrics is open.
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/metrics/error_spikes/",
+            {"dateFrom": (timezone.now() - timedelta(hours=1)).isoformat()},
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
 
 class TestMetricsFeatureFlagGate(APIBaseTest):

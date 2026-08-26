@@ -32,6 +32,10 @@ MAX_CLAUSES_PER_QUERY = 10
 # must check the same flag, or one of them becomes a bypass.
 METRICS_FEATURE_FLAG = "metrics"
 
+# Extra gate for the error-spike overlay PoC, layered on top of METRICS_FEATURE_FLAG.
+# Staff-only while it's a proof of concept — see METRICS_ERROR_OVERLAY_PLAN.md.
+METRICS_ERROR_OVERLAYS_FEATURE_FLAG = "metrics-error-overlays"
+
 
 @dataclass(frozen=True, slots=True)
 class MetricFilter:

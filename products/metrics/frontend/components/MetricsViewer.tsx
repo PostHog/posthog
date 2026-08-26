@@ -22,8 +22,10 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { DATE_TIME_FORMAT, formatDateRange } from 'lib/utils/datetime'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
@@ -149,6 +151,9 @@ export const MetricsViewer = (): JSX.Element => {
     const { items: pickerItems } = useValues(pickerLogic)
     const { traceExemplars, errorSpikeExemplars, showErrorSpikes } = useValues(metricsSamplesLogic)
     const { toggleShowErrorSpikes } = useActions(metricsSamplesLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    // Staff-only PoC gate, layered on top of the wider metrics alpha flag.
+    const errorOverlaysEnabled = !!featureFlags[FEATURE_FLAGS.METRICS_ERROR_OVERLAYS]
     const { exemplarDotClicked } = useActions(metricsUsageTrackingLogic)
     const metricsViewerDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.Metrics,
@@ -197,7 +202,7 @@ export const MetricsViewer = (): JSX.Element => {
     // trace exemplars, and skipped entirely without Error Tracking view access.
     const errorSpikeMarkers: MetricsExemplar[] = useMemo(
         () =>
-            !showErrorSpikes || errorTrackingDisabledReason
+            !errorOverlaysEnabled || !showErrorSpikes || errorTrackingDisabledReason
                 ? []
                 : errorSpikeExemplars.map((spike) => ({
                       timeMs: dayjs(spike.timestamp).valueOf(),
@@ -207,7 +212,7 @@ export const MetricsViewer = (): JSX.Element => {
                           router.actions.push(urls.errorTrackingIssue(spike.issueId, { timestamp: spike.timestamp }))
                       },
                   })),
-        [showErrorSpikes, errorSpikeExemplars, errorTrackingDisabledReason]
+        [errorOverlaysEnabled, showErrorSpikes, errorSpikeExemplars, errorTrackingDisabledReason]
     )
 
     // Refetch the chart whenever any filter changes — the loader breakpoint debounces input.
@@ -289,15 +294,17 @@ export const MetricsViewer = (): JSX.Element => {
                             data-attr="metrics-viewer-live-toggle"
                             disabledReason={metricsViewerDisabledReason}
                         />
-                        <LemonSwitch
-                            label="Error spikes"
-                            checked={showErrorSpikes}
-                            onChange={toggleShowErrorSpikes}
-                            tooltip="Mark Error Tracking issue spikes on the chart (team-wide, PoC)"
-                            bordered
-                            data-attr="metrics-viewer-error-spikes-toggle"
-                            disabledReason={metricsViewerDisabledReason ?? errorTrackingDisabledReason}
-                        />
+                        {errorOverlaysEnabled && (
+                            <LemonSwitch
+                                label="Error spikes"
+                                checked={showErrorSpikes}
+                                onChange={toggleShowErrorSpikes}
+                                tooltip="Mark Error Tracking issue spikes on the chart (team-wide, PoC)"
+                                bordered
+                                data-attr="metrics-viewer-error-spikes-toggle"
+                                disabledReason={metricsViewerDisabledReason ?? errorTrackingDisabledReason}
+                            />
+                        )}
                     </div>
                 </div>
                 {/* Aggregation and grouping controls sit below the filter bar. */}
