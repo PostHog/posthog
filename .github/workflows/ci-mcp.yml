@@ -307,7 +307,11 @@ jobs:
         needs: changes
         if: needs.changes.outputs.mcp == 'true' && (github.event.pull_request.draft != true || startsWith(github.head_ref, 'trunk-merge/'))
         uses: ./.github/workflows/ci-mcp-integration-tests.yml
-        secrets: inherit
+        secrets:
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+            GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+            GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+            TRUNK_API_TOKEN: ${{ secrets.TRUNK_API_TOKEN }}
 
     # One retry on a fresh runner, only when attempt 1 died before its tests
     # started — that is setup/infra by construction (port binds, registry
@@ -323,7 +327,11 @@ jobs:
             && needs.integration-tests.result == 'failure'
             && needs.integration-tests.outputs.tests-started != 'true'
         uses: ./.github/workflows/ci-mcp-integration-tests.yml
-        secrets: inherit
+        secrets:
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+            GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+            GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+            TRUNK_API_TOKEN: ${{ secrets.TRUNK_API_TOKEN }}
 
     handle-snapshots:
         name: Commit snapshot changes

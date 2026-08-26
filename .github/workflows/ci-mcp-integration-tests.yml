@@ -15,6 +15,15 @@ name: MCP Integration Tests
 
 on:
     workflow_call:
+        secrets:
+            DOCKERHUB_TOKEN:
+                required: false
+            GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID:
+                required: false
+            GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY:
+                required: false
+            TRUNK_API_TOKEN:
+                required: false
         outputs:
             tests-started:
                 description: '"true" once the job reached its test step; empty when it died during setup or the runner was lost'
