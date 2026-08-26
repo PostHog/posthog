@@ -11,7 +11,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { HogFunctionTypeType } from '~/types'
+import { HogFunctionType, HogFunctionTypeType } from '~/types'
 
 import { isDataPipelinesListEmpty } from './utils/isDataPipelinesListEmpty'
 import { nonHogFunctionsLogic } from './utils/nonHogFunctionsLogic'
@@ -69,12 +69,16 @@ export function DataPipelinesHogFunctions({
 
     const productInfoMapping = MAPPING[kind]
 
-    const manualFunctions =
+    // Each source is null until it loads. Keep them separate so the empty state can tell
+    // "no destinations" apart from "not loaded yet"; the list only needs them flattened.
+    const manualSources: (HogFunctionType[] | null)[] =
         kind === 'destination'
-            ? [...(hogFunctionPluginsDestinations ?? []), ...(hogFunctionBatchExports ?? [])]
+            ? [hogFunctionPluginsDestinations, hogFunctionBatchExports]
             : kind === 'site_app'
-              ? [...(hogFunctionPluginsSiteApps ?? [])]
-              : undefined
+              ? [hogFunctionPluginsSiteApps]
+              : []
+
+    const manualFunctions = manualSources.length > 0 ? manualSources.flatMap((source) => source ?? []) : undefined
 
     return (
         <SceneContent>
@@ -87,12 +91,9 @@ export function DataPipelinesHogFunctions({
                     docsURL="https://posthog.com/docs/cdp"
                     actionElementOverride={action}
                     isEmpty={isDataPipelinesListEmpty({
-                        kind,
                         hogFunctions,
                         hogFunctionsLoading: loading,
-                        hogFunctionPluginsDestinations,
-                        hogFunctionBatchExports,
-                        hogFunctionPluginsSiteApps,
+                        manualSources,
                     })}
                 />
             ) : null}
