@@ -658,6 +658,7 @@ function WebhookSetupStep({
             onCreateWebhook={createWebhook}
             formLogic={sourceWizardLogicProps ? sourceWizardLogic(sourceWizardLogicProps) : sourceWizardLogic}
             formKey="webhookFieldInputs"
+            isWizardStep
         />
     )
 }
