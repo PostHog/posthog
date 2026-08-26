@@ -154,8 +154,8 @@ export function LogRowFAB({
                             e.preventDefault()
                             openWithSeed(buildMetricRuleSeedFromLog(log))
                         }}
-                        tooltip="Create metric rule from this log"
-                        aria-label="Create metric rule from this log"
+                        tooltip="Create log-based metric"
+                        aria-label="Create log-based metric"
                         className="text-muted"
                         data-attr="logs-viewer-create-metric-rule"
                         disabledReason={metricsEditorDisabledReason ?? undefined}

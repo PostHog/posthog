@@ -273,7 +273,7 @@ export const logsMetricRuleFormLogic = kea<logsMetricRuleFormLogicType>([
                             group_by: form.group_by,
                         }
                         await logsMetricRulesPartialUpdate(projectId, props.rule.id, patch)
-                        lemonToast.success('Metric rule updated')
+                        lemonToast.success('Log-based metric updated')
                     } else {
                         await logsMetricRulesCreate(projectId, {
                             name: form.name.trim(),
@@ -283,7 +283,7 @@ export const logsMetricRuleFormLogic = kea<logsMetricRuleFormLogicType>([
                             value_attribute: form.value_attribute.trim() || null,
                             group_by: form.group_by,
                         })
-                        lemonToast.success('Metric rule created')
+                        lemonToast.success('Log-based metric created')
                     }
                     actions.loadRules()
                     if (!props.rule && values.addAnotherPending) {
@@ -300,7 +300,7 @@ export const logsMetricRuleFormLogic = kea<logsMetricRuleFormLogicType>([
                         actions.closeQuickCreateModal()
                     }
                 } catch (e: any) {
-                    lemonToast.error(e?.detail ?? e?.message ?? 'Failed to save metric rule')
+                    lemonToast.error(e?.detail ?? e?.message ?? 'Failed to save log-based metric')
                     throw e
                 }
             },

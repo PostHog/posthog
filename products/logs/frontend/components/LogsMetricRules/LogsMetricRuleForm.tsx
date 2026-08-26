@@ -133,7 +133,7 @@ export function LogsMetricRuleForm({ rule, seed = null, onCancel }: LogsMetricRu
                         loading={isMetricRuleFormSubmitting}
                         disabledReason={isMetricRuleFormSubmitting ? 'Saving…' : undefined}
                     >
-                        {isEdit ? 'Save changes' : 'Create metric rule'}
+                        {isEdit ? 'Save changes' : 'Create log-based metric'}
                     </LemonButton>
                 </div>
             </div>

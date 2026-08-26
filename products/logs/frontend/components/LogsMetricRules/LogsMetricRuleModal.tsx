@@ -17,7 +17,7 @@ export function LogsMetricRuleModal(): JSX.Element | null {
         <LemonModal
             isOpen
             onClose={closeRuleModal}
-            title={editingRule ? 'Edit metric rule' : 'New metric rule'}
+            title={editingRule ? 'Edit log-based metric' : 'New log-based metric'}
             width={720}
             footer={null}
         >

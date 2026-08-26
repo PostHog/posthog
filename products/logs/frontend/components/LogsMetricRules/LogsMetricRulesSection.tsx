@@ -41,7 +41,7 @@ function LogsMetricRulesTable(): JSX.Element {
                 dataSource={rules}
                 loading={rulesLoading}
                 rowKey="id"
-                emptyState="No metric rules yet. Create one to start generating metrics from your logs."
+                emptyState="No log-based metrics yet. Create one to start generating metrics from your logs."
                 columns={[
                     {
                         title: 'Name',
@@ -100,7 +100,7 @@ function LogsMetricRulesTable(): JSX.Element {
                 ]}
             />
             <LemonButton type="primary" onClick={openNewRuleModal}>
-                New metric rule
+                New log-based metric
             </LemonButton>
         </div>
     )

@@ -14,7 +14,7 @@ export function LogsMetricRuleQuickCreateModal(): JSX.Element | null {
         return null
     }
     return (
-        <LemonModal isOpen onClose={closeQuickCreateModal} title="New metric rule" width={720} footer={null}>
+        <LemonModal isOpen onClose={closeQuickCreateModal} title="New log-based metric" width={720} footer={null}>
             <LogsMetricRuleForm rule={null} seed={seed} onCancel={closeQuickCreateModal} />
         </LemonModal>
     )
