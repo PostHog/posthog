@@ -468,23 +468,6 @@ jobs:
                   SHARD_COUNT: 3
               run: bin/turbo --filter=@posthog/nodejs prepare
 
-            # `compileHog` shells out to `python3 -m posthog.hogql.cli` once per snippet, ~2s of
-            # interpreter start each, and the CDP template suites compile hundreds. Entries are keyed
-            # by the snippet's own source, so a restored one can only be right for that source. What
-            # the source cannot cover is the compiler changing its output, hence the fingerprint.
-            - name: Fingerprint the hog compiler
-              id: hog-compiler
-              run: python .github/scripts/hog_compiler_fingerprint.py >> "$GITHUB_OUTPUT"
-
-            - name: Restore compiled hog bytecode
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  path: nodejs/.tmp/hog-bytecode.json
-                  key: hog-bytecode-${{ matrix.shard }}-${{ steps.hog-compiler.outputs.hash }}-${{ github.sha }}
-                  # Prefix match, so master's newest entry for this shard is reused. Deliberately
-                  # does not fall back past the fingerprint: older bytecode would be stale.
-                  restore-keys: hog-bytecode-${{ matrix.shard }}-${{ steps.hog-compiler.outputs.hash }}-
-
             - name: Test with Jest
               id: run-jest
               # continue-on-error so the quarantine gate below is the verdict — it passes when
@@ -583,8 +566,7 @@ jobs:
                   docker compose -f docker-compose.dev.yml exec clickhouse cat /var/log/clickhouse-server/clickhouse-server.err.log
 
     rust_ingestion_e2e:
-        # Disabled with the pinched Jest run; restore before merge.
-        if: false && needs.changes.outputs.nodejs == 'true'
+        if: needs.changes.outputs.nodejs == 'true'
         name: Rust ingestion consumer Node API e2e (depot-ubuntu-24.04-4)
         needs: changes
         runs-on: depot-ubuntu-24.04-4
@@ -800,6 +782,7 @@ jobs:
         needs: [tests]
         runs-on: ubuntu-latest
         timeout-minutes: 10
+        continue-on-error: true
         permissions:
             actions: read
             contents: read

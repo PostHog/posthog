@@ -13,6 +13,7 @@ config:
         - mprocs-test.yaml
         - sandbox-entrypoint.py
         - lint-feature-flag-sorting.mjs
+        - render-jest-timings-example
         # Locally-built, gitignored binary (tools/phrocs). Referenced via cmd:/process
         # name, not bin_script:, so exclude it from auto-discovery to stop the manifest
         # regenerating a stub entry on every hogli run.
@@ -1225,8 +1226,4 @@ environment:
     report:jest:timings:
         bin_script: report-jest-timings
         description: 'Render a Jest test-speed report from timing artifacts'
-        hidden: true
-    render:jest:timings:example:
-        bin_script: render-jest-timings-example
-        description: 'Render or refresh the checked-in Jest timing report example'
         hidden: true

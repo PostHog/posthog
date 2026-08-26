@@ -370,6 +370,7 @@ def test_collect_jest_shard_marks_tolerated_failures_as_quarantined(tmp_path: Pa
         # download-artifact extracts a single matching artifact flat into the download root, so
         # identity must come from the filename and current workflow attempt.
         ("jest", "junit-EE-1.xml", 2, ("frontend", "EE", 1), 2),
+        ("jest", "junit-nodejs-postgres-parity.xml", 2, ("nodejs", "postgres-parity", None), 2),
         # A filename without a `-<chunk>` suffix and non-jest runners keep the directory-derived
         # fallback identity.
         ("jest", "junit-report.xml", 2, None, 1),
@@ -380,7 +381,7 @@ def test_flat_download_shard_identity(
     runner: str,
     filename: str,
     run_attempt: int,
-    recovered: tuple[str, str, int] | None,
+    recovered: tuple[str, str, int | None] | None,
     expected_attempt: int,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -400,7 +401,7 @@ def test_flat_download_shard_identity(
     assert (shard.info.suite, shard.info.segment, shard.info.group) == expected
     assert shard.info.attempt == expected_attempt
     if recovered:
-        assert report_test_timings.job_trace_key(shard.info) == "frontend:EE:1"
+        assert report_test_timings.job_trace_key(shard.info) == ":".join(map(str, recovered))
 
 
 def test_load_jest_quarantine_signals_rejects_oversized_artifacts(

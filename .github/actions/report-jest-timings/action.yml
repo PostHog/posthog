@@ -21,7 +21,7 @@ runs:
           with:
               path: ${{ runner.temp }}/jest-test-speed-report.html
               archive: false
-              retention-days: 14
+              retention-days: 7
               if-no-files-found: error
         - name: Write timing summary
           shell: bash

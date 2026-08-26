@@ -373,6 +373,7 @@ def product_shard_info(info: ArtifactInfo, junit_filename: str) -> ArtifactInfo:
 
 _FLAT_JEST_JUNIT_NAME = re.compile(r"^junit-(?P<segment>.+)-(?P<chunk>\d+)\.xml$")
 _FLAT_NODEJS_JUNIT_NAME = re.compile(r"^junit-nodejs-(?P<chunk>\d+)\.xml$")
+_FLAT_NODEJS_VARIANT_JUNIT_NAME = re.compile(r"^junit-nodejs-(?P<segment>.+)\.xml$")
 
 
 def flat_shard_info(info: ArtifactInfo, junit_filename: str, runner: Runner) -> ArtifactInfo:
@@ -392,6 +393,16 @@ def flat_shard_info(info: ArtifactInfo, junit_filename: str, runner: Runner) -> 
             suite="nodejs",
             segment=f"shard-{match.group('chunk')}",
             group=int(match.group("chunk")),
+            total=None,
+            attempt=current_run_attempt(),
+        )
+    match = _FLAT_NODEJS_VARIANT_JUNIT_NAME.match(junit_filename)
+    if match is not None:
+        return replace(
+            info,
+            suite="nodejs",
+            segment=match.group("segment"),
+            group=None,
             total=None,
             attempt=current_run_attempt(),
         )
