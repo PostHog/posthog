@@ -5087,10 +5087,17 @@ def _task_detail_queryset():
 
 def _visible_task_qs(team_id: int, user_id: int | None, *, bypass_visibility: bool = False, for_control: bool = False):
     """Team-scoped live tasks, gated by read visibility — or by the narrower
-    control predicate when ``for_control`` (mutations, runs, agent commands)."""
+    control predicate when ``for_control`` (mutations, runs, agent commands).
+
+    The read branch ORs in ``_shared_slack_thread_q()`` so a task shared in a Slack channel
+    is readable team-wide, matching ``task_accessible_for_run_view``. Without it the run
+    endpoint admits a channel collaborator while task detail returns 404 for the same task.
+    """
     qs = Task.objects.filter(team_id=team_id, deleted=False)
     if not bypass_visibility:
-        qs = qs.filter(task_control_q(user_id) if for_control else task_visibility_q(user_id))
+        qs = qs.filter(
+            task_control_q(user_id) if for_control else task_visibility_q(user_id) | _shared_slack_thread_q()
+        )
     return qs
 
 
