@@ -177,12 +177,12 @@ def reconcile_trino_schemas(
     is_direct = source.is_direct_query
     source_schema_names = [s.name for s in source_schemas]
     default_catalog = get_default_trino_catalog(source)
-    active_schemas, stale_schemas = get_schemas_for_direct_reconciliation(
+    reconciliation = get_schemas_for_direct_reconciliation(
         source_id=source.id,
         team_id=team_id,
         current_schema_names=source_schema_names,
     )
-    schema_models = {schema.name: schema for schema in active_schemas}
+    schema_models = {schema.name: schema for schema in reconciliation.active_schemas}
 
     schema_models_by_location: dict[TrinoSourceLocation, ExternalDataSchema] = {}
     for schema_model in schema_models.values():
@@ -279,7 +279,7 @@ def reconcile_trino_schemas(
         return []
 
     stale_names: list[str] = []
-    for s in stale_schemas:
+    for s in reconciliation.stale_schemas:
         hide_direct_trino_table(s.table)
         if not s.deleted:
             s.soft_delete()
