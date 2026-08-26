@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from django.utils import timezone as django_timezone
 
+from parameterized import parameterized
 from rest_framework import status
 from rest_framework.exceptions import PermissionDenied, Throttled
 
@@ -152,6 +153,53 @@ class TestWarmTaskSandbox(APIBaseTest):
         )
 
         assert response.status_code == 400
+
+    @parameterized.expand(
+        [
+            (
+                "claude_rejects_codex_mode",
+                "claude",
+                "claude-opus-4-6",
+                "full-access",
+            ),
+            (
+                "codex_rejects_claude_mode",
+                "codex",
+                "gpt-5.4",
+                "bypassPermissions",
+            ),
+            ("mode_without_a_runtime", None, None, "plan"),
+        ]
+    )
+    @patch("products.tasks.backend.presentation.views.api.TaskViewSet._warm_enabled", return_value=True)
+    @patch("products.tasks.backend.facade.api.warm_task_sandbox")
+    def test_warm_endpoint_rejects_mismatched_permission_mode(
+        self,
+        _case_name,
+        runtime_adapter,
+        model,
+        initial_permission_mode,
+        mock_warm,
+        _mock_warm_enabled,
+    ):
+        # The mode is fixed when the sandbox boots, so a pair the run request would reject must not
+        # reach one here either — the submit that follows would be rejected against a booted sandbox.
+        response = self.client.post(
+            "/api/projects/@current/tasks/warm/",
+            {
+                "repository": "posthog/posthog",
+                "github_integration": self.integration.id,
+                "branch": "main",
+                "runtime_adapter": runtime_adapter,
+                "model": model,
+                "initial_permission_mode": initial_permission_mode,
+            },
+            format="json",
+        )
+
+        assert response.status_code == 400, response.content
+        assert response.json()["attr"] == "initial_permission_mode"
+        mock_warm.assert_not_called()
 
     def test_provisions_selected_sandbox_environment_and_custom_image(self):
         sandbox_environment = SandboxEnvironment.objects.create(
@@ -378,12 +426,13 @@ class TestCreateTaskWarmReuse(APIBaseTest):
         branch="main",
         created_by=None,
         extra_state: dict[str, Any] | None = None,
+        origin_product=Task.OriginProduct.USER_CREATED,
     ) -> tuple[Task, TaskRun]:
         task = Task.objects.create(
             team=self.team,
             title="",
             description="",
-            origin_product=Task.OriginProduct.USER_CREATED,
+            origin_product=origin_product,
             created_by=created_by or self.user,
             repository=repository,
             repositories=repositories or ([repository] if repository else []),
@@ -405,6 +454,53 @@ class TestCreateTaskWarmReuse(APIBaseTest):
         }
         validated.update(data)
         return facade.create_task(self.team.id, self.user.id, validated_data=validated)
+
+    def test_desktop_create_without_permission_mode_still_reuses_warm(self):
+        # A warm Run's state always carries a concrete permission mode, but the Code app never sends one
+        # on create. Folding the mode into the equality tuple would compare None against "default" and
+        # break every Desktop warm reuse — this pins the asymmetric comparison that prevents it.
+        warm_task, run = self._warm_run(extra_state={"initial_permission_mode": "default"})
+        with patch(f"{FACADE}.signal_task_run_user_message", return_value=True):
+            dto = self._create()
+
+        assert str(dto.id) == str(warm_task.id)
+        assert Task.objects.filter(team=self.team, deleted=False).count() == 1
+
+    def test_reuses_matching_posthog_ai_warm_task(self):
+        warm_task, run = self._warm_run(
+            origin_product=Task.OriginProduct.POSTHOG_AI,
+            extra_state={"initial_permission_mode": "auto"},
+        )
+        with patch(f"{FACADE}.signal_task_run_user_message", return_value=True):
+            dto = self._create(origin_product=Task.OriginProduct.POSTHOG_AI, initial_permission_mode="auto")
+
+        assert str(dto.id) == str(warm_task.id)
+        assert Task.objects.filter(team=self.team, deleted=False).count() == 1
+
+    @parameterized.expand(
+        [
+            ("warm_is_code_submit_is_phai", Task.OriginProduct.USER_CREATED, Task.OriginProduct.POSTHOG_AI),
+            ("warm_is_phai_submit_is_code", Task.OriginProduct.POSTHOG_AI, Task.OriginProduct.USER_CREATED),
+        ]
+    )
+    def test_does_not_reuse_a_warm_from_a_different_origin_product(self, _name, warm_origin, submit_origin):
+        # Origin fixes the OAuth app, the quota gate, the pool budget and PR authorship at boot, so a
+        # cross-origin reuse would run under the wrong product's entitlements and authorship.
+        self._warm_run(origin_product=warm_origin)
+        with patch(f"{FACADE}.signal_task_run_user_message", return_value=True):
+            dto = self._create(origin_product=submit_origin)
+
+        assert Task.objects.filter(team=self.team, deleted=False).count() == 2
+        assert str(dto.origin_product) == submit_origin
+
+    def test_permission_mode_mismatch_creates_a_new_cold_task(self):
+        # The mode is read when the agent session is constructed, so a warm booted on one mode can't
+        # serve a submit that asked for another.
+        self._warm_run(extra_state={"initial_permission_mode": "default"})
+        with patch(f"{FACADE}.signal_task_run_user_message", return_value=True):
+            self._create(initial_permission_mode="bypassPermissions")
+
+        assert Task.objects.filter(team=self.team, deleted=False).count() == 2
 
     def test_reuses_matching_warm_task_and_activates_it_in_place(self):
         warm_task, run = self._warm_run()
@@ -692,6 +788,101 @@ class TestCreateTaskWarmReuse(APIBaseTest):
         _, kwargs = m_signal.call_args
         assert kwargs["content"] == "resolved skill message"
         assert kwargs["artifact_ids"] == ["artifact-1"]
+
+    def test_create_endpoint_regates_a_warm_reuse_that_would_activate_a_sandbox(self):
+        # Activating a warm starts the agent from the create endpoint, so the client never calls the run
+        # endpoint that normally applies this gate. A warm booted while the caller was entitled must not
+        # still run after entitlement is withdrawn.
+        _warm_task, run = self._warm_run()
+
+        with (
+            patch(
+                "products.tasks.backend.logic.services.code_usage_gate.get_desktop_access_decision",
+                return_value=tasks_access.DesktopAccessDecision.STARTUP_PLAN,
+            ),
+            patch(f"{FACADE}.signal_task_run_user_message", return_value=True) as m_signal,
+        ):
+            response = self.client.post(
+                "/api/projects/@current/tasks/",
+                {
+                    "description": "fix the bug",
+                    "repository": "posthog/posthog",
+                    "github_integration": self.integration.id,
+                    "branch": "main",
+                },
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        m_signal.assert_not_called()
+        run.refresh_from_db()
+        assert run.state.get("await_user_message") is True
+
+    def test_create_endpoint_without_warm_hints_is_not_regated(self):
+        # Only a create that can activate a sandbox takes the run-start gates; a plain create still
+        # goes through, and the run endpoint gates it when execution is actually requested.
+        with patch(
+            "products.tasks.backend.logic.services.code_usage_gate.get_desktop_access_decision",
+            return_value=tasks_access.DesktopAccessDecision.STARTUP_PLAN,
+        ):
+            response = self.client.post(
+                "/api/projects/@current/tasks/",
+                {"description": "fix the bug"},
+                format="json",
+            )
+
+        assert response.status_code == 201, response.content
+
+
+class TestWarmRunRelease(APIBaseTest):
+    """Handing a warm sandbox back must never stop a run that has already been activated."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        _allow_desktop_access(self)
+        self.task = Task.objects.create(
+            team=self.team,
+            title="",
+            description="",
+            origin_product=Task.OriginProduct.POSTHOG_AI,
+            created_by=self.user,
+        )
+
+    def _run(self, *, awaiting: bool) -> TaskRun:
+        return self.task.create_run(
+            mode="interactive",
+            extra_state={"prewarmed": True, **({"await_user_message": True} if awaiting else {})},
+        )
+
+    def _release(self, run: TaskRun):
+        return self.client.post(
+            f"/api/projects/@current/tasks/{self.task.id}/runs/{run.id}/cancel/",
+            {"only_if_awaiting_first_message": True},
+            format="json",
+        )
+
+    @parameterized.expand(
+        [
+            # One warm Run is shared by every composer holding the same selection, so a composer that
+            # releases after another one submitted would otherwise stop the run that submit started.
+            ("activated_run_is_left_alone", False, status.HTTP_200_OK, False),
+            # And the fence must not turn every release into a no-op, or abandoned sandboxes pile up
+            # in the warm pool until the reaper takes them.
+            ("idling_warm_is_still_stopped", True, status.HTTP_202_ACCEPTED, True),
+        ]
+    )
+    def test_release_only_stops_a_run_still_awaiting_its_first_message(
+        self, _case_name, awaiting, expected_status, expect_signal
+    ):
+        run = self._run(awaiting=awaiting)
+
+        with patch(
+            "products.tasks.backend.facade.cancellation._signal_complete_task", return_value="signaled"
+        ) as m_signal:
+            response = self._release(run)
+
+        assert response.status_code == expected_status, response.content
+        assert m_signal.called is expect_signal
 
 
 class TestRunTaskWarmActivation(APIBaseTest):

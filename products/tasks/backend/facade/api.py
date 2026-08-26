@@ -2590,6 +2590,7 @@ def update_task_run(
     )
     from products.tasks.backend.metrics import (  # noqa: PLC0415 — keep prometheus deps off the api import path
         observe_agent_turn_failed,
+        observe_prewarmed_unused_if_never_activated,
         observe_wizard_run_unbound,
     )
 
@@ -2714,6 +2715,12 @@ def update_task_run(
                 },
             )
         observe_wizard_run_unbound(run)
+        # This write terminalizes the Run on its own — the cancel fallback takes it when the workflow
+        # is already gone — so the warm miss is booked here rather than by the status activity, which
+        # sees the row already terminal and skips.
+        observe_prewarmed_unused_if_never_activated(
+            run, reason="released" if new_status == TaskRun.Status.CANCELLED else "other"
+        )
         signal_workflow_completion(run.id, new_status, validated_data.get("error_message"))
         if new_status == TaskRun.Status.CANCELLED:
             from products.tasks.backend.push_dispatcher import (  # noqa: PLC0415 — keep push deps off the api import path
@@ -5401,6 +5408,7 @@ def create_task(
     warm_reasoning_effort = validated_data.pop("reasoning_effort", None)
     warm_sandbox_environment_id = validated_data.pop("sandbox_environment_id", None)
     warm_custom_image_id = validated_data.pop("custom_image_id", None)
+    warm_initial_permission_mode = validated_data.pop("initial_permission_mode", None)
     pending_user_message = (validated_data.pop("pending_user_message", None) or "").strip() or None
     pending_user_artifact_ids = validated_data.pop("pending_user_artifact_ids", None) or []
     warm_auto_publish = validated_data.pop("auto_publish", None)
@@ -5432,14 +5440,16 @@ def create_task(
         if default_integration:
             validated_data["github_integration"] = default_integration
 
-    if (
-        warm_branch_provided
-        and validated_data["origin_product"] == Task.OriginProduct.USER_CREATED
-        and user_id is not None
-    ):
+    # Reuse is scoped to the submitting origin product: `_find_idling_warm_run` filters on it, so an
+    # origin that never warms simply finds nothing. The warm call and this create call are separate
+    # requests that must agree on the origin — when they disagree the lookup misses and we cold-create,
+    # which costs latency but can never hand over a Run booted under another product's budget or
+    # PR-authorship rules.
+    if warm_branch_provided and user_id is not None:
         warm_run = _find_idling_warm_run(
             team_id,
             user_id,
+            origin_product=validated_data["origin_product"],
             repository=validated_data.get("repository"),
             repositories=validated_data.get("repositories", []),
             github_integration_id=getattr(validated_data.get("github_integration"), "id", None),
@@ -5449,6 +5459,7 @@ def create_task(
             reasoning_effort=warm_reasoning_effort,
             sandbox_environment_id=warm_sandbox_environment_id,
             custom_image_id=warm_custom_image_id,
+            initial_permission_mode=warm_initial_permission_mode,
         )
         if warm_run is not None and not _warm_sandbox_selection_is_accessible(
             team_id=team_id,
@@ -6004,6 +6015,7 @@ def _find_idling_warm_run(
     team_id: int,
     user_id: int | None,
     *,
+    origin_product: str,
     repository: str | None,
     repositories: list[str] | None = None,
     github_integration_id: int | None,
@@ -6013,18 +6025,25 @@ def _find_idling_warm_run(
     reasoning_effort: str | None = None,
     sandbox_environment_id: str | UUID | None = None,
     custom_image_id: str | UUID | None = None,
+    initial_permission_mode: str | None = None,
 ) -> TaskRun | None:
     """Most-recent idling pre-warmed Run matching this user's cloud composing selection, or ``None``.
 
-    A warm Run is a non-terminal ``USER_CREATED`` Run for the same optional repo+branch still awaiting its
-    first user message (the ``await_user_message`` state marker). This is the backend's single source
-    of truth for the warm pool: it dedupes warm provisioning (so a repeated ``warm`` call reuses the
+    A warm Run is a non-terminal Run of the same origin product, for the same optional repo+branch, still
+    awaiting its first user message (the ``await_user_message`` state marker). This is the backend's single
+    source of truth for the warm pool: it dedupes warm provisioning (so a repeated ``warm`` call reuses the
     live Run instead of spawning a second) and lets the normal create+run path transparently reuse a
     warm Run on submit. Team + user scoped; branch compared as ``None``-normalized exact match.
 
+    ``origin_product`` is required and never defaulted: it selects the OAuth app, the warm quota gate, the
+    pool caps, and PR authorship, all of which are fixed when the warm boots and cannot be changed at
+    activation. Matching across origins would hand a Run provisioned under one product's budget and
+    authorship rules to another.
+
     Reuse also requires the warm Run's runtime, model, sandbox environment, and custom image selections to
-    match the request. Reasoning effort is deliberately excluded: activation applies the final effort before
-    the first turn. Other mismatches return ``None`` so the caller cold-creates on the correct sandbox.
+    match the request, plus its permission mode when the caller states one. Reasoning effort is deliberately
+    excluded: activation applies the final effort before the first turn. Other mismatches return ``None`` so
+    the caller cold-creates on the correct sandbox.
     The optional repo/branch/``await_user_message`` predicates stay in the query; the remaining selection is
     matched in Python over the small candidate set.
     """
@@ -6036,7 +6055,7 @@ def _find_idling_warm_run(
         TaskRun.objects.filter(  # nosemgrep: idor-lookup-without-team — team_id filter applied via the task FK below
             task__team_id=team_id,
             task__created_by_id=user_id,
-            task__origin_product=Task.OriginProduct.USER_CREATED,
+            task__origin_product=origin_product,
             task__deleted=False,
             task__github_integration_id=github_integration_id,
             state__await_user_message=True,
@@ -6066,8 +6085,15 @@ def _find_idling_warm_run(
             state.get("sandbox_environment_id") or None,
             state.get("custom_image_id") or None,
         )
-        if have == wanted:
-            return run
+        if have != wanted:
+            continue
+        # Asymmetric on purpose, and load-bearing: a warm Run's state ALWAYS holds a concrete permission
+        # mode (warm_task_sandbox writes one unconditionally), while callers that never send one — the
+        # Code app — must keep reusing their warms. Folding this into the tuple above would compare None
+        # against "default" and break every one of those reuses.
+        if initial_permission_mode is not None and state.get("initial_permission_mode") != initial_permission_mode:
+            continue
+        return run
     return None
 
 
@@ -6158,7 +6184,11 @@ def _activate_warm_run(
     if description and not (task.description or "").strip():
         task.description = description
         task.save(update_fields=["description", "updated_at"])
-    activation_state_updates: dict[str, object] = {}
+    # Claims the Run as activated before the signal goes out. `await_user_message` can only be cleared
+    # after the signal — clearing it first would drop a Run out of the warm pool that a failed signal
+    # never activated, stranding its sandbox. That leaves a window where the Run is being activated but
+    # still looks idle, so this marker is what the unused-warm metric reads to tell the two apart.
+    activation_state_updates: dict[str, object] = {"warm_activated": True}
     if auto_publish is not None:
         # Before the signal: the agent-server re-reads run state when the forwarded
         # first message arrives, so the choice must already be persisted by then.
@@ -6194,10 +6224,18 @@ def warm_task_sandbox(
     sandbox_environment_id: str | UUID | None = None,
     custom_image_id: str | UUID | None = None,
     client_provenance: TaskClientProvenance | None = None,
+    origin_product: str = Task.OriginProduct.USER_CREATED,
+    initial_permission_mode: str | None = None,
 ) -> contracts.WarmTaskDTO | None:
-    """Warm a full idling Run for a Code-app cloud task while the user composes.
+    """Warm a full idling Run for a cloud task while the user composes.
 
-    Births a draft Task (``USER_CREATED``), then ``SandboxWarmer.warm()`` provisions an interactive
+    ``origin_product`` is stamped on the draft Task and fixes what the warm can later be reused for: it
+    selects the OAuth app, the warm quota gate (``USER_CREATED`` has no billing gate; ``POSTHOG_AI`` runs
+    the AI-credit check), the warm-pool caps, and PR authorship. None of these can change at activation,
+    so a submit only reuses a warm born under the same origin. Defaults to ``USER_CREATED`` for the
+    Code-app callers that predate the parameter.
+
+    Births a draft Task, then ``SandboxWarmer.warm()`` provisions an interactive
     Run that boots, optionally clones and checks out ``branch``, then starts the agent on the selected
     ``runtime_adapter``/``model``/``reasoning_effort`` (carried on the Run state and read by the
     agent-server at launch, so the sandbox boots on the right runtime), then idles awaiting the first
@@ -6260,6 +6298,7 @@ def warm_task_sandbox(
     existing = _find_idling_warm_run(
         team_id,
         user_id,
+        origin_product=origin_product,
         repository=repository,
         repositories=normalized_repositories,
         github_integration_id=github_integration_id,
@@ -6269,6 +6308,7 @@ def warm_task_sandbox(
         reasoning_effort=reasoning_effort,
         sandbox_environment_id=sandbox_environment_id,
         custom_image_id=custom_image_id,
+        initial_permission_mode=initial_permission_mode,
     )
     if existing is not None:
         return contracts.WarmTaskDTO(task_id=existing.task_id, run_id=existing.id)
@@ -6277,7 +6317,7 @@ def warm_task_sandbox(
         team=team,
         title="",
         description="",
-        origin_product=Task.OriginProduct.USER_CREATED,
+        origin_product=Task.OriginProduct(origin_product),
         user_id=user_id,
         repository=repository,
         client_provenance=client_provenance,
@@ -6288,10 +6328,15 @@ def warm_task_sandbox(
     assert task.created_by is not None  # create_without_run always sets created_by from user_id
 
     provider = get_provider_for_runtime_adapter(runtime_adapter)
-    initial_permission_mode = "auto" if runtime_adapter == RuntimeAdapter.CODEX.value else "default"
+    # The agent session is constructed with this mode at boot and it cannot be changed once the sandbox
+    # is warm, so an explicit request wins and reuse matches on it. Callers that omit it (the Code app)
+    # keep the runtime-derived default they have always had.
+    resolved_permission_mode = initial_permission_mode or (
+        "auto" if runtime_adapter == RuntimeAdapter.CODEX.value else "default"
+    )
     extra_state: dict = {
         "branch": branch,
-        "initial_permission_mode": initial_permission_mode,
+        "initial_permission_mode": resolved_permission_mode,
     }
     if sandbox_environment is not None:
         extra_state["sandbox_environment_id"] = str(sandbox_environment.id)
