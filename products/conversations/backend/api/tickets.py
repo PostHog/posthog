@@ -14,7 +14,14 @@ from django.http import Http404
 import structlog
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiResponse,
+    PolymorphicProxySerializer,
+    extend_schema,
+    extend_schema_field,
+    extend_schema_view,
+)
 from rest_framework import (
     pagination,
     serializers,
@@ -403,6 +410,80 @@ class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMix
         return None
 
 
+class UserTicketAssigneeRequestSerializer(serializers.Serializer):
+    type = serializers.CharField(help_text="Assign the ticket to a user.")
+    id = serializers.IntegerField(help_text="User ID.")
+
+
+class RoleTicketAssigneeRequestSerializer(serializers.Serializer):
+    type = serializers.CharField(help_text="Assign the ticket to a role.")
+    id = serializers.UUIDField(help_text="Role ID.")
+
+
+_TICKET_ASSIGNEE_REQUEST_SCHEMA = PolymorphicProxySerializer(
+    component_name="TicketAssigneeRequest",
+    serializers={
+        "user": UserTicketAssigneeRequestSerializer,
+        "role": RoleTicketAssigneeRequestSerializer,
+    },
+    resource_type_field_name="type",
+)
+
+
+@extend_schema_field(_TICKET_ASSIGNEE_REQUEST_SCHEMA)
+class TicketAssigneeRequestField(serializers.Field):
+    def to_internal_value(self, data: object) -> TicketAssignee | None:
+        try:
+            return validate_assignee(data)
+        except serializers.ValidationError as error:
+            if isinstance(error.detail, dict) and "assignee" in error.detail:
+                raise serializers.ValidationError(error.detail["assignee"]) from error
+            raise
+
+
+class TicketUpdateRequestSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
+    """Fields accepted when updating a ticket."""
+
+    assignee = TicketAssigneeRequestField(
+        required=False,
+        allow_null=True,
+        write_only=True,
+        help_text="User or role to assign. Pass null to remove the current assignee.",
+    )
+    tags = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Tag names to set on the ticket.",
+    )
+
+    class Meta:
+        model = Ticket
+        fields = [
+            "status",
+            "priority",
+            "assignee",
+            "anonymous_traits",
+            "ai_resolved",
+            "escalation_reason",
+            "sla_due_at",
+            "snoozed_until",
+            "tags",
+        ]
+        extra_kwargs = {
+            "status": {"help_text": "Ticket status: new, open, pending, on_hold, or resolved."},
+            "priority": {"help_text": "Ticket priority: low, medium, high, or critical. Pass null to clear it."},
+            "anonymous_traits": {"help_text": "Customer details such as name and email."},
+            "ai_resolved": {"help_text": "Whether AI resolved the ticket."},
+            "escalation_reason": {"help_text": "Reason the ticket was escalated. Pass null to clear it."},
+            "sla_due_at": {"help_text": "SLA deadline. Pass null to clear it."},
+            "snoozed_until": {"help_text": "Time to reopen the ticket. Pass null to reopen it now."},
+        }
+
+    def update(self, instance: Ticket, validated_data: dict[str, Any]) -> Ticket:
+        validated_data.pop("assignee", None)
+        return super().update(instance, validated_data)
+
+
 TICKET_ID_PARAM = OpenApiParameter(
     name="id",
     type=OpenApiTypes.STR,
@@ -514,8 +595,12 @@ class _TicketUpdateDiff:
 
 @extend_schema_view(
     retrieve=extend_schema(parameters=[TICKET_ID_PARAM]),
-    update=extend_schema(parameters=[TICKET_ID_PARAM]),
-    partial_update=extend_schema(parameters=[TICKET_ID_PARAM]),
+    update=extend_schema(
+        parameters=[TICKET_ID_PARAM], request=TicketUpdateRequestSerializer, responses=TicketSerializer
+    ),
+    partial_update=extend_schema(
+        parameters=[TICKET_ID_PARAM], request=TicketUpdateRequestSerializer, responses=TicketSerializer
+    ),
     destroy=extend_schema(parameters=[TICKET_ID_PARAM]),
 )
 class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
@@ -911,20 +996,25 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         instance = self.get_object()
         before = _TicketFields.read_from(instance)
 
-        # Assignee is not a serializer field, so take it out of the payload. The ... sentinel
-        # separates "no assignee in the request" from an explicit null, which unassigns.
-        assignee = request.data.get("assignee", ...)
-        assignee_submitted = assignee is not ...
-        data = {k: v for k, v in request.data.items() if k != "assignee"}
+        serializer = TicketUpdateRequestSerializer(
+            instance,
+            data=request.data,
+            partial=partial,
+            context=self.get_serializer_context(),
+        )
+        serializer.is_valid(raise_exception=True)
 
-        validated_assignee: TicketAssignee | None = None
+        assignee_submitted = "assignee" in serializer.validated_data
+        validated_assignee = serializer.validated_data.get("assignee")
         if assignee_submitted:
-            validated_assignee = validate_assignee(assignee)
             validate_assignee_membership(validated_assignee, self.organization)
 
-        serializer = self.get_serializer(instance, data=data, partial=partial)
-        serializer.is_valid(raise_exception=True)
-        self._save_ticket_fields(serializer, instance, before, explicit_status="status" in data)
+        self._save_ticket_fields(
+            serializer,
+            instance,
+            before,
+            explicit_status="status" in serializer.validated_data,
+        )
 
         if assignee_submitted:
             _assign_ticket(
@@ -945,8 +1035,8 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         self._emit_update_side_effects(request, instance, diff)
 
         # Re-serialize to include updated assignee
-        serializer = self.get_serializer(instance)
-        return Response(serializer.data)
+        response_serializer = self.get_serializer(instance)
+        return Response(response_serializer.data)
 
     def _save_ticket_fields(
         self,

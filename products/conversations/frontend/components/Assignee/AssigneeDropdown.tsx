@@ -116,7 +116,17 @@ const AssigneeItem = ({
             role="menuitem"
             size="small"
             icon={<AssigneeIconDisplay assignee={item} />}
-            onClick={() => item?.id && onSelect(String(activeId) === String(item.id) ? null : { type, id: item.id })}
+            onClick={() =>
+                item?.id &&
+                type === item.type &&
+                onSelect(
+                    String(activeId) === String(item.id)
+                        ? null
+                        : item.type === 'user'
+                          ? { type: 'user', id: item.id }
+                          : { type: 'role', id: item.id }
+                )
+            }
             active={String(activeId) === String(item?.id)}
         >
             <span className="flex items-center gap-1">
