@@ -3,14 +3,6 @@
 from django.db import migrations, models
 
 
-def backfill_manual(apps, schema_editor):
-    # Every team enabled so far was enabled by a human via the staff endpoint.
-    TeamExperimentsConfig = apps.get_model("experiments", "TeamExperimentsConfig")
-    TeamExperimentsConfig.objects.filter(experiment_precomputation_enabled=True).update(
-        precomputation_enabled_set_by="manual"
-    )
-
-
 class Migration(migrations.Migration):
     dependencies = [
         ("experiments", "0032_teamexperimentsconfig_flag_cleanup_repository"),
@@ -28,5 +20,4 @@ class Migration(migrations.Migration):
                 null=True,
             ),
         ),
-        migrations.RunPython(backfill_manual, migrations.RunPython.noop, elidable=True),
     ]

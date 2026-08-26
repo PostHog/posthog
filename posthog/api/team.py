@@ -212,7 +212,7 @@ def handle_experiments_config(request: request.Request, team: Team) -> response.
                 "flag_cleanup_repository",
             ]
 
-        def update(self, instance: "TeamExperimentsConfig", validated_data: dict) -> "TeamExperimentsConfig":
+        def update(self, instance: "TeamExperimentsConfig", validated_data: dict[str, Any]) -> "TeamExperimentsConfig":
             # A human toggling precomputation must stick: the auto-enrollment job only
             # writes when precomputation_enabled_set_by is null or "auto".
             if "experiment_precomputation_enabled" in validated_data:
