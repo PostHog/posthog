@@ -163,6 +163,50 @@ export function WorkspaceModeSelect({
         sideOffset={6}
         className="w-auto min-w-[280px]"
       >
+        {localModes.length > 0 && (
+          <div className="flex items-center justify-between px-2 py-1">
+            <MenuLabel className="p-0">Local</MenuLabel>
+            {shouldShowCodexSubscriptionControls({
+              flagEnabled: codexSubscription.flagEnabled,
+              adapter,
+              status: codexSubscription.status,
+              subscriptionOn: codexSubscription.subscriptionOn,
+            }) && (
+              <div className="flex items-center gap-1.5">
+                <span
+                  className={
+                    codexSubscription.needsConnection
+                      ? "text-(--amber-11) text-[11px]"
+                      : "text-[11px] text-muted-foreground"
+                  }
+                >
+                  {codexSubscription.needsConnection
+                    ? "Use your subscription · not connected"
+                    : "Use your subscription"}
+                </span>
+                <Switch
+                  size="sm"
+                  checked={codexSubscription.subscriptionOn}
+                  onCheckedChange={(checked) =>
+                    codexSubscription.setSubscriptionOn(checked === true)
+                  }
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    openSettings("harness");
+                  }}
+                  aria-label="Subscription settings"
+                  className="flex cursor-pointer items-center justify-center rounded-sm border-0 bg-transparent p-0.5 text-muted-foreground transition-colors hover:bg-fill-hover hover:text-foreground"
+                >
+                  <Gear size={12} />
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
         <DropdownMenuGroup>
           {localModes.map((item) => (
             <DropdownMenuItem
@@ -188,47 +232,6 @@ export function WorkspaceModeSelect({
             />
           ))}
         </DropdownMenuGroup>
-
-        {localModes.length > 0 &&
-          shouldShowCodexSubscriptionControls({
-            flagEnabled: codexSubscription.flagEnabled,
-            adapter,
-            status: codexSubscription.status,
-            subscriptionOn: codexSubscription.subscriptionOn,
-          }) && (
-            <div
-              className="flex items-center gap-2 px-2 py-1.5"
-              title="Uses your own plan for Worktree and Local runs. Cloud tasks always use PostHog credits."
-            >
-              <span className="text-[12px] text-muted-foreground">
-                Use your subscription
-              </span>
-              <span className="flex-1" />
-              {codexSubscription.needsConnection && (
-                <span className="text-(--amber-11) text-[11px]">
-                  Not connected
-                </span>
-              )}
-              <Switch
-                size="sm"
-                checked={codexSubscription.subscriptionOn}
-                onCheckedChange={(checked) =>
-                  codexSubscription.setSubscriptionOn(checked === true)
-                }
-              />
-              <Button
-                variant="link-muted"
-                size="icon-xs"
-                aria-label="Subscription settings"
-                onClick={() => {
-                  setMenuOpen(false);
-                  openSettings("harness");
-                }}
-              >
-                <Gear size={13} />
-              </Button>
-            </div>
-          )}
 
         {showCloud && environments.length === 0 && (
           <DropdownMenuItem
