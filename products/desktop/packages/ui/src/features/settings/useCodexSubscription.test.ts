@@ -1,71 +1,29 @@
 import { describe, expect, it } from "vitest";
 import {
-  type CodexSubscriptionStatus,
   effectiveCodexModelAccess,
   shouldShowCodexSubscriptionControls,
 } from "./useCodexSubscription";
-
-const detected: CodexSubscriptionStatus = {
-  cliInstalled: true,
-  credentialFilePresent: false,
-  appLoggedIn: false,
-};
-const nothing: CodexSubscriptionStatus = {
-  cliInstalled: false,
-  credentialFilePresent: false,
-  appLoggedIn: false,
-};
 
 describe("codex subscription gating", () => {
   it.each([
     [
       "flag off hides everything",
-      {
-        flagEnabled: false,
-        adapter: "codex" as const,
-        status: detected,
-        subscriptionOn: true,
-      },
+      { flagEnabled: false, adapter: "codex" as const },
       false,
     ],
     [
       "claude harness hides everything",
-      {
-        flagEnabled: true,
-        adapter: "claude" as const,
-        status: detected,
-        subscriptionOn: true,
-      },
+      { flagEnabled: true, adapter: "claude" as const },
       false,
     ],
     [
-      "codex without any detection stays hidden",
-      {
-        flagEnabled: true,
-        adapter: "codex" as const,
-        status: nothing,
-        subscriptionOn: false,
-      },
+      "no adapter selected hides everything",
+      { flagEnabled: true, adapter: undefined },
       false,
     ],
     [
-      "codex with a detected install shows",
-      {
-        flagEnabled: true,
-        adapter: "codex" as const,
-        status: detected,
-        subscriptionOn: false,
-      },
-      true,
-    ],
-    [
-      "an activated setting always shows so it can be turned off",
-      {
-        flagEnabled: true,
-        adapter: "codex" as const,
-        status: nothing,
-        subscriptionOn: true,
-      },
+      "codex under the flag shows so a fresh ChatGPT user can reach sign-in",
+      { flagEnabled: true, adapter: "codex" as const },
       true,
     ],
   ])("%s", (_name, input, expected) => {

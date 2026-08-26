@@ -71,8 +71,6 @@ export function CodexSubscriptionSettings() {
   const visible = shouldShowCodexSubscriptionControls({
     flagEnabled: subscription.flagEnabled,
     adapter: "codex",
-    status,
-    subscriptionOn: subscription.subscriptionOn,
   });
   if (!visible) {
     return null;

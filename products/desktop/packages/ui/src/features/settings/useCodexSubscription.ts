@@ -21,16 +21,11 @@ export interface CodexSubscriptionStatus {
 export function shouldShowCodexSubscriptionControls(input: {
   flagEnabled: boolean;
   adapter: Adapter | undefined;
-  status: CodexSubscriptionStatus | undefined;
-  subscriptionOn: boolean;
 }): boolean {
-  if (!input.flagEnabled || input.adapter !== "codex") return false;
-  if (input.subscriptionOn) return true;
-  const { status } = input;
-  if (!status) return false;
-  return (
-    status.cliInstalled || status.credentialFilePresent || status.appLoggedIn
-  );
+  // The connect flow runs the bundled codex binary, so it needs no standalone
+  // CLI on PATH and no existing ~/.codex credentials. Show the controls for any
+  // codex user under the flag so a fresh ChatGPT user can reach sign-in.
+  return input.flagEnabled && input.adapter === "codex";
 }
 
 export function effectiveCodexModelAccess(input: {

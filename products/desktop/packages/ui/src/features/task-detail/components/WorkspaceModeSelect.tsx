@@ -168,8 +168,6 @@ export function WorkspaceModeSelect({
             {shouldShowCodexSubscriptionControls({
               flagEnabled: codexSubscription.flagEnabled,
               adapter,
-              status: codexSubscription.status,
-              subscriptionOn: codexSubscription.subscriptionOn,
             }) && (
               <div className="flex items-center gap-1.5">
                 {codexSubscription.subscriptionOn &&
