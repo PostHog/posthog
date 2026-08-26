@@ -15,6 +15,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.models.team import Team
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.data_quality.backend.facade.api import record_check_run
 from products.data_quality.backend.facade.enums import CheckRunStatus, CheckSeverity, CheckType, SubjectType
 from products.data_quality.backend.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 
@@ -60,7 +61,6 @@ class TestInformationSchemaDataQuality(ClickhouseTestMixin, APIBaseTest):
     def _run_for(self, check: DataQualityCheck, **kwargs) -> DataQualityCheckRun:
         suite_run = DataQualitySuiteRun.objects.for_team(check.team_id).create(team=check.team, trigger="manual")
         defaults = {
-            "team": check.team,
             "quality_check": check,
             "suite_run": suite_run,
             "subject_type": check.subject_type,
@@ -71,7 +71,7 @@ class TestInformationSchemaDataQuality(ClickhouseTestMixin, APIBaseTest):
             "status": CheckRunStatus.FAILED,
             "failed_row_count": 4,
         }
-        return DataQualityCheckRun.objects.for_team(check.team_id).create(**{**defaults, **kwargs})
+        return record_check_run(check.team_id, **{**defaults, **kwargs})
 
     def _query(self, sql: str, context: HogQLContext | None = None) -> list:
         return execute_hogql_query(sql, team=self.team, context=context or self._context()).results

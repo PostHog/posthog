@@ -28,6 +28,7 @@ from ..logic.health import CheckStatusRow, roll_up_health
 from ..logic.navigation import SubjectKey, SubjectLocation, subject_locations
 from ..logic.notifications import notify_materialization_blocked
 from ..logic.registry import UnknownCheckTypeError, list_check_types
+from ..logic.run_records import record_check_run
 from ..logic.serialization import compute_fingerprint, from_config_entry, to_config_entry
 from ..logic.subject_access import (
     ReferencedSubjects,
@@ -43,6 +44,7 @@ from ..logic.subject_access import (
     referencing_check_types,
     run_reads_unreadable_subject,
     unconfirmable_subject_names,
+    unreadable_runs_q,
 )
 from ..logic.subjects import resolve_subject, resolve_subject_names, subject_identity
 from ..logic.triggers import materialization_audit_mode as quality_audit_mode
@@ -81,6 +83,7 @@ __all__ = [
     "pinned_subject_refs",
     "pinned_subjects",
     "quality_audit_mode",
+    "record_check_run",
     "referenced_subject_names",
     "referenced_subjects",
     "referencing_check_types",
@@ -97,6 +100,7 @@ __all__ = [
     "subject_locations",
     "to_config_entry",
     "unconfirmable_subject_names",
+    "unreadable_runs_q",
     "upsert_check",
     "validate_check",
 ]

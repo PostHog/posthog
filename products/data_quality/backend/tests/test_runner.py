@@ -19,7 +19,12 @@ from products.data_quality.backend.facade.enums import (
     SuiteRunTrigger,
 )
 from products.data_quality.backend.logic.runner import run_check
-from products.data_quality.backend.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
+from products.data_quality.backend.models import (
+    DataQualityCheck,
+    DataQualityCheckRun,
+    DataQualityCheckRunSubject,
+    DataQualitySuiteRun,
+)
 
 RUNNER_QUERY = "products.data_quality.backend.logic.runner.execute_hogql_query"
 
@@ -298,6 +303,9 @@ class TestCheckRunner(BaseTest):
 
         run = DataQualityCheckRun.objects.for_team(self.team.id).get(quality_check=check)
         assert run.referenced_subjects == [{"subject_type": SubjectType.VIEW, "subject_uuid": str(target.id)}]
+        # Indexed alongside the run, since the history gates read the rows rather than the column.
+        indexed = DataQualityCheckRunSubject.objects.for_team(self.team.id).filter(run=run)
+        assert [(row.subject_type, str(row.subject_uuid)) for row in indexed] == [(SubjectType.VIEW, str(target.id))]
 
     @parameterized.expand([("custom_sql", CheckType.CUSTOM_SQL), ("relationships", CheckType.RELATIONSHIPS)])
     def test_an_automated_referencing_check_without_an_author_errors_without_running(

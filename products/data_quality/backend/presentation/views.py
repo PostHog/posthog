@@ -13,7 +13,7 @@ from collections.abc import Callable
 from typing import ClassVar, cast
 from uuid import UUID
 
-from django.db.models import Q, QuerySet
+from django.db.models import QuerySet
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
@@ -49,10 +49,6 @@ from .serializers import (
 
 _RECENT_RUNS_LIMIT = 50
 
-# An empty Q() matches every row, so an exclusion built by ORing clauses has to start from one that
-# matches none, or a page with nothing to withhold would withhold all of it.
-_MATCHES_NOTHING = Q(pk__in=[])
-
 
 def _current_subject_name(check: DataQualityCheck, current_names: dict[api.SubjectIdentity, str]) -> str:
     # A hard-deleted subject nulls the FK, leaving nothing to resolve and only the name the last run
@@ -60,14 +56,6 @@ def _current_subject_name(check: DataQualityCheck, current_names: dict[api.Subje
     if check.subject_uuid is None:
         return check.subject_name
     return current_names.get(api.subject_identity(check.subject_type, check.subject_uuid), check.subject_name)
-
-
-def _matches_recording(check_type: str, recorded: list | None) -> Q:
-    # A JSONField compares None against JSON null, not against the SQL NULL a run without a
-    # recording stores, so the two cases cannot share one lookup.
-    if recorded is None:
-        return Q(check_type=check_type, referenced_subjects__isnull=True)
-    return Q(check_type=check_type, referenced_subjects=recorded)
 
 
 class _QualityGatedViewSet(TeamAndOrgViewSetMixin):
@@ -228,30 +216,6 @@ class _QualityGatedViewSet(TeamAndOrgViewSetMixin):
         return api.run_reads_unreadable_subject(
             recording.check_type, recording.referenced_subjects, current_names, denied
         )
-
-    def _denied_definitions(self, runs: QuerySet[DataQualityCheckRun]) -> Q:
-        """Match the runs that read a subject the caller is denied.
-
-        Keyed on the identities each run pinned, so the suites reporting on it are withheld by the
-        same rule the routes serving it apply. Each distinct recording is judged once and every
-        identity resolves in one pass. A referencing run that pinned nothing is matched too, since
-        what it read cannot be established.
-
-        Only the types that can read past their own subject reach the scan. A run of any other type
-        pinned an empty list, or pinned nothing and falls back to its type, so it is readable
-        whatever it recorded -- and the aggregation this narrows runs over the team's whole history.
-        """
-        runs = runs.filter(check_type__in=api.referencing_check_types())
-        recordings = list(runs.values_list("check_type", "referenced_subjects").distinct())
-        current_names = api.resolve_subject_names(
-            self.team_id, api.pinned_subject_refs(recorded for _, recorded in recordings)
-        )
-        denied = self._denied_subject_names()
-        matched = _MATCHES_NOTHING
-        for check_type, recorded in recordings:
-            if api.run_reads_unreadable_subject(check_type, recorded, current_names, denied):
-                matched |= _matches_recording(check_type, recorded)
-        return matched
 
     def _readable_runs(self, runs: list[DataQualityCheckRun]) -> list[DataQualityCheckRun]:
         """Drop the runs that read a subject the caller cannot be shown to be allowed.
@@ -557,7 +521,8 @@ class _BaseSuiteRunViewSet(
         runs = DataQualityCheckRun.objects.for_team(self.team_id).filter(
             suite_run_id__in=queryset.order_by().values("id")
         )
-        return queryset.exclude(id__in=runs.filter(self._denied_definitions(runs)).values("suite_run_id"))
+        unreadable = api.unreadable_runs_q(self.team_id, self._denied_subject_names())
+        return queryset.exclude(id__in=runs.filter(unreadable).values("suite_run_id"))
 
     @extend_schema(
         description="Every check execution in this suite run.",
@@ -722,7 +687,8 @@ class DataQualityRunViewSet(
             )
         # A run's declared subject is not the only one it read, so the same test the check routes
         # apply to a definition has to reach the suites reporting on it.
-        return queryset.exclude(id__in=runs.filter(self._denied_definitions(runs)).values("suite_run_id"))
+        unreadable = api.unreadable_runs_q(self.team_id, self._denied_subject_names())
+        return queryset.exclude(id__in=runs.filter(unreadable).values("suite_run_id"))
 
     def _denied_subject_uuids(self) -> set[UUID]:
         """The ids of the subjects this caller is denied, as suite and check runs record them.

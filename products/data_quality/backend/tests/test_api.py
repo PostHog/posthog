@@ -15,6 +15,7 @@ from posthog.constants import AvailableFeature
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.data_quality.backend.facade import api
 from products.data_quality.backend.facade.enums import CheckRunStatus, CheckSeverity, CheckType, SubjectType
 from products.data_quality.backend.logic import checks as checks_logic
 from products.data_quality.backend.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
@@ -579,8 +580,8 @@ class TestDataQualityCheckAPI(APIBaseTest):
             config=reads_orders,
             fingerprint=uuid4().hex,
         )
-        DataQualityCheckRun.objects.for_team(self.team.id).create(
-            team=self.team,
+        api.record_check_run(
+            self.team.id,
             suite_run=DataQualitySuiteRun.objects.for_team(self.team.id).create(team=self.team, trigger="manual"),
             quality_check=check,
             subject_type=SubjectType.VIEW,
@@ -747,8 +748,8 @@ class TestDataQualityCheckAPI(APIBaseTest):
                 config=config,
                 fingerprint=uuid4().hex,
             )
-            DataQualityCheckRun.objects.for_team(self.team.id).create(
-                team=self.team,
+            api.record_check_run(
+                self.team.id,
                 suite_run=suite,
                 quality_check=check,
                 subject_type=SubjectType.VIEW,
@@ -842,8 +843,8 @@ class TestDataQualityCheckAPI(APIBaseTest):
         suite = DataQualitySuiteRun.objects.for_team(self.team.id).create(
             team=self.team, trigger="manual", subject_type=SubjectType.VIEW, subject_uuid=allowed.id
         )
-        DataQualityCheckRun.objects.for_team(self.team.id).create(
-            team=self.team,
+        api.record_check_run(
+            self.team.id,
             suite_run=suite,
             quality_check=check,
             subject_type=SubjectType.VIEW,
@@ -878,8 +879,8 @@ class TestDataQualityCheckAPI(APIBaseTest):
         suite = DataQualitySuiteRun.objects.for_team(self.team.id).create(
             team=self.team, trigger="manual", subject_type=SubjectType.VIEW, subject_uuid=allowed.id
         )
-        DataQualityCheckRun.objects.for_team(self.team.id).create(
-            team=self.team,
+        api.record_check_run(
+            self.team.id,
             suite_run=suite,
             subject_type=SubjectType.VIEW,
             subject_uuid=allowed.id,
@@ -908,8 +909,8 @@ class TestDataQualityCheckAPI(APIBaseTest):
         suite = DataQualitySuiteRun.objects.for_team(self.team.id).create(
             team=self.team, trigger="manual", subject_type=SubjectType.VIEW, subject_uuid=allowed.id
         )
-        DataQualityCheckRun.objects.for_team(self.team.id).create(
-            team=self.team,
+        api.record_check_run(
+            self.team.id,
             suite_run=suite,
             subject_type=SubjectType.VIEW,
             subject_uuid=allowed.id,
@@ -927,6 +928,35 @@ class TestDataQualityCheckAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert [row["check_type"] for row in response.json()] == [CheckType.CUSTOM_SQL]
+
+    def test_a_suite_whose_run_was_never_indexed_is_withheld(self) -> None:
+        # The suite lists exclude in SQL, so they read the index rather than each run's recording.
+        # A run written without index rows -- the state every run recorded before the index existed
+        # is in, since nothing backfills them -- reads there as one that referenced nothing, which
+        # is the fail-open answer. Deliberately not through record_check_run.
+        allowed = self._make_view("customers")
+        suite = DataQualitySuiteRun.objects.for_team(self.team.id).create(
+            team=self.team, trigger="manual", subject_type=SubjectType.VIEW, subject_uuid=allowed.id
+        )
+        DataQualityCheckRun.objects.for_team(self.team.id).create(
+            team=self.team,
+            suite_run=suite,
+            subject_type=SubjectType.VIEW,
+            subject_uuid=allowed.id,
+            subject_name="customers",
+            check_type=CheckType.CUSTOM_SQL,
+            check_config={"query": "SELECT 1 FROM customers"},
+            referenced_subjects=self._pinned(allowed),
+            check_fingerprint=uuid4().hex,
+            status=CheckRunStatus.FAILED,
+            failed_row_count=3,
+        )
+        self._deny_the_view()
+
+        listed = self.client.get(f"{self._suite_runs_url(allowed.id)}/")
+
+        assert listed.status_code == status.HTTP_200_OK
+        assert listed.json()["results"] == []
 
     @parameterized.expand(
         [

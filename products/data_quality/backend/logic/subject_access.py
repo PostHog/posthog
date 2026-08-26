@@ -7,9 +7,12 @@ history, or health rollup -- those carry the compiled ``config``, failed-row cou
 values, which together act as a count oracle over rows the member cannot read directly.
 """
 
+from collections import defaultdict
 from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, Any, Optional
 from uuid import UUID
+
+from django.db.models import Q
 
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.schema.information_schema import _references_denied_table
@@ -18,10 +21,11 @@ from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 
 from ..facade.enums import SubjectType
+from ..models import DataQualityCheckRunSubject
 from .contracts import SubjectIdentity
 from .registry import all_specs, get_spec
 from .spec import CheckTypeSpec
-from .subjects import resolve_subject, resolve_subject_by_name
+from .subjects import resolve_subject, resolve_subject_by_name, resolve_subject_names
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -210,6 +214,55 @@ def run_reads_unreadable_subject(
     if pinned is None:
         return check_type_reads_beyond_subject(check_type)
     return any((name := current_names.get(subject)) is None or is_subject_denied(name, denied) for subject in pinned)
+
+
+def unreadable_runs_q(team_id: int, denied: set[str]) -> Q:
+    """Match, in SQL, every run that read a subject this caller cannot be shown to be allowed.
+
+    The set form of :func:`run_reads_unreadable_subject`, for the surfaces that have to exclude
+    before a window or a page count and so cannot judge run by run in Python. Three ways a run is
+    out of reach, and none of them aggregates over the recorded JSON:
+
+    - it read a subject that no longer resolves, or resolves to a name the caller is denied, which
+      the index answers by id;
+    - it pinned nothing and its type can read past its own subject, so what it read cannot be
+      established;
+    - it recorded references but has no index rows for them, which is the same "cannot be
+      established" in a different form and is treated the same way.
+
+    The last case is what makes the index safe to add without rewriting history: a run written
+    before it existed is withheld rather than read as one that referenced nothing.
+    """
+    indexed = DataQualityCheckRunSubject.objects.for_team(team_id)
+    matched = Q(referenced_subjects__isnull=True, check_type__in=referencing_check_types())
+    matched |= ~Q(referenced_subjects__isnull=True) & ~Q(referenced_subjects=[]) & ~Q(id__in=indexed.values("run_id"))
+    if blocked := _blocked_subjects(team_id, denied):
+        matched |= Q(id__in=indexed.filter(blocked).values("run_id"))
+    return matched
+
+
+def _blocked_subjects(team_id: int, denied: set[str]) -> Q:
+    """The indexed subjects this caller may not read, as a filter over the index. One query to list.
+
+    Distinct over two narrow indexed columns, so the cost tracks how many subjects the project has
+    rather than how long its run history is.
+    """
+    referenced = [
+        SubjectIdentity(subject_type=subject_type, subject_uuid=str(subject_uuid))
+        for subject_type, subject_uuid in DataQualityCheckRunSubject.objects.for_team(team_id)
+        .values_list("subject_type", "subject_uuid")
+        .distinct()
+    ]
+    current_names = resolve_subject_names(team_id, referenced)
+    by_type: dict[str, list[UUID]] = defaultdict(list)
+    for subject in referenced:
+        name = current_names.get(subject)
+        if name is None or is_subject_denied(name, denied):
+            by_type[subject.subject_type].append(UUID(subject.subject_uuid))
+    blocked = Q()
+    for subject_type, uuids in by_type.items():
+        blocked |= Q(subject_type=subject_type, subject_uuid__in=uuids)
+    return blocked
 
 
 def _is_resolvable(subject_type: str, subject_uuid: str) -> bool:

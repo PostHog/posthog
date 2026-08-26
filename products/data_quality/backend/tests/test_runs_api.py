@@ -15,7 +15,7 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Node
 from products.data_quality.backend.facade import api
 from products.data_quality.backend.facade.enums import CheckRunStatus, CheckType, SubjectStatus, SubjectType
-from products.data_quality.backend.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
+from products.data_quality.backend.models import DataQualityCheck, DataQualitySuiteRun
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
@@ -234,8 +234,8 @@ class TestDataQualityRunAPI(APIBaseTest):
     def _suite_reading(self, read: DataWarehouseSavedQuery) -> DataQualitySuiteRun:
         """A suite whose one run sits on the allowed "customers" but read another subject."""
         suite_run = DataQualitySuiteRun.objects.for_team(self.team.id).create(team=self.team, trigger="manual")
-        DataQualityCheckRun.objects.for_team(self.team.id).create(
-            team=self.team,
+        api.record_check_run(
+            self.team.id,
             suite_run=suite_run,
             subject_type=SubjectType.VIEW,
             subject_uuid=self.customers.id,
@@ -251,8 +251,8 @@ class TestDataQualityRunAPI(APIBaseTest):
     def _sweep_covering(self, view: DataWarehouseSavedQuery) -> DataQualitySuiteRun:
         """A multi-subject sweep whose counters include one check run against this view."""
         suite_run = DataQualitySuiteRun.objects.for_team(self.team.id).create(team=self.team, trigger="manual")
-        DataQualityCheckRun.objects.for_team(self.team.id).create(
-            team=self.team,
+        api.record_check_run(
+            self.team.id,
             suite_run=suite_run,
             subject_type=SubjectType.VIEW,
             subject_uuid=view.id,
@@ -314,8 +314,8 @@ class TestDataQualityRunAPI(APIBaseTest):
             config={"query": "SELECT 1 FROM orders"},
             last_status=CheckRunStatus.FAILED,
         )
-        DataQualityCheckRun.objects.for_team(self.team.id).create(
-            team=self.team,
+        api.record_check_run(
+            self.team.id,
             suite_run=DataQualitySuiteRun.objects.for_team(self.team.id).create(team=self.team, trigger="manual"),
             quality_check=reader,
             subject_type=SubjectType.VIEW,

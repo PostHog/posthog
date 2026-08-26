@@ -1180,22 +1180,16 @@ def _without_denied_runs(team_id: int, runs: Any, denied: set[str]) -> Any:
     for something else to answer for it. A referencing run that pinned nothing predates the
     recording and is withheld rather than assumed harmless.
 
-    Only the types that can read past their own subject reach the recording scan. A run of any other
-    type is readable whatever it recorded, and the aggregation this narrows runs over the team's
-    whole retained history before the window applies.
+    Both halves resolve identities rather than aggregating over what each run recorded, so the cost
+    tracks the number of subjects the project has rather than the length of its retained history --
+    which matters here, because this runs before the window that bounds the rows served.
     """
     from products.data_quality.backend.facade import api as data_quality  # noqa: PLC0415
 
     subjects = set(runs.values_list("subject_type", "subject_uuid", "subject_name").distinct())
-    recordings = list(
-        runs.filter(check_type__in=data_quality.referencing_check_types())
-        .values_list("check_type", "referenced_subjects")
-        .distinct()
-    )
     current_names = data_quality.resolve_subject_names(
         team_id,
-        [data_quality.subject_identity(subject_type, subject_uuid) for subject_type, subject_uuid, _ in subjects]
-        + data_quality.pinned_subject_refs(recorded for _, recorded in recordings),
+        [data_quality.subject_identity(subject_type, subject_uuid) for subject_type, subject_uuid, _ in subjects],
     )
     blocked_subjects = [
         subject_uuid
@@ -1207,18 +1201,7 @@ def _without_denied_runs(team_id: int, runs: Any, denied: set[str]) -> Any:
     if blocked_subjects:
         runs = runs.exclude(subject_uuid__in=blocked_subjects)
 
-    blocked_recordings = Q()
-    for check_type, recorded in recordings:
-        if not data_quality.run_reads_unreadable_subject(check_type, recorded, current_names, denied):
-            continue
-        # A JSONField compares None against JSON null, not against the SQL NULL a run without a
-        # recording stores, so the two cases cannot share one lookup.
-        if recorded is None:
-            blocked_recordings |= Q(check_type=check_type, referenced_subjects__isnull=True)
-        else:
-            blocked_recordings |= Q(check_type=check_type, referenced_subjects=recorded)
-    if blocked_recordings:
-        runs = runs.exclude(blocked_recordings)
+    runs = runs.exclude(data_quality.unreadable_runs_q(team_id, denied))
     return runs
 
 
