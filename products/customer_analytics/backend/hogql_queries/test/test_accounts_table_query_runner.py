@@ -43,8 +43,9 @@ from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, Tag, Team, User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
-from posthog.rbac.user_access_control import UserAccessControl
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.models.access_control import AccessControl
 from products.customer_analytics.backend.facade import api, contracts
 from products.customer_analytics.backend.hogql_queries.accounts_table_query_runner import (
     ACCOUNTS_TABLE_MAX_COLUMNS,
@@ -64,11 +65,6 @@ from products.customer_analytics.backend.models import (
 )
 from products.customer_analytics.backend.test.factories import create_account, create_custom_property_definition
 from products.notebooks.backend.models import Notebook, ResourceNotebook
-
-try:
-    from ee.models.rbac.access_control import AccessControl
-except ImportError:
-    pass
 
 
 @freeze_time("2026-01-15T12:00:00Z")
@@ -333,6 +329,34 @@ class TestAccountsTableQueryRunner(BaseTest):
             )
 
         assert {row.custom_properties[definition.id] for row in page.rows} == {0.0, 1.0, 2.0}
+
+    def test_resolves_the_logo_domain_from_account_properties(self) -> None:
+        from_website_domain = create_account(
+            team_id=self.team.id,
+            name="From website domain",
+            _properties={"website_domain": "acme.example", "email_domains": ["other.example"]},
+        )
+        from_email_domains = create_account(
+            team_id=self.team.id,
+            name="From email domains",
+            _properties={"email_domains": ["globex.example"]},
+        )
+        from_external_id = create_account(team_id=self.team.id, name="From external ID", external_id="legacy.example")
+
+        page = api.query_accounts_table(
+            team_id=self.team.id,
+            user_access_control=UserAccessControl(user=self.user, team=self.team),
+            selection=contracts.AccountTableColumnSelection(),
+            filters=(),
+            sort=None,
+            offset=0,
+            limit=100,
+        )
+
+        logo_domains = {row.id: row.logo_domain for row in page.rows}
+        assert logo_domains[from_website_domain.id] == "acme.example"
+        assert logo_domains[from_email_domains.id] == "globex.example"
+        assert logo_domains[from_external_id.id] is None
 
     def test_caps_selected_columns_metrics_and_page_size(self) -> None:
         with self.assertRaises(ValidationError):

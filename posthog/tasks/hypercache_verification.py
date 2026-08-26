@@ -27,7 +27,12 @@ from posthog.celery_task_names import (
 )
 from posthog.exceptions_capture import capture_exception
 from posthog.storage.hypercache_manager import HyperCacheManagementConfig
-from posthog.storage.hypercache_verifier import TeamBatchFetchError, VerifyTeamFn, _run_verification_for_cache
+from posthog.storage.hypercache_verifier import (
+    HYPERCACHE_VERIFY_FIX_COUNTER,
+    TeamBatchFetchError,
+    VerifyTeamFn,
+    _run_verification_for_cache,
+)
 from posthog.tasks.utils import CeleryQueue, PushGatewayTask
 
 from products.feature_flags.backend.local_evaluation import (
@@ -76,6 +81,22 @@ HYPERCACHE_VERIFICATION_INCOMPLETE_RUNS_COUNTER = Counter(
 for _cache_type in (*get_args(CacheType), FLAG_DEFINITIONS_CACHE_TYPE):
     for _reason in get_args(IncompleteRunReason):
         HYPERCACHE_VERIFICATION_INCOMPLETE_RUNS_COUNTER.labels(cache_type=_cache_type, reason=_reason)
+
+_FIX_ISSUE_TYPES = ("cache_miss", "cache_mismatch", "expiry_missing")
+# Only the flags cache has a second writer (the Rust Kafka builder); the other
+# caches are Python-written, so pre-creating rust/unknown series for them would
+# publish zero-valued series that can never increment.
+_FIX_WRITERS_BY_CACHE_TYPE = {
+    cache_type: ("python", "rust", "unknown") if cache_type == "flags" else ("python",)
+    for cache_type in (*get_args(CacheType), FLAG_DEFINITIONS_CACHE_TYPE)
+}
+# Same pre-creation rationale as above. It matters most for writer="rust": a
+# rust-attributed fix is the rare parity signal the Kafka-builder ramp gates on,
+# and its first increment must not be invisible to increase().
+for _cache_type, _writers in _FIX_WRITERS_BY_CACHE_TYPE.items():
+    for _issue_type in _FIX_ISSUE_TYPES:
+        for _writer in _writers:
+            HYPERCACHE_VERIFY_FIX_COUNTER.labels(cache_type=_cache_type, issue_type=_issue_type, writer=_writer)
 
 
 def _record_incomplete_run(cache_type: str, reason: IncompleteRunReason) -> None:
@@ -251,7 +272,7 @@ def verify_and_fix_flags_cache_task(self: PushGatewayTask) -> None:
     Expected duration: ~8 minutes (observed 2026-08-21); the hard limit stays under the
     30-minute schedule so a run always finishes before the next one is due.
 
-    Metrics: posthog_hypercache_verify_fixes_total{cache_type="flags", issue_type="..."},
+    Metrics: posthog_hypercache_verify_fixes_total{cache_type="flags", issue_type="...", writer="..."},
     posthog_hypercache_verification_incomplete_runs_total{cache_type="flags", reason="..."}
     """
     _run_cache_verification(

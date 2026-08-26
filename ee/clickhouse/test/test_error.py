@@ -224,6 +224,10 @@ def test_wrap_clickhouse_query_error(error, expected_type, expected_message, exp
     assert label == expected_ch_error
 
 
+# Marked for the database it queries: `django_db_setup` is what creates the ClickHouse test
+# database, so without this the test only passes when some other test in the package happens to
+# run first and create it, and fails wherever sharding isolates it.
+@pytest.mark.django_db
 def test_per_query_memory_limit_phrasing_matches_real_clickhouse():
     # The query reads only the built-in `numbers` table function, so it needs no tenant
     # database. default_client connects to `system`, which always exists, so this bare

@@ -12,7 +12,6 @@ from posthog.test.base import (
     cleanup_materialized_columns,
     snapshot_clickhouse_queries,
 )
-from unittest.mock import patch
 
 from rest_framework.exceptions import ValidationError
 
@@ -1923,8 +1922,8 @@ def test_combine_group_properties():
     }
 
 
-@patch("posthog.models.event.new_events_schema.use_new_events_schema", return_value=False)
-def test_session_property_validation(_mock_use_new_events_schema):
+@pytest.mark.django_db
+def test_session_property_validation():
     # Property key not valid for type session
     with pytest.raises(ValidationError):
         filter = Filter(
