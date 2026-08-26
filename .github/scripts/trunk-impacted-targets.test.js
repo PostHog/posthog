@@ -526,6 +526,27 @@ test('a single-language workflow claims that language rather than everything', (
         computeTargets(['.github/workflows/ci-openapi-codegen.yml'], CONTEXT),
         computeTargets(['tools/openapi-codegen/package.json'], CONTEXT)
     )
+    // Workflows serving a standalone tree take that tree's own lanes. The
+    // equality against a file in the tree also guards the lane names: a
+    // typo'd lane widens the workflow to everything and fails here.
+    for (const [workflow, treeFile] of [
+        ['ci-cli.yml', 'cli/src/main.rs'],
+        ['release-cli.yml', 'cli/src/main.rs'],
+        ['ci-livestream.yml', 'livestream/main.go'],
+        ['ci-livestream-tui.yml', 'livestream/tui/main.go'],
+        ['build-livestream-tui.yml', 'livestream/tui/main.go'],
+        ['livestream-docker-image.yml', 'livestream/Dockerfile'],
+        ['terragrunt-posthog.yaml', 'terraform/team-devex/main.tf'],
+        ['ci-phrocs.yml', 'tools/phrocs/main.go'],
+        ['build-phrocs.yml', 'tools/phrocs/Makefile'],
+        ['hogbox-preview-cleanup.yml', 'tools/hogbox-preview/cli.py'],
+    ]) {
+        assert.deepEqual(
+            computeTargets([`.github/workflows/${workflow}`], CONTEXT),
+            computeTargets([treeFile], CONTEXT),
+            workflow
+        )
+    }
     // Cross-domain workflows take the union of the families on each side,
     // matching what the same change spelled as files would claim.
     assert.deepEqual(
@@ -691,6 +712,9 @@ test('an incomplete context falls back to the ALL sentinel', () => {
     assert.equal(allKnownTargets({ ...CONTEXT, rustGraph: null }), null)
     assert.equal(allKnownTargets({ ...CONTEXT, services: null }), null)
     assert.equal(computeTargets(['some-new-toplevel/thing.go'], { ...CONTEXT, services: null }), ALL)
+    // An explicit-lanes rule cannot validate its names without the full
+    // universe, so it widens to the sentinel too.
+    assert.equal(computeTargets(['.github/workflows/ci-cli.yml'], { ...CONTEXT, services: null }), ALL)
 })
 
 test('tripwire domains are reported for telemetry', () => {

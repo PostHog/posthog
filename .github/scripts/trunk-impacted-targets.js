@@ -221,6 +221,11 @@ const TRIPWIRE_RULES = [
     // which sit on the python lanes already.
     ['.github/workflows/build-hogql-parser.yml', PYTHON],
     ['.github/workflows/publish-hogli.yml', PYTHON],
+    // Dispatches the cloud-infra UDF deploy when the committed binaries under
+    // posthog/user_scripts/ change. It never fires on funnel-udf/** (the rust
+    // sources those binaries are built from), so the PRs it interacts with
+    // are the python-lane ones that commit the binaries.
+    ['.github/workflows/clickhouse-udfs.yml', PYTHON],
     ['.github/workflows/ci-rust.yml', RUST],
     ['.github/workflows/ci-rust-flags-integration.yml', RUST],
     // The rust image builds and crate publishes: everything they build or
@@ -252,6 +257,24 @@ const TRIPWIRE_RULES = [
     // Compiles the C++ parser (a COMMON_PYTHON tree) to WASM and commits the
     // frontend/package.json + pnpm-lock.yaml pin back to the PR branch.
     ['.github/workflows/build-hogql-parser-npm.yml', [PYTHON, JAVASCRIPT]],
+
+    // Workflows whose whole radius is a standalone tree take that tree's own
+    // lanes, verified against each workflow's jobs and path filters like the
+    // domain entries above. Two lookalikes are deliberately absent:
+    // hogbox-preview-env.yml builds the main app frontend and boots the PR's
+    // backend with no paths filter, and clickhouse-udfs.yml fires on
+    // posthog/user_scripts/** (the committed UDF binaries in the Django
+    // tree), never on funnel-udf/**, so it sits with the python entries.
+    ['.github/workflows/ci-cli.yml', { lanes: ['cli', 'svc:mcp'] }],
+    ['.github/workflows/release-cli.yml', { lanes: ['cli', 'svc:mcp'] }],
+    ['.github/workflows/ci-livestream.yml', { lanes: ['livestream'] }],
+    ['.github/workflows/ci-livestream-tui.yml', { lanes: ['livestream'] }],
+    ['.github/workflows/build-livestream-tui.yml', { lanes: ['livestream'] }],
+    ['.github/workflows/livestream-docker-image.yml', { lanes: ['livestream'] }],
+    ['.github/workflows/terragrunt-posthog.yaml', { lanes: ['terraform'] }],
+    ['.github/workflows/ci-phrocs.yml', { lanes: ['tools:phrocs'] }],
+    ['.github/workflows/build-phrocs.yml', { lanes: ['tools:phrocs'] }],
+    ['.github/workflows/hogbox-preview-cleanup.yml', { lanes: ['tools:hogbox-preview'] }],
 
     // The Depot shadows of workflows narrowed above take their canonical
     // twin's domain: a shadow defines the same single-language suite, just on
@@ -1480,13 +1503,38 @@ const DOMAIN_LANES = new Map([
     [DESKTOP, addDesktopLanes],
 ])
 
+// The explicit-lanes rule form: a workflow whose radius is a standalone tree
+// takes that tree's own lane names rather than a language family. Every named
+// lane has to be one the context can enumerate — a lane missing from
+// allKnownTargets would make this rule disjoint from a widened PR, which is
+// the one failure mode that silently breaks master — so an unknown name (a
+// typo, or a tree that was renamed out from under the rule) widens instead.
+function addExplicitLanes(lanes, targets, context) {
+    const known = allKnownTargets(context)
+    if (!known) {
+        return false
+    }
+    for (const lane of lanes) {
+        if (!known.includes(lane)) {
+            console.error(`Unknown lane ${lane} in an explicit-lanes rule; widening until the rule is updated`)
+            return false
+        }
+        targets.add(lane)
+    }
+    return true
+}
+
 // Returns false when the file's domain is universal, which is the caller's cue
 // to abandon the per-file accumulation and report the whole set. A rule may
 // hold a list of domains for a file whose radius spans more than one family,
 // the same composition RUST_NON_CRATE_RULES and PROTO_TREES use; the list is
 // applied in union, and widens if any member cannot name its lanes in full.
+// A rule may instead hold {lanes: [...]} to name explicit standalone lanes.
 function applyTripwireDomain(domain, file, targets, context) {
     const resolved = domain === SEMGREP ? (context.semgrepDomains || new Map()).get(file) || UNIVERSAL : domain
+    if (resolved && typeof resolved === 'object' && !Array.isArray(resolved)) {
+        return addExplicitLanes(resolved.lanes, targets, context)
+    }
     const domains = Array.isArray(resolved) ? resolved : [resolved]
     return domains.every((member) => {
         const addLanes = DOMAIN_LANES.get(member)
