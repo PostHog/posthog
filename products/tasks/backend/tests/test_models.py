@@ -380,15 +380,16 @@ class TestTask(TestCase):
 
     @parameterized.expand(
         [
-            (Task.OriginProduct.SIGNALS_CHAT,),
-            (Task.OriginProduct.SIGNAL_REPORT,),
+            (Task.OriginProduct.SIGNALS_CHAT, False),
+            (Task.OriginProduct.SIGNAL_REPORT, False),
+            (Task.OriginProduct.POSTHOG_AI, True),
         ]
     )
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_create_and_run_repoless_inbox_task_takes_no_user_integration(self, origin_product, mock_execute_workflow):
+    def test_repoless_task_github_identity_follows_origin(self, origin_product, keeps_identity, mock_execute_workflow):
         user = User.objects.create(email=f"repoless-{origin_product}@test.com")
         OrganizationMembership.objects.create(user=user, organization=self.organization)
-        UserIntegration.objects.create(
+        user_integration = UserIntegration.objects.create(
             user=user,
             kind=UserIntegration.IntegrationKind.GITHUB,
             integration_id="install-1",
@@ -400,14 +401,17 @@ class TestTask(TestCase):
         with self.captureOnCommitCallbacks(execute=True):
             task = Task.create_and_run(
                 team=self.team,
-                title="Inbox chat",
+                title="Repo-less task",
                 description="Chat",
                 origin_product=origin_product,
                 user_id=user.id,
                 repository=None,
             )
 
-        self.assertIsNone(task.github_user_integration)
+        if keeps_identity:
+            self.assertEqual(task.github_user_integration, user_integration)
+        else:
+            self.assertIsNone(task.github_user_integration)
         self.assertIsNone(task.github_integration)
         self.assertEqual(task.repositories, [])
 
