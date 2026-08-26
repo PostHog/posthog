@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { ApiError } from 'lib/api-error'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -227,6 +228,20 @@ describe('scoutFleetLogic', () => {
 
         expect(mockSignalsScoutConfigList).not.toHaveBeenCalled()
         expect(logic.values.scoutConfigs).toBeNull()
+    })
+
+    // The 500 row is the point of this case: a guard wide enough to swallow it would leave a real
+    // scout-configs outage looking identical to a project the user simply cannot reach.
+    it.each([
+        [403, 'loadScoutConfigsSuccess'],
+        [404, 'loadScoutConfigsSuccess'],
+        [500, 'loadScoutConfigsFailure'],
+    ])('resolves a %s from the config list to %s', async (status, expectedAction) => {
+        mockSignalsScoutConfigList.mockRejectedValueOnce(new ApiError('nope', status))
+
+        logic.actions.loadScoutConfigs()
+
+        await expectLogic(logic).toDispatchActions([expectedAction])
     })
 
     it('sends newer queued updates after an earlier request fails', async () => {

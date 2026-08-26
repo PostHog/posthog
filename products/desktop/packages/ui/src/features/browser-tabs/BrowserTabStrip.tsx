@@ -166,7 +166,13 @@ export function BrowserTabStrip() {
     ? view.type
     : null;
 
-  const { channels } = useChannels();
+  const { channels, isLoading: channelsLoading } = useChannels();
+  // The scoped space is null until the channel list has loaded and the route
+  // sync has picked one. Writing that null into a tab's memory would clear the
+  // space it was on, so the next switch to it opens on the list instead of the
+  // session. Leave the field absent until there is a real answer.
+  const stampedSpaceId =
+    scopedSpaceId === null && channelsLoading ? undefined : scopedSpaceId;
   // With channel reports on, a restored inbox tab lands on the spaces index
   // (the inbox is gone as a destination).
   const channelReportsEnabled = useChannelReportsEnabled();
@@ -349,14 +355,14 @@ export function BrowserTabStrip() {
     // not make (hotkeys, deep links, links in the content).
     const visit = {
       href: locationHref,
-      ...(railPane === "spaces" ? { listOpen, spaceId: scopedSpaceId } : {}),
+      ...(railPane === "spaces" ? { listOpen, spaceId: stampedSpaceId } : {}),
     };
     const viewState: TabViewState = {
       // Keep the stored name when nothing has resolved yet, so a loading frame
       // does not blank a background tab's label.
       title: routeTitle ?? mirrorActive?.viewState?.title,
       listOpen,
-      spaceId: scopedSpaceId,
+      spaceId: stampedSpaceId,
       lastByPane: {
         ...(mirrorActive?.viewState?.lastByPane ?? {}),
         [railPane]: visit,
@@ -465,7 +471,7 @@ export function BrowserTabStrip() {
     routeTitle,
     railPane,
     listOpen,
-    scopedSpaceId,
+    stampedSpaceId,
     client,
     router,
   ]);
