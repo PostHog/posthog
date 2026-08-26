@@ -1133,6 +1133,24 @@ describe('insightLogic', () => {
         })
     })
 
+    describe('insightMissing', () => {
+        // A notebook cell binds a saved insight by short id. When that insight is gone, the API
+        // returns no results and the loader throws — the cell needs a flag it can turn into a
+        // "not found" screen instead of silently rendering a blank default query.
+        it('is set when the insight cannot be found', async () => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/insights/': () => [200, { results: [] }],
+                },
+            })
+            logic = insightLogic({ dashboardItemId: Insight42 })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadInsightFailure'])
+
+            expect(logic.values.insightMissing).toBe(true)
+        })
+    })
+
     describe('editingDisabledReason', () => {
         it.each([
             ['overrides present', { filtersOverride: { date_from: '-7d' } }, 'Discard overrides to edit the insight.'],
