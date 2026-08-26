@@ -21,6 +21,7 @@ import {
   countRemovedTools,
   countToolsByApproval,
   filterToolsByName,
+  groupToolsByCategory,
   sortToolsForDisplay,
 } from "@posthog/core/mcp-servers/toolDerivation";
 import { ServerIcon } from "@posthog/ui/features/mcp-servers/components/parts/icons";
@@ -100,6 +101,11 @@ export function ServerDetailView({
   const filteredTools = useMemo(
     () => filterToolsByName(visibleTools, toolSearch),
     [visibleTools, toolSearch],
+  );
+
+  const toolGroups = useMemo(
+    () => groupToolsByCategory(filteredTools),
+    [filteredTools],
   );
 
   const removedCount = countRemovedTools(tools);
@@ -370,18 +376,25 @@ export function ServerDetailView({
                   </Text>
                 </Flex>
               ) : (
-                filteredTools.map((tool) => (
-                  <ToolRow
-                    key={tool.tool_name}
-                    tool={tool}
-                    teamScope={installation.scope === "shared"}
-                    onChange={(approval_state) =>
-                      setToolApproval({
-                        toolName: tool.tool_name,
-                        approval_state,
-                      })
-                    }
-                  />
+                toolGroups.map((group) => (
+                  <Flex key={group.category} direction="column" gap="2">
+                    <Text color="gray" className="font-medium text-[13px]">
+                      {group.label}
+                    </Text>
+                    {group.tools.map((tool) => (
+                      <ToolRow
+                        key={tool.tool_name}
+                        tool={tool}
+                        teamScope={installation.scope === "shared"}
+                        onChange={(approval_state) =>
+                          setToolApproval({
+                            toolName: tool.tool_name,
+                            approval_state,
+                          })
+                        }
+                      />
+                    ))}
+                  </Flex>
                 ))
               )}
             </Flex>
