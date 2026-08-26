@@ -31,6 +31,7 @@ from posthog.models.share_password import SharePassword
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.dashboards.backend.access import DashboardAccessMethod
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -40,8 +41,6 @@ from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.exports.backend.models.exported_asset import ExportedAsset, get_render_access_token
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
-
-from ee.models.rbac.access_control import AccessControl
 
 
 def mock_exporter_template(test_func):
@@ -2015,7 +2014,6 @@ class TestSharingPublishGate(APIBaseTest):
         )
 
     def _deny_warehouse(self) -> None:
-
         AccessControl.objects.create(team=self.team, resource="warehouse_objects", access_level="none")
 
     def _enable_sharing(self, kind: str):
@@ -2066,7 +2064,6 @@ class TestSharingPublishGate(APIBaseTest):
         assert response.json()["enabled"] is True
 
     def test_system_table_denial_blocks_publishing(self):
-
         AccessControl.objects.create(team=self.team, resource="dashboard", access_level="none")
         self.insight.query = {
             "kind": "DataTableNode",
@@ -2114,7 +2111,6 @@ class TestSharingPublishGate(APIBaseTest):
 
     @parameterized.expand([("non_materialized",), ("materialized",)])
     def test_granted_view_over_denied_table_gates_unless_materialized(self, case: str):
-
         inner = DataWarehouseSavedQuery.objects.create(
             team=self.team,
             name="restricted_inner",
