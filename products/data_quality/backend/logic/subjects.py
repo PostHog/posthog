@@ -91,7 +91,8 @@ def subject_column_type(team_id: int, subject_type: str, subject_uuid: str | UUI
         columns = data_modeling_facade.get_saved_query_columns(team_id, subject_uuid)
     entry = (columns or {}).get(column_name)
     # A table records either a bare type string (older rows) or a dict keyed "clickhouse", the same
-    # two shapes hogql_fields_and_structure_for_columns handles; a view always records the string.
+    # two shapes hogql_fields_and_structure_for_columns handles; the saved-query facade already
+    # unwrapped a view's entry to the string.
     if isinstance(entry, dict):
         entry = entry.get("clickhouse")
     return entry if isinstance(entry, str) else None
