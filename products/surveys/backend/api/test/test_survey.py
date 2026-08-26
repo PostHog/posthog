@@ -1523,6 +1523,24 @@ class TestSurvey(APIBaseTest):
             "attr": None,
         }
 
+    @parameterized.expand(
+        [
+            ("targeting_flag_filters", '{"groups": []}'),
+            ("form_content", '{"type": "doc"}'),
+        ]
+    )
+    def test_structured_param_as_json_string_returns_400_not_500(self, field, value):
+        # Some MCP clients send a structured param as a JSON-encoded string when its
+        # generated schema is empty. The server must name the bad field, not raise a 500.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={"name": "survey with bad param", "type": "popover", field: value},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == field
+
     def test_updating_survey_with_targeting_creates_or_updates_targeting_flag(self):
         survey_with_targeting = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
