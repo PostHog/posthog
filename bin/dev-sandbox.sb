@@ -68,10 +68,6 @@
     (subpath (string-append (param "HOME") "/Library/Application Support/com.vercel.cli"))
     (subpath (string-append (param "HOME") "/Library/Application Support/turborepo"))
     (subpath (string-append (param "HOME") "/.duckdb"))            ; duckdb extension cache (ducklake warmup installs/stats extensions here)
-    ;; machine-shared tool store. on-activate installs the greptile CLI here with
-    ;; sandboxed npm, and npm reads its --prefix as well as writing it. Only this
-    ;; subpath, so the rest of ~/.config (gcloud, gh, op) stays denied.
-    (subpath (string-append (param "HOME") "/.config/posthog/tools"))
     ;; git global config (read by version-detection / git-aware tooling). Config
     ;; only, by exact path — credentials (~/.git-credentials, keychain) stay blocked.
     (literal (string-append (param "HOME") "/.gitconfig"))
@@ -83,14 +79,10 @@
 
 ;; Canonicalization (realpath) lstats every path component, so uv resolving its
 ;; managed-interpreter symlinks needs metadata on the dir nodes between $HOME and
-;; ~/.local/share/uv, and npm canonicalizing its --prefix needs the same between
-;; $HOME and ~/.config/posthog/tools. Metadata only — contents of ~/.local{,/share}
-;; and ~/.config{,/posthog} stay denied.
+;; ~/.local/share/uv. Metadata only — contents of ~/.local{,/share} stay denied.
 (allow file-read-metadata
     (literal (string-append (param "HOME") "/.local"))
-    (literal (string-append (param "HOME") "/.local/share"))
-    (literal (string-append (param "HOME") "/.config"))
-    (literal (string-append (param "HOME") "/.config/posthog")))
+    (literal (string-append (param "HOME") "/.local/share")))
 
 ;; Keep the crates.io publish token blocked even though ~/.cargo is allowed above.
 (deny file-read*
@@ -191,7 +183,19 @@
     (subpath "/usr/local/sbin")
     (subpath "/usr/local/Cellar")
     (subpath "/usr/local/lib")
-    (subpath (string-append (param "HOME") "/.cargo/bin")))       ; binaries on PATH
+    (subpath (string-append (param "HOME") "/.cargo/bin"))        ; binaries on PATH
+    ;; The machine-shared tool store. on-activate publishes the greptile CLI here
+    ;; (npm installs into a sandbox-writable staging dir; the unsandboxed activation
+    ;; shell moves the result in), links it into the venv bin, and `hogli review`
+    ;; executes it in the developer's shell — the same execute-later route as
+    ;; cargo bin above.
+    (subpath (string-append (param "HOME") "/.config/posthog/tools"))
+    ;; …and the ancestor nodes, so a rename cannot swap in a symlinked ~/.config or
+    ;; ~/.config/posthog and move the store out from under the subpath deny — the
+    ;; same node-swap route as the /opt/homebrew/etc denies above. Entries inside
+    ;; ~/.config are their own paths and stay writable.
+    (literal (string-append (param "HOME") "/.config/posthog"))
+    (literal (string-append (param "HOME") "/.config")))
 
 ;; husky's installer writes .husky/_/ (a gitignored husky.sh plus a .gitignore) on
 ;; every sandboxed `pnpm install`, and it throws when that write fails, which would

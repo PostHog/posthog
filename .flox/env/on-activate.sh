@@ -374,6 +374,14 @@ fi
 # the venv bin (Step 2b), so worktrees on different branches resolve their
 # own pin. A failed install must not break activation; the CLI is only needed
 # at PR-open time and `hogli review` prints install guidance when absent.
+#
+# The store is an execute-later target: Step 2b links the binary into the venv
+# and `hogli review` runs it in the developer's shell, outside the sandbox. The
+# sandbox therefore write-denies the store (see bin/dev-sandbox.sb), so npm
+# installs into a sandbox-writable staging dir and this unsandboxed shell
+# publishes the result. Do not point npm at the store directly: sandboxed, the
+# write is denied, and unsandboxed it would leave the store writable to any
+# compromised dependency the sandbox runs later.
 _GREPTILE_VERSION="3.4.1"
 _GREPTILE_STORE="$HOME/.config/posthog/tools/greptile/$_GREPTILE_VERSION"
 _GREPTILE_BIN="$_GREPTILE_STORE/node_modules/.bin/greptile"
@@ -388,13 +396,18 @@ _install_greptile() {
     # activations (fresh worktrees) installing the same version.
     flock 9 || exit 1
     if [[ ! -x "$_GREPTILE_BIN" || ! -f "$_GREPTILE_STAMP" ]]; then
+      _staging=$(mktemp -d) || exit 1
+      trap 'rm -rf "$_staging"' EXIT
       if [[ "$_DEV_SANDBOX_INSTALLS" -eq 1 ]]; then
         # printf %q: dev-sandbox re-parses its command string, so the path
-        # must survive a $HOME with spaces or quotes.
-        "$FLOX_ENV_PROJECT/bin/dev-sandbox" "npm install --prefix $(printf '%q' "$_GREPTILE_STORE") --no-fund --no-audit greptile@$_GREPTILE_VERSION" || exit 1
+        # must survive a TMPDIR with spaces or quotes.
+        "$FLOX_ENV_PROJECT/bin/dev-sandbox" "npm install --prefix $(printf '%q' "$_staging") --no-fund --no-audit greptile@$_GREPTILE_VERSION" || exit 1
       else
-        npm install --prefix "$_GREPTILE_STORE" --no-fund --no-audit "greptile@$_GREPTILE_VERSION" || exit 1
+        npm install --prefix "$_staging" --no-fund --no-audit "greptile@$_GREPTILE_VERSION" || exit 1
       fi
+      [[ -x "$_staging/node_modules/.bin/greptile" ]] || exit 1
+      rm -rf "$_GREPTILE_STORE/node_modules" || exit 1
+      mv "$_staging/node_modules" "$_GREPTILE_STORE/node_modules" || exit 1
       [[ -x "$_GREPTILE_BIN" ]] || exit 1
       touch "$_GREPTILE_STAMP" || exit 1
     fi

@@ -187,6 +187,29 @@ check_write_blocked ".git/hooks/.dev_sandbox_selftest_probe" ".git/hooks"
 if [[ -d "$HOME/.cargo/bin" ]]; then
     check_write_blocked "$HOME/.cargo/bin/.dev_sandbox_selftest_probe" "cargo bin"
 fi
+# The machine-shared tool store: flox activation publishes the greptile CLI here
+# and hogli review executes it in the developer's shell, outside Seatbelt — the
+# same execute-later route as cargo bin above. Creating the dir is safe: this is
+# the store's real location, and activation creates it the same way.
+mkdir -p "$HOME/.config/posthog/tools" 2>/dev/null
+if [[ -d "$HOME/.config/posthog/tools" ]]; then
+    check_write_blocked "$HOME/.config/posthog/tools/.dev_sandbox_selftest_probe" "machine tool store (greptile runs unsandboxed)"
+    # A rename could swap in a symlinked ancestor and move the store out from
+    # under the subpath deny. chmod needs the same file-write* verdict as rename
+    # without touching the real directories, and the bits it sets are already set.
+    $SANDBOX "chmod u+rwx '$HOME/.config/posthog'" >/dev/null 2>&1
+    report_write_blocked $? "tool store parent node (\$HOME/.config/posthog rename swap)"
+    $SANDBOX "chmod u+rwx '$HOME/.config'" >/dev/null 2>&1
+    report_write_blocked $? "\$HOME/.config node (rename swap)"
+    # Positive control: the ancestor denies are literals, not subpaths — entries
+    # inside ~/.config must stay writable or sandboxed tools lose their config dirs.
+    if $SANDBOX "echo x > '$HOME/.config/.dev_sandbox_selftest_probe'" >/dev/null 2>&1; then
+        pass "write allowed: entry inside ~/.config (the deny is the node, not a subpath)"
+        rm -f "$HOME/.config/.dev_sandbox_selftest_probe"
+    else
+        die "write blocked, should be allowed: entry inside ~/.config"
+    fi
+fi
 # Homebrew's bin/sbin/Cellar: developer-owned and on PATH, same execute-later route
 # as cargo bin above — no git-config indirection needed to reach it.
 for hb_bin in /opt/homebrew/bin /usr/local/bin; do
