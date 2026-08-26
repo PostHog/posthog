@@ -1920,10 +1920,14 @@ class TestStaleDecoupledGarages:
             assert stale_decoupled_garages(product_dir, "other_product") == set()
 
     def test_registry_entries_name_real_products_and_garages(self) -> None:
-        # a typoed location or product would silently exempt nothing while claiming a decoupling
+        # a typoed location or product would silently exempt nothing while claiming a decoupling.
+        # The staleness issue in checks.py only fires once the product narrows its inputs, so an
+        # entry that never held — or stopped holding — is caught here instead, unconditionally.
         for product, garage in DECOUPLED_GARAGES:
             assert garage in GARAGE_PREFIXES
-            assert (REPO_ROOT / "products" / product).is_dir()
+            product_dir = REPO_ROOT / "products" / product
+            assert product_dir.is_dir()
+            assert stale_decoupled_garages(product_dir, product) == set()
 
 
 class TestNarrowedTurboWiringSurface:
