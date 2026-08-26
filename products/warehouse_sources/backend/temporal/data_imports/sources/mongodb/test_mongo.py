@@ -21,9 +21,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mo
     MONGO_MIN_CHUNK_ROWS,
     _adaptive_chunk_size,
     _build_query,
+    _get_primary_keys,
     _get_rows_to_sync,
     _list_importable_collection_names,
     _make_safe_server_selector,
+    _missing_id_error,
     _process_doc_with_field_logging,
     _process_nested_value,
     get_leading_index_keys,
@@ -425,6 +427,9 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
                 "('atlas-sql-681905984ce3f87167df11fa-wf3cgp.a.query.mongodb.net', 27017) "
                 "server_type: Unknown, rtt: None, error=AutoReconnect('...connection closed...')>]>",
             ),
+            # A view that drops _id can't sync; fixing it needs a change to the view, so a retry
+            # never recovers.
+            ("missing_id", _missing_id_error("orders_summary")),
         ]
     )
     def test_known_errors_are_non_retryable(self, _name, error_msg):
@@ -785,3 +790,68 @@ class TestMongoSourceCursorLifecycle(SimpleTestCase):
             self._run_get_rows(collection)
 
         assert len(collection.find_calls) == 2
+
+
+class TestMongoMissingId(SimpleTestCase):
+    """A view whose pipeline drops _id yields documents with no _id. The sync must fail with a
+    targeted error naming the collection, not a bare KeyError."""
+
+    def _collection_with_probe(self, probe: dict[str, Any] | None) -> MagicMock:
+        coll = MagicMock()
+        coll.find_one.return_value = probe
+        return coll
+
+    @parameterized.expand(
+        [
+            # A plain collection, or a view that keeps _id, is accepted.
+            ("has_id", {"_id": ObjectId()}, False),
+            # find_one returns None for an empty namespace, which must not be rejected.
+            ("empty_namespace", None, False),
+            # projection={"_id": 1} on an _id-less view yields {}, which is rejected.
+            ("no_id", {}, True),
+        ]
+    )
+    def test_primary_keys_probes_one_document(self, _name: str, probe: dict[str, Any] | None, should_reject: bool):
+        collection = self._collection_with_probe(probe)
+        if should_reject:
+            with self.assertRaises(ValueError) as ctx:
+                _get_primary_keys(collection, "orders_summary")
+            assert "orders_summary" in str(ctx.exception)
+        else:
+            assert _get_primary_keys(collection, "users") == ["_id"]
+        # The probe reads one document; it must never fall back to the full schema-inference scan.
+        collection.aggregate.assert_not_called()
+
+    def test_primary_keys_defers_to_read_loop_on_probe_failure(self):
+        collection = MagicMock()
+        collection.find_one.side_effect = ServerSelectionTimeoutError("boom")
+        assert _get_primary_keys(collection, "users") == ["_id"]
+
+    def test_read_loop_rejects_document_without_id(self):
+        # The fake collection has no aggregate(), so schema inference falls back and the read-loop
+        # guard is what catches the _id-less document.
+        collection = _FakeCollection([{"name": "x"}])
+
+        @contextlib.contextmanager
+        def fake_mongo_client(connection_string: str, team_id: int) -> Any:
+            client = MagicMock()
+            client.__getitem__.return_value.__getitem__.return_value = collection
+            yield client
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo.mongo_client",
+            fake_mongo_client,
+        ):
+            response = mongo_source(
+                # nosemgrep: trailofbits.generic.mongodb-insecure-transport.mongodb-insecure-transport
+                connection_string="mongodb://host/testdb",
+                collection_name="things",
+                logger=MagicMock(),
+                team_id=1,
+                should_use_incremental_field=False,
+                db_incremental_field_last_value=None,
+            )
+            with self.assertRaises(ValueError) as ctx:
+                list(cast(Iterable[dict[str, Any]], response.items()))
+
+        assert "things" in str(ctx.exception)
