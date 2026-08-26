@@ -331,6 +331,18 @@ class TestGarageDrives:
                 """,
                 {("product_analytics", "PathsQuery"): 1},
             ),
+            # a method that runs the kind through a module-level helper executes too
+            (
+                """
+                def post_query(client, query):
+                    return client.post("/api/projects/1/query/", {"query": query})
+
+                class TestPaths(APIBaseTest):
+                    def test_paths(self):
+                        assert post_query(self.client, {"kind": "PathsQuery"}).status_code == 200
+                """,
+                {("product_analytics", "PathsQuery"): 1},
+            ),
             # a bare string in a test that never executes, or a URL segment, is not a drive
             (
                 """
