@@ -289,9 +289,10 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
     @extend_schema(exclude=True)
     @action(methods=["GET"], detail=True, url_path="access_control_resolution_preview")
     def access_control_resolution_preview(self, request: Request, *args, **kwargs):
-        """Every access rule on this project that resolves differently under most-specific-wins
-        (RFC 557). Admin only: the records describe other subjects' access. Cached per rule set,
-        so the answer updates the moment any rule changes and repeat opens cost nothing."""
+        """Every access rule on this project that resolves differently under most-specific-wins.
+
+        Admin only: the records describe other subjects' access. Cached per rule set, so the
+        answer updates the moment any rule changes and repeat opens cost nothing."""
         team = cast(Team, self.team)  # type: ignore
         user_access_control = cast(UserAccessControl, self.user_access_control)  # type: ignore
         if not user_access_control.check_can_modify_access_levels_for_object(team):

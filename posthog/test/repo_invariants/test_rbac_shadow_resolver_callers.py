@@ -3,7 +3,7 @@ from pathlib import Path
 RESOLVER_NAMES = ("resolve_most_specific_object_access", "resolve_most_specific_resource_access")
 ALLOWED = {
     Path("products/access_control/backend/facade/user_access_control.py"),
-    # The read-only resolution preview (RFC 557 migration surface) compares the enforced and
+    # The read-only resolution preview compares the enforced and
     # most-specific resolutions; it never enforces.
     Path("products/access_control/backend/resolution_preview.py"),
 }

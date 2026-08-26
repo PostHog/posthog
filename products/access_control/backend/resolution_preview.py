@@ -1,4 +1,4 @@
-"""Preview of the RFC 557 resolution change, per rule subject.
+"""Preview of the most-specific resolution change, per rule subject.
 
 For one team, compare the enforced resolution with the most-specific resolution for every rule
 subject (the everyone-default, each named role, each named member) against every object that has
@@ -10,6 +10,7 @@ Read-only. Nothing here changes enforcement. The settings preview page and the d
 sweep command are the only callers.
 """
 
+from collections.abc import Iterator
 from typing import Literal, Optional, cast
 
 from django.db.models import Model
@@ -354,3 +355,29 @@ def build_resolution_preview(team: Team, user_access_control: UserAccessControl)
                 )
 
     return changes
+
+
+def iter_resolution_changes(organization_id: Optional[str] = None) -> "Iterator[tuple[Team, list[ResolutionChange]]]":
+    """Yield (team, changes) for every team with access rules, ordered by organization.
+
+    Resolution is evaluated as one acting active member per organization; teams of
+    organizations with no active member are skipped.
+    """
+    team_ids = AccessControl.objects.values_list("team_id", flat=True).distinct()
+    teams = Team.objects.filter(id__in=team_ids).select_related("organization").order_by("organization_id")
+    if organization_id is not None:
+        teams = teams.filter(organization_id=organization_id)
+
+    acting_membership_by_org: dict[str, Optional[OrganizationMembership]] = {}
+    for team in teams.iterator():
+        org_id = str(team.organization_id)
+        if org_id not in acting_membership_by_org:
+            acting_membership_by_org[org_id] = (
+                OrganizationMembership.objects.filter(organization_id=team.organization_id, user__is_active=True)
+                .select_related("user")
+                .first()
+            )
+        membership = acting_membership_by_org[org_id]
+        if membership is None:
+            continue
+        yield team, build_resolution_preview(team, UserAccessControl(membership.user, team))

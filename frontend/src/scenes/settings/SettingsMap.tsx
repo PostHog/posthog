@@ -1901,7 +1901,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'organization-access-resolution',
         title: 'Access resolution preview',
         flag: 'ACCESS_CONTROL_RESOLUTION_PREVIEW',
-        // Temporary migration surface (RFC 557): reachable only from the access control
+        // Temporary migration surface: reachable only from the access control
         // settings banner, never from the settings navigation or search
         hideFromNavigation: true,
         settings: [

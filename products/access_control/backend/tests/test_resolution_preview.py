@@ -169,6 +169,19 @@ class TestFindDivergentAccessOrgsCommand(BaseUserAccessControlTest):
         self._create_access_control(resource="dashboard", access_level="editor")
 
         out = StringIO()
-        call_command("find_divergent_access_orgs", stdout=out)
+        call_command("migrate_to_most_specific_access", "--dry-run", stdout=out)
 
         assert str(self.organization.id) in out.getvalue()
+
+    def test_single_org_report_lists_change_records(self):
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user, name="Growth KPIs")
+        self._create_access_control(resource="dashboard", resource_id=str(dashboard.id), access_level="viewer")
+        self._create_access_control(resource="dashboard", access_level="editor")
+
+        out = StringIO()
+        call_command("preview_most_specific_access_changes", str(self.organization.id), stdout=out)
+
+        output = out.getvalue()
+        assert f"Project {self.team.pk}" in output
+        assert 'dashboard "Growth KPIs"' in output
+        assert "editor -> viewer (loses)" in output
