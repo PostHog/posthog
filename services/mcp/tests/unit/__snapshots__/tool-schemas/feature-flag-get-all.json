@@ -38,7 +38,7 @@
             "type": "string"
         },
         "key": {
-            "description": "Filter by exact feature flag key match. Case insensitive.",
+            "description": "Exact feature flag key match (case-insensitive). Use this when you already know the key used in code and need the flag's numeric ID for the get/update/delete/status tools.",
             "type": "string"
         },
         "limit": {
@@ -50,7 +50,7 @@
             "type": "number"
         },
         "search": {
-            "description": "Search by feature flag key or name (case-insensitive). Use this to find the flag ID for get/update/delete tools.",
+            "description": "Fuzzy search by feature flag key or name (case-insensitive). Use `key` instead when you know the exact key.",
             "type": "string"
         },
         "tags": {

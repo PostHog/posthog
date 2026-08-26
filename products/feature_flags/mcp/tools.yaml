@@ -80,8 +80,11 @@ tools:
             destructive: true
             idempotent: true
         title: Delete feature flag
-        description: |
-            Soft-delete a feature flag by ID in the current project.
+        description: >
+            Soft-delete a feature flag in the current project. The required `id` param is the flag's numeric ID, never
+            its string key: when you only have the key used in code, call `feature-flag-get-all` with the `key` param
+            first (exact, case-insensitive) and read the numeric `id` off the returned flag. Deleting a flag stops it
+            serving, so remove the flag checks from your code and deploy that change first.
         param_overrides:
             id:
                 cast: string-int
@@ -105,13 +108,16 @@ tools:
         list: true
         title: Get all feature flags
         description: >
-            Get feature flags in the current project. Supports list filters including search by feature flag key or name
-            (case-insensitive), then use the returned ID for get/update/delete tools.
+            Get feature flags in the current project. This is also how you turn a flag key into the numeric ID that the
+            get, update, delete, and status tools require: pass `key` for an exact match, or `search` to look a flag up
+            fuzzily by key or name.
         param_overrides:
-            search:
+            key:
                 description:
-                    Search by feature flag key or name (case-insensitive). Use this to find the flag ID for get/update/delete
-                    tools.
+                    Exact feature flag key match (case-insensitive). Use this when you already know the key used in code and
+                    need the flag's numeric ID for the get/update/delete/status tools.
+            search:
+                description: Fuzzy search by feature flag key or name (case-insensitive). Use `key` instead when you know the exact key.
             limit:
                 cast: string-int
             offset:
@@ -137,8 +143,8 @@ tools:
         title: Get feature flag definition
         description: >
             Get a single feature flag's full definition — rollout conditions, variants, payloads, active state — by its
-            numeric ID. Use `feature-flag-get-definition-by-key` when you only have the string key used in code; use
-            `feature-flag-get-all` to search by key or name and find the ID.
+            numeric ID. When you only have the string key used in code, call `feature-flag-get-all` with the `key` param
+            first (exact, case-insensitive) and read the numeric `id` off the returned flag.
         param_overrides:
             id:
                 cast: string-int
@@ -487,12 +493,15 @@ tools:
         enrich_url: '{id}'
         title: Update feature flag
         description: >
-            Update a feature flag by numeric ID (partial update — only the fields you include are changed). Call when
-            the user asks to enable or disable a flag, change its rollout percentage or release conditions, edit
-            variants or payloads, or update its description. Rollout conditions, variants, and payloads live in the
-            structured `filters` param, and sending `filters` replaces the whole object — read the flag first with
-            `feature-flag-get-definition` and merge your change. To apply a change at a future time instead, use
-            `scheduled-changes-create`. Use `feature-flag-get-all` to find the numeric ID from a key.
+            Update a feature flag (partial update — only the fields you include are changed). Call when the user asks to
+            enable or disable a flag, change its rollout percentage or release conditions, edit variants or payloads, or
+            update its description. The required `id` param is the flag's numeric ID, never its string key: when you
+            only have the key used in code, call `feature-flag-get-all` with the `key` param first (exact,
+            case-insensitive) and read the numeric `id` off the returned flag. Passing the key as `key` does not select
+            a flag — `key` renames the flag you already identified by `id`. Rollout conditions, variants, and payloads
+            live in the structured `filters` param, and sending `filters` replaces the whole object, so read the flag
+            first with `feature-flag-get-definition` and merge your change. To apply a change at a future time instead,
+            use `scheduled-changes-create`.
         include_params:
             - key
             - name

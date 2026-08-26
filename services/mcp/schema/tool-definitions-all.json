@@ -2935,7 +2935,7 @@
         }
     },
     "delete-feature-flag": {
-        "description": "Soft-delete a feature flag by ID in the current project.",
+        "description": "Soft-delete a feature flag in the current project. The required `id` param is the flag's numeric ID, never its string key: when you only have the key used in code, call `feature-flag-get-all` with the `key` param first (exact, case-insensitive) and read the numeric `id` off the returned flag. Deleting a flag stops it serving, so remove the flag checks from your code and deploy that change first.",
         "category": "Feature flags",
         "feature": "flags",
         "summary": "Delete feature flag",
@@ -4804,7 +4804,7 @@
         }
     },
     "feature-flag-get-all": {
-        "description": "Get feature flags in the current project. Supports list filters including search by feature flag key or name (case-insensitive), then use the returned ID for get/update/delete tools.",
+        "description": "Get feature flags in the current project. This is also how you turn a flag key into the numeric ID that the get, update, delete, and status tools require: pass `key` for an exact match, or `search` to look a flag up fuzzily by key or name.",
         "category": "Feature flags",
         "feature": "flags",
         "summary": "Get all feature flags",
@@ -4818,7 +4818,7 @@
         }
     },
     "feature-flag-get-definition": {
-        "description": "Get a single feature flag's full definition — rollout conditions, variants, payloads, active state — by its numeric ID. Use `feature-flag-get-definition-by-key` when you only have the string key used in code; use `feature-flag-get-all` to search by key or name and find the ID.",
+        "description": "Get a single feature flag's full definition — rollout conditions, variants, payloads, active state — by its numeric ID. When you only have the string key used in code, call `feature-flag-get-all` with the `key` param first (exact, case-insensitive) and read the numeric `id` off the returned flag.",
         "category": "Feature flags",
         "feature": "flags",
         "summary": "Get feature flag definition",
@@ -11109,7 +11109,7 @@
         "feature_flag": "tasks"
     },
     "update-feature-flag": {
-        "description": "Update a feature flag by numeric ID (partial update — only the fields you include are changed). Call when the user asks to enable or disable a flag, change its rollout percentage or release conditions, edit variants or payloads, or update its description. Rollout conditions, variants, and payloads live in the structured `filters` param, and sending `filters` replaces the whole object — read the flag first with `feature-flag-get-definition` and merge your change. To apply a change at a future time instead, use `scheduled-changes-create`. Use `feature-flag-get-all` to find the numeric ID from a key.",
+        "description": "Update a feature flag (partial update — only the fields you include are changed). Call when the user asks to enable or disable a flag, change its rollout percentage or release conditions, edit variants or payloads, or update its description. The required `id` param is the flag's numeric ID, never its string key: when you only have the key used in code, call `feature-flag-get-all` with the `key` param first (exact, case-insensitive) and read the numeric `id` off the returned flag. Passing the key as `key` does not select a flag — `key` renames the flag you already identified by `id`. Rollout conditions, variants, and payloads live in the structured `filters` param, and sending `filters` replaces the whole object, so read the flag first with `feature-flag-get-definition` and merge your change. To apply a change at a future time instead, use `scheduled-changes-create`.",
         "category": "Feature flags",
         "feature": "flags",
         "summary": "Update feature flag",

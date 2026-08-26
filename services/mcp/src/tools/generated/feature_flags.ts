@@ -114,8 +114,11 @@ const deleteFeatureFlag = (): ToolBase<typeof DeleteFeatureFlagSchema, Schemas.F
 })
 
 const FeatureFlagGetAllSchema = FeatureFlagsListQueryParams.extend({
+    key: FeatureFlagsListQueryParams.shape['key'].describe(
+        "Exact feature flag key match (case-insensitive). Use this when you already know the key used in code and need the flag's numeric ID for the get/update/delete/status tools."
+    ),
     search: FeatureFlagsListQueryParams.shape['search'].describe(
-        'Search by feature flag key or name (case-insensitive). Use this to find the flag ID for get/update/delete tools.'
+        'Fuzzy search by feature flag key or name (case-insensitive). Use `key` instead when you know the exact key.'
     ),
     limit: z.preprocess(castStringToInt, FeatureFlagsListQueryParams.shape['limit']).optional(),
     offset: z.preprocess(castStringToInt, FeatureFlagsListQueryParams.shape['offset']).optional(),
