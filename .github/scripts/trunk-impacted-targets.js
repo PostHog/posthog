@@ -414,6 +414,7 @@ const REPO_CONFIG_DIRS = [
     '.codex',
     '.cursor',
     '.dagster_home',
+    '.greptile',
     '.husky',
     '.idea',
     '.interface-design',
@@ -444,7 +445,6 @@ const REPO_CONFIG_FILES = [
     '.worktreeinclude',
     '.worktreelink',
     'LICENSE',
-    'greptile.json',
 ]
 for (const entry of [...REPO_CONFIG_DIRS, ...REPO_CONFIG_FILES]) {
     STANDALONE_TREES.set(entry, ['repo-config'])

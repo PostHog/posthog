@@ -512,7 +512,6 @@ MODEL_CROSSINGS: frozenset[tuple[str, str]] = frozenset(
     {
         ("product_analytics", "Insight"),
         ("product_analytics", "InsightVariable"),
-        ("product_analytics", "InsightViewed"),
         ("warehouse_sources", "DataWarehouseCredential"),
         ("warehouse_sources", "DataWarehouseTable"),
         ("warehouse_sources", "ExternalDataJob"),

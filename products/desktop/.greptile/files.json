@@ -1,0 +1,8 @@
+{
+  "files": [
+    {
+      "path": "AGENTS.md",
+      "description": "Desktop architecture and development rules: layering, packages, import direction, UI components"
+    }
+  ]
+}
