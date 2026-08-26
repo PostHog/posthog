@@ -37,11 +37,13 @@ export function useReportResolve({
             onConfirm: async ({ reason, note }) => {
                 // pinned: `dismissal_reason` is the persisted field the reason lands in, for both
                 // verdicts, so one breakdown reads dismissals and resolves alike.
+                // Only the structured reason — the free-form note can carry proprietary text, and the
+                // state API below already stores it. Matches the bulk resolve path.
                 captureInboxReportAction({
                     report,
                     actionType: 'resolve',
                     surface,
-                    extra: { dismissal_reason: reason, ...(note ? { dismissal_note: note } : {}) },
+                    extra: { dismissal_reason: reason },
                 })
                 setIsResolving(true)
                 try {

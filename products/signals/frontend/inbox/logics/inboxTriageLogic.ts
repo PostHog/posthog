@@ -393,11 +393,13 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
                 openResolveReportDialog({
                     reportTitle: displayConventionalCommitTitle(report.title, 'Untitled report'),
                     onConfirm: ({ reason, note }) => {
+                        // Only the structured reason — the free-form note can carry proprietary text.
+                        // `resolveReport` still persists it through the state API. Matches the bulk resolve path.
                         captureInboxReportAction({
                             report,
                             actionType: 'resolve',
                             surface: 'triage_mode',
-                            extra: { dismissal_reason: reason, ...(note ? { dismissal_note: note } : {}) },
+                            extra: { dismissal_reason: reason },
                         })
                         actions.resolveReport(report.id, reason, note)
                     },
