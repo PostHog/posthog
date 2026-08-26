@@ -6351,7 +6351,7 @@ snapshots:
     scenes-app-experiments--experiment-with-multi-step-funnel-metric--dark:
         hash: v1.k794b7964.980b559b32f54de08e32932b4d9e14e203c2ff084a7dd0fd16bce311dff6540e.RjlN-Zl7Betwf5MoCvu-4XAx75Dqu5OI8f_qbvOsQ20
     scenes-app-experiments--experiment-with-multi-step-funnel-metric--light:
-        hash: v1.k794b7964.367868849fda12a0ca273c93bb6ad407a9b2cf0d76399547554cb9573b148a52.dBY6JqKOHSKACw47AmxmGDfiFgohjeuEVq_JspPeh8k
+        hash: v1.k794b7964.af14f7a5b3dfaf6798b66f81b80bb8ce6feb4e1052f198e93b2049956b2b0ab4.FvGIr17gWYEfiUdDTzI1vdffBD9QoChjzNbJukXbmZI
     scenes-app-experiments--experiment-with-multiple-metrics--dark:
         hash: v1.k794b7964.9a8e12167e506eda2587fc1ff4009fcd04818d71d5ebca5edae3886763cebf4f.pXfxrh4O5h1ylZCuDBDE0p_FcTT05xwy3XxaCdX1Tnw
     scenes-app-experiments--experiment-with-multiple-metrics--light:
@@ -6728,6 +6728,18 @@ snapshots:
         hash: v1.k794b7964.cb0a021303b103cdcd037db93be44c2c5eae3e59494ab8a726ac8e430f631dfd.n4BzfjRbtrkqXUS8HZwDAYrPQHYDeqCHuny9Z4Oz134
     scenes-app-inbox-scoutmcpserverspicker--scout-settings-variant--light:
         hash: v1.k794b7964.2f1013abc412adb4544bca6a00209d3051c46969db69d4242ab201ecf5d189f3.YVfbrzpaRzPwuCbeFXmaVOLla0fvhHmAm1CkuaKWCLI
+    scenes-app-inbox-scoutsroster--large-fleet--dark:
+        hash: v1.k794b7964.718d781556e08dc7feb07a7adf0ef3f8b88b106b1625047d9c2af839df1ecb83.19wXi43f_KFsfpTkB30RoYw5c6_Brl7bz9d3A15R4b8
+    scenes-app-inbox-scoutsroster--large-fleet--light:
+        hash: v1.k794b7964.aae20045053cf353c3447d41c1bbce92aeabb3d6329664da69d05e0325c28346.u6zr3nk4cJN44mL2RSKmpuVTBsL1WmCqsaagwijmiSI
+    scenes-app-inbox-scoutsroster--narrow--dark:
+        hash: v1.k794b7964.1feb663b0f7c787baebbb5cb76112af14394d12564bcd84a10f74b4320ce6df7.S20hNzFMJwmUnCS2XnNbS2LL49lgymuQuOUkIWEqeJs
+    scenes-app-inbox-scoutsroster--narrow--light:
+        hash: v1.k794b7964.5a75dcc9a78a645e0ca0b5811453e6b975952a00a9ffc6280463b113ad94faea.ulBW3-DilRBC_cyXD6R2MH2g0k_S38zfhKnn3_jWK4I
+    scenes-app-inbox-scoutsroster--roster--dark:
+        hash: v1.k794b7964.1e60b96137099008eb0586a688a6e9778957d2bb22080717cb1b7e85b33914f2.hhm9E7xx3YoKpX0Q0OT_8p4RnX9DWaHcowqBSzbj6E4
+    scenes-app-inbox-scoutsroster--roster--light:
+        hash: v1.k794b7964.9e173f8016fb6bee154b07d46ec4762027b2acfc0163a1e143363fe7b9b67b96.KJuuha1IW4YIej_UjUQr13km6Y03K1xrRzxC8Xm2e_k
     scenes-app-inbox-selfdrivingsection--daily-limit-reached--dark:
         hash: v1.k794b7964.fc51db50c7d112ee96cfe4992358fca180bde9b993e6070c996eafb00df19426.D5c3L-swBUOALS-MsAbV5qUc9iNKrvrIOlyp4Rnoszc
     scenes-app-inbox-selfdrivingsection--daily-limit-reached--light:
