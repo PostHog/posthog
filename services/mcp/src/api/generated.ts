@@ -10117,9 +10117,15 @@ export namespace Schemas {
        * * `USR` - user
        * * `GIT` - GitHub */
       creation_type?: CreationTypeEnum;
-      /** @nullable */
+      /**
+         * Optional insight ID to attach this annotation to. Must belong to the current project.
+         * @nullable
+         */
       dashboard_item?: number | null;
-      /** @nullable */
+      /**
+         * Optional dashboard ID to attach this annotation to. Must belong to the current project.
+         * @nullable
+         */
       dashboard_id?: number | null;
       /** @nullable */
       readonly dashboard_name: string | null;
@@ -23780,6 +23786,8 @@ export namespace Schemas {
      * * `Liveblocks` - Liveblocks
      * * `NationBuilder` - NationBuilder
      * * `Tana` - Tana
+     * * `Zenchef` - Zenchef
+     * * `Lovable` - Lovable
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -25102,6 +25110,8 @@ export namespace Schemas {
       Liveblocks: 'Liveblocks',
       NationBuilder: 'NationBuilder',
       Tana: 'Tana',
+      Zenchef: 'Zenchef',
+      Lovable: 'Lovable',
     } as const;
 
     /**
@@ -26437,7 +26447,9 @@ export namespace Schemas {
        * * `CommissionJunction` - CommissionJunction
        * * `Liveblocks` - Liveblocks
        * * `NationBuilder` - NationBuilder
-       * * `Tana` - Tana */
+       * * `Tana` - Tana
+       * * `Zenchef` - Zenchef
+       * * `Lovable` - Lovable */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -28461,7 +28473,9 @@ export namespace Schemas {
        * * `CommissionJunction` - CommissionJunction
        * * `Liveblocks` - Liveblocks
        * * `NationBuilder` - NationBuilder
-       * * `Tana` - Tana */
+       * * `Tana` - Tana
+       * * `Zenchef` - Zenchef
+       * * `Lovable` - Lovable */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -34903,6 +34917,7 @@ export namespace Schemas {
       readonly access_method?: string;
       readonly supports_column_selection?: boolean;
       readonly supports_row_filters?: boolean;
+      readonly requires_exact_column_metadata?: boolean;
       /** @nullable */
       readonly user_access_level?: string | null;
       /** @nullable */
@@ -35087,6 +35102,8 @@ export namespace Schemas {
       row_filters?: ExternalDataSchemaRowFiltersItem[] | null;
       /** Column metadata (name, data type, nullable) for this schema. For SQL sources this is the source-side schema discovered via `refresh_schemas`; for other sources (and once synced) it falls back to the synced table's columns. Empty only before the first successful sync/refresh. */
       readonly available_columns: readonly ExternalDataSchemaAvailableColumnsItem[];
+      /** Whether exact source-side column metadata is available for safe source-query projection. */
+      readonly source_column_metadata_available: boolean;
       /**
          * Lightweight parent-source summary (id, source_type, access_method, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
          * @nullable
@@ -36506,7 +36523,9 @@ export namespace Schemas {
        * * `CommissionJunction` - CommissionJunction
        * * `Liveblocks` - Liveblocks
        * * `NationBuilder` - NationBuilder
-       * * `Tana` - Tana */
+       * * `Tana` - Tana
+       * * `Zenchef` - Zenchef
+       * * `Lovable` - Lovable */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -37862,7 +37881,9 @@ export namespace Schemas {
        * * `CommissionJunction` - CommissionJunction
        * * `Liveblocks` - Liveblocks
        * * `NationBuilder` - NationBuilder
-       * * `Tana` - Tana */
+       * * `Tana` - Tana
+       * * `Zenchef` - Zenchef
+       * * `Lovable` - Lovable */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -58290,9 +58311,15 @@ export namespace Schemas {
        * * `USR` - user
        * * `GIT` - GitHub */
       creation_type?: CreationTypeEnum;
-      /** @nullable */
+      /**
+         * Optional insight ID to attach this annotation to. Must belong to the current project.
+         * @nullable
+         */
       dashboard_item?: number | null;
-      /** @nullable */
+      /**
+         * Optional dashboard ID to attach this annotation to. Must belong to the current project.
+         * @nullable
+         */
       dashboard_id?: number | null;
       /** @nullable */
       readonly dashboard_name?: string | null;
@@ -60485,6 +60512,7 @@ export namespace Schemas {
       readonly access_method?: string;
       readonly supports_column_selection?: boolean;
       readonly supports_row_filters?: boolean;
+      readonly requires_exact_column_metadata?: boolean;
       /** @nullable */
       readonly user_access_level?: string | null;
       /** @nullable */
@@ -60587,6 +60615,8 @@ export namespace Schemas {
       row_filters?: PatchedExternalDataSchemaRowFiltersItem[] | null;
       /** Column metadata (name, data type, nullable) for this schema. For SQL sources this is the source-side schema discovered via `refresh_schemas`; for other sources (and once synced) it falls back to the synced table's columns. Empty only before the first successful sync/refresh. */
       readonly available_columns?: readonly PatchedExternalDataSchemaAvailableColumnsItem[];
+      /** Whether exact source-side column metadata is available for safe source-query projection. */
+      readonly source_column_metadata_available?: boolean;
       /**
          * Lightweight parent-source summary (id, source_type, access_method, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
          * @nullable
@@ -77000,7 +77030,9 @@ export namespace Schemas {
        * * `CommissionJunction` - CommissionJunction
        * * `Liveblocks` - Liveblocks
        * * `NationBuilder` - NationBuilder
-       * * `Tana` - Tana */
+       * * `Tana` - Tana
+       * * `Zenchef` - Zenchef
+       * * `Lovable` - Lovable */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -78364,7 +78396,9 @@ export namespace Schemas {
        * * `CommissionJunction` - CommissionJunction
        * * `Liveblocks` - Liveblocks
        * * `NationBuilder` - NationBuilder
-       * * `Tana` - Tana */
+       * * `Tana` - Tana
+       * * `Zenchef` - Zenchef
+       * * `Lovable` - Lovable */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -79718,7 +79752,9 @@ export namespace Schemas {
        * * `CommissionJunction` - CommissionJunction
        * * `Liveblocks` - Liveblocks
        * * `NationBuilder` - NationBuilder
-       * * `Tana` - Tana */
+       * * `Tana` - Tana
+       * * `Zenchef` - Zenchef
+       * * `Lovable` - Lovable */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -88319,14 +88355,62 @@ export namespace Schemas {
 
     export type BatchExportsRunsListParams = {
     /**
+     * Only return runs created at or after this point. Accepts an ISO-8601 datetime or a relative value like `-7d`. Defaults to `-7d`. Ignored when ordering by `data_interval_start`.
+     */
+    after?: string;
+    /**
+     * Only return runs created at or before this point. Accepts an ISO-8601 datetime or a relative value like `-1d`. Defaults to now. Ignored when ordering by `data_interval_start`.
+     */
+    before?: string;
+    /**
      * The pagination cursor value.
      */
     cursor?: string;
     /**
+     * Only return runs whose data interval ends at or before this point. Accepts an ISO-8601 datetime or a relative value like `-1d`. Defaults to now. Only applies when ordering by `data_interval_start`.
+     */
+    end?: string;
+    /**
      * Which field to use when ordering the results.
      */
     ordering?: string;
+    /**
+     * Only return runs whose data interval starts at or after this point. Accepts an ISO-8601 datetime or a relative value like `-7d`. Defaults to `-7d`. Only applies when ordering by `data_interval_start`.
+     */
+    start?: string;
+    /**
+     * Only return runs in these statuses. Repeat the parameter to pass more than one status.
+     */
+    status?: BatchExportsRunsListStatusItem[];
     };
+
+    /**
+     * * `Cancelled` - Cancelled
+     * * `Completed` - Completed
+     * * `ContinuedAsNew` - Continued As New
+     * * `Failed` - Failed
+     * * `FailedRetryable` - Failed Retryable
+     * * `FailedBilling` - Failed Billing
+     * * `Terminated` - Terminated
+     * * `TimedOut` - Timedout
+     * * `Running` - Running
+     * * `Starting` - Starting
+     */
+    export type BatchExportsRunsListStatusItem = typeof BatchExportsRunsListStatusItem[keyof typeof BatchExportsRunsListStatusItem];
+
+
+    export const BatchExportsRunsListStatusItem = {
+      Cancelled: 'Cancelled',
+      Completed: 'Completed',
+      ContinuedAsNew: 'ContinuedAsNew',
+      Failed: 'Failed',
+      FailedRetryable: 'FailedRetryable',
+      FailedBilling: 'FailedBilling',
+      Terminated: 'Terminated',
+      TimedOut: 'TimedOut',
+      Running: 'Running',
+      Starting: 'Starting',
+    } as const;
 
     export type BatchExportsRunsLogsRetrieveParams = {
     /**
