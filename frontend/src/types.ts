@@ -71,6 +71,7 @@ import type {
     QuickFilterType,
     RecordingOrder,
     RecordingsQuery,
+    ResolvedDateRangeResponse,
     RevenueAnalyticsConfig,
     SharingConfigurationSettings,
     TileFilters,
@@ -1734,6 +1735,8 @@ export interface PersonListParams {
     distinct_id?: string
     include_total?: boolean // PostHog 3000-only
     limit?: number
+    /** Names the ClickHouse query so `api.cancelQuery` can stop it. Up to 128 characters. */
+    client_query_id?: string
 }
 
 export type SearchableEntity =
@@ -2640,6 +2643,7 @@ export interface InsightModel extends Cacheable, WithAccessControl {
     query_status?: QueryStatus
     is_cached?: boolean
     filter_override_context?: InsightFilterOverrideContextApi | null
+    resolved_date_range?: ResolvedDateRangeResponse | null
     /** Only used when creating objects */
     _create_in_folder?: string | null
 }

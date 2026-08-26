@@ -279,7 +279,7 @@ class Organization(ModelActivityMixin, UUIDTModel):
         help_text="When False, members (below admin) only see themselves in the members list and only project members in access control.",
     )
     allow_publicly_shared_resources = models.BooleanField(default=True)
-    mcp_access_read_only = models.BooleanField(
+    read_only_mcp_access = models.BooleanField(
         default=False,
         null=True,
         blank=True,

@@ -160,11 +160,11 @@ impl UploadConflictArgs {
     /// Resolve what to do about changed content, given the release mode.
     ///
     /// Event mode always overwrites, and neither flag changes that. A chunk's id and its uploaded
-    /// bytes move independently there: the id is derived from the pristine minified source and so
-    /// survives a new release, while the injected snippet inside the payload carries the release id
-    /// and changes with every release. Every chunk therefore conflicts on every release after the
-    /// first, so honoring `--skip-on-conflict` would skip all of them and leave the server serving
-    /// the previous release's id forever.
+    /// bytes move independently there. The id comes from content that survives a new release,
+    /// while the release id travels inside the payload. Every change to that release id makes the
+    /// chunk conflict under an unchanged id. A web bundle carries it in the injected snippet, so
+    /// it conflicts on every release. A Hermes map conflicts once, on the build that changes mode.
+    /// To honor `--skip-on-conflict` would keep the stored payload, so the newer one never lands.
     pub fn resolve(&self, release_mode: ReleaseMode) -> ConflictBehavior {
         match release_mode {
             ReleaseMode::Event => ConflictBehavior {

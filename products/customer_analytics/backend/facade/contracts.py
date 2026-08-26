@@ -70,6 +70,7 @@ class AccountProperties:
     Mirrors ``models.account.AccountProperties`` as a stable, framework-free shape.
     """
 
+    website_domain: str | None = None
     stripe_customer_id: str | None = None
     hubspot_deal_id: str | None = None
     billing_id: str | None = None
@@ -434,6 +435,7 @@ class AccountTableRow:
     id: UUID
     name: str
     external_id: str | None
+    logo_domain: str | None = None
     account_fields: dict[AccountTableField, str | None] = field(default_factory=dict)
     tags: list[str] | None = None
     note_count: int | None = None

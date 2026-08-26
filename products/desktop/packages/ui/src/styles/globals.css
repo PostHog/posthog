@@ -1481,3 +1481,17 @@ body.ph-window-blurred .app-fade-in {
     background-color: var(--fill-selected) !important;
   }
 }
+
+/*
+ * Spend-limit slider: the hatched overlay marking spend so far drifts, so a
+ * live figure reads as live rather than as a static striped fill. The stripe
+ * period is 6px, so translating by that lands back on an identical frame.
+ */
+@keyframes spend-usage-drift {
+  from {
+    background-position-x: 0;
+  }
+  to {
+    background-position-x: 6px;
+  }
+}

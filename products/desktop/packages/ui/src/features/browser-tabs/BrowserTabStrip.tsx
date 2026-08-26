@@ -23,12 +23,17 @@ import {
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { useRailPane } from "@posthog/ui/features/canvas/hooks/useRailSurface";
 import {
+  activityReportIdFromHref,
+  useActivitySelection,
+} from "@posthog/ui/features/canvas/stores/activityDetailStore";
+import {
   applyTabViewState,
   useChannelPaneStore,
 } from "@posthog/ui/features/canvas/stores/channelPaneStore";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
 import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
+import { useInboxReportById } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
 import { useActiveSession } from "@posthog/ui/features/navigation/useActiveSession";
 import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
@@ -63,6 +68,7 @@ import { TabStrip, type TabView } from "./TabStrip";
 import { TaskTabDot } from "./TaskTabMarks";
 import {
   isTabAppView,
+  resolveTabAppViewDisplay,
   TAB_APP_VIEW_META,
   type TabAppView,
 } from "./tabAppViews";
@@ -165,8 +171,19 @@ export function BrowserTabStrip() {
   const routeAppView: TabAppView | null = isTabAppView(view.type)
     ? view.type
     : null;
+  const activitySelection = useActivitySelection();
+  const activeActivityReportId =
+    routeAppView === "activity" && activitySelection?.kind === "report"
+      ? activitySelection.reportId
+      : null;
 
-  const { channels } = useChannels();
+  const { channels, isLoading: channelsLoading } = useChannels();
+  // The scoped space is null until the channel list has loaded and the route
+  // sync has picked one. Writing that null into a tab's memory would clear the
+  // space it was on, so the next switch to it opens on the list instead of the
+  // session. Leave the field absent until there is a real answer.
+  const stampedSpaceId =
+    scopedSpaceId === null && channelsLoading ? undefined : scopedSpaceId;
   // With channel reports on, a restored inbox tab lands on the spaces index
   // (the inbox is gone as a destination).
   const channelReportsEnabled = useChannelReportsEnabled();
@@ -234,6 +251,9 @@ export function BrowserTabStrip() {
     ...taskDetailQuery(activeSession.taskId ?? ""),
     enabled: !!activeSession.taskId,
   });
+  const { data: activeReportRecord } = useInboxReportById(
+    activeActivityReportId,
+  );
   // Remember names so a background tab from another channel keeps its label
   // after its channel's list unloads. Written in an effect (not during render)
   // to keep render pure; the tabs memo reads the live lists first anyway.
@@ -267,13 +287,19 @@ export function BrowserTabStrip() {
       if (activeRecord?.id === params.dashboardId) return activeRecord.name;
       return dashboards.find((d) => d.id === params.dashboardId)?.name ?? null;
     }
+    if (activeActivityReportId) {
+      if (activeReportRecord?.id !== activeActivityReportId) return null;
+      return activeReportRecord.title?.trim() || "Untitled report";
+    }
     return null;
   }, [
     activeSession.taskId,
     params.dashboardId,
+    activeActivityReportId,
     activeTaskRecord,
     allTasks,
     activeRecord,
+    activeReportRecord,
     dashboards,
   ]);
 
@@ -285,12 +311,16 @@ export function BrowserTabStrip() {
       const channel = channelName(currentChannelId);
       return channelSectionFor(routeChannelSection)?.label ?? channel;
     }
+    // A selected Activity report owns the tab label. While its query resolves,
+    // keep the tab's stored title instead of replacing it with "Activity".
+    if (activeActivityReportId) return null;
     if (routeAppView) return TAB_APP_VIEW_META[routeAppView].label;
     return null;
   }, [
     activeTitle,
     params.channelId,
     activeSession.channelId,
+    activeActivityReportId,
     channelName,
     routeChannelSection,
     routeAppView,
@@ -349,14 +379,14 @@ export function BrowserTabStrip() {
     // not make (hotkeys, deep links, links in the content).
     const visit = {
       href: locationHref,
-      ...(railPane === "spaces" ? { listOpen, spaceId: scopedSpaceId } : {}),
+      ...(railPane === "spaces" ? { listOpen, spaceId: stampedSpaceId } : {}),
     };
     const viewState: TabViewState = {
       // Keep the stored name when nothing has resolved yet, so a loading frame
       // does not blank a background tab's label.
       title: routeTitle ?? mirrorActive?.viewState?.title,
       listOpen,
-      spaceId: scopedSpaceId,
+      spaceId: stampedSpaceId,
       lastByPane: {
         ...(mirrorActive?.viewState?.lastByPane ?? {}),
         [railPane]: visit,
@@ -465,7 +495,7 @@ export function BrowserTabStrip() {
     routeTitle,
     railPane,
     listOpen,
-    scopedSpaceId,
+    stampedSpaceId,
     client,
     router,
   ]);
@@ -548,6 +578,29 @@ export function BrowserTabStrip() {
             pinned,
           };
         }
+        // A top-level app page (Inbox, Agents, Skills, …).
+        // Resolve this before channel state: when navigation crosses from a
+        // space to Activity, persisted channel context must not turn the new
+        // top-level tab into a space tab.
+        if (appView && isTabAppView(appView)) {
+          const activityReportId = isActive
+            ? activeActivityReportId
+            : activityReportIdFromHref(t.href);
+          const activityReport = activityReportId
+            ? {
+                title: isActive
+                  ? (activeTitle ?? t.viewState?.title)
+                  : t.viewState?.title,
+              }
+            : null;
+          const display = resolveTabAppViewDisplay(appView, activityReport);
+          return {
+            id: t.id,
+            ...display,
+            channelName: null,
+            pinned,
+          };
+        }
         // A channel tab: a sub-section (Recents/CONTEXT.md/…) or the channel home.
         // The section drives the label; the channel name carries the space
         // context. Home has no section, so it labels by the channel name.
@@ -567,16 +620,6 @@ export function BrowserTabStrip() {
             channelName: channel,
             // No section meta → the channel's index page.
             isChannelHome: !meta,
-            pinned,
-          };
-        }
-        // A top-level app page (Inbox, Agents, Skills, …).
-        if (appView && isTabAppView(appView)) {
-          return {
-            id: t.id,
-            label: TAB_APP_VIEW_META[appView].label,
-            icon: TAB_APP_VIEW_META[appView].icon,
-            channelName: null,
             pinned,
           };
         }
@@ -602,6 +645,8 @@ export function BrowserTabStrip() {
     params.dashboardId,
     activeSession.taskId,
     activeSession.channelId,
+    activeActivityReportId,
+    activeTitle,
     routeChannelSection,
     routeAppView,
     spacesLayout,
