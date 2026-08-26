@@ -141,6 +141,25 @@ class TestDataQualityRunAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
+    @parameterized.expand([("named",), ("swept",)])
+    def test_a_denied_subject_renamed_since_its_last_run_is_still_not_run_against(self, case: str) -> None:
+        # This route is the one that actually executes the query, so matching denial against the name
+        # stamped on the check would run it against the denied view for the whole window after a
+        # rename, and hand the pass/fail and row counts back through the suite report.
+        denied = self._check(self.orders, subject_name="orders_legacy")
+        self._deny_orders()
+
+        with patch(START_SUITE) as connect:
+            body = {"check_ids": [str(denied.id)]} if case == "named" else {}
+            response = self.client.post(self.url, body, format="json")
+
+        if case == "named":
+            assert response.status_code == status.HTTP_403_FORBIDDEN
+        else:
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert response.json()["status"] == "empty"
+        connect.assert_not_called()
+
     def test_the_sweep_is_gated_on_the_feature_flag(self) -> None:
         with patch(FLAG, return_value=False):
             assert self.client.post(self.url, {}, format="json").status_code == status.HTTP_403_FORBIDDEN

@@ -7,6 +7,7 @@ serialize the result. Nothing here runs a check -- every trigger hands off to Te
 a suite-run handle to poll.
 """
 
+import json
 from collections import defaultdict
 from collections.abc import Callable
 from typing import ClassVar, cast
@@ -149,6 +150,19 @@ class _QualityGatedViewSet(TeamAndOrgViewSetMixin):
         with it, so a name that neither resolves nor is denied proves nothing either way and is
         refused on the same fail-closed terms.
         """
+        # A type that cannot read past its own subject has nothing here to authorize. The verdict on
+        # one that can is a pure function of its definition, so a project-wide page parses and
+        # resolves each distinct definition once rather than once per check carrying it.
+        if not api.check_type_reads_beyond_subject(check_type):
+            return False
+        cache: dict[str, bool] = getattr(self, "_reads_unreadable_cache", {})
+        self._reads_unreadable_cache = cache
+        key = json.dumps([check_type, config], sort_keys=True, default=str)
+        if key not in cache:
+            cache[key] = self._definition_reads_unreadable_subject(check_type, config)
+        return cache[key]
+
+    def _definition_reads_unreadable_subject(self, check_type: str, config: dict) -> bool:
         refs = api.referenced_subjects(self.team.id, check_type, config)
         if refs.unresolved_reference:
             return True
@@ -459,16 +473,23 @@ class _BaseCheckViewSet(_SubjectScopedViewSet, AccessControlViewSetMixin, viewse
     )
     @action(methods=["GET"], detail=False, pagination_class=None)
     def health(self, request: Request, **kwargs) -> Response:
-        checks = api.checks_for_subject(self.team_id, self.subject_type, self.subject_uuid).filter(enabled=True)
-        failing = checks.filter(last_status=CheckRunStatus.FAILED)
+        # A rollup counts the checks it covers, so it has to cover the same ones the list serves.
+        # Rolled up from the rows that survive rather than through subject_health(), which would go
+        # back to the database and count the withheld ones straight back in.
+        checks = list(api.checks_for_subject(self.team_id, self.subject_type, self.subject_uuid).filter(enabled=True))
+        if self._can_be_object_denied():
+            withheld = self._denied_checks(checks, self._denied_subject_names())
+            checks = [check for check in checks if check.id not in withheld]
         return Response(
             SubjectHealthSerializer(
                 {
                     "subject_type": self.subject_type,
                     "subject_uuid": self.subject_uuid,
-                    "health": api.subject_health(self.team_id, self.subject_type, self.subject_uuid),
-                    "checks_total": checks.count(),
-                    "checks_failing": failing.count(),
+                    "health": api.roll_up_health(
+                        api.CheckStatusRow(severity=check.severity, last_status=check.last_status) for check in checks
+                    ),
+                    "checks_total": len(checks),
+                    "checks_failing": sum(1 for check in checks if check.last_status == CheckRunStatus.FAILED),
                 }
             ).data
         )
@@ -512,6 +533,27 @@ class _BaseSuiteRunViewSet(
         # single-subject suites. Multi-subject sweep suites stay reachable through
         # information_schema, which is the cross-subject surface.
         return queryset.filter(team_id=self.team_id).order_by("-created_at")
+
+    def filter_queryset(self, queryset: QuerySet[DataQualitySuiteRun]) -> QuerySet[DataQualitySuiteRun]:
+        """Withhold the suites whose executions read a subject the caller is denied.
+
+        The parent gate clears the declared subject, but a suite row carries passed/failed/errored/
+        skipped over every check it ran, while ``check_runs`` hands back only the readable ones.
+        Serving both names the withheld check's outcome by subtraction.
+        """
+        queryset = super().filter_queryset(queryset)
+        # check_runs is left alone on purpose: it already drops the individual runs that read a
+        # denied subject, and hiding the suite there would take the readable runs down with them.
+        if self.action not in ("list", "retrieve"):
+            return queryset
+        if not self._can_be_object_denied():
+            return queryset
+        # Only the runs behind the suites this parent serves, so answering for one subject does not
+        # walk the project's whole history.
+        runs = DataQualityCheckRun.objects.for_team(self.team_id).filter(
+            suite_run_id__in=queryset.order_by().values("id")
+        )
+        return queryset.exclude(id__in=runs.filter(self._denied_definitions(runs)).values("suite_run_id"))
 
     @extend_schema(
         description="Every check execution in this suite run.",
@@ -742,13 +784,22 @@ class DataQualityRunViewSet(
         Naming a denied check is an attempt to read it, so it 403s the way the per-subject run does.
         Sweeping the project is not: a denied subject is one the member cannot see at all, so its
         checks are simply not part of "everything" for them.
+
+        This route is the one that actually executes a query against the subject, so it reads the
+        name from the subject itself like the listing routes do. Matching the copy stamped on the
+        check would let a table renamed since its last run be run against, and its pass/fail and
+        row counts read back.
         """
         if not self._can_be_object_denied():
             return checks
         denied = self._denied_subject_names()
+        current_names = api.resolve_subject_names(
+            self.team_id,
+            [api.subject_identity(check.subject_type, check.subject_uuid) for check in checks if check.subject_uuid],
+        )
         allowed = []
         for check in checks:
-            if api.is_subject_denied(check.subject_name, denied):
+            if api.is_subject_denied(_current_subject_name(check, current_names), denied):
                 if named:
                     raise PermissionDenied("You don't have access to a table or view this check reads.")
                 continue
