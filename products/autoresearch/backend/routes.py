@@ -28,3 +28,9 @@ def register_routes(routers: RouterRegistry) -> None:
         "project_autoresearch_training_runs",
         ["project_id", "pipeline_id"],
     )
+    autoresearch_router.register(
+        r"suggestions",
+        autoresearch.AutoresearchSuggestionViewSet,
+        "project_autoresearch_suggestions",
+        ["project_id", "pipeline_id"],
+    )

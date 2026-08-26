@@ -34,6 +34,10 @@ class TrainingRunNotFound(LookupError):
     """No training run with that id in this team."""
 
 
+class SuggestionNotFound(LookupError):
+    """No suggestion with that id on this pipeline."""
+
+
 class AutoresearchConflict(ValueError):
     """The request is well-formed but the pipeline or run is in the wrong state for it.
 
@@ -184,6 +188,23 @@ class Iteration:
     agent_confidence: float | None
     parent_suggestion: UUID | None
     created_at: datetime
+
+
+@dataclass(frozen=True, config={"arbitrary_types_allowed": True})
+class Suggestion:
+    """A free-text hypothesis injected into a running pipeline by a user or agent."""
+
+    id: UUID
+    pipeline: UUID
+    prompt: str
+    priority: str
+    status: str
+    source: str
+    agent_response: str
+    created_by: Any
+    linked_iteration_ids: list[UUID]
+    created_at: datetime
+    updated_at: datetime
 
 
 @dataclass(frozen=True)
