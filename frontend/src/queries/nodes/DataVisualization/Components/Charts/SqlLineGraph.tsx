@@ -49,11 +49,11 @@ export const SqlLineGraph = (props: SqlChartProps): JSX.Element => {
                     showTotal={showTotal}
                     totalFormatter={totalFormatter}
                     sortedByValue
-                    footer="Click to inspect persons"
+                    footer={props.pointClickHint}
                 />
             )
         },
-        [model]
+        [model, props.pointClickHint]
     )
 
     return (

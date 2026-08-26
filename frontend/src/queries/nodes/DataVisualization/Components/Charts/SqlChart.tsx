@@ -1,5 +1,5 @@
 import { ChartSettings, GoalLine } from '~/queries/schema/schema-general'
-import { ChartDisplayType } from '~/types'
+import { ChartDisplayType, DashboardType } from '~/types'
 
 import { AxisSeries } from '../../dataVisualizationLogic'
 import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
@@ -14,12 +14,13 @@ export type SqlChartProps = {
     visualizationType: ChartDisplayType
     chartSettings: ChartSettings
     presetChartHeight?: boolean
-    dashboardId?: string
+    dashboardId?: DashboardType['id']
     goalLines?: GoalLine[]
     className?: string
-    /** Called when the user clicks a data point. Receives the series key, x-axis index, and label.
-     *  When provided, the SQL chart shows a "click to inspect" hint in the tooltip. */
+    /** Called when the user clicks a data point. Receives the series key, x-axis index, and label. */
     onPointClick?: (seriesKey: string, dataIndex: number, label: string) => void
+    /** Footer text shown in the tooltip when {@link onPointClick} is wired. Tells the user what a click does. */
+    pointClickHint?: string
 }
 
 /**
