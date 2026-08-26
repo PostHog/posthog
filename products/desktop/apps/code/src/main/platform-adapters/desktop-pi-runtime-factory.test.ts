@@ -12,16 +12,14 @@ describe("DesktopPiRuntimeFactory", () => {
     const factory = new DesktopPiRuntimeFactory(clientFactory);
 
     const runtime = await factory.create({
-      taskId: "task-1",
-      cwd: "/workspace",
+      taskContext: { taskId: "task-1", cwd: "/workspace" },
       projectTrusted: true,
     });
 
     expect(runtime).toBeInstanceOf(PiRuntime);
     expect(runtime.client).toBe(client);
     expect(clientFactory.create).toHaveBeenCalledWith({
-      taskId: "task-1",
-      cwd: "/workspace",
+      taskContext: { taskId: "task-1", cwd: "/workspace" },
       projectTrusted: true,
     });
   });
