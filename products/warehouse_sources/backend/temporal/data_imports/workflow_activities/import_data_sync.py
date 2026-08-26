@@ -80,7 +80,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import CDCHandledExternally
-from products.warehouse_sources.backend.temporal.data_imports.util import PostHogInternalDatabaseError
+from products.warehouse_sources.backend.temporal.data_imports.util import (
+    POSTHOG_DATABASE_UNAVAILABLE_MESSAGE,
+    PostHogInternalDatabaseError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.workload_report import aworkload_reporting
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -536,18 +539,6 @@ def _get_models(
 INTEGRATION_CREDENTIAL_UNAVAILABLE_MESSAGE = (
     "A PostHog-managed credential for this source is temporarily unavailable. This sync will "
     "retry automatically — no action is needed on your side."
-)
-
-
-# What a customer reads when a lookup against PostHog's own app DB fails. It deliberately repeats
-# none of the driver wording: the workflow hands whatever message escapes an activity to the
-# finalization activity, which substring-matches it against every source's non-retryable patterns,
-# and the Postgres map carries the same "in a read-only transaction" and "server login has been
-# failing" strings our own pooler and failovers produce. A raw message there disables a working
-# sync and tells the customer to go fix their database. The raw text stays in the logs.
-POSTHOG_DATABASE_UNAVAILABLE_MESSAGE = (
-    "This sync stopped because of a temporary problem on PostHog's side. Your source is fine, "
-    "and the sync will run again automatically."
 )
 
 

@@ -2,10 +2,12 @@ import re
 import asyncio
 from collections.abc import Awaitable, Callable
 from datetime import datetime
-from typing import Literal, Optional
+from functools import wraps
+from typing import Literal, Optional, ParamSpec, TypeVar
 from uuid import uuid4
 
 from django.conf import settings
+from django.db import InterfaceError, InternalError, OperationalError
 
 import botocore.exceptions
 from structlog.types import FilteringBoundLogger
@@ -13,10 +15,14 @@ from structlog.types import FilteringBoundLogger
 from posthog.exceptions import capture_exception
 from posthog.settings.utils import get_from_env
 from posthog.temporal.common.errors import NonReportableError
+from posthog.temporal.common.utils import is_stale_connection_read_only_error
 from posthog.utils import str_to_bool
 
 from products.data_warehouse.backend.facade.api import aget_s3_client
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
+
+P = ParamSpec("P")
+T = TypeVar("T")
 
 # A best-effort delete of old query folders can hit a transient S3 connectivity blip
 # (connect/read timeout, dropped connection). The folder is timestamped and simply gets
@@ -47,6 +53,46 @@ class NonRetryableException(NonReportableError):
         This is the same as ``Exception.__cause__``.
         """
         return self.__cause__
+
+
+# What a customer reads when a lookup against PostHog's own app DB fails. It deliberately repeats
+# none of the driver wording: the workflow hands whatever message escapes an activity to the
+# finalization activity, which substring-matches it against every source's non-retryable patterns,
+# and the Postgres map carries the same "in a read-only transaction" and "server login has been
+# failing" strings our own pooler and failovers produce. A raw message there disables a working
+# sync and tells the customer to go fix their database. The raw text stays in the logs.
+POSTHOG_DATABASE_UNAVAILABLE_MESSAGE = (
+    "This sync stopped because of a temporary problem on PostHog's side. Your source is fine, "
+    "and the sync will run again automatically."
+)
+
+
+def reraise_app_db_errors(fn: Callable[P, T]) -> Callable[P, T]:
+    """Re-raise a failure against PostHog's own app DB as the platform message.
+
+    Only the import activity talks to a customer database. Every other activity in the import
+    workflow reaches our ORM alone, so a Django DB error in one of those is ours by construction.
+    The driver wording must not survive: the finalization activity matches whatever escapes against
+    every source's non-retryable patterns, and our pooler's "server login has been failing" reads
+    exactly like a customer's. `NonReportableError` keeps a transient blip out of error tracking
+    while Temporal retries the activity.
+
+    `InternalError` is the one type that needs narrowing, because Django reports corrupted data and
+    failed-transaction states under it too, and those are defects that must stay reportable.
+    """
+
+    @wraps(fn)
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
+        try:
+            return fn(*args, **kwargs)
+        except InternalError as e:
+            if not is_stale_connection_read_only_error(e):
+                raise
+            raise NonReportableError(POSTHOG_DATABASE_UNAVAILABLE_MESSAGE) from e
+        except (OperationalError, InterfaceError) as e:
+            raise NonReportableError(POSTHOG_DATABASE_UNAVAILABLE_MESSAGE) from e
+
+    return wrapper
 
 
 class PostHogInternalDatabaseError(Exception):

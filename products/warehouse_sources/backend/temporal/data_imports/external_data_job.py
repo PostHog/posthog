@@ -23,6 +23,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.schedule import trigger_schedule_buffer_one
+from posthog.temporal.common.utils import APP_DB_ERROR_PREFIX, READ_ONLY_TRANSACTION_PHRASE
 from posthog.temporal.utils import CDPProducerWorkflowInputs, ExternalDataWorkflowInputs
 from posthog.utils import get_machine_id
 
@@ -64,6 +65,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     ResumableSource,
     error_message_matches,
 )
+from products.warehouse_sources.backend.temporal.data_imports.util import POSTHOG_DATABASE_UNAVAILABLE_MESSAGE
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.acquire_v3_lock import (
     AcquireV3LockActivityInputs,
     CheckPipelineVersionActivityInputs,
@@ -93,7 +95,6 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     EnrichTableSemanticsWorkflow,
 )
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
-    POSTHOG_DATABASE_UNAVAILABLE_MESSAGE,
     ImportDataActivityInputs,
     import_data_activity_sync,
 )
@@ -206,10 +207,6 @@ def _customer_facing_error(cause: BaseException | None) -> str:
     return message or str(cause)
 
 
-_APP_DB_FAILURE_PREFIX = "internalerror:"
-_APP_DB_FAILURE_PHRASE = "read-only transaction"
-
-
 def _is_app_db_failure(internal_error: str) -> bool:
     """Whether a run failed against PostHog's own app DB rather than the customer's source.
 
@@ -225,7 +222,7 @@ def _is_app_db_failure(internal_error: str) -> bool:
     than an outage that clears on its own.
     """
     normalized = internal_error.lower()
-    return normalized.startswith(_APP_DB_FAILURE_PREFIX) and _APP_DB_FAILURE_PHRASE in normalized
+    return normalized.startswith(APP_DB_ERROR_PREFIX) and READ_ONLY_TRANSACTION_PHRASE in normalized
 
 
 def _fail_stale_running_schema(

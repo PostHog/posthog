@@ -11,6 +11,8 @@ from posthog.models.team.team import Team
 from posthog.settings.base_variables import TEST
 from posthog.temporal.common.logger import get_logger
 
+from products.warehouse_sources.backend.temporal.data_imports.util import reraise_app_db_errors
+
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 
 LOGGER = get_logger(__name__)
@@ -35,6 +37,7 @@ dwh_pricing_free_period_end = datetime(2025, 11, 6, 0, 0, 0, tzinfo=UTC)
 
 
 @activity.defn
+@reraise_app_db_errors
 def check_billing_limits_activity(inputs: CheckBillingLimitsActivityInputs) -> bool:
     from products.warehouse_sources.backend.temporal.data_imports.external_data_job import (
         ExternalDataJob,

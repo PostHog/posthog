@@ -12,6 +12,7 @@ from products.data_warehouse.backend.facade.api import get_size_of_folder
 from products.warehouse_sources.backend.models import DataWarehouseTable
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.temporal.data_imports.util import reraise_app_db_errors
 
 LOGGER = get_logger(__name__)
 
@@ -24,6 +25,7 @@ class CalculateTableSizeActivityInputs:
 
 
 @activity.defn
+@reraise_app_db_errors
 def calculate_table_size_activity(inputs: CalculateTableSizeActivityInputs) -> None:
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()

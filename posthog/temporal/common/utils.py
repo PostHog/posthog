@@ -157,6 +157,13 @@ def close_db_connections(fn: Callable[P, T]) -> Callable[P, T]:
     return sync_wrapper
 
 
+# The wording Postgres uses for SQLSTATE 25006, and the class name Django reports it under. Temporal
+# renders a wrapped activity failure as ``<ExceptionClass>: <message>``, so the prefix is how this
+# error identifies itself to code that only sees the flattened string across a workflow boundary.
+READ_ONLY_TRANSACTION_PHRASE = "read-only transaction"
+APP_DB_ERROR_PREFIX = f"{django.db.InternalError.__name__}:".lower()
+
+
 def is_stale_connection_read_only_error(error: Exception) -> bool:
     """Whether `error` is a write rejected because the connection outlived a primary failover.
 
@@ -167,7 +174,7 @@ def is_stale_connection_read_only_error(error: Exception) -> bool:
     ``OperationalError``/``InterfaceError`` already cover, just a different DB-API exception class —
     closing the connection and retrying reconnects to the current primary.
     """
-    return isinstance(error, django.db.InternalError) and "read-only transaction" in str(error).lower()
+    return isinstance(error, django.db.InternalError) and READ_ONLY_TRANSACTION_PHRASE in str(error).lower()
 
 
 async def aretry_on_db_connection_drop(operation: Callable[[], Coroutine[Any, Any, T]]) -> T:

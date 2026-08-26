@@ -34,6 +34,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     release_v3_pipeline_lock,
     write_v3_pipeline_lock_meta,
 )
+from products.warehouse_sources.backend.temporal.data_imports.util import reraise_app_db_errors
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model import (
     is_pipeline_v3_enabled,
 )
@@ -80,6 +81,7 @@ class ReleaseV3LockActivityInputs:
 
 
 @activity.defn
+@reraise_app_db_errors
 def check_pipeline_version_activity(inputs: CheckPipelineVersionActivityInputs) -> CheckPipelineVersionActivityOutputs:
     bind_contextvars(team_id=inputs.team_id)
     close_old_connections()
@@ -94,6 +96,7 @@ def check_pipeline_version_activity(inputs: CheckPipelineVersionActivityInputs) 
 
 
 @activity.defn
+@reraise_app_db_errors
 def acquire_v3_pipeline_lock_activity(inputs: AcquireV3LockActivityInputs) -> AcquireV3LockActivityOutputs:
     bind_contextvars(team_id=inputs.team_id)
 
