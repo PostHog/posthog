@@ -106,8 +106,7 @@ async function queryJob(id: string): Promise<RawJobRow> {
     return res.rows[0]
 }
 
-// Compares in the database, because `scheduled` and Date.now() come from different
-// clocks and skew by a millisecond or two under load.
+// Compares in the database: `scheduled` and Date.now() are different clocks and skew.
 async function jobIsDue(id: string): Promise<boolean> {
     const res = await assertPool.query<{ due: boolean }>(
         'SELECT scheduled <= now() AS due FROM cyclotron_jobs WHERE id = $1',

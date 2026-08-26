@@ -8,11 +8,9 @@ import { UUIDT } from '~/common/utils/utils'
 import { CookielessServerHashMode, InternalPerson, ProjectId, RawOrganization, RawPerson, Team } from '../../src/types'
 import { assertRouterTargetsTestDatabase } from './database-guard'
 
-// Per-worker range so concurrent tests can't collide. Strides by 1000 because some
-// tests derive other ids as `team.id + n`. Stays inside int4.
-const idBase = Math.floor(Math.random() * 1_900_000) * 1000
-let idCounter = 0
-export const uniqueTestId = (): number => idBase + idCounter++ * 1000
+// Rows outlive their test file, so draw from the whole int4 range. Narrower schemes
+// (per-millisecond, per-file band) collide far more often.
+export const uniqueTestId = (): number => Math.floor(Math.random() * 2_100_000_000)
 
 export const commonUserId = 1001
 export const commonOrganizationMembershipId = '0177364a-fc7b-0000-511c-137090b9e4e1'
