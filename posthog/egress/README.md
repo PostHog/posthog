@@ -35,6 +35,26 @@ if not consume_github_installation_sync(installation_id, priority=Priority.BATCH
 They are **non-blocking** — the caller decides what to do on `False`.
 The GitHub helpers wrap the key construction; other domains expose their own thin gate the same way.
 
+### Pacing (for callers that can wait)
+
+Getting denied is recoverable but wasteful: the caller learns nothing about _when_ the budget frees, so it backs off blind, and the budget it already spent stays spent.
+A caller that can wait — a bulk import walking pages, not a request serving a person — should instead ask how long to wait and not get denied at all:
+
+```python
+pace = get_outbound_rate_limiter().pace_seconds(key, priority=Priority.BATCH)
+if pace > 0:
+    ...  # the caller owns the wait; the limiter never sleeps
+```
+
+`pace_seconds` returns **0 while a window still holds more than half of that priority's allowance**, so a short run is never slowed for a budget it cannot dent.
+Below that it spreads the allowance that is left over the time left in the window, which is the interval that keeps the caller admitted instead of shed.
+It reads the same reserved floors admission does, so a `BATCH` caller paces off the share it may actually take, not the whole window.
+
+Two things it is not.
+It is **advisory** — `acquire`/`consume_sync` remain the only authority on whether a call is admitted, so a bug here cannot over-admit.
+And it is not a wait-for-reset: these are sliding windows, which free continuously, so waiting for a reset would idle for a whole window to get budget that was arriving all along.
+A store failure answers 0 rather than raising, because pacing sits in front of every gated call and the in-memory fallback's headroom is one process's, not the shared budget's.
+
 ### Budgets (policies)
 
 A budget is a `RatePolicy`: one or more `(count, period_seconds)` limits enforced _together_, so you can cap the hour and smooth per-minute bursts on the same key.
