@@ -1,3 +1,4 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
@@ -14,8 +15,10 @@ const overview: FlakinessOverviewApi = {
     totals: {
         listed: 0,
         tracked: 4494,
+        broken: 18,
         unstable: 231,
-        settled: 604,
+        at_risk: 63,
+        noisy: 604,
         quarantined: 47,
         needs_decision: 12,
         by_run_type: {},
@@ -51,11 +54,37 @@ describe('visualReviewFlakinessSceneLogic', () => {
         it('takes the stat counts from server totals rather than the listed entries', async () => {
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.statCounts).toEqual({
-                unstable: 231,
-                settled: 604,
-                quarantined: 47,
                 needs_decision: 12,
+                broken: 18,
+                unstable: 231,
+                at_risk: 63,
+                noisy: 604,
+                quarantined: 47,
             })
+        })
+    })
+
+    describe('when the preset arrives in the URL', () => {
+        beforeEach(() => {
+            initKeaTests()
+            useMocks({ get: { [FLAKINESS_URL]: overview } })
+            logic = visualReviewFlakinessSceneLogic({ repoId: REPO_ID })
+            logic.mount()
+        })
+
+        // `settled` was this page's name for these rows before it scored on
+        // failure rate. A link carrying it has to land on the rows it asked
+        // for, and an unrecognized value has to land somewhere workable rather
+        // than filter every row away.
+        it.each([
+            ['noisy', 'noisy'],
+            ['settled', 'noisy'],
+            ['broken', 'broken'],
+            ['nonsense', 'needs_decision'],
+        ])('resolves %s to the %s preset', async (hashValue, expected) => {
+            router.actions.push(`/visual_review/repos/${REPO_ID}/flakiness`, {}, { preset: hashValue })
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.filters.preset).toBe(expected)
         })
     })
 

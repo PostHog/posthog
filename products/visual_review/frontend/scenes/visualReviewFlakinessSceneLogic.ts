@@ -22,10 +22,10 @@ export interface VisualReviewFlakinessSceneLogicProps {
     repoId: string
 }
 
-// "Most variants" ranks by severity, "most recent" by urgency. A snapshot with
-// forty variants last seen three weeks ago and one with eight seen today are
-// both worth attention, and neither order answers for the other.
-export type FlakinessSort = 'variants' | 'recent'
+// "Most failures" ranks by how much a snapshot costs, "most recent" by urgency.
+// A snapshot that failed forty runs three weeks ago and one that failed twice
+// today are both worth attention, and neither order answers for the other.
+export type FlakinessSort = 'failures' | 'recent'
 
 export type Filters = {
     preset: FlakinessPreset
@@ -35,14 +35,14 @@ export type Filters = {
     sort: FlakinessSort
 }
 
-// Unstable is the landing slice: it is the only one that means something is
-// wrong right now.
+// A decision waiting on a human is the landing slice: it is the only one that
+// nothing else on the page can resolve.
 const EMPTY_FILTERS: Filters = {
-    preset: 'unstable',
+    preset: 'needs_decision',
     typeKeys: [],
     areas: [],
     search: '',
-    sort: 'variants',
+    sort: 'failures',
 }
 
 // Collapses run_type + browser into one facet key, matching how the snapshots
@@ -68,10 +68,11 @@ function typeLabelOf(key: string): string {
 
 function matchesPreset(entry: DecoratedEntry, preset: FlakinessPreset): boolean {
     switch (preset) {
+        case 'broken':
         case 'unstable':
-            return entry.flakiness_state === 'unstable'
-        case 'settled':
-            return entry.flakiness_state === 'settled'
+        case 'at_risk':
+        case 'noisy':
+            return entry.flakiness_state === preset
         case 'quarantined':
             return entry.is_quarantined
         case 'needs_decision':
@@ -124,12 +125,24 @@ function applyFilters(
     })
 }
 
+const PRESETS: readonly FlakinessPreset[] = ['needs_decision', 'broken', 'unstable', 'at_risk', 'noisy', 'quarantined']
+
+// `settled` was this page's name for "has variants, none recently" before it
+// scored on failure rate. Links carrying it predate that, and `noisy` is where
+// those rows live now.
+function presetFromHash(value: string | undefined): FlakinessPreset {
+    if (value === 'settled') {
+        return 'noisy'
+    }
+    return PRESETS.includes(value as FlakinessPreset) ? (value as FlakinessPreset) : EMPTY_FILTERS.preset
+}
+
 function recencyOf(entry: DecoratedEntry): number {
     return entry.last_flaked_at ? new Date(entry.last_flaked_at).getTime() : 0
 }
 
-function variantCountOf(entry: DecoratedEntry): number {
-    return entry.variant_count
+function hardCountOf(entry: DecoratedEntry): number {
+    return entry.hard_count
 }
 
 // The multi-select filters only expose a toggle, so restoring one from the URL
@@ -150,8 +163,8 @@ function syncToggles(next: string[], current: string[], toggle: (value: string) 
 // Both orders fall back to the other measure, then to the name, so the list is
 // stable and a tie never reshuffles between renders.
 function sortEntries(entries: DecoratedEntry[], sort: FlakinessSort): DecoratedEntry[] {
-    const primary = sort === 'recent' ? recencyOf : variantCountOf
-    const secondary = sort === 'recent' ? variantCountOf : recencyOf
+    const primary = sort === 'recent' ? recencyOf : hardCountOf
+    const secondary = sort === 'recent' ? hardCountOf : recencyOf
     return [...entries].sort(
         (a, b) => primary(b) - primary(a) || secondary(b) - secondary(a) || a.identifier.localeCompare(b.identifier)
     )
@@ -375,10 +388,12 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
         statCounts: [
             (s) => [s.overview],
             (overview: FlakinessOverviewApi | null): Record<FlakinessPreset, number> => ({
-                unstable: overview?.totals.unstable ?? 0,
-                settled: overview?.totals.settled ?? 0,
-                quarantined: overview?.totals.quarantined ?? 0,
                 needs_decision: overview?.totals.needs_decision ?? 0,
+                broken: overview?.totals.broken ?? 0,
+                unstable: overview?.totals.unstable ?? 0,
+                at_risk: overview?.totals.at_risk ?? 0,
+                noisy: overview?.totals.noisy ?? 0,
+                quarantined: overview?.totals.quarantined ?? 0,
             }),
         ],
         facetGroups: [
@@ -494,11 +509,11 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
             }
             const current: Filters = values.filters
             const next: Filters = {
-                preset: (hash.preset as FlakinessPreset) ?? EMPTY_FILTERS.preset,
+                preset: presetFromHash(hash.preset),
                 typeKeys: hash.types ? hash.types.split(',') : [],
                 areas: hash.areas ? hash.areas.split(',') : [],
                 search: hash.q ?? '',
-                sort: hash.sort === 'recent' ? 'recent' : 'variants',
+                sort: hash.sort === 'recent' ? 'recent' : 'failures',
             }
             if (next.preset !== current.preset) {
                 actions.setPreset(next.preset)

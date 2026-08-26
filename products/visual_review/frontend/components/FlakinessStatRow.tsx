@@ -1,37 +1,49 @@
-export type FlakinessPreset = 'unstable' | 'settled' | 'quarantined' | 'needs_decision'
+export type FlakinessPreset = 'needs_decision' | 'broken' | 'unstable' | 'at_risk' | 'noisy' | 'quarantined'
 
-// Mirrors `FLAKINESS_RECENT_DAYS` in
+// Mirrors `FLAKINESS_WINDOW_DAYS` in
 // `products/visual_review/backend/facade/contracts.py`. Keep in sync, because
-// the backend value decides `flakiness_state` and this constant drives the copy.
-export const RECENT_VARIANT_WINDOW_DAYS = 7
+// the backend value is the rate denominator and this constant drives the copy.
+export const FLAKE_WINDOW_DAYS = 30
 
 const COLOR_BY_PRESET: Record<FlakinessPreset, string> = {
-    unstable: 'var(--danger)',
-    settled: 'var(--warning-dark)',
-    quarantined: 'var(--warning)',
     needs_decision: 'var(--primary-3000)',
+    broken: 'var(--danger)',
+    unstable: 'var(--warning-dark)',
+    at_risk: 'var(--warning)',
+    noisy: 'var(--muted)',
+    quarantined: 'var(--brand-blue)',
 }
 
 const STATS: Array<{ value: FlakinessPreset; label: string; description: string }> = [
     {
-        value: 'unstable',
-        label: 'Unstable',
-        description: `Rendered a variant in the last ${RECENT_VARIANT_WINDOW_DAYS} days`,
+        value: 'needs_decision',
+        label: 'Needs a decision',
+        description: 'Quarantine ran out, or the snapshot stopped failing',
     },
     {
-        value: 'settled',
-        label: 'Settled',
-        description: 'Carries variants, but has been quiet for longer than that',
+        value: 'broken',
+        label: 'Broken',
+        description: 'Fails nearly every run, so the baseline is wrong',
+    },
+    {
+        value: 'unstable',
+        label: 'Unstable',
+        description: 'Fails some runs and not others',
+    },
+    {
+        value: 'at_risk',
+        label: 'At risk',
+        description: 'Passes, but its diff is already close to the threshold',
+    },
+    {
+        value: 'noisy',
+        label: 'Noisy',
+        description: 'Renders variants, absorbed with room to spare',
     },
     {
         value: 'quarantined',
         label: 'Quarantined',
         description: 'Skipped when a run decides pass or fail',
-    },
-    {
-        value: 'needs_decision',
-        label: 'Needs a decision',
-        description: 'Quarantine ran out, or has been quiet long enough to lift',
     },
 ]
 
@@ -42,13 +54,15 @@ interface FlakinessStatRowProps {
 }
 
 /**
- * The four populations this scene can show. Every tile is a filter that lands on
- * a workable list, so there is deliberately no "all snapshots" tile: it would
- * repeat the Snapshots tab and open thousands of rows with nothing to act on.
+ * The six populations this scene can show, ordered by how much attention each
+ * one wants. Every tile is a filter, and together they cover every listed row,
+ * so a snapshot the page decided to report is always reachable from one of
+ * them. There is still no "all snapshots" tile: that would repeat the Snapshots
+ * tab and open thousands of rows with nothing to act on.
  */
 export function FlakinessStatRow({ counts, preset, onChange }: FlakinessStatRowProps): JSX.Element {
     return (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-2">
             {STATS.map((stat) => {
                 const active = preset === stat.value
                 return (
