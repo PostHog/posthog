@@ -145,8 +145,8 @@ class ChannelsAPITestCase(TestCase):
 
     @patch("products.tasks.backend.presentation.views.channels_api.onboarding_test_tools_enabled", return_value=True)
     def test_flagged_user_can_create_test_onboarding_artifacts(self, _enabled):
-        general_id = next(
-            channel["id"] for channel in self._provision()["channels"] if channel["system_role"] == "general"
+        personal_id = next(
+            channel["id"] for channel in self._provision()["channels"] if channel["system_role"] == "personal"
         )
         task_id = uuid4()
         canvas_id = uuid4()
@@ -161,7 +161,7 @@ class ChannelsAPITestCase(TestCase):
             )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
-        self.assertEqual(response.json(), {"task_id": str(task_id), "channel_id": general_id})
+        self.assertEqual(response.json(), {"task_id": str(task_id), "channel_id": personal_id})
         self.assertTrue(start.call_args.kwargs["joining_existing_organization"])
         self.assertEqual(start.call_args.kwargs["other_members"], ["Max"])
 

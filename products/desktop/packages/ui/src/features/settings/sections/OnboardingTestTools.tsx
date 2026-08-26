@@ -5,7 +5,7 @@ import {
   SettingsCardRow,
   SettingsSection,
 } from "@posthog/ui/features/settings/components/SettingsCard";
-import { closeSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
+import { leaveSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import { OnboardingTestToolsDialog } from "@posthog/ui/features/settings/sections/OnboardingTestToolsDialog";
 import { toast } from "@posthog/ui/primitives/toast";
 import { navigateToChannelDashboard } from "@posthog/ui/router/navigationBridge";
@@ -20,7 +20,7 @@ export function OnboardingTestTools(): ReactElement {
     setCreatingCanvas(true);
     try {
       const result = await client.createTeachingCanvasForTest();
-      closeSettings();
+      leaveSettings();
       navigateToChannelDashboard(result.channel_id, result.canvas_id);
     } catch (error) {
       toast.error("Couldn't create the teaching canvas", {

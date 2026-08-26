@@ -1056,7 +1056,7 @@ export const TaskChannelsStarCreateBody = /* @__PURE__ */ zod
     .describe('Request body for starring\/unstarring a channel for the requesting user.')
 
 /**
- * Feature-flagged test path that creates a repeatable session from explicit prompt-building inputs.
+ * Feature-flagged test path that creates a repeatable session from explicit prompt-building inputs, in the requester's personal space.
  * @summary Start a test first-run onboarding session
  */
 export const taskChannelsOnboardingSessionTestCreateBodyCompanyDomainDefault = ``
@@ -1081,7 +1081,6 @@ export const taskChannelsOnboardingSessionTestCreateBodySourcesWatchingItemMax =
 export const taskChannelsOnboardingSessionTestCreateBodySourcesWatchingMax = 25
 
 export const taskChannelsOnboardingSessionTestCreateBodySourcesNewlyEnabledDefault = false
-export const taskChannelsOnboardingSessionTestCreateBodyIncludeTeachingCanvasDefault = true
 
 export const TaskChannelsOnboardingSessionTestCreateBody = /* @__PURE__ */ zod.object({
     company_domain: zod
@@ -1122,10 +1121,6 @@ export const TaskChannelsOnboardingSessionTestCreateBody = /* @__PURE__ */ zod.o
         .boolean()
         .default(taskChannelsOnboardingSessionTestCreateBodySourcesNewlyEnabledDefault)
         .describe('Whether onboarding enabled any signal sources.'),
-    include_teaching_canvas: zod
-        .boolean()
-        .default(taskChannelsOnboardingSessionTestCreateBodyIncludeTeachingCanvasDefault)
-        .describe('Whether the session prompt should offer the teaching canvas.'),
 })
 
 /**

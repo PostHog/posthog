@@ -174,7 +174,10 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         request=OnboardingSessionTestSerializer,
         responses={200: OnboardingSessionTestResponseSerializer},
         summary="Start a test first-run onboarding session",
-        description="Feature-flagged test path that creates a repeatable session from explicit prompt-building inputs.",
+        description=(
+            "Feature-flagged test path that creates a repeatable session from explicit prompt-building "
+            "inputs, in the requester's personal space."
+        ),
     )
     @action(methods=["POST"], detail=False, url_path="onboarding_session_test")
     def onboarding_session_test(self, request: Request, **kwargs) -> Response:
@@ -188,25 +191,23 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             request.user,
             **values,
         )
-        channel_id = tasks_facade.find_general_channel_id(self.team_id)
-        if task_id is None or channel_id is None:
-            return Response({"detail": "No #general space to open a session in."}, status=409)
+        if task_id is None:
+            return Response({"detail": "No personal space to open a session in."}, status=409)
+        channel_id = tasks_facade.ensure_personal_channel_id(self.team_id, request.user.id)
         return Response(OnboardingSessionTestResponseSerializer({"task_id": task_id, "channel_id": channel_id}).data)
 
     @extend_schema(
         request=None,
         responses={200: TeachingCanvasSerializer},
         summary="Create the teaching canvas for testing",
-        description="Feature-flagged test path that resolves or creates the teaching canvas in #general.",
+        description="Feature-flagged test path that resolves or creates the teaching canvas in the requester's personal space.",
     )
     @action(methods=["POST"], detail=False, url_path="teaching_canvas_test")
     def teaching_canvas_test(self, request: Request, **kwargs) -> Response:
         if not isinstance(request.user, User) or not onboarding_test_tools_enabled(self.team, request.user):
             raise PermissionDenied("The onboarding test tools feature is not enabled.")
-        channel_id = tasks_facade.find_general_channel_id(self.team_id)
-        if channel_id is None:
-            return Response({"detail": "No #general space for the teaching canvas."}, status=409)
-        teaching = ensure_teaching_canvas(self.team_id, channel_id, request.user)
+        channel_id = tasks_facade.ensure_personal_channel_id(self.team_id, request.user.id)
+        teaching = ensure_teaching_canvas(self.team_id, channel_id, request.user, refresh=True)
         if teaching is None:
             return Response({"detail": "The teaching canvas was previously deleted."}, status=409)
         return Response(TeachingCanvasSerializer(teaching).data)

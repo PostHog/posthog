@@ -2032,7 +2032,7 @@ class OnboardingSessionSerializer(serializers.Serializer):
 
 
 class OnboardingSessionTestResponseSerializer(OnboardingSessionSerializer):
-    channel_id = serializers.UUIDField(help_text="The #general space containing the session.")
+    channel_id = serializers.UUIDField(help_text="The requester's personal space containing the session.")
 
 
 class OnboardingSessionTestSerializer(serializers.Serializer):
@@ -2072,14 +2072,11 @@ class OnboardingSessionTestSerializer(serializers.Serializer):
     sources_newly_enabled = serializers.BooleanField(
         default=False, help_text="Whether onboarding enabled any signal sources."
     )
-    include_teaching_canvas = serializers.BooleanField(
-        default=True, help_text="Whether the session prompt should offer the teaching canvas."
-    )
 
 
 class TeachingCanvasSerializer(serializers.Serializer):
     canvas_id = serializers.UUIDField(help_text="The teaching canvas that was resolved or created.")
-    channel_id = serializers.UUIDField(help_text="The #general space containing the canvas.")
+    channel_id = serializers.UUIDField(help_text="The requester's personal space containing the canvas.")
 
 
 class ProvisionedChannelsSerializer(serializers.Serializer):

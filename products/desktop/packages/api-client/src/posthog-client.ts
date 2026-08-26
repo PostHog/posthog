@@ -2940,7 +2940,6 @@ export class PostHogAPIClient {
     sources_enabled: string[];
     sources_watching: string[];
     sources_newly_enabled: boolean;
-    include_teaching_canvas: boolean;
   }): Promise<{ task_id: string; channel_id: string }> {
     const teamId = await this.getTeamId();
     const urlPath = `/api/projects/${teamId}/task_channels/onboarding_session_test/`;

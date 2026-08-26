@@ -1323,8 +1323,6 @@ export interface OnboardingSessionTestApi {
     sources_watching?: string[]
     /** Whether onboarding enabled any signal sources. */
     sources_newly_enabled?: boolean
-    /** Whether the session prompt should offer the teaching canvas. */
-    include_teaching_canvas?: boolean
 }
 
 /**
@@ -1333,7 +1331,7 @@ export interface OnboardingSessionTestApi {
 export interface OnboardingSessionTestResponseApi {
     /** The agent session opened in the team's #general space. */
     task_id: string
-    /** The #general space containing the session. */
+    /** The requester's personal space containing the session. */
     channel_id: string
 }
 
@@ -1352,7 +1350,7 @@ export interface ProvisionedChannelsApi {
 export interface TeachingCanvasApi {
     /** The teaching canvas that was resolved or created. */
     canvas_id: string
-    /** The #general space containing the canvas. */
+    /** The requester's personal space containing the canvas. */
     channel_id: string
 }
 
