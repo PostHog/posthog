@@ -190,3 +190,14 @@ class RecalculationProgressUpdate:
     # 'experiment results refresh completed' analytics event with real counts.
     succeeded_metrics: int | None = None
     failed_metrics: int | None = None
+
+
+ENROLLMENT_CENSUS_WORKFLOW_NAME = "experiment-precompute-enrollment-census"
+
+
+@dataclasses.dataclass(frozen=True)
+class ExperimentPrecomputeEnrollmentCensusInputs:
+    """Input to the enrollment census workflow. Report-only: the census logs which teams
+    would qualify for precomputation enrollment; it never enrolls anyone."""
+
+    window_days: int = 14

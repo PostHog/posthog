@@ -888,6 +888,34 @@ class TestPersonalAPIKeysWithPersonScope(PersonalAPIKeysBaseTest):
         assert response.json()["detail"] == "API key missing required scope 'person:read'"
 
 
+class TestPersonalAPIKeysWithOrganizationScope(PersonalAPIKeysBaseTest):
+    # `teams/data_freshness` is a custom action, so it only accepts a personal API key while it
+    # declares `required_scopes`. Drop that and APIScopePermission rejects every key, including
+    # one scoped `*`, with "This action does not support personal API key access".
+
+    @parameterized.expand(
+        [
+            ("organization:read", status.HTTP_200_OK, None),
+            ("feature_flag:read", status.HTTP_403_FORBIDDEN, "API key missing required scope 'organization:read'"),
+        ]
+    )
+    @patch("posthog.api.organization.get_organization_data_freshness")
+    def test_data_freshness_requires_organization_read_scope(
+        self, scope, expected_status, expected_detail, mock_freshness
+    ):
+        mock_freshness.return_value = []
+        self.key.scopes = [scope]
+        self.key.save()
+
+        response = self._do_request(f"/api/organizations/{self.organization.id}/teams/data_freshness")
+
+        assert response.status_code == expected_status, response.content
+        # Asserting the reason, not just the 403: an unscoped action also rejects this key, but for
+        # the wrong reason, and that is the regression being guarded.
+        if expected_detail:
+            assert response.json()["detail"] == expected_detail
+
+
 class TestPersonalAPIKeysWithApprovalsScope(PersonalAPIKeysBaseTest):
     def setUp(self):
         super().setUp()

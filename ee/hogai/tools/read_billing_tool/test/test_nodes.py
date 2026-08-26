@@ -395,8 +395,8 @@ class TestBillingNode(ClickhouseTestMixin, NonAtomicBaseTest):
             # Check None values are handled - when current_usage is None, it shows empty
             self.assertIn("Current usage:  (1.5% of limit)", formatted_string)
 
-            # Check exceeded limit warning
-            self.assertIn("⚠️ Usage limit exceeded", formatted_string)
+            # Check at/over limit warning
+            self.assertIn("⚠️ Usage limit reached", formatted_string)
 
     async def test_format_billing_context_complete_template_coverage(self):
         """Test all possible template variables are covered"""

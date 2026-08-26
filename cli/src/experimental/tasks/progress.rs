@@ -72,10 +72,10 @@ fn fetch_progress(task_id: &Uuid) -> Result<TaskProgressResponse> {
 }
 
 fn print_progress(task_id: &Uuid, progress: &TaskProgressResponse) {
-    println!("\nProgress for Task {task_id}:\n");
+    crate::safe_println!("\nProgress for Task {task_id}:\n");
 
     if !progress.has_progress {
-        println!(
+        crate::safe_println!(
             "{}",
             progress
                 .message
@@ -86,7 +86,7 @@ fn print_progress(task_id: &Uuid, progress: &TaskProgressResponse) {
     }
 
     if let Some(status) = &progress.status {
-        println!("Status: {status}");
+        crate::safe_println!("Status: {status}");
     }
 
     if let Some(percentage) = progress.progress_percentage {
@@ -98,65 +98,65 @@ fn print_progress(task_id: &Uuid, progress: &TaskProgressResponse) {
             "░".repeat(empty),
             percentage
         );
-        println!("Progress: {bar}");
+        crate::safe_println!("Progress: {bar}");
     }
 
     if let Some(current_step) = &progress.current_step {
         if !current_step.is_empty() {
-            println!("Current Step: {current_step}");
+            crate::safe_println!("Current Step: {current_step}");
         }
     }
 
     if let (Some(completed), Some(total)) = (progress.completed_steps, progress.total_steps) {
-        println!("Steps: {completed} / {total}");
+        crate::safe_println!("Steps: {completed} / {total}");
     }
 
     if let Some(workflow_id) = &progress.workflow_id {
         if !workflow_id.is_empty() {
-            println!("\nWorkflow ID: {workflow_id}");
+            crate::safe_println!("\nWorkflow ID: {workflow_id}");
         }
     }
 
     if let Some(workflow_run_id) = &progress.workflow_run_id {
         if !workflow_run_id.is_empty() {
-            println!("Workflow Run ID: {workflow_run_id}");
+            crate::safe_println!("Workflow Run ID: {workflow_run_id}");
         }
     }
 
     if let Some(output_log) = &progress.output_log {
         if !output_log.is_empty() {
-            println!("\nOutput:");
-            println!("{}", "─".repeat(60));
+            crate::safe_println!("\nOutput:");
+            crate::safe_println!("{}", "─".repeat(60));
             for line in output_log.lines() {
-                println!("{line}");
+                crate::safe_println!("{line}");
             }
-            println!("{}", "─".repeat(60));
+            crate::safe_println!("{}", "─".repeat(60));
         }
     }
 
     if let Some(error_message) = &progress.error_message {
         if !error_message.is_empty() {
-            println!("\nError:");
-            println!("{}", "─".repeat(60));
+            crate::safe_println!("\nError:");
+            crate::safe_println!("{}", "─".repeat(60));
             for line in error_message.lines() {
-                println!("{line}");
+                crate::safe_println!("{line}");
             }
-            println!("{}", "─".repeat(60));
+            crate::safe_println!("{}", "─".repeat(60));
         }
     }
 
-    println!("\nTimestamps:");
+    crate::safe_println!("\nTimestamps:");
     if let Some(created_at) = progress.created_at {
-        println!("  Started: {}", created_at.format("%Y-%m-%d %H:%M:%S UTC"));
+        crate::safe_println!("  Started: {}", created_at.format("%Y-%m-%d %H:%M:%S UTC"));
     }
     if let Some(updated_at) = progress.updated_at {
-        println!(
+        crate::safe_println!(
             "  Last Updated: {}",
             updated_at.format("%Y-%m-%d %H:%M:%S UTC")
         );
     }
     if let Some(completed_at) = progress.completed_at {
-        println!(
+        crate::safe_println!(
             "  Completed: {}",
             completed_at.format("%Y-%m-%d %H:%M:%S UTC")
         );

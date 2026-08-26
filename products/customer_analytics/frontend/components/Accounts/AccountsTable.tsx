@@ -41,10 +41,10 @@ import { accountsTableCell, isAccountsTableRow } from './accountsTableQuery'
 import { AccountsEvents } from './constants'
 
 // Shape the name renderer uses from the keyed AccountsTableRow identity fields.
-type AccountNameCellData = { name: string; external_id: string | null; id: string }
+type AccountNameCellData = { name: string; external_id: string | null; id: string; logo_domain: string | null }
 
 const COLUMN_WIDTHS = {
-    name: '240px',
+    name: '280px',
     tag_names: '280px',
     notebook_count: '80px',
     relationship: '220px',
@@ -60,7 +60,12 @@ function getNameCell(record: unknown): AccountNameCellData | undefined {
     if (!isAccountsTableRow(record)) {
         return undefined
     }
-    return { id: record.id, name: record.name, external_id: record.externalId ?? null }
+    return {
+        id: record.id,
+        name: record.name,
+        external_id: record.externalId ?? null,
+        logo_domain: record.logoDomain ?? null,
+    }
 }
 
 // Relationship cells carry active assignee user ids and use an empty array when unassigned.
@@ -81,6 +86,7 @@ function NameCell({ record }: { record: unknown }): JSX.Element {
             accountId={accountId}
             name={cell?.name ?? ''}
             externalId={cell?.external_id}
+            logoDomain={cell?.logo_domain}
             onClick={(event) => {
                 if (!accountId || event.metaKey || event.ctrlKey || event.shiftKey) {
                     return

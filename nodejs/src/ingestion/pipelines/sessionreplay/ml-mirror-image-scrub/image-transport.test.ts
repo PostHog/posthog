@@ -1,7 +1,6 @@
 import { brotliCompressSync, deflateSync, gzipSync, zstdCompressSync } from 'node:zlib'
 
 import {
-    InvalidImageTransportError,
     MAX_UNCOMPRESSED_IMAGE_BYTES,
     SUPPORTED_IMAGE_MEDIA_TYPES,
     imageBytesMatchMediaType,
@@ -51,36 +50,40 @@ describe('image transport', () => {
                 'image/png',
                 'identity, identity, identity, identity, identity'
             )
-        ).rejects.toThrow('content-encoding exceeds 4 codings')
+        ).rejects.toMatchObject({
+            reason: 'content_encoding_too_deep',
+            message: 'content-encoding exceeds 4 codings',
+        })
     })
 
     it('stops decompression when the decoded bytes cross the 20 MiB cap', async () => {
         const compressed = gzipSync(Buffer.alloc(MAX_UNCOMPRESSED_IMAGE_BYTES + 1))
 
-        await expect(prepareFetchedImage(compressed, 'image/png', 'gzip')).rejects.toThrow(
-            `decoded image exceeds ${MAX_UNCOMPRESSED_IMAGE_BYTES} bytes`
-        )
+        await expect(prepareFetchedImage(compressed, 'image/png', 'gzip')).rejects.toMatchObject({
+            reason: 'decoded_too_large',
+            message: `decoded image exceeds ${MAX_UNCOMPRESSED_IMAGE_BYTES} bytes`,
+        })
     })
 
     it.each([
-        ['an unsupported content coding', imageHeaders['image/png'], 'compress'],
-        ['a malformed content coding list', imageHeaders['image/png'], 'gzip,'],
-        ['compressed bytes that are malformed', Buffer.from('not gzip'), 'gzip'],
-    ])('rejects %s', async (_case, bytes, contentEncoding) => {
-        await expect(prepareFetchedImage(bytes, 'image/png', contentEncoding)).rejects.toBeInstanceOf(
-            InvalidImageTransportError
-        )
+        ['an unsupported content coding', imageHeaders['image/png'], 'compress', 'unsupported_content_encoding'],
+        ['a malformed content coding list', imageHeaders['image/png'], 'gzip,', 'malformed_content_encoding'],
+        ['compressed bytes that are malformed', Buffer.from('not gzip'), 'gzip', 'decompression_failed'],
+    ] as const)('labels %s', async (_case, bytes, contentEncoding, reason) => {
+        await expect(prepareFetchedImage(bytes, 'image/png', contentEncoding)).rejects.toMatchObject({ reason })
     })
 
     it('rejects bytes that do not match the declared media type', async () => {
-        await expect(prepareFetchedImage(imageHeaders['image/jpeg'], 'image/png', undefined)).rejects.toThrow(
-            'image bytes do not match content-type image/png'
-        )
+        await expect(prepareFetchedImage(imageHeaders['image/jpeg'], 'image/png', undefined)).rejects.toMatchObject({
+            reason: 'content_type_mismatch',
+            message: 'image bytes do not match content-type image/png',
+        })
     })
 
-    it('rejects BMP images', async () => {
-        await expect(prepareFetchedImage(Buffer.from('BM', 'ascii'), 'image/bmp', undefined)).rejects.toThrow(
-            'unsupported content-type: image/bmp'
-        )
+    it.each([
+        ['a missing content-type', imageHeaders['image/png'], undefined, 'missing_content_type'],
+        ['a BMP content-type', Buffer.from('BM', 'ascii'), 'image/bmp', 'unsupported_content_type'],
+    ] as const)('labels %s', async (_case, bytes, contentType, reason) => {
+        await expect(prepareFetchedImage(bytes, contentType, undefined)).rejects.toMatchObject({ reason })
     })
 })
