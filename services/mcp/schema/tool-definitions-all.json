@@ -2865,7 +2865,7 @@
         "feature_flag": "data-quality-checks"
     },
     "data-quality-check-update-on-table": {
-        "description": "Change a check's presentation (name, description, severity, enabled, tags). The assertion itself — check_type, column_name, config — is immutable; create a new check and delete this one instead.",
+        "description": "Change any part of a check: its presentation (name, description, severity, enabled, tags) and what it asserts (check_type, column_name, config). The table it audits is fixed. The check keeps its id, run history, latest status, and latest run time. A definition or name another active check already holds comes back as a field error, with nothing written. Deleted checks release their definition, so it can be authored again as a new check.",
         "category": "Data quality",
         "feature": "data_quality",
         "summary": "Update a data quality check on a table",
@@ -2880,7 +2880,7 @@
         "feature_flag": "data-quality-checks"
     },
     "data-quality-check-update-on-view": {
-        "description": "Change a check's presentation (name, description, severity, enabled, tags). The assertion itself — check_type, column_name, config — is immutable; create a new check and delete this one instead.",
+        "description": "Change any part of a check: its presentation (name, description, severity, enabled, tags) and what it asserts (check_type, column_name, config). The view it audits is fixed. The check keeps its id, run history, latest status, and latest run time. A definition or name another active check already holds comes back as a field error, with nothing written. Deleted checks release their definition, so it can be authored again as a new check.",
         "category": "Data quality",
         "feature": "data_quality",
         "summary": "Update a data quality check on a view",
@@ -10696,7 +10696,7 @@
         "feature_flag": "streamlit-apps"
     },
     "subscriptions-create": {
-        "description": "Create a recurring subscription. The kind is inferred from which field you populate and returned as the read-only `resource_type`:\n(1) set `insight` — schedule periodic snapshots of one insight (`resource_type: \"insight\"`).\n(2) set `dashboard` and `dashboard_export_insights` (the subset of the dashboard's insights to include, max 6) — schedule periodic snapshots of one dashboard (`resource_type: \"dashboard\"`).\n(3) set `prompt` (≤4000 chars, with no insight or dashboard) — schedule a recurring LLM-generated report (`resource_type: \"ai_prompt\"`). Available on PostHog Cloud (self-hosted production is not eligible) once the organization has approved AI data processing and prompt subscriptions are enabled for it; otherwise create is rejected with a 400. Creating a prompt subscription also requires the `query:read` scope — the report runs LLM-generated HogQL over your data — so a `subscription:write`-only token is rejected for this kind.\nDelivery is set by `target_type` — `email` or `slack`.\nThe kind is fixed at create time — a PATCH that would change the populated relation to a different kind is rejected.\nFor insight and dashboard subscriptions you can attach an AI-generated summary to each delivery by setting `summary_enabled: true` (optionally steered by `summary_prompt_guide`). This requires the organization to have approved AI data processing and to be within its active-summary cap and AI credit budget; otherwise the create is rejected. Prompt subscriptions are themselves AI-generated, so these fields do not apply to them.\nIMPORTANT — when creating an insight (or dashboard) subscription, always ask the user whether to enable the AI-generated summary before creating it. Present it as their choice: they can turn it on (`summary_enabled: true`) or leave it off, and if they turn it on, offer them the option to add a custom prompt to steer the summary (`summary_prompt_guide`). Do not enable the summary on your own without asking. (Prompt subscriptions are themselves AI-generated, so this does not apply to them.)",
+        "description": "Create a recurring subscription. The kind is inferred from which field you populate and returned as the read-only `resource_type`:\n(1) set `insight` — schedule periodic snapshots of one insight (`resource_type: \"insight\"`).\n(2) set `dashboard` and `dashboard_export_insights` (the subset of the dashboard's insights to include, max 10) — schedule periodic snapshots of one dashboard (`resource_type: \"dashboard\"`).\n(3) set `prompt` (≤4000 chars, with no insight or dashboard) — schedule a recurring LLM-generated report (`resource_type: \"ai_prompt\"`). Available on PostHog Cloud (self-hosted production is not eligible) once the organization has approved AI data processing and prompt subscriptions are enabled for it; otherwise create is rejected with a 400. Creating a prompt subscription also requires the `query:read` scope — the report runs LLM-generated HogQL over your data — so a `subscription:write`-only token is rejected for this kind.\nDelivery is set by `target_type` — `email` or `slack`.\nThe kind is fixed at create time — a PATCH that would change the populated relation to a different kind is rejected.\nFor insight and dashboard subscriptions you can attach an AI-generated summary to each delivery by setting `summary_enabled: true` (optionally steered by `summary_prompt_guide`). This requires the organization to have approved AI data processing and to be within its active-summary cap and AI credit budget; otherwise the create is rejected. Prompt subscriptions are themselves AI-generated, so these fields do not apply to them.\nIMPORTANT — when creating an insight (or dashboard) subscription, always ask the user whether to enable the AI-generated summary before creating it. Present it as their choice: they can turn it on (`summary_enabled: true`) or leave it off, and if they turn it on, offer them the option to add a custom prompt to steer the summary (`summary_prompt_guide`). Do not enable the summary on your own without asking. (Prompt subscriptions are themselves AI-generated, so this does not apply to them.)",
         "category": "Subscriptions",
         "feature": "subscriptions",
         "summary": "Create subscription",
@@ -11830,6 +11830,21 @@
             "openWorldHint": true,
             "readOnlyHint": true
         }
+    },
+    "vision-observations-search": {
+        "description": "Search replay vision observations by meaning, not keywords: `q` is a natural-language description of what to find (e.g. \"users confused by the pricing page\") and results come back under `results`, most relevant first. Each result pairs the `observation` with its `distance` to the query (lower is closer, only comparable within one response) and `matched_content`, the excerpt of the observation's text that matched (may be empty for old rows). The search ranks each observation's LLM output (a summarizer's intent/outcome/friction facets, other scanners' reasoning) by semantic similarity, so it finds sessions described differently from the query. Scope with `scanner_id` to search one scanner, otherwise every scanner the caller can read is searched. Narrow by exact outcome with `verdict` (comma-separated, e.g. `yes,inconclusive`), `tags` (comma-separated classifier tags), and `min_score`/`max_score` (scorer bounds). These filter, while `q` ranks. `limit` defaults to 20 (max 50). Use `vision-observations-retrieve` for a result's full detail, or `vision-observations-list` for everything observed about one session.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Semantically search replay vision observations",
+        "title": "Semantically search replay vision observations",
+        "required_scopes": ["replay_scanner:read", "session_recording:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "requires_ai_consent": true
     },
     "vision-quota-retrieve": {
         "description": "Get the organization's Replay vision credit budget (1 credit = $0.01; observations cost credits by model). Returns `credit_limit` (null when uncapped), `credits_used` (in-flight + succeeded observations counted against it), `remaining`, `exhausted`, `projected_monthly_credits`, and the `period_start`/`period_end` of the current budget window (the org's billing period, or the calendar month when billing hasn't synced). Check `remaining`/`exhausted` before creating a scanner or calling `vision-scanners-scan-session`: over budget, a scanner's scheduled sweeps silently skip their observations until the next period, while `vision-scanners-scan-session` is rejected outright with a 402. Pair with `vision-scanners-estimate-create` to size a new scanner against the remaining budget.",

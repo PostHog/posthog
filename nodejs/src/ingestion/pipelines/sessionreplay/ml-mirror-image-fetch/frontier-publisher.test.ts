@@ -435,7 +435,11 @@ describe('FrontierPublisher', () => {
             topic: SCRUB,
             key: `imageurl:${'a'.repeat(22)}`,
             value: Buffer.from('image'),
-            headers: { 'content-type': 'image/png', 'content-encoding': 'gzip' },
+            headers: {
+                'content-type': 'image/png',
+                'content-encoding': 'gzip',
+                'capture-timestamp-ms': '1700000000000',
+            },
         })
     })
 })

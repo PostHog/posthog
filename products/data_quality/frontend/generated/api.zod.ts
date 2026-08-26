@@ -10,6 +10,18 @@
 import * as zod from 'zod'
 
 /**
+ * Run the named checks now, or every enabled check in the project when none are named. Returns the suite run to poll for the report.
+ */
+export const DataQualityRunsCreateBody = /* @__PURE__ */ zod
+    .object({
+        check_ids: zod
+            .array(zod.uuid())
+            .optional()
+            .describe('Ids of the checks to run. Omit to run every enabled check in the project.'),
+    })
+    .describe('What to run in a project-wide suite run.')
+
+/**
  * Create a check on this table or view, or refine the one already carrying the same fingerprint. Re-creating a semantically identical check returns 200 and the existing row, never a duplicate.
  */
 export const warehouseSavedQueriesChecksCreateBodyNameMax = 128
@@ -80,7 +92,7 @@ export const WarehouseSavedQueriesChecksCreateBody = /* @__PURE__ */ zod
     .describe('The subject is implied by the URL (the parent saved query or table), never part of the body.')
 
 /**
- * CRUD for one subject's checks, plus the actions that run them and report on them.
+ * Edit this check in place, including what it asserts (check_type, column_name, config). The table or view it audits is fixed, and the check keeps its id, run history, latest status, and latest run time. A definition or name already held by another active check comes back as a field error, with nothing written.
  */
 export const warehouseSavedQueriesChecksUpdateBodyNameMax = 128
 
@@ -150,7 +162,7 @@ export const WarehouseSavedQueriesChecksUpdateBody = /* @__PURE__ */ zod
     .describe('The subject is implied by the URL (the parent saved query or table), never part of the body.')
 
 /**
- * CRUD for one subject's checks, plus the actions that run them and report on them.
+ * Edit this check in place, including what it asserts (check_type, column_name, config). The table or view it audits is fixed, and the check keeps its id, run history, latest status, and latest run time. A definition or name already held by another active check comes back as a field error, with nothing written.
  */
 export const warehouseSavedQueriesChecksPartialUpdateBodyNameMax = 128
 
@@ -291,7 +303,7 @@ export const WarehouseTablesChecksCreateBody = /* @__PURE__ */ zod
     .describe('The subject is implied by the URL (the parent saved query or table), never part of the body.')
 
 /**
- * CRUD for one subject's checks, plus the actions that run them and report on them.
+ * Edit this check in place, including what it asserts (check_type, column_name, config). The table or view it audits is fixed, and the check keeps its id, run history, latest status, and latest run time. A definition or name already held by another active check comes back as a field error, with nothing written.
  */
 export const warehouseTablesChecksUpdateBodyNameMax = 128
 
@@ -361,7 +373,7 @@ export const WarehouseTablesChecksUpdateBody = /* @__PURE__ */ zod
     .describe('The subject is implied by the URL (the parent saved query or table), never part of the body.')
 
 /**
- * CRUD for one subject's checks, plus the actions that run them and report on them.
+ * Edit this check in place, including what it asserts (check_type, column_name, config). The table or view it audits is fixed, and the check keeps its id, run history, latest status, and latest run time. A definition or name already held by another active check comes back as a field error, with nothing written.
  */
 export const warehouseTablesChecksPartialUpdateBodyNameMax = 128
 
