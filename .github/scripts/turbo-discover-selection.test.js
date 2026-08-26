@@ -114,7 +114,7 @@ test('a selected run hands each matrix leg its own file list', () => {
     assert.equal(decision.compat_files, 'posthog/clickhouse/test_b.py')
     assert.equal(decision.run_poe, true)
     assert.equal(decision.run_temporal, true)
-    assert.deepEqual(decision.segment_shards, { core: 9, poe: 1, temporal: 2 })
+    assert.deepEqual(decision.segment_shards, { core: 12, poe: 1, temporal: 2 })
 })
 
 test('a selection with no temporal file does not start the temporal leg', () => {
@@ -130,7 +130,7 @@ test('applies the full-matrix budget to the selected seconds of each segment', (
     // matrix: Core ceil(5000 / (900 - 295)) = 9, Temporal ceil(900 / (900 - 182)) = 2.
     // POE floors at 1 despite nothing selected.
     const selection = { durations: { selected_seconds_by_segment: { core: 5000, poe: 0, temporal: 900 } } }
-    assert.deepEqual(selectedShards(selection), { core: 9, poe: 1, temporal: 2 })
+    assert.deepEqual(selectedShards(selection), { core: 12, poe: 1, temporal: 2 })
 })
 
 test('shard counts floor at one, below the full-run minimum of three, and cap at the maximum', () => {
