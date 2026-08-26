@@ -211,7 +211,7 @@ export interface signalSourcesLogicValues {
     conversationsConfig: SignalSourceConfig | null
     dataSourceSetupSource: WarehouseBackedSource | null
     enabledSourcesCount: number
-    enablingTool: SourceToolEnablement | null
+    enablingTools: Set<SourceToolEnablement>
     errorTrackingIsFullyEnabled: boolean
     errorTrackingTypeStates: {
         enabled: boolean
@@ -265,8 +265,8 @@ export interface signalSourcesLogicActions {
     enableSourceTool: (enablement: SourceToolEnablement) => {
         enablement: SourceToolEnablement
     }
-    enableSourceToolComplete: () => {
-        value: true
+    enableSourceToolComplete: (enablement: SourceToolEnablement) => {
+        enablement: SourceToolEnablement
     }
     initiateDataWarehouseSourceToggle: (source: WarehouseBackedSource) => {
         source: WarehouseBackedSource
@@ -517,7 +517,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         toggleConversations: true,
         toggleAnomalyInvestigation: true,
         enableSourceTool: (enablement: SourceToolEnablement) => ({ enablement }),
-        enableSourceToolComplete: true,
+        enableSourceToolComplete: (enablement: SourceToolEnablement) => ({ enablement }),
     }),
 
     loaders(({ values }) => ({
@@ -626,11 +626,17 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 closeSourcesModal: () => null,
             },
         ],
-        enablingTool: [
-            null as SourceToolEnablement | null,
+        // A set, not a single slot: several sources can have their tool off and be enabled at once,
+        // so each in-flight enablement must keep its own loading state.
+        enablingTools: [
+            new Set<SourceToolEnablement>(),
             {
-                enableSourceTool: (_, { enablement }) => enablement,
-                enableSourceToolComplete: () => null,
+                enableSourceTool: (state, { enablement }) => new Set(state).add(enablement),
+                enableSourceToolComplete: (state, { enablement }) => {
+                    const next = new Set(state)
+                    next.delete(enablement)
+                    return next
+                },
             },
         ],
         toolDataEventsFailed: [
@@ -1315,7 +1321,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 } catch (error: any) {
                     lemonToast.error(error?.detail || error?.message || "Couldn't turn this on. Please try again.")
                 } finally {
-                    actions.enableSourceToolComplete()
+                    actions.enableSourceToolComplete(enablement)
                 }
             },
             setDataWarehouseSourceEnabled: ({ source, enabled }) => {

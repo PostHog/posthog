@@ -315,11 +315,11 @@ describe('signalSourcesLogic', () => {
         })
 
         logic.actions.enableSourceTool('error_tracking')
-        expect(logic.values.enablingTool).toBe('error_tracking')
+        expect(logic.values.enablingTools.has('error_tracking')).toBe(true)
 
         enablementResponse.resolve([200, { results: { error_tracking: 'enabled' } }])
         await teamRequestStarted.promise
-        expect(logic.values.enablingTool).toBe('error_tracking')
+        expect(logic.values.enablingTools.has('error_tracking')).toBe(true)
 
         teamResponse.resolve([
             200,
@@ -330,7 +330,26 @@ describe('signalSourcesLogic', () => {
         ])
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(logic.values.enablingTool).toBeNull()
+        expect(logic.values.enablingTools.has('error_tracking')).toBe(false)
         expect(logic.values.toolStatusBySource.error_tracking?.enabled).toBe(true)
+    })
+
+    it('tracks concurrent tool enables independently, so one finishing keeps the other loading', () => {
+        // Hang the enable request so the listener stays in flight; drive completion by hand to
+        // reproduce two badges enabled before either resolves.
+        const enableHangs = deferred<[number, { results: Record<string, string> }]>()
+        useMocks({
+            post: {
+                '/api/projects/:team_id/product_enablement/': () => enableHangs.promise,
+            },
+        })
+
+        logic.actions.enableSourceTool('error_tracking')
+        logic.actions.enableSourceTool('conversations')
+        expect(logic.values.enablingTools).toEqual(new Set(['error_tracking', 'conversations']))
+
+        // The first request completing must clear only its own tool, not the other in-flight one.
+        logic.actions.enableSourceToolComplete('error_tracking')
+        expect(logic.values.enablingTools).toEqual(new Set(['conversations']))
     })
 })

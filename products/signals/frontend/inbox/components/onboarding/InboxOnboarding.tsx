@@ -1,7 +1,7 @@
 import './InboxOnboarding.scss'
 
 import { useActions } from 'kea'
-import { useEffect } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 
 import { IconBolt, IconGithub, IconInfo, IconNotebook, IconPause, IconX } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
@@ -32,7 +32,7 @@ interface Beat {
     label: string
     description: JSX.Element
     subtext: string | JSX.Element
-    preview: JSX.Element
+    Preview: (props: { onExampleClick: () => void }) => JSX.Element
 }
 
 /**
@@ -74,7 +74,7 @@ const BEATS: Beat[] = [
                 Your first 3 PRs each month are free, then it's $15 per PR after that. <PrPricingInfo />
             </>
         ),
-        preview: <PullRequestPreview />,
+        Preview: PullRequestPreview,
     },
     {
         label: 'Reports, when it needs your call.',
@@ -85,7 +85,7 @@ const BEATS: Beat[] = [
             </>
         ),
         subtext: 'Reports without PRs are free.',
-        preview: <ReportPreview />,
+        Preview: ReportPreview,
     },
 ]
 
@@ -97,25 +97,30 @@ const BEATS: Beat[] = [
 function SelfDrivingCommand({
     size = 'md',
     surface,
+    containerRef,
 }: {
     size?: 'sm' | 'md'
     surface: InboxWelcomeCopySurface
+    // The example cards scroll to this ref and pulse it, so a click on an example has a visible answer.
+    containerRef?: React.RefObject<HTMLDivElement>
 }): JSX.Element {
     return (
-        <CommandBlock
-            command={SELF_DRIVING_WIZARD_COMMAND}
-            copyLabel="self-driving setup command"
-            ariaLabel="Copy self-driving setup command"
-            decoration="rainbow"
-            size={size}
-            // The takeover is the control arm of the welcome experiment; the banner shows one
-            // fixed layout regardless of arm, so its copies carry no variant.
-            onCopy={() =>
-                captureInboxWelcomeCommandCopied({ variant: surface === 'takeover' ? 'control' : null, surface })
-            }
-            // rounded-md sits one step inside the rounded-lg card/banner it nests in.
-            className="!m-0 rounded-md border border-primary bg-surface-secondary hover:border-accent"
-        />
+        <div ref={containerRef} className="rounded-md">
+            <CommandBlock
+                command={SELF_DRIVING_WIZARD_COMMAND}
+                copyLabel="self-driving setup command"
+                ariaLabel="Copy self-driving setup command"
+                decoration="rainbow"
+                size={size}
+                // The takeover is the control arm of the welcome experiment; the banner shows one
+                // fixed layout regardless of arm, so its copies carry no variant.
+                onCopy={() =>
+                    captureInboxWelcomeCommandCopied({ variant: surface === 'takeover' ? 'control' : null, surface })
+                }
+                // rounded-md sits one step inside the rounded-lg card/banner it nests in.
+                className="!m-0 rounded-md border border-primary bg-surface-secondary hover:border-accent"
+            />
+        </div>
     )
 }
 
@@ -137,7 +142,7 @@ function Hero(): JSX.Element {
     )
 }
 
-function CommandCard(): JSX.Element {
+function CommandCard({ commandRef }: { commandRef?: React.RefObject<HTMLDivElement> }): JSX.Element {
     return (
         <div className="flex flex-col gap-3 rounded-lg border border-primary bg-surface-primary p-5">
             <div>
@@ -146,7 +151,7 @@ function CommandCard(): JSX.Element {
                     Run it in your project's repo, or set it up yourself below.
                 </p>
             </div>
-            <SelfDrivingCommand size="md" surface="takeover" />
+            <SelfDrivingCommand size="md" surface="takeover" containerRef={commandRef} />
             <ul className="m-0 flex list-none flex-col gap-1.5 p-0">
                 {WIZARD_SETS_UP.map((item) => (
                     <li key={item.label} className="flex items-center gap-2.5 text-sm text-secondary">
@@ -162,7 +167,15 @@ function CommandCard(): JSX.Element {
     )
 }
 
-function BeatRow({ beat, index }: { beat: Beat; index: number }): JSX.Element {
+function BeatRow({
+    beat,
+    index,
+    onExampleClick,
+}: {
+    beat: Beat
+    index: number
+    onExampleClick: () => void
+}): JSX.Element {
     return (
         <div className="flex flex-col gap-2">
             <div className="flex items-baseline gap-3 mb-1">
@@ -174,7 +187,9 @@ function BeatRow({ beat, index }: { beat: Beat; index: number }): JSX.Element {
             </div>
             {/* Real inbox cards, marked as examples and kept inert by the preview wrapper.
                 Full-width on mobile; indented to align under the beat text from sm up. */}
-            <div className="select-none pl-0 sm:pl-8">{beat.preview}</div>
+            <div className="select-none pl-0 sm:pl-8">
+                <beat.Preview onExampleClick={onExampleClick} />
+            </div>
             {beat.subtext ? (
                 <span className="text-[13px] text-secondary leading-snug text-right">{beat.subtext}</span>
             ) : null}
@@ -189,17 +204,33 @@ function BeatRow({ beat, index }: { beat: Beat; index: number }): JSX.Element {
  * report list – a plain centered column (not itself a card) that eases in with a subtle scale + fade.
  */
 export function InboxOnboardingTakeover(): JSX.Element {
+    const commandRef = useRef<HTMLDivElement>(null)
+
     useEffect(() => {
         captureInboxWelcomeViewed({ variant: 'control' })
+    }, [])
+
+    const highlightCommand = useCallback(() => {
+        const el = commandRef.current
+        if (!el) {
+            return
+        }
+        // Jump instead of animating the scroll when the user asked for reduced motion.
+        const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+        el.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'center' })
+        // Restart the pulse on repeat clicks: drop the class, force a reflow, then add it back.
+        el.classList.remove('InboxOnboarding__commandPulse')
+        void el.offsetWidth
+        el.classList.add('InboxOnboarding__commandPulse')
     }, [])
 
     return (
         <div className="InboxOnboardingTakeover mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-6 sm:px-6 sm:py-12">
             <Hero />
-            <CommandCard />
+            <CommandCard commandRef={commandRef} />
             <div className="flex flex-col gap-7">
                 {BEATS.map((beat, index) => (
-                    <BeatRow key={beat.label} beat={beat} index={index} />
+                    <BeatRow key={beat.label} beat={beat} index={index} onExampleClick={highlightCommand} />
                 ))}
             </div>
         </div>
