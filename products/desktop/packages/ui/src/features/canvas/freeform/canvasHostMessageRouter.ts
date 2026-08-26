@@ -105,16 +105,17 @@ export function createCanvasHostMessageRouter(
       return Promise.resolve(false);
     }
     return new Promise((resolve) => {
-      queuedDataRequests.push(() => {
-        activeDataRequests += 1;
-        resolve(true);
-      });
+      queuedDataRequests.push(() => resolve(true));
     });
   };
 
   const releaseDataRequestSlot = (): void => {
+    const next = queuedDataRequests.shift();
+    if (next) {
+      next();
+      return;
+    }
     activeDataRequests -= 1;
-    queuedDataRequests.shift()?.();
   };
 
   return async (message) => {
