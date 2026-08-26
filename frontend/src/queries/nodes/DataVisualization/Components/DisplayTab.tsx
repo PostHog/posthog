@@ -44,12 +44,14 @@ export const DisplayTab = (): JSX.Element => {
     const isPieChart = effectiveVisualizationType === ChartDisplayType.ActionsPie
     const isScatterPlot = effectiveVisualizationType === ChartDisplayType.ScatterPlot
     const isBoxPlot = effectiveVisualizationType === ChartDisplayType.BoxPlot
+    // Scatter and box plots have a single Y axis, so there is no separate right axis to configure.
+    const isSingleAxisChart = isScatterPlot || isBoxPlot
     const isLineChart =
         effectiveVisualizationType === ChartDisplayType.ActionsLineGraph ||
         effectiveVisualizationType === ChartDisplayType.ActionsAreaGraph
 
     const renderYAxisSettings = (name: 'leftYAxisSettings' | 'rightYAxisSettings'): JSX.Element => {
-        const leftPlaceholder = isScatterPlot || isBoxPlot ? 'Y-axis label' : 'Left Y-axis label'
+        const leftPlaceholder = isSingleAxisChart ? 'Y-axis label' : 'Left Y-axis label'
         const labelPlaceholder = name === 'leftYAxisSettings' ? leftPlaceholder : 'Right Y-axis label'
 
         return (
@@ -194,7 +196,7 @@ export const DisplayTab = (): JSX.Element => {
                                                 }}
                                             />
                                         )}
-                                        {!isScatterPlot && !isBoxPlot && (
+                                        {!isSingleAxisChart && (
                                             <>
                                                 <LemonSwitch
                                                     className="flex-1 w-full"
@@ -319,13 +321,13 @@ export const DisplayTab = (): JSX.Element => {
                     !isPieChart
                         ? {
                               key: 'left-y-axis',
-                              header: isScatterPlot || isBoxPlot ? 'Y-axis' : 'Left Y-axis',
+                              header: isSingleAxisChart ? 'Y-axis' : 'Left Y-axis',
                               className: 'p-2 flex flex-col gap-2',
                               content: renderYAxisSettings('leftYAxisSettings'),
                           }
                         : null,
                     // A scatter has one gutter per axis, so there is no second Y axis to configure.
-                    !isPieChart && !isScatterPlot && !isBoxPlot
+                    !isPieChart && !isSingleAxisChart
                         ? {
                               key: 'right-y-axis',
                               header: 'Right Y-axis',
@@ -350,7 +352,7 @@ export const DisplayTab = (): JSX.Element => {
                               ),
                           }
                         : null,
-                    !isPieChart && !isScatterPlot && !isBoxPlot
+                    !isPieChart && !isSingleAxisChart
                         ? {
                               key: 'goals',
                               header: (

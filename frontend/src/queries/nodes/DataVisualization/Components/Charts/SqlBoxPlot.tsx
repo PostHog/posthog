@@ -72,10 +72,12 @@ export const SqlBoxPlot = ({
         [chartSettings, yAxisSettings]
     )
 
+    const heightClass = presetChartHeight ? 'h-[60vh]' : 'h-full'
+
     const containerClassName = clsx(
         className,
         'rounded bg-surface-primary flex flex-1 items-center justify-center p-3',
-        { 'h-[60vh]': presetChartHeight, 'h-full': !presetChartHeight }
+        heightClass
     )
 
     if (model.error) {
@@ -99,7 +101,7 @@ export const SqlBoxPlot = ({
             className={clsx(
                 className,
                 'rounded bg-surface-primary w-full grow relative overflow-hidden flex flex-col p-3',
-                { 'h-[60vh]': presetChartHeight, 'h-full': !presetChartHeight }
+                heightClass
             )}
         >
             <BoxPlot
