@@ -80,10 +80,13 @@ function triggerShortcut(shortcut: ShortcutType, triggeredKeybind: string[]): vo
     }
 }
 
-// A bare Escape must reach an open overlay, dialog, or an active drag first — each dismisses
+// A bare Escape must reach an open overlay, menu, dialog, or an active drag first — each dismisses
 // itself on Escape. The capture-phase handler runs before those, so it must step aside here,
 // or a stray Escape closes the wrong thing (e.g. cancels a dashboard edit mid-resize).
-const ESCAPE_DEFER_SELECTOR = '.LemonModal__overlay, .Popover, .react-draggable-dragging, .react-grid-item.resizing'
+// Covers LemonUI (.LemonModal__overlay, .Popover), Radix menus/popovers (.primitive-menu-content),
+// quill menus/popovers (data-slot markers), and react-grid-layout drag/resize.
+const ESCAPE_DEFER_SELECTOR =
+    '.LemonModal__overlay, .Popover, .react-draggable-dragging, .react-grid-item.resizing, .primitive-menu-content, [data-slot="menubar-content"], [data-slot="popover-content"]'
 
 function escapeShouldDeferToOverlay(key: string): boolean {
     return key === 'escape' && document.querySelector(ESCAPE_DEFER_SELECTOR) !== null

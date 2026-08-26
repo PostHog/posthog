@@ -59,20 +59,23 @@ describe('shortcutLogic', () => {
         expect(callback).toHaveBeenCalledTimes(1)
     })
 
-    // The last two cases use the classes react-grid-layout actually puts on a tile mid-gesture:
-    // "react-draggable-dragging" while dragging and "resizing" (alongside "react-grid-item") while resizing.
+    // Each case builds the surface from the marker it really carries in the DOM: the drag/resize
+    // cases use the classes react-grid-layout puts on a tile mid-gesture ("react-draggable-dragging",
+    // and "resizing" alongside "react-grid-item"); the menu cases use the Radix class and the quill
+    // data-slot attributes emitted by dashboard-reachable dropdowns, menu bars, and popovers.
     it.each([
-        ['a LemonModal overlay', 'LemonModal__overlay'],
-        ['a Popover', 'Popover'],
-        ['an active drag', 'react-grid-item react-draggable-dragging'],
-        ['an active resize', 'react-grid-item resizing'],
-    ])('defers a bare Escape to %s instead of firing the shortcut', async (_label, className) => {
+        ['a LemonModal overlay', '<div class="LemonModal__overlay"></div>'],
+        ['a Popover', '<div class="Popover"></div>'],
+        ['an active drag', '<div class="react-grid-item react-draggable-dragging"></div>'],
+        ['an active resize', '<div class="react-grid-item resizing"></div>'],
+        ['a Radix dropdown menu', '<div class="primitive-menu-content"></div>'],
+        ['a quill menu bar menu', '<div data-slot="menubar-content"></div>'],
+        ['a quill popover', '<div data-slot="popover-content"></div>'],
+    ])('defers a bare Escape to %s instead of firing the shortcut', async (_label, html) => {
         const callback = jest.fn()
         await registerEscapeShortcut(callback)
 
-        const overlay = document.createElement('div')
-        overlay.className = className
-        document.body.appendChild(overlay)
+        document.body.insertAdjacentHTML('beforeend', html)
 
         pressEscape()
 
