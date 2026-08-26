@@ -540,6 +540,7 @@ class TestSurvey(APIBaseTest):
             team=self.team,
             name="Legacy appearance",
             type="popover",
+            start_date=datetime(2026, 1, 1, tzinfo=UTC),
             questions=[{"id": "q1", "type": "open", "question": "How are you?"}],
             appearance={
                 "displayIntroScreen": True,
@@ -563,6 +564,7 @@ class TestSurvey(APIBaseTest):
         assert appearance["backgroundColor"] == "black"
         # The stored row itself is untouched; only the SDK payload is cleaned.
         survey.refresh_from_db()
+        assert survey.appearance is not None
         assert "<script>" in survey.appearance["introScreenHeader"]
 
     def test_sdk_payload_strips_invalid_translation_keys(self) -> None:

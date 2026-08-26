@@ -14,6 +14,7 @@ import { INTRO_SCREEN_PAGE_INDEX, SURVEY_TYPE_LABEL_MAP } from 'scenes/surveys/c
 import { SurveyAppearancePreview } from 'scenes/surveys/SurveyAppearancePreview'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import {
+    clampPreviewPageIndex,
     getRecurringSurveyScheduleInfo,
     getSurveyCollectionLimitSummary,
     getSurveyDisplayConditionsSummary,
