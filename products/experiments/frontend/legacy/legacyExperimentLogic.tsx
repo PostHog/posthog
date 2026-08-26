@@ -3,11 +3,11 @@ import { MakeLogicType, actions, connect, kea, key, listeners, path, props, redu
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { runWithLimit } from 'scenes/dashboard/dashboardUtils'
+import { modalsLogic } from 'scenes/experiments/modalsLogic'
 import { isLegacyExperimentQuery, isLegacySharedMetric } from 'scenes/experiments/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import api from '~/lib/api'
 import { performQuery } from '~/queries/query'
 import {
     CachedExperimentFunnelsQueryResponse,
@@ -17,9 +17,9 @@ import {
 } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { Experiment } from '~/types'
+import type { ExperimentIdType } from '~/types'
 
-import type { ExperimentIdType } from '../../../types'
-import { modalsLogic } from '../modalsLogic'
+import { experimentsArchiveCreate, experimentsEndCreate, experimentsShipVariantCreate } from '../generated/api'
 
 export interface LegacyExperimentLogicProps {
     experiment: Experiment
@@ -181,6 +181,7 @@ const loadLegacyMetrics = async ({
         | null
     )[] = []
 
+    // eslint-disable-next-line no-new-array
     const currentErrors = new Array(metrics.length).fill(null)
 
     let successfulCount = 0
@@ -560,10 +561,12 @@ export const legacyExperimentLogic = kea<legacyExperimentLogicType>([
         },
         archiveExperiment: async ({ disableFeatureFlag }) => {
             try {
-                const response: Experiment = await api.create(
-                    `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/archive`,
+                const response = await experimentsArchiveCreate(
+                    String(values.currentProjectId),
+                    Number(values.experimentId),
                     { disable_feature_flag: disableFeatureFlag }
                 )
+                // @ts-expect-error legacy Experiment type is narrower than the generated ExperimentApi (type is non-null)
                 actions.setExperiment(response)
                 refreshTreeItem('experiment', String(values.experimentId))
             } catch (error: any) {
@@ -572,13 +575,15 @@ export const legacyExperimentLogic = kea<legacyExperimentLogicType>([
         },
         endExperiment: async () => {
             try {
-                const response: Experiment = await api.create(
-                    `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/end`,
+                const response = await experimentsEndCreate(
+                    String(values.currentProjectId),
+                    Number(values.experimentId),
                     {
                         conclusion: values.experiment.conclusion,
                         conclusion_comment: values.experiment.conclusion_comment,
                     }
                 )
+                // @ts-expect-error legacy Experiment type is narrower than the generated ExperimentApi (type is non-null)
                 actions.setExperiment(response)
                 refreshTreeItem('experiment', String(values.experimentId))
             } catch (error: any) {
@@ -592,14 +597,16 @@ export const legacyExperimentLogic = kea<legacyExperimentLogicType>([
         },
         finishExperiment: async ({ selectedVariantKey }) => {
             try {
-                const response: Experiment = await api.create(
-                    `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/ship_variant`,
+                const response = await experimentsShipVariantCreate(
+                    String(values.currentProjectId),
+                    Number(values.experimentId),
                     {
                         variant_key: selectedVariantKey,
                         conclusion: values.experiment.conclusion,
                         conclusion_comment: values.experiment.conclusion_comment,
                     }
                 )
+                // @ts-expect-error legacy Experiment type is narrower than the generated ExperimentApi (type is non-null)
                 actions.setExperiment(response)
                 refreshTreeItem('experiment', String(values.experimentId))
                 actions.closeFinishExperimentModal()

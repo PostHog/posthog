@@ -6,7 +6,7 @@ import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { EXPERIMENT_VARIANT_MULTIPLE } from 'scenes/experiments/constants'
 import { getVariantColor } from 'scenes/experiments/utils'
 
-import { legacyExperimentLogic } from '~/scenes/experiments/legacy'
+import { legacyExperimentLogic } from 'products/experiments/frontend/legacy'
 
 /**
  * @deprecated
