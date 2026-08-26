@@ -8,6 +8,7 @@ from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from ..facade.contracts import (
+    FLAKINESS_STRIP_DAYS,
     AddSnapshotsInput,
     AddSnapshotsResult,
     ApproveRunRequestInput,
@@ -24,6 +25,9 @@ from ..facade.contracts import (
     DiffCluster,
     FinalizeResult,
     FinalizeRunRequestInput,
+    FlakinessEntry,
+    FlakinessOverview,
+    FlakinessTotals,
     QuarantinedIdentifierEntry,
     QuarantineInput,
     QuarantineSourceRun,
@@ -39,6 +43,7 @@ from ..facade.contracts import (
     UploadTarget,
     UserBasicInfo,
 )
+from ..facade.enums import FlakinessState
 
 # --- Output Serializers ---
 
@@ -319,3 +324,100 @@ class BaselineOverviewSerializer(DataclassSerializer):
 
     class Meta:
         dataclass = BaselineOverview
+
+
+class FlakinessEntrySerializer(DataclassSerializer):
+    variant_count = serializers.IntegerField(
+        help_text=(
+            "Distinct alternate hashes the classifier can still match for this snapshot's current "
+            "baseline. Reads as how many different images this snapshot is currently allowed to "
+            "produce. Resets when the baseline moves, because tolerations recorded against an old "
+            "baseline hash can never match again."
+        )
+    )
+    last_flaked_at = serializers.DateTimeField(
+        allow_null=True,
+        required=False,
+        help_text=(
+            "Last default-branch run that rendered one of those variants. This is not when a variant "
+            "was first recorded: a snapshot can cycle through variants it already recorded without "
+            "adding a new one, and that case still flakes on every run. Null when no run matched one."
+        ),
+    )
+    avg_diff_percentage = serializers.FloatField(
+        allow_null=True,
+        required=False,
+        help_text=(
+            "Mean fraction of pixels that differed across those variants. Separates sub-pixel noise "
+            "from a small but real rendering change."
+        ),
+    )
+    baseline_age_days = serializers.IntegerField(
+        allow_null=True,
+        required=False,
+        help_text=(
+            "Days since the first default-branch run that compared against the current baseline, "
+            "which is when that baseline took effect. Context for `variant_count`: the same count "
+            "against a four-day-old baseline is far worse than against a six-month-old one."
+        ),
+    )
+    daily_variant_counts = serializers.ListField(
+        child=serializers.IntegerField(),
+        help_text=(
+            f"Variants recorded per day over the last {FLAKINESS_STRIP_DAYS} days, oldest first. "
+            "Always that length, so a fixed time axis can be rendered."
+        ),
+    )
+    baseline_moved_day_index = serializers.IntegerField(
+        allow_null=True,
+        required=False,
+        help_text=(
+            "Index into `daily_variant_counts` where the baseline moved. Null when it moved before "
+            "the window opened, which is the common case."
+        ),
+    )
+    flakiness_state = serializers.ChoiceField(
+        choices=[(state.value, state.value) for state in FlakinessState],
+        help_text=(
+            "`unstable` when a run rendered a variant inside the recency window, new or already "
+            "known, `settled` when variants exist against this baseline but none recently, "
+            "`clean` when none exist. A `clean` entry is always a quarantined one, because an "
+            "unquarantined snapshot with no variants is not listed at all."
+        ),
+    )
+    needs_decision = serializers.BooleanField(
+        help_text=(
+            "True when an active quarantine has run out, is about to, or covers a snapshot that no "
+            "longer produces variants. All three mean a human has to extend it or lift it."
+        )
+    )
+    quarantine = BaselineQuarantineSummarySerializer(
+        allow_null=True,
+        required=False,
+        help_text="Active quarantine details when `is_quarantined` is true. Null otherwise.",
+    )
+
+    class Meta:
+        dataclass = FlakinessEntry
+
+
+class FlakinessTotalsSerializer(DataclassSerializer):
+    listed = serializers.IntegerField(help_text="Identifiers with an entry in `entries`.")
+    tracked = serializers.IntegerField(
+        help_text=(
+            "Identifiers with a current baseline, listed or not. The denominator that says how much "
+            "of the repo renders consistently."
+        )
+    )
+    by_run_type = serializers.DictField(child=serializers.IntegerField())
+
+    class Meta:
+        dataclass = FlakinessTotals
+
+
+class FlakinessOverviewSerializer(DataclassSerializer):
+    entries = FlakinessEntrySerializer(many=True)
+    totals = FlakinessTotalsSerializer()
+
+    class Meta:
+        dataclass = FlakinessOverview

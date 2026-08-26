@@ -1,5 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { RecordingSnapshot } from '@posthog/replay-shared'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import {
@@ -220,6 +222,23 @@ describe('playerInspectorLogic', () => {
                     },
                 ],
             })
+        })
+    })
+
+    describe('custom snapshots', () => {
+        const customSnapshot = (timestamp: number, data: Record<string, any>): RecordingSnapshot =>
+            ({ type: 5, timestamp, windowId: 1, data }) as unknown as RecordingSnapshot
+
+        it('derives doctor items from tagged custom snapshots and skips untagged ones', () => {
+            dataLogic.actions.setProcessedSnapshots([
+                customSnapshot(1691755416097, { tag: '$session_options', payload: {} }),
+                customSnapshot(1691755417097, { payload: { without: 'a tag' } }),
+            ])
+
+            expect(logic.values.processedSnapshotData.doctorEvents.map((item) => item.tag)).toEqual([
+                'session options',
+                'count of snapshot types by window',
+            ])
         })
     })
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import { OAUTH_SCOPES_HIDDEN, OAUTH_SCOPES_SUPPORTED } from '@/lib/constants'
 import { hasScope } from '@/lib/api'
+import { OAUTH_SCOPES_HIDDEN, OAUTH_SCOPES_SUPPORTED } from '@/lib/constants'
 import type { EvaluatedFlags } from '@/lib/posthog/flags'
 import { SessionManager } from '@/lib/SessionManager'
 import { getToolsFromContext } from '@/tools'
@@ -889,12 +889,13 @@ describe('Tool Filtering - Feature Flags', () => {
                 'streamlit-apps',
                 'posthog-connect',
                 'experiment-behavior-comparison',
+                'experiment-flag-cleanup-pr',
                 'data-warehouse-scene',
                 'data-quality-checks',
                 'context-layer',
             ])
         )
-        expect(flags).toHaveLength(33)
+        expect(flags).toHaveLength(34)
     })
 
     it('every loops tool is gated on the loops flag', () => {

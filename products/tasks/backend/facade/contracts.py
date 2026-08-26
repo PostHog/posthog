@@ -625,6 +625,8 @@ class TaskRunSandboxConnectionDTO:
     sandbox_url: str | None
     sandbox_connect_token: str | None
     connection_token: str | None = None
+    # Query-param name the transport token travels under (provider-specific).
+    sandbox_token_param: str = "_modal_connect_token"
 
 
 @dataclass(frozen=True)

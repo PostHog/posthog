@@ -1634,6 +1634,11 @@
         "params": [],
         "scope": "project"
     },
+    "visualReviewFlakiness": {
+        "template": "/visual_review/repos/{repoId}/flakiness",
+        "params": ["repoId"],
+        "scope": "project"
+    },
     "visualReviewRepoRuns": {
         "template": "/visual_review/repos/{repoId}/runs",
         "params": ["repoId"],

@@ -9,7 +9,7 @@ import { metricsOverviewRetrieve } from '../generated/api'
 import type { _MetricsOverviewResponseApi } from '../generated/api.schemas'
 import { canViewMetrics } from '../metricsAccess'
 import { metricsSceneLogic } from '../metricsSceneLogic'
-import { metricsViewerLogic } from './metricsViewerLogic'
+import { EMPTY_SERVICE_PATTERN, SERVICE_NAME_KEY, metricsViewerLogic } from './metricsViewerLogic'
 
 // Long enough to keep the landing page cheap, short enough that "receiving
 // metrics" flips to a warning within a minute of ingestion stopping.
@@ -64,14 +64,14 @@ const serviceFilterGroup = (serviceName: string): UniversalFiltersGroup => {
     // as an anchored regex, which survives the same pipeline.
     const matcher = serviceName
         ? { value: [serviceName], operator: PropertyOperator.Exact }
-        : { value: ['^$'], operator: PropertyOperator.Regex }
+        : { value: [EMPTY_SERVICE_PATTERN], operator: PropertyOperator.Regex }
 
     return {
         type: FilterLogicalOperator.And,
         values: [
             {
                 type: FilterLogicalOperator.And,
-                values: [{ type: PropertyFilterType.MetricAttribute, key: 'service_name', ...matcher }],
+                values: [{ type: PropertyFilterType.MetricAttribute, key: SERVICE_NAME_KEY, ...matcher }],
             },
         ],
     }
