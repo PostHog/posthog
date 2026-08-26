@@ -8,6 +8,7 @@ import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicStringPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
 
@@ -33,6 +34,7 @@ export function FacetRail({ id }: FacetRailProps): JSX.Element {
     const { facetNameSearch } = useValues(facetRailLogic({ id }))
     const { setFacetNameSearch } = useActions(facetRailLogic({ id }))
     const { addCustomFacet } = useActions(customFacetsLogic)
+    const customFacetsEnabled = useFeatureFlag('CUSTOM_FACET_PINNING')
 
     const onToggleClosed = useCallback(
         (shouldBeClosed: boolean) => setFacetRailCollapsed(shouldBeClosed),
@@ -75,23 +77,25 @@ export function FacetRail({ id }: FacetRailProps): JSX.Element {
                     onChange={setFacetNameSearch}
                     data-attr="logs-facet-rail-search"
                 />
-                <TaxonomicStringPopover
-                    groupType={TaxonomicFilterGroupType.LogAttributes}
-                    groupTypes={ADD_FACET_GROUP_TYPES}
-                    placeholder={null}
-                    size="small"
-                    icon={<IconPlus />}
-                    tooltip="Add custom facet"
-                    data-attr="logs-facet-rail-add"
-                    onChange={(value, groupType) =>
-                        addCustomFacet(
-                            value,
-                            groupType === TaxonomicFilterGroupType.LogResourceAttributes
-                                ? 'resourceAttribute'
-                                : 'attribute'
-                        )
-                    }
-                />
+                {customFacetsEnabled && (
+                    <TaxonomicStringPopover
+                        groupType={TaxonomicFilterGroupType.LogAttributes}
+                        groupTypes={ADD_FACET_GROUP_TYPES}
+                        placeholder={null}
+                        size="small"
+                        icon={<IconPlus />}
+                        tooltip="Add custom facet"
+                        data-attr="logs-facet-rail-add"
+                        onChange={(value, groupType) =>
+                            addCustomFacet(
+                                value,
+                                groupType === TaxonomicFilterGroupType.LogResourceAttributes
+                                    ? 'resourceAttribute'
+                                    : 'attribute'
+                            )
+                        }
+                    />
+                )}
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto p-2">
                 {matchingKeys.size === 0 && facetNameSearch.trim() && (

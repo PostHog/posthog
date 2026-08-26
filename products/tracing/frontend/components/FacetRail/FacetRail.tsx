@@ -8,6 +8,7 @@ import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicStringPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { tracingConfigLogic } from '../../tracingConfigLogic'
 import { customFacetsLogic } from './customFacetsLogic'
@@ -29,6 +30,7 @@ export function FacetRail(): JSX.Element {
     const { facetNameSearch } = useValues(facetRailLogic)
     const { setFacetNameSearch } = useActions(facetRailLogic)
     const { addCustomFacet } = useActions(customFacetsLogic)
+    const customFacetsEnabled = useFeatureFlag('CUSTOM_FACET_PINNING')
 
     const onToggleClosed = useCallback(
         (shouldBeClosed: boolean) => setFacetRailCollapsed(shouldBeClosed),
@@ -73,23 +75,25 @@ export function FacetRail(): JSX.Element {
                     onChange={setFacetNameSearch}
                     data-attr="tracing-facet-rail-search"
                 />
-                <TaxonomicStringPopover
-                    groupType={TaxonomicFilterGroupType.SpanAttributes}
-                    groupTypes={ADD_FACET_GROUP_TYPES}
-                    placeholder={null}
-                    size="small"
-                    icon={<IconPlus />}
-                    tooltip="Add custom facet"
-                    data-attr="tracing-facet-rail-add"
-                    onChange={(value, groupType) =>
-                        addCustomFacet(
-                            value,
-                            groupType === TaxonomicFilterGroupType.SpanResourceAttributes
-                                ? 'resourceAttribute'
-                                : 'attribute'
-                        )
-                    }
-                />
+                {customFacetsEnabled && (
+                    <TaxonomicStringPopover
+                        groupType={TaxonomicFilterGroupType.SpanAttributes}
+                        groupTypes={ADD_FACET_GROUP_TYPES}
+                        placeholder={null}
+                        size="small"
+                        icon={<IconPlus />}
+                        tooltip="Add custom facet"
+                        data-attr="tracing-facet-rail-add"
+                        onChange={(value, groupType) =>
+                            addCustomFacet(
+                                value,
+                                groupType === TaxonomicFilterGroupType.SpanResourceAttributes
+                                    ? 'resourceAttribute'
+                                    : 'attribute'
+                            )
+                        }
+                    />
+                )}
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto p-2">
                 {matchingKeys.size === 0 && facetNameSearch.trim() && (

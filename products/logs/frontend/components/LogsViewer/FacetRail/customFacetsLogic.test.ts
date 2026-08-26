@@ -1,5 +1,8 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { initKeaTests } from '~/test/init'
 
 import {
@@ -28,6 +31,8 @@ describe('customFacetsLogic', () => {
     beforeEach(() => {
         initKeaTests()
         jest.clearAllMocks()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.CUSTOM_FACET_PINNING]: true })
         mockRetrieve.mockResolvedValue({ custom_facets: [] })
         mockPartialUpdate.mockImplementation(async (_uuid, _params, body) => ({
             custom_facets: body?.custom_facets ?? [],
@@ -43,6 +48,15 @@ describe('customFacetsLogic', () => {
         logic.mount()
         return logic
     }
+
+    it('does not load or expose custom facets when the feature flag is off', async () => {
+        featureFlagLogic.actions.setFeatureFlags([], {})
+        mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockRetrieve).not.toHaveBeenCalled()
+        expect(logic.values.customFacets).toEqual([])
+    })
 
     it('loads persisted entries on mount and exposes them as facet configs', async () => {
         mockRetrieve.mockResolvedValue({
