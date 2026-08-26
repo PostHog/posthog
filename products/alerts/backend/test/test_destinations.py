@@ -1,17 +1,27 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.core.management import call_command
+
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
+from products.alerts.backend.destination_configs import (
+    DESTINATION_TEMPLATE_IDS,
+    DestinationType,
+    EventKindSpec,
+    build_alert_destination_config,
+)
 from products.alerts.backend.destinations import (
     AlertDelivery,
     alert_internal_event_delivered,
+    create_alert_destination_hog_functions,
     list_active_alert_destinations,
     serialize_deliveries,
     soft_delete_alert_destinations,
     soft_delete_all_alert_destinations,
 )
+from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
 ALLOWED_EVENT_IDS = ("$logs_alert_firing", "$logs_alert_resolved")
@@ -319,3 +329,138 @@ class TestSerializeDeliveries(APIBaseTest):
                 "at": "2026-08-11T01:00:00+00:00",
             }
         ]
+
+
+class TestCreateAlertDestinationSecretInputs(APIBaseTest):
+    @parameterized.expand(
+        [
+            (
+                "webhook",
+                DestinationType.WEBHOOK,
+                "url",
+                [{"key": "url", "type": "string"}, {"key": "body", "type": "json"}],
+                "https://hooks.example.com/T123/secret-path",
+            ),
+            (
+                "discord",
+                DestinationType.DISCORD,
+                "webhookUrl",
+                [{"key": "webhookUrl", "type": "string"}, {"key": "content", "type": "string"}],
+                "https://discord.com/api/webhooks/123/secret-token",
+            ),
+            (
+                "teams",
+                DestinationType.TEAMS,
+                "webhookUrl",
+                [{"key": "webhookUrl", "type": "string"}, {"key": "text", "type": "string"}],
+                "https://example.webhook.office.com/webhookb2/secret-path/IncomingWebhook/abc/def",
+            ),
+        ]
+    )
+    def test_created_destination_stores_webhook_url_as_secret_input(
+        self,
+        _name: str,
+        destination_type: DestinationType,
+        url_key: str,
+        inputs_schema: list[dict],
+        webhook_url: str,
+    ) -> None:
+        HogFunctionTemplate.objects.get_or_create(
+            template_id=DESTINATION_TEMPLATE_IDS[destination_type],
+            defaults={
+                "sha": "1.0.0",
+                "name": destination_type.label,
+                "description": "Test template",
+                "code": "return event",
+                "code_language": "hog",
+                "inputs_schema": inputs_schema,
+                "type": "destination",
+                "status": "stable",
+                "category": ["Integrations"],
+                "free": True,
+            },
+        )
+        spec = EventKindSpec(
+            event_id="$logs_alert_firing",
+            display_kind="firing",
+            header="Alert firing",
+            details=(),
+            primary_action_url="https://example.com/alerts",
+            primary_action_label="View alert",
+            webhook_body={},
+        )
+        config = build_alert_destination_config(
+            team=self.team,
+            spec=spec,
+            alert_id="alert-1",
+            alert_name="Test alert",
+            data={"type": destination_type, "webhook_url": webhook_url},
+            slack_context_elements=(),
+        )
+
+        created = create_alert_destination_hog_functions([config], request=MagicMock(user=self.user))
+
+        assert len(created) == 1
+        hog_function = created[0]
+        assert url_key not in (hog_function.inputs or {})
+        assert (hog_function.encrypted_inputs or {})[url_key]["value"] == webhook_url
+        assert "secret" not in (hog_function.name or "")
+        schema_by_key = {schema["key"]: schema for schema in hog_function.inputs_schema or []}
+        assert schema_by_key[url_key]["secret"] is True
+
+
+class TestHardenAlertDestinationSecrets(APIBaseTest):
+    def _legacy_row(self, *, event_id: str, name: str) -> HogFunction:
+        return HogFunction.objects.create(
+            team=self.team,
+            name=name,
+            type="internal_destination",
+            template_id="template-webhook",
+            enabled=True,
+            hog="return event",
+            inputs_schema=[{"key": "url", "type": "string"}, {"key": "body", "type": "json"}],
+            inputs={"url": {"value": "https://hooks.example.com/T123/secret"}, "body": {"value": {}}},
+            filters={
+                "events": [{"id": event_id, "type": "events"}],
+                "properties": [{"key": "alert_id", "value": "alert-1"}],
+            },
+        )
+
+    def test_backfill_moves_url_to_encrypted_inputs_and_strips_names(self) -> None:
+        managed = self._legacy_row(
+            event_id="$billing_alert_firing",
+            name="Billing alert (firing) → Webhook https://hooks.example.com/T123/secret",
+        )
+        legacy_insight = self._legacy_row(
+            event_id="$insight_alert_firing",
+            name="Webhook https://hooks.example.com/T123/secret",
+        )
+
+        call_command("harden_alert_destination_secrets")
+        managed.refresh_from_db()
+        assert (managed.inputs or {})["url"]["value"] == "https://hooks.example.com/T123/secret"
+        assert (managed.name or "").endswith("Webhook https://hooks.example.com/T123/secret")
+
+        call_command("harden_alert_destination_secrets", "--live")
+
+        managed.refresh_from_db()
+        assert managed.name == "Billing alert (firing) → Webhook hooks.example.com"
+        assert "url" not in (managed.inputs or {})
+        assert (managed.encrypted_inputs or {})["url"]["value"] == "https://hooks.example.com/T123/secret"
+        assert (managed.inputs or {})["body"] == {"value": {}}
+        assert managed.enabled is True
+
+        legacy_insight.refresh_from_db()
+        assert (legacy_insight.inputs or {})["url"]["value"] == "https://hooks.example.com/T123/secret"
+        assert legacy_insight.name == "Webhook https://hooks.example.com/T123/secret"
+
+    def test_backfill_keeps_a_url_the_user_put_in_the_alert_name(self) -> None:
+        row = self._legacy_row(
+            event_id="$logs_alert_firing",
+            name="Logs alert on https://api.example.com/checkout (firing) → Webhook https://hooks.example.com/T123/secret",
+        )
+
+        call_command("harden_alert_destination_secrets", "--live")
+
+        row.refresh_from_db()
+        assert row.name == "Logs alert on https://api.example.com/checkout (firing) → Webhook hooks.example.com"
