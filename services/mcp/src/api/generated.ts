@@ -39080,6 +39080,89 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `unstable` - unstable
+     * * `settled` - settled
+     * * `clean` - clean
+     */
+    export type FlakinessStateEnum = typeof FlakinessStateEnum[keyof typeof FlakinessStateEnum];
+
+
+    export const FlakinessStateEnum = {
+      Unstable: 'unstable',
+      Settled: 'settled',
+      Clean: 'clean',
+    } as const;
+
+    export interface FlakinessEntry {
+      /** Distinct alternate hashes the classifier can still match for this snapshot's current baseline. Reads as how many different images this snapshot is currently allowed to produce. Resets when the baseline moves, because tolerations recorded against an old baseline hash can never match again. */
+      variant_count: number;
+      /**
+         * Last default-branch run that rendered one of those variants. This is not when a variant was first recorded: a snapshot can cycle through variants it already recorded without adding a new one, and that case still flakes on every run. Null when no run matched one.
+         * @nullable
+         */
+      last_flaked_at?: string | null;
+      /**
+         * Mean fraction of pixels that differed across those variants. Separates sub-pixel noise from a small but real rendering change.
+         * @nullable
+         */
+      avg_diff_percentage?: number | null;
+      /**
+         * Days since the first default-branch run that compared against the current baseline, which is when that baseline took effect. Context for `variant_count`: the same count against a four-day-old baseline is far worse than against a six-month-old one.
+         * @nullable
+         */
+      baseline_age_days?: number | null;
+      /** Variants recorded per day over the last 30 days, oldest first. Always that length, so a fixed time axis can be rendered. */
+      daily_variant_counts: number[];
+      /**
+         * Index into `daily_variant_counts` where the baseline moved. Null when it moved before the window opened, which is the common case.
+         * @nullable
+         */
+      baseline_moved_day_index?: number | null;
+      /** `unstable` when a run rendered a variant inside the recency window, new or already known, `settled` when variants exist against this baseline but none recently, `clean` when none exist. A `clean` entry is always a quarantined one, because an unquarantined snapshot with no variants is not listed at all.
+       *
+       * * `unstable` - unstable
+       * * `settled` - settled
+       * * `clean` - clean */
+      flakiness_state: FlakinessStateEnum;
+      /** True when an active quarantine has run out, is about to, or covers a snapshot that no longer produces variants. All three mean a human has to extend it or lift it. */
+      needs_decision: boolean;
+      /** Active quarantine details when `is_quarantined` is true. Null otherwise. */
+      quarantine?: BaselineQuarantineSummary | null;
+      identifier: string;
+      run_type: string;
+      /** @nullable */
+      browser: string | null;
+      /** @nullable */
+      thumbnail_hash: string | null;
+      /** @nullable */
+      width: number | null;
+      /** @nullable */
+      height: number | null;
+      is_quarantined: boolean;
+    }
+
+    export type FlakinessTotalsByRunType = {[key: string]: number};
+
+    export interface FlakinessTotals {
+      /** Identifiers with an entry in `entries`. */
+      listed: number;
+      /** Identifiers with a current baseline, listed or not. The denominator that says how much of the repo renders consistently. */
+      tracked: number;
+      by_run_type: FlakinessTotalsByRunType;
+      unstable: number;
+      settled: number;
+      quarantined: number;
+      needs_decision: number;
+    }
+
+    export interface FlakinessOverview {
+      entries: FlakinessEntry[];
+      totals: FlakinessTotals;
+      truncated: boolean;
+      generated_at: string;
+    }
+
+    /**
      * * `confirmed_flake` - CONFIRMED_FLAKE
      * * `suspected_regression` - SUSPECTED_REGRESSION
      * * `quarantined` - QUARANTINED
@@ -96296,6 +96379,13 @@ export namespace Schemas {
     offset?: number;
     /**
      * Filter by run type
+     */
+    run_type?: string;
+    };
+
+    export type VisualReviewReposThumbnailsRetrieveParams = {
+    /**
+     * Narrow the lookup to one run type. The same identifier under two run types is two different images, so omit this only when the caller shows one run type.
      */
     run_type?: string;
     };
