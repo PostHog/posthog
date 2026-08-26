@@ -67,7 +67,7 @@ def add_default_products_for_accessible_teams(user: "User", organization: "Organ
     they have access to. Called when a user/organization connection is created (invite
     acceptance, domain/SSO auto-join).
     """
-    from posthog.rbac.user_access_control import UserAccessControl
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
     uac = UserAccessControl(user=user, organization_id=str(organization.id))
     accessible_teams = uac.filter_queryset_by_access_level(organization.teams.all(), include_all_if_admin=True)

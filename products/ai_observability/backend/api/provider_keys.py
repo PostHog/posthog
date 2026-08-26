@@ -19,7 +19,8 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
 from posthog.permissions import TeamMemberStrictManagementPermission, is_service_auth
 from posthog.plugins.plugin_server_api import reload_evaluations_on_workers, reload_taggers_on_workers
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+
+from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 
 from ..llm.client import Client
 from ..llm.providers.azure_openai import (

@@ -5,12 +5,10 @@ import { LemonBanner, LemonCard, LemonSkeleton, LemonSwitch, Link } from '@posth
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { SurveyEventProperties } from '~/types'
-
 import { aiObservabilityTraceLogic } from '../aiObservabilityTraceLogic'
 import { feedbackViewLogic } from './feedbackViewLogic'
 import { SurveyResponseCard } from './survey-responses/SurveyResponseCard'
-import { groupEventsBySubmission } from './survey-responses/utils'
+import { getSurveyIdFromEvent, groupEventsBySubmission } from './survey-responses/utils'
 import { FeedbackSurveyWizard } from './wizard/FeedbackSurveyWizard'
 
 export function FeedbackViewDisplay(): JSX.Element {
@@ -37,7 +35,13 @@ export function FeedbackViewDisplay(): JSX.Element {
     // only have 'survey shown' events here if there was no survey response
     const surveyShownEvents = (surveyEvents ?? []).filter((e) => e.event === 'survey shown')
 
-    const hasSurveyEvents = groupedResponses.length > 0 || surveyShownEvents.length > 0
+    // A response whose `$survey_id` matches no survey in this project has no questions to render
+    // against, so it is dropped above. Say so, instead of leaving the trace looking uninstrumented.
+    const hasUnmatchedResponses = surveyResponseEvents.some((event) => {
+        const surveyId = getSurveyIdFromEvent(event)
+        return !surveyId || !surveys[surveyId]
+    })
+    const hasSurveyEvents = groupedResponses.length > 0 || surveyShownEvents.length > 0 || hasUnmatchedResponses
 
     // no survey events at all -> survey wizard CTA
     if (!hasSurveyEvents) {
@@ -46,6 +50,13 @@ export function FeedbackViewDisplay(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-3">
+            {hasUnmatchedResponses && (
+                <LemonBanner type="warning">
+                    Some feedback on this trace points to a survey that isn't in this project, so it can't be shown.
+                    Check that the <code>$survey_id</code> you send with <code>survey sent</code> matches a survey here.
+                </LemonBanner>
+            )}
+
             {hasSurveyEvents && !currentTeam?.surveys_opt_in && (
                 <LemonBanner type="warning">
                     <div className="flex items-center justify-between gap-2">
@@ -69,7 +80,8 @@ export function FeedbackViewDisplay(): JSX.Element {
             })}
 
             {surveyShownEvents.map((event) => {
-                const survey = surveys[event.properties?.[SurveyEventProperties.SURVEY_ID]]
+                const surveyId = getSurveyIdFromEvent(event)
+                const survey = surveyId ? surveys[surveyId] : undefined
                 return (
                     <LemonCard key={event.id} className="p-3" hoverEffect={false}>
                         <span className="text-secondary">

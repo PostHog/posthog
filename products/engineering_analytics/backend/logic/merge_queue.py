@@ -105,3 +105,10 @@ def merge_queue_branch_expr(branch_column: str, *, queue_actor_column: str) -> s
     cleanup we have today; misrecognizing one loses data.
     """
     return f"{source_pr_number_expr(branch_column, queue_actor_column=queue_actor_column)} > 0"
+
+
+def gate_attempt_expr(branch_column: str) -> str:
+    """HogQL expression naming the gate attempt a run belongs to: the gate branch with Trunk's
+    ``-bisection`` suffix collapsed, so a flake-bisection probe groups with the attempt it
+    investigates instead of counting as an attempt of its own."""
+    return f"replaceRegexpOne({branch_column}, '-bisection$', '')"

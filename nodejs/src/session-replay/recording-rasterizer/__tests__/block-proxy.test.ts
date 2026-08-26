@@ -53,6 +53,9 @@ describe('BlockProxy', () => {
 
             expect(count).toBe(2)
             expect(proxy.blockCount).toBe(2)
+            // Inclusive ranges: 1001 + 2001, not 1000 + 2000. Undercounting lets a recording at the
+            // size cap through by one byte per block.
+            expect(proxy.totalCompressedBytes).toBe(3002)
             expect(mockInternalFetch).toHaveBeenCalledWith(
                 'http://localhost:6738/api/projects/1/recordings/test-session-123/blocks',
                 { headers: { 'X-Internal-Api-Secret': 'test-secret' } }

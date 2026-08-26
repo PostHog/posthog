@@ -22,8 +22,7 @@ export const billingAlertsCreateBodyEvaluationDelayHoursMax = 72
 export const billingAlertsCreateBodyCooldownHoursMin = 0
 export const billingAlertsCreateBodyCooldownHoursMax = 720
 
-export const billingAlertsCreateBodyDestinationChangesOneDeleteItemMin = 4
-export const billingAlertsCreateBodyDestinationChangesOneDeleteItemMax = 4
+export const billingAlertsCreateBodyDestinationChangesOneDeleteItemMax = 100
 
 export const BillingAlertsCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(billingAlertsCreateBodyNameMax).describe('Display name for this billing alert.'),
@@ -82,12 +81,7 @@ export const BillingAlertsCreateBody = /* @__PURE__ */ zod.object({
     destination_changes: zod
         .object({
             delete: zod
-                .array(
-                    zod
-                        .array(zod.uuid())
-                        .min(billingAlertsCreateBodyDestinationChangesOneDeleteItemMin)
-                        .max(billingAlertsCreateBodyDestinationChangesOneDeleteItemMax)
-                )
+                .array(zod.array(zod.uuid()).min(1).max(billingAlertsCreateBodyDestinationChangesOneDeleteItemMax))
                 .optional(),
             create: zod
                 .array(
@@ -132,8 +126,7 @@ export const billingAlertsUpdateBodyEvaluationDelayHoursMax = 72
 export const billingAlertsUpdateBodyCooldownHoursMin = 0
 export const billingAlertsUpdateBodyCooldownHoursMax = 720
 
-export const billingAlertsUpdateBodyDestinationChangesOneDeleteItemMin = 4
-export const billingAlertsUpdateBodyDestinationChangesOneDeleteItemMax = 4
+export const billingAlertsUpdateBodyDestinationChangesOneDeleteItemMax = 100
 
 export const BillingAlertsUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(billingAlertsUpdateBodyNameMax).describe('Display name for this billing alert.'),
@@ -192,12 +185,7 @@ export const BillingAlertsUpdateBody = /* @__PURE__ */ zod.object({
     destination_changes: zod
         .object({
             delete: zod
-                .array(
-                    zod
-                        .array(zod.uuid())
-                        .min(billingAlertsUpdateBodyDestinationChangesOneDeleteItemMin)
-                        .max(billingAlertsUpdateBodyDestinationChangesOneDeleteItemMax)
-                )
+                .array(zod.array(zod.uuid()).min(1).max(billingAlertsUpdateBodyDestinationChangesOneDeleteItemMax))
                 .optional(),
             create: zod
                 .array(
@@ -242,8 +230,7 @@ export const billingAlertsPartialUpdateBodyEvaluationDelayHoursMax = 72
 export const billingAlertsPartialUpdateBodyCooldownHoursMin = 0
 export const billingAlertsPartialUpdateBodyCooldownHoursMax = 720
 
-export const billingAlertsPartialUpdateBodyDestinationChangesOneDeleteItemMin = 4
-export const billingAlertsPartialUpdateBodyDestinationChangesOneDeleteItemMax = 4
+export const billingAlertsPartialUpdateBodyDestinationChangesOneDeleteItemMax = 100
 
 export const BillingAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod
@@ -307,10 +294,7 @@ export const BillingAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .object({
             delete: zod
                 .array(
-                    zod
-                        .array(zod.uuid())
-                        .min(billingAlertsPartialUpdateBodyDestinationChangesOneDeleteItemMin)
-                        .max(billingAlertsPartialUpdateBodyDestinationChangesOneDeleteItemMax)
+                    zod.array(zod.uuid()).min(1).max(billingAlertsPartialUpdateBodyDestinationChangesOneDeleteItemMax)
                 )
                 .optional(),
             create: zod
@@ -360,13 +344,12 @@ export const BillingAlertsDestinationsCreateBody = /* @__PURE__ */ zod.object({
 /**
  * Delete a notification destination by deleting its HogFunction group atomically.
  */
-export const billingAlertsDestinationsDeleteCreateBodyHogFunctionIdsMin = 4
-export const billingAlertsDestinationsDeleteCreateBodyHogFunctionIdsMax = 4
+export const billingAlertsDestinationsDeleteCreateBodyHogFunctionIdsMax = 100
 
 export const BillingAlertsDestinationsDeleteCreateBody = /* @__PURE__ */ zod.object({
     hog_function_ids: zod
         .array(zod.uuid())
-        .min(billingAlertsDestinationsDeleteCreateBodyHogFunctionIdsMin)
+        .min(1)
         .max(billingAlertsDestinationsDeleteCreateBodyHogFunctionIdsMax)
         .describe('HogFunction IDs to delete as one atomic destination group.'),
 })
