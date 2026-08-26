@@ -29,7 +29,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from products.access_control.backend.models.access_control import AccessControl
 
 from ee.api.billing import (
-    BILLING_LIMIT_CURRENT_USAGE_OVERRIDES_FLAG,
+    BILLING_LIMIT_CURRENT_PERIOD_USAGE_FLOOR_FLAG,
     MEMBER_BILLING_USAGE_SPEND_READ_ACCESS_FLAG,
     OWNER_ONLY_BILLING_FLAG,
     BillingUsageRequestSerializer,
@@ -904,11 +904,11 @@ class TestBillingAPI(APILicensedTest):
     @patch("ee.billing.billing_manager.BillingManager.get_billing")
     @patch("ee.billing.billing_manager.BillingManager.update_billing")
     @patch("ee.api.billing.posthog_feature_flag_enabled")
-    def test_patch_sends_current_usage_override_when_enabled(
+    def test_patch_sends_current_period_usage_floor_when_enabled(
         self, mock_feature_enabled, mock_update_billing, mock_get_billing
     ):
         mock_feature_enabled.side_effect = lambda key, *_args, **_kwargs: (
-            key == BILLING_LIMIT_CURRENT_USAGE_OVERRIDES_FLAG
+            key == BILLING_LIMIT_CURRENT_PERIOD_USAGE_FLOOR_FLAG
         )
         self.organization_membership.level = OrganizationMembership.Level.OWNER
         self.organization_membership.save()
@@ -930,10 +930,10 @@ class TestBillingAPI(APILicensedTest):
         mock_update_billing.assert_called_once()
         assert mock_update_billing.call_args.args[1] == {
             "custom_limits_usd": {"posthog_code_usage": 50},
-            "current_usage_overrides_by_usage_key": {"posthog_code_credits": 4600},
+            "current_period_usage_floor_by_usage_key": {"posthog_code_credits": 4600},
         }
         mock_feature_enabled.assert_any_call(
-            BILLING_LIMIT_CURRENT_USAGE_OVERRIDES_FLAG,
+            BILLING_LIMIT_CURRENT_PERIOD_USAGE_FLOOR_FLAG,
             str(self.user.distinct_id),
             organization_id=self.organization.id,
         )
@@ -941,7 +941,7 @@ class TestBillingAPI(APILicensedTest):
     @patch("ee.billing.billing_manager.BillingManager.get_billing")
     @patch("ee.billing.billing_manager.BillingManager.update_billing")
     @patch("ee.api.billing.posthog_feature_flag_enabled", return_value=False)
-    def test_patch_does_not_send_current_usage_override_when_disabled(
+    def test_patch_does_not_send_current_period_usage_floor_when_disabled(
         self, _mock_feature_enabled, mock_update_billing, mock_get_billing
     ):
         self.organization_membership.level = OrganizationMembership.Level.OWNER
