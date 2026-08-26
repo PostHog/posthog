@@ -995,6 +995,45 @@ export interface OpenToMergeBucketApi {
     p50_seconds: number | null
 }
 
+/**
+ * * `open_to_gate` - OPEN_TO_GATE
+ * * `gate_to_merge` - GATE_TO_MERGE
+ */
+export type DeliveryStageTimingStageEnumApi =
+    (typeof DeliveryStageTimingStageEnumApi)[keyof typeof DeliveryStageTimingStageEnumApi]
+
+export const DeliveryStageTimingStageEnumApi = {
+    OpenToGate: 'open_to_gate',
+    GateToMerge: 'gate_to_merge',
+} as const
+
+export interface DeliveryStageTimingApi {
+    /** Which leg this is: 'open_to_gate' (created_at to the PR's first merge-queue gate run starting) or 'gate_to_merge' (that gate run to merged_at). The post-merge leg is the DORA endpoint's median_merge_to_deploy_seconds.
+     *
+     * * `open_to_gate` - OPEN_TO_GATE
+     * * `gate_to_merge` - GATE_TO_MERGE */
+    stage: DeliveryStageTimingStageEnumApi
+    /**
+     * Median seconds for this leg. Null when no PR in the window has both of its bounds observed.
+     * @nullable
+     */
+    median_seconds: number | null
+    /**
+     * 90th-percentile seconds for this leg. Null when not observed.
+     * @nullable
+     */
+    p90_seconds: number | null
+    /** PRs behind this leg's figures: those with an observed gate run. A PR that skipped the merge queue has no gate legs, so read a median against this count, not merged_pr_count. */
+    pr_count: number
+}
+
+export interface DeliveryPipelineApi {
+    /** The legs, ordered open to merge. A leg with nothing observed still appears, with a zero pr_count and null timings. The leg medians do not sum to a cycle-time median: a median of sums is not a sum of medians. */
+    stages: DeliveryStageTimingApi[]
+    /** PRs merged in the window with bots and drafts excluded. A narrower population than RepoOverview.merged_pr_count, which counts all authors. */
+    merged_pr_count: number
+}
+
 export interface ReadyToMergeBucketApi {
     /** Bucket start, aligned to ready_to_merge_series_granularity (top of hour, midnight, or Monday). */
     bucket_start: string
@@ -1014,6 +1053,8 @@ export interface RepoOverviewApi {
     success_rate_series: PassRateBucketApi[]
     /** Median time-to-merge (p50 open_to_merge_seconds, bots/drafts excluded) per bucket across the window, oldest first, bucketed by open_to_merge_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
     open_to_merge_series: OpenToMergeBucketApi[]
+    /** Where a change's wall-clock time goes on the way to production, over PRs merged in the window with bots and drafts excluded. */
+    delivery_pipeline: DeliveryPipelineApi
     /** Median cycle time (p50 per-PR ready_to_merge_seconds, bots/drafts excluded) per bucket across the window, oldest first, bucketed by ready_to_merge_series_granularity. Empty buckets carry null; the whole series is empty when the issue-events table isn't synced or include_series=false, so fall back to open_to_merge_series. */
     ready_to_merge_series: ReadyToMergeBucketApi[]
     /** Workflow runs started in the window, all branches and workflows. */

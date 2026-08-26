@@ -5,6 +5,8 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 from products.engineering_analytics.backend.facade.contracts import (
     CostPerMergeBucket,
     CurrentBranchHealth,
+    DeliveryPipeline,
+    DeliveryStageTiming,
     MasterFailureGroup,
     OpenToMergeBucket,
     PassRateBucket,
@@ -324,6 +326,50 @@ class ReadyToMergeBucketSerializer(DataclassSerializer):
         }
 
 
+class DeliveryStageTimingSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = DeliveryStageTiming
+        extra_kwargs = {
+            "stage": {
+                "help_text": "Which leg this is: 'open_to_gate' (created_at to the PR's first "
+                "merge-queue gate run starting) or 'gate_to_merge' (that gate run to merged_at). "
+                "The post-merge leg is the DORA endpoint's median_merge_to_deploy_seconds."
+            },
+            "median_seconds": {
+                "help_text": "Median seconds for this leg. Null when no PR in the window has both "
+                "of its bounds observed.",
+                "allow_null": True,
+            },
+            "p90_seconds": {
+                "help_text": "90th-percentile seconds for this leg. Null when not observed.",
+                "allow_null": True,
+            },
+            "pr_count": {
+                "help_text": "PRs behind this leg's figures: those with an observed gate run. A PR "
+                "that skipped the merge queue has no gate legs, so read a median against this "
+                "count, not merged_pr_count."
+            },
+        }
+
+
+class DeliveryPipelineSerializer(DataclassSerializer):
+    stages = DeliveryStageTimingSerializer(
+        many=True,
+        help_text="The legs, ordered open to merge. A leg with nothing observed still appears, "
+        "with a zero pr_count and null timings. The leg medians do not sum to a cycle-time "
+        "median: a median of sums is not a sum of medians.",
+    )
+
+    class Meta:
+        dataclass = DeliveryPipeline
+        extra_kwargs = {
+            "merged_pr_count": {
+                "help_text": "PRs merged in the window with bots and drafts excluded. A narrower "
+                "population than RepoOverview.merged_pr_count, which counts all authors."
+            },
+        }
+
+
 class RepoOverviewSerializer(DataclassSerializer):
     cost_series = CostPerMergeBucketSerializer(
         many=True,
@@ -347,6 +393,10 @@ class RepoOverviewSerializer(DataclassSerializer):
         help_text="Median time-to-merge (p50 open_to_merge_seconds, bots/drafts excluded) per bucket across "
         "the window, oldest first, bucketed by open_to_merge_series_granularity. Empty buckets carry null; "
         "the whole series is empty when include_series=false.",
+    )
+    delivery_pipeline = DeliveryPipelineSerializer(
+        help_text="Where a change's wall-clock time goes on the way to production, over PRs merged "
+        "in the window with bots and drafts excluded."
     )
     ready_to_merge_series = ReadyToMergeBucketSerializer(
         many=True,

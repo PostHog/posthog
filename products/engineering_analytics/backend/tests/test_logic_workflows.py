@@ -10,6 +10,7 @@ from unittest import mock
 from parameterized import parameterized
 
 from products.engineering_analytics.backend.facade import api
+from products.engineering_analytics.backend.facade.contracts import DeliveryStage
 from products.engineering_analytics.backend.logic import build_workflow_health
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries.pr_cost import query_cost_per_merge_series
@@ -278,6 +279,9 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         assert overview.open_to_merge_series == []
         assert overview.ready_to_merge_series == []
         assert overview.cost_series_granularity == "day"  # the grain the series would have used
+        # No gate runs synced: the gate legs read unobserved, never zero.
+        assert overview.delivery_pipeline.merged_pr_count == 1
+        assert all(leg.median_seconds is None for leg in overview.delivery_pipeline.stages)
 
         with_series = api.get_repo_overview(team=self.team)
         assert len(with_series.cost_series) > 0  # zero-filled spine across the default -30d window
@@ -461,6 +465,67 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         assert overview.merge_queue_trunk_available is False
         assert overview.merge_queue_failed_or_cancelled_share is None
         assert overview.merge_queue_skip_the_line_count is None
+
+    def test_repo_overview_delivery_pipeline_legs(self) -> None:
+        # Guards the two pre-merge legs end to end: a gate run that only ran after the merge is a
+        # bisection probe, so it carries no leg rather than a negative one.
+        self._create_table(
+            "github_pull_requests",
+            PULL_REQUESTS_COLUMNS,
+            [
+                _pr_row(90, "alice", "closed", 0, _ago(10), merged_at=_ago(4), head_sha="sha90"),
+                _pr_row(91, "bob", "closed", 0, _ago(9), merged_at=_ago(3), head_sha="sha91"),
+                _pr_row(92, "carol", "closed", 0, _ago(8), merged_at=_ago(6), head_sha="sha92"),
+            ],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            WORKFLOW_RUNS_COLUMNS,
+            [
+                _run_row(
+                    9800,
+                    "CI",
+                    "g90",
+                    "completed",
+                    "success",
+                    _ago(5),
+                    _ago(5),
+                    head_branch="trunk-merge/pr-90/aaaa",
+                    actor="trunk-io[bot]",
+                ),
+                _run_row(
+                    9801,
+                    "CI",
+                    "g91",
+                    "completed",
+                    "success",
+                    _ago(4),
+                    _ago(4),
+                    head_branch="trunk-merge/pr-91/bbbb",
+                    actor="trunk-io[bot]",
+                ),
+                # PR 92 merged at -6d; this gate run at -2d is the queue bisecting a later failure.
+                _run_row(
+                    9802,
+                    "CI",
+                    "g92",
+                    "completed",
+                    "success",
+                    _ago(2),
+                    _ago(2),
+                    head_branch="trunk-merge/pr-92/cccc",
+                    actor="trunk-io[bot]",
+                ),
+            ],
+        )
+        pipeline = api.get_repo_overview(team=self.team, include_series=False).delivery_pipeline
+        assert pipeline.merged_pr_count == 3
+        legs = {leg.stage: leg for leg in pipeline.stages}
+        # PR 92's only gate run postdates its merge, so the gate legs see 90 and 91 only.
+        assert legs[DeliveryStage.OPEN_TO_GATE].pr_count == 2
+        assert legs[DeliveryStage.OPEN_TO_GATE].median_seconds == pytest.approx(5 * 86400)
+        assert legs[DeliveryStage.GATE_TO_MERGE].pr_count == 2
+        assert legs[DeliveryStage.GATE_TO_MERGE].median_seconds == pytest.approx(86400)
 
     def test_repo_overview_trunk_queue_outcomes(self) -> None:
         # Guards the Trunk-recorded outcomes: only concluded states enter the share's denominator,
