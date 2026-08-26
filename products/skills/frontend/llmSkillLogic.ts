@@ -35,6 +35,7 @@ import type {
     LLMSkillFileInputApi,
     LLMSkillListApi,
     LLMSkillVersionSummaryApi,
+    UserBasicApi,
 } from 'products/skills/frontend/generated/api.schemas'
 
 import { exportAndDownloadSkill, llmSkillsLogic, LLM_SKILLS_FORCE_RELOAD_PARAM } from './llmSkillsLogic'
@@ -214,7 +215,11 @@ export interface llmSkillLogicValues {
     isViewMode: boolean
     mode: SkillMode
     nextVersion: number | null
+    ownerDraft: string[]
+    ownerDraftChanged: boolean
+    ownersEditing: boolean
     publishConflict: PublishConflict | null
+    savingOwners: boolean
     shouldDisplaySkeleton: boolean
     showSkillFormErrors: boolean
     skill: ResolvedLLMSkill | SkillFormValues | null
@@ -230,6 +235,7 @@ export interface llmSkillLogicValues {
     skillFormTouches: Record<string, boolean>
     skillFormValidationErrors: DeepPartialMap<SkillFormValues, ValidationErrorType>
     skillLoading: boolean
+    skillOwners: readonly UserBasicApi[]
     versionDescription: string
     versions: LLMSkillVersionSummaryApi[]
     versionsLoading: boolean
@@ -241,6 +247,9 @@ export interface llmSkillLogicActions {
         files: SkillFileUpload[]
     }
     cancelEditing: () => {
+        value: true
+    }
+    closeOwnersEditor: () => {
         value: true
     }
     closePublishReview: () => {
@@ -288,6 +297,9 @@ export interface llmSkillLogicActions {
         skill: ResolvedLLMSkill
         payload?: any
     }
+    openOwnersEditor: () => {
+        value: true
+    }
     openPublishReview: () => {
         value: true
     }
@@ -296,6 +308,9 @@ export interface llmSkillLogicActions {
     }
     resetSkillForm: (values?: SkillFormValues) => {
         values?: SkillFormValues
+    }
+    saveOwners: (ownerUuids: string[]) => {
+        ownerUuids: string[]
     }
     setCompareVersion: (compareVersion: number | null) => {
         compareVersion: number | null
@@ -309,8 +324,14 @@ export interface llmSkillLogicActions {
     setMode: (mode: SkillMode) => {
         mode: SkillMode
     }
+    setOwnerDraft: (ownerUuids: string[]) => {
+        ownerUuids: string[]
+    }
     setPublishConflict: (publishConflict: PublishConflict | null) => {
         publishConflict: PublishConflict | null
+    }
+    setSavingOwners: (saving: boolean) => {
+        saving: boolean
     }
     setSkill: (skill: ResolvedLLMSkill | SkillFormValues) => {
         skill: ResolvedLLMSkill | SkillFormValues
@@ -401,6 +422,8 @@ export interface llmSkillLogicMeta {
             label: string
             value: number
         }>
+        skillOwners: (skill: ResolvedLLMSkill | SkillFormValues | null) => readonly UserBasicApi[]
+        ownerDraftChanged: (ownerDraft: string[], skillOwners: readonly UserBasicApi[]) => boolean
     }
 }
 
@@ -435,6 +458,11 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
         closePublishReview: true,
         setVersionDescription: (versionDescription: string) => ({ versionDescription }),
         setSkillFormBaseline: (baseline: SkillFormValues | null) => ({ baseline }),
+        openOwnersEditor: true,
+        closeOwnersEditor: true,
+        setOwnerDraft: (ownerUuids: string[]) => ({ ownerUuids }),
+        saveOwners: (ownerUuids: string[]) => ({ ownerUuids }),
+        setSavingOwners: (saving: boolean) => ({ saving }),
     }),
 
     reducers(({ props }) => ({
@@ -535,6 +563,27 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
             {
                 loadSkillSuccess: (_, { skill }) => (isSkill(skill) ? getSkillFormDefaults(skill) : null),
                 setSkillFormBaseline: (_, { baseline }) => baseline,
+            },
+        ],
+        ownersEditing: [
+            false,
+            {
+                openOwnersEditor: () => true,
+                closeOwnersEditor: () => false,
+                loadSkillSuccess: () => false,
+            },
+        ],
+        ownerDraft: [
+            [] as string[],
+            {
+                setOwnerDraft: (_, { ownerUuids }) => ownerUuids,
+            },
+        ],
+        savingOwners: [
+            false,
+            {
+                saveOwners: () => true,
+                setSavingOwners: (_, { saving }) => saving,
             },
         ],
     })),
@@ -813,6 +862,20 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
                     }))
             },
         ],
+
+        skillOwners: [
+            (s) => [s.skill],
+            (skill: ResolvedLLMSkill | SkillFormValues | null): readonly UserBasicApi[] =>
+                isSkill(skill) ? skill.owners : [],
+        ],
+
+        ownerDraftChanged: [
+            (s) => [s.ownerDraft, s.skillOwners],
+            (ownerDraft: string[], skillOwners: readonly UserBasicApi[]): boolean =>
+                // Order is server-owned (seed-creator first), so only membership counts as a change.
+                ownerDraft.length !== skillOwners.length ||
+                ownerDraft.some((uuid) => !skillOwners.some((owner) => owner.uuid === uuid)),
+        ],
     }),
 
     listeners(({ actions, props, values }) => ({
@@ -1015,6 +1078,38 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
 
         loadCompareSkillFailure: () => {
             lemonToast.error('Failed to load comparison version')
+        },
+
+        openOwnersEditor: () => {
+            actions.setOwnerDraft(values.skillOwners.map((owner) => owner.uuid))
+        },
+
+        saveOwners: async ({ ownerUuids }) => {
+            const currentSkill = values.skill
+            if (props.skillName === 'new' || !isSkill(currentSkill)) {
+                actions.setSavingOwners(false)
+                return
+            }
+            try {
+                // Owners-only PATCH: the backend replaces ownership without publishing a version.
+                const updated = await llmSkillsNamePartialUpdate(
+                    String(ApiConfig.getCurrentTeamId()),
+                    props.skillName,
+                    { owners: ownerUuids }
+                )
+                // Take only `owners` off the response: it describes the latest version, which is not
+                // necessarily the version on screen. Ownership is version-independent, so it applies
+                // to whichever version is shown.
+                actions.setSkill({ ...currentSkill, owners: updated.owners })
+                actions.closeOwnersEditor()
+                llmSkillsLogic.findMounted()?.actions.loadSkills(false)
+                lemonToast.success('Owners updated')
+            } catch (error) {
+                console.error('Failed to update skill owners', error)
+                lemonToast.error(getApiErrorDetail(error) || "Couldn't update owners. Try again.")
+            } finally {
+                actions.setSavingOwners(false)
+            }
         },
     })),
 

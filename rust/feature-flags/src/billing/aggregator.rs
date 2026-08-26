@@ -1188,6 +1188,8 @@ fn pick_jitter(flush_interval: Duration) -> Duration {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::billing::usage_test_support::{serve, RecordingIngestion};
+    use crate::config::TeamIdCollection;
     use common_redis::{MockRedisClient, MockRedisValue};
     use rstest::rstest;
 
@@ -1213,9 +1215,17 @@ mod tests {
         redis: MockRedisClient,
         config: BillingAggregatorConfig,
     ) -> (Arc<MockRedisClient>, Arc<BillingAggregator>) {
+        new_test_aggregator_with_reporter(redis, config, None)
+    }
+
+    fn new_test_aggregator_with_reporter(
+        redis: MockRedisClient,
+        config: BillingAggregatorConfig,
+        usage_reporter: Option<Arc<UsageReporter>>,
+    ) -> (Arc<MockRedisClient>, Arc<BillingAggregator>) {
         let redis = Arc::new(redis);
         let agg = Arc::new(BillingAggregator {
-            inner: Inner::new(redis.clone(), config, None),
+            inner: Inner::new(redis.clone(), config, usage_reporter),
             flusher: Mutex::new(None),
             metrics_sampler: Mutex::new(None),
         });
@@ -1393,6 +1403,40 @@ mod tests {
             "pending_total drifted from pending after bail+requeue"
         );
         assert_eq!(agg.pending_total(), 3, "all three records must requeue");
+    }
+
+    /// The reporter only ever sees a chunk Redis already credited, so this asserts the
+    /// mirror of a successful flush rather than the reporter's own behavior.
+    #[tokio::test]
+    async fn test_flush_once_mirrors_credited_counts_to_usage_ingestion() {
+        let service = RecordingIngestion::default();
+        let addr = serve(service.clone()).await;
+        let reporter = UsageReporter::new(&addr.to_string(), false, TeamIdCollection::All, 1_000)
+            .unwrap()
+            .unwrap();
+        let (_redis, agg) = new_test_aggregator_with_reporter(
+            MockRedisClient::new(),
+            test_config(),
+            Some(reporter.clone()),
+        );
+
+        agg.record(42, FlagRequestType::Decide, Some(Library::PosthogJs));
+        agg.record(42, FlagRequestType::Decide, Some(Library::PosthogJs));
+        agg.record(7, FlagRequestType::Decide, None);
+
+        flush_once(&agg.inner, FlushPolicy::BailOnError).await;
+        reporter.shutdown(Duration::from_secs(5)).await;
+
+        let records: Vec<_> = service.requests().into_iter().flatten().collect();
+        // One record per aggregation entry, not per Redis write: an entry that carries a
+        // library writes both a team key and an SDK key, and billing counts the request once.
+        assert_eq!(records.len(), 2);
+        assert!(records
+            .iter()
+            .any(|record| record.team_id == 42 && record.quantity == 2));
+        assert!(records
+            .iter()
+            .any(|record| record.team_id == 7 && record.quantity == 1));
     }
 
     #[tokio::test]

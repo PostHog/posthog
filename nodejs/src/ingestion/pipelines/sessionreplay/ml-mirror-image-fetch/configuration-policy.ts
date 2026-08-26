@@ -239,7 +239,7 @@ export class ConfigurationPolicyService {
                 allowed: false,
                 transient: false,
                 reason: 'robots_refused',
-                crawlDelayMs: 1_000,
+                crawlDelayMs: 0,
                 tdmrepReservation: false,
                 updates,
             }
@@ -249,7 +249,7 @@ export class ConfigurationPolicyService {
                 allowed: false,
                 transient: false,
                 reason: 'tdmrep_refused',
-                crawlDelayMs: 1_000,
+                crawlDelayMs: 0,
                 tdmrepReservation: false,
                 updates,
             }
@@ -277,7 +277,7 @@ export class ConfigurationPolicyService {
                 allowed: false,
                 transient: true,
                 reason: deferredReason,
-                crawlDelayMs: 1_000,
+                crawlDelayMs: 0,
                 tdmrepReservation: false,
                 updates,
             }
@@ -287,7 +287,7 @@ export class ConfigurationPolicyService {
                 allowed: false,
                 transient: true,
                 reason: 'configuration_unreachable',
-                crawlDelayMs: 1_000,
+                crawlDelayMs: 0,
                 tdmrepReservation: false,
                 updates,
             }
@@ -458,7 +458,7 @@ function selectedExtensionFields(
 }
 
 function defaultRobotsPolicy(): { allowed: true; crawlDelayMs: number } {
-    return { allowed: true, crawlDelayMs: 1_000 }
+    return { allowed: true, crawlDelayMs: 0 }
 }
 
 export async function parseRobotsPolicy(
@@ -482,10 +482,10 @@ function evaluateRobotsPolicy(
     url: string
 ): { allowed: boolean; crawlDelayMs: number; reason?: RobotsPolicyRefusalReason } {
     if (!parsed.matcher.checkUrl(BOT_NAME, url).allowed) {
-        return { allowed: false, crawlDelayMs: 1_000, reason: 'robots_disallow' }
+        return { allowed: false, crawlDelayMs: 0, reason: 'robots_disallow' }
     }
     const crawlDelayMs = Math.max(
-        1_000,
+        0,
         ...parsed.fields
             .filter((field) => field.name === 'crawl-delay')
             .flatMap((field) => {
@@ -493,7 +493,8 @@ function evaluateRobotsPolicy(
                 if (!/^\d+(?:\.\d+)?$/.test(value)) {
                     return []
                 }
-                const milliseconds = Number(value) * 1000
+                // A decimal multiplied by 1000 is not always exact. 16.1 * 1000 is 16100.000000000002. The safe-integer guard below rejects that value, but README 7.9 accepts the delay.
+                const milliseconds = Math.round(Number(value) * 1000)
                 return Number.isSafeInteger(milliseconds) ? [milliseconds] : []
             })
     )
@@ -617,13 +618,20 @@ export function responseOptOutReason(
     return undefined
 }
 
+// X-Robots-Tag directives that carry a value, from https://developers.google.com/search/docs/crawling-indexing/robots-meta-tag. A colon inside one of these does not start a bot scope.
+const VALUED_X_ROBOTS_DIRECTIVES = ['unavailable_after', 'max-snippet', 'max-image-preview', 'max-video-preview']
+
 function xRobotsTagRefuses(value: string): boolean {
     const lower = value.toLowerCase()
     const colon = lower.indexOf(':')
-    const directives = colon >= 0 ? lower.slice(colon + 1) : lower
-    if (colon >= 0 && lower.slice(0, colon).trim() !== BOT_NAME.toLowerCase()) {
+    // A bot scope is one token before the first colon. A valued directive looks the same, so the lane must tell the two apart. Otherwise it reads `unavailable_after: <date>, noai` as another bot's scope and ignores an opt-out that README 2.6 requires.
+    // A prefix that names no listed directive reads as a bot scope. This keeps another bot's scope intact. A new valued directive therefore needs an entry in the list above, because until then the lane skips a `noai` that follows it.
+    const prefix = colon >= 0 ? lower.slice(0, colon).trim() : ''
+    const scoped = colon >= 0 && !prefix.includes(',') && !VALUED_X_ROBOTS_DIRECTIVES.includes(prefix)
+    if (scoped && prefix !== BOT_NAME.toLowerCase()) {
         return false
     }
+    const directives = scoped ? lower.slice(colon + 1) : lower
     return directives.split(',').some((directive) => ['noai', 'noimageai'].includes(directive.trim()))
 }
 

@@ -28,22 +28,29 @@ Measured locally: two identical batches landing in separate parts read as 6 rows
 
 | producer_id         | usage_key                                               | unit           | record_id                                                                                       | deployment               |
 | ------------------- | ------------------------------------------------------- | -------------- | ----------------------------------------------------------------------------------------------- | ------------------------ |
-| `ingestion`         | `events`, `ai_events`                                   | events         | `{day}:{event}:{distinct_id}:{uuid}`                                                            | ingestion consumers      |
-| `ai-ingestion`      | `ai_events`                                             | events         | `{day}:{event}:{distinct_id}:{uuid}`                                                            | AI ingestion consumer    |
-| `error-tracking`    | `exceptions`                                            | events         | `{day}:{event}:{distinct_id}:{uuid}`                                                            | error tracking server    |
+| `ingestion`         | `events`, `ai_events`                                   | events         | `{day}:{sha256 of event, distinct_id, uuid}`                                                    | ingestion consumers      |
+| `ai-ingestion`      | `ai_events`                                             | events         | `{day}:{sha256 of event, distinct_id, uuid}`                                                    | AI ingestion consumer    |
+| `error-tracking`    | `exceptions`                                            | events         | `{day}:{sha256 of event, distinct_id, uuid}`                                                    | error tracking server    |
 | `cdp`               | `cdp_billable_invocations`                              | invocations    | `event:{eventUuid}` / `flow:{invocationId}:{actionStepCount}:{kind}` / `webhook:{invocationId}` | CDP consumers            |
 | `feature-flags`     | `feature_flag_requests`                                 | requests       | fresh UUIDv7 per flush                                                                          | feature flags service    |
-| `ingestion`         | `survey_responses`                                      | events         | `{day}:{event}:{distinct_id}:{uuid}`                                                            | ingestion consumers      |
+| `ingestion`         | `survey_responses`                                      | events         | `{day}:{sha256 of event, distinct_id, uuid}`                                                    | ingestion consumers      |
 | `warehouse-sources` | `warehouse_rows_synced`                                 | rows           | the ExternalDataJob ID                                                                          | warehouse sources worker |
 | `batch-exports`     | `batch_export_rows`                                     | rows           | the BatchExportRun ID                                                                           | batch exports worker     |
 | `replay-vision`     | `replay_vision_credits`                                 | credits        | the observation ID                                                                              | replay vision worker     |
 | `logs`              | `logs_bytes`, `logs_records`                            | bytes, records | fresh UUIDv7 per flush                                                                          | logs ingestion server    |
 | `apm`               | `apm_bytes`, `apm_spans`                                | bytes, records | fresh UUIDv7 per flush                                                                          | traces ingestion server  |
 | `session-replay`    | `session_replay_recordings`, `mobile_replay_recordings` | recordings     | the session ID                                                                                  | session replay consumer  |
-| `ingestion`         | `enhanced_person_events`                                | events         | `{day}:{event}:{distinct_id}:{uuid}`                                                            | ingestion consumers      |
+| `ingestion`         | `enhanced_person_events`                                | events         | `{day}:{sha256 of event, distinct_id, uuid}`                                                    | ingestion consumers      |
 
-Every producer reads one env var, `USAGE_INGESTION_REPORT_TEAMS`: `''` reports nothing, `*` every team, `1,2` those teams.
-Each producer above is its own deployment, so one name still rolls out per producer, set in that service's config.
+Every producer reads the same four env vars, and each one is its own deployment, so one name still rolls out per producer from that service's own config.
+
+| Env var                        | Default          | Meaning                                                                                                |
+| ------------------------------ | ---------------- | ------------------------------------------------------------------------------------------------------ |
+| `USAGE_INGESTION_REPORT_TEAMS` | `''`             | `''` reports nothing, `*` every team, `1,2` those teams.                                               |
+| `USAGE_INGESTION_ADDR`         | `''` outside dev | `host:port` of the gateway. Empty also reports nothing.                                                |
+| `USAGE_INGESTION_TLS`          | `false`          | Plaintext in-cluster. The flags service refuses `true` at startup, because its tonic build has no TLS. |
+| `USAGE_INGESTION_TIMEOUT_MS`   | `5000`           | Per attempt, not per batch. The flags sender retries a transient failure three times.                  |
+
 Empty is the default everywhere, so nothing reports until it is set.
 There is deliberately no percentage option: sampling a share of a team's events would bill that team a fraction of what it used.
 
@@ -98,7 +105,7 @@ The AI check matches the exact names in `AI_EVENT_TYPES` rather than the `$ai_` 
 
 Overflow is not a drop. A redirected event is consumed again on the overflow lane, whose consumer reports under its own topic and partition, so it is counted exactly once.
 
-### Why the identity is `{day}:{event}:{distinct_id}:{uuid}`
+### Why the identity is `{day}:{sha256 of event, distinct_id, uuid}`
 
 The first version of this keyed a record on the batch's consumed offset range and carried the batch's count.
 That is not replay-safe: Kafka does not promise the same batch boundaries twice, so a replay produces different IDs and the totals add.
@@ -110,6 +117,7 @@ Measured after the change: the same events re-consumed by a fresh consumer group
 The UUID alone is not that identity. `sharded_events` is itself a `ReplacingMergeTree` sorted by `(team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))`, so two events sharing a UUID but differing in day, name or distinct ID are separate rows there.
 The nightly report counts them separately too — `get_teams_with_billable_event_count_in_period` counts `distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)` — so keying on the UUID alone would have collapsed rows the report bills for.
 The `record_id` therefore carries that whole tuple minus the team the billing sorting key already holds. The timestamp is UTC-normalized upstream, so its first ten characters are the day `toDate` resolves.
+The tuple is hashed rather than joined, because event names and distinct IDs are client-supplied and together exceed the 512-byte identifier the service accepts. One oversized record makes the service reject the whole request, dropping every record batched with it.
 
 The cost is one record per event rather than one per batch. Records are still batched into requests of up to `USAGE_INGESTION_MAX_BATCH_SIZE`, so the request count is a function of batch size, not event count.
 
@@ -202,7 +210,7 @@ Then point a producer at it and turn its team matcher on:
 
 ```sh
 USAGE_INGESTION_ADDR=localhost:7143 USAGE_INGESTION_REPORT_TEAMS='*' ./bin/start
-FLAGS_USAGE_INGESTION_URL=http://localhost:7143 USAGE_INGESTION_REPORT_TEAMS='*' cargo run -p feature-flags
+USAGE_INGESTION_ADDR=localhost:7143 USAGE_INGESTION_REPORT_TEAMS='*' cargo run -p feature-flags
 ```
 
 Records land within one flush interval:

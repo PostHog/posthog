@@ -8,6 +8,8 @@
 pub mod aggregator;
 pub mod limiters;
 pub mod usage_reporter;
+#[cfg(test)]
+pub mod usage_test_support;
 
 pub use aggregator::{AggregationKey, BillingAggregator, BillingAggregatorConfig};
 pub use limiters::{FeatureFlagsLimiter, SessionReplayLimiter};

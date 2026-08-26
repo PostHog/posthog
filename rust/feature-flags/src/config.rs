@@ -922,15 +922,17 @@ pub struct Config {
     #[envconfig(from = "FLAGS_BILLING_SHUTDOWN_FLUSH_TIMEOUT_MS", default = "15000")]
     pub billing_shutdown_flush_timeout_ms: u64,
 
-    // Usage-ingestion mirror. Empty URL or empty teams disables it, so it
-    // rolls out per team independently of the Redis billing keyspace. The team
-    // list carries the name every usage producer reads, because each producer
-    // is its own deployment and sets it in its own config.
-    #[envconfig(from = "FLAGS_USAGE_INGESTION_URL", default = "")]
-    pub usage_ingestion_url: String,
+    // Usage-ingestion mirror. Empty address or empty teams disables it, so it
+    // rolls out per team independently of the Redis billing keyspace. These carry
+    // the names every usage producer reads, because each producer is its own
+    // deployment and sets them in its own config.
+    #[envconfig(from = "USAGE_INGESTION_ADDR", default = "")]
+    pub usage_ingestion_addr: String,
+    #[envconfig(from = "USAGE_INGESTION_TLS", default = "false")]
+    pub usage_ingestion_tls: bool,
     #[envconfig(from = "USAGE_INGESTION_REPORT_TEAMS", default = "")]
     pub usage_ingestion_teams: TeamIdCollection,
-    #[envconfig(from = "FLAGS_USAGE_INGESTION_TIMEOUT_MS", default = "5000")]
+    #[envconfig(from = "USAGE_INGESTION_TIMEOUT_MS", default = "5000")]
     pub usage_ingestion_timeout_ms: u64,
 }
 
@@ -1170,7 +1172,8 @@ impl Config {
             billing_max_pending_entries: 500_000,
             billing_per_flush_batch_size: 200,
             billing_shutdown_flush_timeout_ms: 15_000,
-            usage_ingestion_url: "".to_string(),
+            usage_ingestion_addr: "".to_string(),
+            usage_ingestion_tls: false,
             usage_ingestion_teams: TeamIdCollection::None,
             usage_ingestion_timeout_ms: 5_000,
         }

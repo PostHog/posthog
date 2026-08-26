@@ -14,6 +14,7 @@ on:
         paths:
             - '.github/workflows/cd-sandbox-base-image.yml'
             - 'products/tasks/backend/sandbox/images/**'
+            - 'products/desktop/packages/agent-shadow/**'
             - 'products/posthog_ai/scripts/**'
             # The notebook image bakes this package and stamps its content hash.
             - 'products/notebooks/backend/sandbox/kernel/**'
@@ -57,6 +58,7 @@ jobs:
                       sandbox_image:
                         - '.github/workflows/cd-sandbox-base-image.yml'
                         - 'products/tasks/backend/sandbox/images/**'
+                        - 'products/desktop/packages/agent-shadow/**'
                         - 'products/*/skills/**'
                         - 'products/posthog_ai/scripts/**'
                         - 'products/notebooks/backend/sandbox/kernel/**'

@@ -16,7 +16,7 @@ export interface CdpBillableInvocation {
 /**
  * Deliberately independent of `app_metrics2`: it owns its own batching and flushing, so the app
  * metric a call site also emits can be deleted without touching billing. The timer bounds how
- * long a record waits; `flush()` on consumer shutdown is what keeps a graceful deploy lossless.
+ * long a record waits; `shutdown()` is what keeps a graceful deploy lossless.
  */
 export class CdpUsageReporterService {
     private batch: UsageRecordBatch
@@ -39,13 +39,23 @@ export class CdpUsageReporterService {
         this.scheduleFlush()
     }
 
+    /** One pass, for the timer: an invocation reported mid-send waits for the next flush. */
     async flush(): Promise<void> {
+        await this.send(() => this.batch.flush())
+    }
+
+    /** For a consumer that is stopping: keeps flushing until nothing is left in memory. */
+    async shutdown(): Promise<void> {
+        await this.send(() => this.batch.drain())
+    }
+
+    private async send(sendBatch: () => Promise<void>): Promise<void> {
         if (this.timer) {
             clearTimeout(this.timer)
             this.timer = null
         }
         try {
-            await this.batch.flush()
+            await sendBatch()
         } catch (error) {
             logger.warn('\u26a0\ufe0f', 'failed to flush cdp usage records', { error: String(error) })
         }

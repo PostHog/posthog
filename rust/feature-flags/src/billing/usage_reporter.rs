@@ -3,7 +3,8 @@
 //!
 //! `record_id` is a fresh UUID per emission, not derived from the aggregation key: a Redis outage
 //! rebuckets and merges requeued entries, so one key legitimately carries different quantities
-//! across flushes. ID reuse is scoped to the retry the gRPC client performs on one request.
+//! across flushes. A retry reuses the record it already built, which is what makes retrying safe:
+//! the service deduplicates on `record_id`, including when Kafka took only part of the batch.
 
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -12,6 +13,7 @@ use common_metrics::inc;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tonic::transport::{Channel, Endpoint};
+use tonic::Code;
 use usage_ingestion_proto::usage_ingestion::v1::{
     usage_ingestion_client::UsageIngestionClient, BillingUsageRecord, IngestBillingUsageRequest,
 };
@@ -29,6 +31,10 @@ const MAX_BATCH_SIZE: usize = 500;
 /// Queued sends waiting on the sender task. A full queue drops rather than growing
 /// unboundedly; the drop is counted, and Redis still holds the authoritative count.
 const QUEUE_CAPACITY: usize = 64;
+/// Attempts per chunk, including the first. The sender is one task, so a chunk that
+/// keeps failing holds up the queue behind it — hence a small number and a short wait.
+const SEND_ATTEMPTS: u32 = 3;
+const RETRY_BACKOFF: std::time::Duration = std::time::Duration::from_millis(100);
 
 struct SenderState {
     queue: mpsc::Sender<Vec<BillingUsageRecord>>,
@@ -44,15 +50,21 @@ impl UsageReporter {
     /// `None` when no URL is configured or no team is enabled, so the aggregator
     /// skips the work entirely.
     pub fn new(
-        url: &str,
+        addr: &str,
+        use_tls: bool,
         teams: TeamIdCollection,
         timeout_ms: u64,
     ) -> Result<Option<Arc<Self>>, String> {
-        if url.is_empty() || matches!(teams, TeamIdCollection::None) {
+        if addr.is_empty() || matches!(teams, TeamIdCollection::None) {
             return Ok(None);
         }
-        let endpoint = Endpoint::from_shared(url.to_string())
-            .map_err(|e| format!("invalid FLAGS_USAGE_INGESTION_URL: {e}"))?
+        // tonic is built here without its TLS feature, so an https endpoint fails at connect
+        // time with nothing naming the cause. Refuse at startup instead.
+        if use_tls {
+            return Err("USAGE_INGESTION_TLS is not supported by the flags reporter".to_string());
+        }
+        let endpoint = Endpoint::from_shared(format!("http://{addr}"))
+            .map_err(|e| format!("invalid USAGE_INGESTION_ADDR: {e}"))?
             .timeout(std::time::Duration::from_millis(timeout_ms));
         let client = UsageIngestionClient::new(endpoint.connect_lazy());
 
@@ -76,15 +88,15 @@ impl UsageReporter {
         if records.is_empty() {
             return;
         }
-        let dropped = records.len() as u64;
+        let record_count = records.len() as u64;
         let queued = match self.state.lock().unwrap().as_ref() {
             Some(state) => state.queue.try_send(records).is_ok(),
             None => false,
         };
         if !queued {
-            inc(FLAGS_USAGE_RECORDS_FAILED, &[], dropped);
+            inc(FLAGS_USAGE_RECORDS_FAILED, &[], record_count);
             tracing::warn!(
-                records = dropped,
+                records = record_count,
                 "usage-ingestion send queue is full or closed; dropped usage records"
             );
         }
@@ -113,29 +125,55 @@ impl UsageReporter {
     }
 }
 
+/// A code the service returns for a condition that clears on its own: an unreachable
+/// or draining pod, a timeout, a full queue. The rest, `invalid_argument` above all,
+/// describe the records themselves and would fail the same way forever.
+fn is_retryable(code: Code) -> bool {
+    matches!(
+        code,
+        Code::Unavailable | Code::DeadlineExceeded | Code::ResourceExhausted | Code::Aborted
+    )
+}
+
 async fn run_sender(
     client: UsageIngestionClient<Channel>,
     mut receiver: mpsc::Receiver<Vec<BillingUsageRecord>>,
 ) {
     while let Some(records) = receiver.recv().await {
         for chunk in records.chunks(MAX_BATCH_SIZE) {
-            let sent = chunk.len() as u64;
-            let mut client = client.clone();
-            match client
-                .ingest_billing_usage(IngestBillingUsageRequest {
-                    records: chunk.to_vec(),
-                })
-                .await
-            {
-                Ok(_) => inc(FLAGS_USAGE_RECORDS_SENT, &[], sent),
-                Err(status) => {
-                    inc(FLAGS_USAGE_RECORDS_FAILED, &[], sent);
+            send_chunk(&client, chunk).await;
+        }
+    }
+}
+
+/// Retries the same records, never rebuilt ones, so the service's `record_id` dedup holds.
+/// A bounded retry is the ceiling here: a crash still loses what the queue holds, and Redis
+/// plus the nightly report stay authoritative for what a team owes.
+async fn send_chunk(client: &UsageIngestionClient<Channel>, chunk: &[BillingUsageRecord]) {
+    let count = chunk.len() as u64;
+    let request = IngestBillingUsageRequest {
+        records: chunk.to_vec(),
+    };
+    for attempt in 1..=SEND_ATTEMPTS {
+        let mut client = client.clone();
+        match client.ingest_billing_usage(request.clone()).await {
+            Ok(_) => {
+                inc(FLAGS_USAGE_RECORDS_SENT, &[], count);
+                return;
+            }
+            Err(status) => {
+                let retryable = is_retryable(status.code());
+                if !retryable || attempt == SEND_ATTEMPTS {
+                    inc(FLAGS_USAGE_RECORDS_FAILED, &[], count);
                     tracing::warn!(
-                        records = sent,
+                        records = count,
+                        attempts = attempt,
                         code = %status.code(),
                         "failed to report feature flag usage records"
                     );
+                    return;
                 }
+                tokio::time::sleep(RETRY_BACKOFF * attempt).await;
             }
         }
     }
@@ -164,6 +202,7 @@ fn build_records(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::billing::usage_test_support::{serve, RecordingIngestion};
     use crate::flags::flag_request::FlagRequestType;
     use crate::handler::types::Library;
 
@@ -206,7 +245,7 @@ mod tests {
 
     #[tokio::test]
     async fn shutdown_is_idempotent_and_closes_the_queue() {
-        let reporter = UsageReporter::new("http://localhost:1", TeamIdCollection::All, 50)
+        let reporter = UsageReporter::new("127.0.0.1:1", false, TeamIdCollection::All, 50)
             .unwrap()
             .unwrap();
 
@@ -222,19 +261,78 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn new_is_disabled_without_a_url_or_teams() {
-        assert!(UsageReporter::new("", TeamIdCollection::All, 100)
+    async fn new_is_disabled_without_an_address_or_teams() {
+        assert!(UsageReporter::new("", false, TeamIdCollection::All, 100)
             .unwrap()
             .is_none());
         assert!(
-            UsageReporter::new("http://localhost:7143", TeamIdCollection::None, 100)
+            UsageReporter::new("localhost:7143", false, TeamIdCollection::None, 100)
                 .unwrap()
                 .is_none()
         );
         assert!(
-            UsageReporter::new("http://localhost:7143", TeamIdCollection::All, 100)
+            UsageReporter::new("localhost:7143", false, TeamIdCollection::All, 100)
                 .unwrap()
                 .is_some()
         );
+    }
+
+    #[tokio::test]
+    async fn new_refuses_tls_it_cannot_honor() {
+        assert!(UsageReporter::new("localhost:7143", true, TeamIdCollection::All, 100).is_err());
+    }
+
+    async fn reporter_for(addr: std::net::SocketAddr) -> Arc<UsageReporter> {
+        UsageReporter::new(&addr.to_string(), false, TeamIdCollection::All, 1_000)
+            .unwrap()
+            .unwrap()
+    }
+
+    /// `shutdown` is the drain, so it also stands in for a wait: it returns once the sender
+    /// task has emptied the queue, which is what the aggregator's ordering promises.
+    #[tokio::test]
+    async fn a_queued_record_reaches_the_service_by_shutdown() {
+        let service = RecordingIngestion::default();
+        let reporter = reporter_for(serve(service.clone()).await).await;
+
+        reporter.report(&[(key(7, None), 4)], 1_700_000_000_000);
+        reporter.shutdown(std::time::Duration::from_secs(5)).await;
+
+        let requests = service.requests();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].len(), 1);
+        assert_eq!(requests[0][0].team_id, 7);
+        assert_eq!(requests[0][0].quantity, 4);
+        assert_eq!(requests[0][0].producer_id, PRODUCER_ID);
+        assert_eq!(requests[0][0].usage_key, USAGE_KEY);
+    }
+
+    #[tokio::test]
+    async fn retries_a_transient_failure_with_the_same_record_id() {
+        let service = RecordingIngestion::default();
+        service.fail_next(Code::Unavailable);
+        let reporter = reporter_for(serve(service.clone()).await).await;
+
+        reporter.report(&[(key(7, None), 1)], 1_700_000_000_000);
+        reporter.shutdown(std::time::Duration::from_secs(5)).await;
+
+        let requests = service.requests();
+        assert_eq!(requests.len(), 2);
+        // Reusing the ID is what makes the retry safe: the service deduplicates on it, so a
+        // batch Kafka took only part of does not bill twice.
+        assert_eq!(requests[0][0].record_id, requests[1][0].record_id);
+    }
+
+    #[tokio::test]
+    async fn does_not_retry_a_rejected_batch() {
+        let service = RecordingIngestion::default();
+        // The records themselves are wrong, so every attempt fails the same way.
+        service.fail_next(Code::InvalidArgument);
+        let reporter = reporter_for(serve(service.clone()).await).await;
+
+        reporter.report(&[(key(7, None), 1)], 1_700_000_000_000);
+        reporter.shutdown(std::time::Duration::from_secs(5)).await;
+
+        assert_eq!(service.requests().len(), 1);
     }
 }

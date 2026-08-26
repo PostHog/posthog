@@ -22,14 +22,13 @@ from posthog.hogql.query import HogQLQueryExecutor
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.warehouse_sources.backend.facade.models import (
     MANAGED_WAREHOUSE_SOURCE_PREFIX,
     DataWarehouseTable,
     ExternalDataSource,
 )
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
-
-from ee.models import AccessControl
 
 
 class TestDuckgresRawAdapterSelection(SimpleTestCase):

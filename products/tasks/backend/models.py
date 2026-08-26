@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
-from django.contrib.postgres.indexes import GinIndex
+from django.contrib.postgres.indexes import GinIndex, OpClass
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connection, models, transaction
 from django.db.models.fields.json import KeyTransform
@@ -725,6 +725,7 @@ class Task(DeletedMetaFields, models.Model):
         description: str,
         origin_product: "Task.OriginProduct",
         user_id: int,
+        title_manually_set: bool = False,
         repository: str | None = None,
         channel: Channel | None = None,
         slack_thread_context: Optional["SlackThreadContext"] = None,
@@ -850,6 +851,7 @@ class Task(DeletedMetaFields, models.Model):
         task = Task.objects.create(
             team=team,
             title=title,
+            title_manually_set=title_manually_set,
             description=description,
             origin_product=origin_product,
             client_provenance=client_provenance,
@@ -1040,6 +1042,7 @@ class Task(DeletedMetaFields, models.Model):
         description: str,
         origin_product: "Task.OriginProduct",
         user_id: int,
+        title_manually_set: bool = False,
         repository: str | None = None,  # Format: "organization/repository", e.g. "posthog/posthog-js"
         channel: Channel | None = None,
         create_pr: bool = True,
@@ -1091,6 +1094,7 @@ class Task(DeletedMetaFields, models.Model):
             description=description,
             origin_product=origin_product,
             user_id=user_id,
+            title_manually_set=title_manually_set,
             repository=repository,
             channel=channel,
             slack_thread_context=slack_thread_context,
@@ -1987,6 +1991,19 @@ class TaskRun(models.Model):
         db_table = "posthog_task_run"
         ordering = ["-created_at"]
         indexes = [
+            GinIndex(
+                OpClass(KeyTransform("verified_pr_urls", "state"), name="jsonb_path_ops"),
+                name="task_run_verified_pr_urls_idx",
+            ),
+            GinIndex(
+                OpClass(KeyTransform("head_branches", "output"), name="jsonb_path_ops"),
+                name="task_run_head_branches_idx",
+            ),
+            models.Index(
+                fields=["branch"],
+                name="task_run_branch_idx",
+                condition=models.Q(branch__isnull=False),
+            ),
             # Partial functional index backing the per-PR-webhook lookup
             # `filter(output__pr_url=...)`. The equality lookup implies the key is
             # present, so the `IS NOT NULL` condition keeps the index off the many
@@ -2075,6 +2092,11 @@ class TaskRun(models.Model):
         state.pop("sandbox_id", None)
         state.pop("sandbox_url", None)
         state.pop("sandbox_jwt_kid", None)
+        state.pop("sandbox_connect_token", None)
+        # Drop the provider stamp too: the handed-off run re-resolves its backend from
+        # scratch, so a stale `hogland` must not survive to outrank the EU guard, the
+        # Modal-only fallbacks, or the flag kill switch on the next context resolution.
+        state.pop("sandbox_backend", None)
         self.state = state
 
         logger.info(
@@ -2176,7 +2198,7 @@ class TaskRun(models.Model):
             if state.get("sandbox_id") != sandbox_id:
                 return
 
-            for key in ("sandbox_id", "sandbox_url", "sandbox_connect_token", "sandbox_jwt_kid"):
+            for key in ("sandbox_id", "sandbox_url", "sandbox_connect_token", "sandbox_jwt_kid", "sandbox_backend"):
                 state.pop(key, None)
 
         return cls.mutate_state_atomic(run_id, _mutator)
@@ -2983,6 +3005,12 @@ class SandboxSession(TeamScopedRootMixin, UUIDModel):
     vm_runtime = models.BooleanField(
         default=False, help_text="Modal VM runtime rather than gVisor (billed differently)"
     )
+    sandbox_backend = models.CharField(
+        max_length=32,
+        null=True,
+        blank=True,
+        help_text="Provider backend (e.g. hogland); NULL for Modal. Hogland's TTL is idle, not absolute",
+    )
 
     # Resource shape at creation, already clamped by SandboxConfig. Limits are what the
     # sandbox may consume — raw usage metrics derive from these; the burstable request
@@ -3143,6 +3171,9 @@ class SandboxSnapshot(UUIDModel):
 
             if os.environ.get("MODAL_TOKEN_ID") and os.environ.get("MODAL_TOKEN_SECRET") and not settings.TEST:
                 try:
+                    # Modal-only: hogland runs never create SandboxSnapshot rows today. When
+                    # hogland resume snapshots land, this needs a backend branch keyed on the
+                    # snapshot's provider rather than the MODAL_TOKEN_* env gate above.
                     Sandbox.delete_snapshot(self.external_id)
                 except Exception as e:
                     raise Exception(

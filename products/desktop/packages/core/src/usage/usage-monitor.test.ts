@@ -1,3 +1,4 @@
+import { NotAuthenticatedError } from "@posthog/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuthService } from "../auth/auth";
 import type { UsageHost } from "./identifiers";
@@ -44,28 +45,45 @@ function makeThresholdStore(): ThresholdSlice {
   };
 }
 
+interface ScopedLog {
+  debug: ReturnType<typeof vi.fn>;
+  info: ReturnType<typeof vi.fn>;
+  warn: ReturnType<typeof vi.fn>;
+  error: ReturnType<typeof vi.fn>;
+}
+
+let lastScopedLog: ScopedLog;
+
 function makeLogger() {
   const log = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+  lastScopedLog = log;
   return { ...log, scope: () => log };
 }
 
 type GatewaySlice = Pick<UsageHost, "fetchUsage">;
 
-let emitAuthState: (currentOrgId: string | null) => void = () => {};
+type AuthStatus = "anonymous" | "authenticated" | "restoring";
+interface EmittedAuthState {
+  currentOrgId: string | null;
+  status: AuthStatus;
+}
+
+let emitAuthState: (currentOrgId: string | null, status?: AuthStatus) => void =
+  () => {};
 
 function makeAuthService(): AuthService {
-  const listeners = new Set<(state: { currentOrgId: string | null }) => void>();
-  emitAuthState = (currentOrgId) => {
+  const listeners = new Set<(state: EmittedAuthState) => void>();
+  let currentStatus: AuthStatus = "authenticated";
+  emitAuthState = (currentOrgId, status = "authenticated") => {
+    currentStatus = status;
     for (const listener of [...listeners]) {
-      listener({ currentOrgId });
+      listener({ currentOrgId, status });
     }
   };
   return {
-    getState: () => ({ currentOrgId: "org-1" }),
-    on: (
-      _event: string,
-      listener: (state: { currentOrgId: string | null }) => void,
-    ) => listeners.add(listener),
+    getState: () => ({ currentOrgId: "org-1", status: currentStatus }),
+    on: (_event: string, listener: (state: EmittedAuthState) => void) =>
+      listeners.add(listener),
   } as unknown as AuthService;
 }
 
@@ -130,6 +148,7 @@ describe("UsageMonitorService", () => {
   afterEach(() => {
     service?.stop();
     vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   it("emits at 75% but not again on the next poll for the same anchor", async () => {
@@ -227,6 +246,187 @@ describe("UsageMonitorService", () => {
 
     await service.fetchOnce();
     expect(events[0]?.userIsActive).toBe(true);
+  });
+
+  it("backs off after a failure instead of refetching on the next trigger", async () => {
+    const fetchUsage = vi.fn().mockRejectedValue(new Error("HTTP 401"));
+    const gateway = { fetchUsage } as unknown as GatewaySlice;
+    service = makeService(gateway, makeActivityMonitor());
+
+    await service.fetchOnce();
+    await service.fetchOnce();
+    expect(fetchUsage).toHaveBeenCalledTimes(1);
+
+    // The first window is the 5s base, jittered down to at most 5s.
+    vi.advanceTimersByTime(5_001);
+    await service.fetchOnce();
+    expect(fetchUsage).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps backing off when a mid-failure refresh emits a state change", async () => {
+    const fetchUsage = vi.fn().mockRejectedValue(new Error("HTTP 401"));
+    const gateway = { fetchUsage } as unknown as GatewaySlice;
+    service = makeService(gateway, makeActivityMonitor());
+
+    await service.fetchOnce();
+    // The 401 retry refreshes the token from inside the failing fetch.
+    // Releasing the window on that emission pins it at its floor.
+    emitAuthState("org-1", "authenticated");
+    await service.fetchOnce();
+    expect(fetchUsage).toHaveBeenCalledTimes(1);
+  });
+
+  it("grows the backoff window and caps it at the backstop interval", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    const fetchUsage = vi.fn().mockRejectedValue(new Error("HTTP 500"));
+    const gateway = { fetchUsage } as unknown as GatewaySlice;
+    service = makeService(gateway, makeActivityMonitor());
+
+    // Jitter pinned at its low end, so windows are 2.5s, 5s, 10s, ... 15m.
+    await service.fetchOnce();
+    vi.advanceTimersByTime(2_500);
+    await service.fetchOnce();
+    expect(fetchUsage).toHaveBeenCalledTimes(2);
+
+    // A flat, non-doubling backoff would release here.
+    vi.advanceTimersByTime(2_500);
+    await service.fetchOnce();
+    expect(fetchUsage).toHaveBeenCalledTimes(2);
+    vi.advanceTimersByTime(2_500);
+    await service.fetchOnce();
+    expect(fetchUsage).toHaveBeenCalledTimes(3);
+
+    for (let i = 0; i < 12; i++) {
+      vi.advanceTimersByTime(15 * 60_000);
+      await service.fetchOnce();
+    }
+    const capped = fetchUsage.mock.calls.length;
+    vi.advanceTimersByTime(15 * 60_000 - 1);
+    await service.fetchOnce();
+    expect(fetchUsage).toHaveBeenCalledTimes(capped);
+    vi.advanceTimersByTime(1);
+    await service.fetchOnce();
+    expect(fetchUsage).toHaveBeenCalledTimes(capped + 1);
+  });
+
+  it("stops polling entirely after a terminal auth failure", async () => {
+    const fetchUsage = vi.fn().mockRejectedValue(new NotAuthenticatedError());
+    const gateway = { fetchUsage } as unknown as GatewaySlice;
+    service = makeService(gateway, makeActivityMonitor());
+    emitAuthState("org-1", "anonymous");
+
+    await service.fetchOnce();
+    // No window expiry releases this one, and a signed-out session must not.
+    vi.advanceTimersByTime(6 * 60 * 60_000);
+    await service.fetchOnce();
+    expect(fetchUsage).toHaveBeenCalledTimes(1);
+
+    emitAuthState("org-1", "authenticated");
+    await service.fetchOnce();
+    expect(fetchUsage).toHaveBeenCalledTimes(2);
+  });
+
+  it("recovers polling when the user signs back into the same organization", async () => {
+    const fetchUsage = vi.fn().mockRejectedValue(new NotAuthenticatedError());
+    const gateway = { fetchUsage } as unknown as GatewaySlice;
+    service = makeService(gateway, makeActivityMonitor());
+    emitAuthState("org-1", "anonymous");
+
+    await service.fetchOnce();
+    expect(fetchUsage).toHaveBeenCalledTimes(1);
+
+    // A teardown publishes the anonymous org before any new sign-in, so
+    // returning to the same org is still a transition the listener acts on.
+    emitAuthState(null, "anonymous");
+    fetchUsage.mockResolvedValue(makeUsage());
+    emitAuthState("org-1", "authenticated");
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    expect(fetchUsage).toHaveBeenCalledTimes(2);
+  });
+
+  it("resets the window after a success", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    const fetchUsage = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("HTTP 500"))
+      .mockRejectedValueOnce(new Error("HTTP 500"))
+      .mockResolvedValueOnce(makeUsage({ burstPercent: 10 }))
+      .mockRejectedValue(new Error("HTTP 500"));
+    const gateway = { fetchUsage } as unknown as GatewaySlice;
+    service = makeService(gateway, makeActivityMonitor());
+
+    await service.fetchOnce();
+    vi.advanceTimersByTime(2_500);
+    await service.fetchOnce();
+    vi.advanceTimersByTime(5_000);
+    await service.fetchOnce();
+    expect(fetchUsage).toHaveBeenCalledTimes(3);
+
+    // The next failure starts from the base, not the escalated window.
+    await service.fetchOnce();
+    vi.advanceTimersByTime(2_500);
+    await service.fetchOnce();
+    expect(fetchUsage).toHaveBeenCalledTimes(5);
+  });
+
+  it("lets an org switch refetch through an open backoff window", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    const fetchUsage = vi.fn().mockRejectedValue(new Error("HTTP 500"));
+    const gateway = { fetchUsage } as unknown as GatewaySlice;
+    service = makeService(gateway, makeActivityMonitor());
+
+    // Three failures put the window at 10s, wider than the coalesce delay the
+    // switch's refetch waits out, so the window is still open when it fires.
+    await service.fetchOnce();
+    vi.advanceTimersByTime(2_500);
+    await service.fetchOnce();
+    vi.advanceTimersByTime(5_000);
+    await service.fetchOnce();
+    expect(fetchUsage).toHaveBeenCalledTimes(3);
+
+    // The switch drops the snapshot, so its refetch must not be swallowed.
+    emitAuthState("org-2");
+    await vi.advanceTimersByTimeAsync(5_001);
+    expect(fetchUsage).toHaveBeenCalledTimes(4);
+  });
+
+  it("lets a forced refresh skip the timed window", async () => {
+    const fetchUsage = vi.fn().mockRejectedValue(new Error("HTTP 500"));
+    const gateway = { fetchUsage } as unknown as GatewaySlice;
+    service = makeService(gateway, makeActivityMonitor());
+
+    await service.fetchOnce();
+    await service.fetchOnce();
+    expect(fetchUsage).toHaveBeenCalledTimes(1);
+
+    await service.refreshNow();
+    expect(fetchUsage).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not let a forced refresh bypass the terminal stop", async () => {
+    const fetchUsage = vi.fn().mockRejectedValue(new NotAuthenticatedError());
+    const gateway = { fetchUsage } as unknown as GatewaySlice;
+    service = makeService(gateway, makeActivityMonitor());
+    emitAuthState("org-1", "anonymous");
+
+    await service.fetchOnce();
+    // A forced fetch with no session cannot succeed.
+    await service.refreshNow();
+    expect(fetchUsage).toHaveBeenCalledTimes(1);
+  });
+
+  it("warns when it enters the terminal stop", async () => {
+    const fetchUsage = vi.fn().mockRejectedValue(new NotAuthenticatedError());
+    const gateway = { fetchUsage } as unknown as GatewaySlice;
+    service = makeService(gateway, makeActivityMonitor());
+
+    await service.fetchOnce();
+
+    expect(lastScopedLog.warn).toHaveBeenCalledWith(
+      expect.stringContaining("re-auth"),
+      { reason: "reauth_required" },
+    );
   });
 
   it("silently skips polls when the gateway throws", async () => {

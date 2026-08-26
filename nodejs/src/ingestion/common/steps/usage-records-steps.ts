@@ -1,7 +1,9 @@
+import { createHash } from 'node:crypto'
+
 import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { resolvePersonMode } from '~/ingestion/common/steps/event-processing/create-event'
 import { IngestedEventInfo } from '~/ingestion/common/steps/event-processing/emit-event-step'
-import { UsageKeyResolver } from '~/ingestion/common/usage-records/billable-events'
+import { EVENTS_USAGE_KEY, UsageKeyResolver } from '~/ingestion/common/usage-records/billable-events'
 import { BeforeBatchStep } from '~/ingestion/framework/batching-pipeline'
 import { PipelineResult, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
@@ -37,12 +39,19 @@ export interface RecordEventUsageInput {
  * is not that identity: two events sharing one but differing in day, name or distinct_id are
  * separate rows there, and the nightly report counts them separately, so billing must too.
  *
+ * Hashed rather than joined, because event names and distinct IDs are client-supplied and
+ * together exceed the 512-byte identifier the service accepts. One oversized record makes the
+ * service reject the whole request, which would drop every record batched with it.
+ *
  * The timestamp is UTC-normalized upstream, so its first ten characters are the same day
  * `toDate` resolves.
  */
 function analyticsRecordId(preparedEvent: RecordEventUsageInput['preparedEvent']): string {
     const day = preparedEvent.timestamp.slice(0, 10)
-    return `${day}:${preparedEvent.event}:${preparedEvent.distinctId}:${preparedEvent.eventUuid}`
+    // JSON rather than a separator: an event name and a distinct ID can both contain any
+    // character, so `a\nb` with `c` and `a` with `b\nc` would hash the same and bill once.
+    const identity = JSON.stringify([preparedEvent.event, preparedEvent.distinctId, preparedEvent.eventUuid])
+    return `${day}:${createHash('sha256').update(identity).digest('hex').slice(0, 32)}`
 }
 
 export interface EventUsageRecord {
@@ -88,10 +97,13 @@ export function createRecordEventUsageStep<T extends RecordEventUsageInput>(
         const { teamId } = input.preparedEvent
         const recordId = analyticsRecordId(input.preparedEvent)
         const eventUsageRecords: EventUsageRecord[] = [{ teamId, usageKey, recordId }]
-        // The report counts `person_mode IN ('full', 'force_upgrade')`, which is the mode stored on
-        // the event rather than the client's request. A force upgrade only fires when the client
-        // asked for propertyless, so branching on `processPerson` would miss exactly those events.
-        if (resolvePersonMode(input.person, input.processPerson ?? false) !== 'propertyless') {
+        // Mirrors the report's enhanced-persons query: the plain billable count plus a `person_mode`
+        // filter, so an event billed under its own key is outside both. Reading the mode stored on
+        // the event rather than `processPerson` keeps force upgrades counted.
+        if (
+            usageKey === EVENTS_USAGE_KEY &&
+            resolvePersonMode(input.person, input.processPerson ?? false) !== 'propertyless'
+        ) {
             eventUsageRecords.push({ teamId, usageKey: 'enhanced_person_events', recordId })
         }
         return Promise.resolve(ok({ ...input, eventUsageRecords }))
@@ -123,8 +135,9 @@ export function createRecordEventUsageAfterIngestStep<T extends RecordEventUsage
     }
 }
 
+/** Ends the batch's usage reporting: the batch object goes away after this, so it drains. */
 export function createFlushEventUsageStep<T extends { batchContext: EventUsageBatchContext }>(): ProcessingStep<T, T> {
     return function flushEventUsageStep(input: T): Promise<PipelineResult<T>> {
-        return Promise.resolve(ok(input, [input.batchContext.eventUsageBatch.flush()]))
+        return Promise.resolve(ok(input, [input.batchContext.eventUsageBatch.drain()]))
     }
 }
