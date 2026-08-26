@@ -39,6 +39,11 @@
                     min-width: 0;
                 }
 
+                // ...but a row with a sibling entry point keeps the two buttons adjacent
+                .property-filter-row--with-suffix .TaxonomicPropertyFilter {
+                    flex: 0 0 auto;
+                }
+
                 // Propagate min-width:0 through the filter chain
                 .ActionFilterRow,
                 .ActionFilterRow-filters,

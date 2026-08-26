@@ -103,7 +103,7 @@ The CLI uploads directly to S3 via presigned POST URLs — the backend never pro
 
 ### Commands
 
-**`vr submit`** — single-command flow. Scans a directory, hashes PNGs, creates a run with full manifest, uploads, and completes. Default `--purpose review` (gating, exits 1 on unapproved changes). Pass `--purpose observe` on master/non-PR runs for tracking-only (won't block, won't prompt for approval). Pass `--auto-approve` to approve everything and write the signed baseline (forces `--purpose review`).
+**`vr submit`** — single-command flow. Scans a directory, hashes PNGs, creates a run with full manifest, uploads, and completes. Default `--purpose review` (gating, exits 1 on unapproved changes). Pass `--purpose observe` on master/non-PR runs for tracking-only (no approval prompt). An observe run still exits 1 on snapshot drift, so pass `--tolerate-drift` too where a red job is not wanted. Pass `--auto-approve` to approve everything and write the signed baseline (forces `--purpose review`).
 
 **`vr verify`** — local baseline check without API. Hashes PNGs in a directory and compares against `snapshots.yml`. No backend involvement.
 
@@ -114,13 +114,15 @@ The CLI uploads directly to S3 via presigned POST URLs — the backend never pro
 **`vr run complete`** — triggers completion (classification, removal detection, diffs).
 Exits 1 if unapproved changes are detected, 0 if clean or `--auto-approve` is set, and 2 if the command itself failed (auth, network, timeout, backend processing).
 Pass the same `--purpose` the run was created with.
-On `--purpose observe` the command names the drifted identifiers, emits a `::warning::` annotation, and exits 0, because a tracking-only run has nothing to approve and must not gate.
-Without the flag it reports nothing on such a run: the backend reports zero unresolved for an observe run whatever drifted, so a clean run and a drifting one look identical.
+On `--purpose observe` the command names the drifted identifiers, emits a `::warning::` annotation, and exits 1.
+The CLI has to be the one to say so: the backend reports zero unresolved for an observe run whatever drifted, so a clean run and a drifting one look identical to it.
+Add `--tolerate-drift` to report the drift and still exit 0. Use it on the default branch, where there is no merge left to stop and a red job would block the repair too.
 
 ### Run purposes
 
 - **`review`** (default) — approvable. Backend posts PR comment prompts; UI surfaces it under "needs review"; CLI gates on unapproved changes.
-- **`observe`** — tracking only. Backend rejects approval attempts; no PR comment; excluded from "needs review". The commit status is posted green (`success`, "Tracking only…") to a separate, non-gating `… (tracking)` context — never the gating `PostHog Visual Review / {run_type}` one. `purpose` is client-supplied, so greening the gating context would let an observe run bypass branch protection on a PR head SHA; the separate context keeps observe runs informational-only (like `(partial)` runs). The UI hides all approval affordances. Use on master pushes where there's no PR to approve.
+- **`observe`** — tracking only. Backend rejects approval attempts; no PR comment; excluded from "needs review". The commit status is posted green (`success`, "Tracking only…") to a separate, non-gating `… (tracking)` context — never the gating `PostHog Visual Review / {run_type}` one. `purpose` is client-supplied, so greening the gating context would let an observe run bypass branch protection on a PR head SHA; the separate context keeps observe runs informational-only (like `(partial)` runs). The UI hides all approval affordances. Use on master pushes and merge-queue branches, where there's no PR to approve.
+  The commit status never gates, but the exit code of `vr run complete` still does, and that is where a caller chooses. A merge-queue branch renders the tree about to land, so it lets drift fail the job. Master passes `--tolerate-drift` instead.
 
 ## Current state
 
