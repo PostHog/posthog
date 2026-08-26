@@ -649,7 +649,11 @@ def validate_bigquery_credentials(
             return False, BIGQUERY_INVALID_KEY_FILE_ERROR
         if "invalid_grant" in message:
             return False, BIGQUERY_CREDENTIALS_REJECTED_ERROR
-        if "Invalid project ID" in message or "Invalid dataset ID" in message:
+        if (
+            "Invalid project ID" in message
+            or "Invalid dataset ID" in message
+            or "ProjectId must be non-empty" in message
+        ):
             return False, BIGQUERY_INVALID_IDENTIFIER_ERROR
         if "was not found in location" in message or "Not found: Dataset" in message:
             return False, BIGQUERY_DATASET_NOT_FOUND_ERROR
@@ -1208,9 +1212,16 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
             raise BigQueryDatasetNotFoundError(BIGQUERY_DATASET_NOT_FOUND_ERROR) from e
         except BadRequest as e:
             # A bad project/dataset ID surfaces as "400 Invalid project ID ..." / "Invalid dataset ID
-            # ...". Convert it to an actionable message; anything else is a genuine BadRequest we leave
-            # to propagate (including the transient job-internal-error the query retry predicate covers).
-            if "Invalid dataset ID" not in str(e) and "Invalid project ID" not in str(e):
+            # ...", or as "400 ... ProjectId must be non-empty" when the value carries an underscore
+            # (a character project IDs forbid). Convert it to an actionable message; anything else is a
+            # genuine BadRequest we leave to propagate (including the transient job-internal-error the
+            # query retry predicate covers).
+            message = str(e)
+            if (
+                "Invalid dataset ID" not in message
+                and "Invalid project ID" not in message
+                and "ProjectId must be non-empty" not in message
+            ):
                 raise
             structlog.get_logger().warning(
                 "BigQuery rejected an invalid project/dataset ID during schema discovery: %s", e

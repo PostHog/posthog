@@ -184,7 +184,9 @@ def test_bigquery_get_columns_raises_friendly_error_when_dataset_not_found():
     assert BIGQUERY_DATASET_NOT_FOUND_ERROR in BigQuerySource().get_non_retryable_errors()
 
 
-@pytest.mark.parametrize("phrase", ['Invalid dataset ID "(default)"', 'Invalid project ID "bad id"'])
+@pytest.mark.parametrize(
+    "phrase", ['Invalid dataset ID "(default)"', 'Invalid project ID "bad id"', "ProjectId must be non-empty"]
+)
 def test_bigquery_get_columns_raises_friendly_error_for_invalid_identifier(phrase):
     """A syntactically invalid project/dataset ID surfaces as a raw 400 `BadRequest` from
     `client.query()`. Schema discovery must re-raise it with actionable wording instead of leaking
@@ -1138,6 +1140,7 @@ def test_bigquery_validate_credentials_missing_fields_reports_actionable_message
         ),
         (RefreshError("('invalid_grant: Invalid JWT Signature.', {})"), BIGQUERY_CREDENTIALS_REJECTED_ERROR, False),
         (BadRequest('Invalid dataset ID "(default)"'), BIGQUERY_INVALID_IDENTIFIER_ERROR, False),
+        (BadRequest("400 ProjectId must be non-empty"), BIGQUERY_INVALID_IDENTIFIER_ERROR, False),
         (
             NotFound("404 Not found: Dataset my-project:my_dataset was not found in location US"),
             BIGQUERY_DATASET_NOT_FOUND_ERROR,
