@@ -64,7 +64,7 @@ def start_signup_enrichment_workflow(
     # The flag alone gates dispatch. Deliberately no provider-key check here: the key lives
     # only on the workers, and a keyless worker fails loudly into the launch alert instead of
     # web pods silently never dispatching (also keeps the key off the public web fleet).
-    if not get_instance_setting("GROWTH_SIGNUP_ENRICHMENT_ENABLED"):
+    if not _enrichment_enabled():
         return
     # Cloud only — self-hosted has no Harmonic key or internal project to score against. The
     # instance setting above is the real per-region toggle.
@@ -128,6 +128,16 @@ def _dispatch_and_release(inputs: SignupEnrichmentInputs) -> None:
         _dispatch(inputs)
     finally:
         _dispatch_slots.release()
+
+
+def _enrichment_enabled() -> bool:
+    # Reading the instance setting hits the database on a cache miss, and signup must never fail
+    # or stall on it. A failed read means enrichment does not run for that signup.
+    try:
+        return bool(get_instance_setting("GROWTH_SIGNUP_ENRICHMENT_ENABLED"))
+    except Exception as e:
+        capture_exception(e)
+        return False
 
 
 def _geoip_country_code(ip_address: str | None) -> str | None:

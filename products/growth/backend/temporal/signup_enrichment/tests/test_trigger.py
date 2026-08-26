@@ -77,6 +77,21 @@ def test_kill_switch_off_never_dispatches_or_writes():
     record_mock.assert_not_called()
 
 
+@override_settings(HARMONIC_API_KEY="key")
+def test_kill_switch_read_failure_never_reaches_signup():
+    on_commit, connect, run, region, record = _dispatch_mocks()
+    setting_read_fails = patch(
+        "products.growth.backend.temporal.signup_enrichment.trigger.get_instance_setting",
+        side_effect=RuntimeError("db down"),
+    )
+    with on_commit, connect as connect_mock, run, region, record as record_mock, setting_read_fails:
+        with patch("products.growth.backend.temporal.signup_enrichment.trigger.capture_exception") as capture_mock:
+            start_signup_enrichment_workflow(organization_id="org-1", distinct_id="d1", email="founder@stripe.com")
+    connect_mock.assert_not_called()
+    record_mock.assert_not_called()
+    capture_mock.assert_called_once()
+
+
 @override_settings(HARMONIC_API_KEY="")
 def test_missing_harmonic_key_still_dispatches():
     # The key lives on the workers only; web-side dispatch must not depend on it. A keyless
