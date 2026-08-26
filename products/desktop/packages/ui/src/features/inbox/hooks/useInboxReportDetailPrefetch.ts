@@ -6,19 +6,19 @@ import { useCallback, useMemo } from "react";
 
 export type InboxDetailRoute =
   | {
-      to: "/code/inbox/pulls/$reportId";
+      to: "/inbox/pulls/$reportId";
       params: { reportId: string };
     }
   | {
-      to: "/code/inbox/reports/$reportId";
+      to: "/inbox/reports/$reportId";
       params: { reportId: string };
     }
   | {
-      to: "/code/inbox/runs/$reportId";
+      to: "/inbox/runs/$reportId";
       params: { reportId: string };
     }
   | {
-      to: "/code/inbox/dismissed/$reportId";
+      to: "/inbox/dismissed/$reportId";
       params: { reportId: string };
     };
 

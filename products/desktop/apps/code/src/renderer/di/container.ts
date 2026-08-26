@@ -26,6 +26,7 @@ import {
   EXTERNAL_APPS_WORKSPACE_CLIENT,
   type ExternalAppsWorkspaceClient,
 } from "@posthog/core/external-apps/identifiers";
+import { FILE_READ_CLIENT } from "@posthog/core/files/identifiers";
 import { GitInteractionService } from "@posthog/core/git-interaction/gitInteractionService";
 import {
   GIT_INTERACTION_EFFECTS,
@@ -60,7 +61,6 @@ import {
 } from "@posthog/core/sessions/sessionService";
 import { sessionsModule } from "@posthog/core/sessions/sessions.module";
 import {
-  TITLE_GENERATOR_FILE_READ_CLIENT,
   TITLE_GENERATOR_GITHUB_PR_TITLE_CLIENT,
   TITLE_GENERATOR_LOGGER,
 } from "@posthog/core/sessions/titleGeneratorIdentifiers";
@@ -217,10 +217,12 @@ container.bind(CONNECTIVITY_CLIENT).toConstantValue(connectivityClient);
 const browserTabsClient: BrowserTabsClient = {
   getSnapshot: () => trpcClient.browserTabs.getSnapshot.query(),
   getPrimaryWindowId: () => trpcClient.browserTabs.getPrimaryWindowId.query(),
-  openOrFocus: (input) => trpcClient.browserTabs.openOrFocus.mutate(input),
-  newBlankTab: (input) => trpcClient.browserTabs.newBlankTab.mutate(input),
+  reset: () => trpcClient.browserTabs.reset.mutate(),
+  openTab: (input) => trpcClient.browserTabs.openTab.mutate(input),
   setTabTarget: (input) => trpcClient.browserTabs.setTabTarget.mutate(input),
   close: (tabId) => trpcClient.browserTabs.close.mutate({ tabId }),
+  closeMany: (input) => trpcClient.browserTabs.closeMany.mutate(input),
+  setOrder: (input) => trpcClient.browserTabs.setOrder.mutate(input),
   setActiveTab: (input) => trpcClient.browserTabs.setActiveTab.mutate(input),
   onSnapshotChange: (sub) =>
     trpcClient.browserTabs.onSnapshotChange.subscribe(undefined, sub),
@@ -505,7 +507,7 @@ container.bind(LLM_GATEWAY_SERVICE).toConstantValue({
       model: options.model,
     }),
 } as unknown as LlmGatewayService);
-container.bind(TITLE_GENERATOR_FILE_READ_CLIENT).toConstantValue({
+container.bind(FILE_READ_CLIENT).toConstantValue({
   readAbsoluteFile: (filePath: string) =>
     trpcClient.fs.readAbsoluteFile.query({ filePath }),
 });

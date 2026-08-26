@@ -2,12 +2,7 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import SourceFieldInputConfig
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.cdc_open_data import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.cdc_open_data.cdc_open_data import (
-    CdcOpenDataResumeConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.cdc_open_data.settings import (
     MAX_DATASET_IDS,
     SOCRATA_UPDATED_AT_FIELD,
@@ -16,26 +11,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cdc_open_d
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cdcopendata import (
     CdcOpenDataSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestCdcOpenDataSource:
     def setup_method(self) -> None:
         self.source = CdcOpenDataSource()
         self.config = CdcOpenDataSourceConfig(dataset_ids="9bhg-hcku, vbim-akqf\nhk9y-quqm", app_token=None)
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.CDCOPENDATA
-
-    def test_config_exposes_dataset_ids_and_app_token_fields(self) -> None:
-        fields = self.source.get_source_config.fields
-        assert [f.name for f in fields] == ["dataset_ids", "app_token"]
-        dataset_ids_field = next(f for f in fields if f.name == "dataset_ids")
-        app_token_field = next(f for f in fields if f.name == "app_token")
-        assert isinstance(dataset_ids_field, SourceFieldInputConfig)
-        assert isinstance(app_token_field, SourceFieldInputConfig)
-        assert dataset_ids_field.required is True
-        assert app_token_field.required is False
 
     def test_ships_released_on_alpha(self) -> None:
         # A finished source must not carry `unreleasedSource=True` (that hides it entirely);
@@ -128,11 +109,6 @@ class TestCdcOpenDataSource:
         ) as mock_validate:
             self.source.validate_credentials(self.config, team_id=1, schema_name="not-configured")
         mock_validate.assert_called_once_with("", "9bhg-hcku")
-
-    def test_resumable_manager_bound_to_resume_config(self) -> None:
-        inputs = mock.MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-        assert manager._data_class is CdcOpenDataResumeConfig
 
     @parameterized.expand(
         [

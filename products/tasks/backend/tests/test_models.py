@@ -160,12 +160,14 @@ class TestTask(TestCase):
                 origin_product=Task.OriginProduct.SLACK,
                 user_id=user.id,
                 repository="posthog/posthog",
+                runtime=Task.Runtime.PI,
                 initial_permission_mode="bypassPermissions",
             )
 
         run_id = mock_execute_workflow.call_args.kwargs["run_id"]
         task_run = TaskRun.objects.get(id=run_id)
         self.assertEqual(task_run.state["initial_permission_mode"], "bypassPermissions")
+        self.assertEqual(task.runtime, Task.Runtime.PI)
         self.assertEqual(task.origin_product, Task.OriginProduct.SLACK)
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
@@ -858,6 +860,8 @@ class TestTaskRun(TestCase):
                 "sandbox_id": "old-sandbox",
                 "sandbox_url": "https://old-sandbox.test",
                 "sandbox_jwt_kid": "old-key",
+                "sandbox_connect_token": "old-tunnel-token",
+                "sandbox_backend": "hogland",
                 "snapshot_external_id": "snapshot-1",
                 "pending_user_message": "Review the attachment",
                 "pending_user_artifact_ids": ["artifact-1"],
@@ -869,6 +873,10 @@ class TestTaskRun(TestCase):
         self.assertNotIn("sandbox_id", run.state)
         self.assertNotIn("sandbox_url", run.state)
         self.assertNotIn("sandbox_jwt_kid", run.state)
+        self.assertNotIn("sandbox_connect_token", run.state)
+        # The provider stamp must not survive; a stale `hogland` would otherwise outrank
+        # the EU guard and Modal-only fallbacks when the handed-off run re-resolves.
+        self.assertNotIn("sandbox_backend", run.state)
         self.assertNotIn("pending_user_message", run.state)
         self.assertNotIn("pending_user_artifact_ids", run.state)
         self.assertEqual(run.state["snapshot_external_id"], "snapshot-1")

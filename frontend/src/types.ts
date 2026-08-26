@@ -8,7 +8,6 @@ import { LayoutItem } from 'react-grid-layout'
 import { LemonTableColumns } from '@posthog/lemon-ui'
 
 import { PaginatedResponse } from 'lib/api'
-import { ChartDataset, ChartType, InteractionItem } from 'lib/Chart'
 import { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import { HedgehogActorOptions } from 'lib/components/HedgehogMode/types'
 import { SessionRecordingTriggerGroupsConfig, UrlTriggerConfig } from 'lib/components/IngestionControls/types'
@@ -86,6 +85,7 @@ import type {
     SyncFrequencyBoundsApi,
 } from 'products/data_warehouse/frontend/generated/api.schemas'
 import type { ExperimentFeatureFlagInputApi } from 'products/experiments/frontend/generated/api.schemas'
+import type { IntegrationConfigApi } from 'products/integrations/frontend/generated/api.schemas'
 import type { CommentSlackThreadRefApi } from 'products/platform_features/frontend/generated/api.schemas'
 import type { InsightFilterOverrideContextApi } from 'products/product_analytics/frontend/generated/api.schemas'
 import type { AIPromptConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
@@ -294,6 +294,7 @@ export enum AccessControlResourceType {
     Dashboard = 'dashboard',
     DashboardTemplate = 'dashboard_template',
     LlmAnalytics = 'llm_analytics',
+    Evaluation = 'evaluation',
     Tagger = 'tagger',
     LlmSkill = 'llm_skill',
     LlmPlayground = 'llm_playground',
@@ -607,12 +608,7 @@ export interface OrganizationDomainType {
     verification_challenge: string
     jit_provisioning_enabled: boolean
     sso_enforcement: SSOProvider | ''
-    has_saml: boolean
-    has_scim?: boolean
     scim_base_url?: string
-    has_id_jag?: boolean
-    /** Linked IdP config (SAML/SCIM/XAA) — the sole read/write interface for those settings. */
-    identity_provider_config?: string | null
 }
 
 export interface SCIMRequestLogType {
@@ -1168,6 +1164,8 @@ export enum PropertyFilterType {
     Feature = 'feature',
     Session = 'session',
     Cohort = 'cohort',
+    /** Person performed (or didn't perform) an event in a time window. ClickHouse-only — not evaluable by flags or CDP */
+    Behavioral = 'behavioral',
     Recording = 'recording',
     LogEntry = 'log_entry',
     Group = 'group',
@@ -1278,6 +1276,47 @@ export interface GroupPropertyFilter extends BasePropertyFilter {
     group_key_names?: Record<string, string>
 }
 
+/** The subset of cohort behavioral criteria supported by the inline `BehavioralPropertyFilter` */
+export type InlineBehavioralType = BehavioralEventType.PerformEvent | BehavioralEventType.PerformMultipleEvents
+
+/** Whether a behavioral filter's `key` refers to an event name or an action id */
+export type BehavioralEventSource = 'events' | 'actions'
+
+/** Filters persons on whether they performed an event in a time window, without a saved cohort. Event scope only. */
+export interface BehavioralPropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.Behavioral
+    value: InlineBehavioralType
+    /** Event name, or action id when event_type is 'actions' */
+    key: string
+    event_type: BehavioralEventSource
+    /** Match persons who did NOT satisfy the criterion. Not the same as a low count — zero-occurrence persons never match count operators */
+    negation?: boolean
+    /** Count comparison for performed_event_multiple, defaults to exact */
+    operator?: PropertyOperator
+    /**
+     * Count threshold for performed_event_multiple
+     * @asType integer
+     */
+    operator_value?: number
+    /**
+     * Relative time window size, paired with time_interval
+     * @asType integer
+     */
+    time_value?: number
+    time_interval?: TimeUnitType
+    /** Absolute or relative (e.g. -30d) lower date bound — alternative to time_value/time_interval */
+    explicit_datetime?: string
+    explicit_datetime_to?: string
+    /** Extra property filters the matching events must satisfy. Deliberately excludes nested behavioral/cohort filters and groups */
+    event_filters?: (
+        | EventPropertyFilter
+        | PersonPropertyFilter
+        | ElementPropertyFilter
+        | FeaturePropertyFilter
+        | HogQLPropertyFilter
+    )[]
+}
+
 export type LogPropertyFilterType =
     | PropertyFilterType.Log
     | PropertyFilterType.LogAttribute
@@ -1359,6 +1398,7 @@ export type AnyPropertyFilter =
     | RevenueAnalyticsPropertyFilter
     | AccountCustomPropertyFilter
     | WorkflowVariablePropertyFilter
+    | BehavioralPropertyFilter
 
 /** Any filter type supported by `property_to_expr(scope="person", ...)`. */
 export type AnyPersonScopeFilter =
@@ -1693,6 +1733,8 @@ export interface PersonListParams {
     distinct_id?: string
     include_total?: boolean // PostHog 3000-only
     limit?: number
+    /** Names the ClickHouse query so `api.cancelQuery` can stop it. Up to 128 characters. */
+    client_query_id?: string
 }
 
 export type SearchableEntity =
@@ -5230,65 +5272,45 @@ export interface ProjectTreeBreadcrumb extends BreadcrumbBase {
 }
 export type Breadcrumb = LinkBreadcrumb | RenamableBreadcrumb | SymbolBreadcrumb | ProjectTreeBreadcrumb
 
-export type GraphDataset = ChartDataset<ChartType> &
-    Partial<
-        Pick<
-            TrendResult,
-            | 'count'
-            | 'label'
-            | 'days'
-            | 'labels'
-            | 'data'
-            | 'compare'
-            | 'compare_label'
-            | 'status'
-            | 'action'
-            | 'actions'
-            | 'breakdown_value'
-            | 'persons_urls'
-            | 'persons'
-            | 'filter'
-        >
-    > & {
-        /** Used in filtering out visibility of datasets. Set internally by chart.js */
-        id: number
-        /** Toggled on to draw incompleteness lines in LineGraph.tsx */
-        dotted?: boolean
-        /** Array of breakdown values used only in ActionsHorizontalBar/ActionsPie.tsx data */
-        breakdownValues?: (string | number | string[] | undefined)[]
-        /** Array of breakdown labels used only in ActionsHorizontalBar/ActionsPie.tsx data */
-        breakdownLabels?: (string | number | undefined)[]
-        /** Array of compare labels used only in ActionsHorizontalBar/ActionsPie.tsx data */
-        compareLabels?: (CompareLabelType | undefined | null)[]
-        /** Array of persons used only in (ActionsHorizontalBar|ActionsPie).tsx */
-        personsValues?: (Person | undefined | null)[]
-        index?: number
-        /** Value (count) for specific data point; only valid in the context of an xy intercept */
-        pointValue?: number
-        /** Value (count) for specific data point; only valid in the context of an xy intercept */
-        personUrl?: string
-        /** Action/event filter defition */
-        action?: ActionFilter | null
-        yAxisID?: string
-    }
-
-export type GraphPoint = InteractionItem & { dataset: GraphDataset }
-
-interface PointsPayload {
-    pointsIntersectingLine: GraphPoint[]
-    pointsIntersectingClick: GraphPoint[]
-    clickedPointNotLine: boolean
-    referencePoint: GraphPoint
-}
-
-export interface GraphPointPayload {
-    points: PointsPayload
-    index: number
-    value?: number
-    /** Contains the dataset for all the points in the same x-axis point; allows switching between matching points in the x-axis */
-    crossDataset?: GraphDataset[]
-    /** ID for the currently selected series */
-    seriesId?: number
+export type GraphDataset = Partial<
+    Pick<
+        TrendResult,
+        | 'count'
+        | 'label'
+        | 'days'
+        | 'labels'
+        | 'data'
+        | 'compare'
+        | 'compare_label'
+        | 'status'
+        | 'action'
+        | 'actions'
+        | 'breakdown_value'
+        | 'persons_urls'
+        | 'persons'
+        | 'filter'
+    >
+> & {
+    /** Used in filtering out visibility of datasets. Set internally by chart.js */
+    id: number
+    /** Toggled on to draw incompleteness lines in LineGraph.tsx */
+    dotted?: boolean
+    /** Array of breakdown values used only in ActionsHorizontalBar/ActionsPie.tsx data */
+    breakdownValues?: (string | number | string[] | undefined)[]
+    /** Array of breakdown labels used only in ActionsHorizontalBar/ActionsPie.tsx data */
+    breakdownLabels?: (string | number | undefined)[]
+    /** Array of compare labels used only in ActionsHorizontalBar/ActionsPie.tsx data */
+    compareLabels?: (CompareLabelType | undefined | null)[]
+    /** Array of persons used only in (ActionsHorizontalBar|ActionsPie).tsx */
+    personsValues?: (Person | undefined | null)[]
+    index?: number
+    /** Value (count) for specific data point; only valid in the context of an xy intercept */
+    pointValue?: number
+    /** Value (count) for specific data point; only valid in the context of an xy intercept */
+    personUrl?: string
+    /** Action/event filter defition */
+    action?: ActionFilter | null
+    yAxisID?: string
 }
 
 export enum CompareLabelType {
@@ -5595,6 +5617,10 @@ export interface IntegrationType {
     created_by?: UserBasicType | null
     created_at: string
     errors?: string
+    /** GitHub only. When false, disconnecting also uninstalls the App from GitHub. */
+    installation_shared?: IntegrationConfigApi['installation_shared']
+    /** GitHub only. `unavailable` once the App was removed or suspended on GitHub. */
+    installation_status?: IntegrationConfigApi['installation_status']
 }
 
 export interface EmailIntegrationDomainGroupedType {

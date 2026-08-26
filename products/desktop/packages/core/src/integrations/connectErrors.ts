@@ -1,3 +1,5 @@
+import { requestErrorStatus } from "@posthog/api-client/fetcher";
+
 export interface GithubConnectError {
   message: string;
   code: string | null;
@@ -5,6 +7,27 @@ export interface GithubConnectError {
 
 export const GITHUB_CONNECT_TIMEOUT_MESSAGE =
   "We didn't hear back from GitHub. If your organization requires approval to install the PostHog app, ask a GitHub org owner to approve it, then connect again.";
+
+export const GITHUB_INSTALL_PENDING_MESSAGE =
+  "GitHub sent your request to your organization owners. Once an owner approves the PostHog app, we'll finish connecting here.";
+
+/**
+ * A disconnect that 404s means the row is already gone, usually because the App was
+ * uninstalled on GitHub and the webhook cleaned up first. That is the outcome the user
+ * wanted, so callers treat it as success and refresh rather than surface a failure.
+ *
+ * A typed error carries its status, so that decides on its own. The message match is only
+ * for untyped callers — a 400 body that happens to read "not found" (the blocker names the
+ * pipelines and workflows still using the integration) is a real failure.
+ */
+export function isAlreadyDisconnectedError(error: unknown): boolean {
+  const status = requestErrorStatus(error);
+  if (status !== undefined) return status === 404;
+  return (
+    error instanceof Error &&
+    /\[404\]|not found|No GitHub integration found/i.test(error.message)
+  );
+}
 
 export const GITHUB_CONNECT_ERROR_MESSAGES: Record<string, string> = {
   access_denied:
@@ -53,4 +76,28 @@ export function describeGithubConnectError(
     return GITHUB_CONNECT_ERROR_MESSAGES[error.code];
   }
   return error.message;
+}
+
+/**
+ * A message for a failed team-integration disconnect. The backend refuses with a 403 for
+ * non-admins and with a validation detail when pipelines or workflows still use the
+ * integration; that detail is the actionable part, so it is shown verbatim.
+ */
+export function describeIntegrationDisconnectError(
+  error: unknown,
+  fallback: string,
+): string {
+  if (requestErrorStatus(error) === 403) {
+    return "Only project admins can disconnect this integration.";
+  }
+  const body =
+    error && typeof error === "object" && "body" in error
+      ? (error as { body?: unknown }).body
+      : null;
+  const detail =
+    body && typeof body === "object" && "detail" in body
+      ? (body as { detail?: unknown }).detail
+      : null;
+  if (typeof detail === "string" && detail) return detail;
+  return error instanceof Error ? error.message : fallback;
 }

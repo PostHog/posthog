@@ -18,7 +18,10 @@ from dataclasses import asdict
 from typing import Any, cast
 from uuid import UUID
 
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.validators import DomainNameValidator
 from django.db import transaction
+from django.http import HttpResponse
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
@@ -33,6 +36,7 @@ from rest_framework.throttling import UserRateThrottle
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemViewSetMixin
+from posthog.cdp.services.icons import CDPIconsService
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
 from posthog.helpers.impersonation import is_impersonated
@@ -45,11 +49,14 @@ from posthog.permissions import (
     is_service_auth,
 )
 from posthog.rate_limit import RunSavedQueryRateThrottle
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControl, model_to_resource
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl, model_to_resource
+from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.customer_analytics.backend.facade import api, contracts
-from products.customer_analytics.backend.facade.constants import CUSTOMER_ANALYTICS_FEATURE_REQUESTS_FLAG
+from products.customer_analytics.backend.facade.constants import (
+    CUSTOMER_ANALYTICS_FEATURE_REQUESTS_FLAG,
+    CUSTOMER_ANALYTICS_TRACK_RULES_FLAG,
+)
 from products.customer_analytics.backend.presentation.views.serializers import (
     AccountChannelSummarySerializer,
     AccountEmailThreadMessageSerializer,
@@ -60,6 +67,10 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     AccountRelationshipSerializer,
     AccountRelationshipWriteSerializer,
     AccountSerializer,
+    AccountTrackRulePreviewSerializer,
+    AccountTrackRuleRunRequestSerializer,
+    AccountTrackRuleRunSerializer,
+    AccountTrackRulesConfigSerializer,
     CalendarSyncStatusSerializer,
     CalendarSyncTriggerResponseSerializer,
     CalendarSyncTriggerSerializer,
@@ -101,6 +112,8 @@ from ee.hogai.tools.create_notebook.tiptap import markdown_to_tiptap_nodes
 # reads need "viewer", writes need "editor".
 _OBJECT_READ_LEVEL = "viewer"
 _OBJECT_WRITE_LEVEL = "editor"
+
+_ICON_DOMAIN_VALIDATOR = DomainNameValidator(accept_idna=False)
 
 
 # The warehouse resources a person/group-property source can bind to: the import source behind a
@@ -219,6 +232,169 @@ def _has_group_scope(request: Request, *, write: bool) -> bool:
 def _assert_group_scope(request: Request, *, write: bool) -> None:
     if not _has_group_scope(request, write=write):
         raise PermissionDenied(f"This action requires the `group:{'write' if write else 'read'}` API scope.")
+
+
+class AccountTrackRuleThrottle(UserRateThrottle):
+    scope = "account_track_rules"
+    rate = "10/minute"
+
+
+class AccountTrackRuleViewSet(
+    TeamAndOrgViewSetMixin,
+    AccessControlViewSetMixin,
+    _FacadePaginationMixin,
+    viewsets.GenericViewSet,
+):
+    scope_object = "customer_analytics"
+    serializer_class = AccountTrackRulesConfigSerializer
+    queryset = None
+    pagination_class = None
+    permission_classes = [PostHogFeatureFlagPermission, TeamMemberStrictManagementPermission]
+    posthog_feature_flag = CUSTOMER_ANALYTICS_TRACK_RULES_FLAG
+
+    @classmethod
+    def as_view(cls, actions=None, **initkwargs):
+        if actions and actions.get("get") == "list":
+            actions = {**actions, "put": "update_config"}
+        return super().as_view(actions, **initkwargs)
+
+    def dangerously_get_required_scopes(self, _request: Request, _view: Any) -> list[str] | None:
+        if self.action == "update_config":
+            return ["customer_analytics:write"]
+        return None
+
+    @extend_schema(responses={200: AccountTrackRulesConfigSerializer(many=False)})
+    def list(self, request: Request, *args, **kwargs) -> Response:
+        config = api.get_account_track_rules(self.team_id)
+        return Response(AccountTrackRulesConfigSerializer(instance=config).data)
+
+    def _report_usage(self, request: Request, event: str, **properties: Any) -> None:
+        report_user_action(cast(User, request.user), event, properties, team=self.team)
+
+    @extend_schema(
+        request=AccountTrackRulesConfigSerializer,
+        responses={200: AccountTrackRulesConfigSerializer},
+    )
+    def update_config(self, request: Request, *args, **kwargs) -> Response:
+        serializer = AccountTrackRulesConfigSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            config = api.update_account_track_rules(
+                team_id=self.team_id,
+                raw_config=dict(serializer.validated_data),
+                user=cast(User, request.user),
+                organization_id=self.organization.id,
+                was_impersonated=is_impersonated(request),
+            )
+        except api.AccountTrackRuleValidationError as error:
+            raise ValidationError({"validation_errors": error.errors})
+        except api.AccountTrackRuleVersionConflict as error:
+            raise Conflict(str(error))
+        self._report_usage(
+            request,
+            "account track rules config saved",
+            schema_version=config.schema_version,
+            config_version=config.version,
+            enabled=config.enabled,
+            group_count=len(config.groups),
+            condition_count=sum(len(group.conditions) for group in config.groups),
+        )
+        return Response(AccountTrackRulesConfigSerializer(instance=config).data)
+
+    @extend_schema(
+        request=AccountTrackRulesConfigSerializer,
+        responses={200: AccountTrackRulePreviewSerializer},
+    )
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="preview",
+        required_scopes=["customer_analytics:write"],
+        throttle_classes=[AccountTrackRuleThrottle],
+    )
+    def preview(self, request: Request, *args, **kwargs) -> Response:
+        raw_config = None
+        if request.data:
+            serializer = AccountTrackRulesConfigSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            raw_config = dict(serializer.validated_data)
+        try:
+            preview = api.preview_account_track_rules(self.team_id, raw_config)
+        except api.AccountTrackRuleValidationError as error:
+            self._report_usage(request, "account track rules preview failed", failure_type="validation")
+            raise ValidationError({"validation_errors": error.errors})
+        self._report_usage(
+            request,
+            "account track rules preview completed",
+            config_version=preview.config_version,
+            eligible_active=preview.eligible_active,
+            skipped_churned=preview.skipped_churned,
+            tracked=preview.tracked,
+            ignored=preview.ignored,
+            newly_ignored=preview.newly_ignored,
+            restored=preview.restored,
+        )
+        return Response(AccountTrackRulePreviewSerializer(instance=preview).data)
+
+    @extend_schema(
+        request=AccountTrackRuleRunRequestSerializer,
+        responses={202: AccountTrackRuleRunSerializer},
+    )
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="run",
+        required_scopes=["customer_analytics:write"],
+        throttle_classes=[AccountTrackRuleThrottle],
+    )
+    def run(self, request: Request, *args, **kwargs) -> Response:
+        serializer = AccountTrackRuleRunRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            run, started = api.trigger_account_track_rule_run(
+                team_id=self.team_id,
+                idempotency_key=data["idempotency_key"],
+                user_id=cast(User, request.user).id,
+            )
+        except api.AccountTrackRuleValidationError as error:
+            self._report_usage(request, "account track rules run start failed", failure_type="validation")
+            raise ValidationError({"validation_errors": error.errors})
+        except api.AccountTrackRuleRunError as error:
+            self._report_usage(request, "account track rules run start failed", failure_type="disabled")
+            raise ValidationError({"detail": str(error)})
+        except api.AccountTrackRuleRunAlreadyActive as error:
+            self._report_usage(request, "account track rules run start failed", failure_type="overlap")
+            raise Conflict(str(error))
+        if started:
+            self._report_usage(
+                request,
+                "account track rules run started",
+                config_version=run.config_version,
+                trigger=run.trigger,
+            )
+        return Response(AccountTrackRuleRunSerializer(instance=run).data, status=status.HTTP_202_ACCEPTED)
+
+    @extend_schema(
+        responses={200: AccountTrackRuleRunSerializer(many=True)},
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="runs",
+        pagination_class=LimitOffsetPagination,
+        required_scopes=["customer_analytics:read"],
+    )
+    def runs(self, request: Request, *args, **kwargs) -> Response:
+        return self._paginate_via_facade(
+            request,
+            lambda offset, limit: api.list_account_track_rule_runs(
+                self.team_id,
+                offset=offset,
+                limit=limit,
+            ),
+            AccountTrackRuleRunSerializer,
+        )
 
 
 class FeatureRequestProductAreaViewSet(
@@ -1593,6 +1769,25 @@ class AccountViewSet(
         if view.action in {"support_tickets", "support_ticket", "email_threads", "email_thread"}:
             return ["account:read", "ticket:read"]
         return None
+
+    # Image bytes for <img src>; deliberately outside the typed client surface.
+    @extend_schema(exclude=True)
+    @action(methods=["GET"], detail=False, required_scopes=["account:read"])
+    def icon(self, request: Request, *args, **kwargs) -> HttpResponse:
+        domain = request.query_params.get("domain", "").strip().lower().rstrip(".")
+        try:
+            _ICON_DOMAIN_VALIDATOR(domain)
+        except DjangoValidationError:
+            raise ValidationError("domain must be a bare hostname, e.g. posthog.com")
+        theme = request.query_params.get("theme")
+        return CDPIconsService().get_icon_http_response(
+            domain,
+            # Bound cache keys to the themes logo.dev supports.
+            theme=theme if theme in ("light", "dark") else None,
+            # AccountLogo renders its own lettermark on 404 instead of logo.dev's monogram.
+            fallback="404",
+            team_id=self.team_id,
+        )
 
     def create(self, request: Request, *args, **kwargs) -> Response:
         serializer = AccountSerializer(data=request.data)

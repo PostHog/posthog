@@ -78,6 +78,7 @@ PRODUCTS_APPS = [
     "products.review_hog.backend.apps.ReviewHogConfig",
     "products.logs.backend.apps.LogsConfig",
     "products.billing_alerts.backend.apps.BillingAlertsConfig",
+    "products.context_layer.backend.apps.ContextLayerAppConfig",
     "products.tracing.backend.apps.TracingConfig",
     "products.metrics.backend.apps.MetricsConfig",
     "products.apm.backend.apps.ApmConfig",
@@ -363,6 +364,9 @@ SESSION_RISK_ENABLED = get_from_env("SESSION_RISK_ENABLED", not TEST, type_cast=
 # region stays enrichment-free only by leaving this unset there. Fire-and-forget from signup, so
 # this only gates whether the workflow is dispatched at all.
 GROWTH_SIGNUP_ENRICHMENT_ENABLED = get_from_env("GROWTH_SIGNUP_ENRICHMENT_ENABLED", False, type_cast=str_to_bool)
+# Max orgs the daily ICP re-enrichment sweep re-fetches per run — the Harmonic spend/rate
+# bound for products/growth/backend/temporal/signup_enrichment/reenrichment.py.
+GROWTH_ICP_REENRICH_DAILY_CAP = get_from_env("GROWTH_ICP_REENRICH_DAILY_CAP", 500, type_cast=int)
 # The internal analytics project the enrichment pipeline reads/writes bridge and mirror data
 # against (products/growth/backend/enrichment). Region-defaulted to the deployment's own internal
 # project (the same team split the usage report uses), so enrichment lookups never touch another
@@ -688,6 +692,7 @@ SPECTACULAR_SETTINGS = {
         # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
         "TileSpacingEnum": ["tight", "condensed", "standard", "relaxed", "wide"],
         "LayoutCompactionEnum": ["vertical", "horizontal", "stable"],
+        "DesktopAccessReasonEnum": "products.tasks.backend.facade.contracts.DESKTOP_ACCESS_REASON_SCHEMA_VALUES",
         "PropertyGroupOperator": ["AND", "OR"],
         # `scope`/`state` are generic field names; one shared name for the canvas state scope set.
         "CanvasStateScopeEnum": ["user", "shared"],
@@ -1144,6 +1149,12 @@ API_ENVIRONMENTS_SUNSET_DATE = get_from_env("API_ENVIRONMENTS_SUNSET_DATE", "202
 # Defaults to 1.0 under TEST so assertions on emitted SLO events are deterministic.
 QUERY_SERVICE_SLO_SAMPLE_RATE = get_from_env("QUERY_SERVICE_SLO_SAMPLE_RATE", 1.0 if TEST else 0.01, type_cast=float)
 
+# Persons list SLO sampling rate. That endpoint runs its ActorsQuery through `calculate()`,
+# not `run()`, so it emits no query-service SLO events at all. It is lower volume than the
+# query service and its slow tail is the point of the measurement, so it samples ten times
+# higher. Same weighting rule: divide counts by `properties.sample_rate`.
+PERSONS_LIST_SLO_SAMPLE_RATE = get_from_env("PERSONS_LIST_SLO_SAMPLE_RATE", 1.0 if TEST else 0.1, type_cast=float)
+
 ####
 # Livestream
 
@@ -1183,11 +1194,11 @@ HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS = get_list(get_from_env("HOG_FUNCTIONS_DAILY
 
 # Maximum audience size for HogFlow batch triggers. Default that applies to all teams unless they
 # opt in to the elevated value below. Only used to inform the frontend UI; no backend enforcement.
-HOGFLOW_BATCH_TRIGGER_LIMIT = int(get_from_env("HOGFLOW_BATCH_TRIGGER_LIMIT", 50000))
+HOGFLOW_BATCH_TRIGGER_LIMIT = int(get_from_env("HOGFLOW_BATCH_TRIGGER_LIMIT", 500000))
 # Elevated maximum audience size, returned for teams listed in HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS.
-HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED = int(get_from_env("HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED", 100000))
+HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED = int(get_from_env("HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED", 1000000))
 # Comma-separated list of team IDs that get the elevated batch trigger limit instead of the default.
-# Empty by default — everyone gets the 50k tier. Opt-in via env override for teams needing 100k.
+# Empty by default — everyone gets the 500k tier. Opt-in via env override for teams needing 1M.
 HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS: set[int] = {
     int(team_id) for team_id in get_list(get_from_env("HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS", ""))
 }

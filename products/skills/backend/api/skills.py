@@ -11,10 +11,13 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import NotFound
 from rest_framework.parsers import FormParser, MultiPartParser
+from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
+from rest_framework.views import APIView
 
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -28,8 +31,8 @@ from posthog.event_usage import report_user_action
 from posthog.models import User
 from posthog.permissions import AccessControlPermission, get_authenticator_scopes
 from posthog.rate_limit import BurstRateThrottle, PersonalApiKeyOrUserRateThrottle, SustainedRateThrottle
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
+from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.ai_observability.backend.api.metrics import llma_track_latency
 
 from ..marketplace.adapters import MARKETPLACE_NAME, PLUGIN_NAME, load_skill_export
@@ -101,9 +104,11 @@ from .skill_services import (
     publish_skill_version,
     rename_skill_file,
     resolve_owner_users,
+    resolve_skill_owners,
     resolve_skill_owners_for_names,
     resolve_versions_page,
     set_skill_owners,
+    skill_names_owned_by,
 )
 
 logger = structlog.get_logger(__name__)
@@ -183,6 +188,54 @@ class CommunityPublishFeatureFlagPermission(CommunitySkillFeatureFlagPermission)
         return super().has_permission(request, view)
 
 
+class CommunityPublishOwnerPermission(BasePermission):
+    """Restricts publishing to the community to the skill's own owners, and gates nothing else here.
+
+    Publishing writes the skill into a public repository, so it asks for a stronger claim on the skill
+    than editing it does. The claim must also be per skill. `AccessControlPermission.has_permission`
+    passes a member who holds an object-level grant on any one skill, and the `name/<slug>` actions
+    then load whichever skill the URL names, so edit access alone reaches every skill in the project.
+
+    A skill with no current owners is publishable by nobody. Owners leave the set when a member loses
+    project access, and a skill can be created with an explicit empty owner list, so the alternative is
+    a fallback to edit access for exactly the skills that have nobody to answer for them. Adding an
+    owner is the remedy, and the message says so.
+    """
+
+    NO_OWNERS_MESSAGE = "This skill has no owners. Add an owner to publish it."
+    NOT_OWNER_MESSAGE = (
+        "Only an owner can publish this skill to the community. Ask an owner to publish it, or to add you as one."
+    )
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        if getattr(view, "action", None) != "publish_to_community":
+            return True
+
+        user = request.user
+        if not user or not user.is_authenticated:
+            return False
+
+        skill_view = cast("LLMSkillViewSet", view)
+        try:
+            team = skill_view.team
+        except (ValueError, KeyError, AttributeError):
+            return False
+
+        skill_name = skill_view.kwargs.get("skill_name") or ""
+        owners = resolve_skill_owners(team, skill_name)
+        if any(owner.pk == user.pk for owner in owners):
+            return True
+
+        # A slug that names no skill answers 404, the way every other `name/<slug>` action answers it,
+        # because a skill that does not exist has no owners either. Raising here rather than passing
+        # keeps the action from loading a skill another request creates in between.
+        if get_skill_by_name_from_db(team, skill_name) is None:
+            raise NotFound(f"Skill with name '{skill_name}' not found.")
+
+        self.message = self.NO_OWNERS_MESSAGE if not owners else self.NOT_OWNER_MESSAGE
+        return False
+
+
 class _CommunityPublishThrottle(PersonalApiKeyOrUserRateThrottle):
     # Publishing opens a pull request in a public repo, so the ceiling is "a handful, by hand", not
     # the API-shaped hundreds-per-minute of BurstRateThrottle. That one also extends
@@ -217,7 +270,11 @@ class LLMSkillViewSet(
     scope_object = "llm_skill"
     queryset = LLMSkill.objects.all()
     serializer_class = LLMSkillSerializer
-    permission_classes = [AccessControlPermission, CommunityPublishFeatureFlagPermission]
+    permission_classes = [
+        AccessControlPermission,
+        CommunityPublishFeatureFlagPermission,
+        CommunityPublishOwnerPermission,
+    ]
 
     def safely_get_queryset(self, queryset: QuerySet[LLMSkill]) -> QuerySet[LLMSkill]:
         return get_active_skill_queryset(self.team)
@@ -361,6 +418,12 @@ class LLMSkillViewSet(
         created_by_id = params.get("created_by_id")
         if created_by_id:
             queryset = queryset.filter(created_by_id=created_by_id)
+
+        # Owners are keyed on the logical skill name, not on a version row, so the filter matches by
+        # name across every version the queryset could surface.
+        owner_id = params.get("owner_id")
+        if owner_id:
+            queryset = queryset.filter(name__in=skill_names_owned_by(self.team, owner_id))
 
         # Presence of the param — even as an empty string — is a filter: `?category=` returns only
         # uncategorized skills, `?category=scout` only scouts. Omitting it returns every category.

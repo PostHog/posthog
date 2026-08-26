@@ -92,16 +92,6 @@ describe('metricsUsageTrackingLogic', () => {
             () => metricsViewerLogic.actions.setAggregation('p95'),
             { aggregation: 'p95' },
         ],
-        [
-            'metrics viewer view mode changed',
-            () => metricsViewerLogic.actions.setViewMode('stat'),
-            { view_mode: 'stat' },
-        ],
-        [
-            'metrics viewer stat summary changed',
-            () => metricsViewerLogic.actions.setStatSummary('total'),
-            { stat_summary: 'total' },
-        ],
         ['metrics viewer live toggled', () => metricsViewerLogic.actions.setLiveRefresh(true), { enabled: true }],
         [
             'metrics viewer date range changed',

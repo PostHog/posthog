@@ -11,6 +11,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, Optional, TypedDict, Union
 
 from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
 from django.db import connection
 from django.db.models import Count, F, Q, Sum
 from django.db.models.functions import Coalesce
@@ -1687,6 +1688,7 @@ POSTHOG_AI_PRODUCTS = [
 ]
 
 # ai_product values billed as PostHog Desktop credits.
+UNBILLED_TASK_ORIGIN_PRODUCTS = ("task_analysis",)
 POSTHOG_CODE_AI_PRODUCTS = ["posthog_code"]
 
 
@@ -1755,6 +1757,13 @@ def _get_teams_with_ai_credits_for_products(
             assert region is not None, "Region must be set in production infrastructure"
         return []
 
+    if region == "DEV":
+        # Hosted DEV has no internal team containing AI billing events.
+        return []
+
+    if region not in CLOUD_REGION_TO_TEAM_ID or region not in CLOUD_REGION_TO_URL:
+        raise ImproperlyConfigured(f"AI credit usage reporting is not configured for CLOUD_DEPLOYMENT={region!r}")
+
     team_to_query = CLOUD_REGION_TO_TEAM_ID[region]
     region_filter_params = build_ai_billing_region_filter(team_to_query, CLOUD_REGION_TO_URL[region])
     if region_filter_params is None:
@@ -1783,6 +1792,9 @@ def _get_teams_with_ai_credits_for_products(
     )
     ai_product_expr, _ = get_property_string_expr(
         "events", "ai_product", "'ai_product'", "properties", use_new_events_schema=use_new
+    )
+    task_origin_expr, _ = get_property_string_expr(
+        "events", "task_origin_product", "'task_origin_product'", "properties", use_new_events_schema=use_new
     )
 
     with tags_context(
@@ -1864,6 +1876,9 @@ def _get_teams_with_ai_credits_for_products(
                         AND timestamp < %(end)s
                         AND event = '$ai_generation'
                         AND {ai_product_expr} IN %(ai_products)s
+                        -- PostHog-funded task origins (e.g. task_analysis runs) are never billed
+                        -- to the customer. Events without the property yield '' and pass.
+                        AND {task_origin_expr} NOT IN %(unbilled_task_origins)s
                 )
                 WHERE
                     ai_billable = 1
@@ -1897,6 +1912,7 @@ def _get_teams_with_ai_credits_for_products(
                 "markup_multiplier": 1 + markup_percent,
                 "excluded_tools": AI_BILLING_EXCLUDED_TOOLS,
                 "ai_products": tuple(ai_products),
+                "unbilled_task_origins": UNBILLED_TASK_ORIGIN_PRODUCTS,
                 **region_filter_params,
             },
             workload=Workload.OFFLINE,

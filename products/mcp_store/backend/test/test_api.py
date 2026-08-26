@@ -4708,7 +4708,7 @@ class TestMCPScopeAdminGateWithAccessControlFeature(ClickhouseTestMixin, APIBase
         assert shared.scope == "personal"
 
     def test_explicit_project_admin_can_unshare(self) -> None:
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         membership = self.user.organization_memberships.get(organization=self.organization)
         AccessControl.objects.create(
