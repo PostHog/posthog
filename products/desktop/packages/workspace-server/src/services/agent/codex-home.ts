@@ -1,3 +1,4 @@
+import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -125,9 +126,23 @@ export async function prepareCodexHome(options: {
     await fs.promises.writeFile(runLogin, login, { mode: 0o600 });
     // writeFile's mode only applies on create; a retried run overwrites.
     await fs.promises.chmod(runLogin, 0o600);
+    // Binds the run to the login generation it was seeded from, so write-back
+    // at cleanup is rejected once the stored login changes (sign-out, a fresh
+    // sign-in, or another run's refresh).
+    await fs.promises.writeFile(
+      path.join(codexHome, SEED_HASH_FILE),
+      sha256(login),
+      { mode: 0o600 },
+    );
   }
 
   return codexHome;
+}
+
+const SEED_HASH_FILE = ".auth-seed.sha256";
+
+function sha256(contents: Buffer): string {
+  return crypto.createHash("sha256").update(contents).digest("hex");
 }
 
 /**
@@ -137,18 +152,19 @@ export async function prepareCodexHome(options: {
  * without this the stored login goes stale and own-subscription sessions start
  * failing until the user signs in again.
  *
- * Skips when the stored login is gone — the user signed out mid-run, and the
- * write-back must not resurrect it.
+ * The write is bound to the login generation that seeded the run: it is
+ * skipped when the stored login is gone (a mid-run sign-out must not be
+ * resurrected) or no longer matches the seed (a fresh sign-in, possibly to
+ * another account, or a concurrent run's refresh must not be overwritten).
  */
 export async function writeBackSubscriptionLogin(options: {
   appDataPath: string;
   taskRunId: string;
   log: AgentScopedLogger;
 }): Promise<void> {
-  const runLogin = path.join(
-    getCodexHomeDir(options.appDataPath, options.taskRunId),
-    "auth.json",
-  );
+  const runHome = getCodexHomeDir(options.appDataPath, options.taskRunId);
+  const runLogin = path.join(runHome, "auth.json");
+  const seedHashFile = path.join(runHome, SEED_HASH_FILE);
   const storedLogin = path.join(
     getCodexSubscriptionHomeDir(options.appDataPath),
     "auth.json",
@@ -157,13 +173,33 @@ export async function writeBackSubscriptionLogin(options: {
     if (!fs.existsSync(runLogin) || !fs.existsSync(storedLogin)) {
       return;
     }
-    const refreshed = await fs.promises.readFile(runLogin);
-    if (refreshed.equals(await fs.promises.readFile(storedLogin))) {
+    const seedHash = await fs.promises
+      .readFile(seedHashFile, "utf-8")
+      .catch(() => undefined);
+    // A run without a recorded seed (gateway mode, or seeded by an older
+    // build) never writes to the store.
+    if (seedHash === undefined) {
       return;
     }
-    await fs.promises.writeFile(storedLogin, refreshed, { mode: 0o600 });
-    // writeFile's mode only applies on create; the store predates the write.
-    await fs.promises.chmod(storedLogin, 0o600);
+    const stored = await fs.promises.readFile(storedLogin);
+    if (sha256(stored) !== seedHash) {
+      options.log.info(
+        "Skipping subscription login write-back: the stored login changed since this run started",
+        { taskRunId: options.taskRunId },
+      );
+      return;
+    }
+    const refreshed = await fs.promises.readFile(runLogin);
+    if (refreshed.equals(stored)) {
+      return;
+    }
+    // Temp file + rename: a reader never sees a half-written login.
+    const tempLogin = path.join(
+      path.dirname(storedLogin),
+      `.auth.json.${process.pid}.tmp`,
+    );
+    await fs.promises.writeFile(tempLogin, refreshed, { mode: 0o600 });
+    await fs.promises.rename(tempLogin, storedLogin);
   } catch (err) {
     options.log.warn("Failed to write back refreshed subscription login", {
       taskRunId: options.taskRunId,

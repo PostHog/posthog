@@ -528,6 +528,18 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
   /** In-flight ChatGPT sign-in; its app-server hosts the OAuth callback. */
   private codexLogin?: CodexLoginSession;
 
+  // Serializes mutations of the stored subscription login so a run's write-back
+  // can never interleave with a sign-out and recreate the just-deleted login.
+  private subscriptionStoreQueue: Promise<unknown> = Promise.resolve();
+
+  private enqueueSubscriptionStoreOp(
+    op: () => Promise<unknown>,
+  ): Promise<void> {
+    const run = this.subscriptionStoreQueue.then(op, op);
+    this.subscriptionStoreQueue = run.catch(() => {});
+    return run.then(() => undefined);
+  }
+
   getCodexSubscriptionStatus(): CodexSubscriptionStatus {
     return detectCodexSubscriptionStatus({
       env: process.env,
@@ -561,8 +573,10 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
   async signOutCodexSubscription(): Promise<void> {
     this.codexLogin?.cancel();
     this.codexLogin = undefined;
-    await clearSubscriptionLogin(
-      getCodexSubscriptionHomeDir(this.storagePaths.appDataPath),
+    await this.enqueueSubscriptionStoreOp(() =>
+      clearSubscriptionLogin(
+        getCodexSubscriptionHomeDir(this.storagePaths.appDataPath),
+      ),
     );
   }
 
@@ -1874,11 +1888,13 @@ For git operations while detached:
       }
 
       if (session.config.codexModelAccess === "own-subscription") {
-        await writeBackSubscriptionLogin({
-          appDataPath: this.storagePaths.appDataPath,
-          taskRunId,
-          log: this.log,
-        });
+        await this.enqueueSubscriptionStoreOp(() =>
+          writeBackSubscriptionLogin({
+            appDataPath: this.storagePaths.appDataPath,
+            taskRunId,
+            log: this.log,
+          }),
+        );
       }
 
       await cleanupCodexHome(this.storagePaths.appDataPath, taskRunId).catch(

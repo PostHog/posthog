@@ -355,6 +355,78 @@ describe("prepareCodexHome", () => {
     expect(readFileSync(storedLogin, "utf-8")).toBe('{"token":2}');
   });
 
+  it("writeBackSubscriptionLogin never overwrites a login that changed since seeding", async () => {
+    const subscriptionHome = getCodexSubscriptionHomeDir(appDataPath);
+    await mkdir(subscriptionHome, { recursive: true });
+    const storedLogin = path.join(subscriptionHome, "auth.json");
+    await writeFile(storedLogin, '{"token":1}');
+
+    const codexHome = await prepareCodexHome({
+      appDataPath,
+      taskRunId,
+      subscription: true,
+      bundledSkillsDir,
+      log: noopLog,
+    });
+    await writeFile(path.join(codexHome, "auth.json"), '{"token":2}');
+
+    // Mid-run: sign-out, then a fresh sign-in to a different account.
+    await writeFile(storedLogin, '{"token":"other-account"}');
+
+    await writeBackSubscriptionLogin({ appDataPath, taskRunId, log: noopLog });
+    expect(readFileSync(storedLogin, "utf-8")).toBe(
+      '{"token":"other-account"}',
+    );
+  });
+
+  it("writeBackSubscriptionLogin lets only the first of two concurrent runs write back", async () => {
+    const subscriptionHome = getCodexSubscriptionHomeDir(appDataPath);
+    await mkdir(subscriptionHome, { recursive: true });
+    const storedLogin = path.join(subscriptionHome, "auth.json");
+    await writeFile(storedLogin, '{"token":1}');
+
+    const seed = (id: string) =>
+      prepareCodexHome({
+        appDataPath,
+        taskRunId: id,
+        subscription: true,
+        bundledSkillsDir,
+        log: noopLog,
+      });
+    const homeA = await seed("run-a");
+    const homeB = await seed("run-b");
+    await writeFile(path.join(homeA, "auth.json"), '{"token":"a2"}');
+    await writeFile(path.join(homeB, "auth.json"), '{"token":"b2"}');
+
+    await writeBackSubscriptionLogin({
+      appDataPath,
+      taskRunId: "run-a",
+      log: noopLog,
+    });
+    expect(readFileSync(storedLogin, "utf-8")).toBe('{"token":"a2"}');
+
+    // run-a's write-back changed the store, so run-b must not roll it back.
+    await writeBackSubscriptionLogin({
+      appDataPath,
+      taskRunId: "run-b",
+      log: noopLog,
+    });
+    expect(readFileSync(storedLogin, "utf-8")).toBe('{"token":"a2"}');
+  });
+
+  it("writeBackSubscriptionLogin skips runs seeded before seed hashes existed", async () => {
+    const subscriptionHome = getCodexSubscriptionHomeDir(appDataPath);
+    const runHome = path.join(appDataPath, "codex-home", taskRunId);
+    await mkdir(subscriptionHome, { recursive: true });
+    await mkdir(runHome, { recursive: true });
+    const storedLogin = path.join(subscriptionHome, "auth.json");
+    await writeFile(storedLogin, '{"token":1}');
+    await writeFile(path.join(runHome, "auth.json"), '{"token":2}');
+
+    await writeBackSubscriptionLogin({ appDataPath, taskRunId, log: noopLog });
+    expect(readFileSync(storedLogin, "utf-8")).toBe('{"token":1}');
+  });
+
   it("writeBackSubscriptionLogin does not resurrect a login after sign-out", async () => {
     const subscriptionHome = getCodexSubscriptionHomeDir(appDataPath);
     await mkdir(subscriptionHome, { recursive: true });
