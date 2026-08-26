@@ -5188,6 +5188,18 @@ snapshots:
         hash: v1.k794b7964.e893edaa31202a96439233ff254af446b1ae72107ca4d187a0ab27abc87db8ac.ClRtYW3AIl8tt8UNlaLx_52ymgYxs4FUUHPusEIzAs8
     products-posthog-ai-composer--with-up-next-queue--light:
         hash: v1.k794b7964.c6aa2aa587283120fba069845efe3f499ad93f57f01a44fe60714bf6de06aa77.sXADx8Z_E97Ez10RF94ejn6saVtul9mmzMW6g6F-M8U
+    products-posthog-ai-debuglogsmenu--non-staff--dark:
+        hash: v1.k794b7964.8fbc222393e4a977c643005d53ec8b83d55ee078f87f00dc53e4a2422df58f16.HSRv6p696X41lVON7tvCZSWNH-xgjRDLiMUZjwHmuFk
+    products-posthog-ai-debuglogsmenu--non-staff--light:
+        hash: v1.k794b7964.5c4e9384cff0bfaeea7fcab369e52179c576c8ecab3960edb30eb031071b5091.3-NFLn-uU22oAcen8uB73UcbF1ktLICdW0MwGHAp4Eg
+    products-posthog-ai-debuglogsmenu--staff-lemon--dark:
+        hash: v1.k794b7964.c4d50490323fb17c3cc6b0b324af1e3351992787149dc6aecee3c15055f7fc14.ZzMowbKOCuzoUivKDYslwR3BvWYfspaQeVtrOdLI-z8
+    products-posthog-ai-debuglogsmenu--staff-lemon--light:
+        hash: v1.k794b7964.78fb2fa6f9ab6fe54685d13a80fa72790826b6ae2ec0fd39d7a266752574d7fd.gLSdW7nWD1e9fXp1wY8CEPYHSsiYEuBPOuFUYpFACfM
+    products-posthog-ai-debuglogsmenu--staff-primitive--dark:
+        hash: v1.k794b7964.7c7d0d318d47ab1aaabaeeffa5cfae450ea600f2c8cdfda0dc8e9fccb86bff2f.5Jz5nz-ow5GYNJ2Em60NDBw258PubMRxJgwf8nS4jI4
+    products-posthog-ai-debuglogsmenu--staff-primitive--light:
+        hash: v1.k794b7964.f19770892ea0bf6cae9997d6e364c4694a74f607e4e087d83c850a92cbaaae75.FxREU9FWVvU9WvA0uMJYiYzrSDQDhi_TBKi4lAV_pq8
     products-posthog-ai-onboardingtakeover--awaiting-clip--dark:
         hash: v1.k794b7964.ce34e421ee0ac8dc6b49c9bc2d52791298561b4ab0ae74add1780c7b1e82114f.QZzI-wxiMSzGEymlFhQuyVyPBJs10NJUpnH6GOxDlO0
     products-posthog-ai-onboardingtakeover--awaiting-clip--light:
