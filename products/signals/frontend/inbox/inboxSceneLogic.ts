@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 import type { CaptureOptions } from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -670,7 +671,9 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             // kea-disposables pauses it while the browser tab is hidden. The refetch is silent (the
             // skeleton only shows before the first load), so it swaps the list without flicker.
             if (!open) {
-                cache.disposables.dispose('runsPoll')
+                // The `isRunsOpen` subscription owns poll teardown, so it also catches the closes that
+                // flip the panel shut through a mutual-exclusion reducer without dispatching
+                // `setRunsOpen(false)` (a report, scout, triage, scratchpad, or findings opening).
                 return
             }
             actions.loadRuns()
@@ -857,6 +860,19 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         beforeUnmount: () => {
             // Flush dwell time for a report still open when the scene unmounts (navigated away).
             flushOpenReport(cache, 'unmount')
+        },
+    })),
+
+    // The Runs poll (added in the `setRunsOpen` listener) has to stop the moment the panel closes,
+    // however it closes. Opening any other full-width surface flips `isRunsOpen` false through a
+    // mutual-exclusion reducer rather than dispatching `setRunsOpen(false)`, so this one subscription
+    // is the single teardown path that runs for every close — otherwise the poll leaks two requests
+    // every 5s for the rest of the visit.
+    subscriptions(({ cache }) => ({
+        isRunsOpen: (open: boolean) => {
+            if (!open) {
+                cache.disposables.dispose('runsPoll')
+            }
         },
     })),
 

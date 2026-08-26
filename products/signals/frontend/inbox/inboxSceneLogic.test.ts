@@ -185,4 +185,22 @@ describe('inboxSceneLogic routing', () => {
             expect(logic.values.activeTab).toBe(expectedTab)
         }
     )
+
+    it('stops the runs poll when opening another surface closes the panel', () => {
+        // Opening a report flips `isRunsOpen` false through a mutual-exclusion reducer, not
+        // `setRunsOpen(false)`, so the poll teardown cannot hang off the `setRunsOpen` listener alone
+        // or it leaks two requests every few seconds for the rest of the visit.
+        mountWithRedesign(true)
+        const clearSpy = jest.spyOn(global, 'clearInterval')
+
+        logic.actions.setRunsOpen(true)
+        const clearedBeforeReport = clearSpy.mock.calls.length
+
+        logic.actions.setSelectedReportId('report-1')
+
+        expect(logic.values.isRunsOpen).toBe(false)
+        expect(clearSpy.mock.calls.length).toBeGreaterThan(clearedBeforeReport)
+
+        clearSpy.mockRestore()
+    })
 })
