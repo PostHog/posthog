@@ -552,7 +552,11 @@ function InboxReportRow({ report }: { report: SignalReport }) {
 
 // Archived and resolved reports come from their own server-side fetch, so the
 // section fetches lazily on first expand and stays collapsed by default.
-function ResolvedSection({ searchQuery }: { searchQuery: string }) {
+function ResolvedSection({
+  searchQuery,
+}: {
+  searchQuery: string;
+}): React.JSX.Element {
   const [expanded, setExpanded] = useState(false);
   const {
     allReports,
