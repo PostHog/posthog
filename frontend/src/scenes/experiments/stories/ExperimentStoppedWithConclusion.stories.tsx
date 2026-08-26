@@ -25,6 +25,12 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2025-01-27',
         pageUrl: urls.experiment(EXPERIMENT_STOPPED_WITH_CONCLUSION.id),
+        testOptions: {
+            // The funnel chart only renders once the metric result AND the exposure query have
+            // both resolved. The loader wait covers the metric table alone, so wait for the chart
+            // itself to avoid snapshotting before it appears.
+            waitForSelector: '[data-attr="experiment-funnel-chart"]',
+        },
     },
     decorators: [
         mswDecorator({
