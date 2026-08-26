@@ -55,14 +55,13 @@ from posthog.models.project import Project
 from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.persons import create_person
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.facade.access import DashboardAccessMethod
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
 from products.product_analytics.backend.facade.models import Insight, InsightVariable, InsightViewed
-
-from ee.models.rbac.access_control import AccessControl
 
 
 class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
@@ -1624,6 +1623,21 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             request=ANY,
         )
 
+    @patch("posthog.resource_limits.evaluator.report_user_action")
+    @patch("products.product_analytics.backend.presentation.insight.active_tile_count", return_value=99)
+    def test_insight_dashboard_limit_includes_dashboard_context(
+        self, _mock_active_tile_count: mock.Mock, mock_report_user_action: mock.Mock
+    ) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "Important dashboard"})
+
+        self.dashboard_api.create_insight({"filters": {"insight": "TRENDS"}, "dashboards": [dashboard_id]})
+
+        limit_call = next(
+            call for call in mock_report_user_action.call_args_list if call.args[1] == "resource limit hit"
+        )
+        assert limit_call.args[2]["dashboard_id"] == dashboard_id
+        assert limit_call.args[2]["dashboard_name"] == "Important dashboard"
+
     @patch("products.product_analytics.backend.presentation.insight.report_user_action")
     def test_adding_insight_to_dashboard_fires_tile_added_event(self, mock_report_user_action: mock.Mock) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "test"})
@@ -2940,6 +2954,19 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 viewed.last_viewed_at,
                 datetime(2022, 3, 22, 0, 0, tzinfo=ZoneInfo("UTC")),
             )
+
+    def test_insight_viewed_not_recorded_during_impersonation(self) -> None:
+        filter_dict = {"events": [{"id": "$pageview"}]}
+        insight = Insight.objects.create(filters=Filter(data=filter_dict).to_dict(), team=self.team, short_id="viewed0")
+
+        with patch("products.product_analytics.backend.presentation.insight.is_impersonated", return_value=True):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/insights/viewed",
+                {"insight_ids": [insight.id]},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(InsightViewed.objects.count(), 0)
 
     def test_update_insight_viewed(self) -> None:
         filter_dict = {"events": [{"id": "$pageview"}]}
@@ -4788,7 +4815,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         """
         from posthog.models.organization import OrganizationMembership
 
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},

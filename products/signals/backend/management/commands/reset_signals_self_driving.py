@@ -19,7 +19,7 @@ from products.signals.backend.models import (
     SignalSourceConfig,
 )
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
-from products.skills.backend.models.skills import LLMSkill
+from products.skills.backend.models.skills import LLMSkill, LLMSkillOwner
 
 # Seed tag stamped on canonical scouts + the `authoring-scouts` companion; this DEBUG
 # reset preserves tagged rows. Not a perfect canonical marker (`_scout_origin` also checks the
@@ -157,6 +157,11 @@ class Command(BaseCommand):
             skills_deleted = 0
             if custom_scout_names:
                 skills_deleted, _ = LLMSkill.objects.filter(team_id=team.id, name__in=custom_scout_names).delete()
+                # Owner rows key on the logical name, not the version row, so they do not cascade. A
+                # scout recreated under the same name would otherwise inherit the old owners.
+                LLMSkillOwner.objects.for_team(team.id, canonical=True).filter(
+                    skill_name__in=custom_scout_names
+                ).delete()
 
             # Scout fleet config (canonical + custom). Deleting — not disabling — restores the
             # fresh-team shape: the next wizard `sync` re-creates canonical configs enabled.

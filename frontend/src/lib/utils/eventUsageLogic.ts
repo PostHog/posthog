@@ -701,12 +701,27 @@ export interface eventUsageLogicActions {
         action: 'discarded' | 'kept_editing' | 'shown'
         dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null
     }
+    reportDashboardEmptyAddChartClicked: (dashboardId: number | undefined) => {
+        dashboardId: number | undefined
+    }
     reportDashboardEmptyAiPromptClicked: (
         promptLabel: string,
-        dashboardId: number | undefined
+        dashboardId: number | undefined,
+        promptType: 'custom_prompt' | 'starter_question'
     ) => {
         dashboardId: number | undefined
         promptLabel: string
+        promptType: 'custom_prompt' | 'starter_question'
+    }
+    reportDashboardEmptyAiPromptSubmitted: (
+        dashboardId: number | undefined,
+        promptType: 'custom_prompt' | 'starter_question'
+    ) => {
+        dashboardId: number | undefined
+        promptType: 'custom_prompt' | 'starter_question'
+    }
+    reportDashboardEmptyWebAnalyticsClicked: (dashboardId: number | undefined) => {
+        dashboardId: number | undefined
     }
     reportDashboardExported: (
         dashboardId: number,
@@ -2443,10 +2458,21 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             source: DashboardEventSource
         ) => ({ dashboardId, insightId, source }),
         /** Empty-state AI prompt chips (ai-first empty dashboard only). */
-        reportDashboardEmptyAiPromptClicked: (promptLabel: string, dashboardId: number | undefined) => ({
+        reportDashboardEmptyAiPromptClicked: (
+            promptLabel: string,
+            dashboardId: number | undefined,
+            promptType: 'starter_question' | 'custom_prompt'
+        ) => ({
             promptLabel,
             dashboardId,
+            promptType,
         }),
+        reportDashboardEmptyAiPromptSubmitted: (
+            dashboardId: number | undefined,
+            promptType: 'custom_prompt' | 'starter_question'
+        ) => ({ dashboardId, promptType }),
+        reportDashboardEmptyAddChartClicked: (dashboardId: number | undefined) => ({ dashboardId }),
+        reportDashboardEmptyWebAnalyticsClicked: (dashboardId: number | undefined) => ({ dashboardId }),
         reportDashboardExported: (dashboardId: number, exportFormat: ExporterFormat) => ({
             dashboardId,
             exportFormat,
@@ -3519,9 +3545,29 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 source,
             })
         },
-        reportDashboardEmptyAiPromptClicked: async ({ promptLabel, dashboardId }) => {
+        reportDashboardEmptyAiPromptClicked: async ({ promptLabel, dashboardId, promptType }) => {
             posthog.capture('dashboard empty ai prompt clicked', {
                 prompt_label: promptLabel,
+                dashboard_id: dashboardId,
+                prompt_type: promptType,
+                source: 'web',
+            })
+        },
+        reportDashboardEmptyAiPromptSubmitted: async ({ dashboardId, promptType }) => {
+            posthog.capture('dashboard empty ai prompt submitted', {
+                dashboard_id: dashboardId,
+                prompt_type: promptType,
+                source: 'web',
+            })
+        },
+        reportDashboardEmptyAddChartClicked: async ({ dashboardId }) => {
+            posthog.capture('dashboard empty add chart clicked', {
+                dashboard_id: dashboardId,
+                source: 'web',
+            })
+        },
+        reportDashboardEmptyWebAnalyticsClicked: async ({ dashboardId }) => {
+            posthog.capture('dashboard empty web analytics clicked', {
                 dashboard_id: dashboardId,
                 source: 'web',
             })

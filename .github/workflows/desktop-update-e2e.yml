@@ -266,8 +266,8 @@ jobs:
               with:
                   name: update-old-build-1.0.0
                   path: |
-                      products/desktop/apps/code/out/PostHog-Code-1.0.0-arm64-mac.zip
-                      products/desktop/apps/code/out/PostHog-Code-1.0.0-arm64-mac.zip.blockmap
+                      products/desktop/apps/code/out/PostHog-Desktop-1.0.0-arm64-mac.zip
+                      products/desktop/apps/code/out/PostHog-Desktop-1.0.0-arm64-mac.zip.blockmap
                   if-no-files-found: warn
                   retention-days: 7
 

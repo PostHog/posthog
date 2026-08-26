@@ -308,10 +308,13 @@ class TestPersons(ClickhouseTestMixin, APIBaseTest):
         assert response.results[0][0] == self.channel_type_virt_person_result
 
     def test_virtual_event_person_properties(self):
+        # Pin the joined mode so person.* resolves through the person table; the
+        # poe and pdi variants below cover the other resolutions explicitly.
         response = execute_hogql_query(
             parse_select("select person.$virt_initial_channel_type from events where person.id = {person_id}"),
             self.team,
             placeholders={"person_id": ast.Constant(value=self.person.uuid)},
+            modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.DISABLED),
         )
         assert len(response.results) == 1
         assert response.results[0][0] == self.channel_type_virt_person_result

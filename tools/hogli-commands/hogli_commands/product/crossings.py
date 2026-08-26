@@ -12,8 +12,15 @@ the other side of that coupling: for each crossing class it resolves the concret
 defined in, follows re-export chains so an import from any path counts, and buckets every name-level
 use in consumer code by kind. `product:crossings` reports; the repo-invariant ratchet enforces.
 
+The name-level scan stays on the allowance classes, because an import of any other product model is
+already tach's to refuse. `apps.get_model('label', 'Class')` is the channel tach cannot refuse: it
+resolves through the Django app registry, leaves no import edge, and so reaches any product model
+from anywhere. That scan therefore runs over every model class a product registers, and each foreign
+reference is counted as the disallowed kind `get_model`.
+
 Tests are out of scope. A test reaches concrete classes through testing doors on purpose, so counting
-its fixtures would measure the fixture, not the coupling.
+its fixtures would measure the fixture, not the coupling. `apps.get_model` is the escape hatch core
+test fixtures are told to use, and keeping tests out is what leaves that advice intact.
 """
 
 from __future__ import annotations
@@ -27,6 +34,7 @@ from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
+from .ast_helpers import ast_parse_safe, get_model_names
 from .isolation import MODEL_CROSSINGS, facade_model_crossings
 from .paths import PRODUCTS_DIR, REPO_ROOT
 
@@ -157,9 +165,8 @@ def _model_modules(product: str) -> Iterator[Path]:
 def _defining_module(product: str, class_name: str) -> str | None:
     """The dotted module whose top level defines `class_name`, searched across the model surface."""
     for path in _model_modules(product):
-        try:
-            tree = ast.parse(path.read_text(encoding="utf-8", errors="ignore"))
-        except (SyntaxError, OSError):
+        tree = ast_parse_safe(path)
+        if tree is None:
             continue
         if any(isinstance(node, ast.ClassDef) and node.name == class_name for node in tree.body):
             return _dotted_module(path)
@@ -203,14 +210,31 @@ def _app_labels() -> dict[str, str]:
     return labels
 
 
+def product_model_labels(products: Iterable[str] | None = None) -> dict[str, str]:
+    """`product.Class` -> owning product, for every model class a product's app registers.
+
+    Wider than `crossing_classes` on purpose. `apps.get_model('label', 'Class')` reaches a model
+    through the app registry, so neither tach nor import-linter sees the edge and the watched-models
+    allowance never had to name the class. The label scan therefore covers every product model, not
+    only the allowance ones. A product without an `apps.py` registers nothing and is skipped."""
+    registered = set(_app_labels().values())
+    wanted = registered if products is None else registered & set(products)
+    return {
+        f"{product}.{class_name}": product
+        for product in sorted(wanted)
+        for class_name in get_model_names(PRODUCTS_DIR / product / "backend")
+    }
+
+
 # ---------------------------------------------------------------------------
 # Candidate files
 # ---------------------------------------------------------------------------
 
 
-def _is_test_module(path: Path) -> bool:
-    """Tests reach concrete classes through testing doors, so they are not consumers."""
-    if "test" in path.parts or "tests" in path.parts:
+def _is_out_of_scope_module(path: Path) -> bool:
+    """Tests reach concrete classes through testing doors, so they are not consumers. A migration
+    reaches a model through the historical registry, which is the only way a migration can."""
+    if "test" in path.parts or "tests" in path.parts or "migrations" in path.parts:
         return True
     return path.name.startswith("test_") or path.name.endswith("_test.py") or path.name == "conftest.py"
 
@@ -513,12 +537,9 @@ def classify_use(node: ast.expr, parents: dict[int, ast.AST]) -> str:
     return f"other({type(parent).__name__})"
 
 
-def _get_model_uses(tree: ast.Module, product_by_label: dict[str, str], labels: set[str]) -> Counter[str]:
-    """`apps.get_model('label', 'Class')`, its `'label.Class'` and keyword forms, which no import reveals.
-
-    Django matches the model name case-insensitively, so the comparison does too."""
+def _get_model_uses(tree: ast.Module, product_by_label: dict[str, str], label_by_lower: dict[str, str]) -> Counter[str]:
+    """`apps.get_model('label', 'Class')`, its `'label.Class'` and keyword forms, which no import reveals."""
     found: Counter[str] = Counter()
-    label_by_lower = {label.lower(): label for label in labels}
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call) or getattr(node.func, "attr", None) != "get_model":
             continue
@@ -559,20 +580,27 @@ def _reads_class_off_module(source: bytes, aliases: dict[str, str], class_names:
 
 
 def scan_crossing_uses(products: Iterable[str] | None = None) -> list[CrossingUse]:
-    """Every use of every crossing class in consumer code, sorted, one entry per kind per module."""
+    """Every use of every crossing class in consumer code, sorted, one entry per kind per module.
+
+    Plus every `apps.get_model` reference to any product model from outside the owning product."""
+    # Consumed twice below; a generator argument would silently empty the second pass.
+    products = list(products) if products is not None else None
     classes = crossing_classes(products)
-    if not classes:
-        return []
     owning_dir = {c.label: PRODUCTS_DIR / c.product for c in classes}
+    owning_dir |= {label: PRODUCTS_DIR / product for label, product in product_model_labels(products).items()}
+    if not owning_dir:
+        return []
     class_names = {c.class_name for c in classes}
     candidates = _candidates()
     origins = _origins(candidates, classes)
     origin_modules = {export.module for export in origins}
     product_by_label = _app_labels()
+    # Django resolves a model name case-insensitively, so the get_model scan matches on the lowered form.
+    label_by_lower = {label.lower(): label for label in owning_dir}
 
     counts: dict[tuple[str, str, str], int] = defaultdict(int)
     for candidate in candidates:
-        if _is_test_module(candidate.path):
+        if _is_out_of_scope_module(candidate.path):
             continue
         names = _bound_names(candidate, origins)
         aliases = {a.alias: a.module for a in candidate.imports.module_aliases if a.module in origin_modules}
@@ -596,7 +624,7 @@ def scan_crossing_uses(products: Iterable[str] | None = None) -> list[CrossingUs
                     continue
                 counts[(label, candidate.dotted, classify_use(node, parents))] += 1
         if candidate.mentions_get_model:
-            for label, count in _get_model_uses(tree, product_by_label, set(owning_dir)).items():
+            for label, count in _get_model_uses(tree, product_by_label, label_by_lower).items():
                 if not candidate.path.is_relative_to(owning_dir[label]):
                     counts[(label, candidate.dotted, "get_model")] += count
 
@@ -668,9 +696,15 @@ def render_report(uses: list[CrossingUse], class_labels: Iterable[str] = ()) -> 
 BASELINE_PATH = REPO_ROOT / "products" / "model_crossing_uses_baseline.txt"
 
 BASELINE_HEADER = """\
-# Disallowed uses of watched-models crossing classes in consumer code.
+# Disallowed uses of product model classes in consumer code.
 # One line per (product.Class, consumer module, kind, count); see products/architecture.md
 # § Wiring couplings for which shapes are allowed.
+#
+# Two channels land here. Name-level uses of a watched-models crossing class, in any kind the
+# doctrine does not call instance-free. And the kind `get_model`: an `apps.get_model` reference
+# from outside the owning product, which covers every product model, not only the allowance ones.
+# Test modules and migrations are out of scope on both channels: a migration reaches a model
+# through the historical registry, which is the only way a migration can.
 #
 # Counts may only go down, and a line that disappears must be deleted here too.
 # A new line needs a doctrine amendment, not a baseline edit.

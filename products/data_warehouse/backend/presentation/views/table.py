@@ -21,9 +21,11 @@ from posthog.event_usage import EventSource, get_event_source, is_wizard_self_dr
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.models.user import User
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
+)
 from products.data_warehouse.backend.facade.api import get_s3_client
 from products.warehouse_sources.backend.facade.api import (
     FILE_FORMAT_READ_HINTS,
@@ -351,7 +353,9 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
             # it's user-filtered, so also resolve the name team-wide using get_view_or_table_by_name.
             # Otherwise a user with denied table could create another one with colliding name.
             if self.context["database"].has_table(name) or get_view_or_table_by_name(self.context["team_id"], name):
-                raise serializers.ValidationError("A table with this name already exists.")
+                raise serializers.ValidationError(
+                    "A table or view with this name already exists. Choose a different name."
+                )
 
         return name
 
@@ -738,7 +742,8 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         database = Database.create_for(team_id=self.team_id, user=cast(User, request.user))
         if database.has_table(table_name) or get_view_or_table_by_name(self.team_id, table_name):
             return response.Response(
-                status=status.HTTP_400_BAD_REQUEST, data={"message": "A table with this name already exists."}
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "A table or view with this name already exists. Choose a different name."},
             )
 
         # Confirm the object is actually there before creating a table that would fail every query.

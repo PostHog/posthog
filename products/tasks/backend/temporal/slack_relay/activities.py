@@ -442,6 +442,26 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
     if handler.footer_enabled():
         handler.run_footer = load_run_footer(task_run.id)
     mention_prefix = f"<@{target}> " if target else ""
+
+    def _record_sent_relay(state: dict[str, Any]) -> None:
+        sent_relay_ids = state.get("slack_sent_relay_ids") or []
+        if input.relay_id in sent_relay_ids:
+            raise _RelayAlreadyRecorded
+
+        sent_relay_ids.append(input.relay_id)
+        # Keep a rolling window to bound state size while preserving idempotency for recent relays.
+        state["slack_sent_relay_ids"] = sent_relay_ids[-30:]
+
+    # Claim the relay before the first Slack call. The Slack posts below swallow their own
+    # errors, so this write is the only step that can fail after a message is already in the
+    # thread, and a retry would then post it again. Claiming first means a failed write retries
+    # before anything is sent, and a retry after the claim skips instead of duplicating.
+    try:
+        TaskRun.mutate_state_atomic(input.run_id, _record_sent_relay)
+    except _RelayAlreadyRecorded:
+        logger.info("slack_relay_duplicate_skipped", run_id=input.run_id, relay_id=input.relay_id)
+        return
+
     if input.delete_progress:
         handler.delete_progress()
 
@@ -467,17 +487,3 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
 
     if input.reaction_emoji is not None:
         handler.update_reaction(input.reaction_emoji)
-
-    def _record_sent_relay(state: dict[str, Any]) -> None:
-        sent_relay_ids = state.get("slack_sent_relay_ids") or []
-        if input.relay_id in sent_relay_ids:
-            raise _RelayAlreadyRecorded
-
-        sent_relay_ids.append(input.relay_id)
-        # Keep a rolling window to bound state size while preserving idempotency for recent relays.
-        state["slack_sent_relay_ids"] = sent_relay_ids[-30:]
-
-    try:
-        TaskRun.mutate_state_atomic(input.run_id, _record_sent_relay)
-    except _RelayAlreadyRecorded:
-        logger.info("slack_relay_duplicate_skipped", run_id=input.run_id, relay_id=input.relay_id)

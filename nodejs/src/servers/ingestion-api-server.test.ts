@@ -55,7 +55,7 @@ describe('IngestionApiServer', () => {
     beforeEach(() => {
         server = new IngestionApiServer()
         pipeline = { feed: jest.fn(), next: jest.fn() }
-        ;(server as any).joinedPipeline = pipeline
+        ;(server as any).httpPipeline = pipeline
         ;(server as any).promiseScheduler = { schedule: jest.fn(), waitForAll: jest.fn().mockResolvedValue(undefined) }
         ;(server as any).hogTransformer = { processInvocationResults: jest.fn().mockResolvedValue(undefined) }
         // stop() would call process.exit; stub it so the test only observes that it was invoked.

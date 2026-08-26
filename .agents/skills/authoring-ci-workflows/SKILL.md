@@ -236,7 +236,7 @@ Details: `/depot-github-runners`.
 
 Most commits land before a PR is marked ready, and drafts can't merge — so heavy suites should run a narrowed subset on drafts and the full matrix on `ready_for_review` (the merge gate).
 Add `ready_for_review` to the `pull_request` types, and make aggregator "... Tests Pass" jobs treat `skipped` as success so drafts still report.
-Foot-gun: if a `select-tests` job is cancelled mid-flight, its `mode` output is empty — normalize empty-mode **on a draft** to `skip`, or the draft grabs the full matrix and serializes the ready run behind it.
+Foot-gun: if the job that selects tests is cancelled mid-flight, its `mode` output is empty — normalize empty-mode **on a draft** to `skip`, or the draft grabs the full matrix and serializes the ready run behind it.
 
 ## Backwards-compat with unrebased PRs
 

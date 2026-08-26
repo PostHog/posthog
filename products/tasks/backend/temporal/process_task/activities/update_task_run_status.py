@@ -10,7 +10,7 @@ from temporalio.exceptions import ApplicationError
 from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.error_telemetry import truncate_error_message
-from products.tasks.backend.metrics import observe_wizard_run_unbound
+from products.tasks.backend.metrics import observe_prewarmed_unused_if_never_activated, observe_wizard_run_unbound
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.temporal.metrics import record_run_token_usage
 from products.tasks.backend.temporal.observability import log_with_activity_context
@@ -123,6 +123,17 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
 
     if input.timed_out_inactivity and old_status != input.status:
         task_run.task.soft_delete_if_unclaimed_prewarm(task_run)
+
+    # A warm Run that reaches terminal without ever being activated was never used — the sandbox was
+    # booted and thrown away. Counting it against `prewarmed_activated_total` gives the warm hit rate,
+    # and the reason separates a deliberate hand-back from one nobody reclaimed.
+    if input.status in _TERMINAL_STATUSES and old_status != input.status:
+        observe_prewarmed_unused_if_never_activated(
+            task_run,
+            reason="idle_timeout"
+            if input.timed_out_inactivity
+            else ("released" if input.status == TaskRun.Status.CANCELLED else "other"),
+        )
 
     if input.status in _TERMINAL_STATUSES:
         from products.tasks.backend.logic.services.loop_runs import (  # noqa: PLC0415 — breaks the loop_runs -> process_task -> activities import cycle

@@ -1,11 +1,28 @@
-# Disallowed uses of watched-models crossing classes in consumer code.
+# Disallowed uses of product model classes in consumer code.
 # One line per (product.Class, consumer module, kind, count); see products/architecture.md
 # § Wiring couplings for which shapes are allowed.
+#
+# Two channels land here. Name-level uses of a watched-models crossing class, in any kind the
+# doctrine does not call instance-free. And the kind `get_model`: an `apps.get_model` reference
+# from outside the owning product, which covers every product model, not only the allowance ones.
+# Test modules and migrations are out of scope on both channels: a migration reaches a model
+# through the historical registry, which is the only way a migration can.
 #
 # Counts may only go down, and a line that disappears must be deleted here too.
 # A new line needs a doctrine amendment, not a baseline edit.
 #
 # Regenerate: bin/hogli product:crossings --all --write-baseline
+canvas.Canvas products.tasks.backend.logic.services.loop_runs get_model 1
+data_modeling.DataWarehouseSavedQuery products.customer_analytics.backend.facade.api get_model 5
+error_tracking.ErrorTrackingIssue products.demo.backend.logic.products.hedgebox.matrix get_model 1
+error_tracking.ErrorTrackingIssue products.posthog_ai.evals.error_tracking.seeders get_model 1
+error_tracking.ErrorTrackingIssue products.reminders.backend.constants get_model 1
+error_tracking.ErrorTrackingIssueFingerprintV2 posthog.management.commands.fingerprint_embeddings_backfill get_model 1
+error_tracking.ErrorTrackingIssueFingerprintV2 posthog.management.commands.sync_exceptions_to_clickhouse get_model 1
+error_tracking.ErrorTrackingIssueFingerprintV2 posthog.models.team.util get_model 1
+error_tracking.ErrorTrackingIssueFingerprintV2 products.demo.backend.logic.products.hedgebox.matrix get_model 1
+error_tracking.ErrorTrackingIssueFingerprintV2 products.posthog_ai.evals.error_tracking.seeders get_model 1
+error_tracking.ErrorTrackingStackFrame products.demo.backend.logic.products.hedgebox.matrix get_model 1
 product_analytics.Insight ee.api.subscription instance-many(filter) 2
 product_analytics.Insight ee.api.subscription instance-many(manager) 2
 product_analytics.Insight ee.hogai.artifacts.handlers.visualization instance-many(filter) 1
@@ -87,6 +104,10 @@ product_analytics.InsightVariable products.exports.backend.tasks.image_exporter 
 product_analytics.InsightViewed posthog.api.sharing write(update_or_create) 2
 product_analytics.InsightViewed products.demo.backend.logic.products.hedgebox.matrix construct 1
 product_analytics.InsightViewed products.demo.backend.logic.products.hedgebox.matrix write(bulk_create) 1
+surveys.Survey products.early_access_features.backend.management.commands.migrate_enrollments_to_waitlist_surveys get_model 1
+tasks.CodeInvite products.posthog_ai.eval_harness.harness.demo_data get_model 1
+tasks.CodeInviteRedemption products.posthog_ai.eval_harness.harness.demo_data get_model 1
+tasks.TaskRun products.review_hog.backend.receivers get_model 1
 warehouse_sources.DataWarehouseCredential posthog.hogql.database.database instance-many(filter) 1
 warehouse_sources.DataWarehouseCredential products.data_warehouse.backend.presentation.views.table drf-model-serializer 1
 warehouse_sources.DataWarehouseCredential products.data_warehouse.backend.presentation.views.table write(create) 1
@@ -201,9 +222,6 @@ warehouse_sources.ExternalDataSource posthog.hogql.direct_connection instance-si
 warehouse_sources.ExternalDataSource products.data_warehouse.backend.logic.managed_warehouse_data_status instance-many(filter) 1
 warehouse_sources.ExternalDataSource products.data_warehouse.backend.management.commands.backfill_discovery_schedules instance-many(exclude) 1
 warehouse_sources.ExternalDataSource products.data_warehouse.backend.management.commands.repair_qualified_schema_duplicates instance-many(filter) 1
-warehouse_sources.ExternalDataSource products.data_warehouse.backend.migrations.0020_migrate_github_job_inputs_to_auth_type get_model 2
-warehouse_sources.ExternalDataSource products.data_warehouse.backend.migrations.0041_migrate_stripe_job_inputs_to_auth_type get_model 2
-warehouse_sources.ExternalDataSource products.data_warehouse.backend.migrations.0046_fix_vitally_region_job_inputs get_model 1
 warehouse_sources.ExternalDataSource products.data_warehouse.backend.models.revenue_analytics_config other(keyword) 1
 warehouse_sources.ExternalDataSource products.data_warehouse.backend.models.revenue_analytics_config passed-as-class(OneToOneField) 1
 warehouse_sources.ExternalDataSource products.data_warehouse.backend.presentation.views.data_warehouse instance-many(filter) 2

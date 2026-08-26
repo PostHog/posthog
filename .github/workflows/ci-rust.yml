@@ -182,6 +182,8 @@ jobs:
                       "property-vals-rs": 70,
                       "replay-anonymizer-node": 5,
                       "serve-metrics": 5,
+                      "usage-ingestion": 70,
+                      "usage-ingestion-proto": 5,
                   }
 
                   # Filter to only affected crates when selective builds are active.
@@ -497,6 +499,16 @@ jobs:
                       # stays safe for unrebased PRs.
                       if [ "$pkg" = "cymbal" ]; then
                           run_nextest cymbal-ignored -p cymbal -E 'test(rate_limiting)' --run-ignored only --test-threads=1
+                      fi
+                      # usage-ingestion's e2e tests are #[ignore]'d (they need Kafka and ClickHouse).
+                      # This job has both, on the suffixed schema `setup_test_environment` created.
+                      # Single-threaded so the load test's throughput measurement stays clean. The
+                      # Cargo.toml guard keeps this a no-op on branches predating the crate.
+                      if [ "$pkg" = "usage-ingestion" ] && [ -f usage-ingestion/Cargo.toml ]; then
+                          USAGE_INGESTION_E2E_CLICKHOUSE_DATABASE=posthog_test \
+                          USAGE_INGESTION_E2E_TOPIC=clickhouse_billing_usage_records_test \
+                          USAGE_INGESTION_E2E_LOAD_REQUESTS=2000 \
+                              run_nextest usage-ingestion-ignored -p usage-ingestion --run-ignored only --test-threads=1
                       fi
                       echo "::endgroup::"
                   done

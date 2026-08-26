@@ -28,6 +28,7 @@ from products.customer_analytics.backend.logic.custom_property_values import (
     record_last_slack_message_at,
     set_account_custom_properties_by_id,
     set_custom_property_value,
+    set_synced_custom_property_value,
 )
 from products.customer_analytics.backend.models import (
     CANONICAL_LAST_SLACK_MESSAGE_AT,
@@ -201,6 +202,38 @@ class TestSetCustomPropertyValue(BaseTest):
 
         first.refresh_from_db()
         assert first.is_deleted is True
+
+    def test_regular_same_value_still_adds_history(self):
+        definition = self._create_property_definition()
+
+        self._set(definition=definition, value="enterprise")
+        self._set(definition=definition, value="enterprise")
+
+        assert (
+            CustomPropertyValue.objects.for_team(self.team.id)
+            .filter(account=self.account, definition=definition)
+            .count()
+            == 2
+        )
+
+    def test_synced_same_value_does_not_add_history(self):
+        definition = self._create_property_definition()
+        self._set(definition=definition, value="enterprise")
+
+        changed = set_synced_custom_property_value(
+            team_id=self.team.id,
+            account_id=self.account.id,
+            definition=definition,
+            value="enterprise",
+        )
+
+        assert changed is False
+        assert (
+            CustomPropertyValue.objects.for_team(self.team.id)
+            .filter(account=self.account, definition=definition)
+            .count()
+            == 1
+        )
 
     def test_list_active_returns_only_current_values(self):
         plan = self._create_property_definition(name="Plan")

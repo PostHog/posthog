@@ -785,6 +785,10 @@ export type LlmSkillsListParams = {
      */
     offset?: number
     /**
+     * Filter skills by the ID of a user who owns them. Ownership is keyed on the logical skill, so this is stable across versions — unlike created_by_id, which tracks whoever published the latest version.
+     */
+    owner_id?: number
+    /**
      * Optional substring filter applied to skill names and descriptions.
      */
     search?: string

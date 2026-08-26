@@ -163,19 +163,8 @@ export interface OrganizationDomainApi {
     jit_provisioning_enabled?: boolean
     /** @maxLength 28 */
     sso_enforcement?: string
-    /** Returns whether SAML is configured for the instance. Does not validate the user has the required license (that check is performed in other places). */
-    readonly has_saml: boolean
-    /** Returns whether SCIM is configured and enabled for this domain. */
-    readonly has_scim: boolean
     /** @nullable */
     readonly scim_base_url: string | null
-    /** Returns whether ID-JAG (XAA) is configured for this domain. */
-    readonly has_id_jag: boolean
-    /**
-     * Linked IdP configuration (SAML/SCIM/XAA) that backs this domain. Must belong to the same organization.
-     * @nullable
-     */
-    identity_provider_config?: string | null
 }
 
 export interface PaginatedOrganizationDomainListApi {
@@ -199,20 +188,33 @@ export interface PatchedOrganizationDomainApi {
     jit_provisioning_enabled?: boolean
     /** @maxLength 28 */
     sso_enforcement?: string
-    /** Returns whether SAML is configured for the instance. Does not validate the user has the required license (that check is performed in other places). */
-    readonly has_saml?: boolean
-    /** Returns whether SCIM is configured and enabled for this domain. */
-    readonly has_scim?: boolean
     /** @nullable */
     readonly scim_base_url?: string | null
-    /** Returns whether ID-JAG (XAA) is configured for this domain. */
-    readonly has_id_jag?: boolean
-    /**
-     * Linked IdP configuration (SAML/SCIM/XAA) that backs this domain. Must belong to the same organization.
-     * @nullable
-     */
-    identity_provider_config?: string | null
 }
+
+/**
+ * * `all` - All
+ * * `selected` - Selected
+ */
+export type DomainScopeEnumApi = (typeof DomainScopeEnumApi)[keyof typeof DomainScopeEnumApi]
+
+export const DomainScopeEnumApi = {
+    All: 'all',
+    Selected: 'selected',
+} as const
+
+/**
+ * * `saml` - Saml
+ * * `scim` - Scim
+ * * `xaa` - Xaa
+ */
+export type ConfigScopeEnumApi = (typeof ConfigScopeEnumApi)[keyof typeof ConfigScopeEnumApi]
+
+export const ConfigScopeEnumApi = {
+    Saml: 'saml',
+    Scim: 'scim',
+    Xaa: 'xaa',
+} as const
 
 export interface IdentityProviderConfigApi {
     readonly id: string
@@ -221,6 +223,19 @@ export interface IdentityProviderConfigApi {
      * @maxLength 255
      */
     name?: string
+    /** Domains this configuration applies to. An unset value behaves like selected domains.
+     *
+     * * `all` - All
+     * * `selected` - Selected */
+    domain_scope?: DomainScopeEnumApi | BlankEnumApi | null
+    /** Feature configured by this identity provider configuration.
+     *
+     * * `saml` - Saml
+     * * `scim` - Scim
+     * * `xaa` - Xaa */
+    config_scope?: ConfigScopeEnumApi | BlankEnumApi | null
+    /** Organization domain IDs that this identity provider configuration applies to. */
+    organization_domain_ids?: string[]
     readonly created_at: string
     readonly updated_at: string
     /** Whether SAML is fully configured on this config. */
@@ -290,6 +305,19 @@ export interface PatchedIdentityProviderConfigApi {
      * @maxLength 255
      */
     name?: string
+    /** Domains this configuration applies to. An unset value behaves like selected domains.
+     *
+     * * `all` - All
+     * * `selected` - Selected */
+    domain_scope?: DomainScopeEnumApi | BlankEnumApi | null
+    /** Feature configured by this identity provider configuration.
+     *
+     * * `saml` - Saml
+     * * `scim` - Scim
+     * * `xaa` - Xaa */
+    config_scope?: ConfigScopeEnumApi | BlankEnumApi | null
+    /** Organization domain IDs that this identity provider configuration applies to. */
+    organization_domain_ids?: string[]
     readonly created_at?: string
     readonly updated_at?: string
     /** Whether SAML is fully configured on this config. */
@@ -4373,6 +4401,17 @@ export interface UserGitHubAccountApi {
     name?: string | null
 }
 
+/**
+ * * `connected` - connected
+ * * `unavailable` - unavailable
+ */
+export type InstallationStatusEnumApi = (typeof InstallationStatusEnumApi)[keyof typeof InstallationStatusEnumApi]
+
+export const InstallationStatusEnumApi = {
+    Connected: 'connected',
+    Unavailable: 'unavailable',
+} as const
+
 export interface UserGitHubIntegrationItemApi {
     /** PostHog UserIntegration row id. */
     id: string
@@ -4394,6 +4433,13 @@ export interface UserGitHubIntegrationItemApi {
     github_login?: string | null
     /** True when this installation id matches a team-level GitHub integration on the active project. */
     uses_shared_installation: boolean
+    /** Whether any other PostHog project or personal connection references the same App installation. When false, disconnecting this integration also uninstalls the GitHub App from the connected account or organization. */
+    installation_shared: boolean
+    /** `unavailable` means the App was uninstalled or suspended on GitHub and PostHog can no longer mint tokens for it; `connected` otherwise.
+     *
+     * * `connected` - connected
+     * * `unavailable` - unavailable */
+    installation_status: InstallationStatusEnumApi
     /** When this integration row was created. */
     created_at: string
 }
@@ -4449,11 +4495,18 @@ export interface GitHubReposResponseApi {
     repositories: GitHubRepoApi[]
     /** Whether more repositories are available beyond this page. */
     has_more: boolean
+    /** Total number of repositories matching the search query, across all pages. */
+    total: number
 }
 
 export interface GitHubReposRefreshResponseApi {
     /** The refreshed repository cache. */
     repositories: GitHubRepoApi[]
+    /** `unavailable` when GitHub reports the App installation as uninstalled or suspended, in which case `repositories` is the last cached list rather than a fresh one.
+     *
+     * * `connected` - connected
+     * * `unavailable` - unavailable */
+    installation_status: InstallationStatusEnumApi
 }
 
 /**
@@ -4486,6 +4539,16 @@ export interface GitHubInstallRequestItemApi {
      * @nullable
      */
     installation_id?: string | null
+    /**
+     * GitHub organization or user login the installation was approved under, once known.
+     * @nullable
+     */
+    account_login?: string | null
+    /**
+     * GitHub account type (`Organization` or `User`) the installation was approved under, once known.
+     * @nullable
+     */
+    account_type?: string | null
     /** When the install approval was requested. */
     requested_at: string
     /**
@@ -4498,6 +4561,11 @@ export interface GitHubInstallRequestItemApi {
 export interface GitHubInstallRequestListResponseApi {
     /** The user's GitHub App install-approval requests, newest first. */
     results: GitHubInstallRequestItemApi[]
+    /**
+     * Shareable GitHub App install URL with no PostHog session state, for an org owner who needs to approve the install. Null when the GitHub App is not configured on this instance.
+     * @nullable
+     */
+    install_url?: string | null
 }
 
 export interface UserGitHubPrepareCallbackRequestApi {

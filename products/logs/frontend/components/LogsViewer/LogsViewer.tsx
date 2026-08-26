@@ -25,6 +25,7 @@ import { logDetailsModalLogic } from './LogDetailsModal/logDetailsModalLogic'
 import { LogsDisplayBar } from './LogsDisplayBar'
 import { logsViewerLogic } from './logsViewerLogic'
 import { LogsSparkline } from './LogsViewerSparkline'
+import type { LogsViewerSparklineProps } from './LogsViewerSparkline'
 
 const SCROLL_INTERVAL_MS = 16 // ~60fps
 const SCROLL_AMOUNT_PX = 8
@@ -79,6 +80,14 @@ export function LogsViewer({
     )
 }
 
+/** `visibleRowDateRange` changes on every scroll tick, so it is subscribed here rather than in
+ *  `LogsViewerContent`, where it would re-render the row list and facet rail on each one.
+ *  `LogsSparkline` stays prop-driven so it can render in a story without the keyed logic. */
+function ConnectedLogsSparkline(props: Omit<LogsViewerSparklineProps, 'visibleRowDateRange'>): JSX.Element | null {
+    const { visibleRowDateRange } = useValues(logsViewerLogic)
+    return <LogsSparkline {...props} visibleRowDateRange={visibleRowDateRange} />
+}
+
 function LogsViewerContent({
     showFullScreenButton,
     showSavedViewsButton,
@@ -111,9 +120,8 @@ function LogsViewerContent({
         clearSelection,
         togglePrettifyLog,
     } = useActions(logsViewerLogic)
-    const { orderBy, sparklineBreakdownBy, sparklineCollapsed, facetRailCollapsed, viewMode } =
-        useValues(logsViewerConfigLogic)
-    const { setOrderBy, setSparklineBreakdownBy, toggleSparklineCollapsed } = useActions(logsViewerConfigLogic)
+    const { orderBy, sparklineCollapsed, facetRailCollapsed, viewMode } = useValues(logsViewerConfigLogic)
+    const { setOrderBy, toggleSparklineCollapsed } = useActions(logsViewerConfigLogic)
     const {
         logsLoading,
         parsedLogs,
@@ -223,10 +231,10 @@ function LogsViewerContent({
 
     useKeyboardHotkeys(
         {
-            arrowdown: { action: handleMoveDown, disabled: !keyboardNavEnabled },
-            j: { action: handleMoveDown, disabled: !keyboardNavEnabled },
-            arrowup: { action: handleMoveUp, disabled: !keyboardNavEnabled },
-            k: { action: handleMoveUp, disabled: !keyboardNavEnabled },
+            arrowdown: { action: handleMoveDown, disabled: !keyboardNavEnabled, allowRepeat: true },
+            j: { action: handleMoveDown, disabled: !keyboardNavEnabled, allowRepeat: true },
+            arrowup: { action: handleMoveUp, disabled: !keyboardNavEnabled, allowRepeat: true },
+            k: { action: handleMoveUp, disabled: !keyboardNavEnabled, allowRepeat: true },
             // arrowleft, arrowright, h, l handled by native keydown/keyup for smooth 60fps scrolling
             enter: {
                 action: () => {
@@ -295,13 +303,11 @@ function LogsViewerContent({
 
     const sparklineSection = (
         <>
-            <LogsSparkline
+            <ConnectedLogsSparkline
                 sparklineData={sparklineData}
                 sparklineLoading={sparklineLoading}
                 onDateRangeChange={setDateRange}
                 displayTimezone={timezone}
-                breakdownBy={sparklineBreakdownBy}
-                onBreakdownByChange={setSparklineBreakdownBy}
                 collapsed={sparklineCollapsed}
                 onToggleCollapse={toggleSparklineCollapsed}
                 incompleteBarIndices={sparklineIncompleteBarIndices}

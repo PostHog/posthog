@@ -39,6 +39,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (
+    RepartitionAttemptsExhausted,
     RepartitionBudgetExceededError,
     RepartitionSupersededError,
     RepartitionTarget,
@@ -102,8 +103,17 @@ _TRANSIENT_ERROR_SNIPPETS = (
 REWRITE_DEADLINE_MARGIN = dt.timedelta(minutes=5)
 
 
-def _rewrite_deadline() -> float | None:
+def _rewrite_deadline(activity_started: float) -> float | None:
     """Monotonic time by which the rewrite must stop to leave room to record its own failure.
+
+    `activity_started` is the `time.monotonic()` reading taken when the activity began. The deadline
+    is anchored to it, not to now: the budget is measured from `start_to_close_timeout`, which Temporal
+    counts from the same start, so the pre-rewrite work (job fetch, flag evaluation, the pre-extraction
+    Delta-log measurement, temp validation) has to be charged against it too. Anchoring to now instead
+    hands the rewrite a deadline later than the activity's own timeout by however long that pre-work
+    took, so on the heavily-fragmented tables this path exists to rescue — where reading the log alone
+    runs into minutes — Temporal kills the rewrite mid-stream before it can record an outcome, and the
+    hard-killed attempt counts toward the give-up cap.
 
     None when there is no budget to derive one from: outside an activity context (direct calls from
     tests), when the activity declares no `start_to_close_timeout`, or when that timeout is shorter
@@ -119,7 +129,7 @@ def _rewrite_deadline() -> float | None:
     budget = (info.start_to_close_timeout - REWRITE_DEADLINE_MARGIN).total_seconds()
     if budget <= 0:
         return None
-    return time.monotonic() + budget
+    return activity_started + budget
 
 
 def _is_transient_infra_error(error: Exception) -> bool:
@@ -241,6 +251,10 @@ def maybe_repartition_table_activity(inputs: RepartitionActivityInputs) -> None:
 
 
 def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: FilteringBoundLogger) -> None:
+    # Anchor the rewrite deadline to when the activity began, so the pre-rewrite work below (job fetch,
+    # flag evaluation, pre-extraction Delta-log measurement) is charged against the activity's timeout
+    # rather than handed to the rewrite on top of it. See `_rewrite_deadline`.
+    activity_started = time.monotonic()
     try:
         schema = retry_on_db_connection_drop(
             lambda: ExternalDataSchema.objects.select_related("source").get(id=inputs.schema_id)
@@ -411,7 +425,7 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
                 target=target,
                 logger=logger,
                 claim_token=claim_token,
-                deadline=_rewrite_deadline(),
+                deadline=_rewrite_deadline(activity_started),
             )
     except RepartitionBudgetExceededError as e:
         # The rewrite didn't fit in one activity's budget. Checkpoint/resume lets a large table
@@ -673,17 +687,26 @@ def _give_up(
     schema.clear_repartition_swap()
     schema.clear_repartition_rewrite()
     schema.stamp_last_repartition_at()
+    error = RepartitionAttemptsExhausted(
+        f"repartition gave up after {MAX_REPARTITION_ATTEMPTS} attempts that did not survive to record "
+        f"an outcome (trigger_reason={trigger_reason})"
+    )
     props = base_event_props(schema, schema.source, inputs.job_id)
     props.update(
         {
             "trigger_reason": trigger_reason,
             "attempts": int((pending or {}).get("attempts", 0)),
             "final": True,
-            "error_type": "RepartitionAttemptsExhausted",
-            "error_message": "attempts exhausted without any surviving to record an outcome",
+            "error_type": type(error).__name__,
+            "error_message": str(error),
         }
     )
     capture_repartition_event("warehouse_repartition_failed", props)
+    # Terminal, and the only terminal path that did not already report to error tracking: every attempt
+    # was hard-killed before it could run `_handle_failure` (which captures). Capture here too so a table
+    # the controller has abandoned surfaces as an issue instead of only a metric — the sync context is
+    # already bound (bind_job_context) so the issue is attributed to the connector and table.
+    capture_exception(error)
     DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome="failed").inc()
 
 

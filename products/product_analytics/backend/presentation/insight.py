@@ -116,12 +116,6 @@ from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
 )
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import (
-    UserAccessControlError,
-    UserAccessControlSerializerMixin,
-    access_level_satisfied_for_resource,
-)
 from posthog.renderers import SafeJSONRenderer
 from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.schema_migrations.upgrade import upgrade
@@ -139,6 +133,14 @@ from posthog.utils import (
     variables_override_requested_by_client,
 )
 
+from products.access_control.backend.facade.user_access_control import (
+    UserAccessControlError,
+    access_level_satisfied_for_resource,
+)
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
+)
 from products.alerts.backend.facade.api import delete_insight_alerts, insight_alerts_prefetch, serialize_insight_alerts
 from products.dashboards.backend.facade.access import (
     DashboardAccessMethod,
@@ -152,6 +154,7 @@ from products.dashboards.backend.facade.api import (
     DashboardTileBasicSerializer,
     InsightTilePlacement,
     active_tile_count,
+    dashboard_refs,
     hide_tiles_for_insights,
     insight_has_listed_tile,
     insight_ids_on_dashboard,
@@ -726,6 +729,7 @@ class InsightSerializer(InsightBasicSerializer):
         new_dashboard_ids = attrs.get("dashboards")
         if new_dashboard_ids is not None:
             team = self.context["get_team"]()
+            dashboard_names = {dashboard.id: dashboard.name for dashboard in dashboard_refs(new_dashboard_ids)}
             existing_dashboard_ids: set[int] = set()
             if self.instance is not None:
                 existing_dashboard_ids = set(
@@ -739,6 +743,10 @@ class InsightSerializer(InsightBasicSerializer):
                     key=LimitKey.MAX_INSIGHTS_PER_DASHBOARD,
                     current_count=active_tile_count(dashboard_id),
                     user=self.context["request"].user,
+                    resource_properties={
+                        "dashboard_id": dashboard_id,
+                        "dashboard_name": dashboard_names.get(dashboard_id) or "",
+                    },
                 )
 
         return super().validate(attrs)
@@ -2524,7 +2532,8 @@ When set, the specified dashboard's filters and date range override will be appl
         description=(
             "Record that the current user has just viewed one or more insights. "
             "Submitted ids that do not belong to the current project or that point at deleted insights "
-            "are silently dropped. Returns 201 on success regardless of how many ids were retained."
+            "are silently dropped, as are views from impersonated staff-support sessions. "
+            "Returns 201 on success regardless of how many ids were retained."
         ),
     )
     @action(methods=["POST"], detail=False, required_scopes=["insight:read"])
@@ -2533,6 +2542,11 @@ When set, the specified dashboard's filters and date range override will be appl
         Update insight view timestamps in bulk.
         Expects: {"insight_ids": [1, 2, 3, ...]}
         """
+        # Views during staff impersonation aren't the team's own activity - skip the write
+        # so support sessions don't bump the team-facing "Last viewed" column.
+        if is_impersonated(request):
+            return Response(status=status.HTTP_201_CREATED)
+
         insight_ids: list[int] = request.validated_data["insight_ids"]
 
         visible_insight_ids = list(

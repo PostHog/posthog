@@ -160,12 +160,14 @@ class TestTask(TestCase):
                 origin_product=Task.OriginProduct.SLACK,
                 user_id=user.id,
                 repository="posthog/posthog",
+                runtime=Task.Runtime.PI,
                 initial_permission_mode="bypassPermissions",
             )
 
         run_id = mock_execute_workflow.call_args.kwargs["run_id"]
         task_run = TaskRun.objects.get(id=run_id)
         self.assertEqual(task_run.state["initial_permission_mode"], "bypassPermissions")
+        self.assertEqual(task.runtime, Task.Runtime.PI)
         self.assertEqual(task.origin_product, Task.OriginProduct.SLACK)
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
@@ -803,6 +805,51 @@ class TestTaskRun(TestCase):
         with self.assertRaises(TaskOwnershipChangedError):
             task.create_run(extra_state={"resume_from_run_id": str(previous_run.id)})
 
+    @parameterized.expand(
+        [
+            ("message_only", {"pending_user_message": "Look at this"}, True),
+            ("artifacts_only", {"pending_user_artifact_ids": ["artifact-1"]}, True),
+            ("nothing_pending", {"mode": "interactive"}, False),
+        ]
+    )
+    def test_create_run_stamps_pending_user_message_id(self, _name, extra_state, expects_id):
+        run = self.task.create_run(extra_state=extra_state)
+
+        if expects_id:
+            self.assertIsInstance(run.state["pending_user_message_id"], str)
+            self.assertTrue(run.state["pending_user_message_id"])
+        else:
+            self.assertNotIn("pending_user_message_id", run.state)
+
+    def test_create_run_keeps_a_carried_pending_user_message_id(self):
+        carried_id = str(uuid.uuid4())
+
+        run = self.task.create_run(
+            extra_state={"pending_user_message": "Carried over", "pending_user_message_id": carried_id}
+        )
+
+        self.assertEqual(run.state["pending_user_message_id"], carried_id)
+
+    @parameterized.expand(
+        [
+            ("restaged_message", {"pending_user_message": "Second"}, False),
+            ("unrelated_update", {"sandbox_id": "sandbox-1"}, True),
+        ]
+    )
+    def test_update_state_atomic_refreshes_the_id_only_for_restaged_messages(self, _name, updates, keeps_id):
+        existing_id = str(uuid.uuid4())
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={"pending_user_message": "First", "pending_user_message_id": existing_id},
+        )
+
+        state = TaskRun.update_state_atomic(run.id, updates=updates)
+
+        self.assertTrue(state["pending_user_message_id"])
+        self.assertEqual(state["pending_user_message_id"] == existing_id, keeps_id)
+
     @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
     def test_prepare_for_cloud_handoff_clears_stale_sandbox_routing(self, _publish):
         run = TaskRun.objects.create(
@@ -813,6 +860,8 @@ class TestTaskRun(TestCase):
                 "sandbox_id": "old-sandbox",
                 "sandbox_url": "https://old-sandbox.test",
                 "sandbox_jwt_kid": "old-key",
+                "sandbox_connect_token": "old-tunnel-token",
+                "sandbox_backend": "hogland",
                 "snapshot_external_id": "snapshot-1",
                 "pending_user_message": "Review the attachment",
                 "pending_user_artifact_ids": ["artifact-1"],
@@ -824,6 +873,10 @@ class TestTaskRun(TestCase):
         self.assertNotIn("sandbox_id", run.state)
         self.assertNotIn("sandbox_url", run.state)
         self.assertNotIn("sandbox_jwt_kid", run.state)
+        self.assertNotIn("sandbox_connect_token", run.state)
+        # The provider stamp must not survive; a stale `hogland` would otherwise outrank
+        # the EU guard and Modal-only fallbacks when the handed-off run re-resolves.
+        self.assertNotIn("sandbox_backend", run.state)
         self.assertNotIn("pending_user_message", run.state)
         self.assertNotIn("pending_user_artifact_ids", run.state)
         self.assertEqual(run.state["snapshot_external_id"], "snapshot-1")

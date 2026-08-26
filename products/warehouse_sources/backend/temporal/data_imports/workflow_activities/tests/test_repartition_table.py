@@ -192,11 +192,23 @@ class TestRewriteDeadline:
             else MagicMock(return_value=info)
         )
 
+        with patch(f"{MODULE}.activity.info", info_fn):
+            assert _rewrite_deadline(1000.0) == expected
+
+    def test_deadline_is_anchored_to_the_activity_start_not_now(self) -> None:
+        # The deadline must be measured from when the activity began, because Temporal counts the
+        # start_to_close_timeout from the same point. Time already spent before the rewrite starts
+        # (log measurement on a fragmented table can run into minutes) has to shrink the rewrite's
+        # window, not be handed to it on top of the full budget — otherwise the rewrite outlives the
+        # timeout and Temporal kills it before it records an outcome.
+        info = MagicMock()
+        info.start_to_close_timeout = dt.timedelta(hours=6)
         with (
-            patch(f"{MODULE}.activity.info", info_fn),
-            patch(f"{MODULE}.time", MagicMock(monotonic=MagicMock(return_value=1000.0))),
+            patch(f"{MODULE}.activity.info", MagicMock(return_value=info)),
+            # A later wall reading must not move the deadline: it depends only on the passed anchor.
+            patch(f"{MODULE}.time", MagicMock(monotonic=MagicMock(return_value=9_999_999.0))),
         ):
-            assert _rewrite_deadline() == expected
+            assert _rewrite_deadline(1000.0) == 22300.0
 
 
 class TestBudgetExhaustion:

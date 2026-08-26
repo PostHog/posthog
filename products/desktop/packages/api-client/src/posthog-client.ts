@@ -125,6 +125,7 @@ import type {
   TeamMcpGatewayConfigUpdate,
 } from "./mcp-gateway";
 import type { SpendAnalysisResponse } from "./spend-analysis";
+import { parseUserSpendLimit, type UserSpendLimit } from "./spend-limit";
 import {
   normalizeTaskResponse,
   normalizeTaskRunArtifact,
@@ -327,6 +328,8 @@ export type {
 
 export type Evaluation = Schemas.Evaluation;
 
+export type GithubInstallationStatus = "connected" | "unavailable";
+
 export interface UserGitHubIntegration {
   id: string;
   kind: "github";
@@ -336,22 +339,39 @@ export interface UserGitHubIntegration {
     type?: string | null;
     name?: string | null;
   } | null;
+  github_login?: string | null;
   uses_shared_installation?: boolean;
+  /** False when disconnecting would also uninstall the App from GitHub. */
+  installation_shared?: boolean;
+  installation_status?: GithubInstallationStatus;
   created_at?: string;
 }
+
+/** `unidentified` means the requester could not be resolved, so approval can never
+ * be detected and the user has to restart the connect flow. */
+export type GithubInstallRequestStatus =
+  | "pending"
+  | "approved"
+  | "unidentified";
 
 /** A personal GitHub App install awaiting (or granted) org-owner approval; the
  * durable server-side counterpart to the in-flight connect spinner. Mirrors
  * `GitHubInstallRequest` on the backend. */
-export interface GitHubInstallRequest {
+export interface GithubInstallRequestItem {
   id: string;
   github_login: string;
-  /** `unidentified` means the requester could not be resolved, so approval can
-   *  never be detected and the user has to restart the connect flow. */
-  status: "pending" | "approved" | "unidentified";
-  installation_id?: string | null;
+  status: GithubInstallRequestStatus;
+  installation_id: string | null;
+  account_login?: string | null;
+  account_type?: string | null;
   requested_at: string;
-  resolved_at?: string | null;
+  resolved_at: string | null;
+}
+
+export interface GithubInstallRequestsResponse {
+  results: GithubInstallRequestItem[];
+  /** App install page with no PostHog state, for an org owner to open. */
+  install_url?: string | null;
 }
 
 export interface LlmSkillCreatedBy {
@@ -557,6 +577,8 @@ export interface ExternalDataSource {
   // The generated `ExternalDataSourceSerializers` types this as `string`,
   // but the actual API returns an array of schema objects
   schemas?: ExternalDataSourceSchema[] | string;
+  /** Non-secret connection settings, e.g. a GitHub source's `repositories`. */
+  job_inputs?: Record<string, unknown> | null;
 }
 
 /**
@@ -709,6 +731,91 @@ export interface PostHogObjectReferenceInput {
   object_kind: string;
   object_id: string;
   source_message_id: string;
+}
+
+export interface ContextWikiTree {
+  head_sha: string;
+  paths: string[];
+}
+
+export interface ContextWikiPage {
+  path: string;
+  content: string;
+  head_sha: string;
+  updated_at: string;
+}
+
+export interface ContextWikiHealthFinding {
+  category: string;
+  path: string;
+  message: string;
+}
+
+export interface ContextWikiHealthReport {
+  head_sha: string;
+  findings: ContextWikiHealthFinding[];
+}
+
+export interface ChannelContextWikiPage {
+  path: string;
+}
+
+// Thrown when PUT /context_layer/pages/ rejects a write because the caller's
+// `base_head` is older than the wiki's current head. `currentHead` is the head
+// to re-read against before retrying.
+export class ContextWikiConflictError extends Error {
+  status = 409;
+  currentHead: string | null;
+  constructor(currentHead: string | null) {
+    super("The wiki changed since you started editing");
+    this.name = "ContextWikiConflictError";
+    this.currentHead = currentHead;
+  }
+}
+
+// Thrown when a page write fails the wiki's structure lint; `errors` lists the
+// violations for inline display.
+export class ContextWikiLintError extends Error {
+  status = 400;
+  errors: string[];
+  constructor(detail: string, errors: string[]) {
+    super(detail);
+    this.name = "ContextWikiLintError";
+    this.errors = errors;
+  }
+}
+
+// Thrown on 403: the organization has private projects, so its wiki is
+// deliberately unavailable. Distinct from 404 (wiki never enabled).
+export class ContextWikiUnavailableError extends Error {
+  status = 403;
+  constructor(message: string) {
+    super(message);
+    this.name = "ContextWikiUnavailableError";
+  }
+}
+
+/** DRF error bodies carry the human-readable message in `detail`. */
+function readDetail(error: ApiRequestError): string {
+  const body = error.body as { detail?: string } | null;
+  return body?.detail ?? error.message;
+}
+
+/**
+ * DRF validation failures carry the messages per field, `{ field: [msg] }`,
+ * with no top-level `detail`. Flatten them so the server's own wording reaches
+ * the toast instead of a bare status text.
+ */
+function readFieldErrors(error: ApiRequestError): string {
+  if (typeof error.body !== "object" || error.body === null) {
+    return error.message;
+  }
+  const record = error.body as Record<string, unknown>;
+  if (typeof record.detail === "string") return record.detail;
+  const parts = Object.values(record).flatMap((messages) =>
+    Array.isArray(messages) ? messages.map(String) : [],
+  );
+  return parts.length > 0 ? parts.join(" ") : error.message;
 }
 
 export interface TaskArtifactUploadRequest {
@@ -1730,27 +1837,6 @@ export class PostHogAPIClient {
     return data.results ?? [];
   }
 
-  async getGithubInstallRequests(): Promise<GitHubInstallRequest[]> {
-    const urlPath = `/api/users/@me/integrations/github/install_requests/`;
-    const url = new URL(`${this.api.baseUrl}${urlPath}`);
-    const response = await this.api.fetcher.fetch({
-      method: "get",
-      url,
-      path: urlPath,
-    });
-
-    if (!response.ok) {
-      throw new Error(
-        `Failed to fetch GitHub install requests: ${response.statusText}`,
-      );
-    }
-
-    const data = (await response.json()) as {
-      results?: GitHubInstallRequest[];
-    };
-    return data.results ?? [];
-  }
-
   async disconnectGithubUserIntegration(installationId: string): Promise<void> {
     const urlPath = `/api/users/@me/integrations/github/${encodeURIComponent(installationId)}/`;
     const url = new URL(`${this.api.baseUrl}${urlPath}`);
@@ -1764,6 +1850,63 @@ export class PostHogAPIClient {
         `Failed to disconnect GitHub integration: ${response.statusText}`,
       );
     }
+  }
+
+  /** `GET /api/users/@me/integrations/github/install_requests/`: installs waiting on a GitHub org owner. */
+  async getGithubInstallRequests(): Promise<GithubInstallRequestsResponse> {
+    const urlPath = `/api/users/@me/integrations/github/install_requests/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url,
+      path: urlPath,
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to fetch GitHub install requests: ${response.statusText}`,
+      );
+    }
+    const data =
+      (await response.json()) as Partial<GithubInstallRequestsResponse>;
+    return {
+      results: data.results ?? [],
+      install_url: data.install_url ?? null,
+    };
+  }
+
+  async dismissGithubInstallRequest(requestId: string): Promise<void> {
+    const urlPath = `/api/users/@me/integrations/github/install_requests/${encodeURIComponent(requestId)}/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    await this.api.fetcher.fetch({
+      method: "delete",
+      url,
+      path: urlPath,
+    });
+  }
+
+  /** `DELETE /api/environments/{project}/integrations/{id}/`: any team-level integration (GitHub, Slack, ...). */
+  async deleteIntegration(
+    projectId: number,
+    integrationId: number | string,
+  ): Promise<void> {
+    await this.api.delete("/api/projects/{project_id}/integrations/{id}/", {
+      path: { project_id: projectId.toString(), id: Number(integrationId) },
+    });
+  }
+
+  /** Emails the project's admins asking them to connect an integration; members only. */
+  async requestIntegrationAccess(
+    projectId: number,
+    body: { kind: string; reason: string },
+  ): Promise<void> {
+    const urlPath = `/api/environments/${projectId}/integrations/request_access/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    await this.api.fetcher.fetch({
+      method: "post",
+      url,
+      path: urlPath,
+      overrides: { body: JSON.stringify(body) },
+    });
   }
 
   /** The user's linked Slack identities. Empty until they run the Sign-in-with-Slack flow. */
@@ -1843,8 +1986,8 @@ export class PostHogAPIClient {
     });
   }
 
-  async approveAiDataProcessing(): Promise<void> {
-    const urlPath = `/api/organizations/@current/`;
+  async approveAiDataProcessing(organizationId: string): Promise<void> {
+    const urlPath = `/api/organizations/${organizationId}/`;
     const url = new URL(`${this.api.baseUrl}${urlPath}`);
     await this.api.fetcher.fetch({
       method: "patch",
@@ -1854,6 +1997,40 @@ export class PostHogAPIClient {
         body: JSON.stringify({ is_ai_data_processing_approved: true }),
       },
     });
+  }
+
+  async areDesktopBetaTermsAccepted(organizationId: string): Promise<boolean> {
+    const urlPath = `/api/organizations/${organizationId}/desktop_beta_terms/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url,
+      path: urlPath,
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to check Desktop beta terms: ${response.statusText}`,
+      );
+    }
+    const data = (await response.json()) as {
+      is_desktop_beta_terms_accepted: boolean;
+    };
+    return data.is_desktop_beta_terms_accepted;
+  }
+
+  async acceptDesktopBetaTerms(organizationId: string): Promise<void> {
+    const urlPath = `/api/organizations/${organizationId}/desktop_beta_terms/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url,
+      path: urlPath,
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to accept Desktop beta terms: ${response.statusText}`,
+      );
+    }
   }
 
   async getProject(projectId: number) {
@@ -2201,6 +2378,36 @@ export class PostHogAPIClient {
   }
 
   /**
+   * `PATCH .../external_data_sources/{id}/`. `job_inputs` merges into the stored inputs, so
+   * changing a GitHub source's repositories only needs `{ repositories: [...] }`.
+   */
+  async updateExternalDataSource(
+    projectId: number,
+    sourceId: string,
+    payload: { job_inputs: Record<string, unknown> },
+  ): Promise<ExternalDataSource> {
+    const response = await this.api.patch(
+      "/api/projects/{project_id}/external_data_sources/{id}/",
+      {
+        path: { project_id: projectId.toString(), id: sourceId },
+        body: payload as unknown as Schemas.PatchedExternalDataSourceSerializers,
+        withResponse: true,
+        throwOnStatusError: false,
+      },
+    );
+    if (!response.ok) {
+      const errorData = isObjectRecord(response.data)
+        ? (response.data as { detail?: string })
+        : {};
+      throw new Error(
+        errorData.detail ??
+          `Failed to update external data source: ${response.statusText}`,
+      );
+    }
+    return response.data as unknown as ExternalDataSource;
+  }
+
+  /**
    * Fetch the connect-form field schema for external data source types from the
    * warehouse wizard endpoint. Pass `sourceType` (e.g. `"Jira"`) to scope to one
    * source; omit to fetch every source's config. Returns a map keyed by the
@@ -2275,6 +2482,39 @@ export class PostHogAPIClient {
       throw new Error(
         errorData.detail ??
           `Failed to update external data schema: ${response.statusText}`,
+      );
+    }
+  }
+
+  /**
+   * Update several of a source's schemas in one request. The backend commits each schema on its
+   * own, so one schema failing still applies the rest and the error names the ones it could not
+   * save — unlike a client-side loop, where the first failure skips everything after it.
+   */
+  async bulkUpdateExternalDataSchemas(
+    projectId: number,
+    sourceId: string,
+    schemas: { id: string; should_sync?: boolean; sync_type?: string }[],
+  ): Promise<void> {
+    const response = await this.api.patch(
+      "/api/projects/{project_id}/external_data_sources/{id}/bulk_update_schemas/",
+      {
+        path: { project_id: projectId.toString(), id: sourceId },
+        query: {},
+        body: {
+          schemas,
+        } as unknown as Schemas.PatchedExternalDataSourceBulkUpdateSchemas,
+        withResponse: true,
+        throwOnStatusError: false,
+      },
+    );
+    if (!response.ok) {
+      const errorData = isObjectRecord(response.data)
+        ? (response.data as { detail?: string })
+        : {};
+      throw new Error(
+        errorData.detail ??
+          `Failed to update external data schemas: ${response.statusText}`,
       );
     }
   }
@@ -2524,6 +2764,7 @@ export class PostHogAPIClient {
       > & {
         github_integration?: number | null;
         github_user_integration?: string | null;
+        signal_report_task_relationship?: string;
         branch?: string | null;
         runtime_adapter?: string | null;
         model?: string | null;
@@ -2532,6 +2773,7 @@ export class PostHogAPIClient {
         pending_user_message?: string;
         pending_user_artifact_ids?: string[];
         auto_publish?: boolean;
+        naming_source?: string;
       },
   ): Promise<Task> {
     const teamId = await this.getTeamId();
@@ -2601,8 +2843,8 @@ export class PostHogAPIClient {
   // Task channels + threads. Not in the generated OpenAPI client yet, so these
   // go through the raw fetcher like the desktop file-system endpoints above.
 
-  // List backend task channels: all public channels plus the requester's
-  // personal "#me" channel (provisioned lazily server-side on first list).
+  // All public channels plus the requester's #me. Creates nothing: startup provisions the
+  // default spaces, which is what lets a caller gate on one already existing.
   async getTaskChannels(): Promise<TaskChannel[]> {
     const teamId = await this.getTeamId();
     const urlPath = `/api/projects/${teamId}/task_channels/`;
@@ -2669,6 +2911,24 @@ export class PostHogAPIClient {
       );
     }
     return (await response.json()) as ProvisionedTaskChannels;
+  }
+
+  /**
+   * Opens the first-run agent session in #general. Reads the company's homepage, so it takes a
+   * few seconds; callers fire it without awaiting. Resolves false when no session was started,
+   * which is the normal path while the spaces rollout has not reached this user.
+   */
+  async startOnboardingSession(): Promise<string | null> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/onboarding_session/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+    });
+    if (!response.ok) return null;
+    const data = (await response.json()) as { task_id?: string | null };
+    return data.task_id ?? null;
   }
 
   async updateTaskChannelRepositories(
@@ -2820,6 +3080,129 @@ export class PostHogAPIClient {
       returned: all.length,
     });
     return all;
+  }
+
+  // ---- Organization context wiki (context_layer) ------------------------
+  // Org-scoped: the wiki is one repo per organization, shared across projects.
+  // 404 means the wiki was never enabled; 403 means it exists but is dark
+  // because the organization has private projects.
+
+  // GET with the wiki's shared read semantics: 404 (never enabled or missing
+  // page) reads as null, 403 (privacy guard) as ContextWikiUnavailableError.
+  private async getContextWikiResource<T>(urlPath: string): Promise<T | null> {
+    try {
+      const response = await this.api.fetcher.fetch({
+        method: "get",
+        url: new URL(`${this.api.baseUrl}${urlPath}`),
+        path: urlPath,
+      });
+      return (await response.json()) as T;
+    } catch (error) {
+      if (error instanceof ApiRequestError) {
+        if (error.status === 404) return null;
+        if (error.status === 403) {
+          throw new ContextWikiUnavailableError(readDetail(error));
+        }
+      }
+      throw error;
+    }
+  }
+
+  async getContextWikiTree(): Promise<ContextWikiTree | null> {
+    return this.getContextWikiResource<ContextWikiTree>(
+      `/api/organizations/@current/context_layer/tree/`,
+    );
+  }
+
+  async getContextWikiPage(path: string): Promise<ContextWikiPage | null> {
+    return this.getContextWikiResource<ContextWikiPage>(
+      `/api/organizations/@current/context_layer/pages/?path=${encodeURIComponent(path)}`,
+    );
+  }
+
+  async getContextWikiHealthReport(): Promise<ContextWikiHealthReport | null> {
+    return this.getContextWikiResource<ContextWikiHealthReport>(
+      `/api/organizations/@current/context_layer/wiki/report/`,
+    );
+  }
+
+  async getChannelContextWikiPage(
+    channelId: string,
+  ): Promise<ChannelContextWikiPage | null> {
+    return this.getContextWikiResource<ChannelContextWikiPage>(
+      `/api/organizations/@current/context_layer/channel-pages/${encodeURIComponent(channelId)}/`,
+    );
+  }
+
+  /**
+   * Full-content page write guarded by `baseHead` optimistic concurrency.
+   * The server holds a per-org writer lock shared with agent commit landings;
+   * a lock-busy 429 surfaces as ApiRequestError and is safe to retry with the
+   * same base head — callers configure that retry (see
+   * `useContextWikiPageMutation`). 409 (stale base head) and 400 (lint) are
+   * the actionable failures.
+   */
+  async putContextWikiPage(input: {
+    path: string;
+    content: string;
+    baseHead: string;
+  }): Promise<{ head_sha: string }> {
+    const urlPath = `/api/organizations/@current/context_layer/pages/`;
+    try {
+      const response = await this.api.fetcher.fetch({
+        method: "put",
+        url: new URL(`${this.api.baseUrl}${urlPath}`),
+        path: urlPath,
+        overrides: {
+          body: JSON.stringify({
+            path: input.path,
+            content: input.content,
+            base_head: input.baseHead,
+          }),
+        },
+      });
+      return (await response.json()) as { head_sha: string };
+    } catch (error) {
+      if (!(error instanceof ApiRequestError)) throw error;
+      if (error.status === 409) {
+        const body = error.body as { current_head?: string } | null;
+        throw new ContextWikiConflictError(body?.current_head ?? null);
+      }
+      if (error.status === 400) {
+        const body = error.body as {
+          detail?: string;
+          errors?: string[];
+        } | null;
+        throw new ContextWikiLintError(
+          body?.detail ?? "The change violates the wiki structure.",
+          body?.errors ?? [],
+        );
+      }
+      if (error.status === 403) {
+        throw new ContextWikiUnavailableError(readDetail(error));
+      }
+      throw error;
+    }
+  }
+
+  async enableContextWiki(): Promise<{ head_sha: string }> {
+    const urlPath = `/api/organizations/@current/context_layer/enable/`;
+    try {
+      const response = await this.api.fetcher.fetch({
+        method: "post",
+        url: new URL(`${this.api.baseUrl}${urlPath}`),
+        path: urlPath,
+        overrides: { body: JSON.stringify({}) },
+      });
+      return (await response.json()) as { head_sha: string };
+    } catch (error) {
+      if (error instanceof ApiRequestError) {
+        throw new Error(
+          `Failed to enable the context wiki: ${readDetail(error)}`,
+        );
+      }
+      throw error;
+    }
   }
 
   // A channel's system-announcement feed (context created, CONTEXT.md being
@@ -3669,7 +4052,9 @@ export class PostHogAPIClient {
         TaskRun,
         "status" | "branch" | "stage" | "error_message" | "output" | "state"
       >
-    >,
+    > & {
+      state_append?: Record<string, unknown>;
+    },
   ): Promise<TaskRun> {
     const teamId = await this.getTeamId();
     const data = await this.api.patch(
@@ -3684,6 +4069,25 @@ export class PostHogAPIClient {
       },
     );
     return normalizeTaskRunResponse(data, { teamId, taskId });
+  }
+
+  async analyzeTaskRun(
+    taskId: string,
+    runId: string,
+  ): Promise<{ analysis_task_id: string; created: boolean }> {
+    const teamId = await this.getTeamId();
+    const data = await this.api.post(
+      //@ts-expect-error this is not in the generated client
+      `/api/projects/{project_id}/tasks/{task_id}/runs/{id}/analyze/`,
+      {
+        path: {
+          project_id: teamId.toString(),
+          task_id: taskId,
+          id: runId,
+        },
+      },
+    );
+    return data as { analysis_task_id: string; created: boolean };
   }
 
   /**
@@ -4033,6 +4437,7 @@ export class PostHogAPIClient {
   ): Promise<{
     repositories: string[];
     hasMore: boolean;
+    total: number | null;
   }> {
     const teamId = await this.getTeamId();
     const url = new URL(
@@ -4055,10 +4460,14 @@ export class PostHogAPIClient {
       );
     }
 
-    const data = (await response.json()) as { has_more?: boolean };
+    const data = (await response.json()) as {
+      has_more?: boolean;
+      total?: number;
+    };
     return {
       repositories: this.normalizeGithubRepositories(data),
       hasMore: data.has_more ?? false,
+      total: typeof data.total === "number" ? data.total : null,
     };
   }
 
@@ -4092,6 +4501,7 @@ export class PostHogAPIClient {
   ): Promise<{
     repositories: string[];
     hasMore: boolean;
+    total: number | null;
   }> {
     const urlPath = `/api/users/@me/integrations/github/${installationId}/repos/`;
     const url = new URL(`${this.api.baseUrl}${urlPath}`);
@@ -4112,10 +4522,14 @@ export class PostHogAPIClient {
       );
     }
 
-    const data = (await response.json()) as { has_more?: boolean };
+    const data = (await response.json()) as {
+      has_more?: boolean;
+      total?: number;
+    };
     return {
       repositories: this.normalizeGithubRepositories(data),
       hasMore: data.has_more ?? false,
+      total: typeof data.total === "number" ? data.total : null,
     };
   }
 
@@ -4305,6 +4719,9 @@ export class PostHogAPIClient {
         "has_implementation_pr",
         String(params.has_implementation_pr),
       );
+    }
+    if (params?.channel_id) {
+      url.searchParams.set("channel_id", params.channel_id);
     }
 
     const response = await this.api.fetcher.fetch({
@@ -5548,20 +5965,22 @@ export class PostHogAPIClient {
     const url = new URL(
       `${this.api.baseUrl}/api/projects/${teamId}/sandbox_environments/`,
     );
-    const response = await this.api.fetcher.fetch({
-      method: "post",
-      url,
-      path: `/api/projects/${teamId}/sandbox_environments/`,
-      overrides: {
-        body: JSON.stringify(input),
-      },
-    });
-    if (!response.ok) {
+    try {
+      const response = await this.api.fetcher.fetch({
+        method: "post",
+        url,
+        path: `/api/projects/${teamId}/sandbox_environments/`,
+        overrides: {
+          body: JSON.stringify(input),
+        },
+      });
+      return (await response.json()) as SandboxEnvironment;
+    } catch (error) {
+      if (!(error instanceof ApiRequestError)) throw error;
       throw new Error(
-        `Failed to create sandbox environment: ${response.statusText}`,
+        `Failed to create sandbox environment: ${readFieldErrors(error)}`,
       );
     }
-    return (await response.json()) as SandboxEnvironment;
   }
 
   async updateSandboxEnvironment(
@@ -5572,20 +5991,22 @@ export class PostHogAPIClient {
     const url = new URL(
       `${this.api.baseUrl}/api/projects/${teamId}/sandbox_environments/${id}/`,
     );
-    const response = await this.api.fetcher.fetch({
-      method: "patch",
-      url,
-      path: `/api/projects/${teamId}/sandbox_environments/${id}/`,
-      overrides: {
-        body: JSON.stringify(input),
-      },
-    });
-    if (!response.ok) {
+    try {
+      const response = await this.api.fetcher.fetch({
+        method: "patch",
+        url,
+        path: `/api/projects/${teamId}/sandbox_environments/${id}/`,
+        overrides: {
+          body: JSON.stringify(input),
+        },
+      });
+      return (await response.json()) as SandboxEnvironment;
+    } catch (error) {
+      if (!(error instanceof ApiRequestError)) throw error;
       throw new Error(
-        `Failed to update sandbox environment: ${response.statusText}`,
+        `Failed to update sandbox environment: ${readFieldErrors(error)}`,
       );
     }
-    return (await response.json()) as SandboxEnvironment;
   }
 
   async deleteSandboxEnvironment(id: string): Promise<void> {
@@ -5850,6 +6271,60 @@ export class PostHogAPIClient {
       throw new Error(`Failed to fetch spend analysis: ${response.status}`);
     }
     return (await response.json()) as SpendAnalysisResponse;
+  }
+
+  /**
+   * The signed-in person's own spend limit, as the gateway holds it. A
+   * deployment without the gateway wired answers `available: false` rather than
+   * failing, so the settings page can say the limit informs only.
+   */
+  async getUserSpendLimit(): Promise<UserSpendLimit> {
+    return parseUserSpendLimit(await this.spendLimitRequest("get"));
+  }
+
+  /** Sets the limit; `windowSeconds` is the window it resets over. */
+  async setUserSpendLimit(
+    limitUsd: number,
+    windowSeconds: number,
+  ): Promise<UserSpendLimit> {
+    return parseUserSpendLimit(
+      await this.spendLimitRequest("post", "", {
+        limit_usd: String(limitUsd),
+        window_seconds: windowSeconds,
+      }),
+    );
+  }
+
+  /** Removes the limit, so nothing holds this person's spend. */
+  async clearUserSpendLimit(): Promise<UserSpendLimit> {
+    return parseUserSpendLimit(
+      await this.spendLimitRequest("delete", "clear/"),
+    );
+  }
+
+  private async spendLimitRequest(
+    method: "get" | "post" | "delete",
+    suffix = "",
+    body?: Record<string, unknown>,
+  ): Promise<unknown> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/ai_gateway/@me/spend_limit/${suffix}`;
+    // The shared fetcher throws `Failed request: [<status>] <json-body>` for any
+    // non-2xx, so unwrap that into the endpoint's clean message rather than
+    // surfacing the raw string in the settings toast.
+    try {
+      const response = await this.api.fetcher.fetch({
+        method,
+        url: new URL(`${this.api.baseUrl}${urlPath}`),
+        path: urlPath,
+        ...(body ? { overrides: { body: JSON.stringify(body) } } : {}),
+      });
+      return await response.json();
+    } catch (error) {
+      throw new Error(
+        extractRequestErrorMessage(error, "Couldn't update your spend limit."),
+      );
+    }
   }
 
   /**

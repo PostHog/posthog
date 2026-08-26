@@ -17,6 +17,20 @@
             "default": "InsightActorsQuery",
             "type": "string"
         },
+        "limit": {
+            "default": 100,
+            "description": "Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped.",
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+        },
+        "offset": {
+            "default": 0,
+            "description": "Number of persons to skip before the returned page. Use it with `limit` to walk the whole result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true, call again with `offset` raised by `limit`.",
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+        },
         "output_format": {
             "default": "optimized",
             "description": "Output format. \"optimized\" returns a human-readable summary from server-side formatters (recommended for analysis). \"json\" returns the raw query results as JSON.",

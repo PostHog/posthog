@@ -697,6 +697,22 @@ export interface RetryResponseApi {
     workflow_id: string
 }
 
+export interface ObservationSearchResultApi {
+    /** The matching observation. */
+    observation: ReplayObservationApi
+    /** Cosine distance between the search text and the observation's closest embedding. Lower is a closer match. Only comparable to other results in the same response. */
+    distance: number
+    /** Excerpt of the observation text that best matched the search, truncated. Empty for observations analyzed before excerpts were stored. */
+    matched_content: string
+}
+
+export interface ObservationSearchResponseApi {
+    /** Matching observations, most relevant first. */
+    results: ObservationSearchResultApi[]
+    /** True when more matches may exist beyond `results`, so the response is a top slice rather than everything that matched. */
+    truncated: boolean
+}
+
 export interface VisionQuotaApi {
     /**
      * Credits the org may spend per billing period (1 credit = $0.01). Null when billing has synced the product with no spend limit: uncapped.
@@ -762,7 +778,9 @@ export const ScannerModelEnumApi = {
 } as const
 
 /**
- * The experiment a scanner's targeting watches. Metadata only; scanning never reads it.
+ * The experiment a scanner watches. Scans derive their person-scoped exposure filter from
+ * this blob at query time, so it is the only place an experiment can enter a scanner's
+ * targeting — which is what lets the write-side access check and read-side redaction cover it.
  */
 export interface ScannerExperimentTargetingApi {
     /**
@@ -771,13 +789,11 @@ export interface ScannerExperimentTargetingApi {
      */
     experiment_id: number
     /**
-     * Targeted experiment variants. Empty means every variant.
-     * @maxItems 50
-     * @items.maxLength 400
+     * Narrow to sessions of people exposed to this variant. Null means every variant.
+     * @maxLength 400
+     * @nullable
      */
-    variant_keys: string[]
-    /** True when the exposure event is captured server-side and the query filters on the `$feature/<flag_key>` property instead. */
-    use_exposure_fallback: boolean
+    variant?: string | null
 }
 
 export interface FeedbackThemeSessionApi {
@@ -2005,6 +2021,8 @@ export interface EstimateRequestApi {
      * * `gemini-3-flash-preview` - Gemini 3 Flash
      * * `gemini-3.7-flash` - Gemini 3.7 Flash */
     model?: ScannerModelEnumApi
+    /** Proposed experiment targeting, merged into the query as its exposure filter the same way a saved scanner derives it. The estimate then runs as the requesting user. */
+    experiment_targeting?: ScannerExperimentTargetingApi | null
 }
 
 /**
@@ -2267,6 +2285,43 @@ export type VisionObservationsRetrieveParams = {
     triggered_by?: string
     /**
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
+     */
+    verdict?: string
+}
+
+export type VisionObservationsSearchRetrieveParams = {
+    /**
+     * Maximum number of results (default 20, at most 50).
+     * @minimum 1
+     * @maximum 50
+     */
+    limit?: number
+    /**
+     * Keep only scorer observations with a score at or below this value.
+     */
+    max_score?: number
+    /**
+     * Keep only scorer observations with a score at or above this value.
+     */
+    min_score?: number
+    /**
+     * Natural-language description of what to find, e.g. 'users confused by the pricing page'.
+     * @minLength 1
+     * @maxLength 2000
+     */
+    q: string
+    /**
+     * Search a single scanner's observations. Defaults to every scanner you can read.
+     */
+    scanner_id?: string
+    /**
+     * Comma-separated classifier tags to keep. Matching is case- and format-insensitive. Unlike `verdict`, tags are not validated against a fixed list, so an unknown tag matches nothing.
+     * @minLength 1
+     */
+    tags?: string
+    /**
+     * Comma-separated monitor verdicts to keep, e.g. `yes,inconclusive`.
+     * @minLength 1
      */
     verdict?: string
 }

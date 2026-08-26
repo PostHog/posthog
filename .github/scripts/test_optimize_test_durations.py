@@ -19,6 +19,8 @@ from optimize_test_durations import (
     outlier_merge_durations,
     run_average_files,
     run_merge_files,
+    scale_products_to_junit,
+    scope_products_to_junit,
     shard_sets_match,
 )
 
@@ -136,6 +138,55 @@ class TestAverageDurations:
             main()
         assert not out.exists()
 
+    @pytest.mark.parametrize(
+        "shard_two_uploads",
+        [
+            {},
+            {"junit-results-backend-core-2": b"<testsuite><testcase"},
+            {
+                "junit-results-backend-core-2": _MIN_JUNIT_XML,
+                "junit-results-backend-core-2-attempt2": b"<testsuite><testcase",
+            },
+        ],
+    )
+    def test_scope_to_junit_refuses_a_shard_without_readable_junit(self, tmp_path, monkeypatch, shard_two_uploads):
+        # Shard 2's JUnit never uploaded, uploaded truncated, or reran with a
+        # truncated attempt on top of a good one. Scoping to what parsed would
+        # drop nodeids shard 2 owns, so the script must exit and let the
+        # workflow retry unscoped.
+        artifacts = tmp_path / "timing_artifacts"
+        for shard, test_id in (
+            ("1", "posthog/test_foo.py::TestThing::test_one"),
+            ("2", "posthog/test_bar.py::test_two"),
+        ):
+            shard_dir = artifacts / f"timing_data-Core-{shard}"
+            shard_dir.mkdir(parents=True)
+            (shard_dir / ".test_durations").write_text(json.dumps({test_id: 1.0}))
+        junit_dir = tmp_path / "junit_artifacts"
+        (junit_dir / "junit-results-backend-core-1").mkdir(parents=True)
+        (junit_dir / "junit-results-backend-core-1" / "junit.xml").write_bytes(_MIN_JUNIT_XML)
+        for name, xml in shard_two_uploads.items():
+            (junit_dir / name).mkdir()
+            (junit_dir / name / "junit.xml").write_bytes(xml)
+        out = tmp_path / "core_durations"
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "optimize_test_durations.py",
+                str(artifacts),
+                str(out),
+                "--segment",
+                "Core",
+                "--junit-dir",
+                str(junit_dir),
+                "--scope-to-junit",
+            ],
+        )
+        with pytest.raises(SystemExit):
+            main()
+        assert not out.exists()
+
     def test_run_average_files_refuses_empty_result(self, tmp_path):
         # Newest (anchor) run scoped to nothing must not silently wipe the plan,
         # even when older runs still carry data — refuse to write, don't emit {}.
@@ -160,6 +211,7 @@ class TestJUnitShardSegmentFilter:
             "junit-results-backend-core-poe-1",
             "junit-results-backend-temporal-1",
             "product-junit-results-1",
+            "junit-results-dagster-1",
             "junit-results-backend-compat-1",  # unrelated, shouldn't match anything
         ):
             shard = tmp_path / name
@@ -190,6 +242,44 @@ class TestJUnitShardSegmentFilter:
         assert set(shards[0].call_times) == {
             "posthog/test_foo.py::TestThing::test_one",
             "products/tasks/test_two.py::TestThing::test_two",
+        }
+
+    def test_dagster_matches_junit_results_dagster_prefix(self, junit_dir: Path) -> None:
+        names = {s.name for s in JUnitShard.load_all(junit_dir, segment="Dagster")}
+        assert names == {"junit-results-dagster-1"}
+
+    def test_rerun_attempt_supersedes_earlier_attempts(self, junit_dir: Path) -> None:
+        # The fixture's core-1 dir has time=0.5; an attempt-2 rerun of the same
+        # shard must replace it, not sit alongside or be dropped.
+        shard = junit_dir / "junit-results-backend-core-1-attempt2"
+        shard.mkdir()
+        (shard / "junit.xml").write_bytes(
+            b'<testsuite><testcase classname="posthog.test_foo.TestThing" name="test_one" time="1.5"/></testsuite>'
+        )
+
+        shards = JUnitShard.load_all(junit_dir, segment="Core")
+
+        assert [shard.name for shard in shards] == ["junit-results-backend-core-1", "junit-results-backend-core-2"]
+        base = next(shard for shard in shards if shard.name == "junit-results-backend-core-1")
+        assert base.call_times["posthog/test_foo.py::TestThing::test_one"] == 1.5
+
+    def test_rerun_attempt_keeps_tests_only_an_earlier_attempt_ran(self, junit_dir: Path) -> None:
+        # A rerun without the pinned plan can reshard a test into a shard that is
+        # not rerun, so attempt 2 of shard 1 no longer lists it. Its attempt-1
+        # membership must survive or scoping drops a test that ran.
+        shard = junit_dir / "junit-results-backend-core-1-attempt2"
+        shard.mkdir()
+        (shard / "junit.xml").write_bytes(
+            b'<testsuite><testcase classname="posthog.test_bar" name="test_two" time="2.0"/></testsuite>'
+        )
+
+        base = next(
+            s for s in JUnitShard.load_all(junit_dir, segment="Core") if s.name == "junit-results-backend-core-1"
+        )
+
+        assert base.call_times == {
+            "posthog/test_foo.py::TestThing::test_one": 0.5,
+            "posthog/test_bar.py::test_two": 2.0,
         }
 
     def test_unknown_segment_does_not_panic(self, junit_dir: Path):
@@ -317,3 +407,57 @@ def test_shard_sets_match_requires_every_junit_artifact() -> None:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+def test_scope_products_to_junit_keeps_products_the_run_skipped(tmp_path: Path) -> None:
+    (tmp_path / "ran").mkdir()
+    (tmp_path / "skipped").mkdir()
+    durations = {
+        "products/ran/test_a.py::test_kept": 1.0,
+        "products/ran/test_a.py::test_stale": 2.0,
+        "products/skipped/test_b.py::test_one": 3.0,
+        "products/deleted/test_c.py::test_one": 4.0,
+        "posthog/test_d.py::test_one": 5.0,
+    }
+
+    scoped = scope_products_to_junit(durations, {"products/ran/test_a.py::test_kept"}, products_dir=tmp_path)
+
+    assert scoped == {
+        "products/ran/test_a.py::test_kept": 1.0,
+        "products/skipped/test_b.py::test_one": 3.0,
+    }
+
+
+def test_scale_products_to_junit_matches_sums_to_measured_work(tmp_path: Path) -> None:
+    # Recorded call-only durations under-count the fixture-heavy product; junit
+    # carries the real total. Scaling keeps relative weights, fixes the sum.
+    shard = tmp_path / "product-junit-results-0"
+    shard.mkdir()
+    (shard / "junit-product-big_one.xml").write_bytes(
+        b'<?xml version="1.0"?><testsuite name="pytest" time="310.0">'
+        b'<testcase classname="products.big_one.backend.test_a.TestA" name="test_a" time="100.0"/>'
+        b'<testcase classname="products.big_one.backend.test_a.TestA" name="test_b" time="200.0"/></testsuite>'
+    )
+    durations = {
+        "products/big_one/backend/test_a.py::TestA::test_a": 10.0,
+        "products/big_one/backend/test_a.py::TestA::test_b": 20.0,
+        "posthog/test/test_x.py::test_x": 5.0,
+    }
+
+    scaled = scale_products_to_junit(durations, tmp_path)
+
+    assert scaled["products/big_one/backend/test_a.py::TestA::test_a"] == pytest.approx(100.0)
+    assert scaled["products/big_one/backend/test_a.py::TestA::test_b"] == pytest.approx(200.0)
+    assert scaled["posthog/test/test_x.py::test_x"] == 5.0
+    assert scaled["products/.junit-scaled"] == 1.0
+
+
+def test_scale_products_to_junit_leaves_products_without_junit_alone(tmp_path: Path) -> None:
+    durations = {"products/other_one/backend/test_b.py::test_b": 7.0}
+
+    scaled = scale_products_to_junit(durations, tmp_path)
+
+    assert scaled["products/other_one/backend/test_b.py::test_b"] == 7.0
+    # The marker still lands: an empty junit dir means no product ran, and the
+    # sums for products that did not run are unchanged either way.
+    assert scaled["products/.junit-scaled"] == 1.0

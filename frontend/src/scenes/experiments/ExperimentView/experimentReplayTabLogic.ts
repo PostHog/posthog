@@ -28,11 +28,6 @@ import {
     eventUsageLogic,
 } from 'lib/utils/eventUsageLogic'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
-import {
-    applySessionLinkability,
-    getExposureFallbackFilter,
-    getViewRecordingFiltersForVariant,
-} from 'scenes/experiments/utils'
 import { playerSidebarLogic } from 'scenes/session-recordings/player/sidebar/playerSidebarLogic'
 import { DEFAULT_RECORDING_FILTERS } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -65,6 +60,8 @@ import type {
     ExperimentSessionEventDeltaResponseApi,
     ExperimentWatchCardApi,
 } from 'products/experiments/frontend/generated/api.schemas'
+import { visionScannersList } from 'products/replay_vision/frontend/generated/api'
+import type { ScannerTypeEnumApi } from 'products/replay_vision/frontend/generated/api.schemas'
 
 import type { ExperimentIdType } from '../../../types'
 import type { ExperimentSavedMetric } from '../experimentLogic'
@@ -84,6 +81,14 @@ import {
 
 export interface ExperimentReplayTabLogicProps {
     experiment: Experiment
+}
+
+/** A scanner already watching this experiment, for the back-link on the Recordings tab. */
+export interface LinkedScanner {
+    id: string
+    name: string
+    scannerType: ScannerTypeEnumApi
+    observationsThisMonth: number
 }
 
 /** One experiment metric offered in the recordings tab's "Metric events" dropdown. */
@@ -176,6 +181,8 @@ export interface experimentReplayTabLogicValues {
     bucketSessionIds: string[] | undefined
     effectiveMetricUuids: string[]
     effectiveVariantKey: string | null
+    linkedScanners: LinkedScanner[]
+    linkedScannersLoading: boolean
     loadedRecordings: ExperimentReplayRecording[]
     loadedRecordingsById: Map<string, ExperimentReplayRecording>
     metricFilterMode: ExperimentReplayMetricFilterMode
@@ -191,7 +198,6 @@ export interface experimentReplayTabLogicValues {
     sessionEventDeltas: ExperimentSessionEventDeltaResponseApi | null
     sessionEventDeltasError: string | null
     sessionEventDeltasLoading: boolean
-    usingExposureFallback: boolean
     variantKeys: string[]
 }
 
@@ -270,6 +276,31 @@ export interface experimentReplayTabLogicActions {
         payload?: any
         seenTogetherMap: Record<string, boolean>
     } // viewRecordingsLinkabilityLogic
+    loadLinkedScanners: (_?: unknown) => unknown
+    loadLinkedScannersFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadLinkedScannersSuccess: (
+        linkedScanners: {
+            id: string
+            name: string
+            observationsThisMonth: number
+            scannerType: ScannerTypeEnumApi
+        }[],
+        payload?: unknown
+    ) => {
+        linkedScanners: {
+            id: string
+            name: string
+            observationsThisMonth: number
+            scannerType: ScannerTypeEnumApi
+        }[]
+        payload?: unknown
+    }
     loadSessionBucket: (_?: unknown) => unknown
     loadSessionBucketFailure: (
         error: string,
@@ -360,7 +391,6 @@ export interface experimentReplayTabLogicMeta {
         variantKeys: (arg: any) => string[]
         behaviorComparisonAvailable: (featureFlags: FeatureFlagsSet) => boolean
         effectiveVariantKey: (selectedVariantKey: string | null, variantKeys: string[]) => string | null
-        usingExposureFallback: (linkabilityLoaded: boolean, unlinkableEventNames: Set<string>, arg: any) => boolean
         metricOptions: (
             linkabilityLoaded: boolean,
             unlinkableEventNames: Set<string>,
@@ -517,6 +547,30 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 },
             },
         ],
+        linkedScanners: [
+            [] as LinkedScanner[],
+            {
+                // The scanners already watching this experiment. The `experiment_id` filter is gated
+                // on the caller's experiment access server-side, so an unreadable experiment resolves
+                // to an empty list. Fail-soft to []: the tab must render even if the lookup fails.
+                loadLinkedScanners: async (_: unknown = null, breakpoint) => {
+                    try {
+                        const response = await visionScannersList(String(values.currentProjectId), {
+                            experiment_id: String(props.experiment.id),
+                        })
+                        breakpoint()
+                        return response.results.map((scanner) => ({
+                            id: scanner.id,
+                            name: scanner.name,
+                            scannerType: scanner.scanner_type,
+                            observationsThisMonth: scanner.observations_this_month,
+                        }))
+                    } catch {
+                        return []
+                    }
+                },
+            },
+        ],
     })),
     reducers({
         // null = "All" (every exposed session, regardless of variant). Persisted (keyed per
@@ -655,21 +709,6 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
         // filter could only match zero sessions. Those stay listed with their reason rather than
         // vanishing, which reads as the metric having been forgotten. Fails open while the check
         // loads.
-        // The recordings tab itself is now person-scoped, but a scanner filters recordings by a
-        // persisted RecordingsQuery, which can't express person-scoped exposure (the experiment_exposure
-        // filter refuses userless callers). So the cross-sell scanner link still needs the old
-        // event/property exposure filter, and this tells it whether to use the server-side-exposure
-        // fallback shape. Fails open (false) while the linkability check loads.
-        usingExposureFallback: [
-            (s) => [s.linkabilityLoaded, s.unlinkableEventNames, (_, props) => props.experiment],
-            (linkabilityLoaded: boolean, unlinkableEventNames: Set<string>, experiment: Experiment): boolean =>
-                linkabilityLoaded &&
-                applySessionLinkability(
-                    getViewRecordingFiltersForVariant(experiment),
-                    unlinkableEventNames,
-                    getExposureFallbackFilter(experiment)
-                ).usedExposureFallback,
-        ],
         metricOptions: [
             (s) => [s.linkabilityLoaded, s.unlinkableEventNames, (_, props) => props.experiment],
             (
@@ -1069,6 +1108,11 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
     })),
     afterMount(({ values, actions }) => {
         actions.setDefaultTab(SessionRecordingSidebarTab.OVERVIEW)
+        // Only the vision entry point renders the watching-scanners card, so don't spend the lookup
+        // for everyone else who opens this tab without the flag.
+        if (values.featureFlags[FEATURE_FLAGS.VISION_ENTRYPOINT_EXPERIMENTS]) {
+            actions.loadLinkedScanners()
+        }
 
         // The mode persists, so a tab reopened in a bucket needs its session set again.
         if (values.sessionBucketRequest) {

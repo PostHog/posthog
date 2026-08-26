@@ -1,8 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { FunctionComponent, isValidElement, memo, useEffect, useRef } from 'react'
-import { useDebouncedCallback } from 'use-debounce'
-import useResizeObserver from 'use-resize-observer'
+import { FunctionComponent, isValidElement, memo, useRef } from 'react'
 
 import {
     BaseIcon,
@@ -60,8 +58,6 @@ import {
 import { ItemAppState, ItemAppStateDetail, ItemConsoleLog, ItemConsoleLogDetail } from './ItemConsoleLog'
 import { ItemDoctor, ItemDoctorDetail } from './ItemDoctor'
 import { ItemEvent, ItemEventDetail, ItemEventMenu } from './ItemEvent'
-
-const PLAYER_INSPECTOR_LIST_ITEM_MARGIN = 1
 
 interface IconAndDescription {
     Icon: FunctionComponent | undefined
@@ -424,53 +420,22 @@ const ListItemDetail = memo(function ListItemDetail({
 export const PlayerInspectorListItem = memo(function PlayerInspectorListItem({
     item,
     index,
-    onLayout,
     groupCount,
     groupedItems,
 }: {
     item: InspectorListItem
     index: number
-    onLayout?: (layout: { width: number; height: number }) => void
     groupCount?: number
     groupedItems?: InspectorListItem[]
 }): JSX.Element {
     const hoverRef = useRef<HTMLDivElement>(null)
+    const ref = useRef<HTMLDivElement>(null)
 
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
 
     const { expandedItems } = useValues(playerInspectorLogic(logicProps))
 
     const isExpanded = expandedItems.includes(index)
-
-    const onLayoutDebounced = useDebouncedCallback(onLayout ?? (() => {}), 500)
-    const { ref, width, height } = useResizeObserver({})
-
-    const totalHeight = height ? height + PLAYER_INSPECTOR_LIST_ITEM_MARGIN : height
-
-    // Height changes should lay out immediately but width ones (browser resize can be much slower)
-    useEffect(
-        () => {
-            if (!onLayout || !width || !totalHeight) {
-                return
-            }
-            onLayoutDebounced({ width, height: totalHeight })
-        },
-        // purposefully only triggering on width
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [width]
-    )
-
-    useEffect(
-        () => {
-            if (!onLayout || !width || !totalHeight) {
-                return
-            }
-            onLayout({ width, height: totalHeight })
-        },
-        // purposefully only triggering on total height
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [totalHeight]
-    )
 
     const isHovering = useIsHovering(hoverRef)
 
