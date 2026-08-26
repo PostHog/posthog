@@ -522,6 +522,13 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
             if (known) {
                 actions.setSelectedMetricType(known)
             }
+            // The name was set before the list arrived, so the pick-time recommendation
+            // never ran. Apply it late, but only over the untouched default — an
+            // aggregation restored from the URL or picked by the user stays.
+            const recommended = metricType ? RECOMMENDED_AGGREGATION_BY_TYPE[metricType] : undefined
+            if (recommended && values.aggregation === DEFAULT_AGGREGATION && recommended !== values.aggregation) {
+                actions.setRecommendedAggregation(recommended)
+            }
         },
         saveAsInsightFailure: ({ error }) => {
             lemonToast.error(`Failed to save insight: ${error}`)

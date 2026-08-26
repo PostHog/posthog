@@ -124,6 +124,12 @@ describe('metricsSceneLogic', () => {
             ['a JSON array', '[1,2]'],
             ['a JSON object of the wrong shape', '{"a":1}'],
             ['a group with junk inside values', '{"type":"AND","values":[1]}'],
+            // The viewer renders values[0] as a nested group, so a flat group (leaf chips
+            // at the top level) would crash the filter bar.
+            [
+                'a flat group with a leaf at the top level',
+                '{"type":"AND","values":[{"type":"metric_attribute","key":"service_name","value":["api"],"operator":"exact"}]}',
+            ],
         ])('ignores a malformed filterGroup in the URL (%s)', async (_, urlValue) => {
             const before = logic.values.filterGroup
             await expectLogic(logic, () => {
@@ -170,6 +176,21 @@ describe('metricsSceneLogic', () => {
             }).toFinishAllListeners()
 
             expect(router.values.searchParams).toMatchObject({ metricName: 'requests_total', activeTab: 'sql' })
+        })
+
+        it('does not write metrics params onto another scene URL', async () => {
+            // An async cascade (e.g. the picker's late metric-type backfill) can fire after
+            // the router already left /metrics while the scene logic is still mounted.
+            await expectLogic(logic, () => {
+                router.actions.push('/logs')
+            }).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.setMetricName('requests_total')
+            }).toFinishAllListeners()
+
+            expect(router.values.location.pathname).toContain('/logs')
+            expect(router.values.searchParams).not.toHaveProperty('metricName')
         })
     })
 })
