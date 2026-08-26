@@ -89,6 +89,7 @@ REPLAY_VISION_SWEEP_OUTCOMES = Counter(
 REPLAY_VISION_SCANNER_ADMISSION_BUSY = Counter(
     "replay_vision_scanner_admission_busy_total",
     "Capped-scanner admissions that found the row lock held and were deferred to the activity retry",
+    ["scanner_type"],
 )
 
 REPLAY_VISION_SCANNER_LIMIT_REACHED = Counter(
@@ -204,9 +205,9 @@ def record_quota_exhausted_skip(scanner_type: str) -> None:
     _otel.record_counter_twin(REPLAY_VISION_QUOTA_EXHAUSTED_SKIPS, 1, {"scanner_type": scanner_type})
 
 
-def record_scanner_admission_busy() -> None:
-    REPLAY_VISION_SCANNER_ADMISSION_BUSY.inc()
-    _otel.record_counter_twin(REPLAY_VISION_SCANNER_ADMISSION_BUSY, 1, {})
+def record_scanner_admission_busy(scanner_type: str) -> None:
+    REPLAY_VISION_SCANNER_ADMISSION_BUSY.labels(scanner_type=scanner_type).inc()
+    _otel.record_counter_twin(REPLAY_VISION_SCANNER_ADMISSION_BUSY, 1, {"scanner_type": scanner_type})
 
 
 def record_scanner_limit_reached(surface: str) -> None:

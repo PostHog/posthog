@@ -80,9 +80,9 @@ from products.replay_vision.backend.temporal.activities.observation_state import
     mark_observation_succeeded_activity,
 )
 from products.replay_vision.backend.temporal.activities.upload_video_to_gemini import upload_video_to_gemini_activity
-from products.replay_vision.backend.temporal.constants import SCANNER_ADMISSION_BUSY_ERROR_TYPE
 from products.replay_vision.backend.temporal.errors import (
     INELIGIBLE_SESSION_ERROR_TYPE,
+    SCANNER_ADMISSION_BUSY_ERROR_TYPE,
     SCANNER_FAILURE_ERROR_TYPE,
     ConsentWithdrawnError,
     FailureKind,
