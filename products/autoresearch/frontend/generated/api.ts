@@ -9,6 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AutoresearchIterationApi,
     AutoresearchListParams,
     AutoresearchModelApi,
     AutoresearchModelsListParams,
@@ -18,35 +19,23 @@ import type {
     AutoresearchRunsListParams,
     AutoresearchTemplatesListParams,
     AutoresearchTrainingRunApi,
+    AutoresearchTrainingRunsHistoryRetrieveParams,
     AutoresearchTrainingRunsListParams,
+    CompleteTrainingRunApi,
+    OpenTrainingRunApi,
     PaginatedAutoresearchModelListApi,
     PaginatedAutoresearchPipelineListApi,
     PaginatedAutoresearchRunListApi,
     PaginatedAutoresearchTrainingRunListApi,
     PaginatedTemplateInfoListApi,
     PatchedAutoresearchPipelineCreateApi,
+    RecordIterationApi,
     ResolveTemplateRequestApi,
     ResolvedTemplateApi,
+    TrainingRunHistoryApi,
     ValidatePipelineRequestApi,
     ValidatePipelineResponseApi,
 } from './api.schemas'
-
-// https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
-type IfEquals<X, Y, A = X, B = never> = (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2 ? A : B
-
-type WritableKeys<T> = {
-    [P in keyof T]-?: IfEquals<{ [Q in P]: T[P] }, { -readonly [Q in P]: T[P] }, P>
-}[keyof T]
-
-type UnionToIntersection<U> = (U extends any ? (k: U) => void : never) extends (k: infer I) => void ? I : never
-type DistributeReadOnlyOverUnions<T> = T extends any ? NonReadonly<T> : never
-
-type Writable<T> = Pick<T, WritableKeys<T>>
-type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
-    ? {
-          [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
-      }
-    : DistributeReadOnlyOverUnions<T>
 
 export const getAutoresearchListUrl = (projectId: string, params?: AutoresearchListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -269,23 +258,20 @@ export const getAutoresearchTrainingRunsCreateUrl = (projectId: string, pipeline
 }
 
 /**
- * List, retrieve, open, record iterations into, and complete training runs for a pipeline.
- *
- * The write endpoints let an external (bring-your-own) agent or a scheduled job drive a
- * training run directly — recording each iteration as it completes rather than via a single
- * terminal sandbox output. Recipe validation and champion promotion stay server-side.
+ * Open a new training run for a pipeline and return its id. An agent — the in-house sandbox, an external bring-your-own agent, or a scheduled job — then records iterations against this run and finalizes it with the complete endpoint. The run starts in 'running'.
+ * @summary Open a training run
  */
 export const autoresearchTrainingRunsCreate = async (
     projectId: string,
     pipelineId: string,
-    autoresearchTrainingRunApi: NonReadonly<AutoresearchTrainingRunApi>,
+    openTrainingRunApi?: OpenTrainingRunApi,
     options?: RequestInit
 ): Promise<AutoresearchTrainingRunApi> => {
     return apiMutator<AutoresearchTrainingRunApi>(getAutoresearchTrainingRunsCreateUrl(projectId, pipelineId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(autoresearchTrainingRunApi),
+        body: JSON.stringify(openTrainingRunApi),
     })
 }
 
@@ -310,6 +296,97 @@ export const autoresearchTrainingRunsRetrieve = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getAutoresearchTrainingRunsCompleteCreateUrl = (projectId: string, pipelineId: string, id: string) => {
+    return `/api/projects/${projectId}/autoresearch/${pipelineId}/training_runs/${id}/complete/`
+}
+
+/**
+ * Finalize a training run. The backend selects the best iteration (highest holdout score, or the one you name), decides champion vs challenger via the promotion ladder, and persists the model. Agents cannot set the champion directly — promotion is server-side.
+ * @summary Complete a training run
+ */
+export const autoresearchTrainingRunsCompleteCreate = async (
+    projectId: string,
+    pipelineId: string,
+    id: string,
+    completeTrainingRunApi?: CompleteTrainingRunApi,
+    options?: RequestInit
+): Promise<AutoresearchTrainingRunApi> => {
+    return apiMutator<AutoresearchTrainingRunApi>(
+        getAutoresearchTrainingRunsCompleteCreateUrl(projectId, pipelineId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(completeTrainingRunApi),
+        }
+    )
+}
+
+export const getAutoresearchTrainingRunsIterationsCreateUrl = (projectId: string, pipelineId: string, id: string) => {
+    return `/api/projects/${projectId}/autoresearch/${pipelineId}/training_runs/${id}/iterations/`
+}
+
+/**
+ * Record one iteration of an open training run. Idempotent on iteration_number — re-sending the same number updates that iteration. The recipe is validated server-side: model_class must be in the allowlist and feature_sql must be a read-only SELECT keyed on person_id.
+ * @summary Record a training iteration
+ */
+export const autoresearchTrainingRunsIterationsCreate = async (
+    projectId: string,
+    pipelineId: string,
+    id: string,
+    recordIterationApi: RecordIterationApi,
+    options?: RequestInit
+): Promise<AutoresearchIterationApi> => {
+    return apiMutator<AutoresearchIterationApi>(
+        getAutoresearchTrainingRunsIterationsCreateUrl(projectId, pipelineId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(recordIterationApi),
+        }
+    )
+}
+
+export const getAutoresearchTrainingRunsHistoryRetrieveUrl = (
+    projectId: string,
+    pipelineId: string,
+    params?: AutoresearchTrainingRunsHistoryRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/autoresearch/${pipelineId}/training_runs/history/?${stringifiedParams}`
+        : `/api/projects/${projectId}/autoresearch/${pipelineId}/training_runs/history/`
+}
+
+/**
+ * Return recent completed training runs and their iteration trails so a new run can learn from what was already tried. Scoped to this pipeline first, then same-target sibling pipelines on the team. Read this before iterating to reuse winning features and avoid repeating discarded approaches.
+ * @summary Read prior training-run history
+ */
+export const autoresearchTrainingRunsHistoryRetrieve = async (
+    projectId: string,
+    pipelineId: string,
+    params?: AutoresearchTrainingRunsHistoryRetrieveParams,
+    options?: RequestInit
+): Promise<TrainingRunHistoryApi> => {
+    return apiMutator<TrainingRunHistoryApi>(
+        getAutoresearchTrainingRunsHistoryRetrieveUrl(projectId, pipelineId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getAutoresearchRetrieveUrl = (projectId: string, id: string) => {

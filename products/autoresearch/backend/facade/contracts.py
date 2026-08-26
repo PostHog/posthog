@@ -159,6 +159,26 @@ class TrainingRun:
 
 
 @dataclass(frozen=True)
+class Iteration:
+    """One recipe attempt within a training run."""
+
+    id: UUID
+    pipeline: UUID
+    training_run: UUID
+    iteration_number: int
+    recipe_hash: str
+    recipe_snapshot: dict[str, Any]
+    model_spec: dict[str, Any]
+    train_score: float | None
+    holdout_score: float | None
+    status: str
+    agent_description: str
+    agent_confidence: float | None
+    parent_suggestion: UUID | None
+    created_at: datetime
+
+
+@dataclass(frozen=True)
 class Run:
     """Generic operational run: inference or validation."""
 
@@ -252,3 +272,25 @@ class ResolvedTemplate:
     inference_population: dict[str, Any]
     output_person_property: str
     notes: str
+
+
+# ── Training-run history ───────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class TrainingRunHistoryEntry:
+    run_id: UUID
+    pipeline_id: UUID
+    is_current_pipeline: bool
+    target_event: str
+    horizon_days: int
+    best_holdout_score: float | None
+    iteration_count: int
+    completed_at: datetime | None
+    summary: dict[str, Any] | None
+    iterations: list[IterationTrailEntry]
+
+
+@dataclass(frozen=True)
+class TrainingRunHistory:
+    runs: list[TrainingRunHistoryEntry]
