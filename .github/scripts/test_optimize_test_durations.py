@@ -22,6 +22,7 @@ from optimize_test_durations import (
     run_merge_files,
     scale_products_to_junit,
     scope_products_to_junit,
+    shard_clock_coverage,
     shard_map_clock_ratios,
     shard_sets_match,
 )
@@ -546,6 +547,19 @@ def test_shard_map_clock_ratio_flags_shape_drift(mapped_seconds: float, drifts: 
     # test_b never ran in this shard, so it does not count against the shard.
     assert ratios == {"product-junit-results-3": pytest.approx(mapped_seconds / 100.0)}
     assert bool(drifting_shards(ratios)) is drifts
+
+
+def test_shard_clock_coverage_counts_only_tests_the_map_holds() -> None:
+    # A test missing from the map drops out of the ratio on both sides, so the
+    # ratio alone cannot see a partial artifact; coverage can.
+    shard = JUnitShard(
+        name="product-junit-results-3",
+        call_times={"products/p/backend/test_a.py::test_a": 30.0, "products/p/backend/test_b.py::test_b": 70.0},
+    )
+
+    assert shard_clock_coverage({"products/p/backend/test_a.py::test_a": 31.0}, [shard]) == {
+        "product-junit-results-3": pytest.approx(0.3)
+    }
 
 
 def test_scale_products_to_junit_leaves_products_without_junit_alone(tmp_path: Path) -> None:

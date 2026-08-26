@@ -58,6 +58,12 @@ MIN_DURATION = 0.001
 # the wrong total. Per-shard sums cover hundreds of tests, so run-to-run noise
 # stays well inside it.
 SHARD_DRIFT_TOLERANCE = 1.5
+# Share of a JUnit shard's time that must have a map entry before strict mode
+# trusts its ratio. The ratio only sees tests both sides hold, so a partial
+# timing artifact or an id that fails conversion would drop out of both sums
+# and leave the ratio at 1.0. A complete run covers 100%; the margin is for a
+# handful of unconvertible ids.
+SHARD_CLOCK_COVERAGE_MIN = 0.9
 # Tests with recorded duration above this threshold in a single shard
 # are candidates for migration carriers (real tests rarely exceed this)
 CARRIER_THRESHOLD_SECONDS = 200.0
@@ -516,6 +522,17 @@ def shard_map_clock_ratios(durations: dict[str, float], junit_shards: list["JUni
     return ratios
 
 
+def shard_clock_coverage(durations: dict[str, float], junit_shards: list["JUnitShard"]) -> dict[str, float]:
+    """Per JUnit shard: share of its JUnit time whose test has a map entry."""
+    coverage: dict[str, float] = {}
+    for shard in junit_shards:
+        total = sum(shard.call_times.values())
+        covered = sum(seconds for test_id, seconds in shard.call_times.items() if test_id in durations)
+        if total > 0:
+            coverage[shard.name] = covered / total
+    return coverage
+
+
 def drifting_shards(ratios: dict[str, float], tolerance: float = SHARD_DRIFT_TOLERANCE) -> dict[str, float]:
     return {name: ratio for name, ratio in ratios.items() if ratio > tolerance or ratio < 1 / tolerance}
 
@@ -949,6 +966,19 @@ def main():
         unrated = [shard.name for shard in junit_shards if shard.name not in ratios]
         if unrated and args.fail_on_drift:
             logger.error("Map/clock ratio missing for %d shards (no overlapping tests): %s", len(unrated), unrated)
+            sys.exit(1)
+        uncovered = {
+            name: share
+            for name, share in shard_clock_coverage(durations, junit_shards).items()
+            if share < SHARD_CLOCK_COVERAGE_MIN
+        }
+        if uncovered and args.fail_on_drift:
+            logger.error(
+                "Map covers less than %.0f%% of the JUnit time on %d shards: %s",
+                SHARD_CLOCK_COVERAGE_MIN * 100,
+                len(uncovered),
+                ", ".join(f"{name}={share:.2f}" for name, share in sorted(uncovered.items())),
+            )
             sys.exit(1)
         drift = drifting_shards(ratios)
         if drift:
