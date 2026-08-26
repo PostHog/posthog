@@ -7,6 +7,7 @@ import {
     buildAutocaptureSeriesShortcuts,
     buildEventTypeFilterShortcuts,
 } from 'lib/components/TaxonomicFilter/eventTypeShortcuts'
+import { LOGS_TAXONOMIC_OPTIONS, logsColumnValuesEndpoint } from 'lib/components/TaxonomicFilter/logsTaxonomicGroup'
 import { RECENT_PINNED_TAB_DEFINITIONS } from 'lib/components/TaxonomicFilter/recentPinnedTabDefinitions'
 import {
     DataWarehousePopoverField,
@@ -564,12 +565,10 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             name: 'Logs',
             searchPlaceholder: 'logs',
             type: TaxonomicFilterGroupType.Logs,
-            options: [
-                { key: 'message', name: 'message', propertyFilterType: 'log' },
-                { key: 'severity_level', name: 'severity_level', propertyFilterType: 'log' },
-                { key: 'trace_id', name: 'trace_id', propertyFilterType: 'log' },
-                { key: 'span_id', name: 'span_id', propertyFilterType: 'log' },
-            ].filter((o) => !excludedProperties[TaxonomicFilterGroupType.Logs]?.includes(o.key)),
+            options: LOGS_TAXONOMIC_OPTIONS.filter(
+                (o) => !excludedProperties[TaxonomicFilterGroupType.Logs]?.includes(o.key)
+            ),
+            valuesEndpoint: logsColumnValuesEndpoint(projectId, endpointFilters),
             localItemsSearch: (items: any[], q: string): any[] => {
                 if (!q) {
                     return items

@@ -13,10 +13,6 @@ import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/util
 
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator, UniversalFiltersGroup } from '~/types'
 
-import { ServiceFilter } from 'products/logs/frontend/components/LogsViewer/Filters/ServiceFilter'
-
-import { ruleServiceNames, withRuleServiceNames } from './ruleServiceSelection'
-
 // Namespace prefix only — the real per-mount key is appended below so that two
 // editors mounted simultaneously (e.g. during fast scene navigation) don't share
 // universalFiltersLogic / taxonomicFilterLogic instances.
@@ -47,31 +43,12 @@ export const DropRuleFilterEditor = memo(function DropRuleFilterEditor({
             onChange={onChange}
         >
             <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                    <DropRuleServiceFilter />
-                    <div className="flex-1">
-                        <DropRuleFilterSearch logicKey={rootKey} />
-                    </div>
-                </div>
+                <DropRuleFilterSearch logicKey={rootKey} />
                 <DropRuleAppliedFilters />
             </div>
         </UniversalFilters>
     )
 })
-
-// The dropdown's selection is derived from the group on every render, so it and the chip row
-// below can never disagree: editing or removing the service chip updates the dropdown too.
-function DropRuleServiceFilter(): JSX.Element {
-    const { filterGroup } = useValues(universalFiltersLogic)
-    const { setGroupValues } = useActions(universalFiltersLogic)
-
-    return (
-        <ServiceFilter
-            value={ruleServiceNames(filterGroup)}
-            onChange={(names) => setGroupValues(withRuleServiceNames(filterGroup, names ?? []).values)}
-        />
-    )
-}
 
 function DropRuleFilterSearch({ logicKey }: { logicKey: string }): JSX.Element {
     const [visible, setVisible] = useState<boolean>(false)
