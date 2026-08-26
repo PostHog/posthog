@@ -8,37 +8,18 @@ import { IconCopy, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { isPropertyGroupFilterLike } from 'lib/components/PropertyFilters/utils'
+import { isPropertyGroupFilterLike, newBehavioralFilter } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { InsightQueryNode, ProductAnalyticsInsightQueryNode } from '~/queries/schema/schema-general'
-import {
-    AnyPropertyFilter,
-    BehavioralEventType,
-    BehavioralPropertyFilter,
-    InsightLogicProps,
-    PropertyFilterType,
-    PropertyGroupFilterValue,
-    TimeUnitType,
-} from '~/types'
+import { AnyPropertyFilter, InsightLogicProps, PropertyGroupFilterValue } from '~/types'
 
 import { InsightTestAccountFilter } from '../filters/InsightTestAccountFilter'
 import { AndOrFilterSelect } from './AndOrFilterSelect'
 import { propertyGroupFilterLogic } from './propertyGroupFilterLogic'
-
-function newBehavioralFilter(): BehavioralPropertyFilter {
-    return {
-        type: PropertyFilterType.Behavioral,
-        value: BehavioralEventType.PerformEvent,
-        key: '$pageview',
-        event_type: 'events',
-        time_value: 30,
-        time_interval: TimeUnitType.Day,
-    }
-}
 
 type PropertyGroupFiltersProps = {
     insightProps: InsightLogicProps

@@ -7,6 +7,8 @@ import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 
@@ -379,6 +381,22 @@ describe('ActionFilterRow', () => {
                 const { logic } = setup()
                 renderRow(logic)
                 expect(document.querySelector('.ActionFilterRow-filters')).not.toBeInTheDocument()
+            })
+
+            it.each([
+                [true, true],
+                [false, false],
+            ])('behavioral filter enabled=%s → "Performed" entry point shown=%s', (enabled, shown) => {
+                featureFlagLogic.mount()
+                featureFlagLogic.actions.setFeatureFlags(
+                    enabled ? [FEATURE_FLAGS.BEHAVIORAL_PROPERTY_FILTER] : [],
+                    enabled ? { [FEATURE_FLAGS.BEHAVIORAL_PROPERTY_FILTER]: true } : {}
+                )
+                const { logic } = setup()
+                logic.actions.setEntityFilterVisibility(0, true)
+                renderRow(logic)
+                const button = screen.queryByText('Performed')
+                expect(!!button).toBe(shown)
             })
         })
 

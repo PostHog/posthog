@@ -250,6 +250,17 @@ export function isBehavioralPropertyFilter(filter?: AnyFilterLike | null): filte
     return filter?.type === PropertyFilterType.Behavioral
 }
 
+export function newBehavioralFilter(): BehavioralPropertyFilter {
+    return {
+        type: PropertyFilterType.Behavioral,
+        value: BehavioralEventType.PerformEvent,
+        key: '$pageview',
+        event_type: 'events',
+        time_value: 30,
+        time_interval: TimeUnitType.Day,
+    }
+}
+
 export const BEHAVIORAL_COUNT_OPERATOR_LABELS: Partial<Record<PropertyOperator, string>> = {
     [PropertyOperator.GreaterThanOrEqual]: 'at least',
     [PropertyOperator.LessThanOrEqual]: 'at most',
