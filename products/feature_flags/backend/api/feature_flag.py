@@ -14,7 +14,7 @@ from typing import Any, NoReturn, Optional, cast
 from django.conf import settings
 from django.contrib.postgres.aggregates import ArrayAgg
 from django.db import IntegrityError, transaction
-from django.db.models import BooleanField, Case, Count, Prefetch, Q, QuerySet, Value, When, deletion
+from django.db.models import Count, Prefetch, Q, QuerySet, deletion
 
 import grpc
 import requests
@@ -3125,11 +3125,9 @@ class FeatureFlagViewSet(
         # every team in the project, for every flag row. Sorted so the `IN` lists keep a stable
         # order: set iteration order varies per process, which would churn query snapshots.
         replay_gates = self._replay_gates
-        gated = Q(id__in=sorted(replay_gates.flag_ids)) | Q(key__in=sorted(replay_gates.flag_keys))
         queryset = queryset.annotate(
-            is_used_in_replay_settings_annotation=Case(
-                When(gated, then=Value(True)), default=Value(False), output_field=BooleanField()
-            )
+            is_used_in_replay_settings_annotation=Q(id__in=sorted(replay_gates.flag_ids))
+            | Q(key__in=sorted(replay_gates.flag_keys))
         )
 
         if self.action == "list":
@@ -3820,8 +3818,6 @@ class FeatureFlagViewSet(
         # Batch query for dependent flags
         dependent_flags_map = find_dependent_flags_batch(flags_list)
 
-        replay_gates = self._replay_gates
-
         deleted = []
         errors = []
 
@@ -3892,7 +3888,7 @@ class FeatureFlagViewSet(
 
             # Deleting a flag a team gates recording on stops that team recording, and the
             # tombstone rename below fires no signal to relink them.
-            if replay_gates.gates(flag):
+            if self._replay_gates.gates(flag):
                 errors.append(
                     {
                         "id": flag_id,

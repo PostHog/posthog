@@ -22,3 +22,8 @@ def trigger_groups(*conditions: dict[str, Any]) -> dict[str, Any]:
 def set_trigger_groups(team: Team, *conditions: dict[str, Any]) -> None:
     team.session_recording_trigger_groups = trigger_groups(*conditions)
     team.save()
+
+
+def set_linked_flag(team: Team, linked_flag: dict[str, Any] | None) -> None:
+    team.session_recording_linked_flag = linked_flag
+    team.save()
