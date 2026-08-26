@@ -114,6 +114,10 @@ export function WebhookSetupForm({
                 <LemonButton type="primary" onClick={onCreateWebhook}>
                     {manualOnly ? 'Generate webhook URL' : 'Create webhook'}
                 </LemonButton>
+                <p className="text-sm text-muted mb-0">
+                    This step is optional. Your source is already connected, so you can continue without a webhook and
+                    set one up later in the source settings.
+                </p>
             </WebhookSetupCard>
         )
     }
