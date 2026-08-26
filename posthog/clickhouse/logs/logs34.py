@@ -103,6 +103,52 @@ CREATE OR REPLACE TABLE {database}.logs_distributed AS {database}.{table_name} E
     )
 
 
+def WRITABLE_LOGS34_TABLE_SQL():
+    # The write path for the Kafka MV, hosted on the ingestion-events nodes: a Distributed table over
+    # the logs cluster's `logs34`. The columns are spelled out (rather than `AS logs34`) because
+    # `logs34` is not local on the events nodes — only this Distributed front is. Keep the column list
+    # in sync with `LOGS34_TABLE_SQL` (indexes/projection are storage-only and omitted here).
+    db = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
+    return f"""
+CREATE TABLE IF NOT EXISTS {db}.writable_logs34
+(
+    `time_bucket` DateTime MATERIALIZED toStartOfDay(timestamp),
+    `original_expiry_timestamp` DateTime64(6),
+    `uuid` String,
+    `team_id` Int32,
+    `trace_id` String,
+    `span_id` String,
+    `trace_flags` Int32,
+    `timestamp` DateTime64(6) CODEC(DoubleDelta),
+    `observed_timestamp` DateTime64(6),
+    `created_at` DateTime64(6) MATERIALIZED now(),
+    `body` String,
+    `severity_text` LowCardinality(String),
+    `severity_number` Int32,
+    `service_name` LowCardinality(String),
+    `resource_attributes` Map(LowCardinality(String), String),
+    `resource_fingerprint` UInt64 MATERIALIZED cityHash64(resource_attributes),
+    `instrumentation_scope` String,
+    `event_name` String,
+    `attributes_map_str` Map(LowCardinality(String), String),
+    `level` String ALIAS severity_text,
+    `mat_body_ipv4_matches` Array(String) ALIAS extractAll(body, '(\\d\\.((25[0-5]|(2[0-4]|1{{0, 1}}[0-9]){{0, 1}}[0-9])\\.){{2, 2}}([0-9]))'),
+    `time_minute` DateTime ALIAS toStartOfMinute(timestamp),
+    `attributes` Map(LowCardinality(String), String) ALIAS mapApply((k, v) -> (left(k, -5), v), attributes_map_str),
+    `attributes_map_float` Map(LowCardinality(String), Float64) MATERIALIZED mapFilter((k, v) -> (v IS NOT NULL), mapApply((k, v) -> (concat(left(k, -5), '__float'), toFloat64OrNull(v)), attributes_map_str)),
+    `attributes_map_datetime` Map(LowCardinality(String), DateTime64(6)) MATERIALIZED mapFilter((k, v) -> (v IS NOT NULL), mapApply((k, v) -> (concat(left(k, -5), '__datetime'), parseDateTimeBestEffortOrNull(v, 6)), attributes_map_str)),
+    `_partition` UInt32,
+    `_topic` String,
+    `_offset` UInt64,
+    `_bytes_uncompressed` UInt64,
+    `_bytes_compressed` UInt64,
+    `_record_count` UInt64
+)
+ENGINE = {Distributed(data_table=TABLE_NAME, cluster=settings.CLICKHOUSE_LOGS_CLUSTER)}
+SETTINGS background_insert_batch = 1
+"""
+
+
 def LOGS34_TO_LOG_ATTRIBUTES_MV():
     return f"""
 CREATE MATERIALIZED VIEW IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NAME}_to_log_attributes TO {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{LOG_ATTRIBUTES_TABLE_NAME}
@@ -370,8 +416,11 @@ FROM {db}.{KAFKA_TABLE_NAME}"""
 
 def KAFKA_LOGS34_AVRO_MV():
     db = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
+    # Writes into `writable_logs34` — the Distributed(logs, posthog, logs34) table that lives on the
+    # ingestion-events nodes and forwards to the logs cluster's `logs34`. The events nodes host the
+    # Kafka table + this MV but not `logs34` itself, so the MV cannot target `logs34` directly.
     return f"""
-CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.kafka_logs34_avro_mv TO {db}.{TABLE_NAME}
+CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.kafka_logs34_avro_mv TO {db}.writable_logs34
 (
     `uuid` String,
     `trace_id` String,
