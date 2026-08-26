@@ -18,7 +18,7 @@ const STATS: Array<{ value: FlakinessPreset; label: string; description: string 
     {
         value: 'needs_decision',
         label: 'Needs a decision',
-        description: 'Quarantine ran out, or the snapshot stopped failing',
+        description: 'Quarantine ran out, or nothing has failed under it recently',
     },
     {
         value: 'broken',

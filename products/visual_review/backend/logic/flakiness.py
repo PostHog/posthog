@@ -660,6 +660,12 @@ def _needs_decision(
     the ways that record no variant at all. Reading variants therefore said
     "gone clean, lift it" about every snapshot still failing every run, and
     lifting it turned the gate red again.
+
+    A rate span holding few runs, or none, also returns True, and that is
+    deliberate rather than an unguarded edge. "It stopped failing" and "this
+    run type has not run for a week" both leave a human to decide what the
+    quarantine is still for. The row reports `window_runs` beside the rate, so
+    a reader can tell the two apart.
     """
     if quarantine is None:
         return False
