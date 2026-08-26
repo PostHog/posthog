@@ -284,17 +284,10 @@ def test_get_batch_export_runs_date_filter_depends_on_ordering(client: HttpClien
     batch_export = create_batch_export(team, create_destination())
     now = dt.datetime.now(dt.UTC)
 
-    # Recent data interval, but created a month ago.
-    run_by_interval = create_run(
-        batch_export,
-        status=BatchExportRun.Status.COMPLETED,
-        data_interval_start=now - dt.timedelta(hours=1),
-        data_interval_end=now,
-    )
-    BatchExportRun.objects.filter(id=run_by_interval.id).update(created_at=now - dt.timedelta(days=30))
-
-    # Data interval from a month ago, but created just now.
-    run_by_created_at = create_run(
+    # A backfill run created today for a data interval from a month ago. This is the only way a
+    # run's created_at and data interval genuinely decouple: a run can be created long after the
+    # interval it covers, but never before that interval has occurred.
+    run = create_run(
         batch_export,
         status=BatchExportRun.Status.COMPLETED,
         data_interval_start=now - dt.timedelta(days=30, hours=1),
@@ -303,17 +296,22 @@ def test_get_batch_export_runs_date_filter_depends_on_ordering(client: HttpClien
 
     client.force_login(user)
 
-    # Default ordering filters by created_at. `start` is passed too and must have no effect:
-    # if it did, run_by_created_at's month-old interval would exclude it from the result.
+    # Default ordering filters by created_at (today). `start` is passed too and must have no
+    # effect: if it were also applied, the month-old interval would exclude the run.
     data = get_batch_export_runs_ok(client, team.pk, batch_export.id, after="-2d", start="-2d")
-    assert {run["id"] for run in data["results"]} == {str(run_by_created_at.id)}
+    assert {run["id"] for run in data["results"]} == {str(run.id)}
 
-    # Ordering by data_interval_start filters by the interval instead. `after` is passed too and
-    # must have no effect: if it did, run_by_interval's month-old created_at would exclude it.
+    # Ordering by data_interval_start filters the interval instead. `before` is passed too and
+    # must have no effect: the run was created today, which `before` alone would exclude.
     data = get_batch_export_runs_ok(
-        client, team.pk, batch_export.id, ordering="-data_interval_start", start="-2d", after="-2d"
+        client, team.pk, batch_export.id, ordering="-data_interval_start", start="-40d", before="-2d"
     )
-    assert {run["id"] for run in data["results"]} == {str(run_by_interval.id)}
+    assert {run["id"] for run in data["results"]} == {str(run.id)}
+
+    # And under that ordering, `start` genuinely filters the interval: narrowing it to exclude
+    # the month-old interval returns nothing.
+    data = get_batch_export_runs_ok(client, team.pk, batch_export.id, ordering="-data_interval_start", start="-2d")
+    assert data["results"] == []
 
 
 def test_cannot_cancel_completed_batch_export_run(client: HttpClient, team, user):
