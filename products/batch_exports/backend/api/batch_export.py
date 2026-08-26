@@ -237,9 +237,9 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Read
         before = params.get("before")
         start = params.get("start")
         end = params.get("end")
-        # Read from the query string rather than the serializer, as OrderingFilter owns this parameter.
-        ordering = self.request.GET.get("ordering", None)
 
+        # OrderingFilter applies the sort and declares this parameter, so it is not on the serializer.
+        ordering = self.request.GET.get("ordering", None)
         # If we're ordering by data_interval_start, we need to filter by that otherwise we're ordering by created_at
         if ordering == "data_interval_start" or ordering == "-data_interval_start":
             start_timestamp = relative_date_parse(start if start else "-7d", self.team.timezone_info)
