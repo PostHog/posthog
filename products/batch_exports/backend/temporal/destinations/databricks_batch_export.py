@@ -938,8 +938,8 @@ def databricks_default_fields() -> list[BatchExportField]:
     concerned about supporting legacy fields for backwards compatibility.
     """
     batch_export_fields = events_model_default_fields()
-    # `created_at` is when we created the event row, so together with `timestamp` it tells the user
-    # how late an event arrived.
+    # `timestamp` comes from the client, so a wrong device clock can put it years off.
+    # `created_at` is set server-side at ingestion, so users get an event time they can rely on.
     batch_export_fields.append({"expression": "created_at", "alias": "created_at"})
     # add a metadata field for the ingested timestamp to aid with debugging
     # (this is not strictly the time the data is ingested into Databricks but rather the time we query it from ClickHouse)
@@ -1060,10 +1060,13 @@ def _get_databricks_table_settings(
     if model is None or (isinstance(model, BatchExportModel) and model.name == "events"):
         table_fields = _events_table_fields(json_type)
 
-        # COPY INTO reads the staged files by column name, so a column the staged data does not
-        # carry fails the copy. This covers a run that staged its data before a new field was
-        # added to `databricks_default_fields`. A custom schema is left alone: its columns never
-        # matched this list to begin with, so filtering would hide the mismatch instead.
+        # Staging and copying are two activities, so a deploy between them can leave the staged
+        # files a version behind this list. COPY INTO resolves columns by name from those files,
+        # and the destination activity retries forever, so a name the files lack wedges the run
+        # rather than failing it. Outside that window the two lists always match, because the
+        # staging query is built from the same `databricks_default_fields`.
+        # A custom schema keeps the full list, because its columns never matched this one and
+        # filtering would hide a real mismatch.
         if model is None or model.schema is None:
             staged_columns = set(record_batch_schema.names)
             missing_columns = [name for name, _ in table_fields if name not in staged_columns]
