@@ -595,14 +595,15 @@ function ResolvedSection({ searchQuery }: { searchQuery: string }) {
           <div className="flex justify-center py-3">
             <Spinner />
           </div>
-        ) : matchingReports.length === 0 && !canAutoPageSearch ? (
-          <p className="px-1 py-2 text-[13.5px] text-gray-10">
-            {searchActive
-              ? "No resolved or archived reports match your search. Try a different search."
-              : "Nothing resolved or archived yet."}
-          </p>
         ) : (
           <div className="flex flex-col gap-1">
+            {matchingReports.length === 0 && !canAutoPageSearch && (
+              <p className="px-1 py-2 text-[13.5px] text-gray-10">
+                {searchActive
+                  ? "No resolved or archived reports match your search. Try a different search."
+                  : "Nothing resolved or archived yet."}
+              </p>
+            )}
             {matchingReports.map((report) => (
               <InboxReportRow key={report.id} report={report} />
             ))}
