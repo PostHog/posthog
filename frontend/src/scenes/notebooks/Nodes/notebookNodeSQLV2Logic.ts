@@ -14,6 +14,7 @@ import {
 } from 'kea'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
@@ -36,6 +37,24 @@ export type SqlV2RunRef = {
     // the kernel namespace. The backend routes a SQL run to ClickHouse or the sandbox's DuckDB
     // based on which kinds the query actually references.
     kind: 'hogql' | 'local'
+}
+
+// Turn a run/result request failure into a message the user can act on. The browser endpoints
+// render every 404 as DRF's generic {"detail": "Not found."}, so the response can't say what is
+// gone — the caller does, via notFoundKind: a run dispatch that 404s means the notebook itself is
+// gone, while a result poll or page fetch that 404s means that run's result is gone. Every other
+// failure keeps its original message.
+export function sqlV2RunErrorMessage(
+    error: unknown,
+    fallback: string,
+    notFoundKind: 'notebook' | 'result' = 'result'
+): string {
+    if (error instanceof ApiError && error.status === 404) {
+        return notFoundKind === 'notebook'
+            ? 'This notebook could not be found. It may have been deleted.'
+            : 'This query result is no longer available. Run the cell again.'
+    }
+    return error instanceof Error ? error.message : fallback
 }
 
 // Map every sibling cell's dataframe name -> {node id, kind}, excluding the running node itself.
@@ -474,7 +493,7 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                 if (error?.status === 409) {
                     lemonToast.info('This result was replaced by a newer run — showing the latest first page.')
                 } else {
-                    lemonToast.error(error?.detail || error?.message || 'Failed to fetch page')
+                    lemonToast.error(sqlV2RunErrorMessage(error, 'Failed to fetch page'))
                 }
                 // Either way the requested page never arrived — fall back to the envelope's
                 // first page rather than showing old rows under a new page number.
@@ -554,7 +573,7 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                     })
                     actions.startPolling(run_id)
                 } catch (error) {
-                    actions.setRunError(error instanceof Error ? error.message : 'Failed to run query')
+                    actions.setRunError(sqlV2RunErrorMessage(error, 'Failed to run query', 'notebook'))
                     actions.setIsRunning(false)
                     actions.finishOperation(runOperation.id)
                     actions.nodeRunFinished(props.nodeId, 'failed', null)
@@ -706,7 +725,7 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                     if (runId !== cache.activeRunId) {
                         return
                     }
-                    actions.setRunError(error instanceof Error ? error.message : 'Failed to fetch result')
+                    actions.setRunError(sqlV2RunErrorMessage(error, 'Failed to fetch result'))
                     actions.stopPolling()
                     actions.nodeRunFinished(props.nodeId, 'failed', null)
                 } finally {
