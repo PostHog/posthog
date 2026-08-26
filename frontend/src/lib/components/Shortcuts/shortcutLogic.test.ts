@@ -59,21 +59,25 @@ describe('shortcutLogic', () => {
         expect(callback).toHaveBeenCalledTimes(1)
     })
 
-    it.each([['.LemonModal__overlay'], ['.Popover'], ['.react-draggable-dragging'], ['.react-resizable-resizing']])(
-        'defers a bare Escape to an open %s instead of firing the shortcut',
-        async (selector) => {
-            const callback = jest.fn()
-            await registerEscapeShortcut(callback)
+    // The last two cases use the classes react-grid-layout actually puts on a tile mid-gesture:
+    // "react-draggable-dragging" while dragging and "resizing" (alongside "react-grid-item") while resizing.
+    it.each([
+        ['a LemonModal overlay', 'LemonModal__overlay'],
+        ['a Popover', 'Popover'],
+        ['an active drag', 'react-grid-item react-draggable-dragging'],
+        ['an active resize', 'react-grid-item resizing'],
+    ])('defers a bare Escape to %s instead of firing the shortcut', async (_label, className) => {
+        const callback = jest.fn()
+        await registerEscapeShortcut(callback)
 
-            const overlay = document.createElement('div')
-            overlay.className = selector.slice(1)
-            document.body.appendChild(overlay)
+        const overlay = document.createElement('div')
+        overlay.className = className
+        document.body.appendChild(overlay)
 
-            pressEscape()
+        pressEscape()
 
-            expect(callback).not.toHaveBeenCalled()
-        }
-    )
+        expect(callback).not.toHaveBeenCalled()
+    })
 
     it('clears an in-progress sequence when a bare Escape defers to an overlay', async () => {
         const escapeCallback = jest.fn()
