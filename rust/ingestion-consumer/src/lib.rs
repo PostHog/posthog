@@ -8,6 +8,7 @@ pub mod grpc_transport;
 pub mod kafka_config;
 pub mod kafka_stats;
 pub mod order_sentinel;
+pub mod readiness;
 pub mod routing;
 pub mod stash;
 pub mod transport;

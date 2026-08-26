@@ -9,9 +9,10 @@ use flate2::Compression;
 use metrics::{counter, gauge, histogram};
 use rand::Rng;
 use tokio::sync::Semaphore;
-use tracing::{error, info, warn};
+use tracing::{error, warn};
 
 use crate::debug_recorder::{record_if, DebugEventKind, DebugRecorder};
+use crate::readiness;
 use crate::types::{IngestBatchRequest, IngestBatchResponse, SerializedKafkaMessage};
 
 /// Default cap on the serialized JSON size of one /ingest request body. The
@@ -158,11 +159,7 @@ impl HttpTransport {
 
     /// Check if a worker is ready by probing its health endpoint.
     pub async fn check_ready(&self, worker_url: &str) -> bool {
-        let url = format!("{worker_url}/_ready");
-        match self.client.get(&url).send().await {
-            Ok(resp) => resp.status().is_success(),
-            Err(_) => false,
-        }
+        readiness::check_ready(&self.client, worker_url).await
     }
 
     /// Wait until all workers are ready, polling with backoff.
@@ -172,29 +169,7 @@ impl HttpTransport {
         worker_urls: &[String],
         shutdown: &lifecycle::Handle,
     ) -> anyhow::Result<()> {
-        let poll_interval = Duration::from_secs(2);
-
-        loop {
-            let mut all_ready = true;
-            for url in worker_urls {
-                if !self.check_ready(url).await {
-                    warn!(worker = %url, "Worker not ready");
-                    all_ready = false;
-                }
-            }
-
-            if all_ready {
-                info!(workers = worker_urls.len(), "All workers ready");
-                return Ok(());
-            }
-
-            tokio::select! {
-                _ = shutdown.shutdown_recv() => {
-                    anyhow::bail!("Shutdown received while waiting for workers");
-                }
-                _ = tokio::time::sleep(poll_interval) => {}
-            }
-        }
+        readiness::wait_for_workers_ready(&self.client, worker_urls, shutdown).await
     }
 
     /// Send a sub-batch to a worker. Returns the number of accepted messages.

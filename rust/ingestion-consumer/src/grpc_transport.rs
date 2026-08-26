@@ -38,6 +38,7 @@ use tokio::sync::{mpsc, oneshot};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::{error, info, warn};
 
+use crate::readiness;
 use crate::transport::{SendError, TransportError};
 use crate::types::SerializedKafkaMessage;
 
@@ -112,7 +113,10 @@ impl GrpcTransport {
             max_unacked,
             ack_timeout,
             assignment_epoch: Arc::new(AtomicU64::new(1)),
-            probe_client: reqwest::Client::new(),
+            probe_client: reqwest::Client::builder()
+                .timeout(readiness::PROBE_TIMEOUT)
+                .build()
+                .expect("failed to create probe client"),
         }
     }
 
@@ -186,40 +190,16 @@ impl GrpcTransport {
 
     /// Check if a worker is ready by probing its HTTP health endpoint.
     pub async fn check_ready(&self, worker_url: &str) -> bool {
-        let url = format!("{worker_url}/_ready");
-        match self.probe_client.get(&url).send().await {
-            Ok(resp) => resp.status().is_success(),
-            Err(_) => false,
-        }
+        readiness::check_ready(&self.probe_client, worker_url).await
     }
 
-    /// Wait until all workers are ready, polling with backoff. Mirrors the
-    /// HTTP transport (readiness is an HTTP concern on both transports).
+    /// Wait until all workers are ready, polling with backoff.
     pub async fn wait_for_workers_ready(
         &self,
         worker_urls: &[String],
         shutdown: &lifecycle::Handle,
     ) -> anyhow::Result<()> {
-        let poll_interval = Duration::from_secs(2);
-        loop {
-            let mut all_ready = true;
-            for url in worker_urls {
-                if !self.check_ready(url).await {
-                    warn!(worker = %url, "Worker not ready");
-                    all_ready = false;
-                }
-            }
-            if all_ready {
-                info!(workers = worker_urls.len(), "All workers ready");
-                return Ok(());
-            }
-            tokio::select! {
-                _ = shutdown.shutdown_recv() => {
-                    anyhow::bail!("Shutdown received while waiting for workers");
-                }
-                _ = tokio::time::sleep(poll_interval) => {}
-            }
-        }
+        readiness::wait_for_workers_ready(&self.probe_client, worker_urls, shutdown).await
     }
 }
 
