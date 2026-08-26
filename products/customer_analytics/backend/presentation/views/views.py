@@ -600,7 +600,7 @@ class FeatureRequestViewSet(
         return self.update(request, *args, **kwargs)
 
     @extend_schema(request=FeatureRequestAddAccountSerializer, responses={200: FeatureRequestSerializer})
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, required_scopes=["customer_analytics:write"])
     def add_account(self, request: Request, *args, **kwargs) -> Response:
         serializer = FeatureRequestAddAccountSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -627,7 +627,7 @@ class FeatureRequestViewSet(
         return Response(FeatureRequestSerializer(instance=feature_request).data)
 
     @extend_schema(request=FeatureRequestEvidenceCreateSerializer, responses={200: FeatureRequestSerializer})
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, required_scopes=["customer_analytics:write"])
     def add_evidence(self, request: Request, *args, **kwargs) -> Response:
         serializer = FeatureRequestEvidenceCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -658,7 +658,7 @@ class FeatureRequestViewSet(
         return Response(FeatureRequestSerializer(instance=feature_request).data)
 
     @extend_schema(request=FeatureRequestEvidenceUpdateSerializer, responses={200: FeatureRequestSerializer})
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, required_scopes=["customer_analytics:write"])
     def update_evidence(self, request: Request, *args, **kwargs) -> Response:
         serializer = FeatureRequestEvidenceUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -689,7 +689,7 @@ class FeatureRequestViewSet(
         return Response(FeatureRequestSerializer(instance=feature_request).data)
 
     @extend_schema(request=FeatureRequestEvidenceDeleteSerializer, responses={200: FeatureRequestSerializer})
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, required_scopes=["customer_analytics:write"])
     def remove_evidence(self, request: Request, *args, **kwargs) -> Response:
         serializer = FeatureRequestEvidenceDeleteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -732,17 +732,17 @@ class FeatureRequestViewSet(
         return Response(FeatureRequestSerializer(instance=feature_request).data)
 
     @extend_schema(request=FeatureRequestVersionSerializer, responses={200: FeatureRequestSerializer})
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, required_scopes=["customer_analytics:write"])
     def archive(self, request: Request, *args, **kwargs) -> Response:
         return self._set_archived(request, archived=True)
 
     @extend_schema(request=FeatureRequestVersionSerializer, responses={200: FeatureRequestSerializer})
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, required_scopes=["customer_analytics:write"])
     def restore(self, request: Request, *args, **kwargs) -> Response:
         return self._set_archived(request, archived=False)
 
     @extend_schema(responses={200: FeatureRequestHistorySerializer(many=True)})
-    @action(methods=["GET"], detail=True, pagination_class=None)
+    @action(methods=["GET"], detail=True, pagination_class=None, required_scopes=["customer_analytics:read"])
     def history(self, request: Request, *args, **kwargs) -> Response:
         history = api.list_feature_request_history(
             team_id=self.team_id,
@@ -754,7 +754,7 @@ class FeatureRequestViewSet(
         return Response(FeatureRequestHistorySerializer(instance=history, many=True).data)
 
     @extend_schema(responses={200: FeatureRequestStatusHistorySerializer(many=True)})
-    @action(methods=["GET"], detail=True, pagination_class=None)
+    @action(methods=["GET"], detail=True, pagination_class=None, required_scopes=["customer_analytics:read"])
     def status_history(self, request: Request, *args, **kwargs) -> Response:
         history = api.list_feature_request_status_history(
             team_id=self.team_id,
