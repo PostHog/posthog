@@ -51,6 +51,7 @@ export interface inboxTriageLogicValues {
     requestedIndex: number
     requestedReportId: string | null
     requestedReportIndex: number
+    restoreFailed: boolean
     returnUrl: string
 }
 
@@ -99,6 +100,13 @@ export interface inboxTriageLogicActions {
     ) => {
         payload?: any
         reportsResponse: import('./reportListLogic').ReportListResponse
+    } // reportListLogic
+    loadMoreReportsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
     } // reportListLogic
     loadReportsSuccess: (
         reportsResponse: import('./reportListLogic').ReportListResponse,
@@ -149,7 +157,8 @@ export interface inboxTriageLogicMeta {
             requestedReportIndex: number,
             requestedIndex: number,
             reports: SignalReport[],
-            hasMore: boolean
+            hasMore: boolean,
+            restoreFailed: boolean
         ) => boolean
         currentReport: (reports: SignalReport[], currentIndex: number) => SignalReport | null
         previousReport: (reports: SignalReport[], currentIndex: number) => SignalReport | null
@@ -192,6 +201,7 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
                 'removeReport',
                 'loadReportsSuccess',
                 'loadMoreReportsSuccess',
+                'loadMoreReportsFailure',
             ],
             inboxTaskKickoffLogic,
             ['createPrFromReport'],
@@ -238,6 +248,19 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
                 setExpanded: (_, { expanded }) => expanded,
             },
         ],
+        // A page load toward the remembered spot failed. kea loaders leave `reports`/`hasMore`
+        // unchanged on failure, so `isRestoringPosition` would otherwise stay true forever and hold the
+        // view on a skeleton with nothing left to load. Stop restoring (fall back to the nearest loaded
+        // report); reset when a new spot is requested or a page lands so a later retry can resume.
+        restoreFailed: [
+            false,
+            {
+                focusReport: () => false,
+                loadReportsSuccess: () => false,
+                loadMoreReportsSuccess: () => false,
+                loadMoreReportsFailure: () => true,
+            },
+        ],
     }),
 
     selectors({
@@ -254,13 +277,14 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
         // The remembered spot sits past the loaded pages while more exist: the view waits instead of
         // flashing whichever report happens to be last on the loaded page.
         isRestoringPosition: [
-            (s) => [s.requestedReportIndex, s.requestedIndex, s.reports, s.hasMore],
+            (s) => [s.requestedReportIndex, s.requestedIndex, s.reports, s.hasMore, s.restoreFailed],
             (
                 requestedReportIndex: number,
                 requestedIndex: number,
                 reports: SignalReport[],
-                hasMore: boolean
-            ): boolean => requestedReportIndex < 0 && requestedIndex >= reports.length && hasMore,
+                hasMore: boolean,
+                restoreFailed: boolean
+            ): boolean => requestedReportIndex < 0 && requestedIndex >= reports.length && hasMore && !restoreFailed,
         ],
         currentReport: [
             (s) => [s.reports, s.currentIndex],
