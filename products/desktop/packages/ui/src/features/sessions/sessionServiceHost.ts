@@ -23,6 +23,7 @@ import {
   BEDROCK_GATEWAY_VARIANTS,
   BEDROCK_LLM_GATEWAY_FLAG,
   type BedrockGatewayVariant,
+  CODEX_OWN_SUBSCRIPTION_FLAG,
   SPOKEN_NARRATION_FLAG,
 } from "@posthog/shared";
 import {
@@ -166,6 +167,14 @@ function buildSessionServiceDeps(): SessionServiceDeps {
             BEDROCK_LLM_GATEWAY_FLAG,
           ),
         ),
+        // Behind a rollout flag: without it, sessions stay on the gateway even
+        // when the setting was turned on earlier.
+        codexModelAccess:
+          resolveService<FeatureFlags>(FEATURE_FLAGS).isEnabled(
+            CODEX_OWN_SUBSCRIPTION_FLAG,
+          ) || import.meta.env.DEV
+            ? state.codexModelAccess
+            : undefined,
       };
     },
     usageLimit: {

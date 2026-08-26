@@ -1,6 +1,8 @@
 import { useHostTRPC } from "@posthog/host-router/react";
 import { Button, Switch } from "@posthog/quill";
-import { SettingRow } from "@posthog/ui/features/settings/SettingRow";
+import { CODEX_OWN_SUBSCRIPTION_FLAG } from "@posthog/shared";
+import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { SettingsCardRow } from "@posthog/ui/features/settings/components/SettingsCard";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -8,11 +10,14 @@ import { useState } from "react";
 
 /**
  * Opt-in switch to run local Codex sessions on the user's own ChatGPT
- * subscription. Hidden unless a Codex install or login is detected, so users
- * without Codex never see it. Detection is existence-only; the sign-in runs
- * through Codex's own login flow into an app-private CODEX_HOME.
+ * subscription. Behind a rollout flag, and hidden unless a Codex install or
+ * login is detected, so users without Codex never see it. Detection is
+ * existence-only; the sign-in runs through Codex's own login flow into an
+ * app-private CODEX_HOME.
  */
 export function CodexSubscriptionSettings() {
+  const flagEnabled =
+    useFeatureFlag(CODEX_OWN_SUBSCRIPTION_FLAG) || import.meta.env.DEV;
   const codexModelAccess = useSettingsStore((s) => s.codexModelAccess);
   const setCodexModelAccess = useSettingsStore((s) => s.setCodexModelAccess);
   const hostTRPC = useHostTRPC();
@@ -23,6 +28,7 @@ export function CodexSubscriptionSettings() {
   const statusQuery = hostTRPC.agent.codexSubscriptionStatus.queryOptions();
   const { data: status } = useQuery({
     ...statusQuery,
+    enabled: flagEnabled,
     // Poll only while a browser sign-in is pending, and stop once it lands.
     refetchInterval: (query) =>
       awaitingLogin && query.state.data?.appLoggedIn !== true ? 2000 : false,
@@ -46,12 +52,12 @@ export function CodexSubscriptionSettings() {
 
   const detected =
     status && (status.cliInstalled || status.credentialFilePresent || loggedIn);
-  if (!detected && !enabled) {
+  if (!flagEnabled || (!detected && !enabled)) {
     return null;
   }
 
   return (
-    <SettingRow
+    <SettingsCardRow
       label="Use your ChatGPT subscription"
       description="Codex sessions run on your ChatGPT plan instead of PostHog credits. Usage counts against your ChatGPT plan limits"
     >
@@ -102,6 +108,6 @@ export function CodexSubscriptionSettings() {
           </div>
         )}
       </div>
-    </SettingRow>
+    </SettingsCardRow>
   );
 }
