@@ -59,12 +59,12 @@ describe('ScoutConfigForm', () => {
 
     it('reflects the saved run settings and locks them while updating', () => {
         const onUpdate = jest.fn()
-        const { getByRole } = render(
+        const { getByLabelText } = render(
             <ScoutConfigForm config={{ ...config, emit: false }} onUpdate={onUpdate} updating />
         )
 
-        const enabledSwitch = getByRole('switch', { name: 'Enable this scout' })
-        const emitSwitch = getByRole('switch', { name: 'Write signals to the inbox' })
+        const enabledSwitch = getByLabelText('Enable this scout')
+        const emitSwitch = getByLabelText('Write signals to the inbox')
 
         expect(enabledSwitch).toHaveAttribute('aria-checked', 'true')
         expect(emitSwitch).toHaveAttribute('aria-checked', 'false')
