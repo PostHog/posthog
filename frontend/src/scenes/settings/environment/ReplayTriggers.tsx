@@ -90,7 +90,10 @@ function LinkedFlagSelector(): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
 
     return (
-        <PayGateMini feature={AvailableFeature.REPLAY_FEATURE_FLAG_BASED_RECORDING} featureDetail="replay-feature-flag-trigger">
+        <PayGateMini
+            feature={AvailableFeature.REPLAY_FEATURE_FLAG_BASED_RECORDING}
+            featureDetail="replay-feature-flag-trigger"
+        >
             <IngestionControls.FlagTrigger
                 logicKey="session-replay-linked-flag"
                 flag={currentTeam?.session_recording_linked_flag ?? null}
@@ -340,7 +343,10 @@ function MobileMinimumDuration(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
 
     return (
-        <PayGateMini feature={AvailableFeature.REPLAY_RECORDING_DURATION_MINIMUM} featureDetail="replay-minimum-recording-duration">
+        <PayGateMini
+            feature={AvailableFeature.REPLAY_RECORDING_DURATION_MINIMUM}
+            featureDetail="replay-minimum-recording-duration"
+        >
             <div className="flex flex-col gap-2">
                 <div className="flex flex-row justify-between items-center">
                     <LemonLabel className="text-base">
@@ -371,7 +377,10 @@ function MinimumDurationSetting(): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
 
     return (
-        <PayGateMini feature={AvailableFeature.REPLAY_RECORDING_DURATION_MINIMUM} featureDetail="replay-minimum-recording-duration">
+        <PayGateMini
+            feature={AvailableFeature.REPLAY_RECORDING_DURATION_MINIMUM}
+            featureDetail="replay-minimum-recording-duration"
+        >
             <div className="flex flex-col gap-2">
                 <div className="flex flex-row justify-between items-center">
                     <LemonLabel className="text-base">
