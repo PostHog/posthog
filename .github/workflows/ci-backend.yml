@@ -1046,8 +1046,17 @@ jobs:
               id: warehouse_sources_check
               if: ${{ !cancelled() }}
               shell: bash
+              env:
+                  WAREHOUSE_SOURCES_EXPECTED: ${{ contains(matrix.filters, '@posthog/products-warehouse-sources') && 'true' || 'false' }}
               run: |
-                  if grep -qE '<(failure|error)\b' products/warehouse_sources/junit-product.xml 2>/dev/null; then
+                  if [ "$WAREHOUSE_SOURCES_EXPECTED" != "true" ]; then
+                      exit 0
+                  fi
+                  if [ ! -f products/warehouse_sources/junit-product.xml ]; then
+                      echo "::error::Warehouse sources did not produce a JUnit report, so its result cannot be quarantined safely"
+                      exit 1
+                  fi
+                  if grep -qE '<(failure|error)\b' products/warehouse_sources/junit-product.xml; then
                       echo "::error::Warehouse sources tests failed; they are excluded from Trunk quarantining"
                       exit 1
                   fi
