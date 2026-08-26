@@ -253,6 +253,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/visual_review/runs/:runId': ['VisualReviewRun', 'visualReviewRun'],
     '/visual_review/repos/:repoId/runs': ['VisualReviewRuns', 'visualReviewRepoRuns'],
     '/visual_review/repos/:repoId/snapshots': ['VisualReviewSnapshotOverview', 'visualReviewSnapshotOverview'],
+    '/visual_review/repos/:repoId/flakiness': ['VisualReviewFlakiness', 'visualReviewFlakiness'],
     '/visual_review/repos/:repoId/:runType/snapshots/:identifier': [
         'VisualReviewSnapshotHistory',
         'visualReviewSnapshotHistory',
@@ -958,6 +959,7 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'visual_review',
     },
     VisualReviewSnapshotOverview: { name: 'Snapshots', projectBased: true, iconType: 'visual_review' },
+    VisualReviewFlakiness: { name: 'Flakiness', projectBased: true, iconType: 'visual_review' },
     Heatmaps: {
         name: 'Heatmaps',
         projectBased: true,
@@ -1500,6 +1502,7 @@ export const productUrls = {
     visualReviewRun: (runId: string): string => `/visual_review/runs/${runId}`,
     visualReviewRepoRuns: (repoId: string): string => `/visual_review/repos/${repoId}/runs`,
     visualReviewSnapshotOverview: (repoId: string): string => `/visual_review/repos/${repoId}/snapshots`,
+    visualReviewFlakiness: (repoId: string): string => `/visual_review/repos/${repoId}/flakiness`,
     visualReviewSnapshotHistory: (repoId: string, runType: string, identifier: string): string =>
         `/visual_review/repos/${repoId}/${encodeURIComponent(runType)}/snapshots/${encodeURIComponent(identifier)}`,
     webAnalytics: (): string => `/web`,
@@ -1999,7 +2002,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         category: ProductItemCategory.ANALYTICS,
         iconType: 'data_warehouse',
         href: urls.dataCatalog(),
-        flag: FEATURE_FLAGS.PRODUCT_DATA_CATALOG,
         tags: ['beta'],
         sceneKey: 'DataCatalog',
         sceneKeys: ['DataCatalog', 'DataCatalogMetric'],
@@ -2605,6 +2607,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'VisualReviewSettings',
             'VisualReviewSnapshotHistory',
             'VisualReviewSnapshotOverview',
+            'VisualReviewFlakiness',
         ],
     },
     {

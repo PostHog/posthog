@@ -1,6 +1,6 @@
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
-import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { createTeam, createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-suppression.service'
@@ -19,9 +19,8 @@ describe('EmailSuppressionService', () => {
     let originalThresholdEnv: string | undefined
 
     beforeEach(async () => {
-        await resetTestDatabase()
         hub = await createHub()
-        team = await getFirstTeam(hub.postgres)
+        team = (await createTestTeamFixture(hub.postgres)).team
         originalThresholdEnv = process.env.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD
     })
 
@@ -210,7 +209,7 @@ describe('EmailSuppressionService', () => {
             // would drop every team's cache on any write, causing a thundering-herd read against
             // Postgres in busy multi-tenant pods.
             const svc = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
-            const otherTeamId = team.id + 100000
+            const otherTeamId = await createTeam(hub.postgres, team.organization_id)
             const otherEmail = 'keep-me-cached@example.com'
             await hub.postgres.query(
                 PostgresUse.COMMON_WRITE,

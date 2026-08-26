@@ -115,6 +115,7 @@ class MCPMissingCapabilitiesQueryRunner(AnalyticsQueryRunner[MCPMissingCapabilit
             FROM (
                 SELECT
                     timestamp,
+                    uuid,
                     {report_text} AS intent,
                     {conversation_id} AS session_id,
                     distinct_id,
@@ -125,7 +126,7 @@ class MCPMissingCapabilitiesQueryRunner(AnalyticsQueryRunner[MCPMissingCapabilit
                 FROM events
                 WHERE {where}
             )
-            ORDER BY timestamp DESC
+            ORDER BY timestamp DESC, uuid DESC
             LIMIT {limit} OFFSET {offset}
             """,
             placeholders={

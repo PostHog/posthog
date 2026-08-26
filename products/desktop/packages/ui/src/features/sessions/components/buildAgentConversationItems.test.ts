@@ -265,6 +265,86 @@ describe("buildAgentConversationItems", () => {
     );
   });
 
+  it("appends setup progress when Pi restarts a completed sandbox", () => {
+    const result = buildAgentConversationItems(
+      [
+        {
+          type: "progress",
+          timestamp: 1,
+          step: "agent",
+          status: "completed",
+          label: "Started agent",
+          group: "setup:run-1",
+        },
+        {
+          type: "user_message",
+          id: "user-1",
+          timestamp: 2,
+          content: [{ type: "text", text: "First message" }],
+        },
+        {
+          type: "assistant_message_chunk",
+          timestamp: 3,
+          content: { type: "text", text: "Done" },
+        },
+        { type: "turn_completed", timestamp: 4 },
+        {
+          type: "user_message",
+          id: "user-2",
+          timestamp: 5,
+          content: [{ type: "text", text: "Continue" }],
+        },
+        {
+          type: "progress",
+          timestamp: 6,
+          step: "sandbox",
+          status: "in_progress",
+          label: "Restoring sandbox",
+          group: "setup:run-1",
+        },
+        {
+          type: "progress",
+          timestamp: 7,
+          step: "sandbox",
+          status: "completed",
+          label: "Restored sandbox",
+          group: "setup:run-1",
+        },
+        {
+          type: "progress",
+          timestamp: 8,
+          step: "agent",
+          status: "completed",
+          label: "Started agent",
+          group: "setup:run-1",
+        },
+      ],
+      true,
+    );
+
+    const itemOrder = result.items.flatMap((item) => {
+      if (item.type === "user_message") {
+        return [`user:${item.content}`];
+      }
+      if (
+        item.type === "session_update" &&
+        item.update.sessionUpdate === "progress_group"
+      ) {
+        return [
+          `progress:${item.update.steps.map((step) => step.key).join(",")}`,
+        ];
+      }
+      return [];
+    });
+
+    expect(itemOrder).toEqual([
+      "user:First message",
+      "progress:agent",
+      "user:Continue",
+      "progress:sandbox,agent",
+    ]);
+  });
+
   it("builds and completes a generic compaction status", () => {
     const result = buildAgentConversationItems(
       [

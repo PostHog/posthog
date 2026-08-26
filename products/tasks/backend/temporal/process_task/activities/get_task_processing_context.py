@@ -17,9 +17,11 @@ from products.tasks.backend.constants import (
     AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
     CONTINUE_AS_NEW_FEATURE_FLAG,
     DESKTOP_WORKSPACE_WARM_FEATURE_FLAG,
+    HOGLAND_SANDBOX_FEATURE_FLAG,
     MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG,
     OVERLAP_CLONE_BOOT_FEATURE_FLAG,
     PR_BABYSIT_SNAPSHOT_FEATURE_FLAG,
+    PR_LOOP_ENABLED_STATE_KEY,
     RTK_DISABLED_FEATURE_FLAG,
     SANDBOX_EVENT_INGEST_FEATURE_FLAG,
     SANDBOX_ROTATION_FEATURE_FLAG,
@@ -139,6 +141,10 @@ class TaskProcessingContext:
     # Whether agent peer messaging tools should surface in this run (flag + Pi runtime).
     # Exposure only: the peers endpoints re-check authorization server-side on every call.
     peer_messaging_enabled: bool = False
+    # Which sandbox provider this run provisions on ("modal" or "hogland"). Captured at
+    # workflow start and persisted into TaskRun.state at provision time, so activities
+    # and out-of-band consumers route deterministically for the run's whole life.
+    sandbox_backend: str = "modal"
 
     @property
     def mode(self) -> str:
@@ -736,6 +742,76 @@ def _is_modal_network_allowlist_enabled(
     return enabled
 
 
+def _resolve_sandbox_backend(
+    *,
+    distinct_id: str,
+    organization_id: str,
+    run_id: str,
+    state: dict | None,
+    task_runtime: str,
+    use_modal_vm_sandbox: bool,
+    use_modal_network_allowlist: bool,
+    custom_image_name: str | None,
+) -> str:
+    """Pick the sandbox provider for this run.
+
+    Hogland only takes plain default-template ACP runs; anything needing a
+    Modal-only feature (VM runtime, custom image, Pi runtime, Modal-level network
+    allowlist) stays on Modal even with the flag on. Fails closed to Modal.
+    """
+    raw_override = (state or {}).get("sandbox_backend")
+    override = raw_override if isinstance(raw_override, str) and raw_override in ("modal", "hogland") else None
+
+    # A "modal" override is a kill switch and always wins — forcing Modal is never unsafe.
+    if override == "modal":
+        log_with_activity_context("sandbox_backend_state_override", run_id=run_id, sandbox_backend="modal")
+        return "modal"
+
+    # Hard gates: a "hogland" result (override OR flag) is only allowed when hogland can
+    # actually run this run. These sit ahead of the override so a stale or forged `hogland`
+    # (e.g. carried across a cloud handoff) can't defeat the EU guard or the Modal-only
+    # fallbacks and leave the run with unenforced egress.
+    if not settings.HOGLAND_API_URL or not (settings.HOGLAND_API_TOKEN_FILE or settings.HOGLAND_API_TOKEN):
+        return "modal"
+    # Hogland runs in the US only; EU runs stay on Modal regardless of flag/override state.
+    if getattr(settings, "CLOUD_DEPLOYMENT", None) == "EU":
+        return "modal"
+    if (
+        use_modal_vm_sandbox
+        or custom_image_name is not None
+        or task_runtime == Task.Runtime.PI
+        or use_modal_network_allowlist
+    ):
+        return "modal"
+
+    # Past the gates, a "hogland" override pins the run (the canary lever), no flag eval.
+    if override == "hogland":
+        log_with_activity_context("sandbox_backend_state_override", run_id=run_id, sandbox_backend="hogland")
+        return "hogland"
+
+    try:
+        enabled = bool(
+            posthoganalytics.feature_enabled(
+                HOGLAND_SANDBOX_FEATURE_FLAG,
+                distinct_id=distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception as e:
+        log_with_activity_context("hogland_sandbox_flag_check_failed", run_id=run_id, error=str(e))
+        return "modal"
+
+    log_with_activity_context(
+        "hogland_sandbox_flag_checked",
+        run_id=run_id,
+        sandbox_backend="hogland" if enabled else "modal",
+    )
+    return "hogland" if enabled else "modal"
+
+
 def _compile_effective_network_policy(allowed_domains: list[str]) -> EffectiveNetworkPolicy:
     debug_domains = _get_debug_only_domains() if settings.DEBUG else []
     debug_ports = _get_debug_only_ports() if settings.DEBUG else []
@@ -993,6 +1069,10 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         or False
     )  # Ensure we get a boolean value even if the flag is missing
     emit_agent_log(run_id, "debug", f"pr_loop_enabled: {pr_loop_enabled} for this task run")
+    try:
+        TaskRun.update_state_atomic(task_run.id, updates={PR_LOOP_ENABLED_STATE_KEY: pr_loop_enabled})
+    except Exception as e:
+        log_with_activity_context("pr_loop_enabled_stamp_failed", run_id=run_id, error=str(e))
     pi_persistent_streaming = task.runtime == Task.Runtime.PI and not is_slack_interaction_state(state)
     sandbox_event_ingest_override = state.get("sandbox_event_ingest_enabled")
     if pi_persistent_streaming and not isinstance(sandbox_event_ingest_override, bool):
@@ -1159,6 +1239,22 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         "debug",
         f"pr_babysit_enabled: {pr_babysit_enabled} for this task run",
     )
+    sandbox_backend = _resolve_sandbox_backend(
+        distinct_id=distinct_id,
+        organization_id=organization_id,
+        run_id=run_id,
+        state=state,
+        task_runtime=task.runtime,
+        use_modal_vm_sandbox=use_modal_vm_sandbox,
+        use_modal_network_allowlist=use_modal_network_allowlist,
+        custom_image_name=custom_image_name,
+    )
+    emit_agent_log(
+        run_id,
+        "debug",
+        f"sandbox_backend: {sandbox_backend} for this task run",
+    )
+
     pr_authorship_mode = get_pr_authorship_mode(task, state)
     user_github_integration_id = None
     if not (is_slack_interaction_state(state) and pr_authorship_mode.value == "user"):
@@ -1205,8 +1301,9 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         ),
         json_schema=task.json_schema,
         ci_prompt=task.ci_prompt,
-        use_modal_resume_snapshots=True,
-        use_modal_directory_resume_snapshots=True,
+        # Hogland has no resume-snapshot support yet; every run cold-boots there.
+        use_modal_resume_snapshots=sandbox_backend != "hogland",
+        use_modal_directory_resume_snapshots=sandbox_backend != "hogland",
         sandbox_event_ingest_enabled=sandbox_event_ingest_enabled,
         sandbox_rotation_enabled=_is_sandbox_rotation_enabled(
             distinct_id=distinct_id,
@@ -1229,6 +1326,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         ),
         continue_as_new_history_threshold=settings.TASKS_CONTINUE_AS_NEW_HISTORY_THRESHOLD,
         interactive_max_run_duration_seconds=interactive_max_run_duration_seconds,
+        sandbox_backend=sandbox_backend,
         # v1 scopes peer messaging to Pi runs; the flag check is skipped elsewhere
         # so ACP runs never even evaluate it.
         peer_messaging_enabled=task.runtime == Task.Runtime.PI

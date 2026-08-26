@@ -47,12 +47,10 @@ export type MlMirrorConfig = {
     /**
      * Collect the URLs of remote images as well, so the fetch lane can download them later.
      *
-     * Enabling changes the mirrored JSONL shape a second time: a remote image keeps its grey
-     * placeholder and a `data-anon-image-ref-<attribute>` sibling carries its
-     * `imageurl:<hash>` ref. The prefix differs from the image lane's `image:` on
-     * purpose, because this hash names the URL rather than the bytes behind it. Nothing fetches
-     * those URLs yet, so every such ref is dangling. What this buys is the measurement of how many
-     * URLs and how many distinct hosts real traffic carries.
+     * Enabling changes the mirrored JSONL shape a second time. A direct remote image keeps its
+     * placeholder and a `data-anon-image-ref-<attribute>` sibling carries its `imageurl:<hash>`
+     * ref. CSS keeps numbered placeholders and a `data-anon-image-refs-<field>` sibling carries a
+     * JSON slot-to-ref map. The URL hash names the URL rather than the bytes behind it.
      */
     SESSION_RECORDING_ML_URL_COLLECTION_ENABLED: boolean
 
@@ -91,11 +89,11 @@ export type MlMirrorConfig = {
     /** TTL on each DynamoDB crawl-history entry, which sets the recrawl interval. */
     AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS: number
 
-    /** Requests one registrable domain receives from one pod each second. */
+    /** Optional steady request rate for one registrable domain. Zero uses the concurrency limit only. */
     SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_REQUESTS_PER_SECOND: number
-    /** Tokens one idle registrable domain can retain. */
+    /** Tokens one idle registrable domain can retain when the steady request rate is enabled. */
     SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_BURST: number
-    /** Also the worker count for one registrable domain. */
+    /** Also the worker count for one registrable domain or origin. */
     SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_REGISTRABLE_DOMAIN: number
     /**
      * Requests this pod holds open across every registrable domain at once.
@@ -108,10 +106,11 @@ export type MlMirrorConfig = {
      * scale with it too. Raise the pod's memory before you raise this.
      */
     SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IN_FLIGHT_REQUESTS: number
-    /** A larger queued tail returns to Kafka when fewer origins remain available. */
-    SESSION_RECORDING_ML_IMAGE_FETCH_MINIMUM_ACTIVE_ORIGINS: number
+    /** Low-diversity mode starts when the remaining request capacity is lower than this value. */
+    SESSION_RECORDING_ML_IMAGE_FETCH_LOW_ORIGIN_DIVERSITY_MINIMUM_REQUEST_SLOTS: number
+    /** Low-diversity mode starts only when more than this many undeferred canonical URL jobs remain. */
     SESSION_RECORDING_ML_IMAGE_FETCH_LOW_ORIGIN_DIVERSITY_REPUBLISH_THRESHOLD: number
-    /** URL jobs the largest origin can advance before the low-diversity tail returns to Kafka. */
+    /** Canonical URL jobs fetched in low-diversity mode before the remaining undeferred jobs return to Kafka. */
     SESSION_RECORDING_ML_IMAGE_FETCH_LOW_ORIGIN_DIVERSITY_PROGRESS: number
     /** Image bodies waiting for Kafka delivery. This must fit inside the producer byte queue. */
     SESSION_RECORDING_ML_IMAGE_FETCH_MAX_PENDING_PUBLISHES: number
@@ -235,11 +234,11 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         AI_RESEARCH_IMAGE_FETCH_DYNAMODB_TABLE: '',
         AI_RESEARCH_IMAGE_FETCH_DYNAMODB_TIMEOUT_MS: 5_000,
         AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS: 30 * 24 * 60 * 60,
-        SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_REQUESTS_PER_SECOND: 1,
-        SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_BURST: 5,
+        SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_REQUESTS_PER_SECOND: 0,
+        SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_BURST: 6,
         SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_REGISTRABLE_DOMAIN: 6,
         SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IN_FLIGHT_REQUESTS: 300,
-        SESSION_RECORDING_ML_IMAGE_FETCH_MINIMUM_ACTIVE_ORIGINS: 8,
+        SESSION_RECORDING_ML_IMAGE_FETCH_LOW_ORIGIN_DIVERSITY_MINIMUM_REQUEST_SLOTS: 48,
         SESSION_RECORDING_ML_IMAGE_FETCH_LOW_ORIGIN_DIVERSITY_REPUBLISH_THRESHOLD: 50,
         SESSION_RECORDING_ML_IMAGE_FETCH_LOW_ORIGIN_DIVERSITY_PROGRESS: 8,
         SESSION_RECORDING_ML_IMAGE_FETCH_MAX_PENDING_PUBLISHES: 100,

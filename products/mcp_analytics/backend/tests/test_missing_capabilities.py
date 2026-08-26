@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from uuid import UUID
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import patch
@@ -23,6 +24,7 @@ class TestMCPMissingCapabilitiesQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Cl
         session_id: str = "s1",
         distinct_id: str = "d1",
         timestamp: datetime | None = None,
+        event_uuid: UUID | None = None,
     ) -> None:
         properties: dict[str, Any] = {"$session_id": session_id, "$mcp_intent": intent}
         if client_name is not None:
@@ -33,6 +35,7 @@ class TestMCPMissingCapabilitiesQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Cl
             distinct_id=distinct_id,
             timestamp=timestamp or datetime.now(tz=UTC),
             properties=properties,
+            event_uuid=event_uuid,
         )
 
     def _run(self, **kwargs: Any) -> list[MCPMissingCapabilitiesItem]:
@@ -114,7 +117,7 @@ class TestMCPMissingCapabilitiesQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Cl
     ) -> None:
         now = datetime.now(tz=UTC)
         for index, intent in enumerate(["r1", "r2", "r3"]):
-            self._emit(intent=intent, timestamp=now - timedelta(hours=3 - index))
+            self._emit(intent=intent, timestamp=now, event_uuid=UUID(int=index + 1))
         flush_persons_and_events()
 
         response = self._response(limit=2, offset=offset)

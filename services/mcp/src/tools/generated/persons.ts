@@ -81,6 +81,7 @@ const personsList = (): ToolBase<typeof PersonsListSchema, WithPostHogUrl<Schema
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/persons/`,
             query: {
+                client_query_id: params.client_query_id,
                 distinct_id: params.distinct_id,
                 email: params.email,
                 limit: params.limit,

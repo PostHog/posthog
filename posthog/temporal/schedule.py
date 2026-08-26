@@ -96,7 +96,10 @@ from products.error_tracking.backend.facade.temporal import (
     create_error_tracking_symbol_set_cleanup_schedule,
     create_error_tracking_weekly_digest_schedule,
 )
-from products.experiments.backend.temporal.schedule import create_experiment_precompute_canary_schedule
+from products.experiments.backend.temporal.schedule import (
+    create_experiment_precompute_canary_schedule,
+    create_experiment_precompute_enrollment_census_schedule,
+)
 from products.exports.backend.temporal.subscriptions.types import ScheduleAllSubscriptionsWorkflowInputs
 from products.logs.backend.facade.temporal import create_logs_volume_tick_schedule
 from products.managed_warehouse.backend.facade.temporal import DucklakeCompactionInput
@@ -877,6 +880,7 @@ schedules = [
     create_experiment_regular_metrics_schedules,
     create_experiment_saved_metrics_schedules,
     create_experiment_precompute_canary_schedule,
+    create_experiment_precompute_enrollment_census_schedule,
     cleanup_cohort_calculation_schedules,
     create_ingestion_acceptance_test_schedule,
     create_warehouse_sources_queue_partition_management_schedule,
