@@ -11,8 +11,12 @@ const MARGIN = { top: 26, right: 14, bottom: 24, left: 34 }
 const PLOT_WIDTH = WIDTH - MARGIN.left - MARGIN.right
 const PLOT_HEIGHT = HEIGHT - MARGIN.top - MARGIN.bottom
 const BASELINE_Y = MARGIN.top + PLOT_HEIGHT
-/** Minimum viewBox-unit gap between labels before the later one is dropped (time axis) or moved to the second lane (top labels). */
-const LABEL_MIN_GAP = 40
+/** Minimum viewBox-unit gap between time-axis labels before the later one is dropped. */
+const TIME_LABEL_MIN_GAP = 40
+/** Minimum viewBox-unit gap between top labels before the later one moves to the second lane. */
+const TOP_LABEL_MIN_GAP = 40
+/** How far the second lane sits above the first. Tuned against the 9px label size. */
+const TOP_LABEL_LANE_OFFSET = 10
 
 function describeOccurrence(occurrence: ScheduleOccurrence): string {
     const { operation, projected, addedRolloutPercentage } = occurrence
@@ -120,7 +124,7 @@ export function ScheduleTimeline({
     let topLabelLane = 0
     occurrences.forEach((occurrence, index) => {
         const x = xFor(times[index])
-        const timeLabel = x - lastTimeLabelX >= LABEL_MIN_GAP ? relativeLabel(times[index], now) : null
+        const timeLabel = x - lastTimeLabelX >= TIME_LABEL_MIN_GAP ? relativeLabel(times[index], now) : null
         if (timeLabel) {
             lastTimeLabelX = x
         }
@@ -129,9 +133,12 @@ export function ScheduleTimeline({
             occurrence.operation === ScheduledChangeOperationType.AddReleaseCondition &&
             occurrence.projected.rolloutPercentage !== null
         if (!onStepLine) {
-            topLabelLane = x - lastTopLabelX < LABEL_MIN_GAP ? 1 - topLabelLane : 0
+            // Two lanes clear the common case of a pair landing together. Three or more markers
+            // inside one gap still overlap, because the lane alternates rather than tracks every
+            // occupied slot. The occurrence cap keeps that rare.
+            topLabelLane = x - lastTopLabelX < TOP_LABEL_MIN_GAP ? 1 - topLabelLane : 0
             lastTopLabelX = x
-            topLabelY -= topLabelLane * 10
+            topLabelY -= topLabelLane * TOP_LABEL_LANE_OFFSET
         }
         layouts.push({ x, timeLabel, topLabelY })
     })
@@ -147,9 +154,9 @@ export function ScheduleTimeline({
         }
         const x = layouts[index].x
         const y = yForRollout(rollout)
-        if (previousRollout === null) {
-            stepSegments.push({ path: `M ${x} ${y}`, blocked: occurrence.needsApproval })
-        } else {
+        // A first occurrence with no level before it has nothing to draw yet, and the next
+        // occurrence starts its run from here.
+        if (previousRollout !== null) {
             const previousY = yForRollout(previousRollout)
             // The horizontal run holds the level the flag serves until this change fires, which is
             // certain whatever a reviewer decides. Only the jump to the new level waits on approval.
@@ -181,8 +188,8 @@ export function ScheduleTimeline({
 
     return (
         // The chart scrolls horizontally rather than scale its 9-unit labels below legibility. The
-        // minimum width matches WIDTH, so at the floor one viewBox unit is one pixel and the labels
-        // hold at 9px. A smaller floor would scale them down by the same ratio.
+        // minimum width is WIDTH itself, so at the floor one viewBox unit is one pixel and the
+        // labels hold at 9px. A smaller floor would scale them down by the same ratio.
         // A plain div with overflow takes no focus and no arrow keys, so the scroll region needs a
         // focus stop of its own to be reachable without a mouse.
         <div
@@ -194,7 +201,8 @@ export function ScheduleTimeline({
         >
             <svg
                 viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-                className="w-full max-w-3xl min-w-150"
+                className="w-full max-w-3xl"
+                style={{ minWidth: WIDTH }}
                 role="img"
                 aria-label={chartLabel}
             >
