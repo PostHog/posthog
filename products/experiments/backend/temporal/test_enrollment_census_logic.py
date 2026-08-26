@@ -13,6 +13,7 @@ from products.experiments.backend.temporal.enrollment_census_logic import (
     BUILD_CAP_EXCLUSION_BYTES,
     EXCLUSION_BUILD_BYTE_CAP,
     TeamDirectScanStats,
+    TeamRunningLoad,
     build_census_report,
     running_experiment_load,
 )
@@ -91,4 +92,6 @@ class TestEnrollmentCensusCriteria(BaseTest):
         _experiment(metrics=[{"kind": "ExperimentMetric"}], end_date=timezone.now())
         _experiment(metrics=[{"kind": "ExperimentMetric"}], deleted=True)
 
-        assert running_experiment_load([self.team.id]) == {self.team.id: (1, 4)}
+        assert running_experiment_load([self.team.id]) == {
+            self.team.id: TeamRunningLoad(running_experiments=1, running_metrics=4)
+        }

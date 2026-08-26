@@ -98,6 +98,12 @@ class ExcludedTeam:
 
 
 @frozen
+class TeamRunningLoad:
+    running_experiments: int
+    running_metrics: int
+
+
+@frozen
 class EnrollmentCensusReport:
     window_days: int
     evaluated_teams: int
@@ -149,13 +155,13 @@ def fetch_direct_scan_stats(window_days: int) -> list[TeamDirectScanStats]:
     ]
 
 
-def running_experiment_load(team_ids: list[int]) -> dict[int, tuple[int, int]]:
-    """Per team: (running experiment count, metric count across them).
+def running_experiment_load(team_ids: list[int]) -> dict[int, TeamRunningLoad]:
+    """Per team: running experiment count and metric count across them.
 
     Counts inline, secondary, and saved metrics — the same set nightly recalculation
     resolves — so the projected build load matches what enrollment would actually run.
     """
-    load: dict[int, tuple[int, int]] = {}
+    load: dict[int, TeamRunningLoad] = {}
     experiments = (
         Experiment.objects.filter(team_id__in=team_ids, start_date__isnull=False, end_date__isnull=True)
         .exclude(deleted=True)
@@ -163,10 +169,13 @@ def running_experiment_load(team_ids: list[int]) -> dict[int, tuple[int, int]]:
         .values_list("team_id", "metrics", "metrics_secondary", "saved_metric_count")
     )
     for team_id, metrics, metrics_secondary, saved_metric_count in experiments:
-        count, metric_count = load.get(team_id, (0, 0))
-        load[team_id] = (
-            count + 1,
-            metric_count + len(metrics or []) + len(metrics_secondary or []) + saved_metric_count,
+        current = load.get(team_id, TeamRunningLoad(running_experiments=0, running_metrics=0))
+        load[team_id] = TeamRunningLoad(
+            running_experiments=current.running_experiments + 1,
+            running_metrics=current.running_metrics
+            + len(metrics or [])
+            + len(metrics_secondary or [])
+            + saved_metric_count,
         )
     return load
 
@@ -185,12 +194,13 @@ def build_census_report(stats: list[TeamDirectScanStats], window_days: int) -> E
         qualified.append((team_stats, reasons))
 
     load = running_experiment_load([team_stats.team_id for team_stats, _ in qualified])
+    no_load = TeamRunningLoad(running_experiments=0, running_metrics=0)
     candidates = tuple(
         EnrollmentCandidate(
             stats=team_stats,
             reasons=reasons,
-            running_experiments=load.get(team_stats.team_id, (0, 0))[0],
-            running_metrics=load.get(team_stats.team_id, (0, 0))[1],
+            running_experiments=load.get(team_stats.team_id, no_load).running_experiments,
+            running_metrics=load.get(team_stats.team_id, no_load).running_metrics,
         )
         for team_stats, reasons in sorted(qualified, key=lambda pair: -pair[0].total_read_bytes)
     )

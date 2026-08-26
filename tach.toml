@@ -1016,6 +1016,7 @@ expose = [
     "backend\\.temporal\\.WORKFLOWS",
     "backend\\.temporal\\.recalculation_metrics.*",
     "backend\\.temporal\\.schedule\\.create_experiment_precompute_canary_schedule",
+    "backend\\.temporal\\.schedule\\.create_experiment_precompute_enrollment_census_schedule",
 ]
 from = [
     "products.experiments",
