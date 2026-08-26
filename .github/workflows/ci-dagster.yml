@@ -84,11 +84,20 @@ jobs:
             # fetch-depth=1000 + blob:none mirrors ci-backend's turbo-discover so
             # HEAD^2 (PR branch tip) is reachable for the merge-base step below
             # without the cost of fetching blobs.
+            # docker-compose.base.yml is in the sparse set for the schema-key step, which
+            # reads it at the merge base. Checking it out puts the blob on disk, so that
+            # `git show` resolves locally rather than through a lazy fetch that could fail
+            # quietly and leave the migration cache key wrong.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 1000
                   filter: blob:none
                   clean: false
+                  sparse-checkout: |
+                      .github/actions/paths-filter
+                      .github/clickhouse-versions.json
+                      docker-compose.base.yml
+                  sparse-checkout-cone-mode: false
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
