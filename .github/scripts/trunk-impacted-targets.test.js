@@ -690,6 +690,7 @@ test('editor and agent configuration shares one lane', () => {
         '.zed/debug.json',
         '.husky/pre-commit',
         '.claude/settings.json',
+        '.greptile/config.json',
         // The same class of file, one per root path rather than one per tree.
         '.cursorignore',
         '.editorconfig',
@@ -699,7 +700,6 @@ test('editor and agent configuration shares one lane', () => {
         '.watchmanconfig',
         '.worktreeinclude',
         'LICENSE',
-        'greptile.json',
     ]) {
         assert.deepEqual(computeTargets([file], CONTEXT), ['repo-config'], file)
     }
