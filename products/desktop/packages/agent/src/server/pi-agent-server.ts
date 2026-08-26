@@ -30,6 +30,7 @@ import {
 } from "../pi/rpc-client";
 import { piRpcCommandSchema, type RpcCommand } from "../pi/rpc-transport";
 import { PiRuntime } from "../pi/runtime";
+import type { TaskContext } from "../pi/task-system-prompt";
 import { PostHogAPIClient } from "../posthog-api";
 import { resolveLlmGatewayUrl } from "../utils/gateway";
 import { Logger } from "../utils/logger";
@@ -544,12 +545,24 @@ export class PiAgentServer {
           return null;
         }),
     ]);
-    const runState = taskRun?.state as Record<string, unknown> | undefined;
+    const runState = taskRun?.state;
     const taskSnapshotKind = taskRun
       ? typeof runState?.snapshot_kind === "string"
         ? runState.snapshot_kind
         : "absent"
       : null;
+    const configuredSystemPrompt =
+      typeof this.config.claudeCode?.systemPrompt === "string"
+        ? this.config.claudeCode.systemPrompt
+        : this.config.claudeCode?.systemPrompt?.append;
+    const taskContext: TaskContext = {
+      projectId: this.config.projectId,
+      apiHost: this.config.apiUrl,
+      taskId: this.config.taskId,
+      cwd,
+      environment: "cloud",
+      additionalInstructions: configuredSystemPrompt,
+    };
     const attributionHeaders = buildPosthogPropertyHeaderRecord({
       task_id: payload.task_id,
       task_run_id: payload.run_id,
@@ -580,7 +593,6 @@ export class PiAgentServer {
     }
     const client = createPiRpcClient({
       cliPath: this.config.piRpcHostPath,
-      cwd,
       model: this.config.model,
       sessionFile: restoredSessionFile,
       enrichment: {
@@ -590,6 +602,7 @@ export class PiAgentServer {
       },
       runtimeMcpServers,
       mcpToolPolicies: mcpConfiguration.policies,
+      taskContext,
       providerOptions: {
         apiKey: this.config.apiKey,
         baseUrl: resolveLlmGatewayUrl(
