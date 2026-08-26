@@ -560,6 +560,8 @@ REQUESTS_URL = f"{BASE_URL}/v1/apps/A1/analyticsReportRequests"
 CREATE_REQUEST_URL = f"{BASE_URL}/v1/analyticsReportRequests"
 REPORTS_URL = f"{BASE_URL}/v1/analyticsReportRequests/REQ1/reports"
 INSTANCES_URL = f"{BASE_URL}/v1/analyticsReports/REP1/instances"
+SNAPSHOT_REPORTS_URL = f"{BASE_URL}/v1/analyticsReportRequests/REQS1/reports"
+SNAPSHOT_INSTANCES_URL = f"{BASE_URL}/v1/analyticsReports/REPS1/instances"
 
 
 def _segments_url(instance_id: str) -> str:
@@ -611,8 +613,16 @@ class _FakeAnalyticsApi(_FakeApi):
         return super().get(url, **kwargs)
 
     def post(self, url: str, **kwargs: Any) -> MagicMock:
-        self.posts.append((url, kwargs.get("json")))
-        body = {"data": {"type": "analyticsReportRequests", "id": "REQ-NEW", "attributes": {"accessType": "ONGOING"}}}
+        payload = kwargs.get("json")
+        self.posts.append((url, payload))
+        access_type = payload["data"]["attributes"]["accessType"]
+        body = {
+            "data": {
+                "type": "analyticsReportRequests",
+                "id": f"REQ-NEW-{access_type}",
+                "attributes": {"accessType": access_type},
+            }
+        }
         return _json_response(body, status_code=201)
 
 
@@ -621,15 +631,28 @@ def _analytics_api(
     requests_page: list[dict[str, Any]] | None = None,
     reports: list[dict[str, Any]] | None = None,
     instances: list[dict[str, Any]] | None = None,
+    snapshot_requests_page: list[dict[str, Any]] | None = None,
+    snapshot_reports: list[dict[str, Any]] | None = None,
+    snapshot_instances: list[dict[str, Any]] | None = None,
     segments_by_instance: dict[str, list[dict[str, Any]]] | None = None,
     segment_payloads: dict[str, bytes] | None = None,
 ) -> _FakeAnalyticsApi:
+    # The default snapshot topology is a fulfilled request whose reports don't include the
+    # synced one, so tests about the ongoing stream keep their exact pre-snapshot behavior.
+    snapshot_requests = (
+        snapshot_requests_page
+        if snapshot_requests_page is not None
+        else [_resource("analyticsReportRequests", "REQS1", accessType="ONE_TIME_SNAPSHOT")]
+    )
     bodies = {
         APPS_URL: _page([_resource("apps", "A1")]),
         REQUESTS_URL: _page(
-            requests_page
-            if requests_page is not None
-            else [_resource("analyticsReportRequests", "REQ1", accessType="ONGOING", stoppedDueToInactivity=False)]
+            (
+                requests_page
+                if requests_page is not None
+                else [_resource("analyticsReportRequests", "REQ1", accessType="ONGOING", stoppedDueToInactivity=False)]
+            )
+            + snapshot_requests
         ),
         REPORTS_URL: _page(
             reports
@@ -637,6 +660,12 @@ def _analytics_api(
             else [_resource("analyticsReports", "REP1", name="App Sessions Standard", category="APP_USAGE")]
         ),
         INSTANCES_URL: _page(instances if instances is not None else []),
+        SNAPSHOT_REPORTS_URL: _page(
+            snapshot_reports
+            if snapshot_reports is not None
+            else [_resource("analyticsReports", "REPX", name="Some Other Report", category="APP_USAGE")]
+        ),
+        SNAPSHOT_INSTANCES_URL: _page(snapshot_instances if snapshot_instances is not None else []),
     }
     for instance_id, segment_resources in (segments_by_instance or {}).items():
         bodies[_segments_url(instance_id)] = _page(segment_resources)
@@ -707,7 +736,9 @@ class TestAnalyticsReportStreams:
         assert api.posts == []
 
         params_by_url = dict(api.calls)
-        assert params_by_url[REQUESTS_URL]["filter[accessType]"] == "ONGOING"
+        # One unfiltered listing serves both the ongoing and snapshot ensures; the split happens
+        # client-side on the accessType attribute, so a server-side filter can't hide either kind.
+        assert "filter[accessType]" not in (params_by_url[REQUESTS_URL] or {})
         assert params_by_url[REPORTS_URL]["filter[category]"] == "APP_USAGE"
         assert params_by_url[INSTANCES_URL]["filter[granularity]"] == "DAILY"
 
@@ -716,20 +747,25 @@ class TestAnalyticsReportStreams:
             (None, "2026-08-03"),
         ]
 
-    def test_missing_request_is_created_once_and_the_app_skipped_this_run(self) -> None:
-        api = _analytics_api(requests_page=[])
+    def test_missing_requests_create_ongoing_and_snapshot_and_the_app_is_skipped_this_run(self) -> None:
+        api = _analytics_api(requests_page=[], snapshot_requests_page=[])
 
         rows = _collect_analytics(api, _FakeManager())
 
         assert rows == []
-        assert [url for url, _ in api.posts] == [CREATE_REQUEST_URL]
-        _, payload = api.posts[0]
-        assert payload["data"]["attributes"]["accessType"] == "ONGOING"
-        assert payload["data"]["relationships"]["app"]["data"] == {"type": "apps", "id": "A1"}
+        # A first sync has to open both streams: the ongoing request for the daily feed, and the
+        # one-time snapshot request for history older than the connection date.
+        assert [url for url, _ in api.posts] == [CREATE_REQUEST_URL, CREATE_REQUEST_URL]
+        access_types = [payload["data"]["attributes"]["accessType"] for _, payload in api.posts]
+        assert access_types == ["ONGOING", "ONE_TIME_SNAPSHOT"]
+        for _, payload in api.posts:
+            assert payload["data"]["relationships"]["app"]["data"] == {"type": "apps", "id": "A1"}
         # First reports generate in 1-2 days, so nothing further is polled for this app.
         assert REPORTS_URL not in [url for url, _ in api.calls]
 
     def test_request_stopped_due_to_inactivity_does_not_count_as_active(self) -> None:
+        # The page also carries the snapshot request, so a stopped ONGOING request must be
+        # recognized by its attributes rather than by being the only resource listed.
         api = _analytics_api(
             requests_page=[
                 _resource("analyticsReportRequests", "REQ1", accessType="ONGOING", stoppedDueToInactivity=True)
@@ -738,7 +774,7 @@ class TestAnalyticsReportStreams:
 
         _collect_analytics(api, _FakeManager())
 
-        assert [url for url, _ in api.posts] == [CREATE_REQUEST_URL]
+        assert [payload["data"]["attributes"]["accessType"] for _, payload in api.posts] == ["ONGOING"]
 
     def test_incremental_walk_reads_from_the_watermark_day_inclusive(self) -> None:
         payload = _gzip_csv("Date,Sessions\n2026-08-02,5\n")
@@ -958,6 +994,259 @@ class TestAnalyticsReportStreams:
         assert response.partition_keys == ["processing_date"]
         # The walk is date-major across apps, so ascending per-batch checkpoints are safe.
         assert response.sort_mode == "asc"
+
+
+_SNAPSHOT_READY_REPORTS = [_resource("analyticsReports", "REPS1", name="App Sessions Standard", category="APP_USAGE")]
+
+
+class TestAnalyticsSnapshotBackfill:
+    def _ready_api(self) -> _FakeAnalyticsApi:
+        """Two ongoing daily instances plus a fulfilled snapshot processed on the same day as the
+        newest ongoing instance — the collision- and overlap-prone topology."""
+        ongoing_1 = _gzip_csv("Date,Sessions\n2026-07-30,5\n")
+        ongoing_2 = _gzip_csv("Date,Sessions\n2026-07-31,7\n")
+        snapshot = _gzip_csv("Date,Sessions\n2024-06-01,3\n2026-07-15,4\n2026-08-01,9\n")
+        return _analytics_api(
+            instances=[_instance("I1", "2026-08-01"), _instance("I2", "2026-08-02")],
+            snapshot_reports=_SNAPSHOT_READY_REPORTS,
+            snapshot_instances=[_instance("IS1", "2026-08-02")],
+            segments_by_instance={
+                "I1": [_segment("S1", "https://r.s3.amazonaws.com/o1", ongoing_1)],
+                "I2": [_segment("S2", "https://r.s3.amazonaws.com/o2", ongoing_2)],
+                "IS1": [_segment("SS1", "https://r.s3.amazonaws.com/s1", snapshot)],
+            },
+            segment_payloads={
+                "https://r.s3.amazonaws.com/o1": ongoing_1,
+                "https://r.s3.amazonaws.com/o2": ongoing_2,
+                "https://r.s3.amazonaws.com/s1": snapshot,
+            },
+        )
+
+    def test_snapshot_history_lands_behind_the_ongoing_window(self) -> None:
+        api = self._ready_api()
+
+        rows = _collect_analytics(api, _FakeManager())
+
+        # Snapshot rows ride the snapshot instance's processing date with negative line numbers,
+        # so they can't collide with the ongoing instance processed the same day; and only report
+        # dates older than the earliest ongoing instance are kept — later dates belong to the
+        # ongoing stream, which is what keeps one report date from landing from both streams.
+        assert [(row["app_id"], row["processing_date"], row["_line"], row["date"]) for row in rows] == [
+            ("A1", "2026-08-01", 1, "2026-07-30"),
+            ("A1", "2026-08-02", 1, "2026-07-31"),
+            ("A1", "2026-08-02", -1, "2024-06-01"),
+            ("A1", "2026-08-02", -2, "2026-07-15"),
+        ]
+        # The fulfilled snapshot request is reused, never re-created.
+        assert api.posts == []
+
+    def test_running_the_backfill_twice_emits_identical_keys(self) -> None:
+        first = _collect_analytics(self._ready_api(), _FakeManager())
+        api = self._ready_api()
+        second = _collect_analytics(api, _FakeManager())
+
+        first_keys = [(row["app_id"], row["processing_date"], row["_line"]) for row in first]
+        second_keys = [(row["app_id"], row["processing_date"], row["_line"]) for row in second]
+        assert ("A1", "2026-08-02", -1) in first_keys
+        # Identical, collision-free keys: the merge folds a re-run to zero new rows per report date.
+        assert first_keys == second_keys
+        assert len(set(second_keys)) == len(second_keys)
+        assert api.posts == []
+
+    def test_snapshot_ingests_fully_when_no_ongoing_instances_exist_yet(self) -> None:
+        # A new source whose snapshot generates before the first ongoing instance has no ongoing
+        # coverage to defer to, so every snapshot date lands.
+        snapshot = _gzip_csv("Date,Sessions\n2024-06-01,3\n2026-07-15,4\n")
+        api = _analytics_api(
+            instances=[],
+            snapshot_reports=_SNAPSHOT_READY_REPORTS,
+            snapshot_instances=[_instance("IS1", "2026-08-02")],
+            segments_by_instance={"IS1": [_segment("SS1", "https://r.s3.amazonaws.com/s1", snapshot)]},
+            segment_payloads={"https://r.s3.amazonaws.com/s1": snapshot},
+        )
+
+        rows = _collect_analytics(api, _FakeManager(), should_use_incremental_field=True)
+
+        assert [(row["processing_date"], row["_line"], row["date"]) for row in rows] == [
+            ("2026-08-02", -1, "2024-06-01"),
+            ("2026-08-02", -2, "2026-07-15"),
+        ]
+
+    def test_duplicate_snapshot_instances_for_one_processing_date_ingest_once(self) -> None:
+        # Apple can list several snapshot instances on one processing date; each numbers its rows
+        # from -1, so walking more than one would hand different rows the same merge key.
+        snapshot = _gzip_csv("Date,Sessions\n2024-06-01,3\n")
+        other = _gzip_csv("Date,Sessions\n2024-06-01,999\n")
+        api = _analytics_api(
+            instances=[],
+            snapshot_reports=_SNAPSHOT_READY_REPORTS,
+            snapshot_instances=[_instance("IS2", "2026-08-02"), _instance("IS1", "2026-08-02")],
+            segments_by_instance={
+                "IS1": [_segment("SS1", "https://r.s3.amazonaws.com/s1", snapshot)],
+                "IS2": [_segment("SS2", "https://r.s3.amazonaws.com/s2", other)],
+            },
+            segment_payloads={
+                "https://r.s3.amazonaws.com/s1": snapshot,
+                "https://r.s3.amazonaws.com/s2": other,
+            },
+        )
+
+        rows = _collect_analytics(api, _FakeManager())
+
+        assert [(row["processing_date"], row["_line"], row["sessions"]) for row in rows] == [("2026-08-02", -1, "3")]
+        assert _segments_url("IS2") not in [url for url, _ in api.calls]
+
+    def test_fresh_incremental_sync_holds_until_the_snapshot_is_ready(self) -> None:
+        payload = _gzip_csv("Date,Sessions\n2026-07-31,7\n")
+        api = _analytics_api(
+            instances=[_instance("I1", "2026-08-01")],
+            # Snapshot request exists, generation not finished: no reports under it yet.
+            snapshot_reports=[],
+            segments_by_instance={"I1": [_segment("S1", "https://r.s3.amazonaws.com/o1", payload)]},
+            segment_payloads={"https://r.s3.amazonaws.com/o1": payload},
+        )
+        manager = _FakeManager()
+
+        rows = _collect_analytics(api, manager, should_use_incremental_field=True)
+
+        # Emitting the ongoing rows now would ratchet the watermark past the snapshot's report
+        # dates and lock the history out for good, so a fresh incremental table waits.
+        assert rows == []
+        assert manager.saved == []
+        assert _segments_url("I1") not in [url for url, _ in api.calls]
+
+    def test_full_refresh_does_not_hold_for_a_generating_snapshot(self) -> None:
+        # A full refresh rebuilds the table wholesale each run, so the next rebuild picks the
+        # history up once it exists — stalling the table would buy nothing.
+        payload = _gzip_csv("Date,Sessions\n2026-07-31,7\n")
+        api = _analytics_api(
+            instances=[_instance("I1", "2026-08-01")],
+            snapshot_reports=[],
+            segments_by_instance={"I1": [_segment("S1", "https://r.s3.amazonaws.com/o1", payload)]},
+            segment_payloads={"https://r.s3.amazonaws.com/o1": payload},
+        )
+
+        rows = _collect_analytics(api, _FakeManager())
+
+        assert [(row["processing_date"], row["_line"]) for row in rows] == [("2026-08-01", 1)]
+
+    def test_fresh_incremental_sync_holds_while_an_ongoing_instance_below_the_snapshot_is_unready(self) -> None:
+        # An ongoing instance without files below the snapshot would stop the walk mid-emission,
+        # ratchet the watermark, and strand the history — readiness has to be checked up front.
+        ongoing_1 = _gzip_csv("Date,Sessions\n2026-07-30,5\n")
+        snapshot = _gzip_csv("Date,Sessions\n2024-06-01,3\n")
+        api = _analytics_api(
+            instances=[_instance("I1", "2026-08-01"), _instance("I2", "2026-08-02")],
+            snapshot_reports=_SNAPSHOT_READY_REPORTS,
+            snapshot_instances=[_instance("IS1", "2026-08-02")],
+            segments_by_instance={
+                "I1": [_segment("S1", "https://r.s3.amazonaws.com/o1", ongoing_1)],
+                "I2": [],
+                "IS1": [_segment("SS1", "https://r.s3.amazonaws.com/s1", snapshot)],
+            },
+            segment_payloads={
+                "https://r.s3.amazonaws.com/o1": ongoing_1,
+                "https://r.s3.amazonaws.com/s1": snapshot,
+            },
+        )
+        manager = _FakeManager()
+
+        rows = _collect_analytics(api, manager, should_use_incremental_field=True)
+
+        assert rows == []
+        assert manager.saved == []
+
+    def test_per_run_instance_cap_yields_to_a_fresh_snapshot_backfill(self) -> None:
+        # Truncating a fresh incremental run below the snapshot would ratchet the watermark and
+        # strand the history, so the cap defers to the backfill instead of aborting it.
+        api = self._ready_api()
+
+        with patch(f"{MODULE}.ANALYTICS_MAX_INSTANCES_PER_RUN", 1):
+            rows = _collect_analytics(api, _FakeManager(), should_use_incremental_field=True)
+
+        assert [(row["processing_date"], row["_line"]) for row in rows] == [
+            ("2026-08-01", 1),
+            ("2026-08-02", 1),
+            ("2026-08-02", -1),
+            ("2026-08-02", -2),
+        ]
+
+    def test_expired_snapshot_is_rerequested_on_a_fresh_table(self) -> None:
+        # A fulfilled request whose instances aged out (Apple keeps them only weeks) can't serve a
+        # resync; history is only recoverable by asking Apple to generate a fresh snapshot.
+        payload = _gzip_csv("Date,Sessions\n2026-07-31,7\n")
+        api = _analytics_api(
+            instances=[_instance("I1", "2026-08-01")],
+            snapshot_reports=_SNAPSHOT_READY_REPORTS,
+            snapshot_instances=[],
+            segments_by_instance={"I1": [_segment("S1", "https://r.s3.amazonaws.com/o1", payload)]},
+            segment_payloads={"https://r.s3.amazonaws.com/o1": payload},
+        )
+
+        rows = _collect_analytics(api, _FakeManager(), should_use_incremental_field=True)
+
+        assert rows == []
+        assert [payload["data"]["attributes"]["accessType"] for _, payload in api.posts] == ["ONE_TIME_SNAPSHOT"]
+
+    def test_no_new_snapshot_request_while_a_replacement_is_generating(self) -> None:
+        # An expired snapshot request next to one that is still generating must not trigger
+        # another create, or every sync during the generation window piles a request onto the
+        # customer's account.
+        payload = _gzip_csv("Date,Sessions\n2026-07-31,7\n")
+        api = _analytics_api(
+            instances=[_instance("I1", "2026-08-01")],
+            snapshot_requests_page=[
+                _resource("analyticsReportRequests", "REQS1", accessType="ONE_TIME_SNAPSHOT"),
+                _resource("analyticsReportRequests", "REQS2", accessType="ONE_TIME_SNAPSHOT"),
+            ],
+            snapshot_reports=_SNAPSHOT_READY_REPORTS,
+            snapshot_instances=[],
+            segments_by_instance={"I1": [_segment("S1", "https://r.s3.amazonaws.com/o1", payload)]},
+            segment_payloads={"https://r.s3.amazonaws.com/o1": payload},
+        )
+        api.bodies[f"{BASE_URL}/v1/analyticsReportRequests/REQS2/reports"] = _page([])
+
+        rows = _collect_analytics(api, _FakeManager(), should_use_incremental_field=True)
+
+        assert rows == []
+        assert api.posts == []
+
+    def test_steady_state_incremental_sync_leaves_the_snapshot_alone(self) -> None:
+        # A table with a watermark holds ongoing history the source can't see, so no safe
+        # report-date boundary exists to dedupe a snapshot against — the backfill only runs on a
+        # fresh table (first sync, resync, or full refresh).
+        api = self._ready_api()
+
+        rows = _collect_analytics(
+            api,
+            _FakeManager(),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=date(2026, 8, 1),
+        )
+
+        assert [(row["processing_date"], row["_line"]) for row in rows] == [("2026-08-01", 1), ("2026-08-02", 1)]
+        assert SNAPSHOT_REPORTS_URL not in [url for url, _ in api.calls]
+        assert api.posts == []
+
+    def test_snapshot_inclusion_survives_a_mid_job_retry(self) -> None:
+        # Pipelines can persist the watermark per batch, so a retried attempt of a first sync can
+        # arrive with a watermark before the snapshot has landed; the resume state carries the
+        # inclusion decision across attempts so the retry can't silently drop the history.
+        api = self._ready_api()
+        manager = _FakeManager(AppStoreConnectResumeConfig(processing_date="2026-08-02", include_snapshot=True))
+
+        rows = _collect_analytics(
+            api,
+            manager,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=date(2026, 8, 2),
+        )
+
+        assert [(row["processing_date"], row["_line"]) for row in rows] == [
+            ("2026-08-02", 1),
+            ("2026-08-02", -1),
+            ("2026-08-02", -2),
+        ]
 
 
 class TestFindAnalyticsReport:

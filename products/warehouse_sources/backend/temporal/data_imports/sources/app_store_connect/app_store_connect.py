@@ -9,7 +9,7 @@ import tempfile
 import dataclasses
 from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime, timedelta
-from typing import IO, Any, Optional
+from typing import IO, Any, Literal, Optional
 from urllib.parse import urlsplit
 
 import jwt
@@ -178,6 +178,12 @@ class AppStoreConnectResumeConfig:
     # `YYYY-MM-DD`. Dates are walked ascending across every app, so no app bookmark is
     # needed. Optional so states saved before this field existed still parse.
     processing_date: str | None = None
+    # Whether this job's first attempt decided to ingest the one-time historical snapshot.
+    # Pipelines can persist the incremental watermark per batch, so a retried attempt of a first
+    # sync may arrive with a watermark even though the snapshot hasn't fully landed — the recorded
+    # decision keeps the retry from silently dropping the history. Optional so states saved before
+    # this field existed still parse.
+    include_snapshot: bool | None = None
 
 
 def _normalize_private_key(private_key: str) -> str:
@@ -881,52 +887,46 @@ def _post_json(
     return response
 
 
-def _ensure_report_request(
+ONGOING_ACCESS_TYPE = "ONGOING"
+SNAPSHOT_ACCESS_TYPE = "ONE_TIME_SNAPSHOT"
+
+
+def _list_report_requests(
     session: requests.Session,
     token_provider: AppStoreConnectTokenProvider,
     logger: FilteringBoundLogger,
     app_id: str,
-) -> tuple[str | None, bool]:
-    """Reuse the app's active ONGOING analytics report request, creating one only if none exists.
+) -> list[dict[str, Any]]:
+    """All of the app's analytics report requests, flattened, both access types.
 
-    Returns ``(request_id, created_now)``. Creating a request is the only call in this source that
-    mutates the customer's App Store Connect account, so it has to be idempotent: an existing active
-    request is always reused, and a request Apple stopped due to inactivity no longer generates
-    reports, so it doesn't count as active. Apple rejects a duplicate create with a 409, which
-    resolves by re-reading the list.
+    Listed unfiltered and split client-side on ``accessType``: one call serves the ongoing and
+    snapshot ensures, and a response that ignores the server-side filter can't misclassify a
+    request as the wrong kind.
     """
-    list_url = f"{BASE_URL}/v1/apps/{app_id}/analyticsReportRequests"
+    url = f"{BASE_URL}/v1/apps/{app_id}/analyticsReportRequests"
+    report_requests: list[dict[str, Any]] = []
+    for page in _iter_pages(session, token_provider, logger, url, {}):
+        report_requests.extend(_flatten_resource(resource) for resource in page.resources)
+    return [row for row in report_requests if row.get("id")]
 
-    def _active_request_id() -> tuple[str | None, bool]:
-        """Returns ``(active_request_id, saw_stopped)`` — the active request to reuse, and whether an
-        ONGOING request stopped due to inactivity was skipped, so the create 403 can name that cause."""
-        body = _get(
-            session,
-            list_url,
-            token_provider=token_provider,
-            logger=logger,
-            params={"filter[accessType]": "ONGOING", "limit": MAX_PAGE_SIZE},
-        ).json()
-        data = body.get("data") if isinstance(body, dict) else None
-        saw_stopped = False
-        for resource in data or []:
-            if not isinstance(resource, dict) or not resource.get("id"):
-                continue
-            attributes = resource.get("attributes")
-            if isinstance(attributes, dict) and attributes.get("stoppedDueToInactivity"):
-                saw_stopped = True
-                continue
-            return str(resource["id"]), saw_stopped
-        return None, saw_stopped
 
-    existing, saw_stopped = _active_request_id()
-    if existing:
-        return existing, False
+def _create_report_request(
+    session: requests.Session,
+    token_provider: AppStoreConnectTokenProvider,
+    logger: FilteringBoundLogger,
+    app_id: str,
+    access_type: str,
+    saw_stopped: bool = False,
+) -> str | None:
+    """POST a new analytics report request; ``None`` when Apple reports one already exists (409).
 
+    Creating a request is the only call in this source that mutates the customer's App Store
+    Connect account, so every caller has to stay idempotent around it.
+    """
     payload = {
         "data": {
             "type": "analyticsReportRequests",
-            "attributes": {"accessType": "ONGOING"},
+            "attributes": {"accessType": access_type},
             "relationships": {"app": {"data": {"type": "apps", "id": app_id}}},
         }
     }
@@ -958,13 +958,60 @@ def _ensure_report_request(
         )
         raise AppStoreConnectPermissionError(f"{message} ({_apple_error_suffix(apple_error, 403)})")
     if response.status_code == 409:
-        # A concurrent sync (or a request the accessType filter hid) beat us to it.
-        return _active_request_id()[0], False
+        return None
 
     body = response.json()
     data = body.get("data") if isinstance(body, dict) else None
     request_id = data.get("id") if isinstance(data, dict) else None
-    return (str(request_id) if request_id else None), True
+    return str(request_id) if request_id else None
+
+
+def _saw_stopped_ongoing_request(report_requests: list[dict[str, Any]]) -> bool:
+    return any(
+        row.get("accessType") == ONGOING_ACCESS_TYPE and row.get("stoppedDueToInactivity") for row in report_requests
+    )
+
+
+def _active_ongoing_request_id(report_requests: list[dict[str, Any]]) -> str | None:
+    for row in report_requests:
+        if row.get("accessType") != ONGOING_ACCESS_TYPE:
+            continue
+        # A request Apple stopped due to inactivity no longer generates reports, so it doesn't
+        # count as active.
+        if row.get("stoppedDueToInactivity"):
+            continue
+        return str(row["id"])
+    return None
+
+
+def _ensure_report_request(
+    session: requests.Session,
+    token_provider: AppStoreConnectTokenProvider,
+    logger: FilteringBoundLogger,
+    app_id: str,
+    report_requests: list[dict[str, Any]],
+) -> tuple[str | None, bool]:
+    """Reuse the app's active ONGOING analytics report request, creating one only if none exists.
+
+    Returns ``(request_id, created_now)``. An existing active request is always reused. Apple
+    rejects a duplicate create with a 409, which resolves by re-reading the list.
+    """
+    existing = _active_ongoing_request_id(report_requests)
+    if existing:
+        return existing, False
+
+    created = _create_report_request(
+        session,
+        token_provider,
+        logger,
+        app_id,
+        ONGOING_ACCESS_TYPE,
+        saw_stopped=_saw_stopped_ongoing_request(report_requests),
+    )
+    if created is None:
+        # A concurrent sync beat us to it.
+        return _active_ongoing_request_id(_list_report_requests(session, token_provider, logger, app_id)), False
+    return created, True
 
 
 def _normalize_report_name(name: str) -> str:
@@ -973,13 +1020,14 @@ def _normalize_report_name(name: str) -> str:
     return re.sub(r"[^a-z0-9]", "", name.casefold())
 
 
-def _find_analytics_report(
+def _list_reports(
     session: requests.Session,
     token_provider: AppStoreConnectTokenProvider,
     logger: FilteringBoundLogger,
     config: AppStoreConnectEndpointConfig,
     request_id: str,
-) -> str | None:
+) -> dict[str, str]:
+    """Map of report name to report id under one report request, within the endpoint's category."""
     url = f"{BASE_URL}/v1/analyticsReportRequests/{request_id}/reports"
     report_ids: dict[str, str] = {}
     for page in _iter_pages(
@@ -989,12 +1037,29 @@ def _find_analytics_report(
             row = _flatten_resource(resource)
             if row.get("name") and row.get("id"):
                 report_ids[str(row["name"])] = str(row["id"])
+    return report_ids
 
+
+def _match_report(config: AppStoreConnectEndpointConfig, report_ids: dict[str, str]) -> str | None:
     by_normalized = {_normalize_report_name(name): report_id for name, report_id in report_ids.items()}
     for name in config.analytics_report_names:
         report_id = by_normalized.get(_normalize_report_name(name))
         if report_id is not None:
             return report_id
+    return None
+
+
+def _find_analytics_report(
+    session: requests.Session,
+    token_provider: AppStoreConnectTokenProvider,
+    logger: FilteringBoundLogger,
+    config: AppStoreConnectEndpointConfig,
+    request_id: str,
+) -> str | None:
+    report_ids = _list_reports(session, token_provider, logger, config, request_id)
+    report_id = _match_report(config, report_ids)
+    if report_id is not None:
+        return report_id
 
     logger.warning(
         f"App Store Connect: no report named {config.analytics_report_names} under this request "
@@ -1009,8 +1074,12 @@ def _analytics_instances(
     token_provider: AppStoreConnectTokenProvider,
     logger: FilteringBoundLogger,
     report_id: str,
-    lower_bound: date | None,
 ) -> list[tuple[str, date]]:
+    """Every DAILY ``(instance_id, processing_date)`` of a report, ascending by processing date.
+
+    Unfiltered on purpose: the caller applies its watermark bound for the walk, but also needs the
+    full listing to place the snapshot's report-date cutoff at the earliest ongoing instance.
+    """
     url = f"{BASE_URL}/v1/analyticsReports/{report_id}/instances"
     instances: list[tuple[str, date]] = []
     for page in _iter_pages(session, token_provider, logger, url, {"filter[granularity]": ANALYTICS_GRANULARITY}):
@@ -1019,13 +1088,92 @@ def _analytics_instances(
             processing_date = _to_date(row.get("processingDate"))
             if not row.get("id") or processing_date is None:
                 continue
-            # The lower bound is inclusive: an instance's rows can restate earlier data
-            # dates, and re-reading the boundary merges idempotently on the primary key.
-            if lower_bound is not None and processing_date < lower_bound:
-                continue
             instances.append((str(row["id"]), processing_date))
     instances.sort(key=lambda instance: instance[1])
     return instances
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class _SnapshotPlan:
+    """Outcome of resolving an app's one-time historical snapshot for one report.
+
+    ``ready``: walkable instances exist. ``pending``: Apple is (or may still be) generating one.
+    ``absent``: every fulfilled snapshot request lists reports and none of them is this one, so
+    the account isn't entitled to it and there is nothing to wait for.
+    """
+
+    state: Literal["ready", "pending", "absent"]
+    instances: list[tuple[str, date]] = dataclasses.field(default_factory=list)
+
+
+def _resolve_snapshot_plan(
+    session: requests.Session,
+    token_provider: AppStoreConnectTokenProvider,
+    logger: FilteringBoundLogger,
+    config: AppStoreConnectEndpointConfig,
+    app_id: str,
+    report_requests: list[dict[str, Any]],
+) -> _SnapshotPlan:
+    """Find (or request) the app's ONE_TIME_SNAPSHOT and this report's instances under it.
+
+    A fulfilled snapshot request is always reused — a second ensure never re-creates or errors.
+    Creating is reserved for two cases: no snapshot request exists at all, or a fulfilled one's
+    instances have aged out (Apple retains them only for a limited window), where only a fresh
+    snapshot can regenerate the history. A request with no reports yet is still generating, so it
+    is waited on rather than duplicated.
+    """
+    snapshot_requests = [row for row in report_requests if row.get("accessType") == SNAPSHOT_ACCESS_TYPE]
+    if not snapshot_requests:
+        _create_report_request(session, token_provider, logger, app_id, SNAPSHOT_ACCESS_TYPE)
+        logger.info(
+            f"App Store Connect: requested a one-time historical snapshot for app {app_id}; "
+            f"Apple generates it in 1-2 days. endpoint={config.name}"
+        )
+        return _SnapshotPlan(state="pending")
+
+    generating = False
+    resolved_report_ids: list[str] = []
+    for row in snapshot_requests:
+        report_ids = _list_reports(session, token_provider, logger, config, str(row["id"]))
+        if not report_ids:
+            # No reports in this category yet: the snapshot is most likely still generating.
+            generating = True
+            continue
+        report_id = _match_report(config, report_ids)
+        if report_id is not None:
+            resolved_report_ids.append(report_id)
+
+    # One instance per processing date: snapshot rows are numbered from -1 within their instance,
+    # so walking two instances of one date would hand different rows the same merge key. The
+    # lowest instance id wins so re-runs pick the same one.
+    instances: dict[date, str] = {}
+    for report_id in resolved_report_ids:
+        for instance_id, processing_date in _analytics_instances(session, token_provider, logger, report_id):
+            current = instances.get(processing_date)
+            if current is None or instance_id < current:
+                instances[processing_date] = instance_id
+
+    if instances:
+        return _SnapshotPlan(
+            state="ready",
+            instances=sorted(
+                ((instance_id, processing_date) for processing_date, instance_id in instances.items()),
+                key=lambda instance: instance[1],
+            ),
+        )
+    if resolved_report_ids and not generating:
+        # Fulfilled once, but the instances aged out before they were downloaded — and no other
+        # snapshot request is mid-generation, so re-requesting won't pile requests up while a
+        # replacement is already on its way.
+        _create_report_request(session, token_provider, logger, app_id, SNAPSHOT_ACCESS_TYPE)
+        logger.info(
+            f"App Store Connect: the existing historical snapshot for app {app_id} has expired; "
+            f"requested a fresh one. endpoint={config.name}"
+        )
+        return _SnapshotPlan(state="pending")
+    if generating or resolved_report_ids:
+        return _SnapshotPlan(state="pending")
+    return _SnapshotPlan(state="absent")
 
 
 def _analytics_segments(
@@ -1122,6 +1270,19 @@ def _iter_segment_rows(
         yield row
 
 
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class _WalkInstance:
+    """One analytics report instance scheduled into the date-ordered walk."""
+
+    app_id: str
+    instance_id: str
+    is_snapshot: bool = False
+    # Snapshot rows are kept only when their report date is strictly before this cutoff — the
+    # earliest listed ongoing instance's processing date. Report dates at or after it are the
+    # ongoing stream's to deliver, which keeps one report date from landing from both streams.
+    snapshot_cutoff: date | None = None
+
+
 def _get_analytics_report(
     session: requests.Session,
     segments_session: requests.Session,
@@ -1143,6 +1304,17 @@ def _get_analytics_report(
         if candidate is not None and (lower_bound is None or candidate > lower_bound):
             lower_bound = candidate
 
+    # The one-time snapshot restates all history, so it only joins the walk when the table is
+    # known to be empty: a first sync, a resync (the reset clears the watermark before the run),
+    # or a full refresh. An established incremental table holds ongoing history the source can't
+    # enumerate, so no report-date boundary could dedupe a snapshot against it. Retried attempts
+    # of one job reuse the first attempt's decision from the resume state, because a pipeline may
+    # persist the watermark per batch mid-job.
+    if resume is not None and resume.include_snapshot is not None:
+        include_snapshot = resume.include_snapshot
+    else:
+        include_snapshot = watermark is None
+
     # Discover every app's report and instances up front, then walk processing dates in
     # ascending order ACROSS apps. Yields are then globally date-ordered, so the pipeline's
     # per-batch watermark checkpoint can never advance past an app whose older instances are
@@ -1151,45 +1323,114 @@ def _get_analytics_report(
     # the next run re-reads that boundary date in full and the merge dedupes it. Resume state
     # is job-scoped (it survives retries of the same job, never the next scheduled run), so
     # the watermark has to carry cross-run progress by itself.
-    instances_by_date: dict[date, list[tuple[str, str]]] = {}
+    instances_by_date: dict[date, list[_WalkInstance]] = {}
+    hold_for_snapshot = False
+    snapshot_ceiling: date | None = None
     for app_id in app_ids:
-        request_id, created_now = _ensure_report_request(session, token_provider, logger, app_id)
-        if created_now:
-            logger.info(
-                f"App Store Connect: created an ONGOING analytics report request for app {app_id}; "
-                f"Apple generates the first reports in 1-2 days. endpoint={config.name}"
-            )
-            continue
-        if request_id is None:
+        report_requests = _list_report_requests(session, token_provider, logger, app_id)
+        request_id, created_now = _ensure_report_request(session, token_provider, logger, app_id, report_requests)
+
+        snapshot_plan: _SnapshotPlan | None = None
+        if include_snapshot:
+            snapshot_plan = _resolve_snapshot_plan(session, token_provider, logger, config, app_id, report_requests)
+
+        if created_now or request_id is None:
+            if created_now:
+                logger.info(
+                    f"App Store Connect: created an ONGOING analytics report request for app {app_id}; "
+                    f"Apple generates the first reports in 1-2 days. endpoint={config.name}"
+                )
+            # The app can't be walked this run, so an available snapshot can't be emitted in
+            # order either — everything for this app has to land together on a later run.
+            if snapshot_plan is not None and snapshot_plan.state != "absent":
+                hold_for_snapshot = True
             continue
 
         report_id = _find_analytics_report(session, token_provider, logger, config, request_id)
-        if report_id is None:
+        ongoing_instances: list[tuple[str, date]] = []
+        if report_id is not None:
             # An unavailable report degrades this table for this app; other apps and tables
             # are unaffected.
-            continue
+            ongoing_instances = _analytics_instances(session, token_provider, logger, report_id)
 
-        for instance_id, processing_date in _analytics_instances(
-            session, token_provider, logger, report_id, lower_bound
-        ):
-            instances_by_date.setdefault(processing_date, []).append((app_id, instance_id))
+        for instance_id, processing_date in ongoing_instances:
+            # The lower bound is inclusive: an instance's rows can restate earlier data
+            # dates, and re-reading the boundary merges idempotently on the primary key.
+            if lower_bound is not None and processing_date < lower_bound:
+                continue
+            instances_by_date.setdefault(processing_date, []).append(
+                _WalkInstance(app_id=app_id, instance_id=instance_id)
+            )
+
+        if snapshot_plan is None:
+            continue
+        if snapshot_plan.state == "pending" and report_id is not None:
+            # Only an app whose ongoing report is live can strand its history by emitting ahead
+            # of the snapshot; an unentitled app never will, so it must not stall the others.
+            hold_for_snapshot = True
+        snapshot_cutoff = min((processing_date for _, processing_date in ongoing_instances), default=None)
+        for instance_id, processing_date in snapshot_plan.instances:
+            if lower_bound is not None and processing_date < lower_bound:
+                continue
+            instances_by_date.setdefault(processing_date, []).append(
+                _WalkInstance(app_id=app_id, instance_id=instance_id, is_snapshot=True, snapshot_cutoff=snapshot_cutoff)
+            )
+            if snapshot_ceiling is None or processing_date > snapshot_ceiling:
+                snapshot_ceiling = processing_date
+
+    if hold_for_snapshot and should_use_incremental_field:
+        # An incremental table's first emission ratchets the watermark past the snapshot's
+        # report dates for good, so nothing is emitted until the snapshot can be emitted with
+        # it. A full refresh never holds: it rebuilds the whole table every run, so the next
+        # rebuild picks the history up on its own.
+        logger.info(
+            f"App Store Connect: waiting for Apple to generate the one-time historical snapshot "
+            f"(typically 1-2 days) before the first ingest, so history lands ahead of the "
+            f"ongoing stream. endpoint={config.name}"
+        )
+        return
+
+    has_snapshot_instances = any(
+        walk_instance.is_snapshot for walk_instances in instances_by_date.values() for walk_instance in walk_instances
+    )
+    if should_use_incremental_field and snapshot_ceiling is not None:
+        # Probe every instance at or below the snapshot for downloadable files before emitting
+        # anything: a not-ready instance below the snapshot would stop the walk mid-emission,
+        # ratchet the watermark, and strand the history until a manual resync.
+        for processing_date in sorted(candidate for candidate in instances_by_date if candidate <= snapshot_ceiling):
+            for walk_instance in instances_by_date[processing_date]:
+                if not _analytics_segments(segments_session, token_provider, logger, walk_instance.instance_id):
+                    logger.info(
+                        f"App Store Connect: an analytics instance below the historical snapshot "
+                        f"has no files yet; waiting so the snapshot isn't stranded. "
+                        f"endpoint={config.name}, app_id={walk_instance.app_id}, "
+                        f"processing_date={processing_date.isoformat()}"
+                    )
+                    return
 
     instances_fetched = 0
     for processing_date in sorted(instances_by_date):
-        for app_id, instance_id in instances_by_date[processing_date]:
-            if instances_fetched >= ANALYTICS_MAX_INSTANCES_PER_RUN:
+        for walk_instance in instances_by_date[processing_date]:
+            if instances_fetched >= ANALYTICS_MAX_INSTANCES_PER_RUN and not has_snapshot_instances:
                 # An incremental sync continues from the watermark next run. A full refresh
                 # has no watermark to continue from, so a cap-hit there means a truncated
-                # table until the backlog fits in one run.
+                # table until the backlog fits in one run. A run carrying the snapshot is
+                # never truncated: stopping below the snapshot would strand the history the
+                # same way a mid-walk gap would, and its backlog is bounded by Apple's
+                # instance retention plus one snapshot per app.
                 logger.warning(
                     f"App Store Connect: hit the per-run analytics instance cap at "
                     f"{processing_date.isoformat()}; later dates are left for the next "
                     f"incremental run. endpoint={config.name}"
                 )
-                manager.save_state(AppStoreConnectResumeConfig(processing_date=processing_date.isoformat()))
+                manager.save_state(
+                    AppStoreConnectResumeConfig(
+                        processing_date=processing_date.isoformat(), include_snapshot=include_snapshot
+                    )
+                )
                 return
 
-            segments = _analytics_segments(segments_session, token_provider, logger, instance_id)
+            segments = _analytics_segments(segments_session, token_provider, logger, walk_instance.instance_id)
             if not segments:
                 # The instance is listed but its files aren't ready. Stop the whole walk at
                 # this date so no newer date is emitted past the gap: the watermark then
@@ -1197,10 +1438,14 @@ def _get_analytics_report(
                 # exist.
                 logger.info(
                     f"App Store Connect: analytics instance has no segments yet, stopping the "
-                    f"walk at this date. endpoint={config.name}, app_id={app_id}, "
+                    f"walk at this date. endpoint={config.name}, app_id={walk_instance.app_id}, "
                     f"processing_date={processing_date.isoformat()}"
                 )
-                manager.save_state(AppStoreConnectResumeConfig(processing_date=processing_date.isoformat()))
+                manager.save_state(
+                    AppStoreConnectResumeConfig(
+                        processing_date=processing_date.isoformat(), include_snapshot=include_snapshot
+                    )
+                )
                 return
 
             line = 0
@@ -1210,8 +1455,22 @@ def _get_analytics_report(
                 try:
                     with _open_segment_text(spool) as text:
                         for row in _iter_segment_rows(text, processing_date, line, failures):
-                            row["app_id"] = app_id
+                            row["app_id"] = walk_instance.app_id
                             line = row["_line"]
+                            if walk_instance.is_snapshot:
+                                if walk_instance.snapshot_cutoff is not None:
+                                    row_date = _to_date(row.get("date"))
+                                    # A row without a parseable report date can't be checked
+                                    # against the ongoing stream's coverage, so it's dropped
+                                    # rather than risked as a duplicate.
+                                    if row_date is None or row_date >= walk_instance.snapshot_cutoff:
+                                        continue
+                                # Negative line numbers keyed by file position: they can never
+                                # collide with the ongoing instance processed on the same date,
+                                # and they don't shift when the cutoff moves, so a re-run
+                                # re-emits identical keys and the merge folds it to no-ops.
+                                row["_line"] = -line
+                            row["app_id"] = walk_instance.app_id
                             batch.append(row)
                             if len(batch) >= ANALYTICS_ROWS_PER_BATCH:
                                 yield batch
@@ -1227,7 +1486,10 @@ def _get_analytics_report(
         # the next one. Saved AFTER the date's rows are yielded, so a crash re-reads the
         # date rather than skipping it; the merge dedupes the re-read.
         manager.save_state(
-            AppStoreConnectResumeConfig(processing_date=(processing_date + timedelta(days=1)).isoformat())
+            AppStoreConnectResumeConfig(
+                processing_date=(processing_date + timedelta(days=1)).isoformat(),
+                include_snapshot=include_snapshot,
+            )
         )
 
 

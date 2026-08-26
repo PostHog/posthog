@@ -12,10 +12,13 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 #   - "sales_report":     `/v1/salesReports`, which is not a collection at all — one request per report date
 #                         returns a gzipped TSV file. Walked forward a day at a time from the watermark.
 #   - "analytics_report": Apple's Analytics Reports API, an asynchronous request/poll/download flow.
-#                         Per app: ensure an ONGOING report request exists (the one account mutation this
-#                         source makes), find the named report under it, list its DAILY instances, then
-#                         download and parse each instance's file segments. Walked forward by instance
-#                         processing date from the watermark.
+#                         Per app: ensure an ONGOING report request exists, find the named report under
+#                         it, list its DAILY instances, then download and parse each instance's file
+#                         segments. Walked forward by instance processing date from the watermark. On a
+#                         fresh table (first sync, resync, or full refresh) a ONE_TIME_SNAPSHOT request
+#                         is also ensured and, once Apple generates it, backfills history older than
+#                         the ongoing stream. Report request creation is the only account mutation this
+#                         source makes.
 EndpointKind = Literal["collection", "app_fanout", "sales_report", "analytics_report"]
 
 # Apple caps most collection pages at 200 resources.
