@@ -1,10 +1,13 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { confirmOrganizationLogic } from './confirmOrganizationLogic'
+
+jest.mock('posthog-js')
 
 describe('confirmOrganizationLogic', () => {
     let logic: ReturnType<typeof confirmOrganizationLogic.build>
@@ -72,6 +75,32 @@ describe('confirmOrganizationLogic', () => {
             await expectLogic(logic)
                 .toDispatchActions(['setEmail', 'setPendingInvite'])
                 .toMatchValues({ pendingInvite: { organization_name: 'Acme Corp' } })
+        })
+    })
+
+    describe('with a failed precheck', () => {
+        beforeEach(() => {
+            useMocks({
+                post: {
+                    '/api/signup/precheck': () => [500, {}],
+                },
+            })
+            initKeaTests()
+            logic = confirmOrganizationLogic()
+            logic.mount()
+            ;(posthog.capture as jest.Mock).mockClear()
+        })
+
+        it('records has_pending_invite as null so a swallowed failure is not counted as no invite', async () => {
+            router.actions.push('/organization/confirm-creation', { email: 'spike@spike.com' })
+
+            await expectLogic(logic).toDispatchActions(['setEmail']).toFinishAllListeners()
+
+            const shownEvents = (posthog.capture as jest.Mock).mock.calls.filter(
+                ([event]) => event === 'organization creation confirmation shown'
+            )
+            expect(shownEvents).toHaveLength(1)
+            expect(shownEvents[0][1]).toEqual({ has_pending_invite: null })
         })
     })
 })

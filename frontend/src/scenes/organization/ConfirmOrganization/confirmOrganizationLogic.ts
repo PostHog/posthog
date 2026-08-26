@@ -160,12 +160,14 @@ export const confirmOrganizationLogic = kea<confirmOrganizationLogicType>([
             // The social login reaches this page without checking whether the email already
             // has an account or a waiting invite. Ask precheck so we can steer a misrouted
             // user away from creating a duplicate organization.
-            let hasPendingInvite = false
+            // null means precheck never answered. Only a successful response sets true/false, so a
+            // swallowed failure is not recorded as "no pending invite".
+            let hasPendingInvite: boolean | null = null
             try {
                 const response = await api.create<SignupEmailPrecheckResponse>('api/signup/precheck', { email })
+                hasPendingInvite = !!response.pending_invite
                 if (response.pending_invite) {
                     actions.setPendingInvite(response.pending_invite)
-                    hasPendingInvite = true
                 }
             } catch {
                 // precheck is best-effort. A failure must never block organization creation.
