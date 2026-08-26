@@ -7,7 +7,7 @@ import pytest
 from freezegun import freeze_time
 from unittest.mock import MagicMock, patch
 
-from django.db import OperationalError, transaction
+from django.db import OperationalError
 from django.db.models import QuerySet
 from django.utils import timezone
 
@@ -27,9 +27,10 @@ from products.stamphog.backend.logic.channel_resolution import (
 )
 from products.stamphog.backend.logic.digest import (
     MAX_DIGEST_PRS,
+    MAX_FALLBACK_PRS,
     DigestPRSummary,
     DigestSummary,
-    _capped_summary,
+    _build_summary,
     _parse_llm_response,
     summarize_merged_prs,
 )
@@ -52,11 +53,11 @@ AUDIENCE = "team-devex"
 
 def _summary(prs: list[PullRequest], audiences: list | None = None) -> DigestSummary:
     """Stand in for the LLM so the task never reaches a gateway. Keeps every PR: a summary that
-    keeps nothing is its own path (the digest posts nothing and releases the claim).
+    keeps nothing is its own path (the digest posts nothing and consumes the claim).
 
-    Goes through _capped_summary rather than building a DigestSummary, so a task test sees the same
-    truncation a real run would."""
-    return _capped_summary(
+    Goes through _build_summary rather than building a DigestSummary, so a task test sees the same
+    rail a real run would."""
+    return _build_summary(
         len(prs),
         [
             DigestPRSummary(
@@ -163,33 +164,34 @@ def testreclaim_stale_pending_runs(team, slack_ts, expect_status, expect_prs_lin
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_proof_of_post_persists_metadata_for_reclaim(team) -> None:
-    # Worker death between Slack accepting the message and the completion transaction: the reclaim
-    # sweeper finalizes from persisted state only, so the proof-of-post write must already carry
-    # pr_count/summary — or the finalized run keeps zeros while its PRs stay linked.
+    # Worker death between Slack accepting the message and the completion write: the reclaim sweeper
+    # finalizes from persisted state only, so the proof-of-post write must already carry
+    # pr_count/summary, or the finalized run keeps zeros while its PRs stay linked.
+    #
+    # The crash goes in at the thread post, which is the last call before the completion write.
+    # An earlier version raised on the second transaction.atomic call; the completion write is no
+    # longer wrapped in one, so that injection stopped firing and the test passed on the ordinary
+    # path without ever entering the window it names.
     with team_scope(team.id):
         _seed_prs(team.id, pr_count=2)
-
-    real_atomic = transaction.atomic
-    atomic_calls = {"n": 0}
-
-    def _dying_atomic(*args: Any, **kwargs: Any):
-        # Call 1 is the claim transaction; call 2 is the completion transaction — the crash window
-        # under test sits right after the proof-of-post write, before the completion commits.
-        atomic_calls["n"] += 1
-        if atomic_calls["n"] == 2:
-            raise RuntimeError("worker died before the completion transaction")
-        return real_atomic(*args, **kwargs)
 
     with (
         patch("products.stamphog.backend.logic.digest_runs.summarize_merged_prs", side_effect=_summary),
         patch("products.stamphog.backend.logic.digest_runs.post_digest_lead", return_value="1234.5"),
-        patch("products.stamphog.backend.logic.digest_runs.transaction.atomic", side_effect=_dying_atomic),
+        patch(
+            "products.stamphog.backend.logic.digest_runs.post_digest_details",
+            side_effect=RuntimeError("worker died before the completion write"),
+        ),
     ):
         # send_team_digests contains each audience's failure, so the crash is read off the run state
         # rather than raised out of the task.
         _run_digests(team.id)
 
     with team_scope(team.id):
+        stranded = DigestRun.objects.for_team(team.id).get()
+        # The window this test exists for: Slack has the message, the run does not say so yet.
+        assert stranded.status == DigestRunStatus.PENDING
+        assert stranded.slack_message_ts == "1234.5"
         DigestRun.objects.for_team(team.id).update(
             created_at=timezone.now() - timedelta(minutes=STALE_PENDING_RUN_MINUTES + 5)
         )
@@ -471,10 +473,11 @@ def test_claim_is_capped_per_run_and_backlog_drains_across_runs(team) -> None:
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_prs_the_cap_left_out_come_back_next_run(team) -> None:
-    # Claiming marks every PR in a run as handled, so a PR the cap truncates is consumed by a
-    # digest that never showed it and no later digest can reach it. The overflow has to go back to
-    # unclaimed, while the PRs the summarizer deliberately left out stay consumed.
+def test_prs_the_rail_left_out_stay_consumed(team) -> None:
+    # The rail is a Slack payload limit and never an editorial one, so what it removes is dropped
+    # rather than handed back. Releasing the overflow put the same merges in front of the same
+    # prompt every morning, which grew a team's claim instead of draining it and carried merges
+    # into a channel days after they landed.
     overflow = 2
     _seed_prs(team.id, pr_count=MAX_DIGEST_PRS + overflow)
 
@@ -488,8 +491,32 @@ def test_prs_the_cap_left_out_come_back_next_run(team) -> None:
     _team_id, _destination, posted = post.call_args.args
     assert len(posted.prs) == MAX_DIGEST_PRS
     with team_scope(team.id):
-        assert PullRequestAudience.objects.filter(digest_run__isnull=True).count() == overflow
-        assert PullRequestAudience.objects.filter(digest_run__isnull=False).count() == MAX_DIGEST_PRS
+        assert PullRequestAudience.objects.filter(digest_run__isnull=True).count() == 0
+        assert PullRequestAudience.objects.filter(digest_run__isnull=False).count() == MAX_DIGEST_PRS + overflow
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_summary_that_keeps_nothing_consumes_the_claim(team) -> None:
+    # Keeping nothing is a judgment, not a failure worth retrying. Releasing the claim sent the same
+    # merges back to the same prompt the next morning, where the same text produced the same answer,
+    # so the batch grew for a week and then aged out unseen.
+    _seed_prs(team.id, pr_count=3)
+
+    with (
+        patch("products.stamphog.backend.logic.digest_runs.post_digest_lead") as post,
+        patch(
+            "products.stamphog.backend.logic.digest_runs.summarize_merged_prs",
+            return_value=_build_summary(3, []),
+        ),
+    ):
+        _run_digests(team.id)
+
+    assert not post.called
+    with team_scope(team.id):
+        assert PullRequestAudience.objects.filter(digest_run__isnull=True).count() == 0
+        run = DigestRun.objects.for_team(team.id).get()
+        assert run.status == DigestRunStatus.COMPLETED
+        assert run.pr_count == 3
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -626,6 +653,45 @@ def _fake_llm_client(content: str) -> Any:
     return SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=lambda **kwargs: response)))
 
 
+def test_a_filtered_entry_takes_the_headline_with_it() -> None:
+    # The headline is written over the whole answer, so an entry dropped for citing no valid rule
+    # can leave it naming a change the thread does not carry. The renderer falls back to the scope
+    # line, which the counts already agree with.
+    prs_by_index = {
+        0: _pr_stub("o/r", 1, "Kept", "https://github.com/o/r/pull/1"),
+        1: _pr_stub("o/r", 2, "Dropped", "https://github.com/o/r/pull/2"),
+    }
+    content = json.dumps(
+        {
+            "headline": "Two things changed today.",
+            "prs": [
+                {"index": 0, "rule": "contract", "summary": "The kept one."},
+                {"index": 1, "rule": "vibes", "summary": "The dropped one."},
+            ],
+        }
+    )
+
+    summary = _parse_llm_response(content, prs_by_index)
+
+    assert [p.pr_number for p in summary.prs] == [1]
+    assert summary.headline == ""
+
+
+def test_a_model_outage_posts_a_short_plain_list_and_says_it_judged_nothing() -> None:
+    # The fallback keeps merge order and judges nothing, so it needs its own low rail: the bar that
+    # normally keeps a digest short never runs on this path. It also has to mark itself, because a
+    # run consumes every merge it claims either way and the post reads like an ordinary quiet day.
+    prs = [_pr_stub("o/r", n, f"Change {n}", f"https://github.com/o/r/pull/{n}") for n in range(MAX_FALLBACK_PRS + 3)]
+
+    with patch("products.stamphog.backend.logic.digest.get_llm_client", side_effect=RuntimeError("gateway down")):
+        summary = summarize_merged_prs(prs)
+
+    assert summary.judged is False
+    assert len(summary.prs) == MAX_FALLBACK_PRS
+    assert summary.considered == len(prs)
+    assert summary.headline == ""
+
+
 def test_same_pr_number_across_repos_both_survive_summarization() -> None:
     # A team digest spans repos, where PR numbers repeat. Keying by bare pr_number collapsed
     # acme/a#123 and acme/b#123 into one entry (the dict held one row) and the LLM path could only
@@ -635,7 +701,14 @@ def test_same_pr_number_across_repos_both_survive_summarization() -> None:
         _pr_stub("acme/a", 123, "A change", "https://github.com/acme/a/pull/123"),
         _pr_stub("acme/b", 123, "B change", "https://github.com/acme/b/pull/123"),
     ]
-    content = json.dumps({"prs": [{"index": 0, "summary": "repo a change"}, {"index": 1, "summary": "repo b change"}]})
+    content = json.dumps(
+        {
+            "prs": [
+                {"index": 0, "rule": "contract", "summary": "repo a change"},
+                {"index": 1, "rule": "customer", "summary": "repo b change"},
+            ]
+        }
+    )
 
     with patch("products.stamphog.backend.logic.digest.get_llm_client", return_value=_fake_llm_client(content)):
         summary = summarize_merged_prs(prs)
@@ -653,6 +726,17 @@ def test_same_pr_number_across_repos_both_survive_summarization() -> None:
         ("empty_list_is_intentional_filtering", '{"prs": []}', True),
         ("unrecognizable_entries_are_not", '{"prs": [{"index": 99}, "junk"]}', False),
         ("missing_key_is_not", '{"summary": "x"}', False),
+        # A kept PR must name the rule that admits it. Without that check the model keeps most of a
+        # routine batch and calls all of it a customer change, which is the drift the rules catch.
+        # A response naming real merges that cleared no rule was read, so it is a judged empty
+        # result. Sending it to the fallback would post ten unjudged titles for the one answer that
+        # broke the bar outright.
+        ("a_kept_pr_without_a_rule_is_a_judged_empty", '{"prs": [{"index": 0, "summary": "x"}]}', True),
+        ("an_invented_rule_is_a_judged_empty", '{"prs": [{"index": 0, "rule": "vibes", "summary": "x"}]}', True),
+        ("an_index_naming_no_merge_is_still_unreadable", '{"prs": [{"index": 99, "rule": "contract"}]}', False),
+        # `in` against a frozenset raises on an unhashable value, and the raise escaped into the
+        # outage fallback, which posts unjudged titles for a response that named no valid rule.
+        ("an_unhashable_rule_is_a_judged_empty", '{"prs": [{"index": 0, "rule": [], "summary": "x"}]}', True),
     ]
 )
 def test_only_a_genuinely_empty_result_posts_nothing(_name: str, content: str, accepted: bool) -> None:
@@ -692,7 +776,7 @@ def test_the_headline_reaches_the_channel_as_one_link_free_paragraph(raw_headlin
     # that answers with a URL either shows a raw link mid-sentence or, once escaped, shows raw
     # markup. Neither is repairable in place, so a link drops the headline and the renderer leads
     # with the scope line instead.
-    content = json.dumps({"headline": raw_headline, "prs": [{"index": 0, "summary": "Ship it."}]})
+    content = json.dumps({"headline": raw_headline, "prs": [{"index": 0, "rule": "contract", "summary": "Ship it."}]})
     summary = _parse_llm_response(content, {0: _pr_stub("o/r", 1, "Ship it", "https://example.com/1")})
     assert summary.headline == expected
     # A rejected headline never costs the change line it was written over.
