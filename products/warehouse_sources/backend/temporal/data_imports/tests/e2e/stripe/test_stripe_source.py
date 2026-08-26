@@ -1282,11 +1282,14 @@ async def test_fanout_pages_the_customer_listing_with_reuse_disabled(team, mock_
     assert sorted(probed) == PROBED_CUSTOMERS
 
 
+@pytest.mark.parametrize("parent_sync_type", ["full_refresh", "webhook"])
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_fanout_reads_the_parent_from_the_warehouse(team, mock_stripe_api, external_data_source):
+async def test_fanout_reads_the_parent_from_the_warehouse(
+    team, mock_stripe_api, external_data_source, parent_sync_type
+):
     """The conversion: same child rows, without a single request for the parent listing."""
-    parent = await _customer_schema(external_data_source, team, "full_refresh")
+    parent = await _customer_schema(external_data_source, team, parent_sync_type)
     child = await _balance_transaction_child(external_data_source, team)
 
     _, listing, probed = await _sync_parent_then_child(
@@ -1317,25 +1320,21 @@ async def test_both_paths_write_the_same_child_rows(team, mock_stripe_api, exter
     assert sorted(map(str, warehouse_response.results)) == sorted(map(str, api_response.results))
 
 
-@pytest.mark.parametrize("parent_sync_type", ["webhook", "append"])
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_a_parent_the_gate_refuses_keeps_the_api_path(
-    team, mock_stripe_api, external_data_source, parent_sync_type
-):
+async def test_a_parent_the_gate_refuses_keeps_the_api_path(team, mock_stripe_api, external_data_source):
     """Only sync types that hold one row per key are readable; the rest fall back, never fail.
 
-    `append` accumulates a row per sync and webhook is not on the allow-list yet, so both must
-    leave the sweep exactly where it was.
+    `append` accumulates a row per sync, so reading it would fan the child out once per copy.
     """
-    parent = await _customer_schema(external_data_source, team, parent_sync_type)
+    parent = await _customer_schema(external_data_source, team, "append")
     child = await _balance_transaction_child(external_data_source, team)
 
     _, listing, probed = await _sync_parent_then_child(
         team, external_data_source, parent, child, mock_stripe_api, reuse_enabled=True
     )
 
-    assert listing, f"a {parent_sync_type} parent must not be read from the warehouse"
+    assert listing, "an append parent must not be read from the warehouse"
     assert sorted(probed) == PROBED_CUSTOMERS
 
 
