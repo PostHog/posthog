@@ -16,7 +16,6 @@ import { SubscriptionsModal, SubscriptionsModalProps } from './SubscriptionsModa
 
 type StoryArgs = SubscriptionsModalProps & {
     formScenario?: 'default' | 'ai-summary-limit' | 'free-tier-limit'
-    emptyResource?: boolean
 }
 
 const DASHBOARD = {
@@ -186,18 +185,16 @@ const meta: Meta<StoryArgs> = {
         },
     },
     render: (args) => {
-        const { formScenario = 'default', emptyResource = false, ...props } = args
+        const { formScenario = 'default', ...props } = args
         const aiSummaryAtLimit = formScenario === 'ai-summary-limit'
         const freeTierSubscriptionCount = formScenario === 'free-tier-limit' ? 5 : undefined
         const insightShortIdRef = useRef(props.insightShortId || (uuid() as InsightShortId))
         // Dashboard-context stories must not also pass an insight, or the modal renders the insight flow.
         const insightShortId = props.dashboard ? undefined : insightShortIdRef.current
         const [modalOpen, setModalOpen] = useState(false)
-        const contextualSubscriptions: SubscriptionType[] = emptyResource
-            ? []
-            : props.dashboard
-              ? DASHBOARD_SUBSCRIPTIONS
-              : INSIGHT_SUBSCRIPTIONS
+        const contextualSubscriptions: SubscriptionType[] = props.dashboard
+            ? DASHBOARD_SUBSCRIPTIONS
+            : INSIGHT_SUBSCRIPTIONS
         const dashboardInsightSubscriptions: SubscriptionType[] = INSIGHT_SUBSCRIPTIONS
 
         useStorybookMocks({
@@ -291,12 +288,6 @@ export const SubscriptionsTabbed: Story = {
 export const DashboardWithSubscriptions: Story = {
     parameters: AI_PROMPT_PARAMETERS,
     args: { dashboard: DASHBOARD },
-}
-
-// Empty resource tab: the featured card is the only create button, with no header button next to it.
-export const DashboardWithoutSubscriptions: Story = {
-    parameters: AI_PROMPT_PARAMETERS,
-    args: { dashboard: DASHBOARD, emptyResource: true },
 }
 
 export const InsightWithSubscriptions: Story = {
