@@ -654,13 +654,16 @@ export const reportListLogic = kea<reportListLogicType>([
                     dismissal_reason: reason,
                     ...(note ? { dismissal_note: note } : {}),
                 })
+                // Reconcile every mounted section against the server so the Dismissed target gains the
+                // row and count, not just this source section (which already dropped it optimistically).
+                inboxBulkActionsLogic.actions.reportStateChanged()
             } catch (error: any) {
                 lemonToast.error(error?.detail || error?.message || 'Failed to dismiss report')
                 actions.refresh()
             }
         },
         // Mark a report done without an inbox PR (transition to `resolved`). Optimistically drops it
-        // from this section; it joins Resolved on that section's next load.
+        // from this section; the broadcast below reconciles every section, so it joins Resolved now.
         resolveReport: async ({ reportId, reason, note }) => {
             actions.removeReport(reportId)
             try {
@@ -670,6 +673,8 @@ export const reportListLogic = kea<reportListLogicType>([
                     ...(note ? { dismissal_note: note } : {}),
                 })
                 lemonToast.success('Report resolved')
+                // Reconcile every mounted section so the Resolved target gains the row and count.
+                inboxBulkActionsLogic.actions.reportStateChanged()
             } catch (error: any) {
                 lemonToast.error(error?.detail || error?.message || 'Failed to resolve report')
                 actions.refresh()
