@@ -15,6 +15,7 @@ import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
 import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic } from '../../logics/reportListLogic'
 import {
     INBOX_REPORT_SECTION_KEYS,
+    INBOX_SCOPE_ENTIRE_PROJECT,
     INBOX_STAFF_ONLY_REPORT_SECTION_KEYS,
     InboxReportSectionKey,
     SignalReport,
@@ -27,10 +28,10 @@ import { InboxReportFilters } from '../shell/InboxReportFilters'
 import { InboxScopeSelect } from '../shell/InboxScopeSelect'
 
 /**
- * The sections that make up "the inbox" for counting purposes. Not actionable is left out: it is a
- * staff triage surface, and counting it would make the inbox look non-empty to staff on a project
- * that has surfaced nothing worth acting on. A fixed list, so the hooks below never change shape
- * when the user's staff flag resolves.
+ * The sections that make up "the inbox" for the `Inbox viewed` event. Not actionable is left out: it
+ * is a staff triage surface, and counting it would report a non-empty inbox on a project that has
+ * surfaced nothing worth acting on. The empty-state verdict is a separate question, answered over
+ * the sections the current user can actually see.
  */
 const COUNTED_SECTION_KEYS = ['needs-decision', 'monitoring', 'resolved'] as const
 
@@ -43,13 +44,15 @@ interface SectionListState {
 }
 
 /**
- * Each counted section's header count and rendered rows, keyed by section.
+ * Every section's header count and rendered rows, keyed by section. All four logics are mounted
+ * regardless of who is looking, so the hooks never change shape when the staff flag resolves;
+ * callers decide which sections matter to them.
  *
  * Read one value at a time rather than spreading what `useValues` returns: it hands back a proxy
  * whose properties are subscribing getters, and spreading it yields an empty object — silently, and
  * with a type that still claims every value is there.
  */
-function useCountedSections(): Record<CountedSectionKey, SectionListState> {
+function useSectionStates(): Record<InboxReportSectionKey, SectionListState> {
     const needsDecisionProps = {
         sectionKey: 'needs-decision' as const,
         listParams: INBOX_REPORT_SECTION_LIST_PARAMS['needs-decision'],
@@ -59,6 +62,10 @@ function useCountedSections(): Record<CountedSectionKey, SectionListState> {
         listParams: INBOX_REPORT_SECTION_LIST_PARAMS.monitoring,
     }
     const resolvedProps = { sectionKey: 'resolved' as const, listParams: INBOX_REPORT_SECTION_LIST_PARAMS.resolved }
+    const notActionableProps = {
+        sectionKey: 'not-actionable' as const,
+        listParams: INBOX_REPORT_SECTION_LIST_PARAMS['not-actionable'],
+    }
 
     const {
         count: needsDecisionCount,
@@ -75,6 +82,11 @@ function useCountedSections(): Record<CountedSectionKey, SectionListState> {
         countLoading: resolvedCountLoading,
         visibleReports: resolvedReports,
     } = useValues(reportListLogic(resolvedProps))
+    const {
+        count: notActionableCount,
+        countLoading: notActionableCountLoading,
+        visibleReports: notActionableReports,
+    } = useValues(reportListLogic(notActionableProps))
 
     return {
         'needs-decision': {
@@ -91,6 +103,11 @@ function useCountedSections(): Record<CountedSectionKey, SectionListState> {
             count: resolvedCount,
             countLoading: resolvedCountLoading,
             visibleReports: resolvedReports,
+        },
+        'not-actionable': {
+            count: notActionableCount,
+            countLoading: notActionableCountLoading,
+            visibleReports: notActionableReports,
         },
     }
 }
@@ -173,16 +190,21 @@ function ReportsEmptyState(): JSX.Element {
  */
 export function ReportsTab(): JSX.Element {
     const { isStaff } = useValues(inboxSceneLogic)
-    const sections = useCountedSections()
+    const { hasActiveFilters, scope } = useValues(inboxFiltersLogic)
+    const sections = useSectionStates()
     useInboxViewedEvent(sections)
 
     const visibleSections: InboxReportSectionKey[] = INBOX_REPORT_SECTION_KEYS.filter(
         (key) => isStaff || !INBOX_STAFF_ONLY_REPORT_SECTION_KEYS.includes(key)
     )
-    // Empty is a verdict about resolved counts: hold the sections until every count has answered, so
-    // a slow first load never flashes the "nothing yet" screen at a full inbox.
-    const countsSettled = COUNTED_SECTION_KEYS.every((key) => sections[key].count !== null)
-    const inboxIsEmpty = countsSettled && COUNTED_SECTION_KEYS.every((key) => sections[key].count === 0)
+    // "Nothing yet" is a claim about the whole project, so it only holds with no filters and the
+    // project-wide scope; a narrowed view that matches nothing shows the sections with their own
+    // per-section copy instead. The verdict is over the sections this user can see, so staff still
+    // reach Not actionable when it is the only section with reports. Hold the sections until every
+    // count has answered, so a slow first load never flashes the "nothing yet" screen at a full inbox.
+    const unfilteredView = !hasActiveFilters && scope === INBOX_SCOPE_ENTIRE_PROJECT
+    const countsSettled = visibleSections.every((key) => sections[key].count !== null)
+    const inboxIsEmpty = unfilteredView && countsSettled && visibleSections.every((key) => sections[key].count === 0)
 
     return (
         <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 px-6 py-3">
