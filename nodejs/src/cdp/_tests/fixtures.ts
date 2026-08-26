@@ -184,27 +184,33 @@ export const insertHogFunctionTemplate = async (
         template.bytecode = await compileHog(template.code)
     }
 
-    const res = await insertRow(postgres, 'posthog_hogfunctiontemplate', {
-        id: randomUUID(),
-        template_id: template.id,
-        sha: 'sha',
-        name: template.name,
-        description: template.description,
-        code: template.code,
-        code_language: template.code_language,
-        status: template.status,
-        free: template.free,
-        category: template.category,
-        icon_url: template.icon_url,
-        filters: template.filters,
-        masking: template.masking,
-        mappings: template.mappings,
-        bytecode: template.bytecode,
-        inputs_schema: template.inputs_schema,
-        type: template.type,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-    })
+    const res = await insertRow(
+        postgres,
+        'posthog_hogfunctiontemplate',
+        {
+            id: randomUUID(),
+            template_id: template.id,
+            sha: 'sha',
+            name: template.name,
+            description: template.description,
+            code: template.code,
+            code_language: template.code_language,
+            status: template.status,
+            free: template.free,
+            category: template.category,
+            icon_url: template.icon_url,
+            filters: template.filters,
+            masking: template.masking,
+            mappings: template.mappings,
+            bytecode: template.bytecode,
+            inputs_schema: template.inputs_schema,
+            type: template.type,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+        },
+        // Templates are global, so a suite that no longer wipes the database re-inserts its own.
+        `ON CONFLICT (template_id, sha) DO UPDATE SET updated_at = EXCLUDED.updated_at`
+    )
     return res
 }
 

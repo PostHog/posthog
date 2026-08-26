@@ -1,4 +1,5 @@
 import { DateTime } from 'luxon'
+import { randomInt } from 'node:crypto'
 
 import { defaultConfig } from '~/common/config/config'
 import { PERSON_COLUMNS } from '~/common/persons/repositories/postgres-person-repository'
@@ -9,8 +10,9 @@ import { CookielessServerHashMode, InternalPerson, ProjectId, RawOrganization, R
 import { assertRouterTargetsTestDatabase } from './database-guard'
 
 // Rows outlive their test file, so draw from the whole int4 range. Narrower schemes
-// (per-millisecond, per-file band) collide far more often.
-export const uniqueTestId = (): number => Math.floor(Math.random() * 2_100_000_000)
+// (per-millisecond, per-file band) collide far more often. Not Math.random: tests mock
+// that to pin their own randomness, which would pin every id to one value too.
+export const uniqueTestId = (): number => randomInt(2_100_000_000)
 
 export const commonUserId = 1001
 export const commonOrganizationMembershipId = '0177364a-fc7b-0000-511c-137090b9e4e1'
@@ -156,7 +158,14 @@ function getPostgresUseForTable(table: string): PostgresUse {
     return PostgresUse.COMMON_WRITE
 }
 
-export async function insertRow(postgres: PostgresRouter, table: string, objectProvided: Record<string, any>) {
+export async function insertRow(
+    postgres: PostgresRouter,
+    table: string,
+    objectProvided: Record<string, any>,
+    // Raw ON CONFLICT clause, for rows that are global rather than team-scoped and so
+    // can already exist when a suite no longer wipes the database.
+    onConflict = ''
+) {
     // Handling of related fields
     const { source__plugin_json, source__index_ts, source__frontend_tsx, source__site_ts, ...object } = objectProvided
 
@@ -182,6 +191,7 @@ export async function insertRow(postgres: PostgresRouter, table: string, objectP
             postgresUse,
             `INSERT INTO ${table} (${keys})
              VALUES (${params})
+             ${onConflict}
              RETURNING *`,
             values,
             `insertRow-${table}`
