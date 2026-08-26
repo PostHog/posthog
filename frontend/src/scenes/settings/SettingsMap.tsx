@@ -1912,7 +1912,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'organization-mcp-access',
                 title: 'AI and MCP access',
-                description: 'Control what members can do through the PostHog MCP server.',
+                description: 'Control what the PostHog MCP can do in this organization.',
                 component: <OrganizationMCPAccess />,
                 keywords: ['mcp', 'ai', 'agent', 'read-only', 'model context protocol'],
             },
