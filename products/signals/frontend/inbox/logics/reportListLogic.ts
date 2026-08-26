@@ -694,8 +694,10 @@ export const reportListLogic = kea<reportListLogicType>([
                 actions.refresh()
             }
         },
-        // Bulk archive happens in the singleton; refresh this section once it lands.
+        // A bulk dismiss or resolve happens in the singleton; refresh this section once it lands so
+        // the affected reports leave it and the counts settle.
         [inboxBulkActionsLogic.actionTypes.bulkDismissSuccess]: () => actions.refresh(),
+        [inboxBulkActionsLogic.actionTypes.bulkResolveSuccess]: () => actions.refresh(),
         // A single report dismissed, resolved, or refunded elsewhere (e.g. the detail pane) – reconcile
         // this section against the server so the report leaves its section and joins Resolved or
         // Dismissed, counts included.
