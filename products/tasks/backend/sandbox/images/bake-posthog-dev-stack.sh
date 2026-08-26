@@ -101,7 +101,7 @@ log "installing dev toolchain (brotli, phrocs, go, rust)"
 # process-manager resolution (phrocs), and the Go/Rust procs and rust/bin migrators
 # need their toolchains.
 apt-get update
-apt-get install -y --no-install-recommends brotli make unzip
+apt-get install -y --no-install-recommends brotli make unzip build-essential libssl-dev pkg-config cmake libclang-dev
 rm -rf /var/lib/apt/lists/*
 
 case "$(uname -m)" in
