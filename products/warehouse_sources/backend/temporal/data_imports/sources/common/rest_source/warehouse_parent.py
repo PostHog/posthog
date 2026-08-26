@@ -54,6 +54,68 @@ class ParentTableRef:
     version: int
 
 
+@frozen
+class ScanPosition:
+    """Where a parent scan had got to, as a coordinate a later scan can resume from.
+
+    A pinned Delta version is a fixed list of parquet files, and row order inside one file is
+    fixed, so (file, row offset) names the same row on every re-scan — without sorting rows,
+    holding a seen-set, or materializing the table.
+
+    `row_offset` counts rows the scan *emitted* from that fragment, so it is relative to the
+    table, version and filter in force. All three are recorded here, and `matches` is the
+    guard a caller uses before trusting a stored position.
+
+    `table_uri` is not redundant with `version`: Delta versions are small integers that
+    restart at 0 whenever a table is recreated, which the reset paths in the loader do
+    routinely, so a position saved against an old table would otherwise match a rebuilt one
+    at the same number and skip fragments the scan has never read.
+    """
+
+    fragment_index: int
+    row_offset: int
+    table_uri: str
+    version: int
+    filter_fingerprint: str | None = None
+
+    def matches(self, table: "ParentTableRef", row_filter_fingerprint: str | None) -> bool:
+        return (
+            self.table_uri == table.uri
+            and self.version == table.version
+            and self.filter_fingerprint == row_filter_fingerprint
+        )
+
+
+@frozen
+class ParentPage:
+    """One page of parent rows, tagged with where it started.
+
+    A page never spans fragments, so the position after consuming row `i` is
+    `(fragment_index, row_offset + i + 1)` — the granularity a fan-out needs to checkpoint
+    after a parent's children are fully yielded, rather than re-fanning it on resume.
+    """
+
+    rows: list[dict[str, Any]]
+    fragment_index: int
+    row_offset: int
+
+    def position_after(
+        self, row_index: int, table: "ParentTableRef", filter_fingerprint: str | None = None
+    ) -> ScanPosition:
+        """The position to resume from after fully consuming this page's row `row_index`.
+
+        Takes the table ref rather than a bare version so a caller cannot record a position
+        without the identity that makes it safe to reuse.
+        """
+        return ScanPosition(
+            fragment_index=self.fragment_index,
+            row_offset=self.row_offset + row_index + 1,
+            table_uri=table.uri,
+            version=table.version,
+            filter_fingerprint=filter_fingerprint,
+        )
+
+
 def _physical_columns_by_api_name(
     delta_table: "deltalake.DeltaTable", parent_name: str, columns: list[str]
 ) -> dict[str, str]:
@@ -84,6 +146,10 @@ class _ResolvedRowFilter:
     scan_filter: pc.Expression | None
     row_passes: Callable[[dict[str, Any]], bool]
     physical_column: str
+    # Identifies the floor this filter resolved to, for `ScanPosition` validity. A relative
+    # bound (`not_older_than`) resolves against `now()`, so the same offset names a different
+    # row on the next run; comparing fingerprints is what catches that.
+    fingerprint: str
 
 
 def _row_filter_scan_and_predicate(
@@ -131,7 +197,12 @@ def _row_filter_scan_and_predicate(
         value = row.get(physical)
         return value is None or value >= floor
 
-    return _ResolvedRowFilter(scan_filter=scan_filter, row_passes=_passes_floor, physical_column=physical)
+    return _ResolvedRowFilter(
+        scan_filter=scan_filter,
+        row_passes=_passes_floor,
+        physical_column=physical,
+        fingerprint=f"{physical}>={floor!r}",
+    )
 
 
 def resolve_parent_table_ref(
@@ -341,6 +412,36 @@ def iter_parent_pages_from_warehouse(
     schema_name: str,
     row_filter: ParentRowFilter | None = None,
 ) -> Generator[list[dict[str, Any]]]:
+    """Yield fan-out parent rows as plain pages. See `iter_parent_pages_with_positions`."""
+    pages = iter_parent_pages_with_positions(
+        table=table,
+        parent_name=parent_name,
+        columns=columns,
+        page_size=page_size,
+        schema_name=schema_name,
+        row_filter=row_filter,
+    )
+    try:
+        for page in pages:
+            yield page.rows
+    except BaseException as exc:
+        # Hand the consumer's exception (GeneratorExit included) to the scan underneath, so it
+        # classifies the outcome it logs exactly as it would for a direct caller. Without this
+        # the wrapper closes the scan silently and every crash reads as a clean early stop.
+        pages.throw(exc)
+        raise
+
+
+def iter_parent_pages_with_positions(
+    *,
+    table: ParentTableRef,
+    parent_name: str,
+    columns: list[str],
+    page_size: int,
+    schema_name: str,
+    row_filter: ParentRowFilter | None = None,
+    start_position: ScanPosition | None = None,
+) -> Generator[ParentPage]:
     """Yield fan-out parent rows from the parent schema's already-synced Delta table.
 
     Pages are shaped like the REST parent pages the dependent-resource machinery consumes
@@ -365,6 +466,14 @@ def iter_parent_pages_from_warehouse(
     `import_data_activity_sync` sends them down the parent-API path instead of here. Do not
     add whole-table materialization (`to_table`, global sorts, seen-sets) — parents can be
     arbitrarily large.
+
+    Pages carry their start coordinate and never span fragments, so a resumable caller can
+    checkpoint a `ScanPosition` and pass it back as `start_position` to pick up where it
+    stopped. Fragments are walked in sorted-path order — a metadata sort over the file list,
+    not a sort of rows — and enumerated independently of the filter, so an index means the
+    same file whether or not pushdown pruned it. A `start_position` from a different table,
+    version or filter is the caller's to reject (`ScanPosition.matches`); passing a stale one
+    skips the wrong rows rather than raising.
     """
     page_size = max(1, min(page_size, MAX_PARENT_PAGE_SIZE))
     delta_table = deltalake.DeltaTable(table.uri, version=table.version, storage_options=delta_storage_options())
@@ -383,21 +492,45 @@ def iter_parent_pages_from_warehouse(
 
     dataset = delta_table.to_pyarrow_dataset()
 
+    # Enumerated here rather than through `dataset.get_fragments(filter=...)` so an index
+    # always names the same file: pushdown may prune fragments, and a pruned-away file must
+    # not shift the ones after it. Sorting is over paths — file metadata, never rows.
+    fragments = sorted(dataset.get_fragments(), key=lambda fragment: fragment.path)
+
     rows_streamed = 0
     outcome = "failed"
     try:
-        page: list[dict[str, Any]] = []
-        for batch in dataset.to_batches(columns=projected, batch_size=page_size, filter=scan_filter):
-            for row in batch.to_pylist():
-                if resolved_row_filter is not None and not resolved_row_filter.row_passes(row):
-                    continue
-                page.append({api_name: row.get(physical) for api_name, physical in physical_by_api_name.items()})
-                rows_streamed += 1
-                if len(page) >= page_size:
-                    yield page
-                    page = []
-        if page:
-            yield page
+        for fragment_index, fragment in enumerate(fragments):
+            if start_position is not None and fragment_index < start_position.fragment_index:
+                continue
+            # Rows this fragment already emitted under the same version and filter; the scan
+            # re-reads and discards them, which is what keeps the coordinate free of any
+            # per-row bookkeeping in the table itself.
+            skip_rows = (
+                start_position.row_offset
+                if start_position is not None and fragment_index == start_position.fragment_index
+                else 0
+            )
+            emitted = 0
+            # Flushed per fragment so a page never spans two of them, which is what lets a
+            # caller derive the position of any row from its page's start.
+            page: list[dict[str, Any]] = []
+            page_start = skip_rows
+            for batch in fragment.to_batches(columns=projected, batch_size=page_size, filter=scan_filter):
+                for row in batch.to_pylist():
+                    if resolved_row_filter is not None and not resolved_row_filter.row_passes(row):
+                        continue
+                    emitted += 1
+                    if emitted <= skip_rows:
+                        continue
+                    page.append({api_name: row.get(physical) for api_name, physical in physical_by_api_name.items()})
+                    rows_streamed += 1
+                    if len(page) >= page_size:
+                        yield ParentPage(rows=page, fragment_index=fragment_index, row_offset=page_start)
+                        page_start += len(page)
+                        page = []
+            if page:
+                yield ParentPage(rows=page, fragment_index=fragment_index, row_offset=page_start)
         outcome = "completed"
     except GeneratorExit:
         outcome = "stopped"
