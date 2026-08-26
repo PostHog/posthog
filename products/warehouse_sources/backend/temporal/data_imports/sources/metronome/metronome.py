@@ -4,6 +4,8 @@ from typing import Any, Optional, cast
 
 from requests import Request, Response
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import (
     coerce_datetime_to_utc,
 )
@@ -49,7 +51,7 @@ RFC_3339_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 EPOCH_RFC_3339 = "1970-01-01T00:00:00Z"
 
 
-@dataclasses.dataclass
+@frozen
 class MetronomeResumeConfig:
     """Paginator checkpoint — the `next_page` cursor of the page we have not yet fetched."""
 

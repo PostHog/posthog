@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
     DependentEndpointConfig,
 )
@@ -36,7 +38,7 @@ class BodyFanoutConfig:
     body_param: str
 
 
-@dataclass
+@frozen
 class MetronomeEndpointConfig:
     name: str
     path: str
