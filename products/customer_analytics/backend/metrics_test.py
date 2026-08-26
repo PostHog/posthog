@@ -19,3 +19,15 @@ def test_account_property_sync_phase_duration_records_posthog_metric() -> None:
         unit="s",
         attributes={"phase": "apply_values", "segment": "tracked"},
     )
+
+
+def test_account_property_sync_phase_duration_ignores_metric_failures() -> None:
+    client = MagicMock()
+    client.metrics.histogram.side_effect = RuntimeError()
+
+    with patch("products.customer_analytics.backend.metrics.posthoganalytics.default_client", client):
+        record_account_property_sync_phase_duration(
+            phase="apply_values",
+            segment="tracked",
+            duration_seconds=1.25,
+        )

@@ -62,12 +62,15 @@ def record_account_property_sync_phase_duration(*, phase: str, segment: str, dur
     _ACCOUNT_PROPERTY_SYNC_PHASE_DURATION_SECONDS.labels(**labels).observe(duration_seconds)
     client = posthoganalytics.default_client
     if client is not None:
-        client.metrics.histogram(
-            "customer_analytics_account_property_sync_phase_duration_seconds",
-            duration_seconds,
-            unit="s",
-            attributes=labels,
-        )
+        try:
+            client.metrics.histogram(
+                "customer_analytics_account_property_sync_phase_duration_seconds",
+                duration_seconds,
+                unit="s",
+                attributes=labels,
+            )
+        except Exception:
+            pass
 
 
 def record_account_track_rule_run(
