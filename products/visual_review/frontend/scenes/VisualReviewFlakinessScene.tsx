@@ -19,10 +19,11 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { ActivityCell } from '../components/FlakinessActivityCell'
+import { MarginCell } from '../components/FlakinessMarginCell'
 import { QuarantineCell } from '../components/FlakinessQuarantineCell'
 import { StateCell } from '../components/FlakinessStateCell'
-import { FlakinessStatRow } from '../components/FlakinessStatRow'
-import { VariantsCell } from '../components/FlakinessVariantsCell'
+import { FLAKE_RATE_DAYS, FlakinessStatRow } from '../components/FlakinessStatRow'
 import { QuarantineAction } from '../components/QuarantineAction'
 import { RepoSwitcher } from '../components/RepoSwitcher'
 import { SnapshotFacetSidebar } from '../components/SnapshotFacetSidebar'
@@ -110,9 +111,10 @@ export function VisualReviewFlakinessScene(): JSX.Element {
             <VisualReviewTabs activeKey="flakiness" repoId={repoId} />
 
             <LemonBanner type="info">
-                When a snapshot renders differently but stays under the diff threshold, the run accepts it and remembers
-                the new image as an allowed variant. Variants are counted against the current baseline only. When a
-                snapshot changes for real, its baseline moves and the count starts over.
+                A snapshot that renders differently from its baseline either fails the run, or stays under the diff
+                threshold and gets absorbed as an allowed variant. Rates below count the last {FLAKE_RATE_DAYS} days of
+                runs on the default branch. Being absorbed is not the same as being stable: it holds only while the diff
+                stays under the threshold, which is what the threshold column shows.
             </LemonBanner>
 
             {!loadError && <FlakinessStatRow counts={statCounts} preset={filters.preset} onChange={setPreset} />}
@@ -123,13 +125,13 @@ export function VisualReviewFlakinessScene(): JSX.Element {
                         {overview.totals.listed.toLocaleString()} snapshots
                     </span>{' '}
                     have something to show here, out of {overview.totals.tracked.toLocaleString()} with a current
-                    baseline. The rest have no variants against their baseline and no quarantine.
+                    baseline. The rest matched their baseline on every run and carry no quarantine.
                 </div>
             )}
 
             {overview?.truncated && (
                 <LemonBanner type="info">
-                    Showing the {overview.entries.length.toLocaleString()} snapshots with the most variants. This repo
+                    Showing the {overview.entries.length.toLocaleString()} snapshots that most need attention. This repo
                     has more than the page can list, so filtering here only searches the ones above.
                 </LemonBanner>
             )}
@@ -147,9 +149,9 @@ export function VisualReviewFlakinessScene(): JSX.Element {
                     <LemonSegmentedButton
                         size="small"
                         value={filters.sort}
-                        onChange={(value) => setSort(value as 'variants' | 'recent')}
+                        onChange={(value) => setSort(value as 'failures' | 'recent')}
                         options={[
-                            { value: 'variants', label: 'Most variants' },
+                            { value: 'failures', label: 'Most failures' },
                             { value: 'recent', label: 'Most recent' },
                         ]}
                     />
@@ -186,8 +188,8 @@ export function VisualReviewFlakinessScene(): JSX.Element {
                 <div className="flex flex-col items-center justify-center py-20 gap-2 text-center">
                     <p className="m-0 font-semibold">Every snapshot renders the same way every time</p>
                     <p className="m-0 text-xs text-muted max-w-md">
-                        Snapshots show up here once a run accepts a variant of one, or once someone quarantines one.
-                        Nothing in this repo has done either.
+                        Snapshots show up here once a run renders one differently from its baseline, or once someone
+                        quarantines one. Nothing in this repo has done either.
                     </p>
                 </div>
             ) : (
@@ -250,11 +252,18 @@ export function VisualReviewFlakinessScene(): JSX.Element {
                                     render: (_, entry: DecoratedEntry) => <StateCell entry={entry} />,
                                 },
                                 {
-                                    title: 'Allowed variants',
-                                    key: 'variants',
+                                    title: 'Failing runs',
+                                    key: 'activity',
                                     align: 'right',
                                     width: 190,
-                                    render: (_, entry: DecoratedEntry) => <VariantsCell entry={entry} />,
+                                    render: (_, entry: DecoratedEntry) => <ActivityCell entry={entry} />,
+                                },
+                                {
+                                    title: 'Threshold left',
+                                    key: 'margin',
+                                    align: 'right',
+                                    width: 130,
+                                    render: (_, entry: DecoratedEntry) => <MarginCell entry={entry} />,
                                 },
                                 {
                                     title: 'Last seen',
@@ -268,9 +277,7 @@ export function VisualReviewFlakinessScene(): JSX.Element {
                                         // exact timestamps.
                                         <span
                                             className={`font-mono text-xs ${
-                                                entry.flakiness_state === 'unstable'
-                                                    ? 'text-danger font-semibold'
-                                                    : 'text-muted'
+                                                entry.hard_count > 0 ? 'text-danger font-semibold' : 'text-muted'
                                             }`}
                                         >
                                             {formatLastSeen(entry.last_flaked_at)}
