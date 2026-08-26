@@ -39,7 +39,7 @@ unit-testable against the real `git` binary without booting the app
   check, or a legacy name or file path that is not safe to unpack) carry counts; names are logged.
   Behind the `skills-store-in-sandbox` flag (off → 404, flag service unavailable → 503).
   `llm_skill:read`, which the sandbox OAuth token already carries. Throttled per user, so one caller
-  cannot 429 the rest of the project.
+  cannot 429 the rest of the project. Consumer-facing contract: `docs/internal/skills/skill-bundle-api.md`.
 - **Zip import** — `POST /api/projects/:team/llm_skills/import` (multipart `file` field, a spec
   skill `.zip`) → creates the skill (web-authenticated, `llm_skill:write`). The inverse of
   export: `parse_skill_zip` reads `SKILL.md` frontmatter + bundled files. Round-trips with export.

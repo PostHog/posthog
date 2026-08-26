@@ -11,7 +11,9 @@ from unittest.mock import patch
 
 from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import connection
 from django.http import HttpResponse
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -91,6 +93,15 @@ class TestSkillZipExport(APIBaseTest):
 
     def test_export_missing_skill_404(self):
         assert self.client.get(self._url("nope")).status_code == status.HTTP_404_NOT_FOUND
+
+    def test_export_honors_a_zip_accept_header(self):
+        self._create_skill()
+
+        response = self.client.get(self._url("make-fractals"), HTTP_ACCEPT="application/zip")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response["Content-Type"] == "application/zip"
+        assert zipfile.is_zipfile(io.BytesIO(response.content))
 
     def test_export_then_reimport_round_trip(self):
         skill = LLMSkill.objects.create(
@@ -189,16 +200,16 @@ class TestSkillBundle(APIBaseTest):
         authorization: str | None = None,
         content: str | None = None,
         limit: int | str | None = None,
+        accept: str | None = None,
     ) -> HttpResponse:
         query: dict[str, str] = {}
         if content:
             query["content"] = content
         if limit is not None:
             query["limit"] = str(limit)
+        headers = {name: value for name, value in {"Authorization": authorization, "Accept": accept}.items() if value}
         with patch(SANDBOX_FLAG, return_value=flag):
-            if authorization:
-                return self.client.get(self._url(), query, HTTP_AUTHORIZATION=authorization)
-            return self.client.get(self._url(), query)
+            return self.client.get(self._url(), query, headers=headers)
 
     @staticmethod
     def _skill_dirs(response: HttpResponse) -> set[str]:
@@ -313,6 +324,74 @@ class TestSkillBundle(APIBaseTest):
         with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
             assert not any(".." in name or name.startswith("/") for name in archive.namelist())
 
+    @parameterized.expand(
+        [
+            ("stub", "safe\n"),
+            ("stub", "bad--name"),
+            ("full", "safe\n"),
+            ("full", "bad--name"),
+        ]
+    )
+    def test_skill_with_a_malformed_legacy_name_is_skipped(self, content: str, name: str):
+        self._create_skill("fine")
+        # Bypasses the serializer validation so the row looks like one that predates it.
+        self._create_skill(name)
+
+        response = self._fetch(content=content)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert self._skill_dirs(response) == {"fine"}
+        assert response["X-Skills-Skipped"] == "1"
+
+    def test_zip_accept_header_gets_the_zip_and_errors_stay_json(self):
+        self._create_skill("mine")
+
+        response = self._fetch(accept="application/zip")
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response["Content-Type"] == "application/zip"
+        assert self._skill_dirs(response) == {"mine"}
+
+        not_enabled = self._fetch(flag=False, accept="application/zip")
+        assert not_enabled.status_code == status.HTTP_404_NOT_FOUND
+        assert not_enabled["Content-Type"] == "application/json"
+        assert json.loads(not_enabled.content)["detail"] == "Not found."
+
+    def test_skipped_skills_page_at_a_fixed_size_not_the_limit(self):
+        def queries_with_skipped_rows(count: int) -> int:
+            while LLMSkill.objects.filter(team=self.team, name__startswith="too-long-").count() < count:
+                index = LLMSkill.objects.filter(team=self.team, name__startswith="too-long-").count()
+                self._create_skill(f"too-long-{index}", description="x" * 1025)
+            with CaptureQueriesContext(connection) as context:
+                response = self._fetch(limit=1)
+            assert response.status_code == status.HTTP_200_OK
+            assert response["X-Skills-Skipped"] == str(count)
+            return len(context.captured_queries)
+
+        self._create_skill("fine")
+        # The first request of a test warms per-process caches; compare only warm requests.
+        self._fetch(limit=1)
+
+        # Skipped rows do not count toward the limit, so a limit-sized page would add a query per row.
+        assert queries_with_skipped_rows(1) == queries_with_skipped_rows(5)
+
+    def test_skill_archived_while_the_bundle_is_built_is_left_out_not_fatal(self):
+        self._create_skill("stays")
+        vanishing = self._create_skill("vanishing")
+        real_batches = adapters._candidate_batches
+
+        def archive_after_reading(rows: Any) -> Any:
+            for row in real_batches(rows):
+                if row["name"] == "vanishing":
+                    LLMSkill.objects.filter(pk=vanishing.pk).update(deleted=True)
+                yield row
+
+        with patch.object(adapters, "_candidate_batches", side_effect=archive_after_reading):
+            response = self._fetch(content="full")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert self._skill_dirs(response) == {"stays"}
+        assert response["X-Skills-Dropped"] == "0"
+
     def test_a_bundled_sidecar_file_overrides_the_generated_one(self):
         skill = self._create_skill("mine")
         LLMSkillFile.objects.create(skill=skill, path="agents/openai.yaml", content="interface: custom\n")
@@ -387,6 +466,7 @@ class TestSkillBundle(APIBaseTest):
         assert "source: posthog-skills-store" in stub
         assert 'call skill-get {"skill_name": "mine"}' in stub
         assert "body_next_offset" in stub
+        assert '"version": <version>' in stub
         assert "The real instructions" not in stub
 
     @parameterized.expand(

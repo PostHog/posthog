@@ -8,8 +8,8 @@ from collections.abc import Iterator
 from typing import Any, Literal, TypeVar
 
 from django.core.cache import cache
-from django.db.models import F, Func, IntegerField, Max, Q, QuerySet, Sum, TextField
-from django.db.models.functions import Cast, Coalesce
+from django.db.models import F, Func, IntegerField, Max, Q, QuerySet, TextField
+from django.db.models.functions import Cast
 
 import structlog
 from rest_framework import serializers
@@ -18,7 +18,7 @@ from posthog.dataclasses import frozen
 from posthog.models import Team, User
 
 from ..api.skill_serializers import validate_skill_file_path
-from ..api.skill_services import SKILL_NAME_PATTERN, normalize_skill_file_path, skill_names_owned_by
+from ..api.skill_services import normalize_skill_file_path, skill_name_is_well_formed, skill_names_owned_by
 from ..models.skills import LLMSkill, LLMSkillFile
 from .git_smart_http import FileTree, SynthesizedRepo, synthesize_repo
 from .packaging import (
@@ -29,6 +29,7 @@ from .packaging import (
     SkillExport,
     SkillFileExport,
     SkillStub,
+    archive_entry_bytes,
     build_marketplace_tree,
     build_skill_stub_tree,
     build_skill_tree,
@@ -238,12 +239,16 @@ def _octet_length(expression: F | Cast) -> Func:
 _Row = TypeVar("_Row")
 
 
-def _candidate_batches(rows: "QuerySet[LLMSkill, _Row]", limit: int) -> Iterator[_Row]:
-    """Yield candidate rows in limit-sized slices so a user with thousands of skills never has them
-    all in memory at once; the caller stops iterating once the bundle is capped."""
+def _candidate_batches(rows: "QuerySet[LLMSkill, _Row]") -> Iterator[_Row]:
+    """Yield candidate rows in fixed-size slices so a user with thousands of skills never has them
+    all in memory at once; the caller stops iterating once the bundle is capped.
+
+    The slice size is the ceiling, not the caller's limit: skipped skills do not count toward the
+    limit, so paging by a small limit would cost one query per skipped row.
+    """
     offset = 0
     while True:
-        batch = list(rows[offset : offset + limit])
+        batch = list(rows[offset : offset + MAX_BUNDLE_SKILLS])
         if not batch:
             return
         yield from batch
@@ -320,7 +325,7 @@ def _dropped_count(candidates: QuerySet[LLMSkill], trees: dict[str, FileTree], s
 def _walk_stubs(candidates: QuerySet[LLMSkill], limit: int) -> _BundleWalk:
     trees: dict[str, FileTree] = {}
     skipped: list[str] = []
-    for row in _candidate_batches(candidates.values("name", "description", "version"), limit):
+    for row in _candidate_batches(candidates.values("name", "description", "version")):
         if len(trees) >= limit:
             return _BundleWalk(trees=trees, dropped_count=_dropped_count(candidates, trees, skipped), skipped=skipped)
         name = row["name"]
@@ -335,7 +340,7 @@ def _walk_stubs(candidates: QuerySet[LLMSkill], limit: int) -> _BundleWalk:
 
 def _name_and_description_are_valid(name: str, description: str) -> bool:
     return (
-        SKILL_NAME_PATTERN.match(name) is not None
+        skill_name_is_well_formed(name)
         and bool(description.strip())
         and len(description) <= SPEC_DESCRIPTION_MAX_LENGTH
     )
@@ -375,10 +380,10 @@ def _bundle_paths_are_safe(paths: list[str]) -> bool:
 def _walk_full(candidates: QuerySet[LLMSkill], limit: int) -> _BundleWalk:
     # Names, descriptions and column byte counts only. A skill's row and files load one skill at a
     # time, and only once it has passed every check, so a user with many or very large skills does
-    # not cost the worker more than the bundle cap.
+    # not cost the worker more than the bundle cap. File sizes come from the per-skill path query
+    # below rather than a join here, so the database never aggregates past the current slice.
     sized = candidates.values("id", "name", "description").annotate(
         body_bytes=_octet_length(F("body")),
-        file_bytes=Coalesce(Sum(_octet_length(F("files__content"))), 0),
         # metadata and allowed_tools render into SKILL.md and have no per-field size limit.
         meta_bytes=_octet_length(Cast(F("metadata"), TextField()))
         + _octet_length(Cast(F("allowed_tools"), TextField())),
@@ -388,7 +393,7 @@ def _walk_full(candidates: QuerySet[LLMSkill], limit: int) -> _BundleWalk:
     skipped: list[str] = []
     total_bytes = 0
     capped = False
-    for candidate in _candidate_batches(sized, limit):
+    for candidate in _candidate_batches(sized):
         name = candidate["name"]
         if len(trees) >= limit:
             capped = True
@@ -398,16 +403,25 @@ def _walk_full(candidates: QuerySet[LLMSkill], limit: int) -> _BundleWalk:
         if not _name_and_description_are_valid(name, candidate["description"]):
             skipped.append(name)
             continue
-        paths = list(LLMSkillFile.objects.filter(skill_id=candidate["id"]).values_list("path", flat=True))
-        if not _bundle_paths_are_safe(paths):
+        sized_files = list(
+            LLMSkillFile.objects.filter(skill_id=candidate["id"])
+            .annotate(content_bytes=_octet_length(F("content")))
+            .values_list("path", "content_bytes")
+        )
+        if not _bundle_paths_are_safe([path for path, _ in sized_files]):
             skipped.append(name)
             continue
         # The stored bytes are a floor for the rendered tree, so a skill that fails here would fail
         # the exact check below too. Checking first keeps its content out of memory entirely.
-        if total_bytes + candidate["body_bytes"] + candidate["file_bytes"] + candidate["meta_bytes"] > MAX_BUNDLE_BYTES:
+        file_bytes = sum(archive_entry_bytes(path, content_bytes) for path, content_bytes in sized_files)
+        if total_bytes + candidate["body_bytes"] + candidate["meta_bytes"] + file_bytes > MAX_BUNDLE_BYTES:
             capped = True
             break
-        skill = candidates.get(id=candidate["id"])
+        skill = candidates.filter(id=candidate["id"]).first()
+        if skill is None:
+            # Archived or superseded since the slice was read. The closing count query will not see
+            # it either, so it is neither included, skipped nor dropped.
+            continue
         files = list(LLMSkillFile.objects.filter(skill=skill).order_by("path"))
         export = skill_to_export(skill, files)
         if validate_for_export(export):

@@ -118,10 +118,10 @@ This skill lives in the PostHog skills store. This file is a pointer for discove
 
 Before you act on it:
 
-1. Run `call skill-get {{"skill_name": "{name}"}}` with the PostHog MCP `exec` tool.
-2. If the response has a non-null `body_next_offset`, call `skill-get` again with `"body_offset"` set to that value and append the returned `body`. Repeat until `body_next_offset` is null.
+1. Run `call skill-get {{"skill_name": "{name}"}}` with the PostHog MCP `exec` tool. Note the `version` in the response and pass it to every later call for this skill, so a publish in the meantime cannot mix two versions.
+2. If the response has a non-null `body_next_offset`, call `skill-get` again with `"version"` set to that version and `"body_offset"` set to `body_next_offset`, and append the returned `body`. Repeat until `body_next_offset` is null.
 3. Follow the complete `body` as the instructions for this skill.
-4. If the body references bundled files, fetch each one with `call skill-file-get {{"skill_name": "{name}", "file_path": "<path>"}}` and write it into this directory before you use it.
+4. If the body references bundled files, fetch each one with `call skill-file-get {{"skill_name": "{name}", "file_path": "<path>", "version": <version>}}` and write it into this directory before you use it.
 """
 
 
@@ -216,8 +216,19 @@ def build_skills_bundle_zip(trees: dict[str, FileTree]) -> bytes:
     return buffer.getvalue()
 
 
+# A zip stores each entry's name twice (local file header and central directory entry) plus a
+# fixed header per entry (30 and 46 bytes). Counting it keeps a bundle of many empty files with
+# long paths inside the byte cap.
+_ZIP_ENTRY_OVERHEAD_BYTES = 76
+
+
+def archive_entry_bytes(path: str, content_bytes: int) -> int:
+    return content_bytes + 2 * len(path.encode("utf-8")) + _ZIP_ENTRY_OVERHEAD_BYTES
+
+
 def file_tree_bytes(tree: FileTree) -> int:
-    return sum(len(content.encode("utf-8")) for content in tree.values())
+    """Uncompressed bytes the tree costs in a zip: content plus per-entry framing."""
+    return sum(archive_entry_bytes(path, len(content.encode("utf-8"))) for path, content in tree.items())
 
 
 def parse_skill_md(content: str) -> dict:

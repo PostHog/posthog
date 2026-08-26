@@ -19,6 +19,7 @@ from .community_publish_services import (
     OPTIONAL_GITHUB_HANDLE_PATTERN,
 )
 from .skill_services import (
+    MAX_SKILL_NAME_LENGTH,
     RESERVED_SKILL_NAMES,
     SKILL_NAME_PATTERN,
     LLMSkillOwnerNotFoundError,
@@ -60,12 +61,12 @@ def validate_skill_name_value(value: str) -> str:
             f"'{value}' is a reserved name and cannot be used.",
             code="reserved_name",
         )
-    if len(value) > 64:
+    if len(value) > MAX_SKILL_NAME_LENGTH:
         raise serializers.ValidationError(
-            "Skill name must be 64 characters or fewer.",
+            f"Skill name must be {MAX_SKILL_NAME_LENGTH} characters or fewer.",
             code="max_length",
         )
-    if not SKILL_NAME_PATTERN.match(value):
+    if not SKILL_NAME_PATTERN.fullmatch(value):
         raise serializers.ValidationError(
             "Only lowercase letters, numbers, and hyphens are allowed. "
             "Must not start or end with a hyphen or contain consecutive hyphens.",

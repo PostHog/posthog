@@ -8,12 +8,13 @@ from django.http import HttpResponse
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import BasePermission
+from rest_framework.renderers import BaseRenderer
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
@@ -31,6 +32,7 @@ from posthog.event_usage import report_user_action
 from posthog.models import User
 from posthog.permissions import AccessControlPermission, get_authenticator_scopes, posthog_feature_flag_value
 from posthog.rate_limit import BurstRateThrottle, PersonalApiKeyOrUserRateThrottle, SustainedRateThrottle
+from posthog.renderers import SafeJSONRenderer
 
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.ai_observability.backend.api.metrics import llma_track_latency
@@ -297,6 +299,29 @@ class SkillBundleSustainedThrottle(_SkillBundleThrottle):
     rate = "300/hour"
 
 
+class ZipRenderer(BaseRenderer):
+    """Lets ``Accept: application/zip`` through content negotiation on the zip actions.
+
+    DRF negotiates before the action runs, so with the JSON-only default a client that asks for the
+    zip it was promised gets 406. The zip itself is a raw HttpResponse and never reaches a renderer;
+    only the actions' error Responses do, and those stay JSON so the client can read them.
+    """
+
+    media_type = "application/zip"
+    format = "zip"
+
+    def render(self, data: Any, accepted_media_type: str | None = None, renderer_context: Any = None) -> bytes:
+        if renderer_context is not None:
+            renderer_context["response"]["Content-Type"] = "application/json"
+        return SafeJSONRenderer().render(data, "application/json", renderer_context)
+
+
+_ZIP_ACTIONS = ("bundle", "export")
+# With two renderers on an action, drf-spectacular advertises DRF's ``?format=`` override as a query
+# parameter. Clients select the zip with ``Accept``; keep the generated types free of it.
+_FORMAT_QUERY_PARAM_EXCLUDED = OpenApiParameter(name="format", location=OpenApiParameter.QUERY, exclude=True)
+
+
 class LLMSkillViewSet(
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
@@ -315,6 +340,12 @@ class LLMSkillViewSet(
 
     def safely_get_queryset(self, queryset: QuerySet[LLMSkill]) -> QuerySet[LLMSkill]:
         return get_active_skill_queryset(self.team)
+
+    def get_renderers(self) -> list[BaseRenderer]:
+        renderers = super().get_renderers()
+        if self.action in _ZIP_ACTIONS:
+            return [*renderers, ZipRenderer()]
+        return renderers
 
     def get_throttles(self):
         if self.action == "publish_to_community":
@@ -738,7 +769,7 @@ class LLMSkillViewSet(
         )
 
     @extend_schema(
-        parameters=[LLMSkillFetchQuerySerializer],
+        parameters=[LLMSkillFetchQuerySerializer, _FORMAT_QUERY_PARAM_EXCLUDED],
         responses={(200, "application/zip"): OpenApiTypes.BINARY},
     )
     @action(methods=["GET"], detail=False, url_path=r"name/(?P<skill_name>[^/]+)/export")
@@ -765,7 +796,7 @@ class LLMSkillViewSet(
         return response
 
     @extend_schema(
-        parameters=[LLMSkillBundleQuerySerializer],
+        parameters=[LLMSkillBundleQuerySerializer, _FORMAT_QUERY_PARAM_EXCLUDED],
         responses={(200, "application/zip"): OpenApiTypes.BINARY},
     )
     @action(methods=["GET"], detail=False, url_path="bundle", required_scopes=["llm_skill:read"])
