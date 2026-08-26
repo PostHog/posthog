@@ -277,7 +277,19 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
             ? unpackCollectedImages(teamKeys.pseudoTeam, meta, result.images)
             : undefined
         const collectedUrls = globalUrlKey && teamKeys ? unpackCollectedUrls(teamKeys.pseudoTeam, meta) : undefined
+        recordImageSources(meta)
         return ok({ ...input, parsedMessage, collectedImages, collectedUrls })
+    }
+}
+
+function recordImageSources(meta: AnonymizeMeta): void {
+    for (const imageSource of meta.imageSources ?? []) {
+        SessionRecordingIngesterMetrics.incrementMlImageReferencesByProperty(
+            imageSource.source,
+            imageSource.property,
+            imageSource.kind,
+            imageSource.count
+        )
     }
 }
 

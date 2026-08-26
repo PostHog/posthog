@@ -17,7 +17,7 @@ import type { ReplayScannerApi } from '../generated/api.schemas'
 import { observationsDockLogic } from '../logics/observationsDockLogic'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
-import { isSummaryObservation } from '../utils/observation'
+import { dockObservations, isUnsuccessfulScan } from '../utils/observation'
 import { quotaUx } from '../utils/quotaProjection'
 import { VisionDocsLink, visionDocsUrl } from './DocsLink'
 import { ObservationDockCard } from './ObservationCard'
@@ -191,9 +191,11 @@ function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Elem
     }
     const { desiredSize, isResizeInProgress } = useValues(resizerLogic(resizerProps))
 
-    // Scanner observations live in the sidebar's Observations tab; the dock only surfaces summaries
-    const summaries = observations.filter(isSummaryObservation)
-    const hasContent = summaries.length > 0 || observationsLoading
+    const shown = dockObservations(observations)
+    // Collapsed, the dock is one bar with a caret, so a scan that left no result would sit behind it
+    // unseen. The count says there is something to open for; the card inside says which scan and why.
+    const unsuccessfulCount = shown.filter(isUnsuccessfulScan).length
+    const hasContent = shown.length > 0 || observationsLoading
     const expandedHeight = Math.max(
         MIN_EXPANDED_HEIGHT,
         Math.min(MAX_EXPANDED_HEIGHT, desiredSize ?? DEFAULT_EXPANDED_HEIGHT)
@@ -213,27 +215,33 @@ function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Elem
                 <SummarizeButton sessionId={sessionId} />
                 <SummarizeExplainer />
                 {hasContent && (
-                    <LemonButton
-                        className="ml-auto"
-                        size="small"
-                        icon={<IconChevronDown className={dockOpen ? 'rotate-180' : ''} />}
-                        onClick={() => setDockOpen(!dockOpen)}
-                        tooltip={dockOpen ? 'Collapse' : 'Expand'}
-                        aria-label={dockOpen ? 'Collapse summary' : 'Expand summary'}
-                        data-attr="vision-dock-toggle"
-                        // This click also sets the auto-expand preference, so which way it went is the
-                        // signal for whether people keep summaries open by default.
-                        data-ph-capture-attribute-dock-action={dockOpen ? 'collapse' : 'expand'}
-                    />
+                    <div className="ml-auto flex items-center gap-2 min-w-0">
+                        {!dockOpen && unsuccessfulCount > 0 && (
+                            <span className="text-muted text-xs truncate" data-attr="vision-dock-no-result-count">
+                                No result from {unsuccessfulCount} {unsuccessfulCount === 1 ? 'scan' : 'scans'}
+                            </span>
+                        )}
+                        <LemonButton
+                            size="small"
+                            icon={<IconChevronDown className={dockOpen ? 'rotate-180' : ''} />}
+                            onClick={() => setDockOpen(!dockOpen)}
+                            tooltip={dockOpen ? 'Collapse' : 'Expand'}
+                            aria-label={dockOpen ? 'Collapse summary' : 'Expand summary'}
+                            data-attr="vision-dock-toggle"
+                            // This click also sets the auto-expand preference, so which way it went is
+                            // the signal for whether people keep summaries open by default.
+                            data-ph-capture-attribute-dock-action={dockOpen ? 'collapse' : 'expand'}
+                        />
+                    </div>
                 )}
             </div>
             {dockOpen && (
                 <div className="flex-1 overflow-y-auto px-3 pb-3 space-y-2">
-                    {observationsLoading && summaries.length === 0 ? (
+                    {observationsLoading && shown.length === 0 ? (
                         <div className="flex items-center gap-2 text-muted py-4">
                             <Spinner /> Loading summaries…
                         </div>
-                    ) : summaries.length === 0 ? (
+                    ) : shown.length === 0 ? (
                         <div className="text-muted text-sm py-4">
                             No summary yet. Summarize this recording to generate one.{' '}
                             <VisionDocsLink page="observations" dataAttr="vision-empty-docs-link-dock">
@@ -241,7 +249,7 @@ function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Elem
                             </VisionDocsLink>
                         </div>
                     ) : (
-                        summaries.map((observation) => (
+                        shown.map((observation) => (
                             <ObservationDockCard
                                 key={observation.id}
                                 observation={observation}

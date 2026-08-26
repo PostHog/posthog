@@ -52,7 +52,7 @@ export interface FetchAttempt {
 export interface FetchRunnerOptions {
     maxConcurrentPerRegistrableDomain: number
     maxInFlightRequests: number
-    minimumActiveOrigins: number
+    lowOriginDiversityMinimumRequestSlots: number
     lowOriginDiversityRepublishThreshold: number
     lowOriginDiversityProgress: number
     batchBudgetMs: number
@@ -120,8 +120,8 @@ export class FetchRunner implements FetchPass {
             options.maxInFlightRequests
         )
         requirePositiveSafeInteger(
-            'SESSION_RECORDING_ML_IMAGE_FETCH_MINIMUM_ACTIVE_ORIGINS',
-            options.minimumActiveOrigins
+            'SESSION_RECORDING_ML_IMAGE_FETCH_LOW_ORIGIN_DIVERSITY_MINIMUM_REQUEST_SLOTS',
+            options.lowOriginDiversityMinimumRequestSlots
         )
         requirePositiveSafeInteger(
             'SESSION_RECORDING_ML_IMAGE_FETCH_LOW_ORIGIN_DIVERSITY_REPUBLISH_THRESHOLD',
@@ -157,22 +157,30 @@ export class FetchRunner implements FetchPass {
             }
         }
         const queue = new FetchCandidateQueue(candidates, this.options)
+        const podRequestSlots = Math.max(0, this.options.maxInFlightRequests - this.candidateWork.running)
         ImageFetchRequestMetrics.observeBatchSchedulableCapacity(
-            queue.schedulableSlotsAtStart,
+            Math.min(
+                podRequestSlots,
+                queue.availableRequestSlotsAtStart((registrableDomain) =>
+                    this.budget.availableConnections(registrableDomain)
+                )
+            ),
             this.options.maxInFlightRequests
         )
         const attempts: FetchAttempt[] = []
-        const workers = Array.from({ length: Math.min(this.options.maxInFlightRequests, queue.originCount) }, () =>
-            this.runQueueWorker(
-                queue,
-                stored,
-                configurationItems,
-                configurationPolicy,
-                deadlineMs,
-                attempts,
-                activeRepublishBatch,
-                passState
-            )
+        const workers = Array.from(
+            { length: Math.min(this.options.maxInFlightRequests, queue.schedulableSlotsAtStart) },
+            () =>
+                this.runQueueWorker(
+                    queue,
+                    stored,
+                    configurationItems,
+                    configurationPolicy,
+                    deadlineMs,
+                    attempts,
+                    activeRepublishBatch,
+                    passState
+                )
         )
         const settledWorkers = await Promise.allSettled(workers)
         if (passState.failure) {
@@ -213,7 +221,8 @@ export class FetchRunner implements FetchPass {
                 if (lease.lowOriginDiversityStarted) {
                     ImageFetchRequestMetrics.observeLowOriginDiversity(
                         lease.lowOriginDiversityStarted.origins,
-                        lease.lowOriginDiversityStarted.candidates
+                        lease.lowOriginDiversityStarted.candidates,
+                        lease.lowOriginDiversityStarted.requestSlots
                     )
                 }
                 attempts.push(

@@ -19,6 +19,12 @@ CONSTANCE_CONFIG = {
         "Number of weeks recording performance events will be kept before removing them (for all projects). Storing performance events for a shorter timeframe can help reduce Clickhouse disk usage.",
         int,
     ),
+    "HOGQL_SHARED_INSIGHT_DATABASE_ENABLED": (
+        get_from_env("HOGQL_SHARED_INSIGHT_DATABASE_ENABLED", True, type_cast=str_to_bool),
+        "Whether insight query runners share one HogQL database across execution, response printing, "
+        "and series threads. Disable to fall back to building a database per call.",
+        bool,
+    ),
     "MATERIALIZED_COLUMNS_ENABLED": (
         get_from_env("MATERIALIZED_COLUMNS_ENABLED", True, type_cast=str_to_bool),
         "Whether materialized columns should be created or used at query time.",
@@ -339,6 +345,7 @@ CONSTANCE_CONFIG = {
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
+    "HOGQL_SHARED_INSIGHT_DATABASE_ENABLED",
     "RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS",
     "AUTO_START_ASYNC_MIGRATIONS",
     "AGGREGATE_BY_DISTINCT_IDS_TEAMS",

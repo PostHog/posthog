@@ -25,11 +25,18 @@ import {
     AnyPropertyFilter,
     FilterLogicalOperator,
     PropertyFilterType,
+    PropertyFilterValue,
     PropertyOperator,
     UniversalFiltersGroup,
 } from '~/types'
 
 import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
+import { filterValues, isSameFilterTarget } from 'products/logs/frontend/components/LogsViewer/FacetRail/facetFilters'
+import {
+    filterTarget,
+    logsSelection,
+    mergeFilterIntoValues,
+} from 'products/logs/frontend/components/LogsViewer/Filters/logsFilterAdd'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 
 import { LogsDateRangePicker } from '../LogsDateRangePicker/LogsDateRangePicker'
@@ -72,7 +79,7 @@ export const LogsQueryControls = (): JSX.Element => {
 
 export const LogsFilterGroup = ({ children }: { children: React.ReactNode }): JSX.Element => {
     const { filters, id, utcDateRange, queryFilterGroup } = useValues(logsViewerFiltersLogic)
-    const { filterGroup, serviceNames } = filters
+    const { filterGroup } = filters
     const { setFilterGroup } = useActions(logsViewerFiltersLogic)
 
     // Taxonomic value suggestions should respect any active scope (e.g. the person-tab
@@ -82,7 +89,6 @@ export const LogsFilterGroup = ({ children }: { children: React.ReactNode }): JS
     const endpointFilters = {
         dateRange: { ...utcDateRange, date_to: utcDateRange.date_to ?? dayjs().toISOString() },
         filterGroup: queryFilterGroup,
-        serviceNames,
     }
 
     return (
@@ -143,12 +149,13 @@ export function addLogsValueFilter(
         })
     }
 
-    return [...currentValues, newPropertyFilter]
+    return mergeFilterIntoValues(currentValues, newPropertyFilter)
 }
 
 export const LogsFilterSearch = (): JSX.Element => {
     const [visible, setVisible] = useState<boolean>(false)
-    const { utcDateRange, filters: logsFilters, queryFilterGroup } = useValues(logsViewerFiltersLogic)
+    const { utcDateRange, queryFilterGroup } = useValues(logsViewerFiltersLogic)
+    const { focusFilter } = useActions(logsViewerFiltersLogic)
     const { addGroupFilter, setGroupValues } = useActions(universalFiltersLogic)
     const { filterGroup } = useValues(universalFiltersLogic)
 
@@ -166,17 +173,21 @@ export const LogsFilterSearch = (): JSX.Element => {
         endpointFilters: {
             dateRange: { ...utcDateRange, date_to: utcDateRange.date_to ?? dayjs().toISOString() },
             filterGroup: queryFilterGroup,
-            serviceNames: logsFilters.serviceNames,
         },
         onChange: (taxonomicGroup, value, item) => {
-            if (item.value === undefined) {
-                addGroupFilter(taxonomicGroup, value, item)
-                setVisible(false)
-                return
-            }
-
-            setGroupValues(addLogsValueFilter(taxonomicGroup, value, item, filterGroup.values))
             setVisible(false)
+            // Recording the selection back to recents stays with taxonomicFilterLogic, which does it
+            // for every pick; this only decides how the selection lands in the group.
+            const selection = logsSelection(filterGroup.values, taxonomicGroup, value, item)
+            if (selection.kind === 'merge') {
+                setGroupValues(mergeFilterIntoValues(filterGroup.values, selection.filter))
+            } else if (selection.kind === 'valueItem') {
+                setGroupValues(addLogsValueFilter(taxonomicGroup, value, item, filterGroup.values))
+            } else if (selection.kind === 'focus') {
+                focusFilter(selection.target)
+            } else {
+                addGroupFilter(taxonomicGroup, value, item)
+            }
         },
         onEnter: onClose,
         autoSelectItem: true,
@@ -210,17 +221,33 @@ export const LogsFilterSearch = (): JSX.Element => {
     )
 }
 
-const FilterGroupValues = ({ allowInitiallyOpen }: { allowInitiallyOpen: boolean }): JSX.Element | null => {
+const FilterGroupValues = ({
+    allowInitiallyOpen,
+    focusable = false,
+}: {
+    allowInitiallyOpen: boolean
+    /** Only the top-level list owns focus: a nested group's indices are its own. */
+    focusable?: boolean
+}): JSX.Element | null => {
     const { filterGroup } = useValues(universalFiltersLogic)
     const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
+    const { focusedFilter } = useValues(logsViewerFiltersLogic)
+    const { focusFilter } = useActions(logsViewerFiltersLogic)
 
     if (filterGroup.values.length === 0) {
         return null
     }
 
+    // One chip at a time: an attribute can hold a chip per polarity (`= api` beside `≠ worker`), and
+    // matching every chip on the target would open both popovers over each other.
+    const focusedIndex = focusable
+        ? filterGroup.values.findIndex((entry) => isSameFilterTarget(filterTarget(entry), focusedFilter))
+        : -1
+
     return (
         <>
             {filterGroup.values.map((filterOrGroup, index) => {
+                const isFocused = focusedIndex >= 0 && index === focusedIndex
                 return isUniversalGroupFilterLike(filterOrGroup) ? (
                     <UniversalFilters.Group index={index} key={index} group={filterOrGroup}>
                         <FilterGroupValues allowInitiallyOpen={allowInitiallyOpen} />
@@ -230,9 +257,34 @@ const FilterGroupValues = ({ allowInitiallyOpen }: { allowInitiallyOpen: boolean
                         key={index}
                         index={index}
                         filter={filterOrGroup}
-                        onRemove={() => removeGroupValue(index)}
+                        onRemove={() => {
+                            // Nothing else clears it, and a target left pointing at a chip that is
+                            // gone opens the next chip on that attribute the moment one appears.
+                            if (isFocused) {
+                                focusFilter(null)
+                            }
+                            removeGroupValue(index)
+                        }}
                         onChange={(value) => replaceGroupValue(index, value)}
-                        initiallyOpen={allowInitiallyOpen && filterOrGroup.type != PropertyFilterType.HogQL}
+                        // Only a chip that still needs a value opens itself: that is the one the
+                        // user just added from the picker and has to fill in. A chip that arrives
+                        // complete came from the facet rail or a recent, and popping an editor over
+                        // the page on every rail click is noise.
+                        initiallyOpen={
+                            allowInitiallyOpen &&
+                            filterOrGroup.type != PropertyFilterType.HogQL &&
+                            filterValues(filterOrGroup as { value?: PropertyFilterValue }).length === 0
+                        }
+                        open={isFocused ? true : undefined}
+                        onOpenChange={
+                            isFocused
+                                ? (next) => {
+                                      if (!next) {
+                                          focusFilter(null)
+                                      }
+                                  }
+                                : undefined
+                        }
                     />
                 )
             })}
@@ -252,7 +304,7 @@ export const LogsAppliedFilters = (): JSX.Element | null => {
 
     return (
         <div className="flex gap-1 items-center flex-wrap">
-            <FilterGroupValues allowInitiallyOpen={allowInitiallyOpen} />
+            <FilterGroupValues allowInitiallyOpen={allowInitiallyOpen} focusable />
         </div>
     )
 }
