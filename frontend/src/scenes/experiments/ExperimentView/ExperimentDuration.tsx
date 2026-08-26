@@ -16,9 +16,10 @@ interface DateButtonProps {
     date: string | null | undefined
     type: 'start' | 'end'
     onChange: (date: string) => void
+    saving: boolean
 }
 
-const DateButton = ({ date, type, onChange }: DateButtonProps): JSX.Element => {
+const DateButton = ({ date, type, onChange, saving }: DateButtonProps): JSX.Element => {
     const containerWidth = 'w-44'
     const [isOpen, setIsOpen] = useState(false)
 
@@ -27,7 +28,7 @@ const DateButton = ({ date, type, onChange }: DateButtonProps): JSX.Element => {
             <Popover
                 actionable
                 onClickOutside={() => setIsOpen(false)}
-                visible={isOpen}
+                visible={isOpen && !saving}
                 overlay={
                     <LemonCalendarSelect
                         value={date ? dayjs(date) : null}
@@ -46,6 +47,10 @@ const DateButton = ({ date, type, onChange }: DateButtonProps): JSX.Element => {
                     size="xsmall"
                     onClick={() => setIsOpen(true)}
                     fullWidth
+                    // The label keeps showing the saved date until the server confirms the new one.
+                    // Without this the button looks untouched mid-save, so people re-pick a date,
+                    // and every extra pick is another write plus a full metrics recalculation.
+                    loading={saving}
                     disabledReason={
                         !date && type === 'start'
                             ? 'No start date'
@@ -74,7 +79,7 @@ const DateButton = ({ date, type, onChange }: DateButtonProps): JSX.Element => {
 }
 
 export const ExperimentDuration = (): JSX.Element => {
-    const { experiment } = useValues(experimentLogic)
+    const { experiment, experimentUpdateLoading } = useValues(experimentLogic)
     const { changeExperimentStartDate, changeExperimentEndDate } = useActions(experimentLogic)
 
     const { start_date, end_date } = experiment
@@ -84,9 +89,19 @@ export const ExperimentDuration = (): JSX.Element => {
             <Label intent="menu">Duration</Label>
             <div className="flex gap-2 items-center">
                 <div className="flex items-center gap-2">
-                    <DateButton date={start_date} type="start" onChange={changeExperimentStartDate} />
+                    <DateButton
+                        date={start_date}
+                        type="start"
+                        onChange={changeExperimentStartDate}
+                        saving={experimentUpdateLoading}
+                    />
                     <IconArrowRight className="text-base" />
-                    <DateButton date={end_date} type="end" onChange={changeExperimentEndDate} />
+                    <DateButton
+                        date={end_date}
+                        type="end"
+                        onChange={changeExperimentEndDate}
+                        saving={experimentUpdateLoading}
+                    />
                 </div>
             </div>
         </div>
