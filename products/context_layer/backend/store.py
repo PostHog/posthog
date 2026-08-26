@@ -194,23 +194,26 @@ def repo_writer_lock(organization_id: uuid.UUID | str) -> Iterator[None]:
 
 
 def _run_git(args: list[str], cwd: Path, stdin_text: str | None = None) -> str:
-    result = subprocess.run(
-        [
-            "git",
-            "-c",
-            f"user.name={COMMITTER_NAME}",
-            "-c",
-            f"user.email={COMMITTER_EMAIL}",
-            "-c",
-            "commit.gpgsign=false",
-            *args,
-        ],
-        cwd=cwd,
-        input=stdin_text,
-        capture_output=True,
-        text=True,
-        timeout=GIT_TIMEOUT_SECONDS,
-    )
+    try:
+        result = subprocess.run(
+            [
+                "git",
+                "-c",
+                f"user.name={COMMITTER_NAME}",
+                "-c",
+                f"user.email={COMMITTER_EMAIL}",
+                "-c",
+                "commit.gpgsign=false",
+                *args,
+            ],
+            cwd=cwd,
+            input=stdin_text,
+            capture_output=True,
+            text=True,
+            timeout=GIT_TIMEOUT_SECONDS,
+        )
+    except FileNotFoundError as err:
+        raise ContextLayerStoreError("git binary is not available") from err
     if result.returncode != 0:
         raise ContextLayerStoreError(f"git {args[0]} failed: {result.stderr.strip()}")
     return result.stdout.strip()
