@@ -2300,6 +2300,8 @@ async def test_apply_scanner_workflow_marks_failed_when_fetch_raises() -> None:
     [
         # An unrenderable recording is a gate, so it must not land on the failed path telling the user to retry.
         ("NO_SNAPSHOTS", True, "no_snapshots"),
+        # An oversized recording is a permanent gate too, not a broken render.
+        ("RECORDING_TOO_LARGE", True, "too_large"),
         ("CAPTURE_ABORTED", False, "rasterization_failed"),
         (None, False, "rasterization_failed"),
     ],
