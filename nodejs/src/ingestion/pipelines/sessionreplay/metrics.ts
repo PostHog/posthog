@@ -15,6 +15,7 @@ export type MlImageLaneStage = 'collected' | 'deduped' | 'queued' | 'produced' |
  *  lanes read the same way on a dashboard even though only `collected` exists until the fetch lane
  *  ships. */
 export type MlUrlLaneStage = 'collected' | 'deduped' | 'queued' | 'produced' | 'produce_failed' | 'ref_unusable'
+export type MlUrlCrawlHistoryOutcome = 'fresh' | 'miss' | 'error'
 
 const URL_BYTES_SAMPLE_RATE = 16
 
@@ -94,6 +95,19 @@ export class SessionRecordingIngesterMetrics {
         name: 'recording_blob_ingestion_v2_ml_urls_collected',
         help: 'Remote image URLs through the fetch lane, by stage: collected (returned by the addon), deduped (suppressed by the cross-message cache), queued (handed to the producer), produced (delivery acked), produce_failed (delivery failed)',
         labelNames: ['outcome'],
+    })
+
+    private static readonly mlUrlCrawlHistory = new Counter({
+        name: 'recording_blob_ingestion_v2_ml_url_crawl_history_total',
+        help: 'URL jobs checked by the mirror before Kafka: fresh jobs are suppressed, misses are produced, and errors fail open',
+        labelNames: ['outcome'],
+    })
+
+    private static readonly mlUrlCrawlHistoryDuration = new Histogram({
+        name: 'recording_blob_ingestion_v2_ml_url_crawl_history_duration_seconds',
+        help: 'Wall time for one mirror crawl-history read by outcome',
+        labelNames: ['outcome'],
+        buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5],
     })
 
     private static readonly mlUrlsDeclined = new Counter({
@@ -205,6 +219,14 @@ export class SessionRecordingIngesterMetrics {
     }
     public static incrementMlUrlsCollected(outcome: MlUrlLaneStage, count: number): void {
         this.mlUrlsCollected.labels(outcome).inc(count)
+    }
+
+    public static incrementMlUrlCrawlHistory(outcome: MlUrlCrawlHistoryOutcome, count: number): void {
+        this.mlUrlCrawlHistory.labels(outcome).inc(count)
+    }
+
+    public static observeMlUrlCrawlHistoryDuration(outcome: 'success' | 'error', durationSeconds: number): void {
+        this.mlUrlCrawlHistoryDuration.labels(outcome).observe(durationSeconds)
     }
 
     public static incrementMlUrlsDeclined(reason: string, count: number): void {
