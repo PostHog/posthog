@@ -14,6 +14,7 @@ from opentelemetry import trace
 
 from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
+from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, APIScopeObject
 from posthog.settings import EE_AVAILABLE
@@ -1771,35 +1772,42 @@ class UserAccessControl:
         """
         if type(self) is not UserAccessControl or current is None:
             return
-        proposed = proposed_fn()
-        if proposed is None or current.access_level == proposed.access_level:
-            return
+        try:
+            proposed = proposed_fn()
+            if proposed is None or current.access_level == proposed.access_level:
+                return
 
-        key = (kind, resource, current.access_level, proposed.access_level, current.source, proposed.source)
-        if key in self._reported_resolved_access_divergences:
-            return
-        self._reported_resolved_access_divergences.add(key)
+            key = (kind, resource, current.access_level, proposed.access_level, current.source, proposed.source)
+            if key in self._reported_resolved_access_divergences:
+                return
+            self._reported_resolved_access_divergences.add(key)
 
-        order = ordered_access_levels(resource)
-        direction = "widens" if order.index(proposed.access_level) > order.index(current.access_level) else "narrows"
-        # The event carries no object ids and no emails. Aggregate counts are enough for the migration.
-        posthoganalytics.capture(
-            distinct_id=self._user.distinct_id,
-            event="most_specific_access_control_decision_diverged",
-            properties={
-                "kind": kind,
-                "resource": resource,
-                "direction": direction,
-                "current_level": current.access_level,
-                "current_source": current.source,
-                "current_source_subject": current.source_subject,
-                "proposed_level": proposed.access_level,
-                "proposed_source": proposed.source,
-                "proposed_source_subject": proposed.source_subject,
-                "team_id": self._team.id if self._team else None,
-                "organization_id": str(self._organization_id) if self._organization_id else None,
-            },
-        )
+            order = ordered_access_levels(resource)
+            direction = (
+                "widens" if order.index(proposed.access_level) > order.index(current.access_level) else "narrows"
+            )
+            # The event carries no object ids and no emails. Aggregate counts are enough for the migration.
+            posthoganalytics.capture(
+                distinct_id=self._user.distinct_id,
+                event="most_specific_access_control_decision_diverged",
+                properties={
+                    "kind": kind,
+                    "resource": resource,
+                    "direction": direction,
+                    "current_level": current.access_level,
+                    "current_source": current.source,
+                    "current_source_subject": current.source_subject,
+                    "proposed_level": proposed.access_level,
+                    "proposed_source": proposed.source,
+                    "proposed_source_subject": proposed.source_subject,
+                    "team_id": self._team.id if self._team else None,
+                    "organization_id": str(self._organization_id) if self._organization_id else None,
+                },
+            )
+        except Exception as e:
+            # Shadow code must never break the enforced answer. Failures surface in error
+            # tracking instead of disappearing, so a broken shadow resolver gets noticed.
+            capture_exception(e)
 
 
 def visible_teams_for_user(
