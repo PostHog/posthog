@@ -27,6 +27,8 @@ from products.logs.backend.presentation.views.alerts_api import (
     ALLOWED_WINDOW_MINUTES,
     LOGS_ALERT_EVENT_IDS,
     MAX_ALERTS_PER_TEAM,
+    MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
+    LogsAlertViewSet,
 )
 
 
@@ -801,6 +803,11 @@ class TestLogsAlertAPI(APIBaseTest):
     def _destinations_url(self, alert_id: str) -> str:
         return f"{self.base_url}{alert_id}/destinations/"
 
+    def _read_destinations(self, alert_id: str) -> list[dict]:
+        response = self.client.get(f"{self.base_url}{alert_id}/")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        return response.json()["destinations"]
+
     def _destinations_delete_url(self, alert_id: str) -> str:
         return f"{self.base_url}{alert_id}/destinations/delete/"
 
@@ -926,6 +933,84 @@ class TestLogsAlertAPI(APIBaseTest):
             assert text_value.startswith("**")
             assert "[View logs](" in text_value or "[View alert](" in text_value
 
+    def test_reading_an_alert_groups_its_destinations_and_strips_webhook_credentials(self) -> None:
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        webhook_url = "https://user:password@example.com:8443/hooks/credential?token=secret"
+        create_response = self.client.post(
+            self._destinations_url(created["id"]),
+            {"type": "webhook", "webhook_url": webhook_url},
+            format="json",
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED
+
+        response = self.client.get(f"{self.base_url}{created['id']}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        destinations = response.json()["destinations"]
+        assert len(destinations) == 1
+        assert set(destinations[0]["hog_function_ids"]) == set(create_response.json()["hog_function_ids"])
+        assert destinations[0]["type"] == "webhook"
+        # Host and port survive so two webhooks are tellable apart; the secret does not.
+        assert destinations[0]["webhook_url"] == "https://example.com:8443"
+        body = response.content.decode()
+        assert "password" not in body
+        assert "token=secret" not in body
+
+    def test_reading_an_alert_redacts_a_malformed_stored_webhook_url(self) -> None:
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        create_response = self.client.post(
+            self._destinations_url(created["id"]),
+            {"type": "webhook", "webhook_url": "https://example.com/hook"},
+            format="json",
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED
+        hog_function = HogFunction.objects.get(id=create_response.json()["hog_function_ids"][0])
+        inputs = hog_function.inputs or {}
+        inputs["url"]["value"] = "https://[broken/path"
+        hog_function.inputs = inputs
+        hog_function.save(update_fields=["inputs"])
+
+        assert self._read_destinations(created["id"])[0]["webhook_url"] == "<redacted>"
+
+    def test_listing_alerts_reports_destination_types_without_reading_each_destination(self) -> None:
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        response = self.client.post(
+            self._destinations_url(created["id"]),
+            {"type": "webhook", "webhook_url": "https://example.com/hook"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+
+        listed = self.client.get(self.base_url)
+
+        assert listed.status_code == status.HTTP_200_OK
+        alert = next(row for row in listed.json()["results"] if row["id"] == created["id"])
+        assert alert["destination_types"] == ["webhook"]
+        # Reading a destination pulls its stored inputs, so the list must not carry them.
+        assert "destinations" not in alert
+
+    def test_a_destination_reports_disabled_when_one_of_its_hog_functions_is_off(self) -> None:
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        create_response = self.client.post(
+            self._destinations_url(created["id"]),
+            {"type": "webhook", "webhook_url": "https://example.com/hook"},
+            format="json",
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED
+        hog_function_ids = create_response.json()["hog_function_ids"]
+        assert self._read_destinations(created["id"])[0]["enabled"] is True
+
+        HogFunction.objects.filter(id=hog_function_ids[0]).update(enabled=False)
+
+        destinations = self._read_destinations(created["id"])
+        assert len(destinations) == 1
+        assert destinations[0]["enabled"] is False
+        assert set(destinations[0]["hog_function_ids"]) == set(hog_function_ids)
+
     @parameterized.expand(
         [
             ("slack_missing_workspace", {"type": "slack", "slack_channel_id": "C1"}),
@@ -1021,17 +1106,220 @@ class TestLogsAlertAPI(APIBaseTest):
         assert b_ids[0] not in message
         assert "Refresh the alert and try again." in message
 
-    def test_delete_destination_rejects_more_ids_than_one_destination_group(self):
+    def test_delete_destination_rejects_more_ids_than_the_request_cap(self):
         created = self._create_via_api()
 
         response = self.client.post(
             self._destinations_delete_url(created["id"]),
-            {"hog_function_ids": [str(uuid4()) for _ in range(len(LOGS_ALERT_EVENT_IDS) + 1)]},
+            {"hog_function_ids": [str(uuid4()) for _ in range(MAX_DESTINATION_IDS_PER_DELETE_REQUEST + 1)]},
             format="json",
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "hog_function_ids"
+
+    def _create_destination(self, alert_id: str, payload: dict) -> list[str]:
+        response = self.client.post(self._destinations_url(alert_id), payload, format="json")
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        return response.json()["hog_function_ids"]
+
+    @parameterized.expand(
+        [
+            (
+                "two_slack_channels",
+                {"type": "slack", "slack_workspace_id": 42, "slack_channel_id": "C111", "slack_channel_name": "eng"},
+                {"type": "slack", "slack_workspace_id": 42, "slack_channel_id": "C222", "slack_channel_name": "ops"},
+            ),
+            (
+                "two_webhook_urls",
+                {"type": "webhook", "webhook_url": "https://example.com/a"},
+                {"type": "webhook", "webhook_url": "https://example.com/b"},
+            ),
+        ]
+    )
+    def test_delete_destination_removes_only_the_named_destination(
+        self, _name: str, first_payload: dict, second_payload: dict
+    ):
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        first_ids = self._create_destination(created["id"], first_payload)
+        second_ids = self._create_destination(created["id"], second_payload)
+
+        response = self.client.post(
+            self._destinations_delete_url(created["id"]),
+            {"hog_function_ids": first_ids},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT, response.json()
+        assert HogFunction.objects.filter(id__in=first_ids, deleted=False).count() == 0
+        assert HogFunction.objects.filter(id__in=second_ids, deleted=False, enabled=True).count() == len(second_ids)
+
+        response = self.client.post(
+            self._destinations_delete_url(created["id"]),
+            {"hog_function_ids": second_ids},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT, response.json()
+        assert HogFunction.objects.filter(id__in=second_ids, deleted=False).count() == 0
+
+    def test_delete_destination_rejects_partial_group(self):
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        ids = self._create_destination(created["id"], {"type": "webhook", "webhook_url": "https://example.com/hook"})
+
+        response = self.client.post(
+            self._destinations_delete_url(created["id"]),
+            {"hog_function_ids": ids[:-1]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "hog_function_ids"
+        assert "Delete all destinations in this group together." in response.json()["detail"]
+        assert HogFunction.objects.filter(id__in=ids, deleted=False, enabled=True).count() == len(ids)
+
+    @parameterized.expand(
+        [
+            (
+                "slack_channel",
+                {"type": "slack", "slack_workspace_id": 42, "slack_channel_id": "C111", "slack_channel_name": "eng"},
+            ),
+            ("webhook_url", {"type": "webhook", "webhook_url": "https://example.com/hook"}),
+        ]
+    )
+    def test_create_destination_rejects_a_duplicate_of_an_existing_destination(self, _name: str, payload: dict):
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        ids = self._create_destination(created["id"], payload)
+
+        response = self.client.post(self._destinations_url(created["id"]), payload, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "This destination is already configured for this alert."
+        assert HogFunction.objects.filter(id__in=ids, deleted=False, enabled=True).count() == len(ids)
+        assert HogFunction.objects.filter(team=self.team, deleted=False).count() == len(LOGS_ALERT_EVENT_IDS)
+
+    def test_create_destination_locks_the_alert_row_before_the_duplicate_check(self):
+        self._sync_destination_templates()
+        created = self._create_via_api()
+
+        with patch.object(
+            LogsAlertViewSet,
+            "_get_locked_alert",
+            autospec=True,
+            side_effect=LogsAlertViewSet._get_locked_alert,
+        ) as get_locked_alert:
+            response = self.client.post(
+                self._destinations_url(created["id"]),
+                {"type": "webhook", "webhook_url": "https://example.com/hook"},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        get_locked_alert.assert_called_once()
+
+    def _clone_row_without_the_duplicate_check(self, hog_function: HogFunction) -> HogFunction:
+        return HogFunction.objects.create(
+            team=self.team,
+            name=hog_function.name,
+            type=hog_function.type,
+            template_id=hog_function.template_id,
+            enabled=True,
+            inputs_schema=hog_function.inputs_schema,
+            inputs=hog_function.inputs,
+            hog=hog_function.hog,
+            filters=hog_function.filters,
+        )
+
+    def test_delete_destination_removes_a_pre_existing_duplicate_pair(self):
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        ids = self._create_destination(created["id"], {"type": "webhook", "webhook_url": "https://example.com/hook"})
+        duplicate_ids = [
+            str(self._clone_row_without_the_duplicate_check(hog_function).id)
+            for hog_function in HogFunction.objects.filter(id__in=ids)
+        ]
+
+        response = self.client.post(
+            self._destinations_delete_url(created["id"]),
+            {"hog_function_ids": [*ids, *duplicate_ids]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT, response.json()
+        assert HogFunction.objects.filter(id__in=[*ids, *duplicate_ids], deleted=False).count() == 0
+
+    def test_delete_destination_accepts_a_server_group_larger_than_100_ids(self) -> None:
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        ids = self._create_destination(created["id"], {"type": "webhook", "webhook_url": "https://example.com/hook"})
+        source = HogFunction.objects.get(id=ids[0])
+        duplicate_ids = [str(self._clone_row_without_the_duplicate_check(source).id) for _ in range(100)]
+        source.inputs = {}
+        source.save(update_fields=["inputs"])
+
+        response = self.client.post(
+            self._destinations_delete_url(created["id"]),
+            {"hog_function_ids": [*ids, *duplicate_ids]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert HogFunction.objects.filter(id__in=[*ids, *duplicate_ids], deleted=False).count() == 0
+
+    def test_delete_destination_rejects_more_ids_than_any_server_group(self) -> None:
+        created = self._create_via_api()
+
+        response = self.client.post(
+            self._destinations_delete_url(created["id"]),
+            {"hog_function_ids": [str(uuid4()) for _ in range(101)]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Too many destination IDs" in str(response.json())
+
+    def test_delete_alert_removes_both_destinations_of_the_same_type(self):
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        first_ids = self._create_destination(created["id"], {"type": "webhook", "webhook_url": "https://example.com/a"})
+        second_ids = self._create_destination(
+            created["id"], {"type": "webhook", "webhook_url": "https://example.com/b"}
+        )
+
+        response = self.client.delete(f"{self.base_url}{created['id']}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert HogFunction.objects.filter(id__in=[*first_ids, *second_ids], deleted=False).count() == 0
+
+    def test_destination_types_ignores_a_row_carrying_another_products_event(self):
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        self._create_destination(
+            created["id"],
+            {"type": "slack", "slack_workspace_id": 42, "slack_channel_id": "C111", "slack_channel_name": "eng"},
+        )
+        HogFunction.objects.create(
+            team=self.team,
+            name="Billing alert destination",
+            type="destination",
+            template_id="template-webhook",
+            enabled=True,
+            inputs_schema=[{"key": "url", "type": "string"}],
+            inputs={"url": {"value": "https://example.com/hook"}},
+            hog="return event",
+            filters={
+                "events": [{"id": "$billing_alert_firing", "type": "events"}],
+                "properties": [{"key": "alert_id", "value": created["id"]}],
+            },
+        )
+
+        response = self.client.get(f"{self.base_url}{created['id']}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["destination_types"] == ["slack"]
 
     # --- Reset ---
 

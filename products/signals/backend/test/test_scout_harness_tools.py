@@ -21,6 +21,7 @@ from posthog.sync import database_sync_to_async
 from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission, SignalScoutRun, SignalScratchpad
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS, ReportChart
 from products.signals.backend.report_prompts import MAX_SUGGESTED_PROMPT_LENGTH, MAX_SUGGESTED_PROMPTS
+from products.signals.backend.scout_harness.prompt import FOLLOWUP_KEY_PREFIX
 from products.signals.backend.scout_harness.tools import (
     MAX_EVIDENCE_ENTRIES,
     EvidenceEntry,
@@ -489,6 +490,59 @@ class TestRemember(BaseTest):
         assert row.content == "v2"
         assert str(row.created_by_run_id) == str(run.id)
 
+    def test_stores_expires_at(self) -> None:
+        expiry = timezone.now() + timedelta(days=3)
+
+        entry = remember(team_id=self.team.id, key="cooldown", content="hold off until Friday", expires_at=expiry)
+
+        assert entry.expires_at == expiry.isoformat()
+        assert SignalScratchpad.objects.get(team_id=self.team.id, key="cooldown").expires_at == expiry
+
+    def test_rewrite_without_expires_at_clears_the_expiry(self) -> None:
+        # Full-state upsert: sticky expiry would keep retiring an entry that has since become
+        # permanent, with no way for the rewriting scout to know a clock was on it.
+        remember(team_id=self.team.id, key="k", content="v1", expires_at=timezone.now() + timedelta(days=3))
+
+        remember(team_id=self.team.id, key="k", content="v2")
+
+        assert SignalScratchpad.objects.get(team_id=self.team.id, key="k").expires_at is None
+
+    def test_upsert_reclaims_an_expired_entry(self) -> None:
+        # Expiry hides a row from search but never deletes it, so the key stays taken. The upsert
+        # must find it and update in place rather than trip the `(team, key)` unique constraint.
+        remember(team_id=self.team.id, key="k", content="v1")
+        SignalScratchpad.objects.filter(team_id=self.team.id, key="k").update(
+            expires_at=timezone.now() - timedelta(days=1)
+        )
+
+        remember(team_id=self.team.id, key="k", content="v2")
+
+        rows = SignalScratchpad.objects.filter(team_id=self.team.id, key="k")
+        assert rows.count() == 1
+        assert search_scratchpad(team_id=self.team.id, key="k")[0].content == "v2"
+
+    def test_rejects_expiry_on_a_followup_queue_entry(self) -> None:
+        # An expiring follow-up drops out of the queue search before the scout can validate it,
+        # while `derived_metadata` reads the row unfiltered and still reports a validation pass.
+        # The prompt says don't, but a prompt isn't an enforcement boundary.
+        with pytest.raises(InvalidScratchpadError, match=FOLLOWUP_KEY_PREFIX):
+            remember(
+                team_id=self.team.id,
+                key=f"{FOLLOWUP_KEY_PREFIX}signals-scout-errors:checkout",
+                content="pending",
+                expires_at=timezone.now() + timedelta(days=3),
+            )
+
+        assert not SignalScratchpad.objects.filter(team_id=self.team.id).exists()
+
+    def test_allows_a_followup_queue_entry_without_an_expiry(self) -> None:
+        key = f"{FOLLOWUP_KEY_PREFIX}signals-scout-errors:checkout"
+
+        entry = remember(team_id=self.team.id, key=key, content="pending, validate after 2026-09-01")
+
+        assert entry.key == key
+        assert entry.expires_at is None
+
     def test_rejects_empty_key_or_content(self) -> None:
         with pytest.raises(InvalidScratchpadError):
             remember(team_id=self.team.id, key="", content="x")
@@ -658,6 +712,43 @@ class TestSearchScratchpad(BaseTest):
         results = search_scratchpad(team_id=self.team.id, content_max_chars=2**40)
 
         assert results[0].content == "abcdefghij"
+
+    @parameterized.expand(
+        [
+            ("default", False, {"durable", "still-live"}),
+            ("include_expired", True, {"durable", "still-live", "lapsed"}),
+        ]
+    )
+    def test_expired_entries_drop_out_unless_audited(
+        self, _name: str, include_expired: bool, expected_keys: set[str]
+    ) -> None:
+        # The whole point of the TTL: a time-boxed memory stops loading into run prompts on its
+        # own, while a human auditing what the fleet remembered can still read it back.
+        remember(team_id=self.team.id, key="durable", content="no expiry")
+        remember(
+            team_id=self.team.id,
+            key="still-live",
+            content="expires later",
+            expires_at=timezone.now() + timedelta(days=3),
+        )
+        remember(team_id=self.team.id, key="lapsed", content="expired yesterday")
+        SignalScratchpad.objects.filter(team=self.team, key="lapsed").update(
+            expires_at=timezone.now() - timedelta(days=1)
+        )
+
+        results = search_scratchpad(team_id=self.team.id, include_expired=include_expired)
+
+        assert {e.key for e in results} == expected_keys
+
+    def test_exact_key_lookup_hides_an_expired_entry(self) -> None:
+        # `key=` is a separate ORM branch from the unfiltered listing, and it's the lookup a scout
+        # uses to re-read a memory it remembers writing — a lapsed entry must not come back there.
+        remember(team_id=self.team.id, key="cooldown", content="hold off")
+        SignalScratchpad.objects.filter(team=self.team, key="cooldown").update(
+            expires_at=timezone.now() - timedelta(days=1)
+        )
+
+        assert search_scratchpad(team_id=self.team.id, key="cooldown") == []
 
     def test_key_lookup_survives_newer_entries_quoting_that_key(self) -> None:
         remember(team_id=self.team.id, key="pattern:target", content="the body we want back")

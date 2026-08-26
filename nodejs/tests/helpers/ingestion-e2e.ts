@@ -315,6 +315,21 @@ export async function fetchEvents(clickhouse: Clickhouse, teamId: number) {
     return queryResult.map(parseRawClickHouseEvent)
 }
 
+export async function fetchFlagEvaluations(clickhouse: Clickhouse, teamId: number) {
+    return (await retryClickHouseOperation(
+        () =>
+            clickhouse.query(`
+                SELECT *
+                FROM flag_evaluations
+                WHERE team_id = ${teamId}
+                ORDER BY timestamp ASC
+            `),
+        'fetchFlagEvaluations query',
+        3,
+        true
+    )) as any[]
+}
+
 export async function fetchIngestionWarnings(clickhouse: Clickhouse, teamId: number) {
     const queryResult = (await retryClickHouseOperation(
         () =>

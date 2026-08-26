@@ -1,3 +1,5 @@
+import time
+import threading
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, Optional
 from zoneinfo import ZoneInfo
@@ -63,6 +65,7 @@ from posthog.hogql_queries.query_runner import (
     shared_insights_execution_mode,
 )
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import OrganizationMembership
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.team.team import Team, WeekStartDay
@@ -75,15 +78,11 @@ from posthog.query_cache.failures import (
     QUERY_FAILURE_CACHING_FLAG,
     QueryFailureCache,
 )
-from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlError
 from posthog.shared_link_user import SharedLinkUser
-
-try:
-    from ee.models.rbac.access_control import AccessControl
-except ImportError:
-    pass
 from posthog.slo.types import SloOutcome
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
+from products.access_control.backend.models.access_control import AccessControl
 from products.customer_analytics.backend.facade.constants import DEFAULT_ACTIVITY_EVENT
 from products.revenue_analytics.backend.views.test.data.structure import REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT
 
@@ -203,6 +202,66 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query=TheTestQuery(some_attr="bla"), team=self.team)
 
         self.assertEqual(runner.query, TheTestQuery(some_attr="bla"))
+
+    def test_shared_database_is_reused_and_rebuilt_on_user_change(self):
+        TestQueryRunner = self.setup_test_query_runner_class()
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+
+        first = runner.shared_database
+        assert runner.shared_database is first
+
+        runner.user = self.user
+        runner._on_user_changed()
+        assert runner.shared_database is not first
+
+    def test_shared_database_first_touch_is_thread_safe(self):
+        TestQueryRunner = self.setup_test_query_runner_class()
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+
+        build_count = 0
+
+        def slow_build(*args: Any, **kwargs: Any) -> Any:
+            nonlocal build_count
+            build_count += 1
+            # Holds the first build open past the second thread's None check, so an
+            # implementation without the lock deterministically builds twice.
+            time.sleep(0.05)
+            return mock.MagicMock()
+
+        barrier = threading.Barrier(2)
+        results: list[Any] = [None, None]
+        errors: list[Exception] = []
+
+        def first_touch(index: int) -> None:
+            try:
+                barrier.wait()
+                results[index] = runner.shared_database
+            except Exception as e:
+                errors.append(e)
+
+        with mock.patch.object(Database, "create_for", side_effect=slow_build):
+            threads = [threading.Thread(target=first_touch, args=(index,)) for index in range(2)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+
+        assert errors == []
+        assert build_count == 1
+        assert results[0] is results[1]
+        timing_keys = [key for key in runner.timings.to_dict() if "build_shared_database" in key]
+        assert timing_keys == ["./build_shared_database"]
+
+    def test_shared_database_kill_switch_disables_sharing(self):
+        TestQueryRunner = self.setup_test_query_runner_class()
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+
+        with override_instance_config("HOGQL_SHARED_INSIGHT_DATABASE_ENABLED", False):
+            first = runner.shared_database
+            second = runner.shared_database
+
+        assert first is not second
+        assert runner.shared_database is runner.shared_database
 
     def test_init_with_query_dict(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -1148,55 +1207,6 @@ class TestApplySeriesCustomNames(BaseTest):
         runner = FunnelsQueryRunner(query=query, team=self.team)
 
         cached_response = CachedFunnelsQueryResponse(
-            results=cached_results,
-            is_cached=True,
-            last_refresh=datetime.now(UTC),
-            next_allowed_client_refresh=datetime.now(UTC),
-            cache_key="test_key",
-            timezone="UTC",
-        )
-
-        patched_response, was_modified = runner.apply_series_custom_names(cached_response)
-
-        self.assertEqual(patched_response.results, expected_results)
-        self.assertEqual(was_modified, expect_modified)
-
-    @parameterized.expand(
-        [
-            (
-                "applies_custom_name_to_stickiness_series",
-                [{"action": {"order": 0, "custom_name": None}, "data": [1, 2, 3]}],
-                [{"action": {"order": 0, "custom_name": "My Stickiness Name"}, "data": [1, 2, 3]}],
-                True,
-            ),
-            (
-                "not_modified_when_stickiness_names_match",
-                [{"action": {"order": 0, "custom_name": "My Stickiness Name"}, "data": [1, 2, 3]}],
-                [{"action": {"order": 0, "custom_name": "My Stickiness Name"}, "data": [1, 2, 3]}],
-                False,
-            ),
-        ]
-    )
-    def test_apply_stickiness_custom_names(
-        self,
-        _name: str,
-        cached_results: list,
-        expected_results: list,
-        expect_modified: bool,
-    ):
-        from posthog.schema import CachedStickinessQueryResponse, StickinessQuery
-
-        from products.product_analytics.backend.facade.queries import StickinessQueryRunner
-
-        query = StickinessQuery(
-            series=[
-                EventsNode(event="$pageview", custom_name="My Stickiness Name"),
-            ]
-        )
-
-        runner = StickinessQueryRunner(query=query, team=self.team)
-
-        cached_response = CachedStickinessQueryResponse(
             results=cached_results,
             is_cached=True,
             last_refresh=datetime.now(UTC),
