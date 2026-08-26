@@ -65,7 +65,12 @@ import {
     type ScannerType,
 } from '../replay_scanners/types'
 import { ObservationLabelControl } from './ObservationLabelControl'
-import { neighborFilterParams, observationDetailUrl, replayObservationLogic } from './replayObservationLogic'
+import {
+    hasScannerPage,
+    neighborFilterParams,
+    observationDetailUrl,
+    replayObservationLogic,
+} from './replayObservationLogic'
 import { replayObservationSceneLogic } from './replayObservationSceneLogic'
 
 export const scene: SceneExport = {
@@ -152,7 +157,8 @@ export function ReplayObservationSceneComponent(): JSX.Element {
     const reasoning = result && typeof result.reasoning === 'string' ? result.reasoning : null
     const reasoningSegments = result?.reasoning_segments
     const scannerType = snapshot?.scanner_type
-    const scannerName = snapshot?.name || 'Scanner'
+    // An inline scanner has no name, so a one-off scan says what it is instead of titling the page "Scanner".
+    const scannerName = hasScannerPage(observation) ? snapshot?.name || 'Scanner' : 'One-off scan'
     const triggerLabel = OBSERVATION_TRIGGER_TAG[observation.triggered_by].label
     const snapshotConfig = configFromSnapshot(snapshot)
     const prompt = snapshotConfig?.prompt ?? null

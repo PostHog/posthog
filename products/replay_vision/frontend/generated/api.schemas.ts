@@ -510,6 +510,17 @@ export interface VisionActionRunApi {
 }
 
 /**
+ * * `configured` - Configured
+ * * `inline` - Inline
+ */
+export type ScannerOriginEnumApi = (typeof ScannerOriginEnumApi)[keyof typeof ScannerOriginEnumApi]
+
+export const ScannerOriginEnumApi = {
+    Configured: 'configured',
+    Inline: 'inline',
+} as const
+
+/**
  * * `pending` - Pending
  * * `running` - Running
  * * `succeeded` - Succeeded
@@ -611,6 +622,11 @@ export interface ReplayObservationApi {
     readonly id: string
     /** The scanner that produced this observation. */
     readonly scanner_id: string
+    /** Where the producing scanner came from. `configured` scanners are saved, named, and have a detail page; `inline` ones are throwaways minted for a one-off scan and are not addressable, so callers must not link to them.
+     *
+     * * `configured` - Configured
+     * * `inline` - Inline */
+    readonly scanner_origin: ScannerOriginEnumApi
     /** Session recording id this scanner was applied to. */
     readonly session_id: string
     /** Observation status (pending, running, succeeded, failed, ineligible).

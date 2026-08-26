@@ -57,7 +57,7 @@ from products.replay_vision.backend.models.replay_observation import (
     jsonb_typeof,
 )
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerOrigin, ScannerType
 from products.replay_vision.backend.scanner_access import (
     accessible_observations,
     can_read_targeted_experiment,
@@ -149,6 +149,16 @@ class ReplayObservationLabelSerializer(serializers.Serializer):
 
 class ReplayObservationSerializer(serializers.ModelSerializer):
     scanner_id = serializers.UUIDField(read_only=True, help_text="The scanner that produced this observation.")
+    scanner_origin = serializers.ChoiceField(
+        choices=ScannerOrigin.choices,
+        read_only=True,
+        source="scanner.origin",
+        help_text=(
+            "Where the producing scanner came from. `configured` scanners are saved, named, and have a detail "
+            "page; `inline` ones are throwaways minted for a one-off scan and are not addressable, so callers "
+            "must not link to them."
+        ),
+    )
     session_id = serializers.CharField(read_only=True, help_text="Session recording id this scanner was applied to.")
     status = serializers.ChoiceField(
         choices=ObservationStatus.choices,
@@ -255,6 +265,7 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "scanner_id",
+            "scanner_origin",
             "session_id",
             "status",
             "error_reason",
@@ -810,7 +821,7 @@ class ReplayObservationViewSet(
             accessible_observations(
                 self.user_access_control, self.team_id, queryset.filter(team_id=self.team_id, scanner_id=scanner.id)
             )
-            .select_related("triggered_by_user", "label")
+            .select_related("scanner", "triggered_by_user", "label")
             .order_by("-created_at", "id")
         )
 
@@ -1208,7 +1219,7 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
                 self.team_id,
                 queryset.filter(team_id=self.team_id, scanner_id__in=readable_scanner_ids),
             )
-            .select_related("triggered_by_user", "label")
+            .select_related("scanner", "triggered_by_user", "label")
             .order_by("-created_at", "id")
         )
         # A bare list would scan the whole team's observation history; the replay page always has a session.

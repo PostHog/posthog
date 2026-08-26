@@ -6,7 +6,11 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { visionObservationsRetrieve } from '../generated/api'
-import type { ReplayObservationApi, VisionObservationsRetrieveParams } from '../generated/api.schemas'
+import {
+    type ReplayObservationApi,
+    ScannerOriginEnumApi,
+    type VisionObservationsRetrieveParams,
+} from '../generated/api.schemas'
 import { scheduleObservationPoll } from '../logics/observationPolling'
 import { requestObservationRetry } from '../logics/observationRetry'
 import { OBSERVATION_LIST_FILTER_KEYS } from '../replay_scanners/types'
@@ -36,6 +40,16 @@ export function neighborFilterParams(searchParams: Record<string, unknown>): Vis
         }
     }
     return params as VisionObservationsRetrieveParams
+}
+
+/**
+ * Whether this observation's scanner has a detail page to navigate to.
+ *
+ * Only configured scanners do. An inline scanner is minted per one-off scan (the player's
+ * "Summarize this recording"), and the scanner endpoints don't serve it, so any link to one fails.
+ */
+export function hasScannerPage(observation: Pick<ReplayObservationApi, 'scanner_origin'>): boolean {
+    return observation.scanner_origin === ScannerOriginEnumApi.Configured
 }
 
 /** Canonical link to an observation's detail page, carrying list filters so prev/next honors them. */
@@ -152,8 +166,11 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
                     )
                     actions.loadObservationSuccess(response)
                     // Link the breadcrumb to the parent scanner so "back" returns to the scanner, not the vision home.
+                    // Inline scanners are throwaways minted for a one-off scan — they're unnamed and the detail
+                    // endpoint doesn't serve them, so a crumb pointing at one 404s and ejects the reader to the
+                    // vision empty state. Those observations get no scanner crumb.
                     replayObservationSceneLogic().actions.setScannerContext(
-                        response.scanner_id,
+                        hasScannerPage(response) ? response.scanner_id : null,
                         response.scanner_snapshot?.name ?? null
                     )
                 } catch (error: any) {
@@ -169,20 +186,30 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
             loadObservationFailure: reschedulePoll,
 
             retryObservation: async () => {
+                // The retried row is deleted, so this page's id dangles afterwards. Hand off to wherever the
+                // replacement shows up: the scanner page for a configured scanner, and the recording itself
+                // for an inline scan, which has no page of its own.
+                const observation = values.observation
+                const landsOnScanner = !!observation && hasScannerPage(observation)
                 const retried = await requestObservationRetry(
                     props.id,
-                    'Retrying scan — the new observation will appear on the scanner page shortly.'
+                    landsOnScanner
+                        ? 'Retrying scan — the new observation will appear on the scanner page shortly.'
+                        : 'Retrying scan — the new observation will appear on the recording shortly.'
                 )
                 if (!retried) {
                     actions.retryObservationFailure()
                     return
                 }
                 actions.retryObservationSuccess()
-                // The retried row is deleted, so this page's id now dangles — hand off to the scanner.
-                const scannerId = values.observation?.scanner_id
-                if (scannerId) {
-                    router.actions.push(urls.replayVision(scannerId))
+                if (!observation) {
+                    return
                 }
+                router.actions.push(
+                    landsOnScanner
+                        ? urls.replayVision(observation.scanner_id)
+                        : urls.replaySingle(observation.session_id)
+                )
             },
 
             // When the stream reports the observation has settled, reload once to render the final result.
