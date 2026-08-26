@@ -3960,6 +3960,9 @@ function MarkdownNotebookEditor({
         })
 
         markNotebookNodeFreshlyInserted(commentNode.id)
+        // Open the composer through the transient panel cache instead of a persisted prop, so the
+        // open state stays local to this session and never leaks into the shared document markdown.
+        setLocalComponentPanels(commentNode.id, { filters: true, results: true })
         floatingToolbarPositionLockRef.current = null
         setFloatingToolbar(null)
         window.getSelection()?.removeAllRanges()
@@ -4074,6 +4077,9 @@ function MarkdownNotebookEditor({
             props: { replies: [] },
         }
         markNotebookNodeFreshlyInserted(commentNode.id)
+        // Open the composer through the transient panel cache instead of a persisted prop, so the
+        // open state stays local to this session and never leaks into the shared document markdown.
+        setLocalComponentPanels(commentNode.id, { filters: true, results: true })
         commitDocument({
             ...currentDocument,
             nodes: [...nodes.slice(0, insertIndex), commentNode, ...nodes.slice(insertIndex)],

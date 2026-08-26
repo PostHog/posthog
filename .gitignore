@@ -234,3 +234,8 @@ dump.rdb
 # addresses, hostnames, request ids, user agents — and this repository is public.
 corpora/
 .gstack/
+
+# pytest-split timing data. CI restores it from the Actions cache or the timing
+# workflow's artifact; it is never committed.
+.test_durations
+.test_durations.*

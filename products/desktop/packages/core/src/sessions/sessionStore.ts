@@ -410,6 +410,18 @@ export const sessionStoreSetters = {
     });
   },
 
+  removeOptimisticItems: (taskRunId: string, ids: string[]): void => {
+    const removed = new Set(ids);
+    sessionStore.setState((state) => {
+      const session = state.sessions[taskRunId];
+      if (session) {
+        session.optimisticItems = session.optimisticItems.filter(
+          (item) => !removed.has(item.id),
+        );
+      }
+    });
+  },
+
   replaceOptimisticWithEvent: (taskRunId: string, event: AcpMessage): void => {
     sessionStore.setState((state) => {
       const session = state.sessions[taskRunId];

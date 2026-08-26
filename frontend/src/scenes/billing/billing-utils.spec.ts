@@ -23,6 +23,8 @@ import {
     getProration,
     getUsageLimitConsequence,
     isMemberUsageSpendReadAccessEnabled,
+    isUsageApproachingLimit,
+    isUsageAtOrOverLimit,
     projectUsage,
     summarizeUsage,
 } from './billing-utils'
@@ -37,6 +39,23 @@ describe('summarizeUsage', () => {
         expect(summarizeUsage(100000)).toEqual('100 K')
         expect(summarizeUsage(999999)).toEqual('1 M')
         expect(summarizeUsage(10000000)).toEqual('10 M')
+    })
+})
+
+describe('usage limit thresholds', () => {
+    it('treats exactly 100% usage as at the limit', () => {
+        expect(isUsageAtOrOverLimit(null)).toBe(false)
+        expect(isUsageAtOrOverLimit(undefined)).toBe(false)
+        expect(isUsageAtOrOverLimit(0.99)).toBe(false)
+        expect(isUsageAtOrOverLimit(1)).toBe(true)
+        expect(isUsageAtOrOverLimit(1.01)).toBe(true)
+    })
+
+    it('only treats usage below 100% as approaching the limit', () => {
+        expect(isUsageApproachingLimit(0.8, 0.8)).toBe(false)
+        expect(isUsageApproachingLimit(0.81, 0.8)).toBe(true)
+        expect(isUsageApproachingLimit(1, 0.8)).toBe(false)
+        expect(isUsageApproachingLimit(1.01, 0.8)).toBe(false)
     })
 })
 
