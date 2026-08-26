@@ -165,19 +165,23 @@ describe('taskTrackerSceneLogic', () => {
 
     // The tasks backend has no server-side consent check (unlike the conversations coordinator), so a
     // send must be blocked client-side before it ever reaches `api.tasks.create` — otherwise a sandbox
-    // run starts with zero consent enforcement. Uses a distinct `panelId` key so the logic is built
-    // (and connects to `aiConsentLogic`) after the selector is stubbed.
-    it('blocks submitNewTask without creating a task when AI data processing consent is not accepted', async () => {
+    // run starts with zero consent enforcement. Warming is held to the same rule: it boots a cloud
+    // sandbox and clones the selected repository, so typing must not start one either. Uses a distinct
+    // `panelId` key so the logic is built (and connects to `aiConsentLogic`) after the selector is stubbed.
+    it('blocks submitNewTask and warming when AI data processing consent is not accepted', async () => {
         const consent = aiConsentLogic()
         consent.mount()
         jest.spyOn(consent.selectors, 'dataProcessingAccepted').mockReturnValue(false)
 
         const blockedLogic = taskTrackerSceneLogic({ panelId: 'consent-test' })
         blockedLogic.mount()
-        blockedLogic.actions.setNewTaskData({ description: 'do the thing' })
-        blockedLogic.actions.submitNewTask()
 
-        await expectLogic(blockedLogic).toFinishAllListeners()
+        await expectLogic(blockedLogic, () => {
+            blockedLogic.actions.setNewTaskData({ description: 'do the thing' })
+            blockedLogic.actions.submitNewTask()
+        })
+            .toNotHaveDispatchedActions(['noteDraft'])
+            .toFinishAllListeners()
 
         expect(createBody).toBeNull()
         expect(blockedLogic.values.consentBlocked).toBe(true)

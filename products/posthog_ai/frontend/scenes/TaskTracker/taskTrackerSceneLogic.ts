@@ -526,7 +526,10 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             // up. `useDebouncedDraft` already coalesces keystrokes into this action, and `taskWarmLogic`
             // debounces again before it commits to a sandbox. Skipped while a run is being created —
             // that run is the desired state, not a warm.
-            if (!values.activeCreation) {
+            // Consent gates warming as it gates submitting (see `submitNewTask`): a warm boots a cloud
+            // sandbox and clones the selected repository, so it must not run before the organization
+            // accepts AI data processing.
+            if (!values.activeCreation && values.dataProcessingAccepted) {
                 const request = buildWarmRequest(values.newTaskData, values.catalogue)
                 if (request) {
                     actions.noteDraft(values.newTaskData.description.trim().length > 0, request)
