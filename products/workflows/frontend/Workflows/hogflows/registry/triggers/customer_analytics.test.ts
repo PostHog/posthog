@@ -69,21 +69,24 @@ describe('customer analytics triggers', () => {
         expect(getSelectedTags(config)).toEqual(expected)
     })
 
-    it('recognizes existing added-only tag triggers and removed-only tag triggers', () => {
+    it.each([
+        { name: 'added-only', events: [{ id: '$account_tag_added', type: 'events' }], expected: true },
+        { name: 'removed-only', events: [{ id: '$account_tag_removed', type: 'events' }], expected: true },
+        {
+            name: 'nested event filter',
+            events: [
+                {
+                    id: '$account_tag_added',
+                    type: 'events',
+                    properties: [{ key: 'source', value: 'workflow', operator: 'exact', type: 'event' }],
+                },
+            ],
+            expected: false,
+        },
+    ])('matches $name tag trigger configs: $expected', ({ events, expected }) => {
         const triggerType = getTriggerType('account_tag_changed')
 
-        expect(
-            triggerType.matchConfig!({
-                type: 'event',
-                filters: { events: [{ id: '$account_tag_added', type: 'events' }] },
-            })
-        ).toBe(true)
-        expect(
-            triggerType.matchConfig!({
-                type: 'event',
-                filters: { events: [{ id: '$account_tag_removed', type: 'events' }] },
-            })
-        ).toBe(true)
+        expect(triggerType.matchConfig!({ type: 'event', filters: { events } })).toBe(expected)
     })
 
     it.each([

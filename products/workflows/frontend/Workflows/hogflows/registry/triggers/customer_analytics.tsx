@@ -82,10 +82,14 @@ function isAccountTagChangedConfig(config: EventTriggerConfig): boolean {
     if (config.type !== 'event') {
         return false
     }
-    const eventIds = (config.filters?.events ?? []).map((event: any) => event?.id)
+    const events = config.filters?.events ?? []
     return (
-        eventIds.length > 0 &&
-        eventIds.every((eventId) => eventId === ACCOUNT_TAG_ADDED_EVENT || eventId === ACCOUNT_TAG_REMOVED_EVENT)
+        events.length > 0 &&
+        events.every(
+            (event: any) =>
+                (event?.id === ACCOUNT_TAG_ADDED_EVENT || event?.id === ACCOUNT_TAG_REMOVED_EVENT) &&
+                !event?.properties?.length
+        )
     )
 }
 
