@@ -9,7 +9,6 @@ import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 import { tryDecodeURIComponent } from 'lib/utils/url'
 
 import { JourneyStep, JourneyTransition, agentAnalyticsLogic } from './agentAnalyticsLogic'
-import { AgentJourneyConfidenceTag } from './AgentJourneyConfidenceTag'
 import { AgentQueryError } from './AgentQueryError'
 
 const TRANSITION_CONFIG: Record<JourneyTransition, { label: string; help: string }> = {
@@ -98,7 +97,6 @@ export const AgentJourneyDetail = (): JSX.Element => {
                     <span className="flex flex-wrap items-center gap-2">
                         <span className="font-medium text-default">{selectedJourney.agent}</span>
                         <span className="text-secondary">on {selectedJourney.host || 'unknown domain'}</span>
-                        <AgentJourneyConfidenceTag confidence={selectedJourney.confidence} />
                         {selectedJourney.started ? (
                             <span className="text-secondary">
                                 started <TZLabel time={selectedJourney.started} />
@@ -113,7 +111,7 @@ export const AgentJourneyDetail = (): JSX.Element => {
         >
             <AgentQueryError
                 error={journeyDetailError}
-                message="Could not load this journey. Try again. If it keeps happening, contact support."
+                subject="this journey"
                 onRetry={loadJourneyDetail}
                 loading={journeyDetailLoading}
             >

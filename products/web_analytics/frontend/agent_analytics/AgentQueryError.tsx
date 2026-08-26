@@ -4,17 +4,17 @@ import { LemonBanner } from '@posthog/lemon-ui'
 
 interface AgentQueryErrorProps {
     error: string | null
-    message: string
+    subject: string
     onRetry: () => void
     loading: boolean
     children: ReactNode
 }
 
-export const AgentQueryError = ({ error, message, onRetry, loading, children }: AgentQueryErrorProps): JSX.Element => {
+export const AgentQueryError = ({ error, subject, onRetry, loading, children }: AgentQueryErrorProps): JSX.Element => {
     if (error) {
         return (
             <LemonBanner type="error" action={{ children: 'Try again', onClick: onRetry, loading }}>
-                {message}
+                {`Could not load ${subject}. Try again. If it keeps happening, contact support.`}
             </LemonBanner>
         )
     }

@@ -1,23 +1,12 @@
-import {
-    type BreakPointFunction,
-    MakeLogicType,
-    actions,
-    afterMount,
-    connect,
-    isBreakpoint,
-    kea,
-    listeners,
-    path,
-    reducers,
-    selectors,
-} from 'kea'
+import type { BreakPointFunction } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
+import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import type { PaginationManual } from '@posthog/lemon-ui'
 
-import { isAbortedRequest } from 'lib/utils/requests'
 import { teamLogic } from 'scenes/teamLogic'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 import type { DateFilterState } from 'scenes/web-analytics/webAnalyticsLogic'
@@ -39,7 +28,6 @@ import * as webAnalyticsApi from 'products/web_analytics/frontend/generated/api'
 export type AgentScope = 'live' | 'all'
 export type AgentView = 'overview' | 'journeys' | 'issues' | 'readiness'
 export type AgentIssueType = 'content_gap' | 'waste' | 'malformed'
-export type JourneyConfidence = 'explicit' | 'inferred'
 export type JourneyTransition = 'start' | 'confirmed' | 'sequential' | 'parallel'
 
 export interface OverviewStats {
@@ -72,7 +60,6 @@ export interface AgentIssue {
     demand: number
     demandPrev: number
     changePct: number | null
-    variants: number
     topAgent: string | null
     firstSeen: string | null
     lastSeen: string | null
@@ -110,13 +97,7 @@ export interface IssueVariant {
 export interface RequestAnatomyRow {
     agent: string
     requests: number
-    acceptCaptured: number
-    acceptMarkdownPreferred: number
-    acceptMarkdownAccepted: number
-    acceptHtmlOnly: number
     requestedMarkdown: number
-    servedCaptured: number
-    servedMarkdown: number
     retryPairs: number
     errors: number
 }
@@ -127,7 +108,6 @@ export interface JourneySummary {
     medianRequests: number
     medianDurationSeconds: number
     journeysWithErrors: number
-    explicitJourneys: number
 }
 
 export interface JourneyRow {
@@ -139,7 +119,6 @@ export interface JourneyRow {
     requests: number
     durationSeconds: number
     errors: number
-    confidence: JourneyConfidence
 }
 
 export interface JourneyStep {
@@ -197,7 +176,6 @@ export const EMPTY_JOURNEY_SUMMARY: JourneySummary = {
     medianRequests: 0,
     medianDurationSeconds: 0,
     journeysWithErrors: 0,
-    explicitJourneys: 0,
 }
 
 const validateLlmsTxtSource = ({ url }: LlmsTxtSourceForm): { url: string | undefined } => {
@@ -275,15 +253,20 @@ export const changePct = (current: number, previous: number | null): number | nu
     return Math.round(((current - previous) / previous) * 100)
 }
 
-const RECOMMENDED_FIX: Record<AgentIssueType, string[]> = {
-    content_gap: [
-        'Publish a page at the requested path',
-        'Redirect equivalent missing paths to the new page',
-        'List the page in llms.txt and provide a markdown version',
-    ],
-    waste: ['List markdown versions in llms.txt', 'Advertise markdown versions with an HTTP Link header'],
-    malformed: ['Redirect each malformed path to the closest valid page'],
-}
+const contentGapFix = (path: string): string[] => [
+    path
+        ? `Publish a page at ${path}, or redirect it if the content moved`
+        : 'Publish the requested page, or redirect it if the content moved',
+    'Redirect the other requested URLs listed below to that page',
+    'List the page in llms.txt and link its markdown version',
+]
+
+const WASTE_FIX = ['List markdown versions in llms.txt', 'Advertise markdown versions with an HTTP Link header']
+
+const MALFORMED_FIX = [
+    'Check whether your own pages link to unfilled URL templates',
+    'Redirect the malformed paths to the closest valid page',
+]
 
 export const parseIssuesResponse = (columns: string[] | undefined, results: unknown[][] | undefined): AgentIssue[] => {
     const keyIdx = columnIndex(columns, 'intent_key')
@@ -302,22 +285,22 @@ export const parseIssuesResponse = (columns: string[] | undefined, results: unkn
             if (!key) {
                 return null
             }
+            const intentPath = str(row[pathIdx])
             const demand = num(row[demandIdx])
             const demandPrev = num(row[demandPrevIdx])
             const variants = num(row[variantsIdx])
             return {
                 key,
                 type: 'content_gap',
-                title: `Agents requested ${str(row[pathIdx]) || '(unknown page)'}`,
+                title: `Agents requested ${intentPath || '(unknown page)'}`,
                 subtitle: `${variants} requested URL ${variants === 1 ? 'variant' : 'variants'}`,
                 demand,
                 demandPrev,
                 changePct: changePct(demand, demandPrev),
-                variants,
                 topAgent: str(row[agentIdx]) || null,
                 firstSeen: str(row[firstSeenIdx]) || null,
                 lastSeen: str(row[lastSeenIdx]) || null,
-                recommendedFix: RECOMMENDED_FIX.content_gap,
+                recommendedFix: contentGapFix(intentPath),
             }
         })
         .filter((issue): issue is AgentIssue => issue !== null)
@@ -334,11 +317,10 @@ export const synthesizeAuxIssues = (overview: OverviewStats): AgentIssue[] => {
             demand: overview.wasted,
             demandPrev: overview.wastedPrev,
             changePct: changePct(overview.wasted, overview.wastedPrev),
-            variants: overview.wastePages,
             topAgent: null,
             firstSeen: null,
             lastSeen: null,
-            recommendedFix: RECOMMENDED_FIX.waste,
+            recommendedFix: WASTE_FIX,
         })
     }
     if (overview.malformed > 0) {
@@ -350,11 +332,10 @@ export const synthesizeAuxIssues = (overview: OverviewStats): AgentIssue[] => {
             demand: overview.malformed,
             demandPrev: overview.malformedPrev,
             changePct: changePct(overview.malformed, overview.malformedPrev),
-            variants: 0,
             topAgent: null,
             firstSeen: null,
             lastSeen: null,
-            recommendedFix: RECOMMENDED_FIX.malformed,
+            recommendedFix: MALFORMED_FIX,
         })
     }
     return issues
@@ -418,25 +399,13 @@ export const parseRequestAnatomy = (
 ): RequestAnatomyRow[] => {
     const agentIdx = columnIndex(columns, 'agent')
     const requestsIdx = columnIndex(columns, 'requests')
-    const acceptCapturedIdx = columnIndex(columns, 'accept_captured')
-    const acceptPreferredIdx = columnIndex(columns, 'accept_markdown_preferred')
-    const acceptAcceptedIdx = columnIndex(columns, 'accept_markdown_accepted')
-    const acceptHtmlIdx = columnIndex(columns, 'accept_html_only')
     const requestedMdIdx = columnIndex(columns, 'requested_markdown')
-    const servedCapturedIdx = columnIndex(columns, 'served_captured')
-    const servedMdIdx = columnIndex(columns, 'served_markdown')
     const retryIdx = columnIndex(columns, 'retry_pairs')
     const errorsIdx = columnIndex(columns, 'errors')
     return (results ?? []).filter(Array.isArray).map((row) => ({
         agent: str(row[agentIdx]) || 'Unclassified agent',
         requests: num(row[requestsIdx]),
-        acceptCaptured: num(row[acceptCapturedIdx]),
-        acceptMarkdownPreferred: num(row[acceptPreferredIdx]),
-        acceptMarkdownAccepted: num(row[acceptAcceptedIdx]),
-        acceptHtmlOnly: num(row[acceptHtmlIdx]),
         requestedMarkdown: num(row[requestedMdIdx]),
-        servedCaptured: num(row[servedCapturedIdx]),
-        servedMarkdown: num(row[servedMdIdx]),
         retryPairs: num(row[retryIdx]),
         errors: num(row[errorsIdx]),
     }))
@@ -460,7 +429,6 @@ export const parseJourneySummary = (
         medianRequests: get('median_requests'),
         medianDurationSeconds: get('median_duration_seconds'),
         journeysWithErrors: get('journeys_with_errors'),
-        explicitJourneys: get('explicit_journeys'),
     }
 }
 
@@ -473,7 +441,6 @@ export const parseJourneys = (columns: string[] | undefined, results: unknown[][
     const requestsIdx = columnIndex(columns, 'requests')
     const durationIdx = columnIndex(columns, 'duration_seconds')
     const errorsIdx = columnIndex(columns, 'errors')
-    const confidenceIdx = columnIndex(columns, 'confidence')
     return (results ?? [])
         .filter(Array.isArray)
         .map((row): JourneyRow | null => {
@@ -490,7 +457,6 @@ export const parseJourneys = (columns: string[] | undefined, results: unknown[][
                 requests: num(row[requestsIdx]),
                 durationSeconds: num(row[durationIdx]),
                 errors: num(row[errorsIdx]),
-                confidence: str(row[confidenceIdx]) === 'explicit' ? 'explicit' : 'inferred',
             }
         })
         .filter((journey): journey is JourneyRow => journey !== null)
@@ -600,19 +566,40 @@ export const summarizeDemandCoverage = (
     }
 }
 
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface agentAnalyticsLogicValues {
-    currentTeam: TeamPublicType | TeamType | null
-    dateFilter: DateFilterState
-    filterTestAccounts: boolean
-    compareFilter: CompareFilter
-    conversionGoal: WebAnalyticsConversionGoal | null
-    webAnalyticsFilters: WebAnalyticsPropertyFilters
-    view: AgentView
-    scope: AgentScope
-    contentGrouping: WebAgentContentGrouping
-    resultHasMore: Partial<Record<WebAgentAnalyticsQueryType, boolean>>
-    selectedIssueKey: string | null
+    currentTeam: TeamPublicType | TeamType | null // teamLogic
+    compareFilter: CompareFilter // webAnalyticsLogic
+    conversionGoal: WebAnalyticsConversionGoal | null // webAnalyticsLogic
+    dateFilter: DateFilterState // webAnalyticsLogic
+    filterTestAccounts: boolean // webAnalyticsLogic
+    webAnalyticsFilters: WebAnalyticsPropertyFilters // webAnalyticsLogic
+    anyLoading: boolean
+    contentGapIssues: AgentIssue[]
+    contentGapIssuesError: string | null
+    contentGapIssuesLoading: boolean
+    demandCoverage: DemandCoverage
+    demandRows: DemandRow[]
+    demandRowsError: string | null
+    demandRowsLoading: boolean
+    includeCrawlers: boolean
+    isLlmsTxtSourceSubmitting: boolean
+    isLlmsTxtSourceValid: boolean
+    issues: AgentIssue[]
+    issuesPage: number
+    journeyDetail: JourneyStep[]
+    journeyDetailError: string | null
+    journeyDetailLoading: boolean
+    journeySummary: JourneySummary | null
+    journeySummaryError: string | null
+    journeySummaryLoading: boolean
+    journeys: JourneyRow[]
+    journeysError: string | null
+    journeysLoading: boolean
+    llmsTxtFetchError: string | null
     llmsTxtInput: string
+    llmsTxtLinks: Map<string, LlmsTxtLink>
+    llmsTxtLoadedUrl: string | null
     llmsTxtSource: LlmsTxtSourceForm
     llmsTxtSourceAllErrors: Record<string, any>
     llmsTxtSourceChanged: boolean
@@ -622,145 +609,398 @@ export interface agentAnalyticsLogicValues {
     llmsTxtSourceTouched: boolean
     llmsTxtSourceTouches: Record<string, boolean>
     llmsTxtSourceValidationErrors: DeepPartialMap<LlmsTxtSourceForm, ValidationErrorType>
-    llmsTxtLoadedUrl: string | null
-    llmsTxtFetchError: string | null
-    isLlmsTxtSourceSubmitting: boolean
-    isLlmsTxtSourceValid: boolean
-    showLlmsTxtSourceErrors: boolean
-    overview: OverviewStats | null
-    overviewLoading: boolean
-    overviewError: string | null
-    contentGapIssues: AgentIssue[]
-    issuesLoading: boolean
-    issuesError: string | null
-    whatAgentsRead: PageRead[]
-    whatAgentsReadLoading: boolean
-    whatAgentsReadError: string | null
     nextHops: NextHop[]
-    nextHopsLoading: boolean
     nextHopsError: string | null
-    demandRows: DemandRow[]
-    demandRowsLoading: boolean
-    demandRowsError: string | null
-    variants: IssueVariant[]
-    variantsLoading: boolean
-    variantsError: string | null
+    nextHopsLoading: boolean
+    overview: OverviewStats | null
+    overviewError: string | null
+    overviewLoading: boolean
     requestAnatomy: RequestAnatomyRow[]
-    requestAnatomyLoading: boolean
     requestAnatomyError: string | null
-    journeySummary: JourneySummary | null
-    journeySummaryLoading: boolean
-    journeySummaryError: string | null
-    journeys: JourneyRow[]
-    journeysLoading: boolean
-    journeysError: string | null
+    requestAnatomyLoading: boolean
+    resultHasMore: Partial<Record<WebAgentAnalyticsQueryType, boolean>>
     resultPages: Partial<Record<WebAgentAnalyticsQueryType, number>>
     resultPaginations: Partial<Record<WebAgentAnalyticsQueryType, PaginationManual>>
-    selectedJourneyKey: string | null
-    journeyDetail: JourneyStep[]
-    journeyDetailLoading: boolean
-    journeyDetailError: string | null
-    includeCrawlers: boolean
-    anyLoading: boolean
-    issues: AgentIssue[]
-    topIssues: AgentIssue[]
+    scope: AgentScope
     selectedIssue: AgentIssue | null
+    selectedIssueKey: string | null
     selectedJourney: JourneyRow | null
-    llmsTxtLinks: Map<string, LlmsTxtLink>
-    demandCoverage: DemandCoverage
+    selectedJourneyKey: string | null
+    showLlmsTxtSourceErrors: boolean
+    topIssues: AgentIssue[]
+    variants: IssueVariant[]
+    variantsError: string | null
+    variantsLoading: boolean
+    view: AgentView
+    whatAgentsRead: PageRead[]
+    whatAgentsReadError: string | null
+    whatAgentsReadLoading: boolean
 }
 
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface agentAnalyticsLogicActions {
-    setWebAnalyticsCompareFilter: (compareFilter: CompareFilter) => { compareFilter: CompareFilter }
-    setWebAnalyticsDateInterval: (interval: IntervalType) => { interval: IntervalType }
+    setWebAnalyticsCompareFilter: (compareFilter: CompareFilter) => {
+        compareFilter: CompareFilter
+    } // webAnalyticsLogic
+    setWebAnalyticsConversionGoal: (conversionGoal: WebAnalyticsConversionGoal | null) => {
+        conversionGoal: WebAnalyticsConversionGoal | null
+    } // webAnalyticsLogic
+    setWebAnalyticsCountryFilter: (countryCode: string | null) => {
+        countryCode: string | null
+    } // webAnalyticsLogic
+    setWebAnalyticsDateInterval: (interval: IntervalType) => {
+        interval: IntervalType
+    } // webAnalyticsLogic
     setWebAnalyticsDates: (
         dateFrom: string | null,
         dateTo: string | null
-    ) => { dateFrom: string | null; dateTo: string | null }
+    ) => {
+        dateFrom: string | null
+        dateTo: string | null
+    } // webAnalyticsLogic
     setWebAnalyticsDatesAndInterval: (
         dateFrom: string | null,
         dateTo: string | null,
         interval: IntervalType
-    ) => { dateFrom: string | null; dateTo: string | null; interval: IntervalType }
-    setWebAnalyticsFilterTestAccounts: (shouldFilterTestAccounts: boolean) => { shouldFilterTestAccounts: boolean }
-    setWebAnalyticsConversionGoal: (conversionGoal: WebAnalyticsConversionGoal | null) => {
-        conversionGoal: WebAnalyticsConversionGoal | null
-    }
+    ) => {
+        dateFrom: string | null
+        dateTo: string | null
+        interval: IntervalType
+    } // webAnalyticsLogic
+    setWebAnalyticsDeviceTypeFilter: (deviceType: null | import('scenes/web-analytics/common').DeviceType) => {
+        deviceType: null | import('scenes/web-analytics/common').DeviceType
+    } // webAnalyticsLogic
+    setWebAnalyticsDomainFilter: (domain: string | null) => {
+        domain: string | null
+    } // webAnalyticsLogic
+    setWebAnalyticsFilterTestAccounts: (shouldFilterTestAccounts: boolean) => {
+        shouldFilterTestAccounts: boolean
+    } // webAnalyticsLogic
     setWebAnalyticsFilters: (webAnalyticsFilters: WebAnalyticsPropertyFilters) => {
         webAnalyticsFilters: WebAnalyticsPropertyFilters
+    } // webAnalyticsLogic
+    setWebAnalyticsReferrerFilter: (referrer: string | null) => {
+        referrer: string | null
+    } // webAnalyticsLogic
+    loadDemandRows: () => {
+        value: true
     }
-    setWebAnalyticsDomainFilter: (domain: string | null) => { domain: string | null }
-    setWebAnalyticsDeviceTypeFilter: (deviceType: 'Desktop' | 'Mobile' | null) => {
-        deviceType: 'Desktop' | 'Mobile' | null
+    loadDemandRowsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
     }
-    setWebAnalyticsCountryFilter: (countryCode: string | null) => { countryCode: string | null }
-    setWebAnalyticsReferrerFilter: (referrer: string | null) => { referrer: string | null }
-    setView: (view: AgentView) => { view: AgentView }
-    setScope: (scope: AgentScope) => { scope: AgentScope }
-    setSelectedJourneyKey: (journeyKey: string | null) => { journeyKey: string | null }
-    setContentGrouping: (contentGrouping: WebAgentContentGrouping) => { contentGrouping: WebAgentContentGrouping }
+    loadDemandRowsSuccess: (
+        demandRows: DemandRow[],
+        payload?: {
+            value: true
+        }
+    ) => {
+        demandRows: DemandRow[]
+        payload?: {
+            value: true
+        }
+    }
+    loadIssues: () => {
+        value: true
+    }
+    loadIssuesFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadIssuesSuccess: (
+        contentGapIssues: AgentIssue[],
+        payload?: {
+            value: true
+        }
+    ) => {
+        contentGapIssues: AgentIssue[]
+        payload?: {
+            value: true
+        }
+    }
+    loadJourneyDetail: () => {
+        value: true
+    }
+    loadJourneyDetailFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadJourneyDetailSuccess: (
+        journeyDetail: JourneyStep[],
+        payload?: {
+            value: true
+        }
+    ) => {
+        journeyDetail: JourneyStep[]
+        payload?: {
+            value: true
+        }
+    }
+    loadJourneySummary: () => {
+        value: true
+    }
+    loadJourneySummaryFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadJourneySummarySuccess: (
+        journeySummary: JourneySummary,
+        payload?: {
+            value: true
+        }
+    ) => {
+        journeySummary: JourneySummary
+        payload?: {
+            value: true
+        }
+    }
+    loadJourneys: () => {
+        value: true
+    }
+    loadJourneysFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadJourneysSuccess: (
+        journeys: JourneyRow[],
+        payload?: {
+            value: true
+        }
+    ) => {
+        journeys: JourneyRow[]
+        payload?: {
+            value: true
+        }
+    }
+    loadNextHops: () => {
+        value: true
+    }
+    loadNextHopsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadNextHopsSuccess: (
+        nextHops: NextHop[],
+        payload?: {
+            value: true
+        }
+    ) => {
+        nextHops: NextHop[]
+        payload?: {
+            value: true
+        }
+    }
+    loadOverview: () => {
+        value: true
+    }
+    loadOverviewFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadOverviewSuccess: (
+        overview: OverviewStats,
+        payload?: {
+            value: true
+        }
+    ) => {
+        overview: OverviewStats
+        payload?: {
+            value: true
+        }
+    }
+    loadRequestAnatomy: () => {
+        value: true
+    }
+    loadRequestAnatomyFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadRequestAnatomySuccess: (
+        requestAnatomy: RequestAnatomyRow[],
+        payload?: {
+            value: true
+        }
+    ) => {
+        requestAnatomy: RequestAnatomyRow[]
+        payload?: {
+            value: true
+        }
+    }
+    loadVariants: () => {
+        value: true
+    }
+    loadVariantsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadVariantsSuccess: (
+        variants: IssueVariant[],
+        payload?: {
+            value: true
+        }
+    ) => {
+        variants: IssueVariant[]
+        payload?: {
+            value: true
+        }
+    }
+    loadWhatAgentsRead: () => {
+        value: true
+    }
+    loadWhatAgentsReadFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadWhatAgentsReadSuccess: (
+        whatAgentsRead: PageRead[],
+        payload?: {
+            value: true
+        }
+    ) => {
+        whatAgentsRead: PageRead[]
+        payload?: {
+            value: true
+        }
+    }
+    refresh: () => {
+        value: true
+    }
+    resetLlmsTxtSource: (values?: LlmsTxtSourceForm) => {
+        values?: LlmsTxtSourceForm
+    }
+    setLlmsTxtFromUrl: (
+        content: string,
+        url: string
+    ) => {
+        content: string
+        url: string
+    }
+    setLlmsTxtSourceManualErrors: (errors: Record<string, any>) => {
+        errors: Record<string, any>
+    }
+    setLlmsTxtSourceValue: (
+        key: FieldName,
+        value: any
+    ) => {
+        name: FieldName
+        value: any
+    }
+    setLlmsTxtSourceValues: (values: DeepPartial<LlmsTxtSourceForm>) => {
+        values: DeepPartial<LlmsTxtSourceForm>
+    }
     setResultHasMore: (
         queryType: WebAgentAnalyticsQueryType,
         hasMore: boolean
     ) => {
-        queryType: WebAgentAnalyticsQueryType
         hasMore: boolean
+        queryType: WebAgentAnalyticsQueryType
     }
-    setSelectedIssueKey: (key: string | null) => { key: string | null }
-    setLlmsTxtFromUrl: (content: string, url: string) => { content: string; url: string }
-    resetLlmsTxtSource: (values?: LlmsTxtSourceForm) => { values?: LlmsTxtSourceForm }
-    setLlmsTxtSourceManualErrors: (errors: Record<string, any>) => { errors: Record<string, any> }
-    setLlmsTxtSourceValue: (key: FieldName, value: any) => { name: FieldName; value: any }
-    setLlmsTxtSourceValues: (values: DeepPartial<LlmsTxtSourceForm>) => { values: DeepPartial<LlmsTxtSourceForm> }
-    submitLlmsTxtSource: () => { value: boolean }
-    submitLlmsTxtSourceFailure: (
-        error: Error,
-        errors: Record<string, any>
-    ) => { error: Error; errors: Record<string, any> }
-    submitLlmsTxtSourceRequest: (llmsTxtSource: LlmsTxtSourceForm) => { llmsTxtSource: LlmsTxtSourceForm }
-    submitLlmsTxtSourceSuccess: (llmsTxtSource: LlmsTxtSourceForm) => { llmsTxtSource: LlmsTxtSourceForm }
-    touchLlmsTxtSourceField: (key: string) => { key: string }
-    refresh: () => { value: true }
-    loadOverview: () => { value: true }
-    loadOverviewSuccess: (overview: OverviewStats) => { overview: OverviewStats }
-    loadOverviewFailure: (error: string) => { error: string }
-    loadIssues: () => { value: true }
-    loadIssuesSuccess: (contentGapIssues: AgentIssue[]) => { contentGapIssues: AgentIssue[] }
-    loadIssuesFailure: (error: string) => { error: string }
-    loadWhatAgentsRead: () => { value: true }
-    loadWhatAgentsReadSuccess: (whatAgentsRead: PageRead[]) => { whatAgentsRead: PageRead[] }
-    loadWhatAgentsReadFailure: (error: string) => { error: string }
-    loadNextHops: () => { value: true }
-    loadNextHopsSuccess: (nextHops: NextHop[]) => { nextHops: NextHop[] }
-    loadNextHopsFailure: (error: string) => { error: string }
-    loadDemandRows: () => { value: true }
-    loadDemandRowsSuccess: (demandRows: DemandRow[]) => { demandRows: DemandRow[] }
-    loadDemandRowsFailure: (error: string) => { error: string }
-    loadVariants: () => { value: true }
-    loadVariantsSuccess: (variants: IssueVariant[]) => { variants: IssueVariant[] }
-    loadVariantsFailure: (error: string) => { error: string }
-    loadRequestAnatomy: () => { value: true }
-    loadRequestAnatomySuccess: (requestAnatomy: RequestAnatomyRow[]) => { requestAnatomy: RequestAnatomyRow[] }
-    loadRequestAnatomyFailure: (error: string) => { error: string }
-    loadJourneySummary: () => { value: true }
-    loadJourneySummarySuccess: (journeySummary: JourneySummary) => { journeySummary: JourneySummary }
-    loadJourneySummaryFailure: (error: string) => { error: string }
-    loadJourneys: () => { value: true }
-    loadJourneysSuccess: (journeys: JourneyRow[]) => { journeys: JourneyRow[] }
-    loadJourneysFailure: (error: string) => { error: string }
     setResultPage: (
         queryType: WebAgentAnalyticsQueryType,
         page: number
     ) => {
-        queryType: WebAgentAnalyticsQueryType
         page: number
+        queryType: WebAgentAnalyticsQueryType
     }
-    loadJourneyDetail: () => { value: true }
-    loadJourneyDetailSuccess: (journeyDetail: JourneyStep[]) => { journeyDetail: JourneyStep[] }
-    loadJourneyDetailFailure: (error: string) => { error: string }
+    setScope: (scope: AgentScope) => {
+        scope: AgentScope
+    }
+    setSelectedIssueKey: (key: string | null) => {
+        key: string | null
+    }
+    setSelectedJourneyKey: (journeyKey: string | null) => {
+        journeyKey: string | null
+    }
+    setView: (view: AgentView) => {
+        view: AgentView
+    }
+    submitLlmsTxtSource: () => {
+        value: boolean
+    }
+    submitLlmsTxtSourceFailure: (
+        error: Error,
+        errors: Record<string, any>
+    ) => {
+        error: Error
+        errors: Record<string, any>
+    }
+    submitLlmsTxtSourceRequest: (llmsTxtSource: LlmsTxtSourceForm) => {
+        llmsTxtSource: LlmsTxtSourceForm
+    }
+    submitLlmsTxtSourceSuccess: (llmsTxtSource: LlmsTxtSourceForm) => {
+        llmsTxtSource: LlmsTxtSourceForm
+    }
+    touchLlmsTxtSourceField: (key: string) => {
+        key: string
+    }
 }
 
-export type agentAnalyticsLogicType = MakeLogicType<agentAnalyticsLogicValues, agentAnalyticsLogicActions>
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface agentAnalyticsLogicMeta {
+    __keaTypeGenInternalSelectorTypes: {
+        includeCrawlers: (scope: AgentScope) => boolean
+        anyLoading: (
+            overviewLoading: boolean,
+            contentGapIssuesLoading: boolean,
+            whatAgentsReadLoading: boolean,
+            nextHopsLoading: boolean,
+            demandRowsLoading: boolean,
+            variantsLoading: boolean,
+            requestAnatomyLoading: boolean,
+            journeySummaryLoading: boolean,
+            journeysLoading: boolean,
+            journeyDetailLoading: boolean
+        ) => boolean
+        demandCoverage: (demandRows: DemandRow[], llmsTxtLinks: Map<string, LlmsTxtLink>) => DemandCoverage
+        issuesPage: (resultPages: Partial<Record<WebAgentAnalyticsQueryType, number>>) => number
+        issues: (contentGapIssues: AgentIssue[], overview: OverviewStats | null, issuesPage: number) => AgentIssue[]
+        topIssues: (issues: AgentIssue[]) => AgentIssue[]
+        selectedIssue: (issues: AgentIssue[], selectedIssueKey: string | null) => AgentIssue | null
+        selectedJourney: (journeys: JourneyRow[], selectedJourneyKey: string | null) => JourneyRow | null
+        resultPaginations: (
+            resultPages: Partial<Record<WebAgentAnalyticsQueryType, number>>,
+            resultHasMore: Partial<Record<WebAgentAnalyticsQueryType, boolean>>
+        ) => Partial<Record<WebAgentAnalyticsQueryType, PaginationManual>>
+        llmsTxtLinks: (llmsTxtInput: string, llmsTxtLoadedUrl: string | null) => Map<string, LlmsTxtLink>
+    }
+}
+
+export type agentAnalyticsLogicType = MakeLogicType<
+    agentAnalyticsLogicValues,
+    agentAnalyticsLogicActions,
+    Record<string, any>,
+    agentAnalyticsLogicMeta
+>
 
 const OVERVIEW_ISSUE_COUNT = 4
 const WHAT_AGENTS_READ_LIMIT = 5
@@ -768,14 +1008,14 @@ const RESULT_PAGE_SIZE = 25
 const FIRST_PAGE_ISSUE_RESULT_LIMIT = RESULT_PAGE_SIZE - 2
 const JOURNEY_DETAIL_LIMIT = 50
 
-const PAGINATED_QUERY_TYPES = [
+const PAGINATED_QUERY_TYPES: readonly WebAgentAnalyticsQueryType[] = [
     WebAgentAnalyticsQueryType.Issues,
     WebAgentAnalyticsQueryType.Transitions,
     WebAgentAnalyticsQueryType.Demand,
     WebAgentAnalyticsQueryType.IssueVariants,
     WebAgentAnalyticsQueryType.RequestAnatomy,
     WebAgentAnalyticsQueryType.Journeys,
-] as const
+]
 
 interface QueryOptions {
     intentKey?: string
@@ -841,42 +1081,21 @@ export const agentAnalyticsLogic = kea<agentAnalyticsLogicType>([
         setView: (view: AgentView) => ({ view }),
         setScope: (scope: AgentScope) => ({ scope }),
         setSelectedJourneyKey: (journeyKey: string | null) => ({ journeyKey }),
-        setContentGrouping: (contentGrouping: WebAgentContentGrouping) => ({ contentGrouping }),
         setResultHasMore: (queryType: WebAgentAnalyticsQueryType, hasMore: boolean) => ({ queryType, hasMore }),
         setResultPage: (queryType: WebAgentAnalyticsQueryType, page: number) => ({ queryType, page }),
         setSelectedIssueKey: (key: string | null) => ({ key }),
         setLlmsTxtFromUrl: (content: string, url: string) => ({ content, url }),
         refresh: true,
         loadOverview: true,
-        loadOverviewSuccess: (overview: OverviewStats) => ({ overview }),
-        loadOverviewFailure: (error: string) => ({ error }),
         loadIssues: true,
-        loadIssuesSuccess: (contentGapIssues: AgentIssue[]) => ({ contentGapIssues }),
-        loadIssuesFailure: (error: string) => ({ error }),
         loadWhatAgentsRead: true,
-        loadWhatAgentsReadSuccess: (whatAgentsRead: PageRead[]) => ({ whatAgentsRead }),
-        loadWhatAgentsReadFailure: (error: string) => ({ error }),
         loadNextHops: true,
-        loadNextHopsSuccess: (nextHops: NextHop[]) => ({ nextHops }),
-        loadNextHopsFailure: (error: string) => ({ error }),
         loadDemandRows: true,
-        loadDemandRowsSuccess: (demandRows: DemandRow[]) => ({ demandRows }),
-        loadDemandRowsFailure: (error: string) => ({ error }),
         loadVariants: true,
-        loadVariantsSuccess: (variants: IssueVariant[]) => ({ variants }),
-        loadVariantsFailure: (error: string) => ({ error }),
         loadRequestAnatomy: true,
-        loadRequestAnatomySuccess: (requestAnatomy: RequestAnatomyRow[]) => ({ requestAnatomy }),
-        loadRequestAnatomyFailure: (error: string) => ({ error }),
         loadJourneySummary: true,
-        loadJourneySummarySuccess: (journeySummary: JourneySummary) => ({ journeySummary }),
-        loadJourneySummaryFailure: (error: string) => ({ error }),
         loadJourneys: true,
-        loadJourneysSuccess: (journeys: JourneyRow[]) => ({ journeys }),
-        loadJourneysFailure: (error: string) => ({ error }),
         loadJourneyDetail: true,
-        loadJourneyDetailSuccess: (journeyDetail: JourneyStep[]) => ({ journeyDetail }),
-        loadJourneyDetailFailure: (error: string) => ({ error }),
     }),
     forms(({ actions, values }) => ({
         llmsTxtSource: {
@@ -894,6 +1113,179 @@ export const agentAnalyticsLogic = kea<agentAnalyticsLogicType>([
             },
         },
     })),
+    loaders(({ values, actions, cache }) => {
+        const signalFor = (key: string): AbortSignal => {
+            const abortController = new AbortController()
+            cache.disposables.add(() => () => abortController.abort(), key, { pauseOnPageHidden: false })
+            return abortController.signal
+        }
+
+        const runQuery = async (
+            queryType: WebAgentAnalyticsQueryType,
+            breakpoint: BreakPointFunction,
+            opts: QueryOptions = {}
+        ): Promise<{ columns?: string[]; results?: unknown[][] }> => {
+            await breakpoint(300)
+            const paginated = PAGINATED_QUERY_TYPES.includes(queryType)
+            const { limit, offset, intentKey, journeyKey } = {
+                ...(paginated ? paginatedQueryOptions(values.resultPages, queryType) : {}),
+                ...opts,
+            }
+            const node: WebAgentAnalyticsQuery = {
+                kind: NodeKind.WebAgentAnalyticsQuery,
+                queryType,
+                includeCrawlers: values.includeCrawlers,
+                contentGrouping: WebAgentContentGrouping.Normalized,
+                llmsTxtUrl: values.llmsTxtLoadedUrl ?? undefined,
+                limit:
+                    limit ??
+                    (queryType === WebAgentAnalyticsQueryType.PageRequests ? WHAT_AGENTS_READ_LIMIT : undefined),
+                offset,
+                intentKey,
+                journeyKey,
+                dateRange: {
+                    date_from: values.dateFilter.dateFrom,
+                    date_to: values.dateFilter.dateTo,
+                },
+                interval: values.dateFilter.interval,
+                compareFilter: values.compareFilter,
+                conversionGoal: queryType === WebAgentAnalyticsQueryType.Overview ? values.conversionGoal : undefined,
+                filterTestAccounts: values.filterTestAccounts,
+                properties: values.webAnalyticsFilters,
+            }
+            let response
+            try {
+                response = await performQuery(node, { signal: signalFor(queryType) })
+            } catch (error) {
+                // A newer load aborts the request in flight, so let the breakpoint discard this one.
+                breakpoint()
+                throw error
+            }
+            breakpoint()
+            if (paginated) {
+                actions.setResultHasMore(queryType, response.hasMore ?? false)
+            }
+            return {
+                columns: response.columns as string[] | undefined,
+                results: response.results as unknown[][] | undefined,
+            }
+        }
+
+        return {
+            overview: [
+                null as OverviewStats | null,
+                {
+                    loadOverview: async (_, breakpoint: BreakPointFunction) => {
+                        const { columns, results } = await runQuery(WebAgentAnalyticsQueryType.Overview, breakpoint)
+                        return parseOverviewRow(columns, results)
+                    },
+                },
+            ],
+            contentGapIssues: [
+                [] as AgentIssue[],
+                {
+                    loadIssues: async (_, breakpoint: BreakPointFunction) => {
+                        const { columns, results } = await runQuery(WebAgentAnalyticsQueryType.Issues, breakpoint)
+                        return parseIssuesResponse(columns, results)
+                    },
+                },
+            ],
+            whatAgentsRead: [
+                [] as PageRead[],
+                {
+                    loadWhatAgentsRead: async (_, breakpoint: BreakPointFunction) => {
+                        const { columns, results } = await runQuery(WebAgentAnalyticsQueryType.PageRequests, breakpoint)
+                        return parseWhatAgentsRead(columns, results)
+                    },
+                },
+            ],
+            nextHops: [
+                [] as NextHop[],
+                {
+                    loadNextHops: async (_, breakpoint: BreakPointFunction) => {
+                        const { columns, results } = await runQuery(WebAgentAnalyticsQueryType.Transitions, breakpoint)
+                        return parseNextHops(columns, results)
+                    },
+                },
+            ],
+            demandRows: [
+                [] as DemandRow[],
+                {
+                    loadDemandRows: async (_, breakpoint: BreakPointFunction) => {
+                        const { columns, results } = await runQuery(WebAgentAnalyticsQueryType.Demand, breakpoint)
+                        return parseDemandRows(columns, results)
+                    },
+                },
+            ],
+            variants: [
+                [] as IssueVariant[],
+                {
+                    loadVariants: async (_, breakpoint: BreakPointFunction) => {
+                        const { selectedIssueKey, selectedIssue } = values
+                        if (!selectedIssueKey || selectedIssue?.type !== 'content_gap') {
+                            return []
+                        }
+                        const { columns, results } = await runQuery(
+                            WebAgentAnalyticsQueryType.IssueVariants,
+                            breakpoint,
+                            { intentKey: selectedIssueKey }
+                        )
+                        return parseVariants(columns, results)
+                    },
+                },
+            ],
+            requestAnatomy: [
+                [] as RequestAnatomyRow[],
+                {
+                    loadRequestAnatomy: async (_, breakpoint: BreakPointFunction) => {
+                        const { columns, results } = await runQuery(
+                            WebAgentAnalyticsQueryType.RequestAnatomy,
+                            breakpoint
+                        )
+                        return parseRequestAnatomy(columns, results)
+                    },
+                },
+            ],
+            journeySummary: [
+                null as JourneySummary | null,
+                {
+                    loadJourneySummary: async (_, breakpoint: BreakPointFunction) => {
+                        const { columns, results } = await runQuery(
+                            WebAgentAnalyticsQueryType.JourneySummary,
+                            breakpoint
+                        )
+                        return parseJourneySummary(columns, results)
+                    },
+                },
+            ],
+            journeys: [
+                [] as JourneyRow[],
+                {
+                    loadJourneys: async (_, breakpoint: BreakPointFunction) => {
+                        const { columns, results } = await runQuery(WebAgentAnalyticsQueryType.Journeys, breakpoint)
+                        return parseJourneys(columns, results)
+                    },
+                },
+            ],
+            journeyDetail: [
+                [] as JourneyStep[],
+                {
+                    loadJourneyDetail: async (_, breakpoint: BreakPointFunction) => {
+                        const { selectedJourneyKey } = values
+                        if (!selectedJourneyKey) {
+                            return []
+                        }
+                        const { columns, results } = await runQuery(
+                            WebAgentAnalyticsQueryType.JourneyDetail,
+                            breakpoint,
+                            { journeyKey: selectedJourneyKey, limit: JOURNEY_DETAIL_LIMIT }
+                        )
+                        return parseJourneyDetail(columns, results)
+                    },
+                },
+            ],
+        }
+    }),
     reducers({
         view: [
             'overview' as AgentView,
@@ -907,16 +1299,11 @@ export const agentAnalyticsLogic = kea<agentAnalyticsLogicType>([
                 setScope: (_, { scope }) => scope,
             },
         ],
-        contentGrouping: [
-            WebAgentContentGrouping.Normalized,
-            {
-                setContentGrouping: (_, { contentGrouping }) => contentGrouping,
-            },
-        ],
         resultHasMore: [
             {} as Partial<Record<WebAgentAnalyticsQueryType, boolean>>,
             {
-                setResultHasMore: (state, { queryType, hasMore }) => ({ ...state, [queryType]: hasMore }),
+                setResultHasMore: (state, { queryType, hasMore }) =>
+                    state[queryType] === hasMore ? state : { ...state, [queryType]: hasMore },
             },
         ],
         resultPages: [
@@ -962,19 +1349,16 @@ export const agentAnalyticsLogic = kea<agentAnalyticsLogicType>([
                 submitLlmsTxtSourceFailure: (_, { error }) => llmsTxtFetchErrorMessage(error),
             },
         ],
-        overview: [
-            null as OverviewStats | null,
+        variants: [
+            [] as IssueVariant[],
             {
-                loadOverview: () => null,
-                loadOverviewSuccess: (_, { overview }) => overview,
+                setSelectedIssueKey: () => [],
             },
         ],
-        overviewLoading: [
-            false,
+        journeyDetail: [
+            [] as JourneyStep[],
             {
-                loadOverview: () => true,
-                loadOverviewSuccess: () => false,
-                loadOverviewFailure: () => false,
+                setSelectedJourneyKey: () => [],
             },
         ],
         overviewError: [
@@ -984,40 +1368,11 @@ export const agentAnalyticsLogic = kea<agentAnalyticsLogicType>([
                 loadOverviewFailure: (_, { error }) => error,
             },
         ],
-        contentGapIssues: [
-            [] as AgentIssue[],
-            {
-                loadIssues: () => [],
-                loadIssuesSuccess: (_, { contentGapIssues }) => contentGapIssues,
-            },
-        ],
-        issuesLoading: [
-            false,
-            {
-                loadIssues: () => true,
-                loadIssuesSuccess: () => false,
-                loadIssuesFailure: () => false,
-            },
-        ],
-        issuesError: [
+        contentGapIssuesError: [
             null as string | null,
             {
                 loadIssues: () => null,
                 loadIssuesFailure: (_, { error }) => error,
-            },
-        ],
-        whatAgentsRead: [
-            [] as PageRead[],
-            {
-                loadWhatAgentsReadSuccess: (_, { whatAgentsRead }) => whatAgentsRead,
-            },
-        ],
-        whatAgentsReadLoading: [
-            false,
-            {
-                loadWhatAgentsRead: () => true,
-                loadWhatAgentsReadSuccess: () => false,
-                loadWhatAgentsReadFailure: () => false,
             },
         ],
         whatAgentsReadError: [
@@ -1027,39 +1382,11 @@ export const agentAnalyticsLogic = kea<agentAnalyticsLogicType>([
                 loadWhatAgentsReadFailure: (_, { error }) => error,
             },
         ],
-        nextHops: [
-            [] as NextHop[],
-            {
-                loadNextHopsSuccess: (_, { nextHops }) => nextHops,
-            },
-        ],
-        nextHopsLoading: [
-            false,
-            {
-                loadNextHops: () => true,
-                loadNextHopsSuccess: () => false,
-                loadNextHopsFailure: () => false,
-            },
-        ],
         nextHopsError: [
             null as string | null,
             {
                 loadNextHops: () => null,
                 loadNextHopsFailure: (_, { error }) => error,
-            },
-        ],
-        demandRows: [
-            [] as DemandRow[],
-            {
-                loadDemandRowsSuccess: (_, { demandRows }) => demandRows,
-            },
-        ],
-        demandRowsLoading: [
-            false,
-            {
-                loadDemandRows: () => true,
-                loadDemandRowsSuccess: () => false,
-                loadDemandRowsFailure: () => false,
             },
         ],
         demandRowsError: [
@@ -1069,41 +1396,11 @@ export const agentAnalyticsLogic = kea<agentAnalyticsLogicType>([
                 loadDemandRowsFailure: (_, { error }) => error,
             },
         ],
-        variants: [
-            [] as IssueVariant[],
-            {
-                setSelectedIssueKey: () => [],
-                loadVariants: () => [],
-                loadVariantsSuccess: (_, { variants }) => variants,
-            },
-        ],
-        variantsLoading: [
-            false,
-            {
-                loadVariants: () => true,
-                loadVariantsSuccess: () => false,
-                loadVariantsFailure: () => false,
-            },
-        ],
         variantsError: [
             null as string | null,
             {
                 loadVariants: () => null,
                 loadVariantsFailure: (_, { error }) => error,
-            },
-        ],
-        requestAnatomy: [
-            [] as RequestAnatomyRow[],
-            {
-                loadRequestAnatomySuccess: (_, { requestAnatomy }) => requestAnatomy,
-            },
-        ],
-        requestAnatomyLoading: [
-            false,
-            {
-                loadRequestAnatomy: () => true,
-                loadRequestAnatomySuccess: () => false,
-                loadRequestAnatomyFailure: () => false,
             },
         ],
         requestAnatomyError: [
@@ -1113,20 +1410,6 @@ export const agentAnalyticsLogic = kea<agentAnalyticsLogicType>([
                 loadRequestAnatomyFailure: (_, { error }) => error,
             },
         ],
-        journeySummary: [
-            null as JourneySummary | null,
-            {
-                loadJourneySummarySuccess: (_, { journeySummary }) => journeySummary,
-            },
-        ],
-        journeySummaryLoading: [
-            false,
-            {
-                loadJourneySummary: () => true,
-                loadJourneySummarySuccess: () => false,
-                loadJourneySummaryFailure: () => false,
-            },
-        ],
         journeySummaryError: [
             null as string | null,
             {
@@ -1134,41 +1417,11 @@ export const agentAnalyticsLogic = kea<agentAnalyticsLogicType>([
                 loadJourneySummaryFailure: (_, { error }) => error,
             },
         ],
-        journeys: [
-            [] as JourneyRow[],
-            {
-                loadJourneysSuccess: (_, { journeys }) => journeys,
-            },
-        ],
-        journeysLoading: [
-            false,
-            {
-                loadJourneys: () => true,
-                loadJourneysSuccess: () => false,
-                loadJourneysFailure: () => false,
-            },
-        ],
         journeysError: [
             null as string | null,
             {
                 loadJourneys: () => null,
                 loadJourneysFailure: (_, { error }) => error,
-            },
-        ],
-        journeyDetail: [
-            [] as JourneyStep[],
-            {
-                setSelectedJourneyKey: () => [],
-                loadJourneyDetail: () => [],
-                loadJourneyDetailSuccess: (_, { journeyDetail }) => journeyDetail,
-            },
-        ],
-        journeyDetailLoading: [
-            false,
-            {
-                loadJourneyDetail: () => true,
-                loadJourneyDetailSuccess: () => false,
-                loadJourneyDetailFailure: () => false,
             },
         ],
         journeyDetailError: [
@@ -1184,7 +1437,7 @@ export const agentAnalyticsLogic = kea<agentAnalyticsLogicType>([
         anyLoading: [
             (s) => [
                 s.overviewLoading,
-                s.issuesLoading,
+                s.contentGapIssuesLoading,
                 s.whatAgentsReadLoading,
                 s.nextHopsLoading,
                 s.demandRowsLoading,
@@ -1194,47 +1447,24 @@ export const agentAnalyticsLogic = kea<agentAnalyticsLogicType>([
                 s.journeysLoading,
                 s.journeyDetailLoading,
             ],
-            (
-                overviewLoading: boolean,
-                issuesLoading: boolean,
-                whatAgentsReadLoading: boolean,
-                nextHopsLoading: boolean,
-                demandRowsLoading: boolean,
-                variantsLoading: boolean,
-                requestAnatomyLoading: boolean,
-                journeySummaryLoading: boolean,
-                journeysLoading: boolean,
-                journeyDetailLoading: boolean
-            ): boolean =>
-                overviewLoading ||
-                issuesLoading ||
-                whatAgentsReadLoading ||
-                nextHopsLoading ||
-                demandRowsLoading ||
-                variantsLoading ||
-                requestAnatomyLoading ||
-                journeySummaryLoading ||
-                journeysLoading ||
-                journeyDetailLoading,
+            (...loading: boolean[]): boolean => loading.some(Boolean),
         ],
         demandCoverage: [
             (s) => [s.demandRows, s.llmsTxtLinks],
             (demandRows: DemandRow[], llmsTxtLinks: Map<string, LlmsTxtLink>): DemandCoverage =>
                 summarizeDemandCoverage(demandRows, llmsTxtLinks),
         ],
+        issuesPage: [
+            (s) => [s.resultPages],
+            (resultPages: Partial<Record<WebAgentAnalyticsQueryType, number>>): number =>
+                resultPage(resultPages, WebAgentAnalyticsQueryType.Issues),
+        ],
         issues: [
-            (s) => [s.contentGapIssues, s.overview, s.resultPages],
-            (
-                contentGapIssues: AgentIssue[],
-                overview: OverviewStats | null,
-                resultPages: Partial<Record<WebAgentAnalyticsQueryType, number>>
-            ): AgentIssue[] =>
-                [
-                    ...(overview && resultPage(resultPages, WebAgentAnalyticsQueryType.Issues) === 1
-                        ? synthesizeAuxIssues(overview)
-                        : []),
-                    ...contentGapIssues,
-                ].sort((a, b) => b.demand - a.demand),
+            (s) => [s.contentGapIssues, s.overview, s.issuesPage],
+            (contentGapIssues: AgentIssue[], overview: OverviewStats | null, issuesPage: number): AgentIssue[] =>
+                [...(overview && issuesPage === 1 ? synthesizeAuxIssues(overview) : []), ...contentGapIssues].sort(
+                    (a, b) => b.demand - a.demand
+                ),
         ],
         topIssues: [(s) => [s.issues], (issues: AgentIssue[]): AgentIssue[] => issues.slice(0, OVERVIEW_ISSUE_COUNT)],
         selectedIssue: [
@@ -1280,79 +1510,8 @@ export const agentAnalyticsLogic = kea<agentAnalyticsLogicType>([
                 parseLlmsTxtLinks(llmsTxtInput, llmsTxtLoadedUrl),
         ],
     })),
-    listeners(({ values, actions, cache }) => {
+    listeners(({ values, actions }) => {
         const refreshResults = (): void => actions.refresh()
-        const signalFor = (key: string): AbortSignal => {
-            const abortController = new AbortController()
-            cache.disposables.add(() => () => abortController.abort(), key, { pauseOnPageHidden: false })
-            return abortController.signal
-        }
-        const isCancellation = (error: unknown): boolean =>
-            (error instanceof Error && isBreakpoint(error)) || isAbortedRequest(error)
-        const failureMessage = (error: unknown): string =>
-            error instanceof Error ? error.message : 'Could not load agent analytics'
-
-        const runQuery = async (
-            queryType: WebAgentAnalyticsQueryType,
-            signal: AbortSignal,
-            opts: QueryOptions = {}
-        ): Promise<{ columns?: string[]; results?: unknown[][]; hasMore: boolean }> => {
-            const node: WebAgentAnalyticsQuery = {
-                kind: NodeKind.WebAgentAnalyticsQuery,
-                queryType,
-                includeCrawlers: values.includeCrawlers,
-                contentGrouping: values.contentGrouping,
-                llmsTxtUrl: values.llmsTxtLoadedUrl ?? undefined,
-                limit:
-                    opts.limit ??
-                    (queryType === WebAgentAnalyticsQueryType.PageRequests ? WHAT_AGENTS_READ_LIMIT : undefined),
-                offset: opts.offset,
-                intentKey: opts.intentKey,
-                journeyKey: opts.journeyKey,
-                dateRange: {
-                    date_from: values.dateFilter.dateFrom,
-                    date_to: values.dateFilter.dateTo,
-                },
-                interval: values.dateFilter.interval,
-                compareFilter: values.compareFilter,
-                conversionGoal: queryType === WebAgentAnalyticsQueryType.Overview ? values.conversionGoal : undefined,
-                filterTestAccounts: values.filterTestAccounts,
-                properties: values.webAnalyticsFilters,
-            }
-            const response = await performQuery(node, { signal })
-            return {
-                columns: response.columns as string[] | undefined,
-                results: response.results as unknown[][] | undefined,
-                hasMore: response.hasMore ?? false,
-            }
-        }
-
-        const makeQueryLoader =
-            (
-                queryType: WebAgentAnalyticsQueryType,
-                signalKey: string,
-                onSuccess: (columns: string[] | undefined, results: unknown[][] | undefined) => void,
-                onFailure: (error: string) => void,
-                tracksHasMore: boolean = true,
-                queryOptions: () => QueryOptions = () => ({})
-            ) =>
-            async (_: unknown, breakpoint: BreakPointFunction): Promise<void> => {
-                await breakpoint(300)
-                const signal = signalFor(signalKey)
-                try {
-                    const { columns, results, hasMore } = await runQuery(queryType, signal, queryOptions())
-                    breakpoint()
-                    if (tracksHasMore) {
-                        actions.setResultHasMore(queryType, hasMore)
-                    }
-                    onSuccess(columns, results)
-                } catch (error) {
-                    if (isCancellation(error)) {
-                        return
-                    }
-                    onFailure(failureMessage(error))
-                }
-            }
 
         const replaceSearchParams = (mutate: (params: URLSearchParams) => void): void => {
             const params = new URLSearchParams(router.values.location.search)
@@ -1385,21 +1544,6 @@ export const agentAnalyticsLogic = kea<agentAnalyticsLogicType>([
                     actions.loadRequestAnatomy()
                 }
             },
-            loadOverview: makeQueryLoader(
-                WebAgentAnalyticsQueryType.Overview,
-                'overview',
-                (columns, results) => actions.loadOverviewSuccess(parseOverviewRow(columns, results)),
-                actions.loadOverviewFailure,
-                false
-            ),
-            loadIssues: makeQueryLoader(
-                WebAgentAnalyticsQueryType.Issues,
-                'issues',
-                (columns, results) => actions.loadIssuesSuccess(parseIssuesResponse(columns, results)),
-                actions.loadIssuesFailure,
-                true,
-                () => paginatedQueryOptions(values.resultPages, WebAgentAnalyticsQueryType.Issues)
-            ),
             loadIssuesSuccess: () => {
                 if (
                     values.selectedIssueKey &&
@@ -1409,128 +1553,24 @@ export const agentAnalyticsLogic = kea<agentAnalyticsLogicType>([
                     actions.loadVariants()
                 }
             },
-            loadWhatAgentsRead: makeQueryLoader(
-                WebAgentAnalyticsQueryType.PageRequests,
-                'whatAgentsRead',
-                (columns, results) => actions.loadWhatAgentsReadSuccess(parseWhatAgentsRead(columns, results)),
-                actions.loadWhatAgentsReadFailure,
-                false
-            ),
-            loadNextHops: makeQueryLoader(
-                WebAgentAnalyticsQueryType.Transitions,
-                'nextHops',
-                (columns, results) => actions.loadNextHopsSuccess(parseNextHops(columns, results)),
-                actions.loadNextHopsFailure,
-                true,
-                () => paginatedQueryOptions(values.resultPages, WebAgentAnalyticsQueryType.Transitions)
-            ),
-            loadDemandRows: makeQueryLoader(
-                WebAgentAnalyticsQueryType.Demand,
-                'demandRows',
-                (columns, results) => actions.loadDemandRowsSuccess(parseDemandRows(columns, results)),
-                actions.loadDemandRowsFailure,
-                true,
-                () => paginatedQueryOptions(values.resultPages, WebAgentAnalyticsQueryType.Demand)
-            ),
-            loadRequestAnatomy: makeQueryLoader(
-                WebAgentAnalyticsQueryType.RequestAnatomy,
-                'requestAnatomy',
-                (columns, results) => actions.loadRequestAnatomySuccess(parseRequestAnatomy(columns, results)),
-                actions.loadRequestAnatomyFailure,
-                true,
-                () => paginatedQueryOptions(values.resultPages, WebAgentAnalyticsQueryType.RequestAnatomy)
-            ),
-            loadJourneySummary: makeQueryLoader(
-                WebAgentAnalyticsQueryType.JourneySummary,
-                'journeySummary',
-                (columns, results) => actions.loadJourneySummarySuccess(parseJourneySummary(columns, results)),
-                actions.loadJourneySummaryFailure,
-                false
-            ),
-            loadJourneys: makeQueryLoader(
-                WebAgentAnalyticsQueryType.Journeys,
-                'journeys',
-                (columns, results) => actions.loadJourneysSuccess(parseJourneys(columns, results)),
-                actions.loadJourneysFailure,
-                true,
-                () => paginatedQueryOptions(values.resultPages, WebAgentAnalyticsQueryType.Journeys)
-            ),
-            setResultPage: ({ queryType }) => {
-                switch (queryType) {
-                    case WebAgentAnalyticsQueryType.Issues:
-                        actions.loadIssues()
-                        break
-                    case WebAgentAnalyticsQueryType.Transitions:
-                        actions.loadNextHops()
-                        break
-                    case WebAgentAnalyticsQueryType.Demand:
-                        actions.loadDemandRows()
-                        break
-                    case WebAgentAnalyticsQueryType.IssueVariants:
-                        actions.loadVariants()
-                        break
-                    case WebAgentAnalyticsQueryType.RequestAnatomy:
-                        actions.loadRequestAnatomy()
-                        break
-                    case WebAgentAnalyticsQueryType.Journeys:
-                        actions.loadJourneys()
-                        break
-                }
-            },
             loadJourneysSuccess: () => {
                 if (values.selectedJourneyKey && values.selectedJourney && !values.journeyDetail.length) {
                     actions.loadJourneyDetail()
                 }
             },
-            loadJourneyDetail: async (_, breakpoint) => {
-                await breakpoint(300)
-                const { selectedJourneyKey } = values
-                if (!selectedJourneyKey) {
-                    return
+            setResultPage: ({ queryType }) => {
+                const reload: Partial<Record<WebAgentAnalyticsQueryType, () => void>> = {
+                    [WebAgentAnalyticsQueryType.Issues]: actions.loadIssues,
+                    [WebAgentAnalyticsQueryType.Transitions]: actions.loadNextHops,
+                    [WebAgentAnalyticsQueryType.Demand]: actions.loadDemandRows,
+                    [WebAgentAnalyticsQueryType.IssueVariants]: actions.loadVariants,
+                    [WebAgentAnalyticsQueryType.RequestAnatomy]: actions.loadRequestAnatomy,
+                    [WebAgentAnalyticsQueryType.Journeys]: actions.loadJourneys,
                 }
-                const signal = signalFor('journeyDetail')
-                try {
-                    const { columns, results } = await runQuery(WebAgentAnalyticsQueryType.JourneyDetail, signal, {
-                        journeyKey: selectedJourneyKey,
-                        limit: JOURNEY_DETAIL_LIMIT,
-                    })
-                    breakpoint()
-                    actions.loadJourneyDetailSuccess(parseJourneyDetail(columns, results))
-                } catch (error) {
-                    if (isCancellation(error)) {
-                        return
-                    }
-                    actions.loadJourneyDetailFailure(failureMessage(error))
-                }
-            },
-            loadVariants: async (_, breakpoint) => {
-                await breakpoint(300)
-                const { selectedIssueKey, selectedIssue } = values
-                if (!selectedIssueKey || selectedIssue?.type !== 'content_gap') {
-                    return
-                }
-                const signal = signalFor('variants')
-                try {
-                    const { columns, results, hasMore } = await runQuery(
-                        WebAgentAnalyticsQueryType.IssueVariants,
-                        signal,
-                        {
-                            intentKey: selectedIssueKey,
-                            ...paginatedQueryOptions(values.resultPages, WebAgentAnalyticsQueryType.IssueVariants),
-                        }
-                    )
-                    breakpoint()
-                    actions.setResultHasMore(WebAgentAnalyticsQueryType.IssueVariants, hasMore)
-                    actions.loadVariantsSuccess(parseVariants(columns, results))
-                } catch (error) {
-                    if (isCancellation(error)) {
-                        return
-                    }
-                    actions.loadVariantsFailure(failureMessage(error))
-                }
+                reload[queryType]?.()
             },
             setSelectedIssueKey: ({ key }) => {
-                if (key) {
+                if (key && values.selectedIssue?.type === 'content_gap') {
                     actions.loadVariants()
                 }
                 replaceSearchParams((params) => {
@@ -1586,8 +1626,7 @@ export const agentAnalyticsLogic = kea<agentAnalyticsLogicType>([
             setWebAnalyticsDeviceTypeFilter: refreshResults,
             setWebAnalyticsCountryFilter: refreshResults,
             setWebAnalyticsReferrerFilter: refreshResults,
-            setContentGrouping: refreshResults,
-            setLlmsTxtFromUrl: refreshResults,
+            setLlmsTxtFromUrl: () => actions.loadOverview(),
         }
     }),
     afterMount(({ actions }) => {

@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconArrowLeft, IconCheckCircle } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCard, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
@@ -9,10 +8,7 @@ import { tryDecodeURIComponent } from 'lib/utils/url'
 
 import { WebAgentAnalyticsQueryType } from '~/queries/schema/schema-general'
 
-import { IssueVariant, agentAnalyticsLogic } from './agentAnalyticsLogic'
-import { AgentAnalyticsSection } from './AgentAnalyticsSection'
-import { AgentIssueTypeTag } from './AgentIssueTypeTag'
-import { agentIssueDemandLabel } from './agentIssueUtils'
+import { AgentIssue, IssueVariant, agentAnalyticsLogic } from './agentAnalyticsLogic'
 import { AgentQueryError } from './AgentQueryError'
 
 const variantColumns: LemonTableColumns<IssueVariant> = [
@@ -40,70 +36,34 @@ const variantColumns: LemonTableColumns<IssueVariant> = [
     },
 ]
 
-export const AgentIssueDetail = (): JSX.Element | null => {
-    const { selectedIssue, variants, variantsLoading, variantsError, resultPaginations } =
-        useValues(agentAnalyticsLogic)
-    const { setSelectedIssueKey, loadVariants } = useActions(agentAnalyticsLogic)
-
-    if (!selectedIssue) {
-        return null
-    }
+export const AgentIssueDetail = ({ issue }: { issue: AgentIssue }): JSX.Element => {
+    const { variants, variantsLoading, variantsError, resultPaginations } = useValues(agentAnalyticsLogic)
+    const { loadVariants } = useActions(agentAnalyticsLogic)
 
     return (
-        <div className="flex flex-col gap-5">
+        <div className="flex flex-col gap-4 py-2">
             <div className="flex flex-col gap-2">
-                <LemonButton
-                    icon={<IconArrowLeft />}
-                    size="small"
-                    type="tertiary"
-                    onClick={() => setSelectedIssueKey(null)}
-                    className="self-start"
-                    data-attr="agent-analytics-back-to-issues"
-                >
-                    Back to issues
-                </LemonButton>
-                <div className="flex items-center gap-2 flex-wrap">
-                    <AgentIssueTypeTag type={selectedIssue.type} />
-                    <h2 className="text-xl font-semibold">{selectedIssue.title}</h2>
-                </div>
-                <p className="text-sm text-secondary max-w-2xl">{selectedIssue.subtitle}</p>
+                <span className="text-sm font-medium">Recommended fix</span>
+                <ol className="ml-4 flex list-decimal flex-col gap-1 text-sm">
+                    {issue.recommendedFix.map((step) => (
+                        <li key={step}>{step}</li>
+                    ))}
+                </ol>
             </div>
 
-            <div className="@container">
-                <div className="grid grid-cols-1 gap-3 @md:grid-cols-2 @3xl:grid-cols-4">
-                    <LemonCard hoverEffect={false} className="flex min-h-24 flex-col justify-between gap-2">
-                        <span className="text-sm font-medium text-secondary">Requests</span>
-                        <span className="text-2xl font-semibold tabular-nums">
-                            {agentIssueDemandLabel(selectedIssue)}
-                        </span>
-                    </LemonCard>
-                    <LemonCard hoverEffect={false} className="flex min-h-24 flex-col justify-between gap-2">
-                        <span className="text-sm font-medium text-secondary">Top agent</span>
-                        <span className="font-semibold">{selectedIssue.topAgent ?? 'No agent identified'}</span>
-                    </LemonCard>
-                    <LemonCard hoverEffect={false} className="flex min-h-24 flex-col justify-between gap-2">
-                        <span className="text-sm font-medium text-secondary">First seen</span>
-                        <span className="font-semibold">
-                            {selectedIssue.firstSeen ? <TZLabel time={selectedIssue.firstSeen} /> : 'Not available'}
-                        </span>
-                    </LemonCard>
-                    <LemonCard hoverEffect={false} className="flex min-h-24 flex-col justify-between gap-2">
-                        <span className="text-sm font-medium text-secondary">Last seen</span>
-                        <span className="font-semibold">
-                            {selectedIssue.lastSeen ? <TZLabel time={selectedIssue.lastSeen} /> : 'Not available'}
-                        </span>
-                    </LemonCard>
-                </div>
-            </div>
-
-            {selectedIssue.type === 'content_gap' ? (
-                <AgentAnalyticsSection
-                    title="Requested URL variants"
-                    description={`${selectedIssue.variants} ${selectedIssue.variants === 1 ? 'variant' : 'variants'} grouped into this issue.`}
-                >
+            {issue.type === 'content_gap' ? (
+                <div className="flex flex-col gap-2">
+                    <span className="flex flex-wrap items-center gap-2 text-sm font-medium">
+                        Requested URL variants
+                        {issue.lastSeen ? (
+                            <span className="text-xs font-normal text-secondary">
+                                last seen <TZLabel time={issue.lastSeen} />
+                            </span>
+                        ) : null}
+                    </span>
                     <AgentQueryError
                         error={variantsError}
-                        message="Could not load URL variants. Try again. If it keeps happening, contact support."
+                        subject="URL variants"
                         onRetry={loadVariants}
                         loading={variantsLoading}
                     >
@@ -117,25 +77,8 @@ export const AgentIssueDetail = (): JSX.Element | null => {
                             emptyState="No URL variants were found in this range."
                         />
                     </AgentQueryError>
-                </AgentAnalyticsSection>
+                </div>
             ) : null}
-
-            <AgentAnalyticsSection title="Recommended fix">
-                <LemonCard hoverEffect={false}>
-                    <ol className="ml-4 flex list-decimal flex-col gap-2 text-sm">
-                        {selectedIssue.recommendedFix.map((step) => (
-                            <li key={step}>{step}</li>
-                        ))}
-                    </ol>
-                </LemonCard>
-            </AgentAnalyticsSection>
-
-            <AgentAnalyticsSection title="How to verify">
-                <LemonBanner type="info" icon={<IconCheckCircle />}>
-                    After shipping a fix, compare the same date range with the previous period. A working fix should
-                    reduce requests to missing paths and move demand to the valid page.
-                </LemonBanner>
-            </AgentAnalyticsSection>
         </div>
     )
 }

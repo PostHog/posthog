@@ -12,7 +12,6 @@ import { WebAgentAnalyticsQueryType } from '~/queries/schema/schema-general'
 
 import { EMPTY_JOURNEY_SUMMARY, JourneyRow, JourneySummary, NextHop, agentAnalyticsLogic } from './agentAnalyticsLogic'
 import { AgentAnalyticsSection } from './AgentAnalyticsSection'
-import { AgentJourneyConfidenceTag } from './AgentJourneyConfidenceTag'
 import { AgentJourneyDetail } from './AgentJourneyDetail'
 import { AgentQueryError } from './AgentQueryError'
 
@@ -47,12 +46,6 @@ const summaryStats = (summary: JourneySummary): SummaryStat[] => [
         label: 'Journeys with errors',
         value: humanFriendlyLargeNumber(summary.journeysWithErrors),
         description: 'Journeys that hit at least one 4xx or 5xx response.',
-    },
-    {
-        key: 'explicit-share',
-        label: 'Backed by a session ID',
-        value: summary.totalJourneys > 0 ? percentage(summary.explicitJourneys / summary.totalJourneys, 0) : '0%',
-        description: 'Share of journeys grouped by an explicit session ID rather than inferred from client activity.',
     },
 ]
 
@@ -119,11 +112,6 @@ const journeyColumns = (openJourney: (journey: JourneyRow) => void): LemonTableC
             ),
     },
     {
-        title: 'Confidence',
-        key: 'confidence',
-        render: (_, journey) => <AgentJourneyConfidenceTag confidence={journey.confidence} />,
-    },
-    {
         title: '',
         key: 'actions',
         align: 'right',
@@ -187,11 +175,11 @@ export const AgentAnalyticsJourneys = (): JSX.Element => {
         <div className="flex flex-col gap-6">
             <AgentAnalyticsSection
                 title="Journeys"
-                description="A journey is a run of requests from one client and agent on one domain. Without a session ID, a new inferred journey starts after 30 minutes of inactivity. A shared agent IP can mix several clients, so this does not represent a conversation."
+                description="A journey is a run of requests from one client and agent on one domain. Journeys are inferred: a new one starts after 30 minutes of inactivity. A shared agent IP can mix several clients, so this does not represent a conversation."
             >
                 <AgentQueryError
                     error={journeySummaryError}
-                    message="Could not load journey summaries. Try again. If it keeps happening, contact support."
+                    subject="journey summaries"
                     onRetry={loadJourneySummary}
                     loading={journeySummaryLoading}
                 >
@@ -211,7 +199,7 @@ export const AgentAnalyticsJourneys = (): JSX.Element => {
             >
                 <AgentQueryError
                     error={journeysError}
-                    message="Could not load journeys. Try again. If it keeps happening, contact support."
+                    subject="journeys"
                     onRetry={loadJourneys}
                     loading={journeysLoading}
                 >
@@ -233,7 +221,7 @@ export const AgentAnalyticsJourneys = (): JSX.Element => {
             >
                 <AgentQueryError
                     error={nextHopsError}
-                    message="Could not load requests after llms.txt. Try again. If it keeps happening, contact support."
+                    subject="requests after llms.txt"
                     onRetry={loadNextHops}
                     loading={nextHopsLoading}
                 >

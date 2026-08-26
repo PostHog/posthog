@@ -152,7 +152,7 @@ export const AgentAnalyticsReadiness = (): JSX.Element => {
             >
                 <AgentQueryError
                     error={overviewError}
-                    message="Could not load readiness checks. Try again. If it keeps happening, contact support."
+                    subject="readiness checks"
                     onRetry={loadOverview}
                     loading={overviewLoading}
                 >
@@ -269,7 +269,7 @@ export const AgentAnalyticsReadiness = (): JSX.Element => {
                 ) : null}
                 <AgentQueryError
                     error={demandRowsError}
-                    message="Could not load requested pages. Try again. If it keeps happening, contact support."
+                    subject="requested pages"
                     onRetry={loadDemandRows}
                     loading={demandRowsLoading}
                 >

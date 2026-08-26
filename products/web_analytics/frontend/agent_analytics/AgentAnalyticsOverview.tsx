@@ -30,7 +30,6 @@ import {
 import { AgentAnalyticsSection } from './AgentAnalyticsSection'
 import { AgentIssueChangeIndicator, ChangeSentiment } from './AgentIssueChangeIndicator'
 import { AgentIssueTypeTag } from './AgentIssueTypeTag'
-import { agentIssueDemandLabel } from './agentIssueUtils'
 import { AgentQueryError } from './AgentQueryError'
 
 interface OverviewMetric {
@@ -86,7 +85,7 @@ const overviewMetrics = (overview: OverviewStats | null, hasConversionGoal: bool
     {
         key: 'wasted-fetches',
         label: 'Repeated fetches',
-        description: 'Markdown requests made near an HTML request for the same page and client session.',
+        description: 'Markdown requests made within 30 minutes of an HTML request for the same page and client.',
         value: overview?.wasted ?? 0,
         previous: overview?.wastedPrev ?? null,
         sentiment: 'lower-is-better',
@@ -103,7 +102,7 @@ const overviewMetrics = (overview: OverviewStats | null, hasConversionGoal: bool
 
 const OverviewMetricCard = ({ metric, loading }: { metric: OverviewMetric; loading: boolean }): JSX.Element => (
     <LemonCard
-        className="flex min-h-28 flex-col justify-between gap-3"
+        className="flex min-h-24 flex-col justify-between gap-3"
         hoverEffect={false}
         data-attr={`agent-analytics-metric-${metric.key}`}
     >
@@ -114,30 +113,20 @@ const OverviewMetricCard = ({ metric, loading }: { metric: OverviewMetric; loadi
             </Tooltip>
         </div>
         {loading ? (
-            <>
-                <LemonSkeleton className="h-8 w-20" />
-                <LemonSkeleton className="h-3 w-28" />
-            </>
+            <LemonSkeleton className="h-8 w-20" />
         ) : metric.value === null ? (
             <>
                 <span className="text-lg font-semibold text-secondary">Not set</span>
                 <span className="text-xs text-tertiary">Select a conversion goal</span>
             </>
         ) : (
-            <>
-                <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-2xl font-semibold tabular-nums">
-                        {humanFriendlyLargeNumber(metric.value)}
-                    </span>
-                    <AgentIssueChangeIndicator
-                        changePct={changePct(metric.value, metric.previous)}
-                        sentiment={metric.sentiment}
-                    />
-                </div>
-                <span className="text-xs text-tertiary">
-                    {metric.previous === null ? 'Current period' : 'Compared with the previous period'}
-                </span>
-            </>
+            <div className="flex flex-wrap items-center gap-2">
+                <span className="text-2xl font-semibold tabular-nums">{humanFriendlyLargeNumber(metric.value)}</span>
+                <AgentIssueChangeIndicator
+                    changePct={changePct(metric.value, metric.previous)}
+                    sentiment={metric.sentiment}
+                />
+            </div>
         )}
     </LemonCard>
 )
@@ -215,8 +204,8 @@ export const AgentAnalyticsOverview = (): JSX.Element => {
         overviewError,
         conversionGoal,
         topIssues,
-        issuesLoading,
-        issuesError,
+        contentGapIssuesLoading,
+        contentGapIssuesError,
         whatAgentsRead,
         whatAgentsReadLoading,
         whatAgentsReadError,
@@ -239,10 +228,9 @@ export const AgentAnalyticsOverview = (): JSX.Element => {
                 description="Agent activity and request quality for the selected period."
                 right={
                     overview && overview.excludedRequests > 0 ? (
-                        <Tooltip title="Common scanner and static asset requests are excluded from content analysis.">
+                        <Tooltip title="Static asset requests, like images, stylesheets, and fonts, are excluded from content analysis.">
                             <LemonTag type="muted" icon={<IconInfo />}>
-                                {humanFriendlyLargeNumber(overview.excludedRequests)} scanner or static asset requests{' '}
-                                excluded
+                                {humanFriendlyLargeNumber(overview.excludedRequests)} static asset requests excluded
                             </LemonTag>
                         </Tooltip>
                     ) : undefined
@@ -250,7 +238,7 @@ export const AgentAnalyticsOverview = (): JSX.Element => {
             >
                 <AgentQueryError
                     error={overviewError}
-                    message="Could not load the overview. Try again. If it keeps happening, contact support."
+                    subject="the overview"
                     onRetry={loadOverview}
                     loading={overviewLoading}
                 >
@@ -286,12 +274,12 @@ export const AgentAnalyticsOverview = (): JSX.Element => {
                 }
             >
                 <AgentQueryError
-                    error={issuesError}
-                    message="Could not load agent issues. Try again. If it keeps happening, contact support."
+                    error={contentGapIssuesError}
+                    subject="agent issues"
                     onRetry={loadIssues}
-                    loading={issuesLoading}
+                    loading={contentGapIssuesLoading}
                 >
-                    {issuesLoading && topIssues.length === 0 ? (
+                    {contentGapIssuesLoading && topIssues.length === 0 ? (
                         <div className="flex min-h-20 items-center justify-center">
                             <Spinner />
                         </div>
@@ -322,7 +310,7 @@ export const AgentAnalyticsOverview = (): JSX.Element => {
                                             </span>
                                         </span>
                                         <span className="flex items-center gap-2 shrink-0 text-secondary">
-                                            <span>{agentIssueDemandLabel(issue)}</span>
+                                            <span>{humanFriendlyLargeNumber(issue.demand)}</span>
                                             <AgentIssueChangeIndicator changePct={issue.changePct} />
                                         </span>
                                     </span>
@@ -339,7 +327,7 @@ export const AgentAnalyticsOverview = (): JSX.Element => {
             >
                 <AgentQueryError
                     error={whatAgentsReadError}
-                    message="Could not load page requests. Try again. If it keeps happening, contact support."
+                    subject="page requests"
                     onRetry={loadWhatAgentsRead}
                     loading={whatAgentsReadLoading}
                 >
@@ -364,7 +352,7 @@ export const AgentAnalyticsOverview = (): JSX.Element => {
             >
                 <AgentQueryError
                     error={journeySummaryError}
-                    message="Could not load agent journeys. Try again. If it keeps happening, contact support."
+                    subject="agent journeys"
                     onRetry={loadJourneySummary}
                     loading={journeySummaryLoading}
                 >

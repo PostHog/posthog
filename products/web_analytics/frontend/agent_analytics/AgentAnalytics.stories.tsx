@@ -95,35 +95,16 @@ const variantsResponse = {
 }
 
 const requestAnatomyResponse = {
-    columns: [
-        'agent',
-        'requests',
-        'accept_captured',
-        'accept_markdown_preferred',
-        'accept_markdown_accepted',
-        'accept_html_only',
-        'requested_markdown',
-        'served_captured',
-        'served_markdown',
-        'retry_pairs',
-        'errors',
-    ],
+    columns: ['agent', 'requests', 'requested_markdown', 'retry_pairs', 'errors'],
     results: [
-        ['Claude User', 120, 108, 76, 22, 10, 72, 96, 68, 18, 4],
-        ['ChatGPT User', 100, 64, 18, 16, 30, 35, 58, 21, 7, 8],
+        ['Claude User', 120, 72, 18, 4],
+        ['ChatGPT User', 100, 35, 7, 8],
     ],
 }
 
 const journeySummaryResponse = {
-    columns: [
-        'total_journeys',
-        'median_pages',
-        'median_requests',
-        'median_duration_seconds',
-        'journeys_with_errors',
-        'explicit_journeys',
-    ],
-    results: [[84, 3, 5, 72, 19, 31]],
+    columns: ['total_journeys', 'median_pages', 'median_requests', 'median_duration_seconds', 'journeys_with_errors'],
+    results: [[84, 3, 5, 72, 19]],
 }
 
 interface MockQueryResponse {
@@ -136,27 +117,17 @@ const paginatedResponse = (response: MockQueryResponse, offset?: number): MockQu
     offset ? { ...response, results: response.results.slice(-1), hasMore: false } : { ...response, hasMore: true }
 
 const journeysResponse = {
-    columns: [
-        'journey_key',
-        'started',
-        'agent',
-        'host',
-        'pages',
-        'requests',
-        'duration_seconds',
-        'errors',
-        'confidence',
-    ],
+    columns: ['journey_key', 'started', 'agent', 'host', 'pages', 'requests', 'duration_seconds', 'errors'],
     results: [
-        ['journey-example', '2026-08-19 14:02:01', 'Claude User', 'example.com', 4, 7, 11, 2, 'explicit'],
-        ['journey-inferred', '2026-08-19 13:44:12', 'ChatGPT User', 'example.com', 3, 4, 38, 0, 'inferred'],
+        ['journey-example', '2026-08-19 14:02:01', 'Claude User', 'example.com', 4, 7, 11, 2],
+        ['journey-inferred', '2026-08-19 13:44:12', 'ChatGPT User', 'example.com', 3, 4, 38, 0],
     ],
     hasMore: true,
 }
 
 const journeysNextPageResponse = {
     ...journeysResponse,
-    results: [['journey-older', '2026-08-18 09:20:00', 'Claude User', 'docs.example.com', 2, 3, 19, 0, 'inferred']],
+    results: [['journey-older', '2026-08-18 09:20:00', 'Claude User', 'docs.example.com', 2, 3, 19, 0]],
     hasMore: false,
 }
 

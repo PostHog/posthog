@@ -100,7 +100,7 @@ describe('agentAnalyticsLogic', () => {
             expect(first.demand).toBe(100)
             expect(first.demandPrev).toBe(80)
             expect(first.changePct).toBe(25)
-            expect(first.variants).toBe(3)
+            expect(first.subtitle).toBe('3 requested URL variants')
             expect(first.topAgent).toBe('ChatGPT')
             expect(first.type).toBe('content_gap')
         })
