@@ -426,7 +426,7 @@ function InboxReportRow({ report }: { report: SignalReport }) {
     : null;
   const { actionButton: archiveButton, dialog: archiveDialog } =
     useInboxReportDismissAction(report);
-  const { prefetch, pointerHandlers } = useInboxReportDetailPrefetch(report, {
+  const { prefetch, pointerHandlers } = useInboxReportDetailPrefetch({
     to: "/inbox/reports/$reportId",
     params: { reportId: report.id },
   });
