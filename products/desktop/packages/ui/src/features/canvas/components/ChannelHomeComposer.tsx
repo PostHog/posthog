@@ -394,6 +394,7 @@ export const ChannelHomeComposer = forwardRef<
         <WorkspaceModeSelect
           value={workspaceMode}
           onChange={setWorkspaceMode}
+          adapter={adapter}
           overrideModes={["local", "cloud"]}
           selectedCloudEnvironmentId={selectedCloudEnvId}
           onCloudEnvironmentChange={setSelectedCloudEnvId}
