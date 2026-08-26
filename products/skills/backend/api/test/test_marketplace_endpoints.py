@@ -304,6 +304,7 @@ class TestSkillBundle(APIBaseTest):
             ("traversal", ["../escape.md"]),
             ("not_canonical", ["refs\\guide.md"]),
             ("case_collision", ["Refs/guide.md", "refs/Guide.md"]),
+            ("sidecar_case_variant", ["Agents/OpenAI.yaml"]),
             ("file_where_a_directory_is_needed", ["assets", "assets/logo.png"]),
             ("file_where_the_sidecar_directory_is_needed", ["agents"]),
         ]

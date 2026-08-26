@@ -366,8 +366,9 @@ def _bundle_paths_are_safe(paths: list[str]) -> bool:
         if canonical != path:
             return False
         lowered = path.lower()
-        # A bundled file at the sidecar path replaces the generated one, see build_skill_tree.
-        if lowered in seen and lowered != CODEX_METADATA_PATH.lower():
+        # Only the exact sidecar path replaces the generated one (see build_skill_tree); a case
+        # variant like `Agents/OpenAI.yaml` keys a second tree entry and would collide instead.
+        if lowered in seen and path != CODEX_METADATA_PATH:
             return False
         seen.add(lowered)
     for lowered in seen:
