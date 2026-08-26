@@ -57,12 +57,6 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadMonitoringSeries', // The managed warehouse Monitoring tab renders its own partial/error state
 ]
 
-/*
-Logics whose every loader renders its own error state, matched on the logic path
-rather than the action key. ERROR_FILTER_ALLOW_LIST is a global namespace, so a
-generic name like `loadJourneys` there would also silence an unrelated product's
-loader of the same name.
-*/
 const SELF_HANDLED_ERROR_LOGICS = new Set(['products.webAnalytics.agentAnalyticsLogic'])
 
 /*

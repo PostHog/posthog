@@ -1157,7 +1157,6 @@ export const agentAnalyticsLogic = kea<agentAnalyticsLogicType>([
             try {
                 response = await performQuery(node, { signal: signalFor(queryType) })
             } catch (error) {
-                // A newer load aborts the request in flight, so let the breakpoint discard this one.
                 breakpoint()
                 throw error
             }
