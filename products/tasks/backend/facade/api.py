@@ -54,6 +54,7 @@ from django.utils.http import content_disposition_header
 
 import posthoganalytics
 
+from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.models import Team, User
 from posthog.models.integration import Integration
@@ -5003,8 +5004,16 @@ def task_runtime(task_id: str | UUID, team_id: int, user_id: int | None, *, for_
     )
 
 
-def task_control_runtime_and_origin(task_id: str | UUID, team_id: int, user_id: int | None) -> tuple[str, str] | None:
-    """``(runtime, origin_product)`` for a task the user may drive, or ``None`` when it is not
+@frozen
+class ControlVisibleTask:
+    runtime: str
+    origin_product: str
+
+
+def task_control_runtime_and_origin(
+    task_id: str | UUID, team_id: int, user_id: int | None
+) -> ControlVisibleTask | None:
+    """The runtime and origin product of a task the user may drive, or ``None`` when it is not
     control-visible.
 
     One narrow control-predicate query for the warm-resume gate. The control predicate is a subset
@@ -5018,7 +5027,10 @@ def task_control_runtime_and_origin(task_id: str | UUID, team_id: int, user_id: 
         .values_list("runtime", "origin_product")
         .first()
     )
-    return row if row is not None else None
+    if row is None:
+        return None
+    runtime, origin_product = row
+    return ControlVisibleTask(runtime=runtime, origin_product=origin_product)
 
 
 def task_visible(task_id: str | UUID, team_id: int, user_id: int | None, *, for_control: bool = False) -> bool:

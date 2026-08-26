@@ -1218,8 +1218,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         gate = tasks_facade.task_control_runtime_and_origin(pk, self.team_id, self._user_id())
         if gate is None:
             raise NotFound()
-        runtime, origin_product = gate
-        if runtime == tasks_facade.TaskRuntime.PI or not self._warm_enabled(origin_product):
+        if gate.runtime == tasks_facade.TaskRuntime.PI or not self._warm_enabled(gate.origin_product):
             return Response(status=status.HTTP_200_OK)
         if access_response := code_access_required_response(request, self.organization, task_id=pk):
             return access_response
