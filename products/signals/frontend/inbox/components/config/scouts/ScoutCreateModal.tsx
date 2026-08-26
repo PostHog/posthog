@@ -218,10 +218,14 @@ export function ScoutCreateModal({ isOpen, onClose, initialValues, onCreated }: 
                                     label="Enable this scout"
                                     bordered
                                     fullWidth
+                                    disabledReason={isScoutCreateFormSubmitting ? 'Creating the scout' : undefined}
                                 />
                             )}
                         </LemonField>
-                        <LemonField name="config.emit">
+                        <LemonField
+                            name="config.emit"
+                            help="Turn this off for a dry run. The scout still runs on its schedule, and its signals stay out of the inbox."
+                        >
                             {({ value, onChange }) => (
                                 <LemonSwitch
                                     checked={value}
@@ -229,12 +233,10 @@ export function ScoutCreateModal({ isOpen, onClose, initialValues, onCreated }: 
                                     label="Write signals to the inbox"
                                     bordered
                                     fullWidth
+                                    disabledReason={isScoutCreateFormSubmitting ? 'Creating the scout' : undefined}
                                 />
                             )}
                         </LemonField>
-                        <span className="text-xs text-muted">
-                            Turn off inbox signals to run the scout in dry-run mode.
-                        </span>
                         <LemonField name="config.output_destinations">
                             {({ value, onChange }) => (
                                 <ScoutSlackDestination
