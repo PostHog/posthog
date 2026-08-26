@@ -44,6 +44,7 @@ import { getMetricsInsightEditorDisabledReason } from '../metricsAccess'
 import { MetricNameFilter } from './MetricNameFilter'
 import { metricNamePickerLogic } from './metricNamePickerLogic'
 import { type MetricsExemplar } from './MetricsExemplarMarkers'
+import { MetricsLogsSourceTag } from './MetricsLogsSourceTag'
 import { metricsSamplesLogic } from './metricsSamplesLogic'
 import { MetricsSamplesPanel } from './MetricsSamplesPanel'
 import { MetricsSeriesChart } from './MetricsSeriesChart'
@@ -275,6 +276,7 @@ export const MetricsViewer = (): JSX.Element => {
                         />
                         <MetricsGroupByButton disabledReason={metricsViewerDisabledReason} />
                         {anomalyBadge && <MetricsAnomalyTag anomaly={anomalyBadge} />}
+                        <MetricsLogsSourceTag metricName={metricName} />
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                         <LemonButton
