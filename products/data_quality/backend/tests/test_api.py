@@ -561,6 +561,21 @@ class TestDataQualityCheckAPI(APIBaseTest):
         assert history.status_code == status.HTTP_200_OK
         assert history.json() == []
 
+    def test_accepted_values_are_stored_as_the_column_holds_them(self) -> None:
+        # The editor can only send strings. Whether the coercion is wired into the create path at all
+        # is what this covers; the type matrix itself is unit-tested against the spec.
+        view = self._make_view("payments")
+        DataWarehouseSavedQuery.objects.filter(id=view.id).update(columns={"amount": "Nullable(Int64)"})
+
+        response = self.client.post(
+            f"{self._checks_url(view.id)}/",
+            {"check_type": CheckType.ACCEPTED_VALUES, "column_name": "amount", "config": {"values": ["1", "2"]}},
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        check = DataQualityCheck.objects.for_team(self.team.id).get(id=response.json()["id"])
+        assert check.config["values"] == [1.0, 2.0]
+
     def _deny_the_view(self) -> None:
         # Deny the default member object-level access to the "orders" view, the way the HogQL
         # database sees it -- so denied_subject_names() picks it up and the endpoint hides it.
