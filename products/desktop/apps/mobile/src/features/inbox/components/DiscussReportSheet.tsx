@@ -1,5 +1,8 @@
 import { Text } from "@components/text";
-import { buildDiscussReportPrompt } from "@posthog/shared";
+import {
+  buildDiscussReportPrompt,
+  normalizeSuggestedPrompts,
+} from "@posthog/shared";
 import * as Haptics from "expo-haptics";
 import { ChatCircle } from "phosphor-react-native";
 import { useEffect, useState } from "react";
@@ -18,6 +21,7 @@ interface DiscussReportSheetProps {
   visible: boolean;
   reportId: string;
   reportTitle?: string | null;
+  suggestedPrompts?: string[];
   onClose: () => void;
   onSubmit: (params: { prompt: string; question: string }) => void;
 }
@@ -26,11 +30,14 @@ export function DiscussReportSheet({
   visible,
   reportId,
   reportTitle,
+  suggestedPrompts,
   onClose,
   onSubmit,
 }: DiscussReportSheetProps) {
   const themeColors = useThemeColors();
   const [question, setQuestion] = useState("");
+
+  const suggestions = normalizeSuggestedPrompts(suggestedPrompts);
 
   useEffect(() => {
     if (visible) setQuestion("");
@@ -61,6 +68,27 @@ export function DiscussReportSheet({
             Ask a question, or leave it blank for a brief readout from the
             agent.
           </Text>
+          {suggestions.length > 0 && (
+            <View className="mb-3 gap-2">
+              <Text className="font-semibold text-[12px] text-gray-10">
+                Suggested questions
+              </Text>
+              {suggestions.map((suggestion) => (
+                // Fills the input and stops. The reader still presses Discuss,
+                // so a tap costs nothing and the question can be edited first.
+                <Pressable
+                  key={suggestion}
+                  onPress={() => setQuestion(suggestion)}
+                  accessibilityRole="button"
+                  className="rounded-xl border border-gray-4 px-3 py-2.5 active:opacity-70"
+                >
+                  <Text className="text-[13px] text-gray-12 leading-snug">
+                    {suggestion}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          )}
           <TextInput
             value={question}
             onChangeText={setQuestion}

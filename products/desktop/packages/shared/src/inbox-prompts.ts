@@ -1,3 +1,24 @@
+// The report author writes up to three; anything past that is dropped rather
+// than shown, so a malformed payload can't flood the starter.
+const MAX_SUGGESTED_PROMPTS = 3;
+
+/**
+ * The report's suggested questions, cleaned for display: trimmed, empties
+ * dropped, and capped at three. Returns an empty array when the report has
+ * none, so callers fall back to their fixed starter actions.
+ */
+export function normalizeSuggestedPrompts(
+  suggestedPrompts: string[] | null | undefined,
+): string[] {
+  if (!suggestedPrompts) {
+    return [];
+  }
+  return suggestedPrompts
+    .map((prompt) => prompt.trim())
+    .filter((prompt) => prompt.length > 0)
+    .slice(0, MAX_SUGGESTED_PROMPTS);
+}
+
 interface BuildDiscussReportPromptOptions {
   reportId: string;
   reportLink: string;
