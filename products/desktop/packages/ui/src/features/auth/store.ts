@@ -28,6 +28,38 @@ export const useAuthStore = create<AuthStoreState>((set) => ({
   setAuthState: (authState) => set({ authState }),
 }));
 
+export function syncSharedAuthState(incoming: AuthState): void {
+  const current = useAuthStore.getState().authState;
+  const currentProjectId = current.currentProjectId;
+  const currentProjectStillAvailable = Object.values(
+    incoming.orgProjectsMap,
+  ).some((org) =>
+    org.projects.some((project) => project.id === currentProjectId),
+  );
+
+  if (
+    current.status === "authenticated" &&
+    incoming.status === "authenticated" &&
+    current.cloudRegion === incoming.cloudRegion &&
+    currentProjectId !== null &&
+    currentProjectStillAvailable
+  ) {
+    const currentOrgId = Object.entries(incoming.orgProjectsMap).find(
+      ([, org]) =>
+        org.projects.some((project) => project.id === currentProjectId),
+    )?.[0];
+    useAuthStore.getState().setAuthState({
+      ...incoming,
+      currentOrgId: currentOrgId ?? current.currentOrgId,
+      currentProjectId,
+      desktopAccess: current.desktopAccess,
+    });
+    return;
+  }
+
+  useAuthStore.getState().setAuthState(incoming);
+}
+
 export function useAuthState(): AuthState {
   return useAuthStore((s) => s.authState);
 }

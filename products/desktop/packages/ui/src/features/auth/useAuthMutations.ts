@@ -4,6 +4,7 @@ import type { CloudRegion } from "@posthog/shared";
 import { clearCapturedLogs } from "@posthog/ui/shell/logCapture";
 import { useMutation } from "@tanstack/react-query";
 import { AUTH_SIDE_EFFECTS, type IAuthSideEffects } from "./identifiers";
+import { useAuthStore } from "./store";
 
 export function useLoginMutation() {
   const hostClient = useHostTRPCClient();
@@ -35,7 +36,10 @@ export function useSelectProjectMutation() {
       fx.beforeProjectSwitch();
       return hostClient.auth.selectProject.mutate({ projectId });
     },
-    onSuccess: () => fx.onProjectSelected(),
+    onSuccess: (state) => {
+      useAuthStore.getState().setAuthState(state);
+      fx.onProjectSelected();
+    },
   });
 }
 
@@ -47,7 +51,10 @@ export function useSwitchOrgMutation() {
       fx.beforeProjectSwitch();
       return hostClient.auth.switchOrg.mutate({ orgId });
     },
-    onSuccess: () => fx.onProjectSelected(),
+    onSuccess: (state) => {
+      useAuthStore.getState().setAuthState(state);
+      fx.onProjectSelected();
+    },
   });
 }
 
