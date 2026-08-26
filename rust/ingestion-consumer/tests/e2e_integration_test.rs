@@ -32,7 +32,9 @@ use ingestion_consumer::order_sentinel::SentinelContext;
 use ingestion_consumer::transport::HttpTransport;
 use ingestion_consumer::transports::Transport;
 use ingestion_consumer::types::{IngestBatchRequest, IngestBatchResponse, SerializedKafkaMessage};
-use ingestion_consumer::worker_registry::{WorkerId, WorkerRegistry, WorkerRegistryConfig};
+use ingestion_consumer::worker_registry::{
+    WorkerId, WorkerRegistry, WorkerRegistryConfig, WorkerState,
+};
 use ingestion_worker_proto::ingestion::worker::v1::worker_ingest_server::{
     WorkerIngest as WorkerIngestService, WorkerIngestServer,
 };
@@ -1126,6 +1128,38 @@ async fn failing_worker_triggers_rerouting() {
         "batch-2 messages for user-1 missing or out-of-order on live worker: {live_seqs:?}"
     );
 
+    harness.stop().await;
+}
+
+/// A worker whose sends fail (5xx through every retry) is a fault for passive
+/// health, not backpressure: the failed sends must degrade it even though the
+/// readiness probe keeps passing.
+#[tokio::test]
+async fn failed_sends_degrade_passive_health() {
+    let topic = format!("e2e-passive-fault-{}", Uuid::new_v4());
+    let harness = Harness::start(
+        &topic,
+        1,
+        1,
+        1,
+        Duration::from_secs(60),
+        fast_registry_config(),
+    )
+    .await;
+    let producer = make_producer();
+
+    harness.workers[0].ingest_ok.store(false, Ordering::SeqCst);
+    produce(&producer, &topic, 0, "tok", "user-1", 0).await;
+
+    let worker = harness.workers[0].url.clone();
+    wait_until(
+        Duration::from_secs(10),
+        "failed sends to degrade the worker",
+        || harness.registry.state(&worker) != WorkerState::Healthy,
+    )
+    .await;
+
+    harness.workers[0].ingest_ok.store(true, Ordering::SeqCst);
     harness.stop().await;
 }
 
