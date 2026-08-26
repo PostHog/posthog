@@ -102,6 +102,8 @@ import type {
   Task,
   TaskRun,
   TaskRunArtifact,
+  TaskRunState,
+  TaskRunStateField,
 } from "../types";
 import { resourceLink } from "../utils/acp-content";
 import { AsyncMutex } from "../utils/async-mutex";
@@ -383,15 +385,9 @@ interface LocalSkillPromptContext {
 
 function getTaskRunStateString(
   taskRun: TaskRun | null,
-  key: string,
+  key: TaskRunStateField,
 ): string | null {
-  const state = taskRun?.state;
-
-  if (!state || typeof state !== "object") {
-    return null;
-  }
-
-  const value = (state as Record<string, unknown>)[key];
+  const value = taskRun?.state[key];
   return typeof value === "string" ? value : null;
 }
 
@@ -423,13 +419,7 @@ function readSlackArtifactDelivery(
  * that predates charts, which is the same as off.
  */
 function readSlackChartDelivery(taskRun: TaskRun | null): boolean {
-  const state = taskRun?.state;
-
-  if (!state || typeof state !== "object") {
-    return false;
-  }
-
-  return (state as Record<string, unknown>).slack_chart_delivery === true;
+  return taskRun?.state.slack_chart_delivery === true;
 }
 
 // Prompt block we hand the agent when the user attached files but we could not
@@ -1828,9 +1818,7 @@ export class AgentServer {
       preTask?.repositories ??
       (preTask?.repository ? [preTask.repository] : []);
 
-    this.prewarmedRun =
-      (preTaskRun?.state as Record<string, unknown> | undefined)?.prewarmed ===
-      true;
+    this.prewarmedRun = preTaskRun?.state.prewarmed === true;
     this.prewarmedStartupTurnPending = this.prewarmedRun;
 
     const runtimeAdapter = this.getRuntimeAdapter();
@@ -2000,7 +1988,7 @@ export class AgentServer {
     const conversationClear =
       extractConversationClearCapability(initializeResult);
 
-    const runState = preTaskRun?.state as Record<string, unknown> | undefined;
+    const runState = preTaskRun?.state;
     // Preserve native Codex modes for cloud runs so they behave the same as
     // local sessions. Claude keeps the historical auto-approved default when
     // PostHog Desktop has not explicitly selected a mode.
@@ -3082,14 +3070,8 @@ export class AgentServer {
   }
 
   private getInitialPromptOverride(taskRun: TaskRun): string | null {
-    const state = taskRun.state as Record<string, unknown> | undefined;
-    const override = state?.initial_prompt_override;
-    if (typeof override !== "string") {
-      return null;
-    }
-
-    const trimmed = override.trim();
-    return trimmed.length > 0 ? trimmed : null;
+    const override = taskRun.state.initial_prompt_override;
+    return typeof override === "string" ? override.trim() || null : null;
   }
 
   private markMessageDelivered(messageId: string): void {
@@ -3107,14 +3089,14 @@ export class AgentServer {
     taskRun: TaskRun | null,
   ): Promise<BuiltPrompt | null> {
     if (!taskRun) return null;
-    const state = taskRun.state as Record<string, unknown> | undefined;
-    const message = state?.pending_user_message;
+    const state = taskRun.state;
+    const message = state.pending_user_message;
     const pendingMessageId =
-      typeof state?.pending_user_message_id === "string" &&
+      typeof state.pending_user_message_id === "string" &&
       state.pending_user_message_id
         ? state.pending_user_message_id
         : undefined;
-    const artifactIds = Array.isArray(state?.pending_user_artifact_ids)
+    const artifactIds = Array.isArray(state.pending_user_artifact_ids)
       ? state.pending_user_artifact_ids.filter(
           (artifactId): artifactId is string =>
             typeof artifactId === "string" && artifactId.trim().length > 0,
@@ -3259,10 +3241,7 @@ export class AgentServer {
   }
 
   private getClearedPendingUserState(taskRun: TaskRun | null): string[] | null {
-    const state =
-      taskRun?.state && typeof taskRun.state === "object"
-        ? (taskRun.state as Record<string, unknown>)
-        : null;
+    const state = taskRun?.state;
     if (!state) {
       return null;
     }
@@ -3919,11 +3898,8 @@ export class AgentServer {
 
     // Fallback: read from TaskRun state (set by API when creating the run)
     if (!taskRun) return null;
-    const state = taskRun.state as Record<string, unknown> | undefined;
-    const stateRunId = state?.resume_from_run_id;
-    return typeof stateRunId === "string" && stateRunId.trim().length > 0
-      ? stateRunId.trim()
-      : null;
+    const stateRunId = taskRun.state.resume_from_run_id;
+    return typeof stateRunId === "string" ? stateRunId.trim() || null : null;
   }
 
   private buildSessionSystemPrompt(
@@ -4025,13 +4001,13 @@ export class AgentServer {
       return null;
     }
 
-    let state: Record<string, unknown> | undefined;
+    let state: TaskRunState | undefined;
     try {
       const run = await this.posthogAPI.getTaskRun(
         this.session.payload.task_id,
         this.session.payload.run_id,
       );
-      state = run?.state as Record<string, unknown> | undefined;
+      state = run?.state;
     } catch (error) {
       // Keep the settings unresolved so a later message retries. A transient
       // control-plane failure must not prevent the first prompt from running.
@@ -4046,7 +4022,7 @@ export class AgentServer {
   }
 
   private async resolveWarmReasoningEffort(
-    state: Record<string, unknown> | undefined,
+    state: TaskRunState | undefined,
   ): Promise<void> {
     if (this.warmReasoningEffortResolved || !this.session) {
       return;
@@ -4083,7 +4059,7 @@ export class AgentServer {
    * incomplete launch path omits the CLI flag, before the agent sees its first prompt.
    */
   private resolveAutoPublishFromState(
-    state: Record<string, unknown> | undefined,
+    state: TaskRunState | undefined,
   ): string | null {
     if (this.autoPublishStateResolved) {
       return null;
