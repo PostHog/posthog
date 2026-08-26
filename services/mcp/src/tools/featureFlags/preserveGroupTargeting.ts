@@ -17,8 +17,14 @@
  *
  * Explicit null: `aggregation_group_type_index: null` means person-level
  * aggregation (API/docs). Only a missing key is treated as "fill from existing".
- * Explicit person/cohort/flag properties pin the condition set to person
- * aggregation so the backend does not 400 on group-aggregated person props.
+ *
+ * A condition set pinned to person aggregation never gains group targeting from
+ * the existing flag. A set is pinned when the payload clears aggregation with an
+ * explicit null, or when it carries any explicit person/cohort/flag property
+ * without setting a group index itself. The API rejects a group-aggregated set
+ * that holds a non-group property (validated in
+ * products/feature_flags/backend/api/feature_flag.py), so filling group fields
+ * into a pinned set would only produce a 400 naming fields the agent never sent.
  */
 
 export type FlagProperty = {
@@ -58,7 +64,11 @@ function isPresentGroupIndex(index: unknown): index is number {
 
 /** True when the payload explicitly set aggregation_group_type_index to null/undefined (person). */
 function explicitlyClearsAggregation(obj: Record<string, unknown> | null | undefined): boolean {
-    return !!obj && Object.prototype.hasOwnProperty.call(obj, 'aggregation_group_type_index') && !isPresentGroupIndex(obj.aggregation_group_type_index)
+    return (
+        !!obj &&
+        Object.prototype.hasOwnProperty.call(obj, 'aggregation_group_type_index') &&
+        !isPresentGroupIndex(obj.aggregation_group_type_index)
+    )
 }
 
 /**
@@ -88,7 +98,10 @@ function indexExistingProperties(existing: FlagFilters | null | undefined): Map<
     return map
 }
 
-function pickMatchingExisting(candidates: FlagProperty[] | undefined, incoming: FlagProperty): FlagProperty | undefined {
+function pickMatchingExisting(
+    candidates: FlagProperty[] | undefined,
+    incoming: FlagProperty
+): FlagProperty | undefined {
     if (!candidates || candidates.length === 0) {
         return undefined
     }
@@ -105,16 +118,22 @@ function pickMatchingExisting(candidates: FlagProperty[] | undefined, incoming: 
 function mergeProperty(
     incoming: FlagProperty,
     existingProp: FlagProperty | undefined,
-    fallbackGroupTypeIndex: number | undefined
+    fallbackGroupTypeIndex: number | undefined,
+    canCarryGroupTargeting: boolean
 ): FlagProperty {
     const out: FlagProperty = { ...incoming }
 
     if (!isPresentType(out.type) && existingProp && isPresentType(existingProp.type)) {
-        out.type = existingProp.type
+        // Restoring `group` into a pinned set produces a 400 about group properties
+        // the agent never sent. Leave the type unset so the API reports the
+        // property that is actually in the payload.
+        if (canCarryGroupTargeting || existingProp.type !== 'group') {
+            out.type = existingProp.type
+        }
     }
 
     // If this condition set is group-aggregated and type is still missing, prefer group.
-    if (!isPresentType(out.type) && isPresentGroupIndex(fallbackGroupTypeIndex)) {
+    if (canCarryGroupTargeting && !isPresentType(out.type) && isPresentGroupIndex(fallbackGroupTypeIndex)) {
         out.type = 'group'
     }
 
@@ -146,26 +165,26 @@ function mergeConditionGroup(
 ): FlagConditionGroup {
     const out: FlagConditionGroup = { ...incoming }
 
-    // Every property is explicitly person/cohort/flag: the API rejects group
-    // aggregation around non-group properties, so pin this set to person
-    // aggregation rather than restoring an index the payload can't carry.
-    const allPropsExplicitlyNonGroup =
+    // The API rejects a group-aggregated condition set that holds any non-group
+    // property, so one explicit person/cohort/flag property is enough to stop this
+    // set from keeping or gaining group targeting. An explicit incoming group index
+    // still wins, and the API then reports the contradiction in the agent's payload.
+    const hasExplicitNonGroupProperty =
         Array.isArray(incoming.properties) &&
-        incoming.properties.length > 0 &&
-        incoming.properties.every((p) => isPresentType(p?.type) && p.type !== 'group')
-    if (allPropsExplicitlyNonGroup) {
-        if (!isPresentGroupIndex(out.aggregation_group_type_index)) {
-            out.aggregation_group_type_index = null
-        }
-        // Still allow property-level pass-through; no group type inference.
-        return out
+        incoming.properties.some((p) => isPresentType(p?.type) && p.type !== 'group')
+    if (hasExplicitNonGroupProperty && !isPresentGroupIndex(out.aggregation_group_type_index)) {
+        out.aggregation_group_type_index = null
     }
+
+    const pinnedToPerson =
+        options.incomingClearsAggregation ||
+        (hasExplicitNonGroupProperty && !isPresentGroupIndex(out.aggregation_group_type_index))
 
     // Prefer explicit incoming aggregation; only fill when the key is absent
     // (not when it is explicitly null = person aggregation).
     if (
         options.allowAggregationRestore &&
-        !options.incomingClearsAggregation &&
+        !pinnedToPerson &&
         !Object.prototype.hasOwnProperty.call(out, 'aggregation_group_type_index') &&
         propertySourceGroup &&
         isPresentGroupIndex(propertySourceGroup.aggregation_group_type_index)
@@ -173,7 +192,7 @@ function mergeConditionGroup(
         out.aggregation_group_type_index = propertySourceGroup.aggregation_group_type_index
     }
 
-    const effectiveGroupIndex = options.incomingClearsAggregation
+    const effectiveGroupIndex = pinnedToPerson
         ? undefined
         : isPresentGroupIndex(out.aggregation_group_type_index)
           ? out.aggregation_group_type_index
@@ -202,7 +221,7 @@ function mergeConditionGroup(
             const existingProp =
                 pickMatchingExisting(sameGroupByKey.get(prop.key), prop) ??
                 pickMatchingExisting(crossGroupPropsByKey.get(prop.key), prop)
-            return mergeProperty(prop, existingProp, effectiveGroupIndex)
+            return mergeProperty(prop, existingProp, effectiveGroupIndex, !pinnedToPerson)
         })
     }
 

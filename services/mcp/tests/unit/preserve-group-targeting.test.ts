@@ -83,6 +83,75 @@ describe('preserveGroupTargetingFilters', () => {
         expect(merged?.groups?.[0]?.properties?.[0]?.group_type_index).toBeUndefined()
     })
 
+    it('does not restore group type onto an untyped property when aggregation is cleared to person', () => {
+        const incoming = {
+            aggregation_group_type_index: null,
+            groups: [
+                {
+                    aggregation_group_type_index: null,
+                    properties: [{ key: 'plan', operator: 'exact', value: 'pro' }],
+                    rollout_percentage: 100,
+                },
+            ],
+        }
+
+        const merged = preserveGroupTargetingFilters(existingGroupFlag, incoming)
+
+        // 'plan' key-matches the existing group property, but a person-aggregated set
+        // cannot hold a group property, so leaving the type unset keeps the API error
+        // pointed at the property the agent actually sent.
+        expect(merged?.groups?.[0]?.aggregation_group_type_index).toBeNull()
+        expect(merged?.groups?.[0]?.properties?.[0]?.type).toBeUndefined()
+        expect(merged?.groups?.[0]?.properties?.[0]?.group_type_index).toBeUndefined()
+    })
+
+    it('does not group-infer an untyped property in a set that also holds an explicit person property', () => {
+        const incoming = {
+            groups: [
+                {
+                    properties: [
+                        { key: 'email', type: 'person', operator: 'icontains', value: '@acme.com' },
+                        { key: 'plan', operator: 'exact', value: 'pro' },
+                    ],
+                    rollout_percentage: 100,
+                },
+            ],
+        }
+
+        const merged = preserveGroupTargetingFilters(existingGroupFlag, incoming)
+
+        expect(merged?.groups?.[0]?.aggregation_group_type_index).toBeNull()
+        expect(merged?.groups?.[0]?.properties?.[1]?.type).toBeUndefined()
+        expect(merged?.groups?.[0]?.properties?.[1]?.group_type_index).toBeUndefined()
+    })
+
+    it('still restores a non-group property type in a set pinned to person aggregation', () => {
+        const existingPersonSetFlag = {
+            aggregation_group_type_index: 0,
+            groups: [
+                {
+                    aggregation_group_type_index: null,
+                    properties: [{ key: 'email', type: 'person', operator: 'icontains', value: '@acme.com' }],
+                    rollout_percentage: 100,
+                },
+            ],
+        }
+        const incoming = {
+            aggregation_group_type_index: null,
+            groups: [
+                {
+                    aggregation_group_type_index: null,
+                    properties: [{ key: 'email', operator: 'icontains', value: '@acme.com' }],
+                    rollout_percentage: 100,
+                },
+            ],
+        }
+
+        const merged = preserveGroupTargetingFilters(existingPersonSetFlag, incoming)
+
+        expect(merged?.groups?.[0]?.properties?.[0]?.type).toBe('person')
+    })
+
     it('keeps explicit group type and index from the agent', () => {
         const incoming = {
             aggregation_group_type_index: 1,

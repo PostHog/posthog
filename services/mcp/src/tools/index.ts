@@ -13,7 +13,6 @@ import experimentListDeprecated from './experiments/listDeprecated'
 // Feature flags (get-definition-by-key + update override are hand-written; other CRUD is codegen)
 import featureFlagGetDefinitionByKey from './featureFlags/getDefinitionByKey'
 import updateFeatureFlagPreservingGroups from './featureFlags/updateFeatureFlag'
-import { mergeToolFactories } from './mergeToolFactories'
 // Feedback
 import submitFeedback from './feedback/submit'
 // Generated tools (from definitions/*.yaml)
@@ -23,6 +22,7 @@ import queryInsight from './insights/query'
 // Links (utility — builds canonical app URLs from the frontend's route table)
 import generateAppUrl from './links/generate-app-url'
 import loopsReview from './loops/loopsReview'
+import { mergeToolFactories } from './mergeToolFactories'
 // Notebooks (edit + cell tools are hand-written — generated CRUD lives in generated/notebooks.ts)
 import notebookAddCell from './notebooks/addCell'
 import notebookCreateMarkdown from './notebooks/createMarkdown'
@@ -159,7 +159,9 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
 /** Build one tool by name, from the hand-written and generated registries alike. */
 function resolveToolBase(name: string): ToolBase<ZodObjectAny> | undefined {
-    return { ...TOOL_MAP, ...GENERATED_TOOL_MAP }[name]?.()
+    // Hand-written TOOL_MAP wins on collision, so a tool run through
+    // posthog-connection-call gets the same override as every other surface.
+    return mergeToolFactories(GENERATED_TOOL_MAP, TOOL_MAP)[name]?.()
 }
 
 export const getToolsFromContext = async (

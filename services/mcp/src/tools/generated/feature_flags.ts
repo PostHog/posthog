@@ -37,7 +37,7 @@ import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const CreateFeatureFlagSchema = FeatureFlagsCreateBody.omit({ archived: true }).extend({
     filters: FeatureFlagsCreateBody.shape['filters'].describe(
-        'Full release-condition object. For group-targeted flags set aggregation_group_type_index and property type "group" + group_type_index. Omitting type defaults to person.'
+        'Release conditions. Each property supports type ("person" | "group" | "cohort"), operator, value, and for groups: group_type_index. Set filters.aggregation_group_type_index to target a group type (UI "Target by"). Example group property: { "key": "plan", "type": "group", "group_type_index": 0, "operator": "exact", "value": "enterprise" }.'
     ),
     is_remote_configuration: FeatureFlagsCreateBody.shape['is_remote_configuration'].describe(
         'Whether this flag delivers a payload instead of gating a feature (Remote Config mode). When true, set the delivered payload through the `filters` param under `filters.payloads.true` as a JSON-encoded string. There is no dedicated payload parameter.'

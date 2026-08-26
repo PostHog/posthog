@@ -12,5 +12,12 @@ export function mergeToolFactories(
     generated: Record<string, () => ToolBase<ZodObjectAny>>,
     handwritten: Record<string, () => ToolBase<ZodObjectAny>>
 ): Record<string, () => ToolBase<ZodObjectAny>> {
-    return { ...generated, ...handwritten }
+    // Hand-written keys are laid down first so the catalog keeps the order it had
+    // before any override existed. Key order is observable: it decides the order
+    // tools are listed in and which ones the compact domain index is built from.
+    const merged: Record<string, () => ToolBase<ZodObjectAny>> = { ...handwritten, ...generated }
+    for (const [name, factory] of Object.entries(handwritten)) {
+        merged[name] = factory
+    }
+    return merged
 }

@@ -3,6 +3,16 @@ import { describe, expect, it, vi } from 'vitest'
 import updateFeatureFlagPreservingGroups from '@/tools/featureFlags/updateFeatureFlag'
 import type { Context } from '@/tools/types'
 
+type ApiRequestArgs = { method: string; path: string; body?: unknown }
+
+function requestArgs(requestMock: ReturnType<typeof vi.fn>, callIndex: number): ApiRequestArgs {
+    const call = requestMock.mock.calls[callIndex]
+    if (!call) {
+        throw new Error(`Expected an api.request call at index ${callIndex}`)
+    }
+    return call[0] as ApiRequestArgs
+}
+
 function createMockContext(requestMock: ReturnType<typeof vi.fn>): Context {
     return {
         api: {
@@ -64,15 +74,15 @@ describe('update-feature-flag preserving groups', () => {
         })
 
         expect(request).toHaveBeenCalledTimes(2)
-        expect(request.mock.calls[0][0]).toMatchObject({
+        expect(requestArgs(request, 0)).toMatchObject({
             method: 'GET',
             path: '/api/projects/42/feature_flags/9/',
         })
-        expect(request.mock.calls[1][0]).toMatchObject({
+        expect(requestArgs(request, 1)).toMatchObject({
             method: 'PATCH',
             path: '/api/projects/42/feature_flags/9/',
         })
-        const patchBody = request.mock.calls[1][0].body as {
+        const patchBody = requestArgs(request, 1).body as {
             name?: string
             filters: {
                 aggregation_group_type_index?: number
@@ -82,9 +92,9 @@ describe('update-feature-flag preserving groups', () => {
         // Non-filters fields must still be forwarded alongside the merged filters.
         expect(patchBody).toMatchObject({ name: 'Renamed' })
         expect(patchBody.filters.aggregation_group_type_index).toBe(0)
-        expect(patchBody.filters.groups[0].properties[0].type).toBe('group')
-        expect(patchBody.filters.groups[0].properties[0].group_type_index).toBe(0)
-        expect(patchBody.filters.groups[0].properties[0].value).toBe('pro')
+        expect(patchBody.filters.groups[0]?.properties[0]?.type).toBe('group')
+        expect(patchBody.filters.groups[0]?.properties[0]?.group_type_index).toBe(0)
+        expect(patchBody.filters.groups[0]?.properties[0]?.value).toBe('pro')
         expect(result).toMatchObject({ id: 9 })
     })
 
@@ -107,7 +117,7 @@ describe('update-feature-flag preserving groups', () => {
 
         // Only GET attempted — no corrupt PATCH
         expect(request).toHaveBeenCalledTimes(1)
-        expect(request.mock.calls[0][0].method).toBe('GET')
+        expect(requestArgs(request, 0).method).toBe('GET')
     })
 
     it('forwards updates without filters without an extra GET', async () => {
@@ -117,7 +127,7 @@ describe('update-feature-flag preserving groups', () => {
 
         // Generated handler does a single PATCH; no merge GET
         expect(request).toHaveBeenCalledTimes(1)
-        expect(request.mock.calls[0][0].method).toBe('PATCH')
-        expect(request.mock.calls[0][0].body).toMatchObject({ active: false })
+        expect(requestArgs(request, 0).method).toBe('PATCH')
+        expect(requestArgs(request, 0).body).toMatchObject({ active: false })
     })
 })

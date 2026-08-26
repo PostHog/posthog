@@ -28,4 +28,23 @@ describe('mergeToolFactories', () => {
         expect(await merged['update-feature-flag']!().handler({} as never, {} as never)).toBe('handwritten')
         expect(await merged['other-tool']!().handler({} as never, {} as never)).toBe('generated')
     })
+
+    it('keeps hand-written keys ahead of generated-only keys', () => {
+        // Key order decides the order tools are listed in and which ones the compact
+        // domain index is built from, so overriding a tool must not reorder the catalog.
+        const generated = {
+            'action-create': factory('action-create', 'generated'),
+            'update-feature-flag': factory('update-feature-flag', 'generated'),
+        }
+        const handwritten = {
+            'update-feature-flag': factory('update-feature-flag', 'handwritten'),
+            'feature-flag-get-definition-by-key': factory('feature-flag-get-definition-by-key', 'handwritten'),
+        }
+
+        expect(Object.keys(mergeToolFactories(generated, handwritten))).toEqual([
+            'update-feature-flag',
+            'feature-flag-get-definition-by-key',
+            'action-create',
+        ])
+    })
 })
