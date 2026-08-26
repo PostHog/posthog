@@ -43,12 +43,13 @@ export const DisplayTab = (): JSX.Element => {
     const isStackedBarChart = effectiveVisualizationType === ChartDisplayType.ActionsStackedBar
     const isPieChart = effectiveVisualizationType === ChartDisplayType.ActionsPie
     const isScatterPlot = effectiveVisualizationType === ChartDisplayType.ScatterPlot
+    const isBoxPlot = effectiveVisualizationType === ChartDisplayType.BoxPlot
     const isLineChart =
         effectiveVisualizationType === ChartDisplayType.ActionsLineGraph ||
         effectiveVisualizationType === ChartDisplayType.ActionsAreaGraph
 
     const renderYAxisSettings = (name: 'leftYAxisSettings' | 'rightYAxisSettings'): JSX.Element => {
-        const leftPlaceholder = isScatterPlot ? 'Y-axis label' : 'Left Y-axis label'
+        const leftPlaceholder = isScatterPlot || isBoxPlot ? 'Y-axis label' : 'Left Y-axis label'
         const labelPlaceholder = name === 'leftYAxisSettings' ? leftPlaceholder : 'Right Y-axis label'
 
         return (
@@ -87,17 +88,19 @@ export const DisplayTab = (): JSX.Element => {
                     }}
                 />
 
-                <LemonSwitch
-                    className="flex-1 w-full"
-                    label="Begin at zero"
-                    checked={
-                        chartSettings[name]?.startAtZero ??
-                        (isScatterPlot ? false : (chartSettings.yAxisAtZero ?? true))
-                    }
-                    onChange={(value) => {
-                        updateChartSettings({ [name]: { startAtZero: value } })
-                    }}
-                />
+                {!isBoxPlot && (
+                    <LemonSwitch
+                        className="flex-1 w-full"
+                        label="Begin at zero"
+                        checked={
+                            chartSettings[name]?.startAtZero ??
+                            (isScatterPlot ? false : (chartSettings.yAxisAtZero ?? true))
+                        }
+                        onChange={(value) => {
+                            updateChartSettings({ [name]: { startAtZero: value } })
+                        }}
+                    />
+                )}
                 <LemonSwitch
                     className="flex-1 w-full"
                     label="Show grid lines"
@@ -131,6 +134,16 @@ export const DisplayTab = (): JSX.Element => {
                                         updateChartSettings({ showLegend: value })
                                     }}
                                 />
+                                {isBoxPlot && (
+                                    <LemonSwitch
+                                        className="flex-1 w-full"
+                                        label="Exclude outliers"
+                                        checked={chartSettings.boxPlot?.excludeOutliers !== false}
+                                        onChange={(value) => {
+                                            updateChartSettings({ boxPlot: { excludeOutliers: value } })
+                                        }}
+                                    />
+                                )}
                                 {isPieChart ? (
                                     <>
                                         <div className="flex flex-col gap-1">
@@ -181,7 +194,7 @@ export const DisplayTab = (): JSX.Element => {
                                                 }}
                                             />
                                         )}
-                                        {!isScatterPlot && (
+                                        {!isScatterPlot && !isBoxPlot && (
                                             <>
                                                 <LemonSwitch
                                                     className="flex-1 w-full"
@@ -306,13 +319,13 @@ export const DisplayTab = (): JSX.Element => {
                     !isPieChart
                         ? {
                               key: 'left-y-axis',
-                              header: isScatterPlot ? 'Y-axis' : 'Left Y-axis',
+                              header: isScatterPlot || isBoxPlot ? 'Y-axis' : 'Left Y-axis',
                               className: 'p-2 flex flex-col gap-2',
                               content: renderYAxisSettings('leftYAxisSettings'),
                           }
                         : null,
                     // A scatter has one gutter per axis, so there is no second Y axis to configure.
-                    !isPieChart && !isScatterPlot
+                    !isPieChart && !isScatterPlot && !isBoxPlot
                         ? {
                               key: 'right-y-axis',
                               header: 'Right Y-axis',
@@ -337,7 +350,7 @@ export const DisplayTab = (): JSX.Element => {
                               ),
                           }
                         : null,
-                    !isPieChart && !isScatterPlot
+                    !isPieChart && !isScatterPlot && !isBoxPlot
                         ? {
                               key: 'goals',
                               header: (

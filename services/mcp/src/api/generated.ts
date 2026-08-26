@@ -8452,6 +8452,18 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export interface BoxPlotSettings {
+      excludeOutliers?: boolean | null;
+      maxColumn?: string | null;
+      meanColumn?: string | null;
+      medianColumn?: string | null;
+      minColumn?: string | null;
+      p25Column?: string | null;
+      p75Column?: string | null;
+      seriesColumn?: string | null;
+      xAxisColumn?: string | null;
+    }
+
     export interface HeatmapGradientStop {
       color: string;
       value: number;
@@ -8607,6 +8619,7 @@ export namespace Schemas {
     export type ChartSettingsResultCustomizations = {[key: string]: ResultCustomizationByValue} | null;
 
     export interface ChartSettings {
+      boxPlot?: BoxPlotSettings | null;
       /** Chart rendering style overrides (line shape). Only applies to line and area charts. */
       chartStyle?: ChartStyle | null;
       goalLines?: GoalLine[] | null;

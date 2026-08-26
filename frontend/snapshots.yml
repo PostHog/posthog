@@ -661,9 +661,9 @@ snapshots:
     components-hogcharts-barchart--with-value-labels--light:
         hash: v1.k794b7964.6aff50b1c147df21230d149c147deb023f6308cd2e01983b58e65461dd4c7207.vLZ6XqXFhSTA3hr10RUEv9vzOgxKWYtUzWj0OvoCTU0
     components-hogcharts-boxplot--multi-series-grouped--dark:
-        hash: v1.k794b7964.100052bfc106ff42b501157a182699d6814f90be488c4e03ff6d7476fdd05cbe.bLaFB-wXyDHV1bbsR0ssdrE6qYaPmFcUTXnYzWDasY0
+        hash: v1.k794b7964.fd8a8c11e35ef420a663807a21a6349eba0ae2658c6c3d114763f4629dd45934.d23KBypemM2QY55g8_QWVUc9diJoAL1oNZjK3d3Ebs4
     components-hogcharts-boxplot--multi-series-grouped--light:
-        hash: v1.k794b7964.54b13669ffe5a6341141893094ff6887b677688ab89242bc82217f54129fa7a3.TjWyBhlbZbDBnspp8YhHvJCM5Bu146okpGeZRzWrNKs
+        hash: v1.k794b7964.016f9887360412c0b22e1b45e677ab2c289961ce86382e4bb7287f7d8c5dd110.cuv1S6OAl-253E0RJgLwIzHtVxH1ji5mzIOT3GTBWnk
     components-hogcharts-boxplot--no-grid--dark:
         hash: v1.k794b7964.ec49b9672a800158cc0dd7f1a517dfec0912d03ce7bc8b56c9a08492fdef723f.5tbdsdN5AB0mtLjoNobhw1skLsS4m5Sc6Es7TSdhTWg
     components-hogcharts-boxplot--no-grid--light:
@@ -7032,6 +7032,10 @@ snapshots:
         hash: v1.k794b7964.e0482531b63e3c6c58bb438b0848b476db1ebadb82736444afb0004e5a7d9a2e.EgJaf86aq6hyYkPzdF8Aydv7rycYiRr_UV8fYh_LIL0
     scenes-app-insights-side-panel-actions--unsaved-insight--light:
         hash: v1.k794b7964.2b3ed2b5ffec763b0f7e13af74c9e9d57df96464976ae6014512a0d7def42ad3.paLp2yPHgkf2-ncauikOAUdR87k6-KhAh-Nm4uyQ380
+    scenes-app-insights-sqlboxplot--grouped-series--dark:
+        hash: v1.k794b7964.9958e584a1eb346036636cec5e7f6aa21367045261cec6f9bc9474570976916f.WYCNc1X4istzHZnAsqYBx9xNFe0Jek1UegIJ-J-eSog
+    scenes-app-insights-sqlboxplot--grouped-series--light:
+        hash: v1.k794b7964.fce0c9ba15afa1bfe37728e10742395345a06e2a082d34a145e32c80a41432a8.lF9z6z4b7ptkoQzmfE7tlnr7CJQJ7Ki3rypJuW903Zs
     scenes-app-insights-sqllinechart--sql-bar-chart-value-labels-quill--dark:
         hash: v1.k794b7964.482f71c0aadde604594294d6e723590838e5b47f543adf3baf39c5ad2f2a9c3e.bpFdUZ6dFKKinvbM5jklQHy3pQoeURgjrWtjcXipKBw
     scenes-app-insights-sqllinechart--sql-bar-chart-value-labels-quill--light:
