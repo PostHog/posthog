@@ -17,6 +17,7 @@ import pytest
 from click.testing import CliRunner
 from hogli_commands.workflow_lint.check import CheckResult, WorkflowCheck
 from hogli_commands.workflow_lint.checks import CHECKS, _build_lookup, get_check
+from hogli_commands.workflow_lint.checks.artifact_compression import ArtifactCompressionCheck
 from hogli_commands.workflow_lint.checks.cache_writes import (
     _can_run_on_branch_ref,
     _is_gated,
@@ -1100,6 +1101,94 @@ class TestCacheWriteGateCheck:
     )
     def test_push_trigger_is_default_only(self, on: object, default_only: bool) -> None:
         assert _push_trigger_is_default_only(on) is default_only
+
+
+# ---------------------------------------------------------------------------
+# ArtifactCompressionCheck
+# ---------------------------------------------------------------------------
+
+
+class TestArtifactCompressionCheck:
+    def test_allows_default_compression_for_text_artifacts(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path,
+            "wf.yml",
+            """
+            name: My
+            on: [push]
+            jobs:
+              report:
+                runs-on: ubuntu-latest
+                timeout-minutes: 5
+                steps:
+                  - uses: actions/upload-artifact@v7
+                    with:
+                      path: junit.xml
+            """,
+        )
+
+        assert ArtifactCompressionCheck().run(_read_all(tmp_path)).issues == []
+
+    def test_allows_precompressed_artifacts_at_level_zero(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path,
+            "wf.yml",
+            """
+            name: My
+            on: [push]
+            jobs:
+              package:
+                runs-on: ubuntu-latest
+                timeout-minutes: 5
+                steps:
+                  - uses: actions/upload-artifact@v7
+                    with:
+                      compression-level: 0
+                      path: |
+                        dist/app.dmg
+                        dist/latest.yml
+            """,
+        )
+
+        assert ArtifactCompressionCheck().run(_read_all(tmp_path)).issues == []
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "dist/app.AppImage",
+            "dist/app.blockmap",
+            "dist/app.deb",
+            "dist/app.dmg",
+            "dist/app.exe",
+            "dist/app.rpm",
+            "dist/app.tgz",
+            "dist/app.whl",
+            "dist/app.zip",
+            "schema.sql.gz",
+        ],
+    )
+    def test_rejects_default_compression_for_precompressed_artifacts(self, tmp_path: Path, path: str) -> None:
+        _write(
+            tmp_path,
+            "wf.yml",
+            f"""
+            name: My
+            on: [push]
+            jobs:
+              package:
+                runs-on: ubuntu-latest
+                timeout-minutes: 5
+                steps:
+                  - uses: actions/upload-artifact@v7
+                    with:
+                      path: {path}
+            """,
+        )
+
+        result = ArtifactCompressionCheck().run(_read_all(tmp_path))
+
+        assert len(result.issues) == 1
+        assert "default zlib compression" in result.issues[0].message
 
 
 # ---------------------------------------------------------------------------
