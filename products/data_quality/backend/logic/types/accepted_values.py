@@ -59,7 +59,7 @@ def _as_text(value: str | float | bool) -> str:
         return "true" if value else "false"
     if isinstance(value, float):
         return str(int(value)) if value.is_integer() else str(value)
-    return value
+    return str(value)
 
 
 def _coerce_value(value: str | float | bool, column_type: str) -> str | float | bool:
