@@ -6,6 +6,8 @@ measures their pain over a trailing window, and reports the ones crossing the en
 criteria. Report-only: this module never writes to `TeamExperimentsConfig`.
 """
 
+from django.db.models import Count
+
 import structlog
 
 from posthog.clickhouse.client import sync_execute
@@ -148,16 +150,24 @@ def fetch_direct_scan_stats(window_days: int) -> list[TeamDirectScanStats]:
 
 
 def running_experiment_load(team_ids: list[int]) -> dict[int, tuple[int, int]]:
-    """Per team: (running experiment count, metric count across them)."""
+    """Per team: (running experiment count, metric count across them).
+
+    Counts inline, secondary, and saved metrics — the same set nightly recalculation
+    resolves — so the projected build load matches what enrollment would actually run.
+    """
     load: dict[int, tuple[int, int]] = {}
     experiments = (
         Experiment.objects.filter(team_id__in=team_ids, start_date__isnull=False, end_date__isnull=True)
         .exclude(deleted=True)
-        .values_list("team_id", "metrics", "metrics_secondary")
+        .annotate(saved_metric_count=Count("experimenttosavedmetric"))
+        .values_list("team_id", "metrics", "metrics_secondary", "saved_metric_count")
     )
-    for team_id, metrics, metrics_secondary in experiments:
+    for team_id, metrics, metrics_secondary, saved_metric_count in experiments:
         count, metric_count = load.get(team_id, (0, 0))
-        load[team_id] = (count + 1, metric_count + len(metrics or []) + len(metrics_secondary or []))
+        load[team_id] = (
+            count + 1,
+            metric_count + len(metrics or []) + len(metrics_secondary or []) + saved_metric_count,
+        )
     return load
 
 
