@@ -1125,8 +1125,8 @@ class UserAccessControl:
 
         # Apply filtering logic based on resource-level access
         if not self.has_resource_access(resource) and decision.allowed_ids:
-            # User has "none" resource access but specific object access
-            # Only show objects they have explicit access to (plus created objects)
+            # User has "none" resource access but some objects' own rules grant access.
+            # Only show those objects (plus objects they created)
             if model_has_creator:
                 queryset = queryset.filter(Q(id__in=decision.allowed_ids) | Q(created_by=self._user))
             else:
@@ -1146,7 +1146,8 @@ class UserAccessControl:
 
         Explicit-wins: if a resource_id has any explicit (role/member) rule, the object is
         allowed when any explicit rule grants non-"none", otherwise blocked. With no explicit
-        rule, the object is blocked only when every default rule is "none".
+        rule, the default ("everyone in the project") rules decide the same way: any non-"none"
+        default rule allows the object, all-"none" blocks it.
 
         Reads the `role_id` / `organization_member_id` columns rather than the `.role` /
         `.organization_member` FK accessors — equivalent result (id is None iff the relation is
@@ -1171,7 +1172,8 @@ class UserAccessControl:
             if not explicit_access_controls:
                 if all(access_level == NO_ACCESS_LEVEL for access_level in access_levels):
                     blocked_resource_ids.add(resource_id)
-                # No explicit controls for this object - don't block it
+                else:
+                    allowed_resource_ids.add(resource_id)
                 continue
 
             # Check if user has any non-"none" access to this specific object
@@ -1221,8 +1223,8 @@ class UserAccessControl:
         where they hold object-level grants but no resource-level access at all.
 
         This is the allowlist branch of `filter_queryset_by_access_level`: with "none" at the
-        resource level, REST serves the route and narrows rows to the explicitly granted objects
-        instead of merely removing denied ones. HogQL consumers must narrow the same way — a
+        resource level, REST serves the route and narrows rows to the objects whose own rules
+        grant access instead of merely removing denied ones. HogQL consumers must narrow the same way — a
         resource absent from this mapping falls back to removing `blocked_resource_ids_by_scope`.
 
         Empty for org admins and when there is no team / EE / entitlement, matching

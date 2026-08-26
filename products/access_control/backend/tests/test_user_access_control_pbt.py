@@ -432,8 +432,8 @@ def oracle_blocked_and_allowed_object_ids(
 ) -> tuple[set[str], set[str]]:
     # Mirrors _blocked_and_allowed_object_ids over the rows visible to self.user
     # (only MATCHING targets survive _filter_options). Explicit (role/member) rows
-    # decide an object: any non-"none" explicit row allows it, otherwise it's blocked.
-    # With no explicit row, the object is blocked only when every default row is "none".
+    # decide an object when present, otherwise the default rows decide: any
+    # non-"none" deciding row allows the object, all-"none" blocks it.
     blocked: set[str] = set()
     allowed: set[str] = set()
     for resource_id, specs in object_specs_by_id.items():
@@ -441,11 +441,8 @@ def oracle_blocked_and_allowed_object_ids(
         if not matching:
             continue
         explicit = [s for s in matching if s.target != "team_default"]
-        if not explicit:
-            if all(s.level == NO_ACCESS_LEVEL for s in matching):
-                blocked.add(resource_id)
-            continue
-        if any(s.level != NO_ACCESS_LEVEL for s in explicit):
+        deciding = explicit or matching
+        if any(s.level != NO_ACCESS_LEVEL for s in deciding):
             allowed.add(resource_id)
         else:
             blocked.add(resource_id)

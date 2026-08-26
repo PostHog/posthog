@@ -1286,6 +1286,40 @@ class TestSpecificObjectAccessControl(BaseUserAccessControlTest):
         assert self.notebook_3.id in notebook_ids  # Created by user
         assert self.notebook_2.id not in notebook_ids  # No access
 
+    def test_filter_queryset_allowlists_objects_granted_to_everyone(self):
+        from products.notebooks.backend.models import Notebook
+
+        # Resource-level "none", but notebook_1 is shared with everyone in the project
+        self._create_access_control(resource="notebook", access_level="none")
+        self._create_access_control(resource="notebook", resource_id=str(self.notebook_1.id), access_level="editor")
+
+        self._clear_uac_caches()
+
+        notebook_ids = list(
+            self.user_access_control.filter_queryset_by_access_level(Notebook.objects.all()).values_list(
+                "id", flat=True
+            )
+        )
+        assert self.notebook_1.id in notebook_ids  # Granted to everyone on the object
+        assert self.notebook_3.id in notebook_ids  # Created by user
+        assert self.notebook_2.id not in notebook_ids
+
+        # A member-level "none" row on the same object overrides the everyone grant
+        self._create_access_control(
+            resource="notebook",
+            resource_id=str(self.notebook_1.id),
+            access_level="none",
+            organization_member=self.organization_membership,
+        )
+        self._clear_uac_caches()
+
+        notebook_ids = list(
+            self.user_access_control.filter_queryset_by_access_level(Notebook.objects.all()).values_list(
+                "id", flat=True
+            )
+        )
+        assert self.notebook_1.id not in notebook_ids
+
     def test_filter_queryset_by_access_level_with_resource_access(self):
         """Test queryset filtering when user has resource-level access"""
         from products.notebooks.backend.models import Notebook
