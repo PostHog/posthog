@@ -124,6 +124,16 @@ const meta: Meta = {
                     limit: 1000,
                 },
                 'api/projects/:team_id/engineering_analytics/workflow_health/': [],
+                'api/projects/:team_id/engineering_analytics/quarantine/': {
+                    available: false,
+                    entries: [],
+                    source_url: '',
+                },
+                'api/projects/:team_id/engineering_analytics/flaky_tests/': {
+                    items: [],
+                    truncated: false,
+                    limit: 100,
+                },
             },
         }),
     ],

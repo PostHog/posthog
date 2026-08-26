@@ -73,7 +73,9 @@ export function MergeToDeployBoxPlot({ buckets, formatSeconds, className }: Merg
         [buckets]
     )
     return (
-        <div className={cn('h-64', className)}>
+        // The chart's root is a `flex-1` child, so the sized wrapper must be a flex column —
+        // in a plain block parent the canvas measures 0px tall and paints nothing.
+        <div className={cn('flex h-64 flex-col', className)}>
             <BoxPlot<BucketMeta>
                 series={series}
                 labels={labels}
