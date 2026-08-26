@@ -83,9 +83,9 @@ export function CustomBotDefinitions(): JSX.Element {
     return (
         <div className="flex flex-col gap-4">
             <p className="mb-0">
-                PostHog already detects bots that identify themselves, like GPTBot and Googlebot. Add your own here when
-                a crawler or script matters to you but is missing from that list. Matches count as bots everywhere{' '}
-                <code>Is bot</code> is available, including insights, web analytics, and SQL.
+                A bot you add here counts as a bot everywhere <code>Is bot</code> is available, including insights, web
+                analytics, and SQL. The built-in list covers crawlers that identify themselves, like GPTBot and
+                Googlebot.
             </p>
             <p className="mb-0">
                 Matching only looks at the user agent a visitor sends, so this does not catch traffic that reports
