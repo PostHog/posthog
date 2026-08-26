@@ -864,8 +864,9 @@ class _Executions:
 
     A test method that builds a query and hands it to `self._run(...)` executes it a call away;
     helper calls are followed by name to a fixpoint, no real call graph needed. Helpers resolve
-    inside the function's own class first, then among the module's top-level functions, so two
-    classes with a method of the same name never answer for each other."""
+    inside the function's own class first (including bases defined in the same module), then
+    among the module's top-level functions, so two unrelated classes with a method of the same
+    name never answer for each other."""
 
     def _executes_directly(self, function: _Function) -> bool:
         if id(function) not in self._direct:
@@ -875,15 +876,36 @@ class _Executions:
     def __init__(self, tree: ast.Module) -> None:
         self._direct: dict[int, bool] = {}
         self._module_helpers = {node.name: node for node in tree.body if isinstance(node, _Function)}
+        self._classes = {node.name: node for node in tree.body if isinstance(node, ast.ClassDef)}
+
+    def _class_helpers(self, class_def: ast.ClassDef) -> dict[str, _Function]:
+        """The methods a class can call on `self`: its own, then those inherited from base classes
+        defined in the same module. A base from another module is out of reach here."""
+        helpers: dict[str, _Function] = {}
+        pending = [class_def]
+        seen: set[int] = set()
+        while pending:
+            current = pending.pop()
+            if id(current) in seen:
+                continue
+            seen.add(id(current))
+            for node in ast.iter_child_nodes(current):
+                if isinstance(node, _Function):
+                    helpers.setdefault(node.name, node)
+            pending.extend(
+                self._classes[base.id]
+                for base in current.bases
+                if isinstance(base, ast.Name) and base.id in self._classes
+            )
+        return helpers
 
     def executes(self, function: _Function, scope: ast.AST) -> bool:
         """Whether `function` executes a query, itself or through helpers followed to a fixpoint.
 
-        Helpers resolve in the function's own scope first (its class, or the module for a plain
-        function), then among the module's top-level functions, which a method reaches by name too."""
-        helpers = self._module_helpers | {
-            node.name: node for node in ast.iter_child_nodes(scope) if isinstance(node, _Function)
-        }
+        Helpers resolve in the function's own class (own methods first, then same-module bases),
+        then among the module's top-level functions, which a method reaches by name too."""
+        scope_helpers = self._class_helpers(scope) if isinstance(scope, ast.ClassDef) else {}
+        helpers = self._module_helpers | scope_helpers
         seen: set[int] = set()
         pending = [function]
         while pending:

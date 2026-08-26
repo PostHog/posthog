@@ -343,6 +343,19 @@ class TestGarageDrives:
                 """,
                 {("product_analytics", "PathsQuery"): 1},
             ),
+            # a helper inherited from a base class in the same module executes too
+            (
+                """
+                class QueryTestBase(APIBaseTest):
+                    def run_query(self, query):
+                        return self.client.post("/api/projects/1/query/", {"query": query})
+
+                class TestPaths(QueryTestBase):
+                    def test_paths(self):
+                        assert self.run_query({"kind": "PathsQuery"}).status_code == 200
+                """,
+                {("product_analytics", "PathsQuery"): 1},
+            ),
             # a bare string in a test that never executes, or a URL segment, is not a drive
             (
                 """
