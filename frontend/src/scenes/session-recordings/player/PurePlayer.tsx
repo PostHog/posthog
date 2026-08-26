@@ -359,6 +359,9 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
                                     {hasLateFullSnapshot && !hidePlayerElements ? (
                                         <LemonBanner
                                             type="warning"
+                                            // The player column over-commits its height, so a flexible banner gets
+                                            // squashed and its text spills out of the border in narrow players
+                                            className="shrink-0"
                                             dismissKey={`late-full-snapshot-${sessionRecordingId}`}
                                         >
                                             The first{' '}
