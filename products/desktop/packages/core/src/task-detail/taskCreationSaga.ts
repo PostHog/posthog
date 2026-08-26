@@ -552,8 +552,13 @@ export class TaskCreationSaga extends Saga<
               .join("\n\n");
 
             await this.deps.piRunner.create({
-              taskId: task.id,
-              cwd: agentCwd ?? "",
+              taskContext: {
+                taskId: task.id,
+                cwd: agentCwd ?? "",
+                customInstructions: input.customInstructions,
+                additionalDirectories: input.additionalDirectories,
+                channelMode: !!scratchCwd && agentCwd === scratchCwd,
+              },
               projectTrustPath:
                 workspace?.folderPath ?? repoPath ?? scratchCwd ?? undefined,
               prompt,
