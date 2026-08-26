@@ -1061,6 +1061,48 @@ describe('insightVizDataLogic', () => {
                 } as Partial<TrendsQuery>)
             }).toMatchValues({ isSingleSeriesOutput: false })
         })
+
+        it('returns false for single series with a breakdowns array (the shape the trends UI writes)', () => {
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                        },
+                    ],
+                    breakdownFilter: {
+                        breakdowns: [{ property: '$browser', type: 'event' }],
+                    },
+                } as Partial<TrendsQuery>)
+            }).toMatchValues({ isSingleSeriesOutput: false })
+        })
+
+        it('returns false for a single formula split by a breakdown', () => {
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                        },
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                        },
+                    ],
+                    trendsFilter: {
+                        formulas: ['A + B'],
+                    },
+                    breakdownFilter: {
+                        breakdowns: [{ property: '$browser', type: 'event' }],
+                    },
+                } as Partial<TrendsQuery>)
+            }).toMatchValues({ isSingleSeriesOutput: false })
+        })
     })
 
     describe('isSingleSeriesDefinition', () => {

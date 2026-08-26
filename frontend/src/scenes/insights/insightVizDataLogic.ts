@@ -2189,11 +2189,17 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 series: any[],
                 breakdownFilter: BreakdownFilter | null
             ): boolean => {
+                // Any breakdown splits one series into multiple outputs. Check both the legacy `breakdown`
+                // and the `breakdowns` array the trends UI now writes, before the single-formula shortcut.
+                const hasBreakdown = !!breakdownFilter?.breakdown || (breakdownFilter?.breakdowns?.length ?? 0) > 0
+                if (hasBreakdown) {
+                    return false
+                }
                 const hasSingleFormula =
                     (formula && !formulas) ||
                     (formulas && formulas.length === 1) ||
                     (formulaNodes && formulaNodes.length === 1)
-                return (isTrends && hasSingleFormula) || ((series || []).length <= 1 && !breakdownFilter?.breakdown)
+                return (isTrends && !!hasSingleFormula) || (series || []).length <= 1
             },
         ],
         isBreakdownSeries: [

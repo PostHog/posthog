@@ -286,7 +286,8 @@ describe('InsightDisplayConfig', () => {
         it('enables "Show as % of total" once a breakdown splits the series', async () => {
             setupAndRender({
                 ...makeTrendsQuery(ChartDisplayType.ActionsBar),
-                breakdownFilter: { breakdown: '$browser', breakdown_type: 'event' },
+                // The trends UI writes the `breakdowns` array, not the legacy `breakdown` string.
+                breakdownFilter: { breakdowns: [{ property: '$browser', type: 'event' }] },
             })
             await openOptionsMenu()
 
