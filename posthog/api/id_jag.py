@@ -21,6 +21,7 @@ from oauth2_provider.utils import jwk_from_pem
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
+from posthog.dataclasses import frozen
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.user import User
 from posthog.scopes import get_oauth_scopes_supported
@@ -110,6 +111,20 @@ class IdJagClaims(TypedDict, total=False):
     iat: int
     nbf: int
     exp: int
+
+
+@frozen
+class _VerifiedIdJag:
+    claims: IdJagClaims
+    provider_name: str
+    identity_provider_config: IdentityProviderConfig
+
+
+@frozen
+class IssuedAccessToken:
+    access_token: str
+    granted_scopes: list[str]
+    expires_in_seconds: int
 
 
 def _get_site_url() -> str:
@@ -233,7 +248,7 @@ def _get_scopes(id_jag_scopes: list[str], requested_scopes: list[str] | None) ->
     return intersected
 
 
-def _verify_and_extract_id_jag_token(assertion: str) -> tuple[IdJagClaims, str, IdentityProviderConfig]:
+def _verify_and_extract_id_jag_token(assertion: str) -> _VerifiedIdJag:
     """
     Verifies the provided ID-JAG token against the IdP's JWKS and returns the
     claims, the provider name we stamp into the issued access token's `sub`,
@@ -395,7 +410,11 @@ def _verify_and_extract_id_jag_token(assertion: str) -> tuple[IdJagClaims, str, 
             "ID-JAG sub is not an active member of the organization that owns this IdP configuration"
         )
 
-    return claims, provider_name, idp_config
+    return _VerifiedIdJag(
+        claims=claims,
+        provider_name=provider_name,
+        identity_provider_config=idp_config,
+    )
 
 
 def _construct_access_token_payload(
@@ -466,32 +485,40 @@ def _parse_scope_list(value: str | list[str] | None) -> list[str]:
 
 def issue_access_token(
     assertion: str, requested_scope: str | list[str] | None, request_client_id: str | None
-) -> tuple[str, list[str], int]:
+) -> IssuedAccessToken:
     """
     Validate an ID-JAG `assertion` and mint an access token. Pulled out of the
     view so the same path is exercised by tests, batch tools, and the HTTP
-    handler. Returns `(access_token, granted_scopes, expires_in_seconds)`.
+    handler.
     """
 
-    claims, provider_name, idp_config = _verify_and_extract_id_jag_token(assertion)
+    verified_id_jag = _verify_and_extract_id_jag_token(assertion)
 
-    organization = idp_config.organization
+    organization = verified_id_jag.identity_provider_config.organization
     if not organization.is_feature_available(AvailableFeature.XAA_AUTHENTICATION):
         raise AccessDeniedError("ID-JAG (XAA) is not enabled for this organization")
 
-    if request_client_id and request_client_id != claims.get("client_id"):
+    if request_client_id and request_client_id != verified_id_jag.claims.get("client_id"):
         raise InvalidGrantError("ID-JAG client_id doesn't match the authenticating client")
 
-    id_jag_scopes = _parse_scope_list(claims.get("scope"))
+    id_jag_scopes = _parse_scope_list(verified_id_jag.claims.get("scope"))
     parsed_requested = _parse_scope_list(requested_scope) if requested_scope is not None else None
 
     known_scopes = set(get_oauth_scopes_supported())
     sanitized_id_jag_scopes = [s for s in id_jag_scopes if s in known_scopes]
 
     granted = _get_scopes(sanitized_id_jag_scopes, parsed_requested)
-    verified_email = claims.get("email") or claims.get("sub") or ""
+    verified_email = verified_id_jag.claims.get("email") or verified_id_jag.claims.get("sub") or ""
     payload = _construct_access_token_payload(
-        claims, provider_name, granted, organization.pk, cast(str, verified_email)
+        verified_id_jag.claims,
+        verified_id_jag.provider_name,
+        granted,
+        organization.pk,
+        cast(str, verified_email),
     )
     token = _construct_access_token(payload)
-    return token, granted, settings.ID_JAG_ACCESS_TOKEN_TTL_SECONDS
+    return IssuedAccessToken(
+        access_token=token,
+        granted_scopes=granted,
+        expires_in_seconds=settings.ID_JAG_ACCESS_TOKEN_TTL_SECONDS,
+    )

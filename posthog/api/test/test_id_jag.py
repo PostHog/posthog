@@ -761,14 +761,14 @@ class TestIdJagTokenEndpoint(APIBaseTest):
 
     def test_issue_access_token_helper(self) -> None:
         assertion = _make_id_jag()
-        token, granted, expires_in = issue_access_token(
+        issued_access_token = issue_access_token(
             assertion, requested_scope="feature_flag:read", request_client_id=_RESOURCE_CLIENT_ID
         )
-        self.assertEqual(granted, ["feature_flag:read"])
-        self.assertEqual(expires_in, 300)
+        self.assertEqual(issued_access_token.granted_scopes, ["feature_flag:read"])
+        self.assertEqual(issued_access_token.expires_in_seconds, 300)
         # Token decodable with the AS public key.
         jwt.decode(
-            token,
+            issued_access_token.access_token,
             _public_key_for(_AS_PRIVATE_KEY_PEM),
             algorithms=["RS256"],
             audience=_RESOURCE_URL,
