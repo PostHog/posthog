@@ -178,11 +178,13 @@ export const accountRelatedUsersLogic = kea<accountRelatedUsersLogicType>([
                                 results: response.results.map((member) => ({ ...member, region: Region.US })),
                             }
                         }
-                        const euMembers = await fetchEuMembers(props.externalId)
-                        breakpoint()
-                        if (euMembers?.length) {
-                            cache.euMembers = euMembers
-                            return paginateMembers(euMembers, values.page, values.searchTerm)
+                        if (!search) {
+                            const euMembers = await fetchEuMembers(props.externalId)
+                            breakpoint()
+                            if (euMembers?.length) {
+                                cache.euMembers = euMembers
+                                return paginateMembers(euMembers, values.page, values.searchTerm)
+                            }
                         }
                         return { ...response, results: [] }
                     } catch (error) {

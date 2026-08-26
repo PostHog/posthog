@@ -83,6 +83,7 @@ export function AccountRelatedUsersExpansion({ externalId }: { externalId: strin
                 value={searchTerm}
                 onChange={setSearchTerm}
                 placeholder="Search users by name or email..."
+                maxLength={200}
                 size="small"
                 className="min-w-64"
                 data-attr="customer-analytics-account-users-search"

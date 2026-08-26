@@ -103,6 +103,26 @@ describe('accountRelatedUsersLogic', () => {
         expect(listForOrg).toHaveBeenLastCalledWith('org-uuid', { limit: PAGE_SIZE, offset: 0, search: 'Ada' })
     })
 
+    it('does not load EU members when a US user search has no matches', async () => {
+        const listForOrg = jest
+            .spyOn(api.organizationMembers, 'listForOrg')
+            .mockResolvedValueOnce(buildResponse([buildMember()]))
+            .mockResolvedValueOnce(buildResponse([]))
+        const query = jest.spyOn(api, 'query')
+
+        logic = accountRelatedUsersLogic({ externalId: 'org-uuid' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setSearchTerm('Nobody')
+
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toMatchValues({ membersResponse: buildResponse([]) })
+        expect(listForOrg).toHaveBeenLastCalledWith('org-uuid', { limit: PAGE_SIZE, offset: 0, search: 'Nobody' })
+        expect(query).not.toHaveBeenCalled()
+    })
+
     const buildEuRow = (
         n: number,
         level: OrganizationMembershipLevel = OrganizationMembershipLevel.Member

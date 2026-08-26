@@ -1,6 +1,7 @@
 from uuid import UUID
 
-from django.db.models import Q, QuerySet
+from django.db.models import Q, QuerySet, Value
+from django.db.models.functions import Concat
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, serializers, viewsets
@@ -49,9 +50,12 @@ class OrganizationMembersForAccountViewSet(
                 {"search": f"Search query must be {MAX_SEARCH_LENGTH} characters or fewer."}
             )
         if normalized_search := normalize_search_term(search):
-            return queryset.filter(
+            return queryset.annotate(
+                account_member_full_name=Concat("user__first_name", Value(" "), "user__last_name")
+            ).filter(
                 Q(user__first_name__icontains=normalized_search)
                 | Q(user__last_name__icontains=normalized_search)
                 | Q(user__email__icontains=normalized_search)
+                | Q(account_member_full_name__icontains=normalized_search)
             )
         return queryset

@@ -1,3 +1,5 @@
+from urllib.parse import urlencode
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -54,6 +56,7 @@ class TestOrganizationMembersForAccountAPI(APIBaseTest):
         [
             ("name", "ada", "ada@example.com"),
             ("email", "hopper@", "grace.hopper@example.com"),
+            ("full name", "Grace Hopper", "grace.hopper@example.com"),
         ]
     )
     @patch("posthoganalytics.feature_enabled", return_value=True)
@@ -66,7 +69,7 @@ class TestOrganizationMembersForAccountAPI(APIBaseTest):
             distinct_id="distinct-grace",
         )
 
-        response = self.client.get(f"{self._url(self.target_org.id)}&search={search}")
+        response = self.client.get(f"{self._url(self.target_org.id)}&{urlencode({'search': search})}")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual([member["user"]["email"] for member in response.json()["results"]], [expected_email])
