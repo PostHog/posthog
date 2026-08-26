@@ -24,7 +24,7 @@ export function ErrorTrackingAssigneeSelectButton({
     fullWidth,
 }: ErrorTrackingAssigneeSelectButtonProps): JSX.Element {
     return (
-        <AssigneeSelect assignee={assignee ?? null} onChange={onChange}>
+        <AssigneeSelect assignee={assignee ?? null} onChange={onChange} fullWidth={fullWidth}>
             {(displayAssignee) => (
                 <LemonButton type="secondary" size="small" fullWidth={fullWidth}>
                     <span className="flex items-center gap-1 min-w-0">

@@ -17,7 +17,7 @@ import { bulkSelectLogic } from '../logics/bulkSelectLogic'
 import { errorTrackingIssueSceneLogic } from '../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 import { sourceDisplay } from '../utils'
 import { AssigneeIconDisplay, AssigneeLabelDisplay } from './Assignee/AssigneeDisplay'
-import { AssigneeSelect } from './Assignee/AssigneeSelect'
+import { QuillAssigneeSelect } from './Assignee/QuillAssigneeSelect'
 import { issueActionsLogic } from './IssueActions/issueActionsLogic'
 import { issueFiltersLogic, updateFilterSearchParams } from './IssueFilters/issueFiltersLogic'
 import { IssueSeveritySelect } from './IssueSeveritySelect'
@@ -187,7 +187,7 @@ const IssueMetadata = ({
             {showSeverity ? (
                 <IssueSeveritySelect severity={record.severity} onChange={onSeverityChange} loading={severityLoading} />
             ) : null}
-            <AssigneeSelect assignee={record.assignee} onChange={onAssigneeChange}>
+            <QuillAssigneeSelect assignee={record.assignee} onChange={onAssigneeChange}>
                 {(anyAssignee) => (
                     <Button variant="outline" size="sm">
                         <AssigneeIconDisplay assignee={anyAssignee} size="xsmall" />
@@ -195,7 +195,7 @@ const IssueMetadata = ({
                         <SelectTriggerIcon />
                     </Button>
                 )}
-            </AssigneeSelect>
+            </QuillAssigneeSelect>
         </ButtonGroup>
     </div>
 )

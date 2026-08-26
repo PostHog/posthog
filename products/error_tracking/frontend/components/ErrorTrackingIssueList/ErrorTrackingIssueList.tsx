@@ -17,7 +17,7 @@ import { useSparklineData } from '../../hooks/use-sparkline-data'
 import { errorTrackingIssueSceneLogic } from '../../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 import { ERROR_TRACKING_LISTING_RESOLUTION, sourceDisplay } from '../../utils'
 import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeResolver } from '../Assignee/AssigneeDisplay'
-import { AssigneeSelect } from '../Assignee/AssigneeSelect'
+import { QuillAssigneeSelect } from '../Assignee/QuillAssigneeSelect'
 import { StatusIndicator } from '../Indicators'
 import { issueActionsLogic } from '../IssueActions/issueActionsLogic'
 import { IssueSeveritySelect } from '../IssueSeveritySelect'
@@ -131,7 +131,7 @@ export function ErrorTrackingIssueListRow({
                         </>
                     ) : null}
                     {canMutateIssues ? (
-                        <AssigneeSelect
+                        <QuillAssigneeSelect
                             assignee={issue.assignee}
                             onChange={(assignee) => updateIssueAssignee(issue.id, assignee)}
                         >
@@ -150,7 +150,7 @@ export function ErrorTrackingIssueListRow({
                                     <IconChevronDown />
                                 </button>
                             )}
-                        </AssigneeSelect>
+                        </QuillAssigneeSelect>
                     ) : (
                         <AssigneeResolver assignee={issue.assignee}>
                             {({ assignee: resolvedAssignee }) => (

@@ -472,6 +472,7 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                                             saveEarlyAccessFeature({ ...earlyAccessFeature, assignee })
                                         }
                                     }}
+                                    fullWidth
                                 >
                                     {(displayAssignee, isOpen) => (
                                         <ButtonPrimitive
