@@ -14,8 +14,9 @@ import { useMemo } from "react";
  */
 export function useInboxSourceFilterOptions(
   selected: SourceProduct[],
+  options?: { enabled?: boolean },
 ): InboxSourceOption[] {
-  const { data: configs } = useSignalSourceConfigs();
+  const { data: configs } = useSignalSourceConfigs(options);
 
   return useMemo(() => {
     if (!configs) {
