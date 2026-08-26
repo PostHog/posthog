@@ -68,6 +68,10 @@
     (subpath (string-append (param "HOME") "/Library/Application Support/com.vercel.cli"))
     (subpath (string-append (param "HOME") "/Library/Application Support/turborepo"))
     (subpath (string-append (param "HOME") "/.duckdb"))            ; duckdb extension cache (ducklake warmup installs/stats extensions here)
+    ;; machine-shared tool store. on-activate installs the greptile CLI here with
+    ;; sandboxed npm, and npm reads its --prefix as well as writing it. Only this
+    ;; subpath, so the rest of ~/.config (gcloud, gh, op) stays denied.
+    (subpath (string-append (param "HOME") "/.config/posthog/tools"))
     ;; git global config (read by version-detection / git-aware tooling). Config
     ;; only, by exact path — credentials (~/.git-credentials, keychain) stay blocked.
     (literal (string-append (param "HOME") "/.gitconfig"))
@@ -79,10 +83,14 @@
 
 ;; Canonicalization (realpath) lstats every path component, so uv resolving its
 ;; managed-interpreter symlinks needs metadata on the dir nodes between $HOME and
-;; ~/.local/share/uv. Metadata only — contents of ~/.local{,/share} stay denied.
+;; ~/.local/share/uv, and npm canonicalizing its --prefix needs the same between
+;; $HOME and ~/.config/posthog/tools. Metadata only — contents of ~/.local{,/share}
+;; and ~/.config{,/posthog} stay denied.
 (allow file-read-metadata
     (literal (string-append (param "HOME") "/.local"))
-    (literal (string-append (param "HOME") "/.local/share")))
+    (literal (string-append (param "HOME") "/.local/share"))
+    (literal (string-append (param "HOME") "/.config"))
+    (literal (string-append (param "HOME") "/.config/posthog")))
 
 ;; Keep the crates.io publish token blocked even though ~/.cargo is allowed above.
 (deny file-read*
