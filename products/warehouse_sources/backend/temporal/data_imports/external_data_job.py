@@ -368,8 +368,12 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
     )
 
     if inputs.status == ExternalDataJob.Status.COMPLETED:
-        completed_job = await database_sync_to_async_pool(ExternalDataJob.objects.get)(id=job_id)
-        if completed_job.billable and completed_job.rows_synced:
+        # The status above is already written, so a job we cannot read back bills nothing
+        # rather than failing the finalization and retrying the whole activity.
+        completed_job = await database_sync_to_async_pool(
+            ExternalDataJob.objects.filter(team_id=inputs.team_id, id=job_id).first
+        )()
+        if completed_job and completed_job.billable and completed_job.rows_synced:
             await asyncio.to_thread(
                 report_usage,
                 [
