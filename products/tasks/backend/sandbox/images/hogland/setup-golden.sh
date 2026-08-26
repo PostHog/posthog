@@ -220,8 +220,17 @@ EOF
 if [ -d /etc/systemd/system ]; then
     dropin_dir=/etc/systemd/system/hogpanion.service.d
     mkdir -p "$dropin_dir"
+    # EnvironmentFile is listed BEFORE the Environment= guard vars on purpose:
+    # systemd applies these directives in file order and a later assignment for
+    # the same key wins, so a user-supplied /etc/hogbox-env can only override
+    # non-guard-critical keys, never PATH/AGENTSH_SERVER/IS_SANDBOX/PYTHONPATH.
+    # filter_user_sandbox_env_vars (products/tasks/backend/constants.py) does not
+    # reserve PATH, so this ordering is the guard against a per-box PATH override
+    # routing hog-exec children through /usr/bin/git instead of the wrapped
+    # /opt/posthog/bin/git.
     cat > "$dropin_dir/posthog-env.conf" <<EOF
 [Service]
+EnvironmentFile=-/etc/hogbox-env
 Environment="DEBIAN_FRONTEND=noninteractive"
 Environment="TZ=UTC"
 Environment="GH_TELEMETRY=false"
@@ -229,7 +238,6 @@ Environment="AGENTSH_SERVER=http://127.0.0.1:18080"
 Environment="IS_SANDBOX=1"
 Environment="PYTHONPATH=/tmp/workspace"
 Environment="PATH=${STATIC_ENV_PATH}"
-EnvironmentFile=-/etc/hogbox-env
 EOF
     systemctl daemon-reload
     # daemon-reload does NOT re-exec a running unit, so the drop-in's new
