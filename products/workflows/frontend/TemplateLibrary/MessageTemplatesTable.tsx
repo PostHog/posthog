@@ -49,7 +49,8 @@ export function MessageTemplatesTable(): JSX.Element {
     const destinationTemplatesById = Object.fromEntries(destinationTemplates.map((t) => [t.id, t]))
 
     const showProductIntroduction = !templatesLoading && templates.length === 0
-    const showNoResults = !templatesLoading && templates.length > 0 && filteredTemplates.length === 0
+    const showNoResults =
+        !templatesLoading && templates.length > 0 && filteredTemplates.length === 0 && hasActiveFilters
 
     return (
         <div className="templates-section" data-attr="message-templates-table">
@@ -123,14 +124,10 @@ export function MessageTemplatesTable(): JSX.Element {
                 <Spinner className="text-6xl" />
             ) : showNoResults ? (
                 <div className="flex flex-col items-center gap-2 py-8 text-center" data-attr="templates-no-results">
-                    <p className="mb-0 text-secondary">
-                        {hasActiveFilters ? 'No templates match your filters.' : 'No templates to show right now.'}
-                    </p>
-                    {hasActiveFilters && (
-                        <LemonButton type="secondary" size="small" onClick={clearFilters}>
-                            Clear filters
-                        </LemonButton>
-                    )}
+                    <p className="mb-0 text-secondary">No templates match your filters.</p>
+                    <LemonButton type="secondary" size="small" onClick={clearFilters}>
+                        Clear filters
+                    </LemonButton>
                 </div>
             ) : (
                 <div className="MessageTemplatesGrid">
