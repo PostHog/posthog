@@ -62,6 +62,12 @@ export const hogTransformationUnexpectedErrors = new Counter({
     help: 'Number of unexpected errors during transformation execution. Any occurrence should trigger an alert as the transformation is skipped.',
 })
 
+export const hogTransformationInvalidResults = new Counter({
+    name: 'hog_transformation_invalid_results_total',
+    help: 'Number of transformation results discarded because the returned event was malformed. The event is ingested without the transformation applied, so its changes are lost.',
+    labelNames: ['reason'],
+})
+
 export interface TransformationResult extends HogTransformationResult {
     event: PluginEvent | null
     invocationResults: CyclotronJobInvocationResult[]
@@ -168,6 +174,24 @@ export class HogTransformerService implements HogTransformer {
         }
 
         const results: CyclotronJobInvocationResult[] = []
+        const invalidTransformations: NonNullable<TransformationResult['invalidTransformations']> = []
+
+        // A transformation ran but returned a malformed event. Its changes are discarded and the
+        // event keeps its previous values. Record a signal so this silent loss is detectable.
+        const recordInvalidResult = (hogFunction: HogFunctionType, reason: string): void => {
+            hogTransformationInvalidResults.inc({ reason })
+            this.hogFunctionMonitoringService.queueAppMetric(
+                {
+                    team_id: event.team_id,
+                    app_source_id: hogFunction.id,
+                    metric_kind: 'failure',
+                    metric_name: 'failed',
+                    count: 1,
+                },
+                'hog_function'
+            )
+            invalidTransformations.push({ id: hogFunction.id, name: hogFunction.name, reason })
+        }
 
         // Create globals once and update the event properties after each transformation
         const globals = this.createInvocationGlobals(event)
@@ -254,6 +278,7 @@ export class HogTransformerService implements HogTransformer {
                 logger.error('⚠️', 'Invalid transformation result - missing or invalid properties', {
                     function_id: hogFunction.id,
                 })
+                recordInvalidResult(hogFunction, 'missing_properties')
                 continue
             }
 
@@ -266,6 +291,7 @@ export class HogTransformerService implements HogTransformer {
                         function_id: hogFunction.id,
                         event: transformedEvent.event,
                     })
+                    recordInvalidResult(hogFunction, 'invalid_event_name')
                     continue
                 }
                 event.event = transformedEvent.event
@@ -277,6 +303,7 @@ export class HogTransformerService implements HogTransformer {
                         function_id: hogFunction.id,
                         distinct_id: transformedEvent.distinct_id,
                     })
+                    recordInvalidResult(hogFunction, 'invalid_distinct_id')
                     continue
                 }
                 event.distinct_id = transformedEvent.distinct_id
@@ -291,6 +318,7 @@ export class HogTransformerService implements HogTransformer {
         return {
             event,
             invocationResults: results,
+            invalidTransformations,
         }
     }
 

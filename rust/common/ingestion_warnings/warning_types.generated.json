@@ -300,6 +300,12 @@
       "category": "event",
       "severity": "error",
       "captureProduced": false
+    },
+    {
+      "type": "transformation_result_invalid",
+      "category": "transformation",
+      "severity": "warning",
+      "captureProduced": false
     }
   ]
 }

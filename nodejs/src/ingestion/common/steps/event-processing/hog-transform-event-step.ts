@@ -54,10 +54,31 @@ export function createHogTransformEventStep<T extends HogTransformEventInput>(
             return drop('dropped_by_transformation', [], [warning])
         }
 
-        return ok({
-            ...input,
-            event: result.event,
-            transformationsRun: result.invocationResults.length,
-        })
+        // A transformation ran but returned a malformed result, so its changes were dropped and
+        // the event ingested unchanged. Warn per transformation so this silent loss is visible.
+        const warnings: PipelineWarning[] = (result.invalidTransformations ?? []).map((transformation) => ({
+            type: 'transformation_result_invalid',
+            details: {
+                eventUuid: event.uuid,
+                event: event.event,
+                distinctId: event.distinct_id,
+                transformationId: transformation.id,
+                transformationName: transformation.name,
+                reason: transformation.reason,
+            },
+            pipelineStep: 'hog-transform',
+            // Debounce per transformation so each malformed transformation surfaces.
+            key: transformation.id,
+        }))
+
+        return ok(
+            {
+                ...input,
+                event: result.event,
+                transformationsRun: result.invocationResults.length,
+            },
+            [],
+            warnings
+        )
     }
 }

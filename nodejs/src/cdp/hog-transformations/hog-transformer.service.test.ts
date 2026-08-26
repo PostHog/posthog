@@ -693,6 +693,11 @@ describe('HogTransformer', () => {
             expect(result.event?.properties).toEqual({
                 success: true,
             })
+
+            // The discarded result is reported so the silent property loss stays detectable
+            expect(result.invalidTransformations).toEqual([
+                { id: failFunction.id, name: failFunction.name, reason: 'missing_properties' },
+            ])
         })
 
         it('should pull from inputs and encrypted_inputs', async () => {

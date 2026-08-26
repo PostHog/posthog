@@ -87,6 +87,38 @@ describe('createHogTransformEventStep', () => {
         }
     })
 
+    it('ingests the event but warns per transformation that returned an invalid result', async () => {
+        const mockTransformer = createMockHogTransformer((event) => ({
+            event,
+            invocationResults: [{} as any],
+            invalidTransformations: [{ id: 'hog-fn-2', name: 'Add org properties', reason: 'missing_properties' }],
+        }))
+        const hogTransformEventStep = createHogTransformEventStep(mockTransformer)
+        const input = createTestInput()
+
+        const result = await hogTransformEventStep(input)
+
+        expect(result.type).toBe(PipelineResultType.OK)
+        if (isOkResult(result)) {
+            expect(result.value.event).toBe(input.event)
+            expect(result.warnings).toEqual([
+                {
+                    type: 'transformation_result_invalid',
+                    details: {
+                        eventUuid: input.event.uuid,
+                        event: '$pageview',
+                        distinctId: 'user-1',
+                        transformationId: 'hog-fn-2',
+                        transformationName: 'Add org properties',
+                        reason: 'missing_properties',
+                    },
+                    pipelineStep: 'hog-transform',
+                    key: 'hog-fn-2',
+                },
+            ])
+        }
+    })
+
     it('returns transformed event with modified properties', async () => {
         const mockTransformer = createMockHogTransformer((event) => ({
             event: {
