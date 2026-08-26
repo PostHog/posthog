@@ -150,7 +150,9 @@ The consumer keeps the orchestration and the ids.
 `apps.get_model('label', 'Class')` reaches a model through the Django app registry.
 It leaves no import edge, so tach and import-linter cannot see it.
 The scan therefore does not stop at the watched-models allowance on this channel: a reference from outside the owning product to any class on any product's model surface is counted as the disallowed kind `get_model`.
-Test modules stay out of scope, which is a blind spot, not permission: a core test fixture that reaches a model this way is not counted here and, with no import edge, not selected by snob when the model changes. Seed product rows through the facade's write function or a product testing door instead.
+Test modules stay out of scope, which is a blind spot, not permission.
+A core test fixture that reaches a model this way is not counted here and, with no import edge, not selected by snob when the model changes.
+Seed product rows through a facade write function or a product-owned testing module instead.
 Migrations stay out of scope too: a migration reaches a model through the historical registry, and that is the only way a migration can.
 Production code may not add one.
 
