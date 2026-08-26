@@ -528,8 +528,8 @@ class TestGarageDrives:
             "products.web_analytics.backend.hogql_queries.stats_table",
         }
         assert crossings.module_drives(imports, [location], modules.__contains__) == {
-            (location.label, "web_overview"): 1,
-            (location.label, "stats_table"): 1,
+            crossings._ModuleDrive(location.label, "web_overview"): 1,
+            crossings._ModuleDrive(location.label, "stats_table"): 1,
         }
 
     def test_hint_matches_the_enum_form(self) -> None:

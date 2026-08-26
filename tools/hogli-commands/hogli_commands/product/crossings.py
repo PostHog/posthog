@@ -656,6 +656,14 @@ class _KindDrive:
     kind: str
 
 
+@dataclass(frozen=True, slots=True)
+class _ModuleDrive:
+    """A wiring-location module a test binds as an object."""
+
+    label: str  # wiring_location_label(...)
+    module: str  # the module's own name, e.g. "web_overview"
+
+
 def _node_kind_values(source: str) -> dict[str, str]:
     """`NodeKind` member name -> kind string, read off the enum's source without importing it."""
     match = _NODE_KIND_CLASS_RE.search(source)
@@ -769,8 +777,8 @@ def _top_level_names(tree: ast.Module) -> list[str]:
 
 def module_drives(
     imports: _ImportTable, locations: Iterable[_WiringLocation], exists: Callable[[str], bool] | None = None
-) -> Counter[tuple[str, str]]:
-    """(location label, module name) -> 1 for every wiring-location module a test binds as an object.
+) -> Counter[_ModuleDrive]:
+    """Every wiring-location module a test binds as an object, with how often.
 
     `import ...hogql_queries.web_overview as m` or `from ...hogql_queries import web_overview`
     binds the module itself, usually to patch an attribute on it. No exported name is read, so
@@ -778,14 +786,14 @@ def module_drives(
     that table as a possible module `a.b`, so only names that are modules on disk count here;
     a class imported that way is the origins pass's to count."""
     exists = exists or _module_exists
-    found: Counter[tuple[str, str]] = Counter()
+    found: Counter[_ModuleDrive] = Counter()
     prefixes = [
         (f"products.{loc.product}." + loc.location.rstrip("/").replace("/", ".") + ".", loc) for loc in locations
     ]
     for alias in imports.module_aliases:
         for prefix, location in prefixes:
             if alias.module.startswith(prefix) and exists(alias.module):
-                found[(location.label, alias.module.rsplit(".", 1)[-1])] += 1
+                found[_ModuleDrive(location.label, alias.module.rsplit(".", 1)[-1])] += 1
     return found
 
 
@@ -1120,9 +1128,9 @@ def scan_crossing_uses(products: Iterable[str] | None = None) -> list[CrossingUs
         aliases = {a.alias: a.module for a in candidate.imports.module_aliases if a.module in origin_modules}
         hinted = candidate.mentions_query_kind if is_test else candidate.mentions_get_model
         if is_test:
-            for (label, name), count in module_drives(candidate.imports, locations).items():
-                if not candidate.path.is_relative_to(owning_dir[label]):
-                    counts[(label, candidate.dotted, f"drives({name})")] += count
+            for drive, count in module_drives(candidate.imports, locations).items():
+                if not candidate.path.is_relative_to(owning_dir[drive.label]):
+                    counts[(drive.label, candidate.dotted, f"drives({drive.module})")] += count
         if not names and not aliases and not hinted:
             continue
         try:
