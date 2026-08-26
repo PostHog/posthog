@@ -263,6 +263,25 @@ class CommunityPublishSustainedThrottle(_CommunityPublishThrottle):
     rate = "20/day"
 
 
+# The sandbox fetches this bundle over OAuth, which the general BurstRateThrottle/SustainedRateThrottle
+# wave through — they only count personal-API-key traffic. Each call runs the candidate queries, a
+# per-skill file query, and DEFLATE of up to MAX_SANDBOX_BUNDLE_BYTES, so it needs throttles that
+# count OAuth and session callers too. PersonalApiKeyOrUserRateThrottle applies regardless of auth
+# method; the inherited key idents these callers per project, which is what we want to cap.
+class SandboxBundleBurstThrottle(PersonalApiKeyOrUserRateThrottle):
+    # A sandbox fetches the bundle once at session start, so 30/minute clears a burst of concurrent
+    # starts for a project while still catching a scripted loop hammering the zip build.
+    scope = "skills_sandbox_bundle_burst"
+    rate = "30/minute"
+
+
+class SandboxBundleSustainedThrottle(PersonalApiKeyOrUserRateThrottle):
+    # A few hundred session starts an hour per project is well beyond normal use and short of what
+    # sustained abuse of the 5 MB zip build could cost unthrottled.
+    scope = "skills_sandbox_bundle_sustained"
+    rate = "300/hour"
+
+
 class LLMSkillViewSet(
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
@@ -285,6 +304,8 @@ class LLMSkillViewSet(
     def get_throttles(self):
         if self.action == "publish_to_community":
             return [CommunityPublishBurstThrottle(), CommunityPublishSustainedThrottle()]
+        if self.action == "sandbox_bundle":
+            return [SandboxBundleBurstThrottle(), SandboxBundleSustainedThrottle()]
         if self.action in ["update_by_name", "get_by_name", "resolve_by_name"]:
             return [BurstRateThrottle(), SustainedRateThrottle()]
         return super().get_throttles()

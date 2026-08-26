@@ -277,6 +277,21 @@ class TestSkillSandboxBundle(APIBaseTest):
         assert response["X-Skills-Included"] == "0"
         assert self._skill_dirs(response) == set()
 
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    @patch("products.skills.backend.api.skills.SandboxBundleBurstThrottle.rate", new="1/minute")
+    def test_oauth_and_session_callers_are_throttled(self, *_args):
+        # The general Burst/Sustained throttles only count personal-API-key traffic, so an OAuth
+        # (or session) caller would otherwise hit this expensive zip endpoint unthrottled. The
+        # patched rate trips the second call; the test client uses session auth, the same
+        # "authenticated, no personal API key" class the sandbox's OAuth token falls into.
+        self._create_skill("mine")
+
+        first = self._fetch()
+        assert first.status_code == status.HTTP_200_OK, first.content
+
+        second = self._fetch()
+        assert second.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+
 
 class TestSkillMarketplaceGit(APIBaseTest):
     def setUp(self):
