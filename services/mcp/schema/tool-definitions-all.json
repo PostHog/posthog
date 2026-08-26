@@ -3063,7 +3063,7 @@
         }
     },
     "endpoint-create": {
-        "description": "Create a new API endpoint from a HogQL or insight query. The name must be URL-safe (letters, numbers, hyphens, underscores, starts with a letter, max 128 chars). Materialization is auto-enabled if the query is eligible.",
+        "description": "Create a new API endpoint from a HogQL or insight query. The name must be URL-safe (letters, numbers, hyphens, underscores, starts with a letter, max 128 chars). Set is_materialized to true to materialize an eligible query.",
         "category": "Endpoints",
         "feature": "endpoints",
         "summary": "Create endpoint",
