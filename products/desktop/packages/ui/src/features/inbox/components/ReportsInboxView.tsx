@@ -436,9 +436,9 @@ function InboxReportRow({ report }: { report: SignalReport }) {
       <div
         role="button"
         tabIndex={0}
-        {...pointerHandlers}
         onPointerEnter={prefetch}
         onFocus={prefetch}
+        onPointerDown={pointerHandlers.onPointerDown}
         onClick={() => navigateToInboxReportDetail(report.id)}
         onKeyDown={(event) => {
           if (event.key === "Enter" || event.key === " ") {
