@@ -192,18 +192,27 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
         ]
     }
 
+    // Offer Resolve only where the backend accepts a direct transition to RESOLVED — a researched
+    // report (ready or pending_input). Other live statuses (potential, candidate, in_progress,
+    // failed) return 409, so don't show a dead-end affordance. Mirrors `canCreateImplementationPr`
+    // and the server transition guard.
+    const canResolve =
+        report.status === SignalReportStatus.READY || report.status === SignalReportStatus.PENDING_INPUT
+
+    const resolve: ReportDetailAction = {
+        key: 'resolve',
+        label: 'Resolve',
+        icon: <IconCheckCircle />,
+        loading: isResolving,
+        tooltip: 'Mark this report as done',
+        // The judge found the fix already in flight, so Create PR is withheld and closing the
+        // report is the step it waits on.
+        primary: report.already_addressed === true,
+        onClick: onResolveClick,
+    }
+
     const actions: ReportDetailAction[] = [
-        {
-            key: 'resolve',
-            label: 'Resolve',
-            icon: <IconCheckCircle />,
-            loading: isResolving,
-            tooltip: 'Mark this report as done',
-            // The judge found the fix already in flight, so Create PR is withheld and closing the
-            // report is the step it waits on.
-            primary: report.already_addressed === true,
-            onClick: onResolveClick,
-        },
+        ...(canResolve ? [resolve] : []),
         {
             key: 'dismiss',
             label: 'Dismiss',
