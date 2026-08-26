@@ -1703,3 +1703,86 @@ class TestStripeWarehouseParentFanout:
                     )
                     is None
                 )
+
+
+class TestStripeNestedSweepResume:
+    @pytest.mark.parametrize("from_warehouse", [False, True], ids=["api", "warehouse"])
+    @pytest.mark.parametrize(
+        "first_parent_rows,expected",
+        [
+            (["txn_1", "txn_2", "txn_3"], ["txn_1", "txn_2", "txn_3", "txn_4"]),
+            (["txn_1", "txn_2"], ["txn_1", "txn_2", "txn_4"]),
+        ],
+        ids=["chunk_splits_a_parent", "chunk_ends_on_a_boundary"],
+    )
+    def test_interrupted_sweep_resumes_without_losing_or_repeating_rows(
+        self, from_warehouse, first_parent_rows, expected, tmp_path
+    ):
+        customers = [{"id": "cus_1", "balance": -500}, {"id": "cus_2", "balance": -500}]
+        nested_rows = {
+            "cus_1": [{"id": row_id} for row_id in first_parent_rows],
+            "cus_2": [{"id": "txn_4"}],
+        }
+
+        def _after(rows, cursor):
+            if cursor is None:
+                return rows
+            return rows[[row["id"] for row in rows].index(cursor) + 1 :]
+
+        def parent_method(params=None, **kwargs):
+            return _list_object(_after(customers, (params or {}).get("starting_after")))
+
+        def nested_method(customer=None, params=None):
+            return _list_object(_after(nested_rows[customer], (params or {}).get("starting_after")))
+
+        warehouse_parent = None
+        if from_warehouse:
+            uri = _write_customer_parent_table(tmp_path, customers)
+            warehouse_parent = ParentTableRef(uri=uri, version=deltalake.DeltaTable(uri).version())
+
+        resource = StripeNestedResource(
+            method=nested_method,
+            nested_parent_param="customer",
+            parent_id="id",
+            parent=StripeResource(method=parent_method),
+            parent_name=CUSTOMER_RESOURCE_NAME,
+        )
+
+        def run(manager):
+            collected: list[dict] = []
+            checkpoints: list[tuple[int, Any]] = []
+            manager.save_state.side_effect = lambda state: checkpoints.append((len(collected), state))
+            with (
+                patch.object(stripe_module, "StripeClient"),
+                patch.object(stripe_module, "STRIPE_CHUNK_SIZE", 2),
+                patch.object(
+                    stripe_module,
+                    "_build_resources",
+                    return_value={CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME: resource},
+                ),
+            ):
+                for table in get_rows(
+                    api_key="sk_test_123",
+                    endpoint=CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
+                    account_id=None,
+                    db_incremental_field_last_value=None,
+                    db_incremental_field_earliest_value=None,
+                    logger=MagicMock(),
+                    resumable_source_manager=manager,
+                    api_version=STRIPE_API_VERSION_ACACIA,
+                    warehouse_parent=warehouse_parent,
+                ):
+                    collected.extend(table.to_pylist())
+            return collected, checkpoints
+
+        killed = MagicMock()
+        killed.can_resume.return_value = False
+        all_rows, checkpoints = run(killed)
+        rows_written, crash_state = checkpoints[0]
+
+        restarted = MagicMock()
+        restarted.can_resume.return_value = True
+        restarted.load_state.return_value = crash_state
+        resumed_rows, _ = run(restarted)
+
+        assert [row["id"] for row in all_rows[:rows_written] + resumed_rows] == expected

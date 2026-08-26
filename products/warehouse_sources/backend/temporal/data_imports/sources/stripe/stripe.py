@@ -477,6 +477,8 @@ class StripeResumeConfig:
     """
 
     starting_after: str | None = None
+    nested_parent_id: str | None = None
+    nested_starting_after: str | None = None
     warehouse_fragment_index: int | None = None
     warehouse_row_offset: int | None = None
     warehouse_table_uri: str | None = None
@@ -526,6 +528,7 @@ class _WarehouseParentRows:
         self._page_size = page_size
         self._schema_name = schema_name
         self._start_position = start_position
+        self.position_at_current: Optional[ScanPosition] = None
         self.position_after_current: Optional[ScanPosition] = None
 
     def __iter__(self) -> Iterator[dict[str, Any]]:
@@ -544,6 +547,7 @@ class _WarehouseParentRows:
             start_position=self._start_position,
         ):
             for index, row in enumerate(page.rows):
+                self.position_at_current = page.position_at(index, table=self._table)
                 self.position_after_current = page.position_after(index, table=self._table)
                 yield row
 
@@ -558,6 +562,38 @@ def _resume_state(position: Optional["ScanPosition"], parent_id: Optional[str]) 
             warehouse_version=position.version,
         )
     return StripeResumeConfig(starting_after=parent_id)
+
+
+def _nested_checkpoint(
+    py_table: pa.Table,
+    parent_param: str,
+    in_flight_parent: str,
+    position_at_parent: Optional["ScanPosition"],
+    position_after_parent: Optional["ScanPosition"],
+    last_finished_parent: Optional[str],
+) -> Optional[StripeResumeConfig]:
+    """Where to restart after yielding `py_table`, or None when this chunk cannot name a position.
+
+    A chunk that ends inside the parent still being paginated has to re-enter that parent. Skipping
+    an unfinished parent drops the rest of its rows for good, while re-entering one that turns out
+    to be exhausted costs a single empty call.
+    """
+    chunk_parent = py_table.column(parent_param)[-1].as_py()
+    if chunk_parent != in_flight_parent:
+        # Only a split batch ends a chunk on an earlier parent, whose position is no longer to
+        # hand. Leave the previous checkpoint alone rather than claim progress past rows this
+        # drain has not yielded yet.
+        return None
+    if "id" not in py_table.column_names:
+        # Without an id there is no cursor into the parent's own pages, so the sweep can only move
+        # past it. The one resource in this shape returns a single row per parent, which is
+        # therefore finished by the time that row is written.
+        return _resume_state(position_after_parent, chunk_parent)
+    return dataclasses.replace(
+        _resume_state(position_at_parent, last_finished_parent),
+        nested_parent_id=chunk_parent,
+        nested_starting_after=py_table.column("id")[-1].as_py(),
+    )
 
 
 def _warehouse_start_position(
@@ -823,7 +859,7 @@ def get_rows(
         # resources, which have no parent sweep to checkpoint.
         parent_pages: Optional[_WarehouseParentRows] = None
         resume_params = {}
-        if resume_config is not None:
+        if resume_config is not None and resume_config.starting_after is not None:
             resume_params = {"starting_after": resume_config.starting_after}
             logger.debug(f"Stripe: resuming from object id: {resume_config.starting_after}")
 
@@ -833,13 +869,16 @@ def get_rows(
             # the 404 skip, the row stamping — is untouched: only where parent rows come from
             # changes, and an unresolved table leaves this on the API path exactly as before.
             parent_rows: Iterable[dict[str, Any]]
+            warehouse_start = (
+                _warehouse_start_position(resume_config, warehouse_parent) if warehouse_parent is not None else None
+            )
             if warehouse_parent is not None:
                 parent_pages = _WarehouseParentRows(
                     table=warehouse_parent,
                     columns=[resource.parent_id, *WAREHOUSE_PARENT_FANOUT[endpoint][1]],
                     page_size=DEFAULT_LIMIT,
                     schema_name=endpoint,
-                    start_position=_warehouse_start_position(resume_config, warehouse_parent),
+                    start_position=warehouse_start,
                 )
                 parent_rows = parent_pages
             else:
@@ -854,8 +893,12 @@ def get_rows(
             parent_param_is_kwarg = resource.nested_parent_param in inspect.signature(resource.method).parameters
             skipped_parents = 0
             parents_since_checkpoint = 0
-            last_finished_parent: Optional[str] = None
-            last_finished_position: Optional[ScanPosition] = None
+            # Seeded from where this run started, so an interruption before any parent finishes
+            # checkpoints there rather than back at the first parent.
+            last_finished_parent: Optional[str] = resume_config.starting_after if resume_config else None
+            last_finished_position: Optional[ScanPosition] = warehouse_start
+            resume_nested_parent = resume_config.nested_parent_id if resume_config else None
+            resume_nested_after = resume_config.nested_starting_after if resume_config else None
             for obj in parent_rows:
                 # Checkpoint the sweep's position through the parent list every so often. The only
                 # other checkpoint fires when a chunk fills, which for a sparse nested resource
@@ -872,6 +915,11 @@ def get_rows(
 
                 parent_obj_id = obj[resource.parent_id]
                 parents_since_checkpoint += 1
+                nested_resume_params: dict[str, Any] = {}
+                if resume_nested_parent is not None and parent_obj_id == resume_nested_parent:
+                    nested_resume_params = {"starting_after": resume_nested_after}
+                    resume_nested_parent = None
+                    resume_nested_after = None
                 # Skip parents that a cheap signal on the parent object rules out — avoids one empty
                 # nested call per parent (the bulk of Stripe API volume for these resources).
                 if resource.parent_has_nested is not None and not resource.parent_has_nested(obj):
@@ -880,7 +928,7 @@ def get_rows(
                     last_finished_position = parent_pages.position_after_current if parent_pages else None
                     continue
                 parent_params = resource.nested_params_from_parent(obj) if resource.nested_params_from_parent else {}
-                nested_params = {**default_params, **resource.params, **parent_params}
+                nested_params = {**default_params, **resource.params, **parent_params, **nested_resume_params}
                 nested_kwargs: dict[str, Any] = {}
                 if parent_param_is_kwarg:
                     nested_kwargs[resource.nested_parent_param] = parent_obj_id
@@ -908,10 +956,16 @@ def get_rows(
                             py_table = batcher.get_table()
                             yield py_table
 
-                            last_cur = py_table.column(resource.nested_parent_param)[-1].as_py()
-                            resumable_source_manager.save_state(
-                                _resume_state(parent_pages.position_after_current if parent_pages else None, last_cur)
+                            checkpoint = _nested_checkpoint(
+                                py_table,
+                                resource.nested_parent_param,
+                                parent_obj_id,
+                                parent_pages.position_at_current if parent_pages else None,
+                                parent_pages.position_after_current if parent_pages else None,
+                                last_finished_parent,
                             )
+                            if checkpoint is not None:
+                                resumable_source_manager.save_state(checkpoint)
                 except stripe_lib.InvalidRequestError as e:
                     # The parent was deleted between listing it and fetching its nested resources,
                     # so Stripe 404s the nested call. Skip the now-gone parent and keep syncing the
