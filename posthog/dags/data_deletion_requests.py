@@ -436,7 +436,8 @@ def load_deletion_request(
 
 _HOGQL_UNSWEEPABLE_REASON = (
     "the request carries a HogQL predicate, which only compiles against the events schema "
-    "(this table has no HogQL table definition, so the compiled fragment names columns it lacks). "
+    "(compile_hogql_predicate resolves every predicate against the events HogQL table, varying only "
+    "legacy vs native-JSON, and nothing checks the result against this table's columns). "
     "To proceed, re-file the request without the predicate, or narrow its events to ones this "
     f"table never stores. See {COVERAGE_DOC}."
 )

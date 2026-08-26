@@ -409,6 +409,28 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         for table_name in posthog_table_names:
             assert serialized_database.get(table_name) is not None
 
+    @parameterized.expand([(True,), (False,)])
+    def test_flag_evaluations_visibility_follows_the_org_flag(self, flag_enabled: bool) -> None:
+        with patch(
+            "products.feature_flags.backend.facade.flags.is_flag_evaluations_table_enabled",
+            return_value=flag_enabled,
+        ):
+            database = Database.create_for(team=self.team)
+            context = HogQLContext(team_id=self.team.pk, database=database)
+            serialized = database.serialize(context, include_hidden_posthog_tables=True)
+
+            assert ("posthog.flag_evaluations" in database.get_posthog_table_names(include_hidden=True)) is flag_enabled
+            assert ("posthog.flag_evaluations" in serialized) is flag_enabled
+
+            # The person and group traversers are the parts that resolve through a virtual subtable
+            # rather than straight to a column, so the query exercises those rather than a bare one.
+            query = "SELECT flag_key, person.properties.email, group_0.properties.name FROM posthog.flag_evaluations"
+            if flag_enabled:
+                execute_hogql_query(query, team=self.team, pretty=False)
+            else:
+                with pytest.raises(QueryError, match="Unknown table"):
+                    execute_hogql_query(query, team=self.team, pretty=False)
+
     def test_serialize_database_without_fields_matches_full_metadata(self):
         credential = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
         warehouse_table = DataWarehouseTable.objects.create(

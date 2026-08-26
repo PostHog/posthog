@@ -4,6 +4,9 @@ from collections.abc import Iterator
 
 import pytest
 
+from posthog.hogql.database.models import DatabaseField, Table
+from posthog.hogql.database.schema.flag_evaluations import FLAG_EVALUATIONS_CLICKHOUSE_TABLE, FlagEvaluationsTable
+
 from posthog.clickhouse.kafka_engine import CONSUMER_GROUP_EVENTS_JSON_NATIVE_JSON, KAFKA_COLUMNS_WITH_PARTITION
 from posthog.clickhouse.schema import (
     CREATE_KAFKA_TABLE_QUERIES,
@@ -22,6 +25,7 @@ from posthog.models.flag_evaluations.sql import (
     DISTRIBUTED_FLAG_EVALUATIONS_TABLE_SQL,
     FLAG_EVALUATIONS_KAFKA_COLUMNS,
     FLAG_EVALUATIONS_MV_SQL,
+    FLAG_EVALUATIONS_TABLE,
     FLAG_EVALUATIONS_TABLE_SQL,
 )
 
@@ -121,6 +125,36 @@ def test_flag_evaluations_read_table_declares_every_stored_column():
     assert stored_columns
 
     assert _flag_evaluations_table_columns(DISTRIBUTED_FLAG_EVALUATIONS_TABLE_SQL()) == stored_columns
+
+
+def _hogql_column_names(table: Table) -> set[str]:
+    names: set[str] = set()
+    for field in table.fields.values():
+        if isinstance(field, Table):
+            names |= _hogql_column_names(field)
+        elif isinstance(field, DatabaseField):
+            names.add(field.name)
+    return names
+
+
+# Kafka metadata, deliberately not exposed to customers.
+_FLAG_EVALUATIONS_COLUMNS_HIDDEN_FROM_HOGQL = {"_timestamp", "_offset", "_partition"}
+
+
+def test_flag_evaluations_hogql_table_matches_the_read_table():
+    # The HogQL table spells its column names by hand, and spells the read table's name again
+    # because it cannot import this module (posthog/hogql/test/test_no_django_imports.py). Both
+    # copies drift silently: a query naming a column the shards lack fails only when someone runs
+    # it. Asserting the difference rather than a subset means a column added to the read table has
+    # to be either exposed or named here, instead of staying invisible to HogQL by default.
+    declared = {
+        column.split()[0] for column in _flag_evaluations_table_columns(DISTRIBUTED_FLAG_EVALUATIONS_TABLE_SQL())
+    }
+    exposed = _hogql_column_names(FlagEvaluationsTable())
+
+    assert FLAG_EVALUATIONS_CLICKHOUSE_TABLE == FLAG_EVALUATIONS_TABLE
+    assert declared - exposed == _FLAG_EVALUATIONS_COLUMNS_HIDDEN_FROM_HOGQL
+    assert exposed - declared == set()
 
 
 @pytest.fixture(autouse=True)

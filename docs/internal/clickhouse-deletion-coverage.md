@@ -144,7 +144,12 @@ Doing nothing means the first affected GDPR request becomes an escalation.
 
 ### Event removal with a HogQL predicate does not reach `flag_evaluations`
 
-`compile_hogql_predicate` resolves against the events HogQL table and emits events-specific physical columns. There is no HogQL table definition for `flag_evaluations`, so the fragment cannot run against it. Requests without a predicate are swept normally; requests with one are refused if the table holds matching rows.
+`compile_hogql_predicate` resolves every predicate against the events HogQL table and emits events-specific physical columns.
+Its only axis of variation is legacy vs native-JSON events, so while the dag does compile one fragment per target, no target selects a different table root.
+Whether a given fragment would run against `flag_evaluations` depends on the predicate and the team's modifiers: one naming only `event` or `distinct_id` would, one reaching a `mat_*` column or a property-group map would not, and nothing validates which.
+The dag refuses rather than guessing.
+A HogQL table definition for `flag_evaluations` does not change that, because nothing routes compilation to a table.
+Requests without a predicate are swept normally; requests with one are refused if the table holds matching rows.
 
 ## Producer prerequisite: person_id parity
 
