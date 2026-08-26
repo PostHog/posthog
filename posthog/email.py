@@ -3,6 +3,7 @@ import uuid
 import smtplib
 import datetime
 import dataclasses
+from collections.abc import Collection
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
@@ -154,18 +155,23 @@ def _failure_reason(err: Exception) -> str:
     return f"{type(err).__name__}{suffix}"[:200]
 
 
-def _record_send_failure(record_pk: uuid.UUID, reason: str) -> None:
-    """Stamp a failed attempt on the recipient's already-committed row.
+def _record_send_failures(record_pks: Collection[uuid.UUID], reason: str) -> None:
+    """Stamp a failed attempt on rows that `_ensure_messaging_record` already committed.
 
-    Runs after the send's transaction rolled back, so it has to be its own write. Best-effort,
-    because when the database is the broken part the send error is the one worth surfacing.
+    Runs after the send's transaction rolled back, so it has to be its own write, and it needs its
+    own savepoint: swallowing a database error inside the caller's transaction would leave that
+    transaction poisoned with the cause hidden. Best-effort, because when the database is the
+    broken part the send error is the one worth surfacing.
     """
+    if not record_pks:
+        return
     try:
-        MessagingRecord.objects.filter(pk=record_pk).update(
-            failed_at=timezone.now(),
-            failure_count=F("failure_count") + 1,
-            last_failure_reason=reason,
-        )
+        with transaction.atomic():
+            MessagingRecord.objects.filter(pk__in=record_pks).update(
+                failed_at=timezone.now(),
+                failure_count=F("failure_count") + 1,
+                last_failure_reason=reason,
+            )
     except Exception as err:
         logger.warning("email_send_failure_record_failed", error=str(err))
 
@@ -271,68 +277,72 @@ def _send_via_http(
 
     sent_count = 0
     already_sent_count = 0  # delivered in a prior run — not a failure if the batch later aborts
+    # Every recipient the batch has not resolved yet. An abort stamps all of them, so the rows
+    # agree with the per-recipient unit the `failed` counter below uses.
+    undelivered: set[uuid.UUID] = set()
     try:
-        for dest in to:
-            record = _ensure_messaging_record(dest["raw_email"], campaign_key)
-            try:
-                with transaction.atomic():
-                    locked = MessagingRecord.objects.select_for_update().get(pk=record.pk)
-                    if locked.sent_at:
-                        already_sent_count += 1
-                        continue
+        records = [_ensure_messaging_record(dest["raw_email"], campaign_key) for dest in to]
+        undelivered = {record.pk for record in records}
 
-                    identifiers: dict[str, str] = {"email": dest["raw_email"]}
-                    if dest.get("distinct_id"):
-                        identifiers["id"] = dest["distinct_id"]
+        for dest, record in zip(to, records, strict=True):
+            with transaction.atomic():
+                locked = MessagingRecord.objects.select_for_update().get(pk=record.pk)
+                if locked.sent_at:
+                    already_sent_count += 1
+                    undelivered.discard(record.pk)
+                    continue
 
-                    payload = {
-                        "transactional_message_id": get_customer_io_template_id(template_name),
-                        "to": dest["raw_email"],
-                        "identifiers": identifiers,
-                        "message_data": properties,
-                    }
+                identifiers: dict[str, str] = {"email": dest["raw_email"]}
+                if dest.get("distinct_id"):
+                    identifiers["id"] = dest["distinct_id"]
 
-                    response = requests.post(
-                        f"{settings.CUSTOMER_IO_API_URL}/v1/send/email", headers=headers, json=payload, timeout=30
+                payload = {
+                    "transactional_message_id": get_customer_io_template_id(template_name),
+                    "to": dest["raw_email"],
+                    "identifiers": identifiers,
+                    "message_data": properties,
+                }
+
+                response = requests.post(
+                    f"{settings.CUSTOMER_IO_API_URL}/v1/send/email", headers=headers, json=payload, timeout=30
+                )
+
+                if response.status_code != 200:
+                    raise EmailProviderError(
+                        f"Customer.io API error: {response.status_code} - {response.text}",
+                        status_code=response.status_code,
                     )
 
-                    if response.status_code != 200:
-                        raise EmailProviderError(
-                            f"Customer.io API error: {response.status_code} - {response.text}",
-                            status_code=response.status_code,
-                        )
+                provider_response = response.json()
 
-                    provider_response = response.json()
+                # Mark delivery before any non-essential step so a delivered email is never
+                # recorded as rejected (raise_if_delivery_rejected keys off sent_at). Analytics
+                # is best-effort and isolated so its failure can't roll back a successful send.
+                locked.sent_at = timezone.now()
+                locked.save()
 
-                    # Mark delivery before any non-essential step so a delivered email is never
-                    # recorded as rejected (raise_if_delivery_rejected keys off sent_at). Analytics
-                    # is best-effort and isolated so its failure can't roll back a successful send.
-                    locked.sent_at = timezone.now()
-                    locked.save()
+                try:
+                    posthoganalytics.capture(
+                        distinct_id=dest.get("distinct_id") or dest["raw_email"],
+                        event="transactional email triggered",
+                        properties={
+                            "template_name": template_name,
+                            "campaign_key": campaign_key,
+                            "recipient_email": dest["raw_email"],
+                            **provider_response,
+                        },
+                    )
+                except Exception as analytics_err:
+                    logger.warning("email_send_analytics_capture_failed", error=str(analytics_err))
 
-                    try:
-                        posthoganalytics.capture(
-                            distinct_id=dest.get("distinct_id") or dest["raw_email"],
-                            event="transactional email triggered",
-                            properties={
-                                "template_name": template_name,
-                                "campaign_key": campaign_key,
-                                "recipient_email": dest["raw_email"],
-                                **provider_response,
-                            },
-                        )
-                    except Exception as analytics_err:
-                        logger.warning("email_send_analytics_capture_failed", error=str(analytics_err))
+                EMAIL_SEND_COUNTER.labels(outcome="sent", transport="http").inc()
+                sent_count += 1
 
-                    EMAIL_SEND_COUNTER.labels(outcome="sent", transport="http").inc()
-                    sent_count += 1
-            except Exception as err:
-                # Outside the rolled-back transaction, so the stamp survives; re-raise to keep the
-                # batch-level classification and metrics below unchanged.
-                _record_send_failure(record.pk, _failure_reason(err))
-                raise
+            undelivered.discard(record.pk)
 
     except Exception as err:
+        # Stamped outside the rolled-back transaction, so the evidence survives it.
+        _record_send_failures(undelivered, _failure_reason(err))
         capture_exception(err)  # already logs the traceback via logger.exception
         # Count every recipient that did not get through (the failing one + any not yet attempted),
         # so `failed` shares the per-recipient unit with `sent` instead of registering once per batch.
@@ -350,24 +360,32 @@ def _send_via_smtp(
 ) -> None:
     """Sends emails using SMTP"""
     connection = None
+    # Every recipient the batch has not resolved yet. An abort stamps all of them, so a failure
+    # before the loop leaves the same evidence as one during it.
+    undelivered: set[uuid.UUID] = set()
     try:
-        klass = import_string(settings.EMAIL_BACKEND) if settings.EMAIL_BACKEND else EmailBackend
-        connection = klass(
-            host=get_instance_setting("EMAIL_HOST"),
-            port=get_instance_setting("EMAIL_PORT"),
-            username=get_instance_setting("EMAIL_HOST_USER"),
-            password=get_instance_setting("EMAIL_HOST_PASSWORD"),
-            use_tls=get_instance_setting("EMAIL_USE_TLS"),
-            use_ssl=get_instance_setting("EMAIL_USE_SSL"),
-            # Bound the socket so a relay that goes silent mid-conversation raises TimeoutError
-            # (retried below) instead of pinning the worker forever — the silent-hang case.
-            timeout=get_instance_setting("EMAIL_TIMEOUT"),
-        )
-        connection.open()
+        try:
+            # Written before the connection opens, because `open()` is where authentication
+            # happens: bad credentials abort the batch before any recipient is reached, and that
+            # is the case where a missing row is hardest to read.
+            records = [_ensure_messaging_record(dest["raw_email"], campaign_key) for dest in to]
+            undelivered = {record.pk for record in records}
 
-        for dest in to:
-            record = _ensure_messaging_record(dest["raw_email"], campaign_key)
-            try:
+            klass = import_string(settings.EMAIL_BACKEND) if settings.EMAIL_BACKEND else EmailBackend
+            connection = klass(
+                host=get_instance_setting("EMAIL_HOST"),
+                port=get_instance_setting("EMAIL_PORT"),
+                username=get_instance_setting("EMAIL_HOST_USER"),
+                password=get_instance_setting("EMAIL_HOST_PASSWORD"),
+                use_tls=get_instance_setting("EMAIL_USE_TLS"),
+                use_ssl=get_instance_setting("EMAIL_USE_SSL"),
+                # Bound the socket so a relay that goes silent mid-conversation raises TimeoutError
+                # (retried below) instead of pinning the worker forever — the silent-hang case.
+                timeout=get_instance_setting("EMAIL_TIMEOUT"),
+            )
+            connection.open()
+
+            for dest, record in zip(to, records, strict=True):
                 # Per-recipient transaction so each delivery's `sent_at` commits before the next
                 # send. A transient mid-batch failure re-raises into autoretry; the `sent_at` guard
                 # then skips the recipients already accepted on retry, instead of re-sending (and
@@ -376,6 +394,7 @@ def _send_via_smtp(
                 with transaction.atomic():
                     locked = MessagingRecord.objects.select_for_update().get(pk=record.pk)
                     if locked.sent_at:
+                        undelivered.discard(record.pk)
                         continue
 
                     effective_reply_to = reply_to or get_instance_setting("EMAIL_REPLY_TO")
@@ -407,15 +426,16 @@ def _send_via_smtp(
                         locked.save()
                         EMAIL_SEND_COUNTER.labels(outcome="sent", transport="smtp").inc()
 
+                undelivered.discard(record.pk)
                 # A rejection that doesn't raise still counts as a failed attempt. Stamped outside
                 # the transaction above so a database error here can't abort a committed delivery.
                 if accepted_count == 0:
-                    _record_send_failure(record.pk, "NotAccepted")
-            except Exception as err:
-                # Outside the rolled-back transaction, so the stamp survives; re-raise to keep the
-                # transient/permanent classification and metrics below unchanged.
-                _record_send_failure(record.pk, _failure_reason(err))
-                raise
+                    _record_send_failures([record.pk], "NotAccepted")
+        except Exception as err:
+            # Stamped outside the rolled-back transaction, so the evidence survives it. Re-raised
+            # so the transient/permanent classification and metrics below stay unchanged.
+            _record_send_failures(undelivered, _failure_reason(err))
+            raise
     except _TRANSIENT_SMTP_ERRORS as err:
         # Re-raise so the task's autoretry (3x + backoff) retries instead of dropping the email.
         # warning, not capture_exception: expected + auto-retried, capturing each attempt is noise.
