@@ -333,7 +333,7 @@ def test_build_environment_variables_marks_only_an_idle_handoff_as_idle(
 
 
 @patch(f"{_PROVISION}.emit_agent_log")
-@patch(f"{_PROVISION}.Sandbox.get_by_id")
+@patch(f"{_PROVISION}.get_sandbox_class_for_sandbox_id")
 @pytest.mark.parametrize(
     "used_snapshot, expected_checkout",
     [
@@ -342,9 +342,9 @@ def test_build_environment_variables_marks_only_an_idle_handoff_as_idle(
     ],
 )
 def test_checkout_branch_creates_missing_branch_from_current_default_branch(
-    mock_get_sandbox, _mock_emit_agent_log, used_snapshot, expected_checkout
+    mock_get_sandbox_class, _mock_emit_agent_log, used_snapshot, expected_checkout
 ):
-    sandbox = mock_get_sandbox.return_value
+    sandbox = mock_get_sandbox_class.return_value.get_by_id.return_value
 
     def execute(command, **_kwargs):
         exit_code = 2 if "git ls-remote" in command else 0

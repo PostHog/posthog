@@ -1,3 +1,4 @@
+import threading
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime, timedelta
@@ -104,7 +105,7 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.modifiers import create_default_modifiers_for_user
-from posthog.hogql.printer import prepare_and_print_ast
+from posthog.hogql.printer import prepare_and_print_ast, to_printed_hogql
 from posthog.hogql.query import create_default_modifiers_for_team
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.warehouse_warnings import accumulator_scope
@@ -144,6 +145,7 @@ from posthog.hogql_queries.validation.validation import (
     run_validation_rules,
 )
 from posthog.models import Team, User
+from posthog.models.instance_setting import get_instance_setting
 from posthog.models.team import WeekStartDay
 from posthog.models.team.event_retention import events_retention_months_for_team
 from posthog.query_cache import QueryCache, count_query_cache_hit
@@ -1648,6 +1650,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         self.team = team
         self.user = user
         self.timings = timings or HogQLTimings()
+        self._shared_database: Optional[Database] = None
+        self._shared_database_build_lock = threading.Lock()
         self.limit_context = limit_context or LimitContext.QUERY
         self.query_id = query_id
         self.workload = workload
@@ -1682,9 +1686,47 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def _on_user_changed(self) -> None:
         """Hook called by run() when self.user is updated after construction.
 
-        Subclasses can override to rebuild any user-dependent state (e.g. a
-        cached HogQLContext / Database that was created with a stale user)."""
-        pass
+        Drops the lazily built shared database so the next access rebuilds it for the new
+        user. Subclasses that override this to rebuild their own user-dependent state (e.g.
+        a cached HogQLContext / Database) must call super()._on_user_changed()."""
+        self._shared_database = None
+
+    @property
+    def shared_database(self) -> Database:
+        """One Database for every query this runner executes and for the response SQL printer.
+
+        Building the database is the dominant compile cost on teams with many warehouse
+        tables, and it is identical for every query in one run. Built lazily so cache hits
+        never pay for it; dropped by _on_user_changed so access control follows the user."""
+        if not get_instance_setting("HOGQL_SHARED_INSIGHT_DATABASE_ENABLED"):
+            # Kill switch: build per access so query threads never share schema state. No timings
+            # measure here because concurrent threads reach this path and HogQLTimings is not
+            # thread-safe.
+            return Database.create_for(team=self.team, user=self.user, modifiers=self.modifiers)
+        if self._shared_database is None:
+            # Concurrent query threads (funnels compare mode) can first-touch this property at the
+            # same time. The lock makes the build run once, and keeps the measure on the single
+            # builder thread because HogQLTimings is not thread-safe.
+            with self._shared_database_build_lock:
+                if self._shared_database is None:
+                    with self.timings.measure("build_shared_database"):
+                        self._shared_database = Database.create_for(
+                            team=self.team,
+                            user=self.user,
+                            modifiers=self.modifiers,
+                            timings=self.timings,
+                        )
+        return self._shared_database
+
+    def build_hogql_context(self, **kwargs: Any) -> HogQLContext:
+        """Context for execute_hogql_query calls this runner makes, wired to the shared database."""
+        return HogQLContext(team_id=self.team.pk, user=self.user, database=self.shared_database, **kwargs)
+
+    def response_hogql(self, query: ast.SelectQuery | ast.SelectSetQuery) -> str:
+        """Display-only HogQL for the response payload (never executed).
+
+        Prints against the shared database so the printer does not build a second one."""
+        return to_printed_hogql(query, self.team, database=self.shared_database)
 
     @property
     def query_type(self) -> Any:
@@ -3028,6 +3070,7 @@ class QueryRunnerWithHogQLContext(AnalyticsQueryRunner[AR]):
     def _on_user_changed(self) -> None:
         if self.hogql_context.user is self.user:
             return
+        super()._on_user_changed()
         self._build_hogql_context_for_user(self.user)
 
     @property

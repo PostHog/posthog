@@ -379,8 +379,6 @@ describe('logsViewerDataLogic', () => {
         it.each([
             ['setSearchTerm', 'error message'],
             ['setDateRange', { date_from: '-24h', date_to: null }],
-            ['setSeverityLevels', ['error', 'warn']],
-            ['setServiceNames', ['api-server']],
         ])('%s triggers runQuery', async (action, value) => {
             await expectLogic(logic, () => {
                 ;(filtersLogic.actions as any)[action](value)

@@ -33,6 +33,7 @@ interface FilterRowProps {
     disabledReason?: string
     editable: boolean
     size?: 'xsmall' | 'small' | 'medium'
+    suffix?: JSX.Element | null
 }
 
 export const FilterRow = React.memo(function FilterRow({
@@ -54,6 +55,7 @@ export const FilterRow = React.memo(function FilterRow({
     disabledReason,
     editable,
     size = 'small',
+    suffix,
 }: FilterRowProps) {
     const [open, setOpen] = useState(() => openOnInsert)
 
@@ -75,6 +77,7 @@ export const FilterRow = React.memo(function FilterRow({
                     'grow sm:grow-0': isValid,
                     'grow-0': !isValid,
                     'wrap-filters': !disablePopover,
+                    'property-filter-row--with-suffix': !!suffix,
                 })}
                 data-attr={'property-filter-' + index}
             >
@@ -121,6 +124,7 @@ export const FilterRow = React.memo(function FilterRow({
                     </Popover>
                 )}
                 {key && showConditionBadge && index + 1 < totalCount && <OperandTag operand="and" />}
+                {suffix}
             </div>
             {errorMessage}
         </>
