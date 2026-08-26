@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo import (
     DATABASE_NAME_REQUIRED_ERROR,
+    MISSING_ID_ERROR_MARKER,
     _parse_connection_string,
     filter_mongo_incremental_fields,
     get_collection_names,
@@ -162,6 +163,9 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
             # differently (a bare AutoReconnect / NetworkTimeout with no topology description) and
             # stays retryable.
             "Topology Description:": _MONGO_UNREACHABLE_MESSAGE,
+            # A view whose pipeline drops _id yields documents with no _id, which the importer can't
+            # sync. The raised message already names the collection and the fix, so keep it as-is.
+            MISSING_ID_ERROR_MARKER: None,
         }
 
     def get_retryable_errors(self) -> set[str]:

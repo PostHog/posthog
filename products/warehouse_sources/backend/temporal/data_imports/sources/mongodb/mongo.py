@@ -329,6 +329,21 @@ DATABASE_NAME_REQUIRED_ERROR = (
 )
 
 
+# Stable fragment for classifying the missing-_id failure as non-retryable. Fixing it needs a change
+# to the source view, so a retry never recovers.
+MISSING_ID_ERROR_MARKER = "documents have no '_id' field"
+
+
+def _missing_id_error(collection_name: str) -> str:
+    # A namespace without _id cannot sync: every row keys on _id. This happens with a view whose
+    # pipeline drops _id (for example $project: {_id: 0}, $group, or $replaceRoot).
+    return (
+        f"Cannot sync '{collection_name}' because its {MISSING_ID_ERROR_MARKER}. "
+        f"This usually means the source is a view whose pipeline removes '_id'. "
+        f"Add '_id' back to the view, or sync the underlying collection instead."
+    )
+
+
 def _parse_connection_string(connection_string: str, database_override: str | None = None) -> dict[str, Any]:
     """Parse MongoDB connection string and extract connection parameters.
 
@@ -523,7 +538,13 @@ def get_collection_names(config: MongoDBSourceConfig, team_id: int) -> list[str]
 
 
 def _get_primary_keys(collection: Collection, collection_name: str) -> list[str] | None:
-    # MongoDB always has _id as primary key
+    # A plain collection always has _id, but a view can drop it. Reject an _id-less namespace here,
+    # at schema inference time, so the sync fails fast with a clear error instead of raising a bare
+    # KeyError mid-read. The schema fallback keeps _id, so an inference that errors defers to the
+    # read-loop guard rather than blocking the sync.
+    schema_fields = {field_name for field_name, _ in _get_schema_from_query(collection)}
+    if "_id" not in schema_fields:
+        raise ValueError(_missing_id_error(collection_name))
     return ["_id"]
 
 
@@ -660,6 +681,11 @@ def mongo_source(
                 while True:
                     try:
                         for doc in cursor:
+                            # A view that drops _id slips past schema inference when that inference
+                            # errored and fell back. Fail with a targeted error naming the collection
+                            # rather than a bare KeyError.
+                            if "_id" not in doc:
+                                raise ValueError(_missing_id_error(collection_name))
                             last_id = doc["_id"]
                             rows_since_cursor_opened += 1
 
