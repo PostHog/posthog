@@ -927,6 +927,18 @@ def main():
 
     logger.info("  Total tests: %d", len(durations))
 
+    if args.fail_on_drift:
+        # The check is only as good as its clock. A missing, partial, or
+        # truncated JUnit set would pass vacuously and let an unchecked slice
+        # through, so a strict run needs one readable JUnit per timing shard.
+        unreadable = [shard.name for shard in junit_shards or [] if shard.unreadable or not shard.call_times]
+        if not junit_shards or unreadable or not shard_sets_match(shards, junit_shards):
+            logger.error(
+                "--fail-on-drift needs a readable JUnit artifact for every timing shard; missing or unreadable: %s",
+                unreadable or "all",
+            )
+            sys.exit(1)
+
     if junit_shards:
         ratios = shard_map_clock_ratios(durations, junit_shards)
         for name, ratio in sorted(ratios.items()):

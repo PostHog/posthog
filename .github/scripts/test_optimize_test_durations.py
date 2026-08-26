@@ -491,6 +491,42 @@ def test_main_writes_sub_ten_millisecond_durations_as_recorded(tmp_path: Path, m
     assert json.loads(out.read_text())["posthog/test_foo.py::TestThing::test_two"] == 0.001
 
 
+@pytest.mark.parametrize("junit_shards_present", [(), ("1",)])
+def test_fail_on_drift_refuses_an_incomplete_junit_set(tmp_path: Path, monkeypatch, junit_shards_present) -> None:
+    # No JUnit, or JUnit for only one of two shards, would let the drift check
+    # pass on nothing; a strict run must refuse so the workflow keeps the
+    # previous slice instead of caching an unchecked one.
+    artifacts = tmp_path / "timing_artifacts"
+    for shard in ("1", "2"):
+        shard_dir = artifacts / f"timing_data-Core-{shard}"
+        shard_dir.mkdir(parents=True)
+        (shard_dir / ".test_durations").write_text(json.dumps({f"posthog/test_{shard}.py::test_{shard}": 1.0}))
+    junit_dir = tmp_path / "junit_artifacts"
+    junit_dir.mkdir()
+    for shard in junit_shards_present:
+        (junit_dir / f"junit-results-backend-core-{shard}").mkdir()
+        (junit_dir / f"junit-results-backend-core-{shard}" / "junit.xml").write_bytes(_MIN_JUNIT_XML)
+    out = tmp_path / "core_durations"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "optimize_test_durations.py",
+            str(artifacts),
+            str(out),
+            "--segment",
+            "Core",
+            "--junit-dir",
+            str(junit_dir),
+            "--fail-on-drift",
+        ],
+    )
+
+    with pytest.raises(SystemExit):
+        main()
+    assert not out.exists()
+
+
 @pytest.mark.parametrize(
     "mapped_seconds, drifts",
     [
