@@ -19,7 +19,7 @@ import {
 } from '~/tests/helpers/ingestion-e2e'
 import { createTestIngestionOutputs, createTestMonitoringOutputs } from '~/tests/helpers/ingestion-outputs'
 import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
-import { createUserTeamAndOrganization, fetchPostgresPersons, resetTestDatabase } from '~/tests/helpers/sql'
+import { createUserTeamAndOrganization, fetchPostgresPersons } from '~/tests/helpers/sql'
 import { GroupTypeIndex, InternalPerson } from '~/types'
 
 // Mock the limiter so it always returns true
@@ -97,15 +97,11 @@ describe.each([
         console.log('Creating Clickhouse client')
         clickhouse = Clickhouse.create()
         await ensureKafkaTopics(TEST_KAFKA_TOPICS)
-        await resetTestDatabase()
-        await clickhouse.resetTestDatabase()
         await waitForClickHouseKafkaConsumer(clickhouse)
         process.env.SITE_URL = 'https://example.com'
     })
 
-    afterAll(async () => {
-        await resetTestDatabase()
-        await clickhouse.resetTestDatabase()
+    afterAll(() => {
         clickhouse.close()
     })
 

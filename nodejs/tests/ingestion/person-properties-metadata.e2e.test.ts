@@ -19,7 +19,7 @@ import { waitForExpect } from '~/tests/helpers/expectations'
 import { IngestionTestInfra, createIngestionTestInfra } from '~/tests/helpers/ingestion-e2e'
 import { createTestIngestionOutputs, createTestMonitoringOutputs } from '~/tests/helpers/ingestion-outputs'
 import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
-import { createUserTeamAndOrganization, fetchPostgresPersons, resetTestDatabase } from '~/tests/helpers/sql'
+import { createUserTeamAndOrganization, fetchPostgresPersons } from '~/tests/helpers/sql'
 import { PipelineEvent, PluginsServerConfig, ProjectId, Team } from '~/types'
 
 jest.mock('~/common/utils/token-bucket', () => {
@@ -212,12 +212,7 @@ describe('Person properties_last_updated_at and properties_last_operation behavi
 
     beforeAll(async () => {
         await ensureKafkaTopics(TEST_KAFKA_TOPICS)
-        await resetTestDatabase()
         process.env.SITE_URL = 'https://example.com'
-    })
-
-    afterAll(async () => {
-        await resetTestDatabase()
     })
 
     testWithTeamIngester(

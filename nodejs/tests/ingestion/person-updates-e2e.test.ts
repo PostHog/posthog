@@ -21,12 +21,11 @@ import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { UUIDT } from '~/common/utils/utils'
 import { PersonBatchWritingDbWriteMode } from '~/ingestion/config'
 import { IngestionConsumer } from '~/ingestion/ingestion-consumer'
-import { Clickhouse } from '~/tests/helpers/clickhouse'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { IngestionTestInfra, createIngestionTestInfra } from '~/tests/helpers/ingestion-e2e'
 import { createTestIngestionOutputs, createTestMonitoringOutputs } from '~/tests/helpers/ingestion-outputs'
 import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
-import { createUserTeamAndOrganization, resetTestDatabase } from '~/tests/helpers/sql'
+import { createUserTeamAndOrganization } from '~/tests/helpers/sql'
 import { PipelineEvent, ProjectId, Team } from '~/types'
 
 jest.mock('~/common/utils/token-bucket', () => {
@@ -171,23 +170,13 @@ const formatConfigName = (config: PersonUpdateConfig): string => {
 
 describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
     const configName = formatConfigName(config)
-    let clickhouse: Clickhouse
     let infra: IngestionTestInfra
     let kafkaProducer: KafkaProducerWrapper
     let ingester: IngestionConsumer
     let team: Team
 
     beforeAll(async () => {
-        clickhouse = Clickhouse.create()
         await ensureKafkaTopics(TEST_KAFKA_TOPICS)
-        await resetTestDatabase()
-        await clickhouse.resetTestDatabase()
-    })
-
-    afterAll(async () => {
-        await resetTestDatabase()
-        await clickhouse.resetTestDatabase()
-        clickhouse.close()
     })
 
     beforeEach(async () => {
