@@ -42,9 +42,8 @@ export function RetentionSummaryTable({
             title: label,
             key: label,
             align: 'center' as const,
-            // Sorting on a period is the point of this table: the first click sorts descending, so the
-            // best channel at that horizon lands on top. Cohorts that haven't reached the period map to
-            // the -1 sentinel, below every real rate, so they sort last rather than as zero.
+            // First click sorts descending, so the best channel at that horizon lands on top. A period no
+            // cohort has reached maps to -1, below every real rate, so it sorts last instead of as zero.
             defaultSortOrder: -1 as const,
             sorter: (a: SummaryRow, b: SummaryRow) => (a.cells[period].rate ?? -1) - (b.cells[period].rate ?? -1),
             render: (_: any, row: SummaryRow) => {

@@ -3,15 +3,15 @@ import { MarketingAnalyticsRetentionRow } from '~/queries/schema/schema-general'
 import { isFoldedBreakdownValue } from '../../logic/marketingBreakdown'
 
 /** Periods the summary compares across. Past this the table stops being scannable at a glance, and the
- *  later columns rest on a single cohort anyway. The per-cohort panels below carry the full range. */
+ *  per-cohort panels below carry the full range anyway. */
 export const SUMMARY_PERIODS = 5
 
 export interface SummaryCell {
     /** People from the eligible cohorts who came back in this period. */
     returned: number
     /**
-     * People who could have. Only cohorts that fully lived through this period count, so this shrinks
-     * as the period index grows and later columns rest on fewer, older cohorts.
+     * People who could have. Only cohorts that fully lived through this period count, so a cohort that
+     * has not reached it yet cannot deflate the column with a zero.
      */
     eligible: number
     /** returned / eligible. Null when no cohort has lived through this period yet. */
@@ -31,21 +31,12 @@ export interface SummaryRow {
 /**
  * One row per breakdown value: how each channel retains, with the cohorts collapsed.
  *
- * The per-cohort panels answer "how is this channel doing over time". This answers the question a
- * marketer actually opens the tab with, which is "which channel should I put money into", and that one
- * needs the channels side by side rather than in separate collapsed panels.
+ * Rates are weighted by cohort size rather than averaged across cohorts, so a week that acquired 50
+ * people cannot swing a column as hard as one that acquired 5,000.
  *
- * Rates are weighted by cohort size rather than averaged across cohorts: a week that acquired 50 people
- * must not swing the number as hard as one that acquired 5,000.
- *
- * Only cells the cohort has fully lived through are counted. Including the rest would quietly deflate
- * every column, because a cohort that has not reached period 3 yet would otherwise contribute a zero to
- * it. The cost is that each column has its own denominator, which is why `eligible` and `cohorts` come
- * back with the rate instead of being dropped.
- *
- * The backend's folded "Other" row is left out: it is a sum of the long tail rather than a channel, so
- * ranking it against real channels would float a row nobody can act on above them. The per-cohort panels
- * below keep it. This is the same call the cohort table makes when it pins "Other" last.
+ * The folded "Other" row is left out, because it is a sum of the long tail rather than a channel, so
+ * ranking it against real channels floats a row nobody can act on above them. The per-cohort panels
+ * still show it.
  */
 export function summarizeByBreakdown(rows: MarketingAnalyticsRetentionRow[]): SummaryRow[] {
     const byValue = new Map<string, SummaryRow>()
