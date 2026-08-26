@@ -243,7 +243,9 @@ def _fail_stale_running_schema(
     logger.info("Reset stale Running schema status to Failed", schema_id=schema_id)
 
 
-@dataclasses.dataclass
+# The workflow fills this in as a run unwinds — status, then the error fields on the failure
+# paths — so it is mutated after construction by design.
+@dataclasses.dataclass(frozen=False)
 class UpdateExternalDataJobStatusInputs:
     team_id: int
     job_id: str | None
