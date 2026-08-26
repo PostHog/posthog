@@ -81,7 +81,10 @@ from products.business_knowledge.backend.temporal.schedule import create_busines
 from products.context_layer.backend.temporal.schedule import create_context_layer_dream_schedule
 from products.conversations.backend.temporal.channel_summary.schedule import create_channel_summary_coordinator_schedule
 from products.conversations.backend.temporal.schedule import create_support_reply_coordinator_schedule
-from products.customer_analytics.backend.facade.temporal import create_calendar_sync_coordinator_schedule
+from products.customer_analytics.backend.facade.temporal import (
+    create_account_track_rule_coordinator_schedule,
+    create_calendar_sync_coordinator_schedule,
+)
 from products.data_quality.backend.facade.temporal import create_cleanup_data_quality_check_runs_schedule
 from products.engineering_analytics.backend.facade.temporal import (
     create_ci_signals_coordinator_schedule,
@@ -93,7 +96,10 @@ from products.error_tracking.backend.facade.temporal import (
     create_error_tracking_symbol_set_cleanup_schedule,
     create_error_tracking_weekly_digest_schedule,
 )
-from products.experiments.backend.temporal.schedule import create_experiment_precompute_canary_schedule
+from products.experiments.backend.temporal.schedule import (
+    create_experiment_precompute_canary_schedule,
+    create_experiment_precompute_enrollment_census_schedule,
+)
 from products.exports.backend.temporal.subscriptions.types import ScheduleAllSubscriptionsWorkflowInputs
 from products.logs.backend.facade.temporal import create_logs_volume_tick_schedule
 from products.managed_warehouse.backend.facade.temporal import DucklakeCompactionInput
@@ -874,6 +880,7 @@ schedules = [
     create_experiment_regular_metrics_schedules,
     create_experiment_saved_metrics_schedules,
     create_experiment_precompute_canary_schedule,
+    create_experiment_precompute_enrollment_census_schedule,
     cleanup_cohort_calculation_schedules,
     create_ingestion_acceptance_test_schedule,
     create_warehouse_sources_queue_partition_management_schedule,
@@ -893,6 +900,7 @@ schedules = [
     create_signals_scout_coordinator_schedule,
     create_support_reply_coordinator_schedule,
     create_channel_summary_coordinator_schedule,
+    create_account_track_rule_coordinator_schedule,
     create_calendar_sync_coordinator_schedule,
     create_replay_vision_reconciler_schedule,
     create_replay_vision_estimates_schedule,
