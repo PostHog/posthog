@@ -134,7 +134,7 @@ export function EngineeringAnalyticsDora(): JSX.Element {
             <Section
                 id="merge-to-deploy"
                 title="Merge to deploy distribution"
-                note="Box per bucket: whisker min to max, box p25 to p75, line at the median. Buckets key on deploy time."
+                note="Box per bucket: whisker min to max, box p25 to p75, line at the median, dot at the mean. Buckets key on deploy time."
                 busy={doraLoading && !!dora}
             >
                 {firstLoad ? (

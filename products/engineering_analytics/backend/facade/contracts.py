@@ -1186,12 +1186,13 @@ class MergeToDeployBucket:
     bucket_start: datetime
     # PRs whose first post-merge successful deployment landed in this bucket.
     deployed_pr_count: int
-    # Distribution of merged_at → first successful deploy, in seconds, over those PRs.
+    # Distribution of merged_at → first successful deploy, in seconds, over those PRs — the
+    # six-number summary a box plot draws (box p25→p75, median line, mean marker, whiskers).
     min_seconds: float | None
     p25_seconds: float | None
     p50_seconds: float | None
+    mean_seconds: float | None
     p75_seconds: float | None
-    p90_seconds: float | None
     max_seconds: float | None
 
 

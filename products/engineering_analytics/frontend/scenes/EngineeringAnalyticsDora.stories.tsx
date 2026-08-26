@@ -16,16 +16,16 @@ const BUCKET_DAYS = ['08', '09', '10', '11', '12', '13', '14', '15']
 
 const FREQUENCY_COUNTS = [9, 11, 12, 8, 2, 0, 10, 8]
 
-// Per-bucket [count, min, p25, p50, p75, p90, max] in seconds; null marks the empty weekend day.
+// Per-bucket [count, min, p25, p50, mean, p75, max] in seconds; null marks the empty weekend day.
 const LEAD_TIME_STATS: (number[] | null)[] = [
-    [16, 480, 1200, 2100, 4200, 6600, 9000],
-    [19, 600, 1500, 2400, 3900, 7200, 12600],
-    [21, 540, 1320, 2280, 4500, 8100, 10800],
-    [14, 660, 1440, 2700, 5400, 9000, 21600],
-    [3, 900, 1800, 3600, 7200, 10800, 14400],
+    [16, 480, 1200, 2100, 2900, 4200, 9000],
+    [19, 600, 1500, 2400, 3300, 3900, 12600],
+    [21, 540, 1320, 2280, 3100, 4500, 10800],
+    [14, 660, 1440, 2700, 4400, 5400, 21600],
+    [3, 900, 1800, 3600, 6600, 7200, 14400],
     null,
-    [17, 480, 1260, 2160, 3600, 6000, 8400],
-    [13, 600, 1380, 2520, 4800, 7800, 11400],
+    [17, 480, 1260, 2160, 2700, 3600, 8400],
+    [13, 600, 1380, 2520, 3500, 4800, 11400],
 ]
 
 const DORA: DoraOverviewApi = {
@@ -60,8 +60,8 @@ const DORA: DoraOverviewApi = {
             min_seconds: stats ? stats[1] : null,
             p25_seconds: stats ? stats[2] : null,
             p50_seconds: stats ? stats[3] : null,
-            p75_seconds: stats ? stats[4] : null,
-            p90_seconds: stats ? stats[5] : null,
+            mean_seconds: stats ? stats[4] : null,
+            p75_seconds: stats ? stats[5] : null,
             max_seconds: stats ? stats[6] : null,
         }
     }),
@@ -103,7 +103,7 @@ const meta: Meta = {
         featureFlags: [FEATURE_FLAGS.ENGINEERING_ANALYTICS],
         testOptions: {
             // Past the skeletons once the box-plot chart has rendered.
-            waitForSelector: '[data-attr="engineering-analytics-dora-box-plot"] svg',
+            waitForSelector: '[data-attr="engineering-analytics-dora-box-plot"] canvas',
         },
     },
     decorators: [

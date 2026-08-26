@@ -47,12 +47,12 @@ class MergeToDeployBucketSerializer(DataclassSerializer):
                 "help_text": "Median merge-to-deploy seconds. Null when nothing deployed.",
                 "allow_null": True,
             },
-            "p75_seconds": {
-                "help_text": "75th percentile merge-to-deploy seconds. Null when nothing deployed.",
+            "mean_seconds": {
+                "help_text": "Mean merge-to-deploy seconds. Null when nothing deployed.",
                 "allow_null": True,
             },
-            "p90_seconds": {
-                "help_text": "90th percentile merge-to-deploy seconds. Null when nothing deployed.",
+            "p75_seconds": {
+                "help_text": "75th percentile merge-to-deploy seconds. Null when nothing deployed.",
                 "allow_null": True,
             },
             "max_seconds": {
@@ -71,7 +71,7 @@ class DoraOverviewSerializer(DataclassSerializer):
     merge_to_deploy_series = MergeToDeployBucketSerializer(
         many=True,
         help_text="Merge-to-deploy distribution per bucket across the window, oldest first — the box-plot "
-        "series (min/p25/p50/p75/p90/max seconds per bucket). Empty when the deploy tables aren't synced, "
+        "series (min/p25/p50/mean/p75/max seconds per bucket). Empty when the deploy tables aren't synced, "
         "or when github_team was passed without membership data synced.",
     )
 

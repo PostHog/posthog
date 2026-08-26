@@ -157,8 +157,8 @@ _LEAD_TIME_SERIES_SELECT = f"""
         min(lead_seconds) AS min_seconds,
         quantile(0.25)(lead_seconds) AS p25_seconds,
         quantile(0.5)(lead_seconds) AS p50_seconds,
+        avg(lead_seconds) AS mean_seconds,
         quantile(0.75)(lead_seconds) AS p75_seconds,
-        quantile(0.9)(lead_seconds) AS p90_seconds,
         max(lead_seconds) AS max_seconds
     FROM ({_LEAD_TIME_INNER})
     WHERE deployed_at >= {{date_from}} __DATE_TO_DEPLOYED__
@@ -503,19 +503,19 @@ def _lead_time_bucket(bucket: datetime, stats: tuple | None) -> MergeToDeployBuc
             min_seconds=None,
             p25_seconds=None,
             p50_seconds=None,
+            mean_seconds=None,
             p75_seconds=None,
-            p90_seconds=None,
             max_seconds=None,
         )
-    n, min_s, p25, p50, p75, p90, max_s = stats
+    n, min_s, p25, p50, mean, p75, max_s = stats
     return MergeToDeployBucket(
         bucket_start=bucket,
         deployed_pr_count=int(n or 0),
         min_seconds=opt_float(min_s),
         p25_seconds=opt_float(p25),
         p50_seconds=opt_float(p50),
+        mean_seconds=opt_float(mean),
         p75_seconds=opt_float(p75),
-        p90_seconds=opt_float(p90),
         max_seconds=opt_float(max_s),
     )
 

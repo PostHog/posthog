@@ -229,15 +229,15 @@ export interface MergeToDeployBucketApi {
      */
     p50_seconds: number | null
     /**
+     * Mean merge-to-deploy seconds. Null when nothing deployed.
+     * @nullable
+     */
+    mean_seconds: number | null
+    /**
      * 75th percentile merge-to-deploy seconds. Null when nothing deployed.
      * @nullable
      */
     p75_seconds: number | null
-    /**
-     * 90th percentile merge-to-deploy seconds. Null when nothing deployed.
-     * @nullable
-     */
-    p90_seconds: number | null
     /**
      * Slowest merge-to-deploy in this bucket, in seconds. Null when nothing deployed.
      * @nullable
@@ -248,7 +248,7 @@ export interface MergeToDeployBucketApi {
 export interface DoraOverviewApi {
     /** Successful deployments per bucket across the window, oldest first, zero-filled, bucketed by series_granularity. Empty when the deploy tables aren't synced. */
     deployment_frequency_series: DeploymentFrequencyBucketApi[]
-    /** Merge-to-deploy distribution per bucket across the window, oldest first — the box-plot series (min/p25/p50/p75/p90/max seconds per bucket). Empty when the deploy tables aren't synced, or when github_team was passed without membership data synced. */
+    /** Merge-to-deploy distribution per bucket across the window, oldest first — the box-plot series (min/p25/p50/mean/p75/max seconds per bucket). Empty when the deploy tables aren't synced, or when github_team was passed without membership data synced. */
     merge_to_deploy_series: MergeToDeployBucketApi[]
     /** False when the deployments/deployment_statuses tables aren't synced for the selected repo; every other field is then empty or null, never a fake zero. */
     deploy_data_available: boolean

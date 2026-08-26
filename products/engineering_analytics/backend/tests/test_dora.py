@@ -186,7 +186,7 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
         assert len(result.merge_to_deploy_series) == 11
         jan_12 = lead[datetime(2026, 1, 12)]
         assert jan_12.deployed_pr_count == 1
-        assert jan_12.min_seconds == jan_12.max_seconds == jan_12.p50_seconds == 7200.0
+        assert jan_12.min_seconds == jan_12.max_seconds == jan_12.p50_seconds == jan_12.mean_seconds == 7200.0
         jan_13 = lead[datetime(2026, 1, 13)]
         assert jan_13.deployed_pr_count == 1
         assert jan_13.p50_seconds == 9000.0
