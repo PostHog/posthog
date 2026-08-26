@@ -81,11 +81,13 @@ function buildProperties(changedFiles, impactedTargets, universe) {
                 domain = 'universal'
             }
         }
-        // A cross-domain rule holds a list and an explicit-lanes rule holds
-        // {lanes: [...]}; one stable joined key keeps the counts per rule
-        // rather than per member.
+        // A cross-domain rule holds a list of members (domains or explicit
+        // {lanes: [...]} objects); one stable joined key keeps the counts per
+        // rule rather than per member.
         if (Array.isArray(domain)) {
-            domain = domain.join('+')
+            domain = domain
+                .map((member) => (member && typeof member === 'object' ? member.lanes.join('+') : member))
+                .join('+')
         } else if (domain && typeof domain === 'object') {
             domain = domain.lanes.join('+')
         }

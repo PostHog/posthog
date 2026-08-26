@@ -495,6 +495,7 @@ test('a single-language workflow claims that language rather than everything', (
         'browserslist.yml',
         'publish-quill-npm.yml',
         'update-ai-costs.yml',
+        'ci-playwright-container.yml',
     ]) {
         assert.deepEqual(computeTargets([`.github/workflows/${workflow}`], CONTEXT), javascript, workflow)
     }
@@ -540,6 +541,7 @@ test('a single-language workflow claims that language rather than everything', (
         ['ci-phrocs.yml', 'tools/phrocs/main.go'],
         ['build-phrocs.yml', 'tools/phrocs/Makefile'],
         ['hogbox-preview-cleanup.yml', 'tools/hogbox-preview/cli.py'],
+        ['release.yml', 'cli/src/main.rs'],
     ]) {
         assert.deepEqual(
             computeTargets([`.github/workflows/${workflow}`], CONTEXT),
@@ -549,18 +551,18 @@ test('a single-language workflow claims that language rather than everything', (
     }
     // Cross-domain workflows take the union of the families on each side,
     // matching what the same change spelled as files would claim.
-    assert.deepEqual(
-        computeTargets(['.github/workflows/ci-migrations-service-separation-check.yml'], CONTEXT),
-        computeTargets(['mypy.ini', 'rust/Cargo.toml', 'nodejs/src/index.ts'], CONTEXT)
-    )
+    const pythonNodeRust = computeTargets(['mypy.ini', 'rust/Cargo.toml', 'nodejs/src/index.ts'], CONTEXT)
+    for (const workflow of ['ci-migrations-service-separation-check.yml', 'ci-proto.yml']) {
+        assert.deepEqual(computeTargets([`.github/workflows/${workflow}`], CONTEXT), pythonNodeRust, workflow)
+    }
     const rustPython = computeTargets(['mypy.ini', 'rust/Cargo.toml'], CONTEXT)
     for (const workflow of ['build-deltalite.yml', 'ci-deltalite-python.yml', 'build-hogql-parser-rs.yml']) {
         assert.deepEqual(computeTargets([`.github/workflows/${workflow}`], CONTEXT), rustPython, workflow)
     }
-    assert.deepEqual(
-        computeTargets(['.github/workflows/build-hogql-parser-npm.yml'], CONTEXT),
-        computeTargets(['mypy.ini', '.oxlintrc.json'], CONTEXT)
-    )
+    const pythonJavascript = computeTargets(['mypy.ini', '.oxlintrc.json'], CONTEXT)
+    for (const workflow of ['build-hogql-parser-npm.yml', 'ci-hog.yml', 'ci-agent-skills.yml']) {
+        assert.deepEqual(computeTargets([`.github/workflows/${workflow}`], CONTEXT), pythonJavascript, workflow)
+    }
     // The desktop workflow family takes the desktop product's own two lanes,
     // and widens in a context where no such product exists.
     const desktopContext = {

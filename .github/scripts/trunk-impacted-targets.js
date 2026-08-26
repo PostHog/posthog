@@ -204,6 +204,10 @@ const TRIPWIRE_RULES = [
     // Runs pnpm inside nodejs/ to refresh the LLM cost tables, despite the
     // language-neutral name.
     ['.github/workflows/update-ai-costs.yml', JAVASCRIPT],
+    // Mirrors the upstream Playwright image to ghcr on a schedule; the image
+    // is consumed only by ci-storybook.yml and the local Playwright
+    // container, and no PR triggers the mirror itself.
+    ['.github/workflows/ci-playwright-container.yml', JAVASCRIPT],
     ['.github/workflows/ci-backend.yml', PYTHON],
     ['.github/workflows/ci-backend-update-test-timing.yml', PYTHON],
     ['.github/workflows/ci-backend-shadow-drift.yml', PYTHON],
@@ -257,6 +261,19 @@ const TRIPWIRE_RULES = [
     // Compiles the C++ parser (a COMMON_PYTHON tree) to WASM and commits the
     // frontend/package.json + pnpm-lock.yaml pin back to the PR branch.
     ['.github/workflows/build-hogql-parser-npm.yml', [PYTHON, JAVASCRIPT]],
+    // Gates the Python HogVM, the generated hogql grammar, and the
+    // TypeScript @posthog/hogvm package it publishes. rust/** and
+    // livestream/** are excluded at its trigger, so the rust HogVM is not in
+    // its radius.
+    ['.github/workflows/ci-hog.yml', [PYTHON, JAVASCRIPT]],
+    // The skills build renders templates that import product Python, and the
+    // embedded-payload job runs the services/mcp generator that writes into
+    // products/*/frontend/generated/. It does not gate .agents/.
+    ['.github/workflows/ci-agent-skills.yml', [PYTHON, JAVASCRIPT]],
+    // buf lint and breaking gate every tree under proto/, including the ones
+    // whose only consumers are rust crates, and the codegen jobs gate the
+    // checked-in python and node stubs.
+    ['.github/workflows/ci-proto.yml', [PYTHON, NODE, RUST]],
 
     // Workflows whose whole radius is a standalone tree take that tree's own
     // lanes, verified against each workflow's jobs and path filters like the
@@ -267,6 +284,10 @@ const TRIPWIRE_RULES = [
     // tree), never on funnel-udf/**, so it sits with the python entries.
     ['.github/workflows/ci-cli.yml', { lanes: ['cli', 'svc:mcp'] }],
     ['.github/workflows/release-cli.yml', { lanes: ['cli', 'svc:mcp'] }],
+    // The cargo-dist packaging check pr-housekeeping.yml calls: it builds the
+    // cli crate plus the services/mcp API CLI bundle, the same pairing
+    // ci-cli.yml carries.
+    ['.github/workflows/release.yml', { lanes: ['cli', 'svc:mcp'] }],
     ['.github/workflows/ci-livestream.yml', { lanes: ['livestream'] }],
     ['.github/workflows/ci-livestream-tui.yml', { lanes: ['livestream'] }],
     ['.github/workflows/build-livestream-tui.yml', { lanes: ['livestream'] }],
@@ -1526,17 +1547,18 @@ function addExplicitLanes(lanes, targets, context) {
 
 // Returns false when the file's domain is universal, which is the caller's cue
 // to abandon the per-file accumulation and report the whole set. A rule may
-// hold a list of domains for a file whose radius spans more than one family,
+// hold a list of members for a file whose radius spans more than one family,
 // the same composition RUST_NON_CRATE_RULES and PROTO_TREES use; the list is
 // applied in union, and widens if any member cannot name its lanes in full.
-// A rule may instead hold {lanes: [...]} to name explicit standalone lanes.
+// Each member is a domain, or {lanes: [...]} naming explicit standalone
+// lanes; a bare {lanes: [...]} rule is the one-member form of the same thing.
 function applyTripwireDomain(domain, file, targets, context) {
     const resolved = domain === SEMGREP ? (context.semgrepDomains || new Map()).get(file) || UNIVERSAL : domain
-    if (resolved && typeof resolved === 'object' && !Array.isArray(resolved)) {
-        return addExplicitLanes(resolved.lanes, targets, context)
-    }
-    const domains = Array.isArray(resolved) ? resolved : [resolved]
-    return domains.every((member) => {
+    const members = Array.isArray(resolved) ? resolved : [resolved]
+    return members.every((member) => {
+        if (member && typeof member === 'object') {
+            return addExplicitLanes(member.lanes, targets, context)
+        }
         const addLanes = DOMAIN_LANES.get(member)
         return addLanes ? addLanes(targets, context, file) : false
     })
@@ -1626,9 +1648,10 @@ function computeTargets(changedFiles, context) {
         // a README under posthog/ into the backend lane.
         //
         // The exception is markdown that is a build input: `hogli build:skills`
-        // zips products/*/skills/*, ci-agent-skills.yml gates on those paths and
-        // on .agents/, and ci-python.yml runs the pr-approval-agent suite over
-        // .stamphog/. All of them fall through to their directory rules below.
+        // zips products/*/skills/* (which ci-agent-skills.yml gates), the
+        // skills build syncs .agents/skills/, and ci-python.yml runs the
+        // pr-approval-agent suite over .stamphog/. All of them fall through to
+        // their directory rules below.
         const isBuildInput =
             top === '.agents' || top === '.stamphog' || (top === 'products' && segments[2] === 'skills')
 
