@@ -1043,6 +1043,9 @@ class TestShadowInvalidationPublishing(SimpleTestCase):
         for call in mock_feature_enabled.call_args_list:
             assert call.kwargs["only_evaluate_locally"] is True
             assert call.kwargs["send_feature_flag_events"] is False
+        # Inert at 0%. This is the only test that runs the real gate, so nothing
+        # else catches it publishing while SHADOW_COMPARE_FLAG is off.
+        mock_produce.assert_not_called()
 
 
 class TestGetTeamPrimaryFlagsWriter(unittest.TestCase):
