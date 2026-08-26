@@ -413,6 +413,10 @@ class TestGarageDrives:
             "helper": "products.product_analytics.backend.logic.helpers",
         }
 
+    def test_top_level_names_include_constants(self) -> None:
+        module = "BOT_DEFINITIONS = [...]\nLIMIT: int = 5\n_private = 1\n\nclass Runner: ...\n\ndef helper(): ...\n"
+        assert crossings._top_level_names(ast.parse(module)) == ["BOT_DEFINITIONS", "LIMIT", "Runner", "helper"]
+
     def test_hint_matches_the_enum_form(self) -> None:
         hint = crossings._KindHint.for_kinds(KINDS)
         assert hint.matches(b'client.post(url, {"query": {"kind": NodeKind.PATHS_QUERY}})')

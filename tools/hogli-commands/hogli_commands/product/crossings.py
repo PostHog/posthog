@@ -720,8 +720,10 @@ def product_query_kinds(products: Iterable[str] | None = None) -> _QueryKinds:
 def _wiring_location_exports(product: str, location: str) -> dict[_Export, str]:
     """Every name a module in the wiring location defines at top level, labeled with the location.
 
-    A facade module that hands those names out through a PEP 562 lazy map is an export path too,
-    so an import through the facade resolves to the location like a static re-export would."""
+    Classes, functions, and constants alike: a test that imports a bot-definition table from the
+    location depends on it as much as one that imports a runner. A facade module that hands those
+    names out through a PEP 562 lazy map is an export path too, so an import through the facade
+    resolves to the location like a static re-export would."""
     label = wiring_location_label(product, location)
     root = PRODUCTS_DIR / product / location.rstrip("/")
     paths = sorted(root.rglob("*.py")) if root.is_dir() else [root] if root.is_file() else []
@@ -731,9 +733,8 @@ def _wiring_location_exports(product: str, location: str) -> dict[_Export, str]:
         if tree is None:
             continue
         module = _dotted_module(path)
-        for node in tree.body:
-            if isinstance(node, ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
-                exports[_Export(module, node.name)] = label
+        for name in _top_level_names(tree):
+            exports[_Export(module, name)] = label
     for facade_path in sorted((PRODUCTS_DIR / product / "backend" / "facade").glob("*.py")):
         tree = ast_parse_safe(facade_path)
         if tree is None:
@@ -742,6 +743,19 @@ def _wiring_location_exports(product: str, location: str) -> dict[_Export, str]:
             if (REPO_ROOT / source.replace(".", "/")).with_suffix(".py").is_relative_to(root):
                 exports[_Export(_dotted_module(facade_path), name)] = label
     return exports
+
+
+def _top_level_names(tree: ast.Module) -> list[str]:
+    """Every public name a module defines at top level: classes, functions, and assigned constants."""
+    names: list[str] = []
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
+            names.append(node.name)
+        elif isinstance(node, ast.Assign):
+            names.extend(target.id for target in node.targets if isinstance(target, ast.Name))
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            names.append(node.target.id)
+    return [name for name in names if not name.startswith("_")]
 
 
 def _module_exists(dotted: str) -> bool:
