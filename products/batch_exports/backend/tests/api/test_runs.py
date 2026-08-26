@@ -251,6 +251,7 @@ def test_get_batch_export_runs_filtered_by_status(client: HttpClient, team, user
     client.force_login(user)
     query_params = {"ordering": ordering} if ordering else {}
 
+    # List runs filtered by failed statuses, asserting that only failed runs are returned
     data = get_batch_export_runs_ok(
         client,
         team.pk,
@@ -263,6 +264,7 @@ def test_get_batch_export_runs_filtered_by_status(client: HttpClient, team, user
         str(runs[BatchExportRun.Status.FAILED_RETRYABLE].id),
     }
 
+    # List all runs, without any status filter, asserting that all runs are returned
     data = get_batch_export_runs_ok(client, team.pk, batch_export.id, **query_params)
     assert {run["id"] for run in data["results"]} == {str(run.id) for run in runs.values()}
 
