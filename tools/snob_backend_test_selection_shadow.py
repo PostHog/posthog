@@ -30,7 +30,7 @@ would cover a failure mode we have not actually observed, at the cost of the
 narrowing on a very common kind of PR.
 
 Outputs JSON to stdout. The "shadow" in the filename is historical — ci-backend's
-select-tests job now acts on this output, so a test this misses is a test that does not
+turbo-discover job now acts on this output, so a test this misses is a test that does not
 run on the PR. Recall beats precision: when in doubt, add a FULL_RUN_PATTERNS entry.
 """
 
@@ -600,12 +600,7 @@ def estimate_duration(test_files: list[str], durations: dict[str, float]) -> flo
     return total
 
 
-_TEMPORAL_PREFIXES = (
-    "posthog/temporal/",
-    "products/batch_exports/backend/tests/temporal/",
-    "products/tasks/backend/temporal/",
-    "products/signals/backend/emission/",
-)
+_TEMPORAL_PREFIXES = ("posthog/temporal/", "products/signals/backend/emission/")
 _POE_PREFIXES = (
     "posthog/clickhouse/",
     "posthog/queries/",
@@ -617,8 +612,9 @@ _CORE_IGNORED_PREFIXES = ("posthog/dags/", "common/hogvm/python/test/", "posthog
 
 def segments_for_test_file(path: str) -> frozenset[str]:
     """Which Django matrix segments run a given test file. Mirrors the Core/POE/Temporal
-    partition in ci-backend.yml's select-tests `classify` step — POE files run in both the
-    Core matrix and the person-on-events matrix, so they belong to both segments. An empty
+    partition of the pytest invocations in ci-backend.yml — POE files run in both the
+    Core matrix and the legacy-mode safeguard matrix (the allowlist that keeps the joined
+    person mode covered), so they belong to both segments. An empty
     result means no narrowable matrix runs the file (a product/turbo test, or an explicitly
     ignored path). Compat is not a segment here: it re-runs POE-scope files against older
     ClickHouse servers, so it adds no files to the universe this partitions."""
@@ -633,12 +629,32 @@ def segments_for_test_file(path: str) -> frozenset[str]:
     return frozenset()
 
 
+def compat_prefixes() -> tuple[str, ...]:
+    """Path prefixes the ClickHouse compat matrix re-runs, from the same env var that
+    feeds its pytest invocation, so widening one cannot silently under-select the other."""
+    return tuple(f"{target.rstrip('/')}/" for target in os.environ.get("CLICKHOUSE_COMPAT_PYTEST_TARGETS", "").split())
+
+
+def selected_files_by_segment(test_files: list[str]) -> dict[str, list[str]]:
+    """Selected test files per Django matrix segment. turbo-discover.js hands each list
+    to the matching pytest invocation, so a file that lands in no segment runs nowhere.
+    Compat overlaps the POE scope rather than partitioning with it, so it is collected
+    alongside the Core/POE/Temporal partition instead of inside it."""
+    prefixes = compat_prefixes()
+    by_segment: dict[str, list[str]] = {"core": [], "poe": [], "temporal": [], "compat": []}
+    for path in test_files:
+        for segment in segments_for_test_file(path):
+            by_segment[segment].append(path)
+        if prefixes and path.startswith(prefixes):
+            by_segment["compat"].append(path)
+    return by_segment
+
+
 def selected_seconds_by_segment(test_files: list[str], durations: dict[str, float]) -> dict[str, int]:
     """Selected test-execution seconds per Django matrix segment.
-    .github/scripts/selected-django-shards.js runs these through turbo-discover's shard
-    sizing, so a narrowed run gets the same per-shard budget as a full one instead of a
-    fixed single shard. POE files count in both core and poe, matching the two matrix
-    legs that run them."""
+    turbo-discover.js runs these through its shard sizing, so a narrowed run gets the same
+    per-shard budget as a full one instead of a fixed single shard. POE files count in both
+    core and poe, matching the two matrix legs that run them."""
     return {
         segment: round(estimate_duration([f for f in test_files if segment in segments_for_test_file(f)], durations))
         for segment in ("core", "poe", "temporal")
@@ -681,6 +697,10 @@ def build_result(base_ref: str) -> dict[str, object]:
         "combined": {
             "tests": combined_tests,
             "count": len(combined_tests),
+            # Product directories with a selected test file. ci-backend narrows the
+            # product matrix to them on a legacy diff.
+            "products": sorted({p for p in map(_product_name, combined_tests) if p}),
+            "segments": selected_files_by_segment(combined_tests),
             "duration_seconds": round(selected_seconds),
         },
         "durations": {

@@ -86,9 +86,46 @@ export function buildSampleGlobals(
                 name: 'John Doe',
             },
         }
+    } else if (triggerType === 'slack-message') {
+        // Property names mirror what the Slack trigger emits (slack_workflow_events.py). No
+        // person: Slack-triggered runs are person-less.
+        sampleGlobals.event = {
+            event: '$slack_message_received',
+            distinct_id: 'U0123456789',
+            properties: {
+                integration_id: 1,
+                channel: 'C0123456789',
+                channel_type: 'channel',
+                slack_team_id: 'T0123456789',
+                user: 'U0123456789',
+                bot_id: null,
+                app_id: null,
+                subtype: null,
+                text: 'Example message text',
+                ts: '1700000000.000100',
+                thread_ts: null,
+                is_thread_reply: false,
+                is_ext_shared_channel: false,
+                slack_event: {},
+            },
+            timestamp: '2024-01-01T12:00:00Z',
+        }
     }
 
     return sampleGlobals
+}
+
+// The AI task step's Slack thread toggle only means something when a Slack message can start
+// the workflow; on other triggers the runtime no-ops it, so hide it rather than explain it.
+export function filterInputsSchemaForTrigger<T extends { key: string }>(
+    templateId: string,
+    triggerType: string | undefined,
+    inputsSchema: T[]
+): T[] {
+    if (templateId === 'template-posthog-create-task' && triggerType !== 'slack-message') {
+        return inputsSchema.filter((schema) => schema.key !== 'reply_in_slack_thread')
+    }
+    return inputsSchema
 }
 
 export function HogFlowFunctionConfiguration({
@@ -149,7 +186,7 @@ export function HogFlowFunctionConfiguration({
 
     // Native push carries a long tail of optional Android/iOS override fields. Keep the core message
     // fields inline and tuck the platform-specific ones into collapsed sections so the form stays flat.
-    const inputsSchema = template.inputs_schema ?? []
+    const inputsSchema = filterInputsSchemaForTrigger(templateId, triggerType, template.inputs_schema ?? [])
     const isPlatformInput = (key: string): boolean => key.startsWith('android_') || key.startsWith('ios_')
     const coreInputsSchema = isPushStep ? inputsSchema.filter((s) => !isPlatformInput(s.key)) : inputsSchema
     const androidInputsSchema = isPushStep ? inputsSchema.filter((s) => s.key.startsWith('android_')) : []
