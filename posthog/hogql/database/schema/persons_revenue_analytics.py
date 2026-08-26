@@ -1,5 +1,7 @@
 from collections import defaultdict
 
+import structlog
+
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
@@ -16,6 +18,8 @@ from posthog.hogql.errors import ResolutionError
 
 from posthog.exchange_rate_constants import EXCHANGE_RATE_DECIMAL_PRECISION
 from posthog.schema_enums import DatabaseSchemaManagedViewTableKind
+
+logger = structlog.get_logger(__name__)
 
 ZERO_DECIMAL = ast.Call(
     name="toDecimal", args=[ast.Constant(value=0), ast.Constant(value=EXCHANGE_RATE_DECIMAL_PRECISION)]
@@ -42,6 +46,8 @@ FIELDS: dict[str, FieldOrTable] = {
 
 
 def _select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.SelectQuery | ast.SelectSetQuery:
+    from posthog.hogql.database.schema.persons import PersonsTable  # noqa: PLC0415 — circular import
+
     from products.revenue_analytics.backend.views import RevenueAnalyticsCustomerView, RevenueAnalyticsRevenueItemView
 
     if not context.database:
@@ -78,11 +84,20 @@ def _select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.S
             # guarantee its target. Reading `id` off some other table casts to NULL below, which would
             # hide that source's revenue in one unlabeled row, so require the real persons table.
             persons_lazy_join = customer_view.fields.get("persons")
-            if (
-                isinstance(persons_lazy_join, ast.LazyJoin)
-                and persons_lazy_join.resolve_table(context).to_printed_hogql() == "persons"
-            ):
+            persons_join_target = (
+                persons_lazy_join.resolve_table(context) if isinstance(persons_lazy_join, ast.LazyJoin) else None
+            )
+            if isinstance(persons_join_target, PersonsTable):
                 person_id_chain = [RevenueAnalyticsCustomerView.get_generic_view_alias(), "persons", "id"]
+            else:
+                # Skipping the source drops its revenue from this table with no other signal, so say
+                # so here. Otherwise a mistyped join name reads as "this source earned nothing".
+                logger.warning(
+                    "persons_revenue_analytics_skipped_source",
+                    team_id=context.team_id,
+                    customer_view=customer_view.name,
+                    persons_join_target=type(persons_join_target).__name__ if persons_join_target else None,
+                )
 
         if person_id_chain is not None:
             # Get the aggregated revenue by customer_id
@@ -190,11 +205,15 @@ def _select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.S
             ast.Alias(alias="mrr", expr=ast.Call(name="sum", args=[ast.Field(chain=["mrr"])])),
         ],
         select_from=ast.JoinExpr(table=inner_query),
-        # The `person_id` cast returns NULL when the source id is not a UUID, so this drops that
-        # unattributable revenue. It does not catch a warehouse customer with no matching person,
-        # because the LEFT JOIN fills the non-nullable `persons.id` with the all-zeros UUID, which is
-        # a valid UUID that survives the cast and pools under one synthetic key.
-        where=ast.Call(name="isNotNull", args=[ast.Field(chain=["person_id"])]),
+        # A warehouse customer with no matching person gets the all-zeros UUID, because the LEFT JOIN
+        # fills the non-nullable `persons.id` with its type default rather than NULL. Dropping that
+        # key keeps unattributable revenue from reporting as one synthetic person that outranks every
+        # real one. A NULL from the cast compares to NULL here, so it is dropped too.
+        where=ast.CompareOperation(
+            op=ast.CompareOperationOp.NotEq,
+            left=ast.Field(chain=["person_id"]),
+            right=ast.Call(name="toUUID", args=[ast.Constant(value="00000000-0000-0000-0000-000000000000")]),
+        ),
         group_by=[ast.Field(chain=["person_id"])],
     )
 
@@ -236,11 +255,8 @@ def join_with_persons_revenue_analytics_table(
         constraint=ast.JoinConstraint(
             expr=ast.CompareOperation(
                 op=ast.CompareOperationOp.Eq,
-                left=ast.Call(
-                    name="toString",
-                    args=[ast.Field(chain=[join_to_add.from_table, *join_to_add.lazy_join.from_field])],
-                ),
-                right=ast.Call(name="toString", args=[ast.Field(chain=[join_to_add.to_table, "person_id"])]),
+                left=ast.Field(chain=[join_to_add.from_table, *join_to_add.lazy_join.from_field]),
+                right=ast.Field(chain=[join_to_add.to_table, "person_id"]),
             ),
             constraint_type="ON",
         ),

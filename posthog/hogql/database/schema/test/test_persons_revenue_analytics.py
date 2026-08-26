@@ -3,6 +3,7 @@ from uuid import UUID
 
 from freezegun import freeze_time
 from posthog.test.base import _create_event, _create_person, snapshot_clickhouse_queries
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -18,6 +19,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.database.schema import persons_revenue_analytics
 from posthog.hogql.database.schema.test.base import RevenueAnalyticsManagedViewsetsTestMixin, RevenueAnalyticsTestBase
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
@@ -29,6 +31,10 @@ from products.revenue_analytics.backend.views.schemas.customer import SCHEMA
 
 
 class TestPersonsRevenueAnalyticsMixin(RevenueAnalyticsTestBase):
+    # The base default is the all-zeros UUID, which this table drops as the unattributable key a
+    # LEFT JOIN miss produces. Real person UUIDs are never all-zeros, so use one that isn't.
+    PERSON_ID = "0193a0b1-2c3d-4e5f-8899-aabbccddeeff"
+
     def setup_events(self):
         _create_person(
             uuid=self.PERSON_ID,
@@ -335,10 +341,6 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
     def test_revenue_aggregated_per_person_across_event_and_warehouse_sources(self):
         self.setup_schema_sources()
 
-        # The default `PERSON_ID` is the all-zeros UUID, which is also what the warehouse leg's
-        # LEFT JOIN yields for a customer with no person. Sharing it would merge the event person
-        # into the unmatched-customer row and hide whether the event leg contributed at all.
-        self.PERSON_ID = "0193a0b1-2c3d-4e5f-8899-aabbccddeeff"
         self.setup_events()
 
         self.team.revenue_analytics_config.events = [
@@ -355,15 +357,8 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
         # Both source kinds are configured, so the two legs of the UNION ALL must agree on `person_id`
         warehouse_person = _create_person(team_id=self.team.pk, distinct_ids=["cus_1"])
 
-        # `cus_2` through `cus_6` have no matching person, so the warehouse leg groups them under the
-        # all-zeros UUID and reports their revenue as one synthetic person. That is a defect in its own
-        # right, asserted here so that fixing it shows up as a failure rather than passing unnoticed.
-        unattributed_row = (
-            UUID("00000000-0000-0000-0000-000000000000"),
-            Decimal("9188.1098773452"),
-            Decimal("3173.4137916666"),
-        )
-
+        # `cus_2` through `cus_6` match no person, so they carry the all-zeros UUID and are dropped.
+        # Only the two attributable rows remain, one from each leg.
         with freeze_time(self.QUERY_TIMESTAMP):
             results = execute_hogql_query(
                 parse_select("SELECT person_id, revenue, mrr FROM persons_revenue_analytics"),
@@ -376,7 +371,6 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
                 sorted(results.results),
                 sorted(
                     [
-                        unattributed_row,
                         (warehouse_person.uuid, Decimal("283.8496260553"), Decimal("22.9631447238")),
                         (UUID(self.PERSON_ID), Decimal("279.28474"), Decimal("0")),
                     ]
@@ -400,7 +394,7 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
             field_name="persons",
         )
 
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with freeze_time(self.QUERY_TIMESTAMP), patch.object(persons_revenue_analytics, "logger") as mock_logger:
             results = execute_hogql_query(
                 parse_select("SELECT person_id, revenue FROM persons_revenue_analytics"),
                 self.team,
@@ -410,12 +404,22 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
 
             self.assertEqual(results.results, [])
 
-    @parameterized.expand(["events", "warehouse"])
+            # Dropping the source is silent in the results, so the warning is the only way to tell
+            # this apart from the source genuinely earning nothing.
+            mock_logger.warning.assert_called_once()
+            event, kwargs = mock_logger.warning.call_args[0][0], mock_logger.warning.call_args[1]
+            self.assertEqual(event, "persons_revenue_analytics_skipped_source")
+            self.assertEqual(kwargs["team_id"], self.team.pk)
+
+    @parameterized.expand(["events", "warehouse", "none"])
     def test_person_id_joins_directly_against_persons_id(self, source_kind: str):
         # `person_id` is the documented join target for `persons.id`. The event leg reaches it through
         # `toString(persons.id)`, so it is the leg that fails with `NO_COMMON_TYPE` when the column is
         # not cast back to UUID. The warehouse leg already holds a UUID and passes either way, so both
-        # kinds are covered to stop one of them regressing alone.
+        # kinds are covered to stop one of them regressing alone. `none` covers the empty-table branch,
+        # which is most projects: the join has to return no rows there rather than fail on the types.
+        # `none` configures no source at all, so the table falls to its empty branch
+        expected_rows: list[tuple] = []
         if source_kind == "events":
             self.setup_events()
             self.team.revenue_analytics_config.events = [
@@ -428,11 +432,11 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
             ]
             self.team.revenue_analytics_config.save()
             self.team.save()
-            expected_row = (UUID(self.PERSON_ID), Decimal("350.42"))
-        else:
+            expected_rows = [(UUID(self.PERSON_ID), Decimal("350.42"))]
+        elif source_kind == "warehouse":
             self.setup_schema_sources()
             person = _create_person(team_id=self.team.pk, distinct_ids=["cus_1"])
-            expected_row = (person.uuid, Decimal("283.8496260553"))
+            expected_rows = [(person.uuid, Decimal("283.8496260553"))]
 
         with freeze_time(self.QUERY_TIMESTAMP):
             results = execute_hogql_query(
@@ -448,7 +452,7 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
                 modifiers=self.MODIFIERS,
             )
 
-            self.assertEqual(results.results, [expected_row])
+            self.assertEqual(results.results, expected_rows)
 
     def test_query_revenue_analytics_table_sources(self):
         self.setup_schema_sources()
