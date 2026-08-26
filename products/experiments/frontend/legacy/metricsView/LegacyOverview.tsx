@@ -8,6 +8,7 @@ import {
     ExperimentTrendsQuery,
     ExperimentMetric,
 } from '~/queries/schema/schema-general'
+
 import {
     legacyGetHighestProbabilityVariant,
     legacyGetIndexForVariant,
@@ -16,7 +17,7 @@ import {
     legacyExperimentLogic,
     getIsPrimaryMetricSignificant,
     getIsSecondaryMetricSignificant,
-} from '~/scenes/experiments/legacy'
+} from 'products/experiments/frontend/legacy'
 
 /**
  * @deprecated

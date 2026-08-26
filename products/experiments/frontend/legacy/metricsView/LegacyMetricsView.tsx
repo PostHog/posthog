@@ -6,13 +6,14 @@ import { LemonDivider, Tooltip } from '@posthog/lemon-ui'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 
 import { ExperimentFunnelsQuery, ExperimentTrendsQuery } from '~/queries/schema/schema-general'
+
 import {
     legacyCredibleIntervalForVariant,
     LegacyDeltaChart,
     legacyGetNiceTickValues,
     getInsightType,
     legacyExperimentLogic,
-} from '~/scenes/experiments/legacy'
+} from 'products/experiments/frontend/legacy'
 
 /**
  * @deprecated
