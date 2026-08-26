@@ -487,13 +487,44 @@ test('the cargo-dist manifest shares the cli lane', () => {
 })
 
 test('a single-language workflow claims that language rather than everything', () => {
+    const javascript = computeTargets(['.oxlintrc.json'], CONTEXT)
+    for (const workflow of [
+        'ci-frontend.yml',
+        'ci-mcp-ui-apps.yml',
+        'ci-docs-check.yml',
+        'browserslist.yml',
+        'publish-quill-npm.yml',
+        'update-ai-costs.yml',
+    ]) {
+        assert.deepEqual(computeTargets([`.github/workflows/${workflow}`], CONTEXT), javascript, workflow)
+    }
+    const python = computeTargets(['mypy.ini'], CONTEXT)
+    for (const workflow of [
+        'ci-backend.yml',
+        'ci-python.yml',
+        'ci-ai.yml',
+        'ci-replay-vision-evals.yml',
+        'ci-clickhouse-hcl-schema.yml',
+        'ci-clickhouse-multinode-migrations.yml',
+        'build-hogql-parser.yml',
+        'publish-hogli.yml',
+    ]) {
+        assert.deepEqual(computeTargets([`.github/workflows/${workflow}`], CONTEXT), python, workflow)
+    }
+    const rust = computeTargets(['.github/workflows/ci-rust.yml'], CONTEXT)
+    for (const workflow of [
+        'rust-docker-build.yml',
+        'rust-smoke-test-build.yml',
+        '_rust-build-images.yml',
+        'publish-replay-anonymizer-crate.yml',
+        'publish-symbol-data-crate.yml',
+    ]) {
+        assert.deepEqual(computeTargets([`.github/workflows/${workflow}`], CONTEXT), rust, workflow)
+    }
+    // The workflow gating tools/openapi-codegen takes the tree's own domain.
     assert.deepEqual(
-        computeTargets(['.github/workflows/ci-frontend.yml'], CONTEXT),
-        computeTargets(['.oxlintrc.json'], CONTEXT)
-    )
-    assert.deepEqual(
-        computeTargets(['.github/workflows/ci-backend.yml'], CONTEXT),
-        computeTargets(['mypy.ini'], CONTEXT)
+        computeTargets(['.github/workflows/ci-openapi-codegen.yml'], CONTEXT),
+        computeTargets(['tools/openapi-codegen/package.json'], CONTEXT)
     )
     // The Depot shadows take their canonical twin's domain instead of the
     // .depot/** universal rule, so a shadow-only or paired edit stays on the
@@ -503,7 +534,7 @@ test('a single-language workflow claims that language rather than everything', (
             ['.depot/workflows/ci-backend.yml', '.depot/workflows/ci-backend-update-test-timing.yml'],
             CONTEXT
         ),
-        computeTargets(['mypy.ini'], CONTEXT)
+        python
     )
 })
 
