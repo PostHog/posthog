@@ -306,7 +306,32 @@ class TestGarageDrives:
                 """,
                 {},
             ),
-            # a bare string is a parametrize row or a URL segment, not a query
+            # a parametrize row that flows into the dispatcher is a drive
+            (
+                """
+                class TestKinds(TestCase):
+                    @parameterized.expand([("PathsQuery",), ("TrendsQuery",)])
+                    def test_runs(self, kind):
+                        process_query_dict(self.team, {"kind": kind})
+                """,
+                {("product_analytics", "PathsQuery"): 1},
+            ),
+            # a test that reaches the client through two helpers still executes
+            (
+                """
+                class TestChain(APIBaseTest):
+                    def _post(self, body):
+                        return self.client.post("/api/projects/1/query/", body)
+
+                    def _run(self, query):
+                        return self._post({"query": query})
+
+                    def test_paths(self):
+                        assert self._run({"kind": "PathsQuery"}).status_code == 200
+                """,
+                {("product_analytics", "PathsQuery"): 1},
+            ),
+            # a bare string in a test that never executes, or a URL segment, is not a drive
             (
                 """
                 class TestTags(TestCase):

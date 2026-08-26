@@ -796,19 +796,19 @@ def _is_test_client_call(node: ast.Call) -> bool:
 
 
 def _kind_mentions(tree: ast.Module, kinds: _QueryKinds) -> list[tuple[ast.AST, str]]:
-    """Nodes where a product query kind enters a query: `{"kind": "X"}`, `{"kind": NodeKind.X}`, or
-    the schema constructor `X(...)`.
+    """Nodes that name a product query kind: a `"X"` or `NodeKind.X` value, or the schema
+    constructor `X(...)`.
 
-    A bare string (a parametrize row, a URL segment) is not a query and is not counted."""
+    A bare value counts too: a parametrize row or a constant reaches the dispatcher through a
+    variable as often as through a literal `{"kind": ...}`. What separates a drive from a mention
+    is whether the enclosing test executes, which `kind_drives` decides. A URL segment or a
+    substring of a longer string is not a value equal to a kind, so it does not count."""
     found: list[tuple[ast.AST, str]] = []
     for node in ast.walk(tree):
-        if isinstance(node, ast.Dict):
-            for key, value in zip(node.keys, node.values):
-                if not (isinstance(key, ast.Constant) and key.value == "kind"):
-                    continue
-                kind = _kind_of(value, kinds)
-                if kind is not None:
-                    found.append((node, kind))
+        if isinstance(node, ast.Constant | ast.Attribute):
+            kind = _kind_of(node, kinds)
+            if kind is not None:
+                found.append((node, kind))
         elif isinstance(node, ast.Call):
             name = _callee_name(node)
             if name in kinds.products:
@@ -850,10 +850,10 @@ def _executes_directly(scope: ast.AST) -> bool:
 class _Executions:
     """Which functions of a module execute queries, directly or through a helper they call.
 
-    A test method that builds a query and hands it to `self._run(...)` executes it one call away;
-    following one hop by name covers that without walking a real call graph. Helpers resolve inside
-    the function's own class (or the module for a plain function), so two classes with a method of
-    the same name never answer for each other."""
+    A test method that builds a query and hands it to `self._run(...)` executes it a call away;
+    helper calls are followed by name to a fixpoint, no real call graph needed. Helpers resolve
+    inside the function's own class (or the module for a plain function), so two classes with a
+    method of the same name never answer for each other."""
 
     def __init__(self) -> None:
         self._direct: dict[int, bool] = {}
@@ -864,11 +864,21 @@ class _Executions:
         return self._direct[id(function)]
 
     def executes(self, function: _Function, scope: ast.AST) -> bool:
-        if self._executes_directly(function):
-            return True
+        """Whether `function` executes a query, itself or through helpers of the same scope,
+        followed to a fixpoint."""
         helpers = {node.name: node for node in ast.iter_child_nodes(scope) if isinstance(node, _Function)}
-        called = {_callee_name(node) for node in ast.walk(function) if isinstance(node, ast.Call)}
-        return any(self._executes_directly(helpers[name]) for name in called if name in helpers)
+        seen: set[int] = set()
+        pending = [function]
+        while pending:
+            current = pending.pop()
+            if id(current) in seen:
+                continue
+            seen.add(id(current))
+            if self._executes_directly(current):
+                return True
+            called = {_callee_name(node) for node in ast.walk(current) if isinstance(node, ast.Call)}
+            pending.extend(helpers[name] for name in called if name in helpers)
+        return False
 
 
 def kind_drives(tree: ast.Module, kinds: _QueryKinds) -> Counter[_KindDrive]:
@@ -947,7 +957,7 @@ def _alternation(names: Iterable[str]) -> bytes:
 @dataclass(frozen=True)
 class _KindHint:
     """A cheap test for the textual shapes `_kind_mentions` accepts, so a file that only names a
-    kind in a parametrize row or a URL is never parsed.
+    kind inside a longer string (a URL segment) is never parsed.
 
     The alternation over every kind is slow at each position of a large file; the longest common
     suffix of the kinds ("Query" today) gates it with one substring search, and `NodeKind.` gates
@@ -962,7 +972,7 @@ class _KindHint:
         reversed_common = os.path.commonprefix([name[::-1] for name in names])
         alternation = _alternation(names)
         pattern = (
-            rb"[\"']kind[\"']\s*:\s*[\"'](?:" + alternation + rb")[\"']|\b(?:" + alternation + rb")\("
+            rb"[\"'](?:" + alternation + rb")[\"']|\b(?:" + alternation + rb")\("
             rb"|NodeKind\.(?:" + _alternation(kinds.members) + rb")\b"
         )
         return cls(reversed_common[::-1].encode(), re.compile(pattern))
