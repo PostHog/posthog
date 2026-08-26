@@ -8,7 +8,7 @@ import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
-import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { createTeam, createTestTeamFixture, getTeam } from '~/tests/helpers/sql'
 
 import { Hub, InternalPerson, Team } from '../../types'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
@@ -108,10 +108,10 @@ describe('CdpCyclotronWorkerHogFlow', () => {
     }
 
     beforeEach(async () => {
-        await resetTestDatabase()
         hub = await createHub()
-        team = await getFirstTeam(hub.postgres)
-        const team2Id = await createTeam(hub.postgres, team.organization_id)
+        const { organizationId, team: fixtureTeam } = await createTestTeamFixture(hub.postgres)
+        team = fixtureTeam
+        const team2Id = await createTeam(hub.postgres, organizationId)
         team2 = (await getTeam(hub.postgres, team2Id))!
 
         const testPersons: TestPerson[] = [

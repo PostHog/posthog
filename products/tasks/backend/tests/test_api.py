@@ -1504,6 +1504,7 @@ class TestTaskAPI(BaseTaskAPITest):
         mock_find_warm_run.assert_called_once_with(
             self.team.id,
             self.user.id,
+            origin_product=Task.OriginProduct.USER_CREATED,
             repository="posthog/posthog",
             repositories=["posthog/posthog", "posthog/code"],
             github_integration_id=integration.id,
@@ -1513,6 +1514,7 @@ class TestTaskAPI(BaseTaskAPITest):
             reasoning_effort=None,
             sandbox_environment_id=None,
             custom_image_id=None,
+            initial_permission_mode=None,
         )
 
         update = self.client.patch(
@@ -1993,8 +1995,7 @@ class TestTaskAPI(BaseTaskAPITest):
     def test_discussion_note_skipped_when_user_lacks_skill_editor_access(self):
         # A caller who couldn't write a scout note by hand (no llm_skill editor access) can't plant one
         # via a discussion, even though creating the task needs only task:write.
-        from posthog.rbac.user_access_control import UserAccessControl
-
+        from products.access_control.backend.facade.user_access_control import UserAccessControl
         from products.signals.backend.models import SignalReport
 
         report = SignalReport.objects.create(team=self.team, title="Checkout errors spiked")
@@ -8125,8 +8126,8 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
 
         with (
             patch(
-                "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.Sandbox.get_by_id",
-                return_value=sandbox,
+                "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.get_sandbox_class_for_sandbox_id",
+                **{"return_value.get_by_id.return_value": sandbox},
             ),
             patch(
                 "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.publish_task_run_stream_complete",
@@ -8164,8 +8165,8 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
 
         with (
             patch(
-                "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.Sandbox.get_by_id",
-                return_value=sandbox,
+                "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.get_sandbox_class_for_sandbox_id",
+                **{"return_value.get_by_id.return_value": sandbox},
             ),
             patch(
                 "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.publish_task_run_stream_complete"
@@ -8198,8 +8199,8 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
 
         with (
             patch(
-                "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.Sandbox.get_by_id",
-                return_value=sandbox,
+                "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.get_sandbox_class_for_sandbox_id",
+                **{"return_value.get_by_id.return_value": sandbox},
             ),
             patch(
                 "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.publish_task_run_stream_complete",
@@ -10051,7 +10052,9 @@ class TestTaskRunLivingArtifactChartAPI(BaseTaskAPITest):
         response = self._post_chart(["task:write", "query:read"], {"name": "Chart", "query": self.CHART_QUERY})
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    @patch("posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_resource")
+    @patch(
+        "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_resource"
+    )
     @patch("products.tasks.backend.presentation.views.api.render_png_export")
     def test_session_auth_without_query_access_is_rejected(self, mock_render, mock_check):
         mock_check.side_effect = lambda resource, required_level: resource != "query"

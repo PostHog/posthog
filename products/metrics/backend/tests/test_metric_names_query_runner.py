@@ -9,7 +9,11 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
-from products.metrics.backend.metric_names_query_runner import MetricNamesQueryRunner, cached_metric_names
+from products.metrics.backend.metric_names_query_runner import (
+    MAX_PICKER_SERVICES,
+    MetricNamesQueryRunner,
+    cached_metric_names,
+)
 from products.metrics.backend.tests._seeder import seed_metric, seed_metric_event, truncate_metrics_tables
 
 
@@ -130,6 +134,17 @@ class TestMetricNamesQueryRunner(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(cached_metric_names(self.team, search="m2"), run.return_value)
             self.assertEqual(run.call_count, 2)
 
+            # Nor may a service scope: the unscoped list is capped at `limit`, so
+            # serving it to a scoped picker both widens and truncates the answer.
+            run.return_value = [{"name": "m3", "metric_type": "gauge"}]
+            self.assertEqual(cached_metric_names(self.team, services=["web"]), run.return_value)
+            self.assertEqual(run.call_count, 3)
+            # Same scope twice is one query; a different scope is its own entry.
+            self.assertEqual(cached_metric_names(self.team, services=["web"]), run.return_value)
+            self.assertEqual(run.call_count, 3)
+            self.assertEqual(cached_metric_names(self.team, services=["worker"]), run.return_value)
+            self.assertEqual(run.call_count, 4)
+
     def test_exact_match_floats_to_top(self):
         anchor = timezone.now().replace(microsecond=0)
         _seed_point(
@@ -166,6 +181,36 @@ class TestMetricNamesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         names = [row["name"] for row in runner.run()]
         self.assertIn("recent.metric", names)
         self.assertNotIn("old.metric", names)
+
+    def test_rejects_more_services_than_the_cap(self):
+        with self.assertRaises(ValueError):
+            MetricNamesQueryRunner(team=self.team, services=[f"svc-{i}" for i in range(MAX_PICKER_SERVICES + 1)])
+
+    def _seed_two_services_and_an_unnamed_sender(self) -> None:
+        anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
+        for service, metric_name in (("web", "http.duration"), ("worker", "jobs.processed"), ("", "orphan.metric")):
+            seed_metric(
+                team_id=self.team.id,
+                metric_name=metric_name,
+                points=[(anchor, 1.0)],
+                service_name=service,
+            )
+
+    @parameterized.expand(
+        [
+            ("one service", ["web"], {"http.duration"}),
+            ("several services", ["web", "worker"], {"http.duration", "jobs.processed"}),
+            # An empty service name is a real group, not "no filter": a sender that
+            # omits the `service.name` resource attribute lands here.
+            ("the unnamed sender group", [""], {"orphan.metric"}),
+            ("no scope", [], {"http.duration", "jobs.processed", "orphan.metric"}),
+        ]
+    )
+    def test_scopes_names_to_the_selected_services(self, _name: str, services: list[str], expected: set[str]):
+        self._seed_two_services_and_an_unnamed_sender()
+
+        runner = MetricNamesQueryRunner(team=self.team, services=services)
+        self.assertEqual({row["name"] for row in runner.run()}, expected)
 
 
 class TestMetricsValuesAPI(ClickhouseTestMixin, APIBaseTest):
@@ -206,6 +251,30 @@ class TestMetricsValuesAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         names = [row["name"] for row in response.json()["results"]]
         self.assertEqual(names, ["http.duration"])
+
+    @parameterized.expand(
+        [
+            # Omitting the param and sending it empty mean different things, and the
+            # only thing carrying that difference over the wire is the query string.
+            ("omitted", "", {"http.duration", "jobs.processed", "orphan.metric"}),
+            ("one service", "&service=web", {"http.duration"}),
+            ("several services", "&service=web,worker", {"http.duration", "jobs.processed"}),
+            ("empty, the unnamed sender group", "&service=", {"orphan.metric"}),
+        ]
+    )
+    def test_values_service_param(self, _name: str, query: str, expected: set[str]):
+        anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
+        for service, metric_name in (("web", "http.duration"), ("worker", "jobs.processed"), ("", "orphan.metric")):
+            seed_metric(
+                team_id=self.team.id,
+                metric_name=metric_name,
+                points=[(anchor, 1.0)],
+                service_name=service,
+            )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/metrics/values?limit=100{query}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual({row["name"] for row in response.json()["results"]}, expected)
 
     def test_values_rejects_invalid_limit(self):
         response = self.client.get(f"/api/projects/{self.team.id}/metrics/values?limit=not-a-number")

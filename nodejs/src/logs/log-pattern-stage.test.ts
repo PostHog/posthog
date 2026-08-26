@@ -55,7 +55,7 @@ describe('log-pattern-stage', () => {
         expect(records.map((r) => r.body)).toEqual(bodiesBefore)
         expect(await counterValues(logsPatternBodyKindCounter)).toEqual({
             empty: 1,
-            invalid_json: 2,
+            plaintext: 2,
             json_object_or_array: 1,
         })
         expect(await counterValues(logsPatternRuleFiredCounter)).toEqual({ num: 1 })
