@@ -113,8 +113,7 @@ class TestSearchLLMTracesTool(BaseTest):
 
     @patch("ee.hogai.context.insight.query_executor.AssistantQueryExecutor.aexecute_query", new_callable=AsyncMock)
     def test_search_trims_detection_row_and_advances_cursor(self, mock_execute):
-        # The query runner returns limit+1 results when hasMore=True.
-        # With limit=10, it returns 11 results. The tool trims to 10.
+        # TracesQueryRunner trims the page, so this over-long response exercises the tool's own guard.
         mock_execute.return_value = {
             "results": [_make_trace(trace_id=f"trace-{i}") for i in range(11)],
             "hasMore": True,
