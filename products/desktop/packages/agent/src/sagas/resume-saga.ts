@@ -1,6 +1,10 @@
 import type { ContentBlock } from "@agentclientprotocol/sdk";
 import { Saga } from "@posthog/shared";
-import { type NativeGoalState, POSTHOG_NOTIFICATIONS } from "../acp-extensions";
+import {
+  isNotification,
+  type NativeGoalState,
+  POSTHOG_NOTIFICATIONS,
+} from "../acp-extensions";
 import type { PostHogAPIClient } from "../posthog-api";
 import type {
   DeviceInfo,
@@ -167,16 +171,25 @@ export class ResumeSaga extends Saga<ResumeInput, ResumeOutput> {
   }
 
   private findSessionId(entries: StoredNotification[]): string | null {
-    const runStarted = POSTHOG_NOTIFICATIONS.RUN_STARTED;
+    // RUN_STARTED carries the session id the run booted with; a later
+    // CONVERSATION_CLEARED (/clear) supersedes it with the fresh SDK session
+    // id it swapped in. Latest entry of either kind wins outright — including
+    // when it names no session: a /clear recorded without a sandbox (the
+    // backend writes the marker straight to the log for a finished run) has no
+    // session to continue, and scanning past it would find an earlier
+    // RUN_STARTED and resume the very conversation the marker retired.
     for (let i = entries.length - 1; i >= 0; i--) {
       const method = entries[i].notification?.method;
-      if (method === runStarted || method === `_${runStarted}`) {
+      if (
+        isNotification(method, POSTHOG_NOTIFICATIONS.RUN_STARTED) ||
+        isNotification(method, POSTHOG_NOTIFICATIONS.CONVERSATION_CLEARED)
+      ) {
         const params = entries[i].notification?.params as
           | { sessionId?: string }
           | undefined;
-        if (typeof params?.sessionId === "string" && params.sessionId) {
-          return params.sessionId;
-        }
+        return typeof params?.sessionId === "string" && params.sessionId
+          ? params.sessionId
+          : null;
       }
     }
     return null;
@@ -225,13 +238,22 @@ export class ResumeSaga extends Saga<ResumeInput, ResumeOutput> {
   private rebuildConversation(
     entries: StoredNotification[],
   ): ConversationTurn[] {
-    const turns: ConversationTurn[] = [];
+    let turns: ConversationTurn[] = [];
     let currentAssistantContent: ContentBlock[] = [];
     let currentToolCalls: ToolCallInfo[] = [];
 
     for (const entry of entries) {
       const method = entry.notification?.method;
       const params = entry.notification?.params as Record<string, unknown>;
+
+      // /clear starts an empty conversation: everything before the marker is
+      // gone from the model's context and must not be rehydrated.
+      if (isNotification(method, POSTHOG_NOTIFICATIONS.CONVERSATION_CLEARED)) {
+        turns = [];
+        currentAssistantContent = [];
+        currentToolCalls = [];
+        continue;
+      }
 
       if (method === "session/update" && params?.update) {
         const update = params.update as Record<string, unknown>;

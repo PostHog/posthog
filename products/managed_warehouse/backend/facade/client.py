@@ -53,11 +53,13 @@ def make_duckgres_conninfo(
     *,
     organization_id: str | None = None,
     service_credential: ServiceCredential | None = None,
+    application_name: str = "posthog",
 ) -> str:
     return client.make_duckgres_conninfo(
         team_id,
         organization_id=organization_id,
         service_credential=service_credential,
+        application_name=application_name,
     )
 
 

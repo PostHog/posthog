@@ -1,3 +1,4 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -71,6 +72,74 @@ describe('supportLogic', () => {
 
             expect(sidePanelStateLogic.values.sidePanelOpen).toBe(false)
             expect(openSupportModal).toHaveBeenCalledTimes(1)
+        })
+    })
+
+    describe('support panel URL hash lifecycle', () => {
+        let logic: ReturnType<typeof supportLogic.build>
+
+        beforeEach(() => {
+            localStorage.clear()
+            window.history.replaceState(null, '', '/')
+            initKeaTests()
+            sidePanelStateLogic.mount()
+            logic = supportLogic.build()
+            logic.mount()
+            openSupportModal.mockClear()
+        })
+
+        afterEach(() => {
+            logic?.unmount()
+        })
+
+        it('does not write the panel hash when the form opens as a modal', async () => {
+            router.actions.push('/login', { next: '/home' })
+
+            await expectLogic(logic, () => {
+                logic.actions.openSupportForm({ kind: 'support', target: 'modal' })
+            }).toFinishAllListeners()
+
+            expect(router.values.hashParams['panel']).toBeUndefined()
+        })
+
+        it('clears a support deep-link hash on close when no side panel owns it', async () => {
+            router.actions.push('/login', { next: '/home' }, { panel: 'support:support:false' })
+
+            await expectLogic(logic, () => {
+                logic.actions.openSupportForm({ kind: 'support', target: 'modal' })
+            }).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.closeSupportForm()
+            }).toFinishAllListeners()
+
+            expect(router.values.hashParams['panel']).toBeUndefined()
+            expect(router.values.location.pathname).toBe('/login')
+            expect(router.values.searchParams).toEqual({ next: '/home' })
+        })
+
+        it('clears the legacy supportModal hash on close when no side panel owns it', async () => {
+            router.actions.push('/login', {}, { supportModal: 'support' })
+
+            await expectLogic(logic, () => {
+                logic.actions.openSupportForm({ kind: 'support', target: 'modal' })
+                logic.actions.closeSupportForm()
+            }).toFinishAllListeners()
+
+            expect(router.values.hashParams['supportModal']).toBeUndefined()
+            expect(router.values.hashParams['panel']).toBeUndefined()
+        })
+
+        it('leaves the panel hash alone on close when the side panel is available', async () => {
+            sidePanelStateLogic.actions.setSidePanelAvailable(true)
+            router.actions.push('/project/1/home', {}, { panel: 'support:support:false' })
+
+            await expectLogic(logic, () => {
+                logic.actions.openSupportForm({ kind: 'support', target: 'sidePanel' })
+                logic.actions.closeSupportForm()
+            }).toFinishAllListeners()
+
+            expect(String(router.values.hashParams['panel'])).toContain('support')
         })
     })
 

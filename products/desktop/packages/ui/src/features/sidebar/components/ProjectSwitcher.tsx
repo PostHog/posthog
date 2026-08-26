@@ -13,6 +13,7 @@ import {
   SignOut,
 } from "@phosphor-icons/react";
 import {
+  Button,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuGroup,
@@ -56,8 +57,14 @@ import { getPostHogUrl } from "@posthog/ui/utils/urls";
 import { Avatar, Box } from "@radix-ui/themes";
 import { useMemo, useState } from "react";
 
-/** The account / project / org menu at the bottom of the sidebar. */
-export function ProjectSwitcher() {
+interface ProjectSwitcherProps {
+  appearance?: "row" | "icon";
+}
+
+/** The account / project / org menu. */
+export function ProjectSwitcher({
+  appearance = "row",
+}: ProjectSwitcherProps = {}) {
   const [popoverOpen, setPopoverOpen] = useState(false);
 
   const holdPeek = useHoldSidebarPeek();
@@ -81,6 +88,10 @@ export function ProjectSwitcher() {
   const channelsLayout = useChannelsLayout();
   const archivedTaskIds = useArchivedTaskIds();
   const showArchived = channelsLayout && archivedTaskIds.size > 0;
+
+  const isIcon = appearance === "icon";
+  const projectName = currentProject?.name ?? "No project selected";
+  const projectInitials = projectName.slice(0, 2);
 
   const currentOrgGroup =
     groupedProjects.find((group) => group.orgId === currentOrgId) ?? null;
@@ -196,27 +207,42 @@ export function ProjectSwitcher() {
     <DropdownMenu open={popoverOpen} onOpenChange={handleOpenChange}>
       <DropdownMenuTrigger
         render={
-          <Item
-            size="xs"
-            className="border-transparent bg-fill-hover py-1.5 hover:bg-fill-selected aria-expanded:bg-fill-active"
-          >
-            <ItemContent className="select-none gap-0">
-              <ItemTitle>
-                {currentProject?.name ?? "No project selected"}
-              </ItemTitle>
-              <ItemDescription className="text-[11px]">
-                {impersonationExpiry &&
-                  `Impersonating until ${impersonationExpiry}`}
-              </ItemDescription>
-            </ItemContent>
-          </Item>
+          isIcon ? (
+            <Button
+              variant="outline"
+              size="icon"
+              aria-label={projectName}
+              className="shrink-0 font-semibold text-[11px] text-muted-foreground uppercase hover:bg-fill-selected aria-expanded:bg-fill-active"
+            >
+              {projectInitials}
+            </Button>
+          ) : (
+            <Item
+              size="xs"
+              className="border-transparent bg-fill-hover py-1.5 hover:bg-fill-selected aria-expanded:bg-fill-active"
+            >
+              <ItemContent className="select-none gap-0">
+                <ItemTitle>{projectName}</ItemTitle>
+                <ItemDescription className="text-[11px]">
+                  {impersonationExpiry &&
+                    `Impersonating until ${impersonationExpiry}`}
+                </ItemDescription>
+              </ItemContent>
+            </Item>
+          )
         }
       />
 
       <DropdownMenuContent
-        align="start"
-        side="bottom"
-        className="w-(--anchor-width) max-w-(--anchor-width) pt-0"
+        align={isIcon ? "end" : "start"}
+        side={isIcon ? "right" : "bottom"}
+        // The rail trigger is one icon wide, so anchor-width would squeeze the
+        // menu to nothing.
+        className={
+          isIcon
+            ? "w-64 pt-0"
+            : "w-(--anchor-width) max-w-(--anchor-width) pt-0"
+        }
         sideOffset={4}
       >
         <Box>

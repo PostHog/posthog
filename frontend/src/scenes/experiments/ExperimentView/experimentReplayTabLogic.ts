@@ -60,17 +60,16 @@ import type {
     ExperimentSessionEventDeltaResponseApi,
     ExperimentWatchCardApi,
 } from 'products/experiments/frontend/generated/api.schemas'
+import { visionScannersList } from 'products/replay_vision/frontend/generated/api'
+import type { ScannerTypeEnumApi } from 'products/replay_vision/frontend/generated/api.schemas'
 
 import type { ExperimentIdType } from '../../../types'
 import type { ExperimentSavedMetric } from '../experimentLogic'
 import { getDefaultMetricTitle } from '../MetricsView/shared/utils'
 import {
-    applySessionLinkability,
     getExperimentVariants,
-    getExposureFallbackFilter,
     getFunnelDropoffReason,
     getMetricSessionFilters,
-    getViewRecordingFiltersForVariant,
     isUnlinkableEventFilter,
 } from '../utils'
 import {
@@ -82,6 +81,14 @@ import {
 
 export interface ExperimentReplayTabLogicProps {
     experiment: Experiment
+}
+
+/** A scanner already watching this experiment, for the back-link on the Recordings tab. */
+export interface LinkedScanner {
+    id: string
+    name: string
+    scannerType: ScannerTypeEnumApi
+    observationsThisMonth: number
 }
 
 /** One experiment metric offered in the recordings tab's "Metric events" dropdown. */
@@ -174,7 +181,8 @@ export interface experimentReplayTabLogicValues {
     bucketSessionIds: string[] | undefined
     effectiveMetricUuids: string[]
     effectiveVariantKey: string | null
-    exposureUnlinkable: boolean
+    linkedScanners: LinkedScanner[]
+    linkedScannersLoading: boolean
     loadedRecordings: ExperimentReplayRecording[]
     loadedRecordingsById: Map<string, ExperimentReplayRecording>
     metricFilterMode: ExperimentReplayMetricFilterMode
@@ -190,7 +198,6 @@ export interface experimentReplayTabLogicValues {
     sessionEventDeltas: ExperimentSessionEventDeltaResponseApi | null
     sessionEventDeltasError: string | null
     sessionEventDeltasLoading: boolean
-    usingExposureFallback: boolean
     variantKeys: string[]
 }
 
@@ -269,6 +276,31 @@ export interface experimentReplayTabLogicActions {
         payload?: any
         seenTogetherMap: Record<string, boolean>
     } // viewRecordingsLinkabilityLogic
+    loadLinkedScanners: (_?: unknown) => unknown
+    loadLinkedScannersFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadLinkedScannersSuccess: (
+        linkedScanners: {
+            id: string
+            name: string
+            observationsThisMonth: number
+            scannerType: ScannerTypeEnumApi
+        }[],
+        payload?: unknown
+    ) => {
+        linkedScanners: {
+            id: string
+            name: string
+            observationsThisMonth: number
+            scannerType: ScannerTypeEnumApi
+        }[]
+        payload?: unknown
+    }
     loadSessionBucket: (_?: unknown) => unknown
     loadSessionBucketFailure: (
         error: string,
@@ -320,6 +352,9 @@ export interface experimentReplayTabLogicActions {
     reportTabViewed: () => {
         value: true
     }
+    scannerCrossSellClicked: () => {
+        value: true
+    }
     selectWatchCard: (card: ExperimentWatchCardApi | null) => {
         card: ExperimentWatchCardApi | null
     }
@@ -355,8 +390,6 @@ export interface experimentReplayTabLogicMeta {
         loadedRecordingsById: (loadedRecordings: ExperimentReplayRecording[]) => Map<string, ExperimentReplayRecording>
         variantKeys: (arg: any) => string[]
         behaviorComparisonAvailable: (featureFlags: FeatureFlagsSet) => boolean
-        exposureUnlinkable: (linkabilityLoaded: boolean, unlinkableEventNames: Set<string>, arg: any) => boolean
-        usingExposureFallback: (linkabilityLoaded: boolean, unlinkableEventNames: Set<string>, arg: any) => boolean
         effectiveVariantKey: (selectedVariantKey: string | null, variantKeys: string[]) => string | null
         metricOptions: (
             linkabilityLoaded: boolean,
@@ -372,7 +405,6 @@ export interface experimentReplayTabLogicMeta {
             metricFilterMode: ExperimentReplayMetricFilterMode,
             effectiveMetricUuids: string[],
             effectiveVariantKey: string | null,
-            exposureUnlinkable: boolean,
             metricOptions: ExperimentReplayMetricOption[]
         ) => ExperimentSessionBucketRequest | null
         bucketSessionIds: (
@@ -452,6 +484,7 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
         watchHighlightOpened: (card: ExperimentWatchCardApi, position: number) => ({ card, position }),
         prefetchSessionContexts: (sessionIds: string[]) => ({ sessionIds }),
         reportTabViewed: true,
+        scannerCrossSellClicked: true,
     }),
     loaders(({ values, props, actions }) => ({
         sessionBucket: [
@@ -511,6 +544,30 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                     )
                     breakpoint()
                     return response
+                },
+            },
+        ],
+        linkedScanners: [
+            [] as LinkedScanner[],
+            {
+                // The scanners already watching this experiment. The `experiment_id` filter is gated
+                // on the caller's experiment access server-side, so an unreadable experiment resolves
+                // to an empty list. Fail-soft to []: the tab must render even if the lookup fails.
+                loadLinkedScanners: async (_: unknown = null, breakpoint) => {
+                    try {
+                        const response = await visionScannersList(String(values.currentProjectId), {
+                            experiment_id: String(props.experiment.id),
+                        })
+                        breakpoint()
+                        return response.results.map((scanner) => ({
+                            id: scanner.id,
+                            name: scanner.name,
+                            scannerType: scanner.scanner_type,
+                            observationsThisMonth: scanner.observations_this_month,
+                        }))
+                    } catch {
+                        return []
+                    }
                 },
             },
         ],
@@ -636,34 +693,6 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.EXPERIMENT_BEHAVIOR_COMPARISON],
         ],
-        // Exposure is the whole list here, so an unmatchable exposure event with no fallback means
-        // there is nothing to show at all. Only custom exposure criteria end up here: the default
-        // exposure branch always has the `$feature/<flag_key>` fallback. Fails open while the
-        // check is in flight, matching the metric buttons.
-        exposureUnlinkable: [
-            (s) => [s.linkabilityLoaded, s.unlinkableEventNames, (_, props) => props.experiment],
-            (linkabilityLoaded: boolean, unlinkableEventNames: Set<string>, experiment: Experiment): boolean =>
-                // Fail open while the check is in flight, matching the metric buttons' posture.
-                linkabilityLoaded &&
-                applySessionLinkability(
-                    getViewRecordingFiltersForVariant(experiment),
-                    unlinkableEventNames,
-                    getExposureFallbackFilter(experiment)
-                ).exposureUnlinkable,
-        ],
-        // True when the list is built from the `$feature/<flag_key>` fallback rather than the
-        // exposure event, so the tab can explain that sessions show the flag being active, not
-        // the exposure moment.
-        usingExposureFallback: [
-            (s) => [s.linkabilityLoaded, s.unlinkableEventNames, (_, props) => props.experiment],
-            (linkabilityLoaded: boolean, unlinkableEventNames: Set<string>, experiment: Experiment): boolean =>
-                linkabilityLoaded &&
-                applySessionLinkability(
-                    getViewRecordingFiltersForVariant(experiment),
-                    unlinkableEventNames,
-                    getExposureFallbackFilter(experiment)
-                ).usedExposureFallback,
-        ],
         effectiveVariantKey: [
             (s) => [s.selectedVariantKey, s.variantKeys],
             (selectedVariantKey: string | null, variantKeys: string[]): string | null =>
@@ -766,23 +795,13 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
          * silently matches the primary event only.
          */
         sessionBucketRequest: [
-            (s) => [
-                s.metricFilterMode,
-                s.effectiveMetricUuids,
-                s.effectiveVariantKey,
-                s.exposureUnlinkable,
-                s.metricOptions,
-            ],
+            (s) => [s.metricFilterMode, s.effectiveMetricUuids, s.effectiveVariantKey, s.metricOptions],
             (
                 metricFilterMode: ExperimentReplayMetricFilterMode,
                 effectiveMetricUuids: string[],
                 effectiveVariantKey: string | null,
-                exposureUnlinkable: boolean,
                 metricOptions: ExperimentReplayMetricOption[]
             ): ExperimentSessionBucketRequest | null => {
-                if (exposureUnlinkable) {
-                    return null
-                }
                 const request = (bucket: ExperimentSessionBucketEnumApi): ExperimentSessionBucketRequest => ({
                     bucket,
                     metric_uuids: effectiveMetricUuids,
@@ -848,13 +867,12 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 selectedWatchCard: ExperimentWatchCardApi | null,
                 experiment: Experiment
             ): RecordingUniversalFilters => {
-                // A recordings query carries a single AND/OR operand across the whole flattened
-                // filter tree (see `deriveOperand`), so "exposed to the variant AND (any of the
-                // metric's events)" can't be expressed — an OR anywhere flips the exposure filter to
-                // OR too. Each selected metric matches on its primary event (the first
-                // session-linkable source: a mean metric's event, a funnel's entry step, a ratio's
-                // numerator) rather than ANDing every source, which used to require a session to
-                // fire *all* funnel steps. Multiple selected metrics AND together — each narrows.
+                // The filter tree carries a single AND/OR operand (see `deriveOperand`), so
+                // OR-shaped questions go to the bucket endpoint rather than into these filters.
+                // Each selected metric matches on its primary event (the first session-linkable
+                // source: a mean metric's event, a funnel's entry step, a ratio's numerator)
+                // rather than ANDing every source, which used to require a session to fire *all*
+                // funnel steps. Multiple selected metrics AND together, and each narrows.
                 //
                 // While the linkability check is in flight, metric filters stay out of the query:
                 // a persisted selection of a metric that turns out unlinkable would otherwise fire
@@ -883,22 +901,14 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                                   seenFilters.add(JSON.stringify(filter))
                                   return true
                               })
-                // When the default exposure event can't match sessions, the fallback filter on
-                // `$feature/<flag_key>` takes its place (see `getExposureFallbackFilter`). While
-                // the check is in flight the unlinkable set is empty, so the exposure filter
-                // passes through untouched (fail open).
-                const exposureFilters = applySessionLinkability(
-                    getViewRecordingFiltersForVariant(experiment, effectiveVariantKey ?? undefined),
-                    unlinkableEventNames,
-                    getExposureFallbackFilter(experiment, effectiveVariantKey ?? undefined)
-                ).filters
                 return {
                     ...DEFAULT_RECORDING_FILTERS,
-                    // The exposure filter stays in place alongside the bucket or card: their ids
-                    // are a subset of the exposed sessions, so this only keeps the list's
-                    // definition visible in the filter UI. A card's recordings are pre-checked
-                    // against replay existence, so unlike an event filter this list can't come
-                    // back empty.
+                    // The person-scoped filter stays in place alongside the bucket or card ids.
+                    // A bucket session carries an in-session exposure event, but its person can
+                    // still be outside the analysis population (excluded for seeing multiple
+                    // variants, for example); the AND keeps the shown set honest to who the
+                    // analysis counts. A card's recordings are pre-checked against replay
+                    // existence, so unlike an event filter this list can't come back empty.
                     session_ids: selectedWatchCard ? selectedWatchCard.session_ids : bucketSessionIds,
                     // A card's sessions are picked with no duration floor, so the default "more
                     // than 5 active seconds" filter would silently drop the short ones (a rage
@@ -908,12 +918,23 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                     date_from: experiment.start_date ?? DEFAULT_RECORDING_FILTERS.date_from,
                     date_to: experiment.end_date ?? null,
                     filter_test_accounts: experiment.exposure_criteria?.filterTestAccounts ?? false,
+                    // Resolved server-side from the experiment (same population the analysis
+                    // counts), so it works even when exposure events are fired server-side and
+                    // shows exposed users' whole journey, not just sessions containing the
+                    // exposure event. Deliberately not an event filter in `filter_group`.
+                    experiment_exposure:
+                        typeof experiment.id === 'number'
+                            ? {
+                                  experiment_id: experiment.id,
+                                  ...(effectiveVariantKey !== null ? { variant: effectiveVariantKey } : {}),
+                              }
+                            : undefined,
                     filter_group: {
                         type: FilterLogicalOperator.And,
                         values: [
                             {
                                 type: FilterLogicalOperator.And,
-                                values: [...exposureFilters, ...metricFilters],
+                                values: metricFilters,
                             },
                         ],
                     },
@@ -982,6 +1003,7 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 friction_cards: kindCount(ExperimentWatchCardKindEnumApi.Friction),
                 variant_only_cards: kindCount(ExperimentWatchCardKindEnumApi.VariantOnly),
                 metric_cards: kindCount(ExperimentWatchCardKindEnumApi.Metric),
+                dropped_duplicate_cards: sessionEventDeltas.dropped_duplicate_cards,
             })
         },
         selectWatchCard: ({ card }) => {
@@ -1045,11 +1067,16 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             }
             cache.reportedTabView = true
             actions.reportExperimentRecordingsTabViewed(props.experiment.id, {
-                exposure_unlinkable: values.exposureUnlinkable,
-                using_exposure_fallback: values.usingExposureFallback,
                 variant_count: values.variantKeys.length,
                 metric_count: values.metricOptions.length,
                 linkable_metric_count: values.metricOptions.filter((option) => !option.unlinkable).length,
+            })
+        },
+        scannerCrossSellClicked: () => {
+            void addProductIntentForCrossSell({
+                from: ProductKey.EXPERIMENTS,
+                to: ProductKey.REPLAY_VISION,
+                intent_context: ProductIntentContext.EXPERIMENT_CREATE_SCANNER,
             })
         },
         prefetchSessionContexts: async ({ sessionIds }, breakpoint) => {
@@ -1081,6 +1108,11 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
     })),
     afterMount(({ values, actions }) => {
         actions.setDefaultTab(SessionRecordingSidebarTab.OVERVIEW)
+        // Only the vision entry point renders the watching-scanners card, so don't spend the lookup
+        // for everyone else who opens this tab without the flag.
+        if (values.featureFlags[FEATURE_FLAGS.VISION_ENTRYPOINT_EXPERIMENTS]) {
+            actions.loadLinkedScanners()
+        }
 
         // The mode persists, so a tab reopened in a bucket needs its session set again.
         if (values.sessionBucketRequest) {

@@ -1,6 +1,7 @@
 import json
 import uuid
 import secrets
+from datetime import UTC, datetime
 from typing import ClassVar
 
 from unittest.mock import AsyncMock, patch
@@ -9,17 +10,33 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 from django.test import TestCase
+from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
 
 from posthog.models import Integration, Organization, Team
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED
 from posthog.models.organization import OrganizationMembership
+from posthog.models.scoping import team_scope
 from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
 from posthog.storage import object_storage
 
-from products.tasks.backend.models import CodeInvite, SandboxEnvironment, SandboxSnapshot, Task, TaskRun
+from products.tasks.backend.models import (
+    TASK_OWNERSHIP_VERSION_STATE_KEY,
+    CodeInvite,
+    SandboxEnvironment,
+    SandboxSnapshot,
+    Task,
+    TaskOwnershipChangedError,
+    TaskRun,
+    TaskThreadMessage,
+    bump_task_activity,
+)
+
+# Far enough back that any bump is unambiguously forward, and stable so a test can assert the
+# clock did *not* move.
+STALE_ACTIVITY_AT = datetime(2020, 1, 1, tzinfo=UTC)
 
 
 class TestTask(TestCase):
@@ -51,6 +68,32 @@ class TestTask(TestCase):
         self.assertEqual(task.title, "Test Task")
         self.assertEqual(task.description, "Test Description")
         self.assertEqual(task.origin_product, origin_product)
+
+    @parameterized.expand(
+        [
+            ("missing_cloud", "", TaskRun.Environment.CLOUD, False),
+            ("unknown_default_cloud", "unknown", None, False),
+            ("retired_local", "automation", TaskRun.Environment.LOCAL, True),
+        ]
+    )
+    def test_create_run_rejects_invalid_origin_product_only_in_cloud(
+        self, _name, origin_product, environment, expected_run
+    ):
+        task = Task.objects.create(
+            team=self.team,
+            title="Test Task",
+            description="Test Description",
+            origin_product=origin_product,
+        )
+
+        if expected_run:
+            run = task.create_run(environment=environment)
+            self.assertEqual(run.environment, TaskRun.Environment.LOCAL)
+        else:
+            with self.assertRaisesRegex(ValueError, "unsupported origin"):
+                task.create_run(environment=environment)
+
+        self.assertEqual(TaskRun.objects.filter(task=task).exists(), expected_run)
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_minimal(self, mock_execute_workflow):
@@ -143,12 +186,14 @@ class TestTask(TestCase):
                 origin_product=Task.OriginProduct.SLACK,
                 user_id=user.id,
                 repository="posthog/posthog",
+                runtime=Task.Runtime.PI,
                 initial_permission_mode="bypassPermissions",
             )
 
         run_id = mock_execute_workflow.call_args.kwargs["run_id"]
         task_run = TaskRun.objects.get(id=run_id)
         self.assertEqual(task_run.state["initial_permission_mode"], "bypassPermissions")
+        self.assertEqual(task.runtime, Task.Runtime.PI)
         self.assertEqual(task.origin_product, Task.OriginProduct.SLACK)
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
@@ -482,6 +527,74 @@ class TestTask(TestCase):
         self.assertTrue(task.internal)
 
 
+class TestTaskActivityClock(TestCase):
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+    user: ClassVar[User]
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="Test Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="Test Team")
+        cls.user = User.objects.create_user(email="activity@example.com", first_name="Test", password="password")
+
+    def _task(self) -> Task:
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Test Task",
+            description="Test Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        Task.objects.filter(id=task.id).update(last_activity_at=STALE_ACTIVITY_AT, updated_at=STALE_ACTIVITY_AT)
+        task.refresh_from_db()
+        return task
+
+    def test_thread_message_moves_the_clock_without_touching_updated_at(self):
+        task = self._task()
+
+        with team_scope(self.team.id):
+            TaskThreadMessage.objects.create(
+                team=self.team, task=task, author=self.user, content="Any news?", author_kind="human"
+            )
+
+        task.refresh_from_db()
+        assert task.last_activity_at is not None
+        self.assertGreater(task.last_activity_at, STALE_ACTIVITY_AT)
+        self.assertEqual(task.updated_at, STALE_ACTIVITY_AT)
+
+    @parameterized.expand(
+        [
+            ("status", ["status"], True),
+            ("output", ["output"], True),
+            ("completed_at", ["completed_at"], True),
+            ("bookkeeping", ["active_task_session"], False),
+            ("whole row", None, True),
+        ]
+    )
+    def test_run_write_moves_the_clock_only_when_the_run_did_something(self, _name, update_fields, expected_move):
+        task = self._task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
+        Task.objects.filter(id=task.id).update(last_activity_at=STALE_ACTIVITY_AT)
+
+        run.status = TaskRun.Status.IN_PROGRESS
+        run.save(update_fields=update_fields)
+
+        task.refresh_from_db()
+        assert task.last_activity_at is not None
+        self.assertEqual(task.last_activity_at > STALE_ACTIVITY_AT, expected_move)
+
+    def test_the_clock_never_runs_backwards(self):
+        task = self._task()
+        latest = django_timezone.now()
+        Task.objects.filter(id=task.id).update(last_activity_at=latest)
+
+        bump_task_activity(team_id=self.team.id, task_id=task.id, at=STALE_ACTIVITY_AT)
+
+        task.refresh_from_db()
+        self.assertEqual(task.last_activity_at, latest)
+
+
 class TestTaskSlackPrNotification(TestCase):
     organization: ClassVar[Organization]
     team: ClassVar[Team]
@@ -661,7 +774,8 @@ class TestTaskRun(TestCase):
 
     @patch("products.tasks.backend.models.publish_task_run_stream_event")
     def test_create_run_seeds_stream_state_event(self, mock_publish_stream_event):
-        run = self.task.create_run(branch="main")
+        with self.captureOnCommitCallbacks(execute=True):
+            run = self.task.create_run(branch="main")
 
         mock_publish_stream_event.assert_called_once()
         call_args = mock_publish_stream_event.call_args
@@ -675,6 +789,94 @@ class TestTaskRun(TestCase):
 
         self.assertNotIn("initial_permission_mode", run.state)
 
+    def test_create_run_snapshots_task_ownership_version(self):
+        ownership_version = str(uuid.uuid4())
+        self.task.state = {TASK_OWNERSHIP_VERSION_STATE_KEY: ownership_version}
+        self.task.save(update_fields=["state", "updated_at"])
+
+        run = self.task.create_run()
+
+        self.assertEqual(run.ownership_version, ownership_version)
+        self.assertTrue(run.matches_task_ownership(self.task))
+
+    def test_create_run_rejects_stale_task_ownership(self):
+        original_owner = User.objects.create_user(
+            email="original@example.com", first_name="Original", password="password"
+        )
+        new_owner = User.objects.create_user(email="new@example.com", first_name="New", password="password")
+        task = Task.objects.create(
+            team=self.team,
+            title="Owned task",
+            created_by=original_owner,
+            state={TASK_OWNERSHIP_VERSION_STATE_KEY: "old-version"},
+        )
+        Task.objects.filter(id=task.id).update(
+            created_by=new_owner,
+            state={TASK_OWNERSHIP_VERSION_STATE_KEY: "new-version"},
+        )
+
+        with self.assertRaises(TaskOwnershipChangedError):
+            task.create_run()
+
+        self.assertFalse(TaskRun.objects.filter(task=task).exists())
+
+    def test_create_run_rejects_resume_from_previous_owner(self):
+        task = Task.objects.create(
+            team=self.team,
+            title="Transferred task",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            state={TASK_OWNERSHIP_VERSION_STATE_KEY: "current-version"},
+        )
+        previous_run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED, state={})
+
+        with self.assertRaises(TaskOwnershipChangedError):
+            task.create_run(extra_state={"resume_from_run_id": str(previous_run.id)})
+
+    @parameterized.expand(
+        [
+            ("message_only", {"pending_user_message": "Look at this"}, True),
+            ("artifacts_only", {"pending_user_artifact_ids": ["artifact-1"]}, True),
+            ("nothing_pending", {"mode": "interactive"}, False),
+        ]
+    )
+    def test_create_run_stamps_pending_user_message_id(self, _name, extra_state, expects_id):
+        run = self.task.create_run(extra_state=extra_state)
+
+        if expects_id:
+            self.assertIsInstance(run.state["pending_user_message_id"], str)
+            self.assertTrue(run.state["pending_user_message_id"])
+        else:
+            self.assertNotIn("pending_user_message_id", run.state)
+
+    def test_create_run_keeps_a_carried_pending_user_message_id(self):
+        carried_id = str(uuid.uuid4())
+
+        run = self.task.create_run(
+            extra_state={"pending_user_message": "Carried over", "pending_user_message_id": carried_id}
+        )
+
+        self.assertEqual(run.state["pending_user_message_id"], carried_id)
+
+    @parameterized.expand(
+        [
+            ("restaged_message", {"pending_user_message": "Second"}, False),
+            ("unrelated_update", {"sandbox_id": "sandbox-1"}, True),
+        ]
+    )
+    def test_update_state_atomic_refreshes_the_id_only_for_restaged_messages(self, _name, updates, keeps_id):
+        existing_id = str(uuid.uuid4())
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={"pending_user_message": "First", "pending_user_message_id": existing_id},
+        )
+
+        state = TaskRun.update_state_atomic(run.id, updates=updates)
+
+        self.assertTrue(state["pending_user_message_id"])
+        self.assertEqual(state["pending_user_message_id"] == existing_id, keeps_id)
+
     @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
     def test_prepare_for_cloud_handoff_clears_stale_sandbox_routing(self, _publish):
         run = TaskRun.objects.create(
@@ -685,6 +887,8 @@ class TestTaskRun(TestCase):
                 "sandbox_id": "old-sandbox",
                 "sandbox_url": "https://old-sandbox.test",
                 "sandbox_jwt_kid": "old-key",
+                "sandbox_connect_token": "old-tunnel-token",
+                "sandbox_backend": "hogland",
                 "snapshot_external_id": "snapshot-1",
                 "pending_user_message": "Review the attachment",
                 "pending_user_artifact_ids": ["artifact-1"],
@@ -696,6 +900,10 @@ class TestTaskRun(TestCase):
         self.assertNotIn("sandbox_id", run.state)
         self.assertNotIn("sandbox_url", run.state)
         self.assertNotIn("sandbox_jwt_kid", run.state)
+        self.assertNotIn("sandbox_connect_token", run.state)
+        # The provider stamp must not survive; a stale `hogland` would otherwise outrank
+        # the EU guard and Modal-only fallbacks when the handed-off run re-resolves.
+        self.assertNotIn("sandbox_backend", run.state)
         self.assertNotIn("pending_user_message", run.state)
         self.assertNotIn("pending_user_artifact_ids", run.state)
         self.assertEqual(run.state["snapshot_external_id"], "snapshot-1")
@@ -940,7 +1148,8 @@ class TestTaskRun(TestCase):
     )
     def test_task_run_created_carries_loop_attribution(self, _name, extra_state, expected_loop_id, expected_trigger_id):
         with patch("products.tasks.backend.models.posthoganalytics.capture") as mock_capture:
-            self.task.create_run(extra_state=extra_state or None)
+            with self.captureOnCommitCallbacks(execute=True):
+                self.task.create_run(extra_state=extra_state or None)
         created = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "task_run_created"]
         self.assertEqual(len(created), 1)
         props = created[0].kwargs["properties"]

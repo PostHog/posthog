@@ -40,6 +40,8 @@ jobs:
               with:
                   clean: false
                   persist-credentials: false
+                  sparse-checkout: .github/actions/paths-filter
+                  sparse-checkout-cone-mode: false
             - name: Force all scans for oversized pull requests
               id: oversized
               if: github.event_name == 'pull_request' && github.event.pull_request.changed_files > 3000
@@ -69,6 +71,7 @@ jobs:
                         - '!products/desktop/**'
                         - 'services/llm-gateway/**'
                         - 'services/stripe-mock/**'
+                        - 'tools/**'
                         - '.semgrep/rules/security/**'
                         - '.github/workflows/ci-security.yaml'
                       go:
@@ -112,11 +115,14 @@ jobs:
                       devex:
                         - 'bin/**'
                         - 'common/**'
+                        - 'docs/onboarding/**'
                         - 'ee/**'
                         - 'frontend/**'
                         - 'packages/**'
                         - 'posthog/**'
                         - 'products/**'
+                        - 'services/**'
+                        - 'tools/**'
                         - '.semgrep/rules/devex/**'
                         - '.github/workflows/ci-security.yaml'
                       # Rule tests only read fixtures under .semgrep/.
@@ -171,6 +177,7 @@ jobs:
                       --include /products
                       --include /services/llm-gateway
                       --include /services/stripe-mock
+                      --include /tools
                       --exclude products/desktop
                       --jobs 4
 
@@ -395,6 +402,9 @@ jobs:
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
+                  # PR merge commit plus both parents, so the new-warnings
+                  # pass can baseline against the PR base (HEAD^1)
+                  fetch-depth: 2
                   persist-credentials: false
 
             # Pass 1: print WARNING-severity findings. No --error — this step
@@ -411,7 +421,7 @@ jobs:
                       --metrics=off \
                       --verbose \
                       --timeout 300 \
-                      bin/ common/ ee/ frontend/ packages/ posthog/ products/
+                      bin/ common/ docs/onboarding/ ee/ frontend/ packages/ posthog/ products/ services/ tools/
 
             # Pass 2: enforce ERROR-severity rules. Any finding fails the
             # job — regression guards live here.
@@ -428,7 +438,27 @@ jobs:
                       --metrics=off \
                       --verbose \
                       --timeout 300 \
-                      bin/ common/ ee/ frontend/ packages/ posthog/ products/
+                      bin/ common/ docs/onboarding/ ee/ frontend/ packages/ posthog/ products/ services/ tools/
+
+            # Pass 3 (PRs only): fail on newly-introduced WARNING findings.
+            # --baseline-commit diffs against the PR base (first parent of the
+            # merge commit), so the pass-1 backlog is grandfathered while new
+            # violations block. See .semgrep/rules/devex/README.md.
+            - name: New warnings (blocking)
+              if: github.event_name == 'pull_request'
+              run: |
+                  docker run --rm -v "${{ github.workspace }}:/src" -w /src \
+                    -e SEMGREP_ENABLE_VERSION_CHECK=false \
+                    ${{ env.SEMGREP_IMAGE }} \
+                    semgrep \
+                      --config ".semgrep/rules/devex/" \
+                      --severity=WARNING \
+                      --baseline-commit "$(git rev-parse HEAD^1)" \
+                      --error \
+                      --metrics=off \
+                      --verbose \
+                      --timeout 300 \
+                      bin/ common/ docs/onboarding/ ee/ frontend/ packages/ posthog/ products/ services/ tools/
 
     semgrep-test-rules:
         needs: changes

@@ -22,6 +22,9 @@ jobs:
     changes:
         runs-on: ubuntu-24.04
         timeout-minutes: 5
+        # Skipped on trunk-merge/** heads: merge-queue PRs are ephemeral and every
+        # constituent PR already ran this in full.
+        if: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
         name: Determine need to run Hog checks
         permissions:
             contents: read
@@ -33,6 +36,9 @@ jobs:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: .github/actions/paths-filter
+                  sparse-checkout-cone-mode: false
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
@@ -117,10 +123,12 @@ jobs:
             - name: Check if ANTLR definitions are up to date
               run: |
                   cd ..
-                  sudo apt-get update && sudo apt-get install default-jre
                   mkdir antlr
                   cd antlr
-                  curl --fail --location https://www.antlr.org/download/antlr-${ANTLR_VERSION}-complete.jar --output antlr.jar || curl --fail --location https://repo.maven.apache.org/maven2/org/antlr/antlr4/${ANTLR_VERSION}/antlr4-${ANTLR_VERSION}-complete.jar --output antlr.jar
+                  # Short budget: the `||` mirror is the real fallback for a host that is down.
+                  fetch=(curl --fail --location --retry 3 --retry-all-errors --retry-max-time 30 --connect-timeout 10)
+                  "${fetch[@]}" https://www.antlr.org/download/antlr-${ANTLR_VERSION}-complete.jar --output antlr.jar \
+                      || "${fetch[@]}" https://repo.maven.apache.org/maven2/org/antlr/antlr4/${ANTLR_VERSION}/antlr4-${ANTLR_VERSION}-complete.jar --output antlr.jar
                   export PWD=`pwd`
                   echo '#!/bin/bash' > antlr
                   echo "java -jar $PWD/antlr.jar \$*" >> antlr

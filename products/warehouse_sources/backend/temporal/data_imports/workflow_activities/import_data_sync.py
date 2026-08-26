@@ -15,6 +15,8 @@ from structlog.typing import FilteringBoundLogger
 from temporalio import activity
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.exceptions_capture import capture_exception
+from posthog.integration_secrets.errors import IntegrationSecretsFailure
 from posthog.models.integration import UndecryptedIntegrationSecretError
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.activity_context import current_activity_attempt
@@ -27,6 +29,7 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
     apply_incremental_lookback,
+    get_schema_if_exists,
     process_incremental_value,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -43,15 +46,26 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
     is_transient_object_store_error,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller import (
+    capture_repartition_event,
+    is_repartition_hold_enabled,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v2.pipeline import PipelineNonDLT
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import setup_row_tracking
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    AnySource,
     ResumableSource,
     SimpleSource,
     error_message_matches,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.fanout_reuse_flag import (
+    is_fanout_warehouse_reuse_enabled,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.history_window import (
+    history_start_for_schema,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.job_context import bind_job_context
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
@@ -107,6 +121,99 @@ def _get_external_data_schema(schema_id: uuid.UUID, team_id: int) -> ExternalDat
     )
 
 
+def _parent_unusable_reason(parent: ExternalDataSchema | None) -> str | None:
+    """Why a fan-out child can't read this parent from the warehouse, or None when it can."""
+    if parent is None:
+        return "missing"
+    if not parent.should_sync:
+        return "disabled"
+    if not (parent.is_incremental or parent.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH):
+        # An allow-list, not a deny-list: only merge and full-refresh parents hold one row per
+        # key. Append accumulates a row per sync, and CDC keeps change history, so the reader —
+        # which streams the table as-is, with no dedupe state — would fan the child out once
+        # per duplicate. New sync types have to opt in here deliberately.
+        return "unsupported_sync_type"
+    if not parent.initial_sync_complete:
+        return "no_initial_sync"
+    return None
+
+
+async def _warehouse_parent_reuse_available(
+    source: AnySource,
+    schema: ExternalDataSchema,
+    source_id: uuid.UUID,
+    team_id: int,
+    logger: FilteringBoundLogger,
+) -> bool:
+    """Whether this run reads its fan-out parents from the warehouse instead of the parent API.
+
+    Reuse is an optimization, never a requirement: any parent the child can't read falls the
+    whole run back to the legacy parent-API path, so enabling the flag can't break a schema
+    that syncs today. Sources consume the result via `SourceInputs.fanout_warehouse_reuse`;
+    this is the single feature-flag evaluation for the run.
+
+    A parent that is mid-sync doesn't force the fallback: `resolve_parent_table_ref` pins the
+    read to the parent's last completed snapshot (Delta time travel), so a concurrent rewrite
+    can't hand the child a torn table.
+    """
+    required_parents = source.get_required_parent_schemas(schema.name)
+    if not required_parents:
+        return False
+    if not await database_sync_to_async_pool(is_fanout_warehouse_reuse_enabled)(team_id):
+        return False
+
+    for parent_name in required_parents:
+        parent = await database_sync_to_async_pool(get_schema_if_exists)(parent_name, team_id, source_id)
+        unusable_reason = _parent_unusable_reason(parent)
+        if unusable_reason is not None:
+            await logger.ainfo(
+                "data_imports.fanout_parent_unusable",
+                schema=schema.name,
+                parent=parent_name,
+                reason=unusable_reason,
+            )
+            return False
+
+    return True
+
+
+def _import_held_for_repartition(schema: ExternalDataSchema | None, logger: FilteringBoundLogger) -> bool:
+    """Whether an in-flight repartition should pause this schema's import for one run.
+
+    Both conditions have to hold: the schema opted into the hold, and a rewrite checkpoint is fresh
+    enough to be worth waiting for. The flag is checked second so a schema without it never pays for
+    the evaluation, and a flag lookup that throws leaves the import running — pausing a customer's
+    ingestion is the more expensive way to be wrong.
+    """
+    if schema is None or not schema.repartition_holds_import:
+        return False
+    try:
+        if not is_repartition_hold_enabled(schema):
+            return False
+    except Exception:
+        logger.warning("Could not evaluate the repartition hold flag; importing", exc_info=True)
+        return False
+
+    rewrite = schema.repartition_rewrite or {}
+    logger.info(
+        "Holding import: a repartition rewrite is converging on this table",
+        schema_id=str(schema.id),
+        rows_written=rewrite.get("rows_written"),
+        held_at=rewrite.get("held_at"),
+    )
+    capture_repartition_event(
+        "warehouse_repartition_import_held",
+        {
+            "team_id": schema.team_id,
+            "schema_id": str(schema.id),
+            "resource_name": schema.name,
+            "rows_written": rewrite.get("rows_written"),
+            "held_at": rewrite.get("held_at"),
+        },
+    )
+    return True
+
+
 @activity.defn
 async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> PipelineResult:
     bind_contextvars(team_id=inputs.team_id)
@@ -126,7 +233,20 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
         # zombie predecessor stands down (its heartbeat timed out, but it may still be running).
         attempt=current_activity_attempt(),
     ):
-        return await _import_data_with_reporting(inputs, logger)
+        try:
+            return await _import_data_with_reporting(inputs, logger)
+        except (OperationalError, InterfaceError, PostHogInternalDatabaseError) as e:
+            # The setup phase (resolving the job/schema/source rows for this run) reads PostHog's
+            # own app DB through the Django ORM before the source's error handling takes over. A
+            # transient connection-pool blip there — a PgBouncer server_login_retry cooldown, the
+            # primary briefly in recovery — raises this exception type, which can only mean our own
+            # infra, never the customer's source (every source talks to a customer database over a
+            # raw driver connection, not the ORM). Re-raise as NonReportableError so Temporal
+            # retries the whole activity and it self-heals, rather than failing the sync with the
+            # raw driver string as latest_error. _handle_import_error already classifies these types
+            # this way once the run is under way; this covers the setup calls that run before it.
+            await logger.awarning(str(e))
+            raise NonReportableError(str(e)) from e
 
 
 async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: FilteringBoundLogger) -> PipelineResult:
@@ -149,6 +269,16 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                     should_trigger_cdp_producer=False,
                     consumer_manages_job_status=True,
                 )
+
+        # A rewrite spanning several activity budgets resumes only while live stays at the Delta
+        # version its checkpoint was built against, and the merge below is what moves it. Importing
+        # here invalidates the checkpoint the previous run wrote, so the rewrite restarts from row 0
+        # and the table never converges. Skipping leaves this run a clean no-op: the workflow
+        # finalizes as usual and the next sync picks the data up once the rewrite lands. The hold
+        # lapses on its own if the rewrite stops advancing, so a stuck one costs freshness rather
+        # than ingestion.
+        if await database_sync_to_async_pool(_import_held_for_repartition)(model.schema, logger):
+            return PipelineResult(should_trigger_cdp_producer=False, consumer_manages_job_status=False)
 
         await logger.adebug("Running import_data_activity")
 
@@ -194,6 +324,8 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
 
         processed_incremental_last_value = None
         processed_incremental_earliest_value = None
+        # The cursor as stored, before the lookback shift below moves it back.
+        incremental_last_value_before_lookback = None
 
         if reset_pipeline is not True:
             processed_incremental_last_value = process_incremental_value(
@@ -210,6 +342,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
             # overlap window and catches late or backdated rows. Incremental merge makes the
             # re-read idempotent — append would duplicate, so it's gated to incremental.
             if schema.is_incremental:
+                incremental_last_value_before_lookback = processed_incremental_last_value
                 processed_incremental_last_value = apply_incremental_lookback(
                     processed_incremental_last_value,
                     schema.incremental_field_type,
@@ -221,6 +354,11 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
 
         if processed_incremental_earliest_value:
             await logger.adebug(f"Incremental earliest value being used is: {processed_incremental_earliest_value}")
+
+        # None for a source that reads everything, which is most of them.
+        history_start = await database_sync_to_async_pool(history_start_for_schema)(schema, inputs.run_id)
+        if history_start is not None:
+            await logger.adebug(f"History start for this schema is: {history_start}")
 
         # Re-validate against current metadata so a stale filter (dropped column, changed type)
         # fails here with an actionable message rather than emitting a broken query downstream.
@@ -234,6 +372,20 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
 
         if SourceRegistry.is_registered(source_type):
             new_source = SourceRegistry.get_source(source_type)
+
+            fanout_warehouse_reuse = await _warehouse_parent_reuse_available(
+                new_source, schema, inputs.source_id, inputs.team_id, logger
+            )
+            # INFO so it's visible without DEBUG: confirms which parent-source path a fan-out
+            # child took, and doubles as rollout-adoption telemetry. Only fan-out children
+            # (schemas with required parents) log it; every other schema stays quiet.
+            if new_source.get_required_parent_schemas(schema.name):
+                await logger.ainfo(
+                    "data_imports.fanout_parent_source",
+                    schema=schema.name,
+                    parent_source="warehouse" if fanout_warehouse_reuse else "api",
+                    source_type=source_type,
+                )
 
             source_inputs = SourceInputs(
                 schema_name=schema.name,
@@ -249,6 +401,8 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 db_incremental_field_earliest_value=processed_incremental_earliest_value
                 if schema.should_use_incremental_field
                 else None,
+                db_incremental_field_last_value_before_lookback=incremental_last_value_before_lookback,
+                history_start=history_start,
                 logger=logger,
                 job_id=inputs.run_id,
                 reset_pipeline=reset_pipeline,
@@ -258,10 +412,17 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 s3_folder_name=schema.resolved_s3_folder_name,
                 # A schema-level override (user-managed) wins over the source pin.
                 api_version=new_source.resolve_api_version(schema.api_version or model.pipeline.api_version),
+                fanout_warehouse_reuse=fanout_warehouse_reuse,
             )
 
             try:
                 config = new_source.parse_config(model.pipeline.job_inputs)
+            except IntegrationSecretsFailure as e:
+                # A source whose config carries a PostHog-owned credential resolves it here, so a
+                # failure at this point is ours and not a corrupt `job_inputs`. Route it through the
+                # shared policy: the branch below would read it as an unparseable config and disable
+                # the customer's schema over a rotation they can't see and didn't cause.
+                await _handle_import_error(job_inputs, logger, e)
             except Exception as e:
                 # A stored config that can't be parsed (corrupt or double-encoded `job_inputs`)
                 # fails identically on every attempt — there is nothing to retry. Treat it as
@@ -360,6 +521,16 @@ def _get_models(
     return ImportJobModels(job=job, schema=schema, source=source, table=table)
 
 
+# What a customer reads when a PostHog-managed credential is unavailable. Deliberately says
+# nothing about which credential: the name is ours (`HUBSPOT_APP_CLIENT_SECRET`), it means nothing
+# to them, and naming it invites them to go looking for a setting they do not have. The full
+# detail goes to the logs and, when a person needs to act, to error tracking.
+INTEGRATION_CREDENTIAL_UNAVAILABLE_MESSAGE = (
+    "A PostHog-managed credential for this source is temporarily unavailable. This sync will "
+    "retry automatically — no action is needed on your side."
+)
+
+
 async def _handle_import_error(
     job_inputs: PipelineInputs,
     logger: FilteringBoundLogger,
@@ -415,6 +586,35 @@ async def _handle_import_error(
         await handle_non_retryable_error(
             job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
         )
+
+    # Every credential the integration service holds is PostHog's own — the OAuth app secrets and
+    # API keys we own, not anything the customer configured. So none of its failure states are
+    # theirs to fix, and none are permanent: a key in recovery is re-provisioned, a missing key is
+    # added, an unreachable service comes back. Retry, and if the budget runs out let the run fail
+    # and the next scheduled sync pick it up.
+    #
+    # What must not happen is `handle_non_retryable_error`, which disables the schema and makes a
+    # customer re-enable a sync they never broke. That is the whole reason this is classified here
+    # by type rather than left to fall through: one credential going into recovery would otherwise
+    # disable every sync of that source type, across every customer, until each was re-enabled by
+    # hand — turning a reversible platform action into a wide manual recovery.
+    #
+    # Checked before the bare-404 rule below on purpose. That rule reads a 404 as "the customer's
+    # endpoint is gone", and a misrouted INTEGRATION_SERVICE_URL answers 404 as well; the client
+    # wraps its transport failures so the two can't be confused, and this ordering keeps that true
+    # even if something later leaks a raw HTTPError.
+    if isinstance(error, IntegrationSecretsFailure):
+        if error.reportable:
+            # A gap only PostHog can close (a key never added for this environment, a
+            # half-configured deployment). Capture explicitly rather than letting it escape raw:
+            # the message the customer ends up reading must not carry an internal credential name,
+            # and error tracking still needs the real exception to group and route it.
+            capture_exception(error)
+            await logger.aexception(error_msg)
+        else:
+            await logger.awarning(error_msg)
+        await logger.adebug("Integration service credential unavailable - re-raising for Temporal retry")
+        raise NonReportableError(INTEGRATION_CREDENTIAL_UNAVAILABLE_MESSAGE) from error
 
     # A 404 from the shared REST engine's fallback `raise_for_status()` path means the configured
     # endpoint/resource doesn't exist — every retry replays the identical request against the same

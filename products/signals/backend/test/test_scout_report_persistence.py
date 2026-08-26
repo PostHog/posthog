@@ -16,6 +16,8 @@ from products.signals.backend.artefact_schemas import (
     ActionabilityAssessment,
     ActionabilityChoice,
     SafetyJudgment,
+    SuggestedReviewerEntry,
+    SuggestedReviewers,
     TaskRunArtefact,
 )
 from products.signals.backend.models import (
@@ -26,12 +28,15 @@ from products.signals.backend.models import (
     SignalScoutRun,
 )
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS, ReportChart
+from products.signals.backend.report_prompts import MAX_SUGGESTED_PROMPT_LENGTH, MAX_SUGGESTED_PROMPTS
 from products.signals.backend.scout_harness.tools.emit import SOURCE_PRODUCT, SOURCE_TYPE
 from products.signals.backend.scout_report import (
     InvalidScoutReportError,
     ScoutReportSignal,
     create_scout_report,
     set_report_charts,
+    set_report_suggested_prompts,
+    set_scout_report_reviewers,
     soft_delete_scout_signal,
     update_scout_report,
 )
@@ -77,6 +82,30 @@ class TestScoutReportPersistence(BaseTest):
             skill_version=1,
         )
         return run
+
+    @parameterized.expand(
+        [
+            ("ready", SignalReport.Status.READY, True),
+            ("pending_input", SignalReport.Status.PENDING_INPUT, True),
+            ("suppressed", SignalReport.Status.SUPPRESSED, False),
+        ]
+    )
+    def test_create_stamps_first_visible_only_for_visible_born_status(self, _name, born_status, expect_stamp):
+        # Scout reports are born in their final status without passing through transition_to (which
+        # stamps pipeline reports), so creation must stamp visible births or the daily report limit
+        # would never count them.
+        run = self._make_run()
+        result = create_scout_report(
+            team_id=self.team.id,
+            title="Checkout API p99 latency regressed",
+            summary="The checkout endpoint p99 doubled after the 4.2 deploy.",
+            signals=[ScoutReportSignal(description="p99 doubled on /checkout", source_id="obs-1", weight=1.0)],
+            attribution=ArtefactAttribution.from_task(str(run.task_run.task_id)),
+            status=born_status,
+            run=run,
+        )
+        report = SignalReport.objects.get(id=result.report_id)
+        assert (report.first_visible_at is not None) is expect_stamp
 
     def test_create_writes_report_with_bound_signals_metadata(self) -> None:
         # The load-bearing contract (decision #5): each backing signal is written to the embeddings
@@ -138,6 +167,52 @@ class TestScoutReportPersistence(BaseTest):
 
         run.refresh_from_db()
         assert run.emitted_report_ids == [result.report_id]
+
+    def test_create_with_reviewers_fires_linkability_telemetry(self) -> None:
+        # Scout-authored reports persist reviewers here, not through the custom-agent path; without
+        # this call the scout bucket silently disappears from the reviewer-linkability metric.
+        with (
+            patch(f"{PERSISTENCE_MODULE}.capture_suggested_reviewers_resolved") as mock_capture,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            create_scout_report(
+                team_id=self.team.id,
+                title="Checkout API p99 latency regressed",
+                summary="The checkout endpoint p99 doubled after the 4.2 deploy.",
+                signals=[ScoutReportSignal(description="p99 doubled on /checkout", source_id="obs-1", weight=1.0)],
+                attribution=ArtefactAttribution.system(),
+                suggested_reviewers=SuggestedReviewers(root=[SuggestedReviewerEntry(github_login="octocat")]),
+            )
+
+        assert mock_capture.call_count == 1
+        kwargs = mock_capture.call_args.kwargs
+        assert kwargs["source"] == "scout"
+        assert kwargs["github_logins"] == ["octocat"]
+
+    def test_set_reviewers_fires_linkability_telemetry_with_merged_list(self) -> None:
+        result = create_scout_report(
+            team_id=self.team.id,
+            title="Checkout API p99 latency regressed",
+            summary="The checkout endpoint p99 doubled after the 4.2 deploy.",
+            signals=[ScoutReportSignal(description="p99 doubled on /checkout", source_id="obs-1", weight=1.0)],
+            attribution=ArtefactAttribution.system(),
+        )
+
+        with (
+            patch(f"{PERSISTENCE_MODULE}.capture_suggested_reviewers_resolved") as mock_capture,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            set_scout_report_reviewers(
+                team_id=self.team.id,
+                report_id=result.report_id,
+                suggested_reviewers=SuggestedReviewers(root=[SuggestedReviewerEntry(github_login="octocat")]),
+                attribution=ArtefactAttribution.system(),
+            )
+
+        assert mock_capture.call_count == 1
+        kwargs = mock_capture.call_args.kwargs
+        assert kwargs["source"] == "scout_edit"
+        assert kwargs["github_logins"] == ["octocat"]
 
     @parameterized.expand(
         [
@@ -460,3 +535,143 @@ class TestScoutReportCharts(BaseTest):
             )
         with team_scope(other_team.id):
             assert self._stored_charts(other_report.report_id) == []
+
+
+class TestScoutReportSuggestedPrompts(BaseTest):
+    _team_scope_cm: AbstractContextManager[None] | None = None
+
+    def setUp(self) -> None:
+        super().setUp()
+        cm = team_scope(self.team.id)
+        cm.__enter__()
+        self._team_scope_cm = cm
+        patcher = patch(f"{PERSISTENCE_MODULE}.emit_embedding_request")
+        self.emit_mock = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def tearDown(self) -> None:
+        if self._team_scope_cm is not None:
+            self._team_scope_cm.__exit__(None, None, None)
+            self._team_scope_cm = None
+        super().tearDown()
+
+    def _stored(self, report_id: str) -> list[str]:
+        return SignalReport.objects.get(id=report_id).suggested_prompts
+
+    def _create(self, suggested_prompts: list[str] | None = None) -> str:
+        result = create_scout_report(
+            team_id=self.team.id,
+            title="Signups dropped",
+            summary="Signups fell 60% on the 6th.",
+            signals=[ScoutReportSignal(description="d", source_id="obs")],
+            attribution=ArtefactAttribution.system(),
+            suggested_prompts=suggested_prompts or [],
+        )
+        return result.report_id
+
+    def test_suggested_prompts_are_stored_on_the_report_on_author(self) -> None:
+        report_id = self._create(["Which teams are affected?"])
+
+        assert self._stored(report_id) == ["Which teams are affected?"]
+
+    def test_setting_prompts_replaces_the_report_s_whole_set(self) -> None:
+        # The set is what the report offers, the way `summary` is the whole summary. Appending
+        # instead would grow the row past its cap and leave questions about a superseded finding
+        # sitting under the current one.
+        report_id = self._create(["Which teams are affected?"])
+
+        set_report_suggested_prompts(
+            team_id=self.team.id, report_id=report_id, suggested_prompts=["Did the 18 June deploy do this?"]
+        )
+
+        assert self._stored(report_id) == ["Did the 18 June deploy do this?"]
+
+    @parameterized.expand(
+        [
+            ("identical", ["Which teams are affected?"]),
+            ("whitespace_only_difference", ["  Which teams are affected? "]),
+        ]
+    )
+    def test_resending_the_stored_prompts_is_not_a_change(self, _name: str, resent: list[str]) -> None:
+        # `edit_report` is non-idempotent, so a retry restates what the report already holds. Reading
+        # that as an edit notifies the report's destination a second time about nothing. Trailing
+        # whitespace is the same case wearing a disguise: LLM output carries it, and comparing raw
+        # would make every such retry look like a real replacement.
+        report_id = self._create(["Which teams are affected?"])
+
+        assert (
+            set_report_suggested_prompts(team_id=self.team.id, report_id=report_id, suggested_prompts=resent) is False
+        )
+        assert (
+            set_report_suggested_prompts(
+                team_id=self.team.id, report_id=report_id, suggested_prompts=["Something else entirely?"]
+            )
+            is True
+        )
+
+    def test_setting_an_empty_set_takes_the_report_s_prompts_down(self) -> None:
+        # An empty sequence is a real write that clears, not a no-op — the caller that means "leave
+        # them alone" doesn't call this at all. Clearing a report that has none is still a re-send of
+        # what's stored, so it reports no change.
+        report_id = self._create(["Which teams are affected?"])
+
+        assert set_report_suggested_prompts(team_id=self.team.id, report_id=report_id, suggested_prompts=[]) is True
+        assert self._stored(report_id) == []
+        assert set_report_suggested_prompts(team_id=self.team.id, report_id=report_id, suggested_prompts=[]) is False
+
+    def test_replacing_prompts_is_recorded_on_the_report_s_work_log(self) -> None:
+        # Reader-visible content, and `edit_report` reaches any inbox report, so a rewrite needs the
+        # same attributable trail the title and summary get.
+        report_id = self._create(["Which teams are affected?"])
+
+        set_report_suggested_prompts(
+            team_id=self.team.id,
+            report_id=report_id,
+            suggested_prompts=["Did the 18 June deploy do this?"],
+            attribution=ArtefactAttribution.system(),
+            author="signals-scout-general",
+        )
+
+        notes = SignalReportArtefact.objects.filter(report_id=report_id).values_list("content", flat=True)
+        assert any("Replaced report suggested prompts" in str(content) for content in notes)
+
+    @parameterized.expand(
+        [
+            ("over_the_count_cap", [f"Question {i}?" for i in range(MAX_SUGGESTED_PROMPTS + 1)]),
+            ("over_the_length_cap", ["x" * (MAX_SUGGESTED_PROMPT_LENGTH + 1)]),
+            ("duplicates", ["Which teams are affected?", "Which teams are affected?"]),
+        ]
+    )
+    def test_prompts_past_a_bound_are_refused(self, _name: str, prompts: list[str]) -> None:
+        # Both writes carry their own copy of the bounds, and authoring is the one a scout reaches
+        # first on `emit`. Duplicates matter because the inbox renders one row per question: two
+        # identical rows read as a rendering bug and cost the reader a choice that isn't one.
+        with pytest.raises(InvalidScoutReportError):
+            self._create(prompts)
+        assert not SignalReport.objects.filter(title="Signups dropped").exists()
+
+        report_id = self._create(["Which teams are affected?"])
+        with pytest.raises(InvalidScoutReportError):
+            set_report_suggested_prompts(team_id=self.team.id, report_id=report_id, suggested_prompts=prompts)
+        assert self._stored(report_id) == ["Which teams are affected?"]
+
+    def test_setting_prompts_on_another_teams_report_is_refused(self) -> None:
+        other_org = Organization.objects.create(name="other")
+        other_team = Team.objects.create(organization=other_org, name="other")
+        with team_scope(other_team.id):
+            other_report = create_scout_report(
+                team_id=other_team.id,
+                title="theirs",
+                summary="s",
+                signals=[ScoutReportSignal(description="d", source_id="obs")],
+                attribution=ArtefactAttribution.system(),
+            )
+
+        with pytest.raises(InvalidScoutReportError):
+            set_report_suggested_prompts(
+                team_id=self.team.id,
+                report_id=other_report.report_id,
+                suggested_prompts=["Which teams are affected?"],
+            )
+        with team_scope(other_team.id):
+            assert self._stored(other_report.report_id) == []

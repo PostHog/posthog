@@ -1,4 +1,9 @@
-import { GITHUB_CONNECT_TIMEOUT_MESSAGE } from "../integrations/connectErrors";
+import type { OnboardingGithubConnectFlow } from "@posthog/shared/analytics-events";
+import {
+  GITHUB_CONNECT_TIMEOUT_MESSAGE,
+  GITHUB_INSTALL_PENDING_MESSAGE,
+  isGithubConnectPendingApproval,
+} from "../integrations/connectErrors";
 import { POSTHOG_GITHUB_APP_URL } from "../integrations/githubApp";
 
 export interface GithubPanelMessageOptions {
@@ -6,17 +11,20 @@ export interface GithubPanelMessageOptions {
   connectErrorMessage: string;
   timedOut: boolean;
   isConnecting: boolean;
+  /** GitHub is waiting on an org owner to approve the install. */
+  isPending?: boolean;
 }
 
+/** Null when the connect flow has nothing to report, so the line stays out. */
 export function getGithubPanelMessage(
   options: GithubPanelMessageOptions,
-): string {
+): string | null {
   if (options.hasConnectError) return options.connectErrorMessage;
+  if (options.isPending) return GITHUB_INSTALL_PENDING_MESSAGE;
   if (options.timedOut) {
     return GITHUB_CONNECT_TIMEOUT_MESSAGE;
   }
-  if (options.isConnecting) return "Waiting for GitHub...";
-  return "Unlocks cloud runs, branch pushes, and PR review on this account.";
+  return null;
 }
 
 export function resolveSelectedProjectId(
@@ -94,6 +102,29 @@ export function buildConnectFailedProps(
   };
 }
 
+export interface ConnectAbandonedInputs {
+  flowType: OnboardingGithubConnectFlow;
+  startedAtMs: number;
+  nowMs: number;
+}
+
+export interface ConnectAbandonedProps {
+  flow_type: OnboardingGithubConnectFlow;
+  seconds_since_started: number;
+}
+
+export function buildConnectAbandonedProps(
+  inputs: ConnectAbandonedInputs,
+): ConnectAbandonedProps {
+  return {
+    flow_type: inputs.flowType,
+    seconds_since_started: Math.max(
+      0,
+      Math.round((inputs.nowMs - inputs.startedAtMs) / 1000),
+    ),
+  };
+}
+
 export interface ConnectButtonState {
   isRetry: boolean;
   shouldReset: boolean;
@@ -110,6 +141,37 @@ export function deriveConnectButtonState(inputs: {
     ? "Retry connection"
     : isRetry
       ? "Try again"
-      : "Connect GitHub";
+      : "Sign in with GitHub";
   return { isRetry, shouldReset: inputs.hasConnectError, label };
+}
+
+export type GithubApprovalState = "none" | "awaiting" | "approved";
+
+export interface GithubInstallRequestSummary {
+  status: "pending" | "approved" | "unidentified";
+}
+
+export interface DeriveGithubApprovalStateInputs {
+  errorCode: string | null | undefined;
+  requests: GithubInstallRequestSummary[];
+  hasIntegration: boolean;
+}
+
+/** Reads the durable server-side "awaiting org owner approval" state (see
+ * `GitHubInstallRequest` on the backend), plus the in-flight callback error so the
+ * panel shows the wait immediately after the redirect, before the request list
+ * has had a chance to refetch. An existing integration always wins: once linked,
+ * any leftover request rows are stale history, not current state. */
+export function deriveGithubApprovalState(
+  inputs: DeriveGithubApprovalStateInputs,
+): GithubApprovalState {
+  if (inputs.hasIntegration) return "none";
+  if (isGithubConnectPendingApproval(inputs.errorCode)) return "awaiting";
+  if (inputs.requests.some((request) => request.status === "pending")) {
+    return "awaiting";
+  }
+  if (inputs.requests.some((request) => request.status === "approved")) {
+    return "approved";
+  }
+  return "none";
 }

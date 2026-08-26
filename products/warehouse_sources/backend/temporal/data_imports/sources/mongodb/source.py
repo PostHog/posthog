@@ -36,6 +36,16 @@ _MONGO_UNREACHABLE_MESSAGE = (
     "IP addresses are allowlisted in your database's network access settings."
 )
 
+# `_parse_connection_string` raises a ValueError when the string isn't a usable MongoDB URI: a
+# wrong or missing scheme, or a host/port that urlparse rejects. The raw reason gives the user
+# little to act on, so point at the expected scheme and format instead.
+_MONGO_INVALID_CONNECTION_STRING_MESSAGE = (
+    # nosemgrep: trailofbits.generic.mongodb-insecure-transport.mongodb-insecure-transport
+    "PostHog couldn't read your MongoDB connection string. It must start with mongodb:// or "
+    "mongodb+srv:// and follow the standard format, for example "
+    "mongodb+srv://user:password@cluster.mongodb.net/database. Check the connection string and try again."
+)
+
 _MONGO_UNESCAPED_CREDENTIALS_MESSAGE = (
     "Your MongoDB connection string is invalid: the username and password must be percent-encoded "
     "per RFC 3986. Escape any reserved characters (e.g. : / ? # [ ] @ %) in your credentials — for "
@@ -84,6 +94,12 @@ _DNS_RESOLUTION_FAILURE_MARKERS = (
     "Name or service not known",
     "Temporary failure in name resolution",
 )
+
+# For a `mongodb+srv://` URI, pymongo resolves the SRV record via dnspython inside the
+# MongoClient constructor and wraps any dnspython exception as ConfigurationError. dnspython's
+# NXDOMAIN carries this fixed prefix when the SRV record's DNS name doesn't exist at all —
+# a deleted, renamed, or mistyped cluster hostname — distinct from a timed-out lookup.
+_SRV_DNS_NAME_NOT_FOUND_MARKER = "The DNS query name does not exist"
 
 
 @SourceRegistry.register
@@ -217,12 +233,12 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        from pymongo.errors import OperationFailure, ServerSelectionTimeoutError
+        from pymongo.errors import ConfigurationError, OperationFailure, ServerSelectionTimeoutError
 
         try:
             connection_params = _parse_connection_string(config.connection_string, config.database_name)
-        except:
-            return False, "Invalid connection string"
+        except Exception:
+            return False, _MONGO_INVALID_CONNECTION_STRING_MESSAGE
 
         if not connection_params.get("database"):
             return False, DATABASE_NAME_REQUIRED_ERROR
@@ -270,14 +286,24 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
             if any(marker in message for marker in _DNS_RESOLUTION_FAILURE_MARKERS):
                 return False, _MONGO_HOST_UNRESOLVED_MESSAGE
             return False, _MONGO_UNREACHABLE_MESSAGE
-        except Exception as e:
-            # pymongo raises InvalidURI with the RFC-3986 hint before any network call when the
-            # credentials contain unescaped reserved characters. This is a malformed connection
-            # string the user must fix — already surfaced with an actionable message — so don't
-            # report it to error tracking as a bug. Any other exception is unexpected: capture it
-            # and fall back to a generic message so internal exception text never reaches the user.
-            if "must be escaped according to RFC 3986" in str(e):
+        except ConfigurationError as e:
+            # InvalidURI (raised with the RFC-3986 hint before any network call when
+            # credentials contain unescaped reserved characters) is itself a ConfigurationError
+            # subclass, so it lands here too. An SRV DNS name that doesn't exist is the same
+            # user-side problem as the non-SRV host-not-found case above. Both are malformed-
+            # input problems the user must fix — already surfaced with an actionable message —
+            # so don't report them to error tracking as noise. Any other ConfigurationError is
+            # unexpected, so capture it and fall back to a generic message.
+            message = str(e)
+            if _SRV_DNS_NAME_NOT_FOUND_MARKER in message:
+                return False, _MONGO_HOST_UNRESOLVED_MESSAGE
+            if "must be escaped according to RFC 3986" in message:
                 return False, _MONGO_UNESCAPED_CREDENTIALS_MESSAGE
+            capture_exception(e)
+            return False, _MONGO_CONNECT_FAILED_MESSAGE
+        except Exception as e:
+            # Any other exception is unexpected: capture it and fall back to a generic message
+            # so internal exception text never reaches the user.
             capture_exception(e)
             return False, _MONGO_CONNECT_FAILED_MESSAGE
 
@@ -314,7 +340,9 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
                     SourceFieldInputConfig(
                         name="connection_string",
                         label="Connection String",
-                        type=SourceFieldInputConfigType.TEXT,
+                        # The connection string is this source's only credential, so `password` keeps
+                        # it editable on update for rotation.
+                        type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="mongodb://username:password@host:port/database?authSource=admin&tls=true",
                         secret=True,

@@ -2,6 +2,8 @@ import { isUUIDLike } from 'lib/utils/guards'
 
 import {
     AccountsTableAccountField,
+    AccountsTableAccountFieldFilter,
+    AccountsTableAccountFieldOperator,
     AccountsTableAccountIdFilter,
     AccountsTableAssignedToFilter,
     AccountsTableColumn,
@@ -17,7 +19,7 @@ import {
     AccountsTableUnassignedFilter,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { AccountCustomPropertyFilter, PropertyOperator } from '~/types'
+import { AccountCustomPropertyFilter, PropertyOperator, PropertyType } from '~/types'
 
 import type { CustomPropertyDefinitionApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
@@ -26,6 +28,7 @@ import { isNumericDisplayType } from '../../scenes/CustomerAnalyticsConfiguratio
 import type { AccountColumnDisplayState } from './accountsColumnConfigLogic'
 import type { AccountSortOrder, RoleFilterValue } from './accountsLogic'
 import type { TileFilter } from './accountsOverviewTilesLogic'
+import { ACCOUNT_FIELD_PROPERTY_TYPES, AccountFilter, isAccountPropertyFilter } from './accountsPropertyFilters'
 
 const RELATIONSHIP_COLUMN_REGEX = /^accounts\.relationships\.values\.`([0-9a-fA-F-]+)` AS [A-Za-z_][\w]*$/
 const CUSTOM_PROPERTY_COLUMN_REGEX = /^accounts\.custom_properties\.values\.`([0-9a-fA-F-]+)` AS [A-Za-z_][\w]*$/
@@ -34,6 +37,34 @@ const CUSTOM_PROPERTY_HISTORY_COLUMN_REGEX =
 const JSON_ACCOUNT_FIELD_REGEX = /^JSONExtractString\((?:accounts\.)?properties,\s*['"`]([A-Za-z_][\w]*)['"`]\)$/
 
 const ACCOUNT_FIELD_VALUES = new Set<string>(Object.values(AccountsTableAccountField))
+
+const ACCOUNT_FIELD_OPERATOR_MAP: Partial<Record<PropertyOperator, AccountsTableAccountFieldOperator>> = {
+    [PropertyOperator.Exact]: AccountsTableAccountFieldOperator.Exact,
+    [PropertyOperator.IsNot]: AccountsTableAccountFieldOperator.IsNot,
+    [PropertyOperator.IContains]: AccountsTableAccountFieldOperator.Contains,
+    [PropertyOperator.NotIContains]: AccountsTableAccountFieldOperator.DoesNotContain,
+    [PropertyOperator.IsSet]: AccountsTableAccountFieldOperator.IsSet,
+    [PropertyOperator.IsNotSet]: AccountsTableAccountFieldOperator.IsNotSet,
+    [PropertyOperator.IsDateExact]: AccountsTableAccountFieldOperator.DateExact,
+    [PropertyOperator.IsDateBefore]: AccountsTableAccountFieldOperator.DateBefore,
+    [PropertyOperator.IsDateAfter]: AccountsTableAccountFieldOperator.DateAfter,
+}
+
+const ACCOUNT_FIELD_TEXT_OPERATORS = new Set<AccountsTableAccountFieldOperator>([
+    AccountsTableAccountFieldOperator.Exact,
+    AccountsTableAccountFieldOperator.IsNot,
+    AccountsTableAccountFieldOperator.Contains,
+    AccountsTableAccountFieldOperator.DoesNotContain,
+    AccountsTableAccountFieldOperator.IsSet,
+    AccountsTableAccountFieldOperator.IsNotSet,
+])
+const ACCOUNT_FIELD_DATE_OPERATORS = new Set<AccountsTableAccountFieldOperator>([
+    AccountsTableAccountFieldOperator.DateExact,
+    AccountsTableAccountFieldOperator.DateBefore,
+    AccountsTableAccountFieldOperator.DateAfter,
+    AccountsTableAccountFieldOperator.IsSet,
+    AccountsTableAccountFieldOperator.IsNotSet,
+])
 
 const CUSTOM_PROPERTY_OPERATOR_MAP: Partial<Record<PropertyOperator, AccountsTableCustomPropertyOperator>> = {
     [PropertyOperator.Exact]: AccountsTableCustomPropertyOperator.Exact,
@@ -70,7 +101,7 @@ export interface BuildAccountsTableQueryPlanInput {
     assignedToFilter: RoleFilterValue
     accountIdFilter: string | null
     tileFilter: TileFilter | null
-    customPropertyFilters: AccountCustomPropertyFilter[]
+    accountFilters: AccountFilter[]
     customPropertyDefinitionsById: Record<string, CustomPropertyDefinitionApi>
     columnDisplay: AccountColumnDisplayState
     sortOrder: AccountSortOrder
@@ -119,6 +150,32 @@ export function columnFromExpression(
     }
     const accountField = accountFieldFromExpression(expression)
     return accountField ? { kind: 'account_field', field: accountField } : null
+}
+
+function accountFieldFilter(filter: AccountFilter): AccountsTableAccountFieldFilter | null {
+    if (!isAccountPropertyFilter(filter) || !ACCOUNT_FIELD_VALUES.has(filter.key)) {
+        return null
+    }
+    const field = filter.key as AccountsTableAccountField
+    const propertyType = ACCOUNT_FIELD_PROPERTY_TYPES[field]
+    const operator = ACCOUNT_FIELD_OPERATOR_MAP[filter.operator]
+    if (!operator) {
+        return null
+    }
+    if (
+        (propertyType === PropertyType.String && !ACCOUNT_FIELD_TEXT_OPERATORS.has(operator)) ||
+        (propertyType === PropertyType.DateTime && !ACCOUNT_FIELD_DATE_OPERATORS.has(operator))
+    ) {
+        return null
+    }
+    const rawValues = Array.isArray(filter.value) ? filter.value : filter.value == null ? [] : [filter.value]
+    const values = rawValues.filter((value): value is string => typeof value === 'string')
+    const doesNotNeedValues =
+        operator === AccountsTableAccountFieldOperator.IsSet || operator === AccountsTableAccountFieldOperator.IsNotSet
+    if (!doesNotNeedValues && values.length === 0) {
+        return null
+    }
+    return { kind: 'account_field', field, operator, values }
 }
 
 function customPropertyFilter(
@@ -178,11 +235,15 @@ function customPropertyFilter(
     }
 }
 
-export function supportedCustomPropertyFilters(
-    filters: AccountCustomPropertyFilter[],
+export function supportedAccountFilters(
+    filters: AccountFilter[],
     definitionsById: Record<string, CustomPropertyDefinitionApi>
-): AccountCustomPropertyFilter[] {
-    return filters.filter((filter) => customPropertyFilter(filter, definitionsById) !== null)
+): AccountFilter[] {
+    return filters.filter((filter) =>
+        isAccountPropertyFilter(filter)
+            ? accountFieldFilter(filter) !== null
+            : customPropertyFilter(filter, definitionsById) !== null
+    )
 }
 
 function queryFilters(input: BuildAccountsTableQueryPlanInput): AccountsTableFilter[] {
@@ -204,8 +265,10 @@ function queryFilters(input: BuildAccountsTableQueryPlanInput): AccountsTableFil
     if (input.assignedToFilter.length > 0) {
         filters.push({ kind: 'assigned_to', userIds: input.assignedToFilter } satisfies AccountsTableAssignedToFilter)
     }
-    for (const filter of input.customPropertyFilters) {
-        const translatedFilter = customPropertyFilter(filter, input.customPropertyDefinitionsById)
+    for (const filter of input.accountFilters) {
+        const translatedFilter = isAccountPropertyFilter(filter)
+            ? accountFieldFilter(filter)
+            : customPropertyFilter(filter, input.customPropertyDefinitionsById)
         if (translatedFilter) {
             filters.push(translatedFilter)
         }
@@ -266,6 +329,8 @@ export function buildAccountsTableQueryPlan(input: BuildAccountsTableQueryPlanIn
             kind: NodeKind.AccountsTableQuery,
             columns: columns.map(({ column }) => column),
             filters,
+            includeChurned: input.accountIdFilter !== null,
+            includeIgnored: input.accountIdFilter !== null,
             sort,
             tags: { ...CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS, name: 'customer_analytics_accounts_list' },
         },

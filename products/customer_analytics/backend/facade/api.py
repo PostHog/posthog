@@ -17,7 +17,7 @@ Do NOT:
 
 import asyncio
 from collections.abc import Iterable
-from datetime import UTC, datetime, time, timedelta
+from datetime import UTC, datetime, timedelta
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Optional, cast
 from uuid import UUID
@@ -53,9 +53,8 @@ from django.db.models import (
     Value,
 )
 from django.db.models.fields.json import KeyTextTransform
-from django.db.models.functions import Coalesce
+from django.db.models.functions import Cast, Coalesce
 from django.utils import timezone
-from django.utils.dateparse import parse_date, parse_datetime
 
 import structlog
 from celery import current_app
@@ -63,6 +62,7 @@ from pydantic import ValidationError as PydanticValidationError
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Integration, OrganizationMembership, Tag
 from posthog.models.activity_logging.activity_log import AuditableScope, Detail, Trigger, changes_between, log_activity
@@ -73,24 +73,38 @@ from posthog.models.tagged_item import TaggedItem
 from posthog.models.team import Team
 
 from products.conversations.backend.facade.api import (
+    AccountEmailThreadMessage as AccountEmailThreadMessage,
+    AccountEmailThreadSummary as AccountEmailThreadSummary,
+    ConversationMessageSender as ConversationMessageSender,
+    ConversationMessageSummary as ConversationMessageSummary,
+    EmailThreadAddress as EmailThreadAddress,
+    EmailThreadParticipantSummary as EmailThreadParticipantSummary,
     SupportSlackChannelsUnavailable,
     SupportSlackNotConfigured,
+    SupportTicketMessage as SupportTicketMessage,
     TicketSummary as TicketSummary,
+    list_account_email_thread_messages,
+    list_account_email_threads,
+    list_account_ticket_messages,
     list_account_tickets,
     trigger_immediate_channel_summary,
 )
 from products.customer_analytics.backend.account_urls import build_account_deeplink as build_account_deeplink
-from products.customer_analytics.backend.events import emit_account_tags_added
+from products.customer_analytics.backend.events import emit_account_tags_added, emit_account_tags_removed
 from products.customer_analytics.backend.facade.contracts import (
     InvalidCustomPropertyOptions as InvalidCustomPropertyOptions,
 )
+from products.customer_analytics.backend.facade.email_matching import schedule_email_thread_link_recalculation
 from products.customer_analytics.backend.logic import (
+    account_track_rules as _account_track_rules_logic,
     announcements as _announcements_logic,
     channel_summaries as _channel_summaries_logic,
     custom_property_values as _custom_property_values_logic,
     feature_requests as _feature_requests_logic,
     relationships as _relationships_logic,
 )
+from products.customer_analytics.backend.logic.account_filters import InvalidAccountFilter, apply_account_filters
+from products.customer_analytics.backend.logic.account_logo import resolve_logo_domain
 from products.customer_analytics.backend.logic.custom_property_definitions import (
     apply_option_side_effects,
     coerce_is_big_number,
@@ -149,6 +163,7 @@ from products.notebooks.backend.facade import (
 # cross a data facade. All account-notebook CRUD goes through `notebooks` (the facade). Tracked by
 # the notebooks legacy-leak interface block.
 from products.notebooks.backend.models import ResourceNotebook
+from products.warehouse_sources.backend.facade.hooks import WarehouseBinding, saved_query_binding, schema_binding
 from products.workflows.backend.services.template_input_usage import get_hog_flows_referencing_template_input_keys
 
 from . import contracts
@@ -157,21 +172,20 @@ from . import contracts
 # sets keyed by definition id under its ``properties`` input — the link we resolve into references.
 logger = structlog.get_logger(__name__)
 
-logger = structlog.get_logger(__name__)
-
 _ACCOUNT_PROPERTY_TEMPLATE_ID = "template-posthog-update-account-property"
 _ACCOUNT_PROPERTY_INPUT_KEY = "properties"
 
 if TYPE_CHECKING:
     from posthog.models.user import User
-    from posthog.rbac.user_access_control import UserAccessControl
 
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
     from products.customer_analytics.backend.models import CustomPropertyValue
     from products.workflows.backend.services.account_audience import AccountAudienceFilters
 
 
 def _to_account_properties(properties: _ModelAccountProperties) -> contracts.AccountProperties:
     return contracts.AccountProperties(
+        website_domain=properties.website_domain,
         stripe_customer_id=properties.stripe_customer_id,
         hubspot_deal_id=properties.hubspot_deal_id,
         billing_id=properties.billing_id,
@@ -220,6 +234,8 @@ def get_account_context_data(
         name=account.name,
         external_id=account.external_id,
         created_at=account.created_at,
+        churned_at=account.churned_at,
+        ignored_at=account.ignored_at,
         properties=_to_account_properties(account.properties),
         tags=_account_tags(account),
         notes=_account_notes(account),
@@ -239,28 +255,42 @@ def _resolve_account(team_id: int, account_id: str | None = None, external_id: s
 
 
 def search_accounts(
-    team_id: int, query: str, user_access_control: "UserAccessControl", limit: int
+    team_id: int,
+    query: str,
+    user_access_control: "UserAccessControl",
+    limit: int,
+    *,
+    include_ignored: bool = False,
 ) -> tuple[list[contracts.AccountRef], int]:
     """Accounts matching `query` by name or external id, access-filtered for the caller.
 
     Returns `(rows, total_count)` where `total_count` is the pre-limit match count.
     """
-    queryset = _accounts_queryset(team_id, user_access_control).filter(
-        Q(name__icontains=query) | Q(external_id__icontains=query)
-    )
+    queryset = _accounts_queryset(team_id, user_access_control)
+    if not include_ignored:
+        queryset = queryset.filter(ignored_at__isnull=True)
+    queryset = queryset.filter(Q(name__icontains=query) | Q(external_id__icontains=query))
     total_count = queryset.count()
     rows = list(queryset.order_by("name")[:limit].values("id", "name", "external_id"))
     return [_to_account_ref(row) for row in rows], total_count
 
 
 def list_accounts(
-    team_id: int, offset: int, limit: int, user_access_control: "UserAccessControl"
+    team_id: int,
+    offset: int,
+    limit: int,
+    user_access_control: "UserAccessControl",
+    *,
+    include_ignored: bool = False,
 ) -> tuple[list[contracts.AccountRef], int]:
     """Accounts for the team, newest first, access-filtered for the caller.
 
     Returns `(rows, total_count)` where `total_count` is the full (unpaginated) count.
     """
-    queryset = _accounts_queryset(team_id, user_access_control).order_by("-created_at")
+    queryset = _accounts_queryset(team_id, user_access_control)
+    if not include_ignored:
+        queryset = queryset.filter(ignored_at__isnull=True)
+    queryset = queryset.order_by("-created_at")
     total_count = queryset.count()
     rows = list(queryset[offset : offset + limit].values("id", "name", "external_id"))
     return [_to_account_ref(row) for row in rows], total_count
@@ -359,8 +389,8 @@ def _to_external_account(account: Account) -> contracts.ExternalAccount:
     """Map an account to the verbatim external wire shape.
 
     ``properties`` is the exact ``model_dump(mode="json")`` of the validated
-    pydantic properties and ``tags`` the sorted tag names — byte-identical to
-    what the CDP worker consumed before this moved behind the facade.
+    pydantic properties, ``tags`` the sorted tag names, and ``churned_at`` the
+    account lifecycle timestamp.
 
     ``custom_properties`` includes every team definition keyed by name, with the
     account's active value (scalar) or ``None`` when unset, so workflow result
@@ -394,6 +424,8 @@ def _to_external_account(account: Account) -> contracts.ExternalAccount:
         id=str(account.id),
         external_id=account.external_id,
         name=account.name,
+        churned_at=account.churned_at,
+        ignored_at=account.ignored_at,
         properties=account.properties.model_dump(mode="json"),
         tags=sorted(account.tagged_items.values_list("tag__name", flat=True)),
         relationships=relationships,
@@ -516,6 +548,7 @@ def list_external_accounts(
     cursor: str | None = None,
     limit: int = 100,
     assigned_only: bool = False,
+    include_ignored: bool = False,
 ) -> contracts.ExternalAccountListPage:
     """Page through the team's accounts for the external API, ordered by id.
 
@@ -533,9 +566,10 @@ def list_external_accounts(
         user__isnull=False,
         user__organization_membership__organization_id=organization_id,
     )
-    queryset = (
-        Account.objects.for_team(team_id).filter(external_id__isnull=False).exclude(external_id="").order_by("id")
-    )
+    queryset = Account.objects.for_team(team_id).filter(external_id__isnull=False).exclude(external_id="")
+    if not include_ignored:
+        queryset = queryset.filter(ignored_at__isnull=True)
+    queryset = queryset.order_by("id")
     if assigned_only:
         queryset = queryset.filter(Exists(active_relationships.filter(account=OuterRef("pk"))))
     if cursor:
@@ -566,6 +600,8 @@ def list_external_accounts(
         contracts.ExternalAccountListItem(
             external_id=cast(str, account.external_id),
             name=account.name,
+            churned_at=account.churned_at,
+            ignored_at=account.ignored_at,
             relationships=relationships_by_account.get(account.id, {}),
         )
         for account in accounts
@@ -577,7 +613,12 @@ def list_external_accounts(
 def _apply_external_tags(account: Account, tags: list[str], mode: str, workflow_id: str | None = None) -> None:
     normalized = list({tagify(t) for t in tags})
     if mode == "remove":
+        removed_tags = [
+            tagged_item.tag
+            for tagged_item in account.tagged_items.filter(tag__name__in=normalized).select_related("tag")
+        ]
         account.tagged_items.filter(tag__name__in=normalized).delete()
+        _schedule_account_tags_removed(account, removed_tags, actor=None, workflow_id=workflow_id)
     elif mode == "set":
         _set_tags(normalized, account, workflow_id=workflow_id)
     else:
@@ -591,7 +632,7 @@ def _apply_external_tags(account: Account, tags: list[str], mode: str, workflow_
 
 
 def _apply_external_relationship_assignments(
-    account: Account, assignments: dict[str, int | None]
+    account: Account, assignments: dict[str, int | None], workflow_id: str | None = None
 ) -> contracts.ExternalAccountUpdateResult | None:
     """Apply provided relationship assignments, keyed by definition UUID (None ends the
     active assignment). Each non-None user id is resolved against an
@@ -641,10 +682,20 @@ def _apply_external_relationship_assignments(
 
     for definition, assignee in resolved:
         if assignee is None:
-            _relationships_logic.end_active(team_id=account.team_id, account=account, definition=definition)
+            _relationships_logic.end_active(
+                team_id=account.team_id,
+                account=account,
+                definition=definition,
+                workflow_id=workflow_id,
+            )
         else:
             _relationships_logic.assign(
-                team_id=account.team_id, account=account, definition=definition, user=assignee, created_by=None
+                team_id=account.team_id,
+                account=account,
+                definition=definition,
+                user=assignee,
+                created_by=None,
+                workflow_id=workflow_id,
             )
     return None
 
@@ -656,13 +707,15 @@ def update_external_account(
     relationship_assignments: dict[str, int | None],
     tags: list[str] | None,
     tags_mode: str,
+    churned_at: datetime | None = None,
+    churned_at_provided: bool = False,
     workflow_id: str | None = None,
 ) -> contracts.ExternalAccountUpdateResult:
-    """Apply relationship assignments and tags to an account, transactionally, for the
-    external API.
+    """Apply relationship assignments, tags, and churn state to an account,
+    transactionally, for the external API.
 
-    Assignments and tags are all-or-nothing — a tag failure must not leave the
-    relationship changes committed. Returns a result the view maps to the exact HTTP
+    All changes are all-or-nothing — a tag failure must not leave relationship or churn
+    changes committed. Returns a result the view maps to the exact HTTP
     status/body: not found, a per-assignment failure (unknown definition, non-member
     user), a generic write failure, or success carrying the re-serialized account.
     """
@@ -679,11 +732,15 @@ def update_external_account(
 
     try:
         with transaction.atomic():
-            error_result = _apply_external_relationship_assignments(account, relationship_assignments)
+            error_result = _apply_external_relationship_assignments(
+                account, relationship_assignments, workflow_id=workflow_id
+            )
             if error_result is not None:
                 return error_result
             if tags is not None:
                 _apply_external_tags(account, tags, tags_mode, workflow_id=workflow_id)
+            if churned_at_provided:
+                update_account(account, churned_at=churned_at)
     except Exception as e:
         capture_exception(e, {"team_id": team_id, "external_id": external_id, "account_id": str(account.id)})
         return contracts.ExternalAccountUpdateResult(error=contracts.ExternalAccountUpdateError.UPDATE_FAILED)
@@ -803,6 +860,12 @@ class WarehouseSyncPausedError(Exception):
     message the canonical warehouse schema reload/resync endpoints return."""
 
 
+class ViewNotSyncableError(Exception):
+    """Raised when a person-property "sync now" targets a materialized view that can't be
+    materialized on demand — it was deleted, or its DAG still runs on the older data-modeling
+    schedule, whose workflow never stages person-property rows. The view maps this to 400."""
+
+
 # Re-export the "not found" exceptions so the view can branch to 404 without importing the
 # models. They are model ``DoesNotExist`` subclasses raised by the team-scoped detail fetches.
 Account_DoesNotExist = Account.DoesNotExist
@@ -842,24 +905,45 @@ def _set_tags(
         tagged_item_objects.append(tagged_item_instance)
         if created:
             added_tags.append(tag_instance)
-    for tagged_item in account.tagged_items.exclude(tag__name__in=deduped_tags):
+    removed_tags: list[Tag] = []
+    for tagged_item in account.tagged_items.exclude(tag__name__in=deduped_tags).select_related("tag"):
+        removed_tags.append(tagged_item.tag)
         tagged_item.delete()
     Tag.objects.filter(Q(team_id=account.team_id) & Q(tagged_items__isnull=True)).delete()
     account.prefetched_tags = tagged_item_objects  # type: ignore[attr-defined]
     _schedule_account_tags_added(account, added_tags, actor, workflow_id=workflow_id)
+    _schedule_account_tags_removed(account, removed_tags, actor, workflow_id=workflow_id)
 
 
 def _schedule_account_tags_added(
     account: Account, tags: list[Tag], actor: "User | None", workflow_id: str | None = None
 ) -> None:
-    """Single emission point for $account_tag_added: post-commit, newly created rows only —
-    so a workflow re-adding its own trigger tag fires nothing."""
+    """Emit $account_tag_added after commit for newly created rows only.
+
+    A workflow that adds its trigger tag again must not emit another event.
+    """
     if not tags:
         return
 
     def emit() -> None:
         try:
             emit_account_tags_added(account, tags, actor, workflow_id=workflow_id)
+        except Exception as e:
+            capture_exception(e)
+
+    transaction.on_commit(emit)
+
+
+def _schedule_account_tags_removed(
+    account: Account, tags: list[Tag], actor: "User | None", workflow_id: str | None = None
+) -> None:
+    """Emit $account_tag_removed after commit for deleted rows only."""
+    if not tags:
+        return
+
+    def emit() -> None:
+        try:
+            emit_account_tags_removed(account, tags, actor, workflow_id=workflow_id)
         except Exception as e:
             capture_exception(e)
 
@@ -1323,9 +1407,28 @@ class CustomPropertySourceValidationError(Exception):
     already source-backed (→ 400)."""
 
 
-def _to_sync_run_view(run: "CustomPropertySyncRun") -> contracts.CustomPropertySyncRunView:
+def _temporal_run_url(run: "CustomPropertySyncRun") -> str | None:
+    if not run.workflow_id or not run.workflow_run_id:
+        return None
+    base = settings.TEMPORAL_UI_HOST
+    namespace = settings.TEMPORAL_NAMESPACE
+    if not base or not namespace:
+        return None
+    return f"{base.rstrip('/')}/namespaces/{namespace}/workflows/{run.workflow_id}/{run.workflow_run_id}"
+
+
+def _to_sync_run_view(
+    run: "CustomPropertySyncRun", *, include_temporal_url: bool = False
+) -> contracts.CustomPropertySyncRunView:
     return contracts.CustomPropertySyncRunView(
         id=run.id,
+        job_id=run.job_id,
+        account_segment=run.segment,
+        sync_phase=run.phase,
+        attempt=run.attempt,
+        workflow_id=run.workflow_id if include_temporal_url else None,
+        workflow_run_id=run.workflow_run_id if include_temporal_url else None,
+        temporal_url=_temporal_run_url(run) if include_temporal_url else None,
         trigger=run.trigger,
         status=run.status,
         started_at=run.started_at,
@@ -1340,19 +1443,44 @@ def _to_sync_run_view(run: "CustomPropertySyncRun") -> contracts.CustomPropertyS
     )
 
 
-def _resolve_person_source_schema(source: CustomPropertySource, user_access_control: "UserAccessControl | None") -> Any:
-    """The ``ExternalDataSchema`` (with ``.source`` loaded) backing a person source, or None when the
-    source has no warehouse binding or the caller lacks object-level ``external_data_source`` viewer
-    access. ``user_access_control`` None (service auth) skips the object check, matching
-    ``_enforce_object_access``. ``apps.get_model`` keeps this off a warehouse_sources internal import."""
-    if source.external_data_schema_id is None:
+@frozen
+class _ProfileWarehouseMeta:
+    """Display metadata a profile source derives from the warehouse object it reads.
+
+    Resolved for both binding kinds so the view builder doesn't branch on kind. ``external_data_source``
+    is set only for a schema binding (a view has no import source), ``saved_query_name`` only for a view.
+    """
+
+    table_name: str
+    sync_frequency_interval_seconds: float | None = None
+    next_sync_at: datetime | None = None
+    external_data_source: UUID | None = None
+    saved_query_name: str | None = None
+
+
+def _profile_binding(source: CustomPropertySource) -> "WarehouseBinding | None":
+    """The warehouse object a person/group-target source reads, or None for an account source.
+
+    Reads ``definition.target_type`` rather than inferring from which column is set: an account source
+    is also bound to a saved query, so the binding column alone no longer tells the two apart. Callers
+    pass a source with its definition selected.
+    """
+    if source.definition.target_type not in _WAREHOUSE_PROFILE_TARGETS:
         return None
+    if source.saved_query_id is not None:
+        return saved_query_binding(source.saved_query_id)
+    if source.external_data_schema_id is not None:
+        return schema_binding(source.external_data_schema_id)
+    return None
+
+
+def _resolve_schema(team_id: int, schema_id: Any, user_access_control: "UserAccessControl | None") -> Any:
+    """The ``ExternalDataSchema`` (with ``.source`` loaded) for a schema-bound source, or None when it
+    no longer exists or the caller lacks object-level ``external_data_source`` viewer access.
+    ``user_access_control`` None (service auth) skips the object check, matching ``_enforce_object_access``.
+    ``apps.get_model`` keeps this off a warehouse_sources internal import."""
     schema_model = apps.get_model("warehouse_sources", "ExternalDataSchema")
-    schema = (
-        schema_model.objects.filter(id=source.external_data_schema_id, team_id=source.team_id)
-        .select_related("source", "table")
-        .first()
-    )
+    schema = schema_model.objects.filter(id=schema_id, team_id=team_id).select_related("source", "table").first()
     if schema is None:
         return None
     if user_access_control is not None and not user_access_control.check_access_level_for_object(
@@ -1360,6 +1488,53 @@ def _resolve_person_source_schema(source: CustomPropertySource, user_access_cont
     ):
         return None
     return schema
+
+
+def _resolve_saved_query(team_id: int, saved_query_id: Any, user_access_control: "UserAccessControl | None") -> Any:
+    """The ``DataWarehouseSavedQuery`` for a view-bound source, or None when it no longer resolves or
+    the caller lacks object-level ``warehouse_view`` viewer access — the same gate the warehouse view
+    endpoints and HogQL resolution apply."""
+    saved_query_model = apps.get_model("data_modeling", "DataWarehouseSavedQuery")
+    saved_query = saved_query_model.objects.filter(id=saved_query_id, team_id=team_id).exclude(deleted=True).first()
+    if saved_query is None:
+        return None
+    if user_access_control is not None and not user_access_control.check_access_level_for_object(
+        saved_query, required_level="viewer"
+    ):
+        return None
+    return saved_query
+
+
+def _saved_query_meta(saved_query: Any) -> _ProfileWarehouseMeta:
+    """Display metadata for a view-bound source. A view's name is already its HogQL name, so it needs
+    no table-name resolution. ``sync_frequency_interval`` is null once the view's DAG runs on a shared
+    schedule (the frequency lives on the DAG node), which leaves the next run unknown rather than
+    guessable — so both schedule fields stay None."""
+    interval = saved_query.sync_frequency_interval
+    next_sync_at = (
+        saved_query.last_run_at + interval if interval is not None and saved_query.last_run_at is not None else None
+    )
+    return _ProfileWarehouseMeta(
+        table_name=saved_query.name,
+        sync_frequency_interval_seconds=interval.total_seconds() if interval is not None else None,
+        next_sync_at=next_sync_at,
+        saved_query_name=saved_query.name,
+    )
+
+
+def _resolve_profile_warehouse_meta(
+    source: CustomPropertySource, user_access_control: "UserAccessControl | None"
+) -> _ProfileWarehouseMeta | None:
+    """Warehouse-derived display metadata for a profile source, or None for an account source, a
+    warehouse object that no longer exists, or a caller without viewer access to it."""
+    binding = _profile_binding(source)
+    if binding is None:
+        return None
+    if binding.is_saved_query:
+        saved_query = _resolve_saved_query(source.team_id, binding.id, user_access_control)
+        return _saved_query_meta(saved_query) if saved_query is not None else None
+    schema = _resolve_schema(source.team_id, binding.id, user_access_control)
+    return _schema_meta(schema) if schema is not None else None
 
 
 def _schema_table_name(schema: Any) -> str:
@@ -1375,14 +1550,19 @@ def _schema_table_name(schema: Any) -> str:
     return get_data_warehouse_table_name(schema.source, schema.table.name)
 
 
-def _schema_schedule(schema: Any) -> tuple[float | None, datetime | None]:
-    """(sync_frequency_interval_seconds, next_sync_at) for a resolved schema, both None when the schema
-    has no sync frequency configured."""
+def _schema_meta(schema: Any) -> _ProfileWarehouseMeta:
+    """Display metadata for a schema-bound source. Both schedule fields stay None when the schema has
+    no sync frequency configured."""
     interval = schema.sync_frequency_interval
-    if interval is None:
-        return None, None
-    next_sync_at = schema.last_synced_at + interval if schema.last_synced_at is not None else None
-    return interval.total_seconds(), next_sync_at
+    next_sync_at = (
+        schema.last_synced_at + interval if interval is not None and schema.last_synced_at is not None else None
+    )
+    return _ProfileWarehouseMeta(
+        table_name=_schema_table_name(schema),
+        sync_frequency_interval_seconds=interval.total_seconds() if interval is not None else None,
+        next_sync_at=next_sync_at,
+        external_data_source=schema.source_id,
+    )
 
 
 # Sentinel so a caller can pass a prefetched (schema, latest_run) pair — including ``(None, None)``
@@ -1397,39 +1577,30 @@ _RESOLVE_ENRICHMENT_INLINE = _ResolveEnrichmentInline()
 def _to_custom_property_source_view(
     source: CustomPropertySource,
     user_access_control: "UserAccessControl | None" = None,
-    enrichment: "tuple[Any, CustomPropertySyncRun | None] | _ResolveEnrichmentInline" = _RESOLVE_ENRICHMENT_INLINE,
+    enrichment: "tuple[_ProfileWarehouseMeta | None, CustomPropertySyncRun | None] | _ResolveEnrichmentInline" = _RESOLVE_ENRICHMENT_INLINE,
 ) -> contracts.CustomPropertySourceView:
-    # Schedule + latest-run enrichment applies only to person sources; account sources leave it None.
-    # A person source is exactly the one bound to a warehouse schema (the facade enforces one binding),
-    # so this discriminates without a definition fetch. The enrichment exposes the underlying billable
-    # warehouse source's schedule and run metadata, so it's gated on the caller's warehouse-source viewer
-    # access — a caller without it sees the source but not its warehouse-derived metadata.
-    # ``enrichment`` lets list endpoints prefetch the schema + latest run in one batched query each
-    # (see ``_batch_source_enrichment``) instead of paying two queries per row.
-    sync_frequency_interval_seconds: float | None = None
-    next_sync_at: datetime | None = None
+    # Schedule + latest-run enrichment applies only to person/group sources; account sources leave it
+    # None. The enrichment exposes the underlying warehouse object's schedule and run metadata, so it's
+    # gated on the caller's viewer access to that object — a caller without it sees the source but not
+    # its warehouse-derived metadata. ``enrichment`` lets list endpoints prefetch the metadata + latest
+    # run in one batched query each (see ``_batch_source_enrichment``) instead of two per row.
     latest_run: contracts.CustomPropertySyncRunView | None = None
-    external_data_source: UUID | None = None
-    table_name: str | None = None
     if isinstance(enrichment, _ResolveEnrichmentInline):
-        schema = _resolve_person_source_schema(source, user_access_control)
-        latest = source.sync_runs.order_by("-created_at").first() if schema is not None else None
+        meta = _resolve_profile_warehouse_meta(source, user_access_control)
+        latest = source.sync_runs.order_by("-created_at").first() if meta is not None else None
         _expire_stale_running_runs(source.team_id, [latest])
     else:
-        schema, latest = enrichment
-    if schema is not None:
-        sync_frequency_interval_seconds, next_sync_at = _schema_schedule(schema)
+        meta, latest = enrichment
+    if meta is not None:
         latest_run = _to_sync_run_view(latest) if latest is not None else None
-        external_data_source = schema.source_id
-        table_name = _schema_table_name(schema)
 
-    # A person source's sync status (raw error text, failure streak, last-synced time) is produced by
-    # the underlying billable warehouse source, so it's warehouse-derived metadata gated the same way as
-    # the schedule/latest-run above — a caller without warehouse-source viewer access sees the mapping
-    # but not its status. Column descriptions are likewise warehouse-derived (populated from the source's
-    # ``information_schema.columns`` or set by a warehouse-source editor), so they're gated the same way.
-    # Account sources have no warehouse binding; their status and descriptions stay visible.
-    warehouse_status_visible = source.external_data_schema_id is None or schema is not None
+    # A profile source's sync status (raw error text, failure streak, last-synced time) is produced by
+    # the underlying warehouse object, so it's warehouse-derived metadata gated the same way as the
+    # schedule/latest-run above — a caller without viewer access on that object sees the mapping but not
+    # its status. Column descriptions are likewise warehouse-derived (populated from the object's
+    # ``information_schema.columns`` or set by a warehouse editor), so they're gated the same way.
+    # Account sources are not warehouse-gated; their status and descriptions stay visible.
+    warehouse_status_visible = _profile_binding(source) is None or meta is not None
 
     return contracts.CustomPropertySourceView(
         id=source.id,
@@ -1447,57 +1618,100 @@ def _to_custom_property_source_view(
         created_at=source.created_at,
         created_by=source.created_by_id,
         updated_at=source.updated_at,
-        sync_frequency_interval_seconds=sync_frequency_interval_seconds,
-        next_sync_at=next_sync_at,
+        sync_frequency_interval_seconds=meta.sync_frequency_interval_seconds if meta else None,
+        next_sync_at=meta.next_sync_at if meta else None,
         latest_run=latest_run,
-        external_data_source=external_data_source,
-        table_name=table_name,
+        external_data_source=meta.external_data_source if meta else None,
+        table_name=meta.table_name if meta else None,
+        saved_query_name=meta.saved_query_name if meta else None,
     )
 
 
 def _batch_source_enrichment(
     team_id: int, sources: list[CustomPropertySource], user_access_control: "UserAccessControl | None"
-) -> dict[Any, "tuple[Any, CustomPropertySyncRun | None]"]:
-    """Resolve the schema (with warehouse-viewer access applied) and latest run for a page of person
-    sources in one query each, so a list endpoint doesn't issue two per-row queries (see the per-row
-    path in ``_to_custom_property_source_view``). Returns ``{source_id: (schema_or_None, latest_run)}``;
-    account sources (no warehouse binding) are absent, so they resolve inline to no enrichment."""
-    person_sources = [s for s in sources if s.external_data_schema_id is not None]
-    if not person_sources:
+) -> dict[Any, "tuple[_ProfileWarehouseMeta | None, CustomPropertySyncRun | None]"]:
+    """Resolve the warehouse metadata (with viewer access applied) and latest run for a page of profile
+    sources in one query per warehouse kind, so a list endpoint doesn't issue two per-row queries (see
+    the per-row path in ``_to_custom_property_source_view``). Returns
+    ``{source_id: (meta_or_None, latest_run)}``; account sources are absent, so they resolve inline to no
+    enrichment."""
+    bindings = {s.id: _profile_binding(s) for s in sources}
+    profile_sources = [s for s in sources if bindings[s.id] is not None]
+    if not profile_sources:
         return {}
-    schema_model = apps.get_model("warehouse_sources", "ExternalDataSchema")
-    schemas_by_id = {
-        schema.id: schema
-        for schema in schema_model.objects.filter(
-            id__in={s.external_data_schema_id for s in person_sources}, team_id=team_id
-        ).select_related("source", "table")
-    }
+
+    schema_ids = {b.id for b in bindings.values() if b is not None and not b.is_saved_query}
+    saved_query_ids = {b.id for b in bindings.values() if b is not None and b.is_saved_query}
+    schemas_by_id: dict[str, Any] = {}
+    if schema_ids:
+        schema_model = apps.get_model("warehouse_sources", "ExternalDataSchema")
+        schemas_by_id = {
+            str(schema.id): schema
+            for schema in schema_model.objects.filter(id__in=schema_ids, team_id=team_id).select_related(
+                "source", "table"
+            )
+        }
+    saved_queries_by_id: dict[str, Any] = {}
+    if saved_query_ids:
+        saved_query_model = apps.get_model("data_modeling", "DataWarehouseSavedQuery")
+        saved_queries_by_id = {
+            str(saved_query.id): saved_query
+            for saved_query in saved_query_model.objects.filter(id__in=saved_query_ids, team_id=team_id).exclude(
+                deleted=True
+            )
+        }
+
     # Latest run per source in one query: DISTINCT ON (source_id) keeps the newest row per source.
     latest_run_by_source_id: dict[Any, CustomPropertySyncRun] = {
         run.source_id: run
         for run in CustomPropertySyncRun.objects.for_team(team_id)
-        .filter(source_id__in=[s.id for s in person_sources])
+        .filter(source_id__in=[s.id for s in profile_sources])
         .order_by("source_id", "-created_at")
         .distinct("source_id")
     }
-    enrichment: dict[Any, tuple[Any, CustomPropertySyncRun | None]] = {}
+    enrichment: dict[Any, tuple[_ProfileWarehouseMeta | None, CustomPropertySyncRun | None]] = {}
     authorized_runs: list[CustomPropertySyncRun | None] = []
-    for source in person_sources:
-        schema = schemas_by_id.get(source.external_data_schema_id)
-        if (
-            schema is not None
-            and user_access_control is not None
-            and not user_access_control.check_access_level_for_object(schema.source, required_level="viewer")
-        ):
-            schema = None
-        latest = latest_run_by_source_id.get(source.id) if schema is not None else None
-        # Only mutate runs the caller can view; expiring runs for hidden schemas would let a
+    for source in profile_sources:
+        binding = bindings[source.id]
+        assert binding is not None  # profile_sources is filtered on exactly this
+        meta = _batched_meta(binding, schemas_by_id, saved_queries_by_id, user_access_control)
+        latest = latest_run_by_source_id.get(source.id) if meta is not None else None
+        # Only mutate runs the caller can view; expiring runs for hidden warehouse objects would let a
         # denied viewer flip their status through the source-list endpoint.
         if latest is not None:
             authorized_runs.append(latest)
-        enrichment[source.id] = (schema, latest)
+        enrichment[source.id] = (meta, latest)
     _expire_stale_running_runs(team_id, authorized_runs)
     return enrichment
+
+
+def _batched_meta(
+    binding: "WarehouseBinding",
+    schemas_by_id: dict[str, Any],
+    saved_queries_by_id: dict[str, Any],
+    user_access_control: "UserAccessControl | None",
+) -> _ProfileWarehouseMeta | None:
+    """One binding's metadata from the prefetched maps, or None when it is missing or access-denied.
+    The access check mirrors the per-row resolvers: the import source for a schema, the view itself for
+    a saved query."""
+    if binding.is_saved_query:
+        saved_query = saved_queries_by_id.get(binding.id)
+        if saved_query is None:
+            return None
+        if user_access_control is not None and not user_access_control.check_access_level_for_object(
+            saved_query, required_level="viewer"
+        ):
+            return None
+        return _saved_query_meta(saved_query)
+
+    schema = schemas_by_id.get(binding.id)
+    if schema is None:
+        return None
+    if user_access_control is not None and not user_access_control.check_access_level_for_object(
+        schema.source, required_level="viewer"
+    ):
+        return None
+    return _schema_meta(schema)
 
 
 def _saved_query_belongs_to_team(team_id: int, saved_query_id) -> bool:
@@ -1505,6 +1719,17 @@ def _saved_query_belongs_to_team(team_id: int, saved_query_id) -> bool:
     customer_analytics never imports data_modeling (which isn't a dependency)."""
     saved_query_model = apps.get_model("data_modeling", "DataWarehouseSavedQuery")
     return saved_query_model.objects.filter(id=saved_query_id, team_id=team_id).exclude(deleted=True).exists()
+
+
+def _materialized_saved_query_belongs_to_team(team_id: int, saved_query_id) -> bool:
+    """Whether the saved query resolves for this team *and* is materialized. A profile source reads the
+    view's Delta table directly, which only a materialized view has."""
+    saved_query_model = apps.get_model("data_modeling", "DataWarehouseSavedQuery")
+    return (
+        saved_query_model.objects.filter(id=saved_query_id, team_id=team_id, is_materialized=True)
+        .exclude(deleted=True)
+        .exists()
+    )
 
 
 def _external_data_schema_belongs_to_team(team_id: int, schema_id) -> bool:
@@ -1569,23 +1794,29 @@ def _enqueue_sync_if_enabled(source: CustomPropertySource) -> None:
 # materialized-view path. These share the sync-now / backfill / run-history machinery.
 _WAREHOUSE_PROFILE_TARGETS = (TargetType.PERSON.value, TargetType.GROUP.value)
 
+_ONE_PROFILE_BINDING_ERROR = "A person/group property source needs exactly one of external_data_schema and saved_query."
 
-# A run row only reaches a terminal state when its activity records one, so a sync that died before
-# getting there — an import that failed ahead of the person-property step, a killed worker — would sit
-# "running" forever, misreporting the source and keeping its sync/backfill buttons disabled. Six hours
-# matches the sync activity's start_to_close timeout, so nothing live is behind an older row.
+
+# A run row only reaches a terminal state when its activity records one. Account segment workflows can
+# retry for a full day, while profile sync activities time out after six hours.
 STALE_RUNNING_RUN_AFTER = timedelta(hours=6)
-STALE_RUNNING_RUN_ERROR = "This run never reported a result. The sync may have failed before it ran."
+STALE_ACCOUNT_RUNNING_RUN_AFTER = timedelta(hours=25)
+STALE_RUNNING_RUN_ERROR = (
+    "This run stopped reporting progress. Run the warehouse source again. If it keeps failing, contact support."
+)
 
 
 def _expire_stale_running_runs(team_id: int, runs: "Iterable[CustomPropertySyncRun | None]") -> None:
     """Fail abandoned 'running' rows, both in the database and in the passed-in objects so the caller
     serializes what it just wrote. Runs on the read paths the UI polls, so a stuck row self-heals."""
-    cutoff = timezone.now() - STALE_RUNNING_RUN_AFTER
+    now = timezone.now()
     stale = [
         run
         for run in runs
-        if run is not None and run.status == SyncStatus.RUNNING.value and (run.started_at or run.created_at) < cutoff
+        if run is not None
+        and run.status == SyncStatus.RUNNING.value
+        and (run.started_at or run.created_at)
+        < now - (STALE_ACCOUNT_RUNNING_RUN_AFTER if run.segment is not None else STALE_RUNNING_RUN_AFTER)
     ]
     if not stale:
         return
@@ -1599,22 +1830,26 @@ def _expire_stale_running_runs(team_id: int, runs: "Iterable[CustomPropertySyncR
         run.error = STALE_RUNNING_RUN_ERROR
 
 
-def _create_running_runs(team_id: int, schema_id: str, trigger: str) -> list[Any]:
-    """Insert a 'running' run for each enabled person/group source on the schema that isn't already
+def _create_running_runs(team_id: int, binding: "WarehouseBinding", trigger: str) -> list[Any]:
+    """Insert a 'running' run for each enabled person/group source on the binding that isn't already
     running. The UI shows these as in-progress and disables the trigger while they exist; the sync and
     backfill activities reconcile them to their terminal state (see record_sync_run). Skipping sources
     that already have a running run makes this a no-op when a run for the table is already in flight
     (coalesced). Returns the source ids a placeholder was created for, so the caller can reconcile them
     to FAILED if the workflow start never happens (see ``_fail_created_runs``)."""
+    # A source and a run name the same binding through different columns: a source's schema binding is
+    # the `external_data_schema` FK, a run's is the plain `schema_id`.
+    source_field = "saved_query_id" if binding.is_saved_query else "external_data_schema_id"
+    run_field = "saved_query_id" if binding.is_saved_query else "schema_id"
     with transaction.atomic():
-        # Lock the candidate sources so a concurrent trigger for the same schema can't pass the
+        # Lock the candidate sources so a concurrent trigger for the same binding can't pass the
         # "already running" check and insert a duplicate RUNNING row before this one commits.
         sources = list(
             CustomPropertySource.objects.for_team(team_id)
             .filter(
-                external_data_schema_id=schema_id,
                 is_enabled=True,
                 definition__target_type__in=_WAREHOUSE_PROFILE_TARGETS,
+                **{source_field: binding.id},
             )
             .select_for_update()
         )
@@ -1633,10 +1868,10 @@ def _create_running_runs(team_id: int, schema_id: str, trigger: str) -> list[Any
                 CustomPropertySyncRun(
                     team_id=team_id,
                     source=source,
-                    schema_id=schema_id,
                     trigger=trigger,
                     status=SyncStatus.RUNNING.value,
                     started_at=now,
+                    **{run_field: binding.id},
                 )
                 for source in to_create
             ]
@@ -1655,16 +1890,25 @@ def _fail_created_runs(team_id: int, source_ids: list[Any], error: str) -> None:
     ).update(status=SyncStatus.FAILED.value, finished_at=timezone.now(), error=error)
 
 
-def _start_backfill(team_id: int, schema_id: str, trigger: str) -> None:
+def _start_backfill(team_id: int, binding: "WarehouseBinding", trigger: str) -> None:
     """Start the person-property backfill workflow. Failure must not fail the originating write."""
     created_source_ids: list[Any] = []
+    # The temporal client is heavy; keep it off the CA facade import (django.setup) path. Imported
+    # before the try so the except clause below can name WarehouseBindingMissingError even when an
+    # earlier line raises.
+    from products.warehouse_sources.backend.facade.temporal import (  # noqa: PLC0415
+        WarehouseBindingMissingError,
+        start_person_property_backfill,
+    )
+
     try:
         # Placeholder rows before starting, so the activity always finds a running row to reconcile.
-        created_source_ids = _create_running_runs(team_id, schema_id, trigger)
-        # The temporal client is heavy; keep it off the CA facade import (django.setup) path.
-        from products.warehouse_sources.backend.facade.temporal import start_person_property_backfill  # noqa: PLC0415
-
-        start_person_property_backfill(team_id=team_id, schema_id=schema_id, trigger=trigger)
+        created_source_ids = _create_running_runs(team_id, binding, trigger)
+        start_person_property_backfill(team_id=team_id, binding=binding, trigger=trigger)
+    except WarehouseBindingMissingError:
+        # The warehouse object was deleted between saving the source and this deferred start. There is
+        # nothing to back-fill, so reconcile the placeholders without capturing it as an error.
+        _fail_created_runs(team_id, created_source_ids, "The warehouse table or view for this source no longer exists.")
     except Exception as e:
         # The workflow never started, so nothing will reconcile the placeholders — fail them here.
         _fail_created_runs(team_id, created_source_ids, "Failed to start backfill")
@@ -1672,95 +1916,113 @@ def _start_backfill(team_id: int, schema_id: str, trigger: str) -> None:
 
 
 def _start_person_backfill_if_enabled(source: CustomPropertySource) -> None:
-    """Auto-start a backfill after a person source is created/enabled so historical rows populate
-    immediately rather than waiting for the next incremental sync. Person sources only (account
-    sources have no external_data_schema); deduped per table by the workflow id."""
-    if not source.is_enabled or source.external_data_schema_id is None:
+    """Auto-start a backfill after a person/group source is created/enabled so historical rows populate
+    immediately rather than waiting for the next warehouse run. Profile sources only (an account source
+    has its own Celery sync); deduped per table by the workflow id."""
+    binding = _profile_binding(source)
+    if not source.is_enabled or binding is None:
         return
-    team_id, schema_id = source.team_id, str(source.external_data_schema_id)
-    transaction.on_commit(lambda: _start_backfill(team_id, schema_id, "backfill"))
+    team_id = source.team_id
+    transaction.on_commit(lambda: _start_backfill(team_id, binding, "backfill"))
 
 
-def _triggerable_person_schema_id(team_id: int, source_id: str) -> str | None:
-    """The schema id to act on for a person/group-property trigger, or None when the source isn't a
-    valid, flag-enabled warehouse-profile source (→ the view returns 400)."""
+def _triggerable_profile_binding(team_id: int, source_id: str) -> "WarehouseBinding | None":
+    """The warehouse object to act on for a person/group-property trigger, or None when the source isn't
+    a valid, flag-enabled warehouse-profile source (→ the view returns 400)."""
     source = CustomPropertySource.objects.for_team(team_id).filter(id=source_id).select_related("definition").first()
-    if source is None or source.external_data_schema_id is None:
+    if source is None:
         return None
     # A disabled source (e.g. auto-disabled after repeated failures) can't be re-triggered until it's
-    # re-enabled — otherwise the "sync now"/backfill actions would keep launching billable imports for
-    # a mapping the system already turned off.
+    # re-enabled — otherwise the "sync now"/backfill actions would keep launching billable warehouse
+    # runs for a mapping the system already turned off.
     if not source.is_enabled:
-        return None
-    if source.definition.target_type not in _WAREHOUSE_PROFILE_TARGETS:
         return None
     if not person_properties_flag_enabled(team_id):
         return None
-    return str(source.external_data_schema_id)
+    return _profile_binding(source)
 
 
-def _assert_warehouse_source_access(
+def _assert_warehouse_access(
     team_id: int,
-    external_data_schema_id: str | UUID | None,
+    binding: "WarehouseBinding | None",
     user_access_control: "UserAccessControl | None",
     level: str,
 ) -> None:
-    """A person-property source drives a real (billable) warehouse source, so acting on it or reading
-    its warehouse metadata requires the caller's object-level ``external_data_source`` access at
-    ``level``, not account-scope access alone. Mirrors the canonical warehouse endpoints, which gate
-    through ``get_object``. ``None`` (service auth, which the permission layer skips object checks for)
-    is a no-op, matching ``_enforce_object_access``. Raises ``ResourceForbiddenError`` (→ 403) when the
-    caller is denied. ``apps.get_model`` keeps this off a warehouse_sources internal import."""
-    if user_access_control is None or external_data_schema_id is None:
+    """A profile source drives a real warehouse run, so acting on it or reading its warehouse metadata
+    requires the caller's object-level access to what it reads at ``level``, not account-scope access
+    alone: the ``external_data_source`` for a schema, the ``warehouse_view`` for a materialized view.
+    Mirrors the canonical warehouse endpoints, which gate through ``get_object``. ``None`` (service auth,
+    which the permission layer skips object checks for) is a no-op, matching ``_enforce_object_access``.
+    Raises ``ResourceForbiddenError`` (→ 403) when the caller is denied. A warehouse object that no
+    longer resolves is a no-op: there is nothing left to protect, and the caller's own write will fail
+    its validation. ``apps.get_model`` keeps this off a warehouse_sources/data_modeling internal import."""
+    if user_access_control is None or binding is None:
+        return
+    if binding.is_saved_query:
+        saved_query_model = apps.get_model("data_modeling", "DataWarehouseSavedQuery")
+        saved_query = saved_query_model.objects.filter(id=binding.id, team_id=team_id).exclude(deleted=True).first()
+        if saved_query is None:
+            return
+        _enforce_object_access(saved_query, user_access_control, level)
         return
     schema_model = apps.get_model("warehouse_sources", "ExternalDataSchema")
-    schema = schema_model.objects.filter(id=external_data_schema_id, team_id=team_id).select_related("source").first()
+    schema = schema_model.objects.filter(id=binding.id, team_id=team_id).select_related("source").first()
     if schema is None:
         return
     _enforce_object_access(schema.source, user_access_control, level)
 
 
-def _assert_warehouse_source_editor(
-    team_id: int, external_data_schema_id: str | UUID | None, user_access_control: "UserAccessControl | None"
+def _assert_warehouse_editor(
+    team_id: int, binding: "WarehouseBinding | None", user_access_control: "UserAccessControl | None"
 ) -> None:
-    """Editor gate for acting on a person source — a manual sync/backfill, or creating/enabling the
+    """Editor gate for acting on a profile source — a manual sync/backfill, or creating/enabling the
     mapping (which auto-triggers one)."""
-    _assert_warehouse_source_access(team_id, external_data_schema_id, user_access_control, "editor")
+    _assert_warehouse_access(team_id, binding, user_access_control, "editor")
 
 
-def _assert_warehouse_source_viewer(
-    team_id: int, external_data_schema_id: str | UUID | None, user_access_control: "UserAccessControl | None"
+def _assert_warehouse_viewer(
+    team_id: int, binding: "WarehouseBinding | None", user_access_control: "UserAccessControl | None"
 ) -> None:
-    """Viewer gate for reading a person source's warehouse run metadata (row counts, schedule, sync
-    errors), which exposes its billable warehouse source."""
-    _assert_warehouse_source_access(team_id, external_data_schema_id, user_access_control, "viewer")
+    """Viewer gate for reading a profile source's warehouse run metadata (row counts, schedule, sync
+    errors), which exposes the warehouse object it reads."""
+    _assert_warehouse_access(team_id, binding, user_access_control, "viewer")
 
 
 def trigger_person_property_sync(
     *, team_id: int, source_id: str, user_access_control: "UserAccessControl | None" = None
 ) -> bool:
-    """ "Sync now" for a person source: trigger the underlying warehouse schema's sync (a real,
-    billable sync; the incremental person-property child runs off it). Returns False for an invalid
-    source (→ 400). Requires ``external_data_source`` editor access (→ 403) and honors the team's
-    warehouse sync pause (→ ``WarehouseSyncPausedError``)."""
-    schema_id = _triggerable_person_schema_id(team_id, source_id)
-    if schema_id is None:
+    """ "Sync now" for a profile source: start a fresh warehouse run of whatever it reads — an import for
+    a schema (billable), a materialization for a view. The person-property child runs off that run.
+    Returns False for an invalid source (→ 400). Requires editor access to the warehouse object (→ 403),
+    honors the team's warehouse sync pause (→ ``WarehouseSyncPausedError``), and rejects a view still on
+    the older data-modeling schedule (→ ``ViewNotSyncableError``)."""
+    binding = _triggerable_profile_binding(team_id, source_id)
+    if binding is None:
         return False
-    _assert_warehouse_source_editor(team_id, schema_id, user_access_control)
+    _assert_warehouse_editor(team_id, binding, user_access_control)
     from products.warehouse_sources.backend.facade.temporal import (  # noqa: PLC0415
         ExternalDataSchemaSyncPausedError,
+        SavedQueryNotFoundError,
+        SavedQueryNotOnV2ScheduleError,
+        trigger_saved_query_materialization,
         trigger_schema_sync,
     )
 
-    # Open the run rows before the sync starts, so the history shows it in progress right away and the
-    # trigger buttons stay disabled until it settles. The person-property activity reconciles them
-    # when the import reaches it (see record_sync_run).
-    created_source_ids = _create_running_runs(team_id, schema_id, SyncTrigger.SYNC.value)
+    # Open the run rows before the warehouse run starts, so the history shows it in progress right away
+    # and the trigger buttons stay disabled until it settles. The person-property activity reconciles
+    # them when the run reaches it (see record_sync_run).
+    created_source_ids = _create_running_runs(team_id, binding, SyncTrigger.SYNC.value)
     try:
-        trigger_schema_sync(team_id=team_id, schema_id=schema_id)
+        if binding.is_saved_query:
+            trigger_saved_query_materialization(team_id=team_id, saved_query_id=binding.id)
+        else:
+            trigger_schema_sync(team_id=team_id, schema_id=binding.id)
     except ExternalDataSchemaSyncPausedError as e:
         _fail_created_runs(team_id, created_source_ids, "Warehouse syncs are paused for this project")
         raise WarehouseSyncPausedError(str(e)) from e
+    except (SavedQueryNotOnV2ScheduleError, SavedQueryNotFoundError) as e:
+        _fail_created_runs(team_id, created_source_ids, str(e))
+        raise ViewNotSyncableError(str(e)) from e
     except Exception:
         _fail_created_runs(team_id, created_source_ids, "Failed to start sync")
         raise
@@ -1770,19 +2032,28 @@ def trigger_person_property_sync(
 def trigger_person_property_backfill(
     *, team_id: int, source_id: str, trigger: str = "manual", user_access_control: "UserAccessControl | None" = None
 ) -> bool | None:
-    """Start a backfill for a person source's table. Returns True (started), False (already running →
-    coalesced), or None for an invalid source (→ 400). Requires ``external_data_source`` editor access
+    """Start a backfill for a profile source's table. Returns True (started), False (already running →
+    coalesced), or None for an invalid source (→ 400). Requires editor access to the warehouse object
     (→ 403)."""
-    schema_id = _triggerable_person_schema_id(team_id, source_id)
-    if schema_id is None:
+    binding = _triggerable_profile_binding(team_id, source_id)
+    if binding is None:
         return None
-    _assert_warehouse_source_editor(team_id, schema_id, user_access_control)
+    _assert_warehouse_editor(team_id, binding, user_access_control)
     # Placeholder rows before starting, so the activity always finds a running row to reconcile.
-    created_source_ids = _create_running_runs(team_id, schema_id, trigger)
-    from products.warehouse_sources.backend.facade.temporal import start_person_property_backfill  # noqa: PLC0415
+    created_source_ids = _create_running_runs(team_id, binding, trigger)
+    from products.warehouse_sources.backend.facade.temporal import (  # noqa: PLC0415
+        WarehouseBindingMissingError,
+        start_person_property_backfill,
+    )
 
     try:
-        return start_person_property_backfill(team_id=team_id, schema_id=schema_id, trigger=trigger)
+        return start_person_property_backfill(team_id=team_id, binding=binding, trigger=trigger)
+    except WarehouseBindingMissingError:
+        # The warehouse table or view was deleted after the placeholders were created; reconcile them
+        # so the source isn't stuck 'running', and report an invalid source (→ 400) rather than a
+        # coalesced run for a table that is gone.
+        _fail_created_runs(team_id, created_source_ids, "The warehouse table or view for this source no longer exists.")
+        return None
     except Exception:
         # The workflow never started; reconcile the placeholders so the source isn't stuck 'running'
         # with its trigger disabled, then surface the error to the caller.
@@ -1803,7 +2074,7 @@ def list_custom_property_sources(
 
     ``exclude_group_targets`` hides sources feeding a group-target definition from callers without
     ``group`` read authorization."""
-    queryset = CustomPropertySource.objects.for_team(team_id).order_by("-created_at")
+    queryset = CustomPropertySource.objects.for_team(team_id).select_related("definition").order_by("-created_at")
     if exclude_group_targets:
         queryset = queryset.exclude(definition__target_type=TargetType.GROUP.value)
     total_count = queryset.count()
@@ -1818,8 +2089,29 @@ def list_custom_property_sources(
 def get_custom_property_source(
     team_id: int, source_id: str, user_access_control: "UserAccessControl | None" = None
 ) -> contracts.CustomPropertySourceView | None:
-    source = CustomPropertySource.objects.for_team(team_id).filter(id=source_id).first()
+    source = CustomPropertySource.objects.for_team(team_id).select_related("definition").filter(id=source_id).first()
     return _to_custom_property_source_view(source, user_access_control) if source is not None else None
+
+
+def get_custom_property_source_binding_id(team_id: int, source_id: str) -> str | None:
+    """The id of the warehouse object a source reads — its saved query for a view binding, its external
+    data schema for a table binding — or None when the source doesn't resolve or reads neither. Kept to
+    two id columns (no definition join, no view building) because the sync throttle calls it per request
+    to key its limit on the warehouse object rather than the mapping."""
+    try:
+        row = (
+            CustomPropertySource.objects.for_team(team_id)
+            .filter(id=source_id)
+            .values_list("saved_query_id", "external_data_schema_id")
+            .first()
+        )
+    except (ValidationError, ValueError):  # a non-UUID id from the URL is simply unknown
+        return None
+    if row is None:
+        return None
+    saved_query_id, schema_id = row
+    binding_id = saved_query_id or schema_id
+    return str(binding_id) if binding_id is not None else None
 
 
 def create_custom_property_source(
@@ -1840,8 +2132,9 @@ def create_custom_property_source(
     if definition is None:
         raise CustomPropertySourceValidationError("Custom property definition not found for this team.")
 
-    # The definition's target decides which binding is valid: account sources read a saved query
-    # column; person sources read a raw incremental schema and map columns onto person properties.
+    # The definition's target decides which binding is valid: an account source reads one saved-query
+    # column; a person/group source maps columns from either an imported schema's table or a
+    # materialized view onto profile properties.
     create_kwargs: dict[str, Any] = {
         "team_id": team_id,
         "created_by": user,
@@ -1850,24 +2143,35 @@ def create_custom_property_source(
         "is_enabled": is_enabled,
     }
     if definition.target_type in _WAREHOUSE_PROFILE_TARGETS:
-        if external_data_schema_id is None:
-            raise CustomPropertySourceValidationError("A person/group property source needs an external_data_schema.")
-        if saved_query_id is not None or source_column:
+        if saved_query_id is not None and external_data_schema_id is not None:
+            raise CustomPropertySourceValidationError(_ONE_PROFILE_BINDING_ERROR)
+        if source_column:
             raise CustomPropertySourceValidationError(
-                "A person/group property source uses external_data_schema + column_property_map, not saved_query."
+                "A person/group property source maps columns with column_property_map, not source_column."
             )
-        # Validate the map shape in memory before the DB lookup below.
+        # Validate the map shape in memory before the DB lookups below.
         validated_map = _validate_column_property_map(column_property_map)
         create_kwargs["column_property_map"] = validated_map
         create_kwargs["column_descriptions"] = _validate_column_descriptions(
             column_descriptions, set(validated_map.keys())
         )
-        if not _external_data_schema_belongs_to_team(team_id, external_data_schema_id):
-            raise CustomPropertySourceValidationError("Warehouse schema not found for this team.")
-        # Mapping (and enabling) a warehouse table into person properties drives its billable source,
-        # so require the caller's warehouse-source editor access, not account-scope editor alone.
-        _assert_warehouse_source_editor(team_id, external_data_schema_id, user_access_control)
-        create_kwargs["external_data_schema_id"] = external_data_schema_id
+        if saved_query_id is not None:
+            # An unmaterialized view has no table to read, so the source could never sync — reject it
+            # here rather than creating a mapping that stays silently empty.
+            if not _materialized_saved_query_belongs_to_team(team_id, saved_query_id):
+                raise CustomPropertySourceValidationError("Materialized view not found for this team.")
+            binding = saved_query_binding(saved_query_id)
+            create_kwargs["saved_query_id"] = saved_query_id
+        elif external_data_schema_id is not None:
+            if not _external_data_schema_belongs_to_team(team_id, external_data_schema_id):
+                raise CustomPropertySourceValidationError("Warehouse schema not found for this team.")
+            binding = schema_binding(external_data_schema_id)
+            create_kwargs["external_data_schema_id"] = external_data_schema_id
+        else:
+            raise CustomPropertySourceValidationError(_ONE_PROFILE_BINDING_ERROR)
+        # Mapping (and enabling) a warehouse table into profile properties drives real warehouse runs,
+        # so require the caller's editor access on what it reads, not account-scope editor alone.
+        _assert_warehouse_editor(team_id, binding, user_access_control)
     else:
         if saved_query_id is None or not source_column:
             raise CustomPropertySourceValidationError(
@@ -1901,21 +2205,22 @@ def update_custom_property_source(
     """Apply ``fields`` (source_column / key_column / is_enabled) to a team-scoped source. Re-enabling
     (is_enabled False→True) resets the failure streak and clears the last error. Returns None (→ 404)
     when no source matches."""
-    source = CustomPropertySource.objects.for_team(team_id).filter(id=source_id).first()
+    source = CustomPropertySource.objects.for_team(team_id).select_related("definition").filter(id=source_id).first()
     if source is None:
         return None
     reenabling = fields.get("is_enabled") is True and not source.is_enabled
     columns_changed = any(
         attr in fields and fields[attr] != getattr(source, attr) for attr in ("source_column", "key_column")
     )
-    # A person source's backfill drives its billable warehouse source, so any change that will trigger
-    # one — re-enabling, or changing the mapped columns while it stays enabled — requires the caller's
-    # warehouse-source editor access, not account-scope editor alone (matching create). Both routes reach
+    # A profile source's backfill drives a real warehouse run, so any change that will trigger one —
+    # re-enabling, or changing the mapped columns while it stays enabled — requires the caller's editor
+    # access on the warehouse object, not account-scope editor alone (matching create). Both routes reach
     # _start_person_backfill_if_enabled below via ``reenabling or columns_changed``; ``is_enabled`` here is
     # the post-update state that decides whether that helper actually starts a backfill.
     will_be_enabled = fields.get("is_enabled", source.is_enabled) is True
-    if source.external_data_schema_id is not None and will_be_enabled and (reenabling or columns_changed):
-        _assert_warehouse_source_editor(team_id, source.external_data_schema_id, user_access_control)
+    binding = _profile_binding(source)
+    if binding is not None and will_be_enabled and (reenabling or columns_changed):
+        _assert_warehouse_editor(team_id, binding, user_access_control)
     for attr, value in fields.items():
         setattr(source, attr, value)
     if reenabling:
@@ -1932,37 +2237,59 @@ def update_custom_property_source(
 def delete_custom_property_source(
     *, team_id: int, source_id: str, user_access_control: "UserAccessControl | None" = None
 ) -> bool:
-    """Delete a team-scoped source. Returns False when none matched (→ 404). Deleting a person source
-    permanently stops its billable warehouse-driven updates, so it requires the caller's warehouse-source
-    editor access (→ 403 via ``ResourceForbiddenError``), matching create/update/sync/backfill."""
-    source = CustomPropertySource.objects.for_team(team_id).filter(id=source_id).first()
+    """Delete a team-scoped source. Returns False when none matched (→ 404). Deleting a profile source
+    permanently stops its warehouse-driven updates, so it requires the caller's editor access on the
+    warehouse object (→ 403 via ``ResourceForbiddenError``), matching create/update/sync/backfill."""
+    source = CustomPropertySource.objects.for_team(team_id).select_related("definition").filter(id=source_id).first()
     if source is None:
         return False
-    if source.external_data_schema_id is not None:
-        _assert_warehouse_source_editor(team_id, source.external_data_schema_id, user_access_control)
+    _assert_warehouse_editor(team_id, _profile_binding(source), user_access_control)
     deleted, _ = source.delete()
     return deleted > 0
 
 
 def list_custom_property_sync_runs(
-    team_id: int, source_id: str, offset: int, limit: int, user_access_control: "UserAccessControl | None" = None
+    team_id: int,
+    source_id: str,
+    offset: int,
+    limit: int,
+    user_access_control: "UserAccessControl | None" = None,
+    include_temporal_urls: bool = False,
+    search: str | None = None,
 ) -> tuple[list[contracts.CustomPropertySyncRunView], int]:
-    """Person-property sync/backfill runs for a source, newest first. Returns ``(page, total_count)``.
-    Scoped by team and source, so a run of another team's/source's is never returned. The runs expose
-    the underlying warehouse source's row counts and raw sync errors, so reading them requires the
-    caller's warehouse-source viewer access (→ 403 via ``ResourceForbiddenError``)."""
-    source = CustomPropertySource.objects.for_team(team_id).filter(id=source_id).first()
-    if source is not None and source.external_data_schema_id is not None:
-        _assert_warehouse_source_viewer(team_id, source.external_data_schema_id, user_access_control)
-    queryset = CustomPropertySyncRun.objects.for_team(team_id).filter(source_id=source_id).order_by("-created_at")
+    """Warehouse-backed custom property sync runs for a source, newest first. Returns ``(page, total_count)``.
+    Scoped by team and source, so another team's or source's runs are never returned. Profile-source
+    histories require viewer access to their warehouse object; account-source histories are visible to
+    the same callers who can view the source."""
+    source = CustomPropertySource.objects.for_team(team_id).select_related("definition").filter(id=source_id).first()
+    if source is not None:
+        _assert_warehouse_viewer(team_id, _profile_binding(source), user_access_control)
+    queryset: QuerySet[CustomPropertySyncRun] = CustomPropertySyncRun.objects.for_team(team_id).filter(
+        source_id=source_id
+    )
+    if search:
+        queryset = cast(
+            "QuerySet[CustomPropertySyncRun]",
+            queryset.annotate(workflow_run_id_text=Cast("workflow_run_id", output_field=CharField())).filter(
+                Q(job_id__icontains=search)
+                | Q(workflow_id__icontains=search)
+                | Q(workflow_run_id_text__icontains=search)
+                | Q(status__icontains=search)
+                | Q(segment__icontains=search)
+                | Q(trigger__icontains=search)
+                | Q(error__icontains=search)
+            ),
+        )
+    queryset = queryset.order_by("-created_at")
     total_count = queryset.count()
     page = list(queryset[offset : offset + limit])
     _expire_stale_running_runs(team_id, page)
-    return [_to_sync_run_view(run) for run in page], total_count
+    return [_to_sync_run_view(run, include_temporal_url=include_temporal_urls) for run in page], total_count
 
 
 FeatureRequestValidationError = _feature_requests_logic.FeatureRequestValidationError
 FeatureRequestProductAreaConflictError = _feature_requests_logic.FeatureRequestProductAreaConflictError
+FeatureRequestConflictError = _feature_requests_logic.FeatureRequestConflictError
 
 
 def list_feature_request_product_areas(
@@ -2002,11 +2329,17 @@ def update_feature_request_product_area(
 
 
 def list_feature_requests(
-    *, team_id: int, user_access_control: "UserAccessControl", offset: int, limit: int
+    *,
+    team_id: int,
+    user_access_control: "UserAccessControl",
+    filters: contracts.FeatureRequestListFilters,
+    offset: int,
+    limit: int,
 ) -> tuple[list[contracts.FeatureRequestView], int]:
     return _feature_requests_logic.list_feature_requests(
         team_id=team_id,
         user_access_control=user_access_control,
+        filters=filters,
         offset=offset,
         limit=limit,
     )
@@ -2037,6 +2370,130 @@ def create_feature_request(
     )
 
 
+def update_feature_request(
+    *,
+    team_id: int,
+    feature_request_id: UUID,
+    input: contracts.UpdateFeatureRequestInput,
+    actor_id: int,
+    user_access_control: "UserAccessControl",
+) -> contracts.FeatureRequestView | None:
+    return _feature_requests_logic.update_feature_request(
+        team_id=team_id,
+        feature_request_id=feature_request_id,
+        input=input,
+        actor_id=actor_id,
+        user_access_control=user_access_control,
+    )
+
+
+def add_feature_request_account(
+    *,
+    team_id: int,
+    feature_request_id: UUID,
+    input: contracts.AddFeatureRequestAccountInput,
+    actor_id: int,
+    user_access_control: "UserAccessControl",
+) -> contracts.FeatureRequestView | None:
+    return _feature_requests_logic.add_feature_request_account(
+        team_id=team_id,
+        feature_request_id=feature_request_id,
+        input=input,
+        actor_id=actor_id,
+        user_access_control=user_access_control,
+    )
+
+
+def create_feature_request_evidence(
+    *,
+    team_id: int,
+    feature_request_id: UUID,
+    input: contracts.CreateFeatureRequestEvidenceInput,
+    actor_id: int,
+    user_access_control: "UserAccessControl",
+) -> contracts.FeatureRequestView | None:
+    return _feature_requests_logic.create_feature_request_evidence(
+        team_id=team_id,
+        feature_request_id=feature_request_id,
+        input=input,
+        actor_id=actor_id,
+        user_access_control=user_access_control,
+    )
+
+
+def update_feature_request_evidence(
+    *,
+    team_id: int,
+    feature_request_id: UUID,
+    input: contracts.UpdateFeatureRequestEvidenceInput,
+    actor_id: int,
+    user_access_control: "UserAccessControl",
+) -> contracts.FeatureRequestView | None:
+    return _feature_requests_logic.update_feature_request_evidence(
+        team_id=team_id,
+        feature_request_id=feature_request_id,
+        input=input,
+        actor_id=actor_id,
+        user_access_control=user_access_control,
+    )
+
+
+def delete_feature_request_evidence(
+    *,
+    team_id: int,
+    feature_request_id: UUID,
+    input: contracts.DeleteFeatureRequestEvidenceInput,
+    actor_id: int,
+    user_access_control: "UserAccessControl",
+) -> contracts.FeatureRequestView | None:
+    return _feature_requests_logic.delete_feature_request_evidence(
+        team_id=team_id,
+        feature_request_id=feature_request_id,
+        input=input,
+        actor_id=actor_id,
+        user_access_control=user_access_control,
+    )
+
+
+def set_feature_request_archived(
+    *,
+    team_id: int,
+    feature_request_id: UUID,
+    expected_version: int,
+    archived: bool,
+    actor_id: int,
+    user_access_control: "UserAccessControl",
+) -> contracts.FeatureRequestView | None:
+    return _feature_requests_logic.set_feature_request_archived(
+        team_id=team_id,
+        feature_request_id=feature_request_id,
+        expected_version=expected_version,
+        archived=archived,
+        actor_id=actor_id,
+        user_access_control=user_access_control,
+    )
+
+
+def list_feature_request_history(
+    *, team_id: int, feature_request_id: UUID, user_access_control: "UserAccessControl"
+) -> list[contracts.FeatureRequestHistoryView] | None:
+    return _feature_requests_logic.list_feature_request_history(
+        team_id=team_id,
+        feature_request_id=feature_request_id,
+        user_access_control=user_access_control,
+    )
+
+
+def list_feature_request_status_history(
+    *, team_id: int, feature_request_id: UUID, user_access_control: "UserAccessControl"
+) -> list[contracts.FeatureRequestStatusHistoryView] | None:
+    return _feature_requests_logic.list_feature_request_status_history(
+        team_id=team_id,
+        feature_request_id=feature_request_id,
+        user_access_control=user_access_control,
+    )
+
+
 # --- CustomerJourney ---
 
 
@@ -2061,7 +2518,7 @@ def _customer_journeys_queryset(team_id: int):
 def insight_belongs_to_team(team_id: int, insight_id: int) -> bool:
     """Whether the given insight is in the team — backs the journey serializer's
     ``validate_insight`` (kept as a cheap existence probe so the model stays hidden)."""
-    from products.product_analytics.backend.models.insight import Insight
+    from products.product_analytics.backend.facade.models import Insight
 
     return Insight.objects.filter(pk=insight_id, team_id=team_id).exists()
 
@@ -2200,6 +2657,8 @@ def _to_account_view(account: Account) -> contracts.AccountView:
         tags=_account_view_tags(account),
         notebooks=_account_view_notebooks(account),
         slack_summary_cadence=account.slack_summary_cadence,
+        churned_at=account.churned_at,
+        ignored_at=account.ignored_at,
         created_at=account.created_at,
         created_by=account.created_by_id,
         updated_at=account.updated_at,
@@ -2228,6 +2687,10 @@ def _account_table_field_values(
                 values[field] = account.created_at.isoformat() if account.created_at else None
             case contracts.AccountTableField.UPDATED_AT:
                 values[field] = account.updated_at.isoformat() if account.updated_at else None
+            case contracts.AccountTableField.CHURNED_AT:
+                values[field] = account.churned_at.isoformat() if account.churned_at else None
+            case contracts.AccountTableField.IGNORED_AT:
+                values[field] = account.ignored_at.isoformat() if account.ignored_at else None
             case contracts.AccountTableField.STRIPE_CUSTOMER_ID:
                 values[field] = properties.stripe_customer_id
             case contracts.AccountTableField.HUBSPOT_DEAL_ID:
@@ -2299,129 +2762,10 @@ def _validate_account_table_definitions(
     return custom_property_display_types
 
 
-def _coerce_datetime_filter_value(value: float | bool | str) -> datetime:
-    if not isinstance(value, str):
-        raise InvalidAccountTableColumn("Date custom property filters require ISO-8601 values.")
-    parsed_datetime = parse_datetime(value)
-    if parsed_datetime is None:
-        parsed_date = parse_date(value)
-        if parsed_date is None:
-            raise InvalidAccountTableColumn("Date custom property filters require ISO-8601 values.")
-        parsed_datetime = datetime.combine(parsed_date, time.min, tzinfo=UTC)
-    elif timezone.is_naive(parsed_datetime):
-        parsed_datetime = timezone.make_aware(parsed_datetime, UTC)
-    return parsed_datetime
-
-
-def _coerce_custom_property_filter_values(
-    filter_: contracts.AccountTableCustomPropertyFilter, display_type: DisplayType
-) -> tuple[float | bool | str | datetime, ...]:
-    data_type = DATA_TYPE_BY_DISPLAY_TYPE[display_type]
-    values = filter_.values
-    if filter_.operator in {
-        contracts.AccountTableCustomPropertyOperator.IS_SET,
-        contracts.AccountTableCustomPropertyOperator.IS_NOT_SET,
-    }:
-        return ()
-    if not values:
-        raise InvalidAccountTableColumn("Custom property filters require at least one value.")
-
-    if data_type == DataType.NUMERIC:
-        if any(isinstance(value, bool) for value in values):
-            raise InvalidAccountTableColumn("Numeric custom property filters require numeric values.")
-        try:
-            return tuple(float(value) for value in values)
-        except (TypeError, ValueError) as error:
-            raise InvalidAccountTableColumn("Numeric custom property filters require numeric values.") from error
-    if data_type == DataType.BOOLEAN:
-        coerced: list[bool] = []
-        for value in values:
-            if isinstance(value, bool):
-                coerced.append(value)
-            elif str(value).lower() in {"true", "1"}:
-                coerced.append(True)
-            elif str(value).lower() in {"false", "0"}:
-                coerced.append(False)
-            else:
-                raise InvalidAccountTableColumn("Boolean custom property filters require true or false values.")
-        return tuple(coerced)
-    if data_type == DataType.DATETIME:
-        return tuple(_coerce_datetime_filter_value(value) for value in values)
-    return tuple(str(value) for value in values)
-
-
-def _custom_property_filter_predicate(
-    filter_: contracts.AccountTableCustomPropertyFilter, display_type: DisplayType
-) -> tuple[Q, bool]:
-    operator = filter_.operator
-    data_type = DATA_TYPE_BY_DISPLAY_TYPE[display_type]
-    values = _coerce_custom_property_filter_values(filter_, display_type)
-    value_field = {
-        DataType.STRING: "value_str",
-        DataType.NUMERIC: "value_num",
-        DataType.BOOLEAN: "value_bool",
-        DataType.DATETIME: "value_datetime",
-    }[data_type]
-
-    if operator == contracts.AccountTableCustomPropertyOperator.IS_SET:
-        return Q(), False
-    if operator == contracts.AccountTableCustomPropertyOperator.IS_NOT_SET:
-        return Q(), True
-    if operator in {
-        contracts.AccountTableCustomPropertyOperator.EXACT,
-        contracts.AccountTableCustomPropertyOperator.IS_NOT,
-    }:
-        return Q(**{f"{value_field}__in": values}), operator == contracts.AccountTableCustomPropertyOperator.IS_NOT
-    if operator in {
-        contracts.AccountTableCustomPropertyOperator.REGEX,
-        contracts.AccountTableCustomPropertyOperator.NOT_REGEX,
-    }:
-        raise InvalidAccountTableColumn("Regex custom property filters are not supported by account table queries.")
-    if operator in {
-        contracts.AccountTableCustomPropertyOperator.CONTAINS,
-        contracts.AccountTableCustomPropertyOperator.DOES_NOT_CONTAIN,
-    }:
-        if data_type != DataType.STRING:
-            raise InvalidAccountTableColumn("Contains operators require a text custom property.")
-        predicate = Q()
-        for value in values:
-            predicate |= Q(value_str__icontains=value)
-        return predicate, operator == contracts.AccountTableCustomPropertyOperator.DOES_NOT_CONTAIN
-    if operator in {
-        contracts.AccountTableCustomPropertyOperator.GREATER_THAN,
-        contracts.AccountTableCustomPropertyOperator.GREATER_THAN_OR_EQUAL,
-        contracts.AccountTableCustomPropertyOperator.LESS_THAN,
-        contracts.AccountTableCustomPropertyOperator.LESS_THAN_OR_EQUAL,
-    }:
-        if data_type != DataType.NUMERIC:
-            raise InvalidAccountTableColumn("Comparison operators require a numeric custom property.")
-        if len(values) != 1:
-            raise InvalidAccountTableColumn("Numeric comparison filters require one value.")
-        lookup = {
-            contracts.AccountTableCustomPropertyOperator.GREATER_THAN: "gt",
-            contracts.AccountTableCustomPropertyOperator.GREATER_THAN_OR_EQUAL: "gte",
-            contracts.AccountTableCustomPropertyOperator.LESS_THAN: "lt",
-            contracts.AccountTableCustomPropertyOperator.LESS_THAN_OR_EQUAL: "lte",
-        }[operator]
-        return Q(**{f"value_num__{lookup}": values[0]}), False
-    if operator in {
-        contracts.AccountTableCustomPropertyOperator.DATE_EXACT,
-        contracts.AccountTableCustomPropertyOperator.DATE_BEFORE,
-        contracts.AccountTableCustomPropertyOperator.DATE_AFTER,
-    }:
-        if data_type != DataType.DATETIME:
-            raise InvalidAccountTableColumn("Date operators require a date or datetime custom property.")
-        if len(values) != 1:
-            raise InvalidAccountTableColumn("Date comparison filters require one value.")
-        if operator == contracts.AccountTableCustomPropertyOperator.DATE_EXACT:
-            target_date = cast(datetime, values[0]).replace(hour=0, minute=0, second=0, microsecond=0)
-            return Q(value_datetime__gte=target_date, value_datetime__lt=target_date + timedelta(days=1)), False
-        lookup = {
-            contracts.AccountTableCustomPropertyOperator.DATE_BEFORE: "lt",
-            contracts.AccountTableCustomPropertyOperator.DATE_AFTER: "gt",
-        }[operator]
-        return Q(**{f"value_datetime__{lookup}": values[0]}), False
-    raise InvalidAccountTableColumn(f"Unsupported custom property filter operator: {operator.value}")
+def _filters_account_table_field(
+    filters: tuple[contracts.AccountTableFilter, ...], field: contracts.AccountTableField
+) -> bool:
+    return any(isinstance(filter_, contracts.AccountTableFieldFilter) and filter_.field == field for filter_ in filters)
 
 
 def _apply_account_table_filters(
@@ -2431,37 +2775,15 @@ def _apply_account_table_filters(
     filters: tuple[contracts.AccountTableFilter, ...],
     custom_property_display_types: dict[UUID, DisplayType],
 ) -> QuerySet[Account]:
-    active_relationships = AccountRelationship.objects.for_team(team_id).filter(
-        account_id=OuterRef("pk"), ended_at__isnull=True, user_id__isnull=False
-    )
-    for filter_ in filters:
-        if isinstance(filter_, contracts.AccountTableSearchFilter):
-            query = filter_.query.strip()
-            if query:
-                queryset = queryset.filter(Q(name__icontains=query) | Q(external_id__icontains=query))
-        elif isinstance(filter_, contracts.AccountTableTagsFilter):
-            if filter_.tag_names:
-                matching_tags = TaggedItem.objects.filter(
-                    account_id=OuterRef("pk"), tag__team_id=team_id, tag__name__in=filter_.tag_names
-                )
-                queryset = queryset.filter(Exists(matching_tags))
-        elif isinstance(filter_, contracts.AccountTableAssignedToFilter):
-            if filter_.user_ids:
-                queryset = queryset.filter(Exists(active_relationships.filter(user_id__in=filter_.user_ids)))
-        elif isinstance(filter_, contracts.AccountTableUnassignedFilter):
-            queryset = queryset.filter(~Exists(active_relationships))
-        elif isinstance(filter_, contracts.AccountTableAccountIdFilter):
-            queryset = queryset.filter(id=filter_.account_id)
-        elif isinstance(filter_, contracts.AccountTableCustomPropertyFilter):
-            active_values = CustomPropertyValue.objects.for_team(team_id).filter(
-                account_id=OuterRef("pk"), definition_id=filter_.definition_id, is_deleted=False
-            )
-            predicate, negate_exists = _custom_property_filter_predicate(
-                filter_, custom_property_display_types[filter_.definition_id]
-            )
-            matching_values = active_values.filter(predicate)
-            queryset = queryset.filter(~Exists(matching_values) if negate_exists else Exists(matching_values))
-    return queryset
+    try:
+        return apply_account_filters(
+            queryset,
+            team_id=team_id,
+            filters=filters,
+            custom_property_display_types=custom_property_display_types,
+        )
+    except InvalidAccountFilter as error:
+        raise InvalidAccountTableColumn(str(error)) from error
 
 
 def _custom_property_sort_output_field(display_type: DisplayType) -> Field:
@@ -2491,6 +2813,8 @@ def _apply_account_table_sort(
             contracts.AccountTableField.EXTERNAL_ID: "external_id",
             contracts.AccountTableField.CREATED_AT: "created_at",
             contracts.AccountTableField.UPDATED_AT: "updated_at",
+            contracts.AccountTableField.CHURNED_AT: "churned_at",
+            contracts.AccountTableField.IGNORED_AT: "ignored_at",
         }
         if direct_field := direct_fields.get(sort.account_field):
             queryset = queryset.annotate(_account_table_sort=F(direct_field))
@@ -2573,6 +2897,8 @@ def query_accounts_metrics(
     user_access_control: "UserAccessControl",
     filters: tuple[contracts.AccountTableFilter, ...],
     metrics: tuple[contracts.AccountTableMetric, ...],
+    include_churned: bool = False,
+    include_ignored: bool = False,
 ) -> list[float | int | None]:
     definition_ids = frozenset(
         metric.definition_id
@@ -2589,8 +2915,13 @@ def query_accounts_metrics(
         if DATA_TYPE_BY_DISPLAY_TYPE[custom_property_display_types[definition_id]] != DataType.NUMERIC:
             raise InvalidAccountTableColumn("Account table metrics require numeric custom properties.")
 
+    accounts = _accounts_queryset(team_id, user_access_control)
+    if not include_churned and not _filters_account_table_field(filters, contracts.AccountTableField.CHURNED_AT):
+        accounts = accounts.filter(churned_at__isnull=True)
+    if not include_ignored and not _filters_account_table_field(filters, contracts.AccountTableField.IGNORED_AT):
+        accounts = accounts.filter(ignored_at__isnull=True)
     accounts = _apply_account_table_filters(
-        _accounts_queryset(team_id, user_access_control),
+        accounts,
         team_id=team_id,
         filters=filters,
         custom_property_display_types=custom_property_display_types,
@@ -2645,6 +2976,14 @@ def query_accounts_metrics(
     return results
 
 
+def _resolve_account_logo_domain(account: Account) -> str | None:
+    properties = account.properties
+    return resolve_logo_domain(
+        website_domain=properties.website_domain,
+        email_domains=properties.email_domains,
+    )
+
+
 def query_accounts_table(
     *,
     team_id: int,
@@ -2654,6 +2993,8 @@ def query_accounts_table(
     sort: contracts.AccountTableSort | None,
     offset: int,
     limit: int,
+    include_churned: bool = False,
+    include_ignored: bool = False,
 ) -> contracts.AccountTablePage:
     custom_property_display_types = _validate_account_table_definitions(
         team_id=team_id,
@@ -2662,8 +3003,13 @@ def query_accounts_table(
         sort=sort,
     )
 
+    queryset = _accounts_queryset(team_id, user_access_control)
+    if not include_churned and not _filters_account_table_field(filters, contracts.AccountTableField.CHURNED_AT):
+        queryset = queryset.filter(churned_at__isnull=True)
+    if not include_ignored and not _filters_account_table_field(filters, contracts.AccountTableField.IGNORED_AT):
+        queryset = queryset.filter(ignored_at__isnull=True)
     queryset = _apply_account_table_filters(
-        _accounts_queryset(team_id, user_access_control),
+        queryset,
         team_id=team_id,
         filters=filters,
         custom_property_display_types=custom_property_display_types,
@@ -2765,6 +3111,7 @@ def query_accounts_table(
             id=account.id,
             name=account.name,
             external_id=account.external_id,
+            logo_domain=_resolve_account_logo_domain(account),
             account_fields=_account_table_field_values(account, selection.account_fields),
             tags=tags_by_account[account.id] if selection.include_tags else None,
             note_count=note_counts_by_account[account.id] if selection.include_note_count else None,
@@ -2786,6 +3133,8 @@ def list_accounts_for_view(
     search: str | None = None,
     tags: list[str] | None = None,
     all_roles_unassigned: bool = False,
+    include_churned: bool = False,
+    include_ignored: bool = False,
     ordering: str | None = None,
 ) -> tuple[list[contracts.AccountView], int]:
     """The accounts list endpoint, behind the facade: team + object-level access filtering,
@@ -2796,6 +3145,11 @@ def list_accounts_for_view(
         Prefetch("notebooks", queryset=ResourceNotebook.objects.select_related("notebook")),
         Prefetch("tagged_items", queryset=TaggedItem.objects.select_related("tag"), to_attr="prefetched_tags"),
     )
+
+    if not include_churned:
+        queryset = queryset.filter(churned_at__isnull=True)
+    if not include_ignored:
+        queryset = queryset.filter(ignored_at__isnull=True)
 
     if search:
         queryset = queryset.filter(Q(name__icontains=search) | Q(external_id__icontains=search))
@@ -2858,6 +3212,7 @@ def update_account(
     external_id: str | None | _Unset = _UNSET,
     properties: "dict | _ModelAccountProperties | _Unset" = _UNSET,
     slack_summary_cadence: "str | None | _Unset" = _UNSET,
+    churned_at: "datetime | None | _Unset" = _UNSET,
     allow_matching_updates: bool = False,
 ) -> Account:
     """Field-write primitive shared by every account update path. Only the fields passed are
@@ -2887,10 +3242,15 @@ def update_account(
     if not isinstance(slack_summary_cadence, _Unset):
         account.slack_summary_cadence = slack_summary_cadence
         update_fields.append("slack_summary_cadence")
+    if not isinstance(churned_at, _Unset):
+        account.churned_at = churned_at
+        update_fields.append("churned_at")
     if update_fields:
         account.save(update_fields=update_fields)
     if matching_expanded:
         transaction.on_commit(lambda: _enqueue_meeting_rematch(account.team_id, str(account.id)))
+    if "external_id" in update_fields or "_properties" in update_fields:
+        schedule_email_thread_link_recalculation(account.team_id)
     return account
 
 
@@ -2903,6 +3263,7 @@ def create_account(
     properties: "dict | _ModelAccountProperties | None" = None,
     tags: list[str] | None = None,
     slack_summary_cadence: str | None = None,
+    churned_at: datetime | None = None,
     was_impersonated: bool = False,
     trigger: Trigger | None = None,
 ) -> Account:
@@ -2920,6 +3281,7 @@ def create_account(
                 external_id=_cap_to_field_length("external_id", external_id) if external_id is not None else None,
                 _properties=validated.model_dump(mode="json", exclude_unset=True),
                 slack_summary_cadence=slack_summary_cadence,
+                churned_at=churned_at,
             )
             _set_tags(tags, account, actor=created_by)
     except PydanticValidationError as exc:
@@ -2937,6 +3299,7 @@ def create_account(
         was_impersonated=was_impersonated,
         trigger=trigger,
     )
+    schedule_email_thread_link_recalculation(team.pk)
     return account
 
 
@@ -2955,6 +3318,7 @@ def create_account_for_view(
         properties=input.properties,
         tags=input.tags,
         slack_summary_cadence=input.slack_summary_cadence,
+        churned_at=input.churned_at,
         was_impersonated=was_impersonated,
     )
     return _to_account_view(account)
@@ -2985,6 +3349,8 @@ def update_account_for_view(
         update_kwargs["properties"] = input.properties if input.properties is not None else {}
     if input.slack_summary_cadence_provided:
         update_kwargs["slack_summary_cadence"] = input.slack_summary_cadence
+    if input.churned_at_provided:
+        update_kwargs["churned_at"] = input.churned_at
     update_kwargs["allow_matching_updates"] = allow_matching_updates
 
     try:
@@ -3110,6 +3476,7 @@ def delete_account_for_view(
         streams = _event_streams_containing_account(account)
         team = account.team
         account.delete()
+        schedule_email_thread_link_recalculation(team_id)
         for stream in streams:
             sync_event_stream_destination(stream, team=team, user=user)
 
@@ -3363,7 +3730,153 @@ def get_account_support_tickets(
     account = _resolve_account(team_id, account_id=account_id)
     if account is None or not account.external_id:
         return []
-    return list_account_tickets(team_id, account.external_id, limit=limit)
+    return list_account_tickets(team_id, account.external_id, user_access_control, limit=limit)
+
+
+def get_account_support_ticket_messages(
+    team_id: int,
+    account_id: str,
+    ticket_id: str,
+    user_access_control: "UserAccessControl",
+    *,
+    offset: int = 0,
+    limit: int = 50,
+) -> tuple[list[SupportTicketMessage], int] | None:
+    if get_accessible_account_id(team_id, account_id, user_access_control) is None:
+        return None
+    if not user_access_control.check_access_level_for_resource("ticket", "viewer"):
+        raise ResourceForbiddenError()
+    account = _resolve_account(team_id, account_id=account_id)
+    if account is None or not account.external_id:
+        return None
+    return list_account_ticket_messages(
+        team_id,
+        account.external_id,
+        ticket_id,
+        user_access_control,
+        offset=offset,
+        limit=limit,
+    )
+
+
+def get_account_email_threads(
+    team_id: int,
+    account_id: str,
+    user_access_control: "UserAccessControl",
+    *,
+    offset: int = 0,
+    limit: int = 50,
+) -> tuple[list[AccountEmailThreadSummary], int] | None:
+    if get_accessible_account_id(team_id, account_id, user_access_control) is None:
+        return None
+    if not user_access_control.check_access_level_for_resource("ticket", "viewer"):
+        raise ResourceForbiddenError()
+    return list_account_email_threads(team_id, account_id, offset=offset, limit=limit)
+
+
+def get_account_email_thread_messages(
+    team_id: int,
+    account_id: str,
+    thread_id: str,
+    user_access_control: "UserAccessControl",
+    *,
+    offset: int = 0,
+    limit: int = 50,
+) -> tuple[list[AccountEmailThreadMessage], int] | None:
+    if get_accessible_account_id(team_id, account_id, user_access_control) is None:
+        return None
+    if not user_access_control.check_access_level_for_resource("ticket", "viewer"):
+        raise ResourceForbiddenError()
+    return list_account_email_thread_messages(team_id, account_id, thread_id, offset=offset, limit=limit)
+
+
+AccountTrackRuleValidationError = _account_track_rules_logic.AccountTrackRuleValidationError
+AccountTrackRuleVersionConflict = _account_track_rules_logic.AccountTrackRuleVersionConflict
+AccountTrackRuleRunError = _account_track_rules_logic.AccountTrackRuleRunError
+
+
+class AccountTrackRuleRunAlreadyActive(ValueError):
+    pass
+
+
+def get_account_track_rules(team_id: int) -> contracts.AccountTrackRulesConfig:
+    return _account_track_rules_logic.get_account_track_rules(team_id)
+
+
+def update_account_track_rules(
+    *,
+    team_id: int,
+    raw_config: dict[str, Any],
+    user: "User",
+    organization_id: UUID,
+    was_impersonated: bool,
+) -> contracts.AccountTrackRulesConfig:
+    return _account_track_rules_logic.update_account_track_rules(
+        team_id=team_id,
+        raw_config=raw_config,
+        user=user,
+        organization_id=organization_id,
+        was_impersonated=was_impersonated,
+    )
+
+
+def preview_account_track_rules(
+    team_id: int, raw_config: dict[str, Any] | None = None
+) -> contracts.AccountTrackRulePreview:
+    return _account_track_rules_logic.preview_account_track_rules(team_id, raw_config)
+
+
+def list_account_track_rule_runs(
+    team_id: int, *, offset: int, limit: int
+) -> tuple[list[contracts.AccountTrackRuleRunView], int]:
+    return _account_track_rules_logic.list_account_track_rule_runs(team_id, offset=offset, limit=limit)
+
+
+def trigger_account_track_rule_run(
+    *,
+    team_id: int,
+    idempotency_key: UUID,
+    user_id: int,
+) -> tuple[contracts.AccountTrackRuleRunView, bool]:
+    run, created = _account_track_rules_logic.create_account_track_rule_run(
+        team_id=team_id,
+        idempotency_key=idempotency_key,
+        user_id=user_id,
+    )
+    if not created:
+        return _account_track_rules_logic.to_run_view(run), False
+
+    from posthog.temporal.common.client import sync_connect  # noqa: PLC0415
+
+    from products.customer_analytics.backend.temporal.account_track_rules import (  # noqa: PLC0415
+        AccountTrackRuleEvaluationInput,
+        AccountTrackRuleEvaluationWorkflow,
+        account_track_rule_workflow_id,
+    )
+
+    try:
+        client = sync_connect()
+        asyncio.run(
+            client.start_workflow(
+                AccountTrackRuleEvaluationWorkflow.run,
+                AccountTrackRuleEvaluationInput(
+                    team_id=team_id,
+                    run_id=str(run.id),
+                    config_version=run.config_version,
+                ),
+                id=account_track_rule_workflow_id(team_id),
+                task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+        )
+    except WorkflowAlreadyStartedError as error:
+        _account_track_rules_logic.fail_account_track_rule_run(team_id, run.id)
+        raise AccountTrackRuleRunAlreadyActive("Another Track Rules run is already in progress.") from error
+    except Exception:
+        _account_track_rules_logic.fail_account_track_rule_run(team_id, run.id)
+        raise
+    return _account_track_rules_logic.to_run_view(run), True
 
 
 def list_calendar_sync_statuses(team_id: int) -> list[contracts.CalendarSyncStatus]:
@@ -3459,11 +3972,22 @@ def list_account_meetings(
             | Q(participants__display_name__icontains=search)
         ).distinct()
     count = queryset.count()
-    meetings = queryset.order_by("-start_time").prefetch_related("participants")[offset : offset + limit]
+    meetings = list(queryset.order_by("-start_time").prefetch_related("participants")[offset : offset + limit])
+
+    from products.customer_analytics.backend.logic.gong import (  # noqa: PLC0415 — keeps HogQL off the facade import path
+        get_gong_urls_by_meeting_id,
+    )
+
+    team = user_access_control.team
+    if team is None or team.id != team_id:
+        team = Team.objects.get(id=team_id)
+    gong_urls_by_meeting_id = get_gong_urls_by_meeting_id(team=team, user=user_access_control.user, meetings=meetings)
+
     views = [
         contracts.MeetingView(
             id=meeting.id,
             title=meeting.title,
+            gong_url=gong_urls_by_meeting_id.get(meeting.id),
             start_time=meeting.start_time,
             end_time=meeting.end_time,
             organizer_email=meeting.organizer_email,
@@ -3870,13 +4394,20 @@ def assign_account_relationship(
 
 
 def end_account_relationship(
-    *, team_id: int, account_id: str | UUID, relationship_id: str | UUID
+    *,
+    team_id: int,
+    account_id: str | UUID,
+    relationship_id: str | UUID,
+    actor: "User | None" = None,
 ) -> contracts.AccountRelationship | None:
     """End an active assignment. Returns None when no active assignment matches this account
     (missing, another account's, or already ended) — mapped to 404."""
     try:
         relationship = _relationships_logic.end_relationship(
-            team_id=team_id, account_id=account_id, relationship_id=str(relationship_id)
+            team_id=team_id,
+            account_id=account_id,
+            relationship_id=str(relationship_id),
+            actor=actor,
         )
     except _relationships_logic.AccountRelationshipNotFound:
         return None

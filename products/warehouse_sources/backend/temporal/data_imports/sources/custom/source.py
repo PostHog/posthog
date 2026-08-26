@@ -786,7 +786,10 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             name=SchemaExternalDataSourceType.CUSTOM,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Custom REST source",
-            releaseStatus=ReleaseStatus.ALPHA,
+            # The generic HTTP/API connector. Match the terms people search when no named
+            # connector for their API exists yet.
+            keywords=["rest", "api", "http", "https", "rest api", "http api", "custom api", "endpoint"],
+            releaseStatus=ReleaseStatus.BETA,
             caption=(
                 "Set up a source using custom configured mappings. "
                 "Define a REST API source by providing a manifest that follows the same shape "
@@ -884,6 +887,13 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             # manifest-driven, so the 404 recurs on every retry — stop and point at the config.
             # The message omits the URL, which carries the customer's hostname.
             "404 Client Error": "The upstream API returned HTTP 404 Not Found. Check that the base URL and the resource's path in the manifest are correct and that the endpoint exists, then try again.",
+            # A network proxy rejected the request before it reached the upstream API. On PostHog
+            # Cloud this is the egress proxy refusing a URL it isn't allowed to reach (a private or
+            # internal address); it can also be an upstream proxy in front of the customer's API
+            # demanding credentials. The manifest-driven request recurs identically on every retry,
+            # so stop and point at the manifest URLs. The message omits the URL, which carries the
+            # customer's hostname.
+            "407 Client Error": "A network proxy rejected the request before it reached the upstream API (HTTP 407). This usually means a URL in the manifest points at an address PostHog can't reach (for example a private or internal address), or the API sits behind a proxy that needs credentials. Check the URLs in the manifest, then try again.",
             # A schema points to a resource the manifest no longer defines (renamed or removed
             # in an edit while the table's sync stayed scheduled). Permanent until the config is
             # fixed — match the stable suffix, not the variable resource name in the message.

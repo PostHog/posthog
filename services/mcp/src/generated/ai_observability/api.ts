@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 77 enabled ops
+ * PostHog API - MCP 76 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -579,179 +579,181 @@ export const evaluationsCreateBodyTargetConfigTwoMaxAgeSecondsMax = 604800
 
 export const evaluationsCreateBodyModelConfigurationOneModelMax = 100
 
-export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(evaluationsCreateBodyNameMax).describe('Name of the evaluation.'),
-    description: zod.string().optional().describe('Optional description of what this evaluation checks.'),
-    directory_id: zod
-        .string()
-        .nullish()
-        .describe('Directory containing the evaluation. Pass null to move the evaluation to the top level.'),
-    enabled: zod
-        .boolean()
-        .optional()
-        .describe('Whether the evaluation runs automatically on new $ai_generation events.'),
-    evaluation_type: zod
-        .enum(['llm_judge', 'hog', 'sentiment'])
-        .describe('\* `llm_judge` - LLM as a judge\n\* `hog` - Hog\n\* `sentiment` - Sentiment analysis')
-        .describe(
-            "'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment (trained on English, so use 'llm_judge' for multilingual agents).\n\n\* `llm_judge` - LLM as a judge\n\* `hog` - Hog\n\* `sentiment` - Sentiment analysis"
-        ),
-    evaluation_config: zod
-        .union([
-            zod.object({
-                prompt: zod
-                    .string()
-                    .min(1)
-                    .describe('Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.'),
-            }),
-            zod.object({
-                source: zod
-                    .string()
-                    .min(1)
-                    .describe('Hog source code. Must return true (pass), false (fail), or null for N\/A.'),
-            }),
-            zod.object({
-                source: zod
-                    .enum(['user_messages'])
-                    .default(evaluationsCreateBodyEvaluationConfigThreeSourceDefault)
-                    .describe(
-                        "Classify sentiment from user messages in the generation input. The classifier is trained on English, so labels are unreliable for other languages; use an 'llm_judge' evaluation for multilingual agents."
-                    ),
-            }),
-        ])
-        .optional()
-        .describe(
-            "Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}."
-        ),
-    output_type: zod
-        .enum(['boolean', 'sentiment'])
-        .describe('\* `boolean` - Boolean (Pass\/Fail)\n\* `sentiment` - Sentiment')
-        .describe(
-            "Output format. Use 'boolean' for pass\/fail evaluations and 'sentiment' for sentiment analysis.\n\n\* `boolean` - Boolean (Pass\/Fail)\n\* `sentiment` - Sentiment"
-        ),
-    output_config: zod
-        .object({
-            allows_na: zod
-                .boolean()
-                .default(evaluationsCreateBodyOutputConfigAllowsNaDefault)
-                .describe('Whether the evaluation can return N\/A for non-applicable generations.'),
-        })
-        .optional()
-        .describe("Output config. For 'boolean' output_type: {allows_na} to permit N\/A results."),
-    conditions: zod
-        .array(
-            zod
-                .object({
-                    id: zod
+export const EvaluationsCreateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod.string().max(evaluationsCreateBodyNameMax).describe('Name of the evaluation.'),
+        description: zod.string().optional().describe('Optional description of what this evaluation checks.'),
+        directory_id: zod
+            .string()
+            .nullish()
+            .describe('Directory containing the evaluation. Pass null to move the evaluation to the top level.'),
+        enabled: zod
+            .boolean()
+            .optional()
+            .describe('Whether the evaluation runs automatically on new $ai_generation events.'),
+        evaluation_type: zod
+            .enum(['llm_judge', 'hog', 'sentiment'])
+            .describe('\* `llm_judge` - LLM as a judge\n\* `hog` - Hog\n\* `sentiment` - Sentiment analysis')
+            .describe(
+                "'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment (trained on English, so use 'llm_judge' for multilingual agents).\n\n\* `llm_judge` - LLM as a judge\n\* `hog` - Hog\n\* `sentiment` - Sentiment analysis"
+            ),
+        evaluation_config: zod
+            .union([
+                zod.object({
+                    prompt: zod
                         .string()
-                        .max(evaluationsCreateBodyConditionsItemIdMax)
-                        .describe('Stable identifier for this condition set.'),
-                    rollout_percentage: zod
-                        .number()
-                        .min(evaluationsCreateBodyConditionsItemRolloutPercentageMin)
-                        .max(evaluationsCreateBodyConditionsItemRolloutPercentageMax)
-                        .default(evaluationsCreateBodyConditionsItemRolloutPercentageDefault)
+                        .min(1)
+                        .describe('Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.'),
+                }),
+                zod.object({
+                    source: zod
+                        .string()
+                        .min(1)
+                        .describe('Hog source code. Must return true (pass), false (fail), or null for N\/A.'),
+                }),
+                zod.object({
+                    source: zod
+                        .enum(['user_messages'])
+                        .default(evaluationsCreateBodyEvaluationConfigThreeSourceDefault)
                         .describe(
-                            'Percentage (0-100) of matching events to sample for this evaluation. Defaults to 100.'
+                            "Classify sentiment from user messages in the generation input. The classifier is trained on English, so labels are unreliable for other languages; use an 'llm_judge' evaluation for multilingual agents."
                         ),
-                    properties: zod
-                        .array(zod.record(zod.string(), zod.unknown()))
+                }),
+            ])
+            .optional()
+            .describe(
+                "Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}."
+            ),
+        output_type: zod
+            .enum(['boolean', 'sentiment'])
+            .describe('\* `boolean` - Boolean (Pass\/Fail)\n\* `sentiment` - Sentiment')
+            .describe(
+                "Output format. Use 'boolean' for pass\/fail evaluations and 'sentiment' for sentiment analysis.\n\n\* `boolean` - Boolean (Pass\/Fail)\n\* `sentiment` - Sentiment"
+            ),
+        output_config: zod
+            .object({
+                allows_na: zod
+                    .boolean()
+                    .default(evaluationsCreateBodyOutputConfigAllowsNaDefault)
+                    .describe('Whether the evaluation can return N\/A for non-applicable generations.'),
+            })
+            .optional()
+            .describe("Output config. For 'boolean' output_type: {allows_na} to permit N\/A results."),
+        conditions: zod
+            .array(
+                zod
+                    .object({
+                        id: zod
+                            .string()
+                            .max(evaluationsCreateBodyConditionsItemIdMax)
+                            .describe('Stable identifier for this condition set.'),
+                        rollout_percentage: zod
+                            .number()
+                            .min(evaluationsCreateBodyConditionsItemRolloutPercentageMin)
+                            .max(evaluationsCreateBodyConditionsItemRolloutPercentageMax)
+                            .default(evaluationsCreateBodyConditionsItemRolloutPercentageDefault)
+                            .describe(
+                                'Percentage (0-100) of matching events to sample for this evaluation. Defaults to 100.'
+                            ),
+                        properties: zod
+                            .array(zod.record(zod.string(), zod.unknown()))
+                            .optional()
+                            .describe(
+                                'Property filters (event or person) that scope which generations match this condition set.'
+                            ),
+                    })
+                    .describe('A trigger condition set controlling which generations an evaluation runs on.')
+            )
+            .optional()
+            .describe(
+                'Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads.'
+            ),
+        target: zod
+            .enum(['generation', 'trace', 'session'])
+            .describe('\* `generation` - Generation\n\* `trace` - Trace\n\* `session` - Session')
+            .optional()
+            .describe(
+                "What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once and 'session' the whole $ai_session_id session once: the first matching generation schedules a run that waits for the unit to settle, then evaluates all of its events together. Condition filters still match individual generations — a unit is evaluated when any of its generations matches, and sampling applies per unit. A 'session' evaluation only fires for generations that carry $ai_session_id. When and how the run fires is controlled by target_config's settle strategy.\n\n\* `generation` - Generation\n\* `trace` - Trace\n\* `session` - Session"
+            ),
+        target_config: zod
+            .union([
+                zod.object({
+                    strategy: zod
+                        .enum(['fixed_window'])
+                        .describe('Wait a fixed window after the first matching generation, then evaluate.'),
+                    window_seconds: zod
+                        .number()
+                        .min(evaluationsCreateBodyTargetConfigOneWindowSecondsMin)
+                        .max(evaluationsCreateBodyTargetConfigOneWindowSecondsMax)
                         .optional()
                         .describe(
-                            'Property filters (event or person) that scope which generations match this condition set.'
+                            "Seconds to wait after the first matching generation before evaluating the whole unit. Captured when the run is scheduled — editing it does not change runs already in flight. The accepted range depends on `target`: 10–7200 for 'trace', 10–604800 for 'session'. The default also depends on `target`; see the field-level help_text."
                         ),
-                })
-                .describe('A trigger condition set controlling which generations an evaluation runs on.')
-        )
-        .optional()
-        .describe(
-            'Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads.'
-        ),
-    target: zod
-        .enum(['generation', 'trace', 'session'])
-        .describe('\* `generation` - Generation\n\* `trace` - Trace\n\* `session` - Session')
-        .optional()
-        .describe(
-            "What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once and 'session' the whole $ai_session_id session once: the first matching generation schedules a run that waits for the unit to settle, then evaluates all of its events together. Condition filters still match individual generations — a unit is evaluated when any of its generations matches, and sampling applies per unit. A 'session' evaluation only fires for generations that carry $ai_session_id. When and how the run fires is controlled by target_config's settle strategy.\n\n\* `generation` - Generation\n\* `trace` - Trace\n\* `session` - Session"
-        ),
-    target_config: zod
-        .union([
-            zod.object({
-                strategy: zod
-                    .enum(['fixed_window'])
-                    .describe('Wait a fixed window after the first matching generation, then evaluate.'),
-                window_seconds: zod
-                    .number()
-                    .min(evaluationsCreateBodyTargetConfigOneWindowSecondsMin)
-                    .max(evaluationsCreateBodyTargetConfigOneWindowSecondsMax)
-                    .optional()
-                    .describe(
-                        "Seconds to wait after the first matching generation before evaluating the whole unit. Captured when the run is scheduled — editing it does not change runs already in flight. The accepted range depends on `target`: 10–7200 for 'trace', 10–604800 for 'session'. The default also depends on `target`; see the field-level help_text."
-                    ),
-            }),
-            zod.object({
-                strategy: zod
-                    .enum(['inactivity'])
-                    .describe('Evaluate once the unit has had no new activity for the quiet period.'),
-                quiet_period_seconds: zod
-                    .number()
-                    .min(evaluationsCreateBodyTargetConfigTwoQuietPeriodSecondsMin)
-                    .max(evaluationsCreateBodyTargetConfigTwoQuietPeriodSecondsMax)
-                    .optional()
-                    .describe(
-                        "Seconds without new activity before the unit counts as settled. The accepted range depends on `target`: 10–1800 for 'trace', 10–86400 for 'session'. The default also depends on `target`; see the field-level help_text."
-                    ),
-                max_age_seconds: zod
-                    .number()
-                    .min(evaluationsCreateBodyTargetConfigTwoMaxAgeSecondsMin)
-                    .max(evaluationsCreateBodyTargetConfigTwoMaxAgeSecondsMax)
-                    .optional()
-                    .describe(
-                        "Hard cap in seconds on the total wait from the first matching generation, even if the unit stays active. Must be at least quiet_period_seconds. The accepted range depends on `target`: 60–7200 for 'trace', 60–604800 for 'session'. The default also depends on `target`; see the field-level help_text."
-                    ),
-            }),
-        ])
-        .optional()
-        .describe(
-            "Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy`, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. Empty for 'generation'."
-        ),
-    model_configuration: zod
-        .union([
-            zod
-                .object({
-                    provider: zod
-                        .enum([
-                            'openai',
-                            'anthropic',
-                            'gemini',
-                            'openrouter',
-                            'fireworks',
-                            'azure_openai',
-                            'together_ai',
-                            'minimax',
-                            'zeabur',
-                        ])
+                }),
+                zod.object({
+                    strategy: zod
+                        .enum(['inactivity'])
+                        .describe('Evaluate once the unit has had no new activity for the quiet period.'),
+                    quiet_period_seconds: zod
+                        .number()
+                        .min(evaluationsCreateBodyTargetConfigTwoQuietPeriodSecondsMin)
+                        .max(evaluationsCreateBodyTargetConfigTwoQuietPeriodSecondsMax)
+                        .optional()
                         .describe(
-                            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
+                            "Seconds without new activity before the unit counts as settled. The accepted range depends on `target`: 10–1800 for 'trace', 10–86400 for 'session'. The default also depends on `target`; see the field-level help_text."
                         ),
-                    model: zod.string().max(evaluationsCreateBodyModelConfigurationOneModelMax),
-                    provider_key_id: zod
-                        .string()
-                        .nullish()
+                    max_age_seconds: zod
+                        .number()
+                        .min(evaluationsCreateBodyTargetConfigTwoMaxAgeSecondsMin)
+                        .max(evaluationsCreateBodyTargetConfigTwoMaxAgeSecondsMax)
+                        .optional()
                         .describe(
-                            'Optional team provider key to run this evaluation with; it must use the same provider. May be null when no key is pinned or after the selected key is removed.'
+                            "Hard cap in seconds on the total wait from the first matching generation, even if the unit stays active. Must be at least quiet_period_seconds. The accepted range depends on `target`: 60–7200 for 'trace', 60–604800 for 'session'. The default also depends on `target`; see the field-level help_text."
                         ),
-                    provider_key_name: zod.string().nullish(),
-                })
-                .describe('Nested serializer for model configuration.'),
-            zod.null(),
-        ])
-        .optional()
-        .describe(
-            'Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null.'
-        ),
-    deleted: zod.boolean().optional().describe('Set to true to soft-delete the evaluation.'),
-})
+                }),
+            ])
+            .optional()
+            .describe(
+                "Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy`, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. Empty for 'generation'."
+            ),
+        model_configuration: zod
+            .union([
+                zod
+                    .object({
+                        provider: zod
+                            .enum([
+                                'openai',
+                                'anthropic',
+                                'gemini',
+                                'openrouter',
+                                'fireworks',
+                                'azure_openai',
+                                'together_ai',
+                                'minimax',
+                                'zeabur',
+                            ])
+                            .describe(
+                                '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
+                            ),
+                        model: zod.string().max(evaluationsCreateBodyModelConfigurationOneModelMax),
+                        provider_key_id: zod
+                            .string()
+                            .nullish()
+                            .describe(
+                                'Optional team provider key to run this evaluation with; it must use the same provider. May be null when no key is pinned or after the selected key is removed.'
+                            ),
+                        provider_key_name: zod.string().nullish(),
+                    })
+                    .describe('Nested serializer for model configuration.'),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null.'
+            ),
+        deleted: zod.boolean().optional().describe('Set to true to soft-delete the evaluation.'),
+    })
+    .describe('An evaluation that scores LLM generations, traces, or sessions.')
 
 export const EvaluationsRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this evaluation.'),
@@ -792,181 +794,183 @@ export const evaluationsPartialUpdateBodyTargetConfigTwoMaxAgeSecondsMax = 60480
 
 export const evaluationsPartialUpdateBodyModelConfigurationOneModelMax = 100
 
-export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(evaluationsPartialUpdateBodyNameMax).optional().describe('Name of the evaluation.'),
-    description: zod.string().optional().describe('Optional description of what this evaluation checks.'),
-    directory_id: zod
-        .string()
-        .nullish()
-        .describe('Directory containing the evaluation. Pass null to move the evaluation to the top level.'),
-    enabled: zod
-        .boolean()
-        .optional()
-        .describe('Whether the evaluation runs automatically on new $ai_generation events.'),
-    evaluation_type: zod
-        .enum(['llm_judge', 'hog', 'sentiment'])
-        .describe('\* `llm_judge` - LLM as a judge\n\* `hog` - Hog\n\* `sentiment` - Sentiment analysis')
-        .optional()
-        .describe(
-            "'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment (trained on English, so use 'llm_judge' for multilingual agents).\n\n\* `llm_judge` - LLM as a judge\n\* `hog` - Hog\n\* `sentiment` - Sentiment analysis"
-        ),
-    evaluation_config: zod
-        .union([
-            zod.object({
-                prompt: zod
-                    .string()
-                    .min(1)
-                    .describe('Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.'),
-            }),
-            zod.object({
-                source: zod
-                    .string()
-                    .min(1)
-                    .describe('Hog source code. Must return true (pass), false (fail), or null for N\/A.'),
-            }),
-            zod.object({
-                source: zod
-                    .enum(['user_messages'])
-                    .default(evaluationsPartialUpdateBodyEvaluationConfigThreeSourceDefault)
-                    .describe(
-                        "Classify sentiment from user messages in the generation input. The classifier is trained on English, so labels are unreliable for other languages; use an 'llm_judge' evaluation for multilingual agents."
-                    ),
-            }),
-        ])
-        .optional()
-        .describe(
-            "Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}."
-        ),
-    output_type: zod
-        .enum(['boolean', 'sentiment'])
-        .describe('\* `boolean` - Boolean (Pass\/Fail)\n\* `sentiment` - Sentiment')
-        .optional()
-        .describe(
-            "Output format. Use 'boolean' for pass\/fail evaluations and 'sentiment' for sentiment analysis.\n\n\* `boolean` - Boolean (Pass\/Fail)\n\* `sentiment` - Sentiment"
-        ),
-    output_config: zod
-        .object({
-            allows_na: zod
-                .boolean()
-                .default(evaluationsPartialUpdateBodyOutputConfigAllowsNaDefault)
-                .describe('Whether the evaluation can return N\/A for non-applicable generations.'),
-        })
-        .optional()
-        .describe("Output config. For 'boolean' output_type: {allows_na} to permit N\/A results."),
-    conditions: zod
-        .array(
-            zod
-                .object({
-                    id: zod
+export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod.string().max(evaluationsPartialUpdateBodyNameMax).optional().describe('Name of the evaluation.'),
+        description: zod.string().optional().describe('Optional description of what this evaluation checks.'),
+        directory_id: zod
+            .string()
+            .nullish()
+            .describe('Directory containing the evaluation. Pass null to move the evaluation to the top level.'),
+        enabled: zod
+            .boolean()
+            .optional()
+            .describe('Whether the evaluation runs automatically on new $ai_generation events.'),
+        evaluation_type: zod
+            .enum(['llm_judge', 'hog', 'sentiment'])
+            .describe('\* `llm_judge` - LLM as a judge\n\* `hog` - Hog\n\* `sentiment` - Sentiment analysis')
+            .optional()
+            .describe(
+                "'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment (trained on English, so use 'llm_judge' for multilingual agents).\n\n\* `llm_judge` - LLM as a judge\n\* `hog` - Hog\n\* `sentiment` - Sentiment analysis"
+            ),
+        evaluation_config: zod
+            .union([
+                zod.object({
+                    prompt: zod
                         .string()
-                        .max(evaluationsPartialUpdateBodyConditionsItemIdMax)
-                        .describe('Stable identifier for this condition set.'),
-                    rollout_percentage: zod
-                        .number()
-                        .min(evaluationsPartialUpdateBodyConditionsItemRolloutPercentageMin)
-                        .max(evaluationsPartialUpdateBodyConditionsItemRolloutPercentageMax)
-                        .default(evaluationsPartialUpdateBodyConditionsItemRolloutPercentageDefault)
+                        .min(1)
+                        .describe('Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.'),
+                }),
+                zod.object({
+                    source: zod
+                        .string()
+                        .min(1)
+                        .describe('Hog source code. Must return true (pass), false (fail), or null for N\/A.'),
+                }),
+                zod.object({
+                    source: zod
+                        .enum(['user_messages'])
+                        .default(evaluationsPartialUpdateBodyEvaluationConfigThreeSourceDefault)
                         .describe(
-                            'Percentage (0-100) of matching events to sample for this evaluation. Defaults to 100.'
+                            "Classify sentiment from user messages in the generation input. The classifier is trained on English, so labels are unreliable for other languages; use an 'llm_judge' evaluation for multilingual agents."
                         ),
-                    properties: zod
-                        .array(zod.record(zod.string(), zod.unknown()))
+                }),
+            ])
+            .optional()
+            .describe(
+                "Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}."
+            ),
+        output_type: zod
+            .enum(['boolean', 'sentiment'])
+            .describe('\* `boolean` - Boolean (Pass\/Fail)\n\* `sentiment` - Sentiment')
+            .optional()
+            .describe(
+                "Output format. Use 'boolean' for pass\/fail evaluations and 'sentiment' for sentiment analysis.\n\n\* `boolean` - Boolean (Pass\/Fail)\n\* `sentiment` - Sentiment"
+            ),
+        output_config: zod
+            .object({
+                allows_na: zod
+                    .boolean()
+                    .default(evaluationsPartialUpdateBodyOutputConfigAllowsNaDefault)
+                    .describe('Whether the evaluation can return N\/A for non-applicable generations.'),
+            })
+            .optional()
+            .describe("Output config. For 'boolean' output_type: {allows_na} to permit N\/A results."),
+        conditions: zod
+            .array(
+                zod
+                    .object({
+                        id: zod
+                            .string()
+                            .max(evaluationsPartialUpdateBodyConditionsItemIdMax)
+                            .describe('Stable identifier for this condition set.'),
+                        rollout_percentage: zod
+                            .number()
+                            .min(evaluationsPartialUpdateBodyConditionsItemRolloutPercentageMin)
+                            .max(evaluationsPartialUpdateBodyConditionsItemRolloutPercentageMax)
+                            .default(evaluationsPartialUpdateBodyConditionsItemRolloutPercentageDefault)
+                            .describe(
+                                'Percentage (0-100) of matching events to sample for this evaluation. Defaults to 100.'
+                            ),
+                        properties: zod
+                            .array(zod.record(zod.string(), zod.unknown()))
+                            .optional()
+                            .describe(
+                                'Property filters (event or person) that scope which generations match this condition set.'
+                            ),
+                    })
+                    .describe('A trigger condition set controlling which generations an evaluation runs on.')
+            )
+            .optional()
+            .describe(
+                'Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads.'
+            ),
+        target: zod
+            .enum(['generation', 'trace', 'session'])
+            .describe('\* `generation` - Generation\n\* `trace` - Trace\n\* `session` - Session')
+            .optional()
+            .describe(
+                "What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once and 'session' the whole $ai_session_id session once: the first matching generation schedules a run that waits for the unit to settle, then evaluates all of its events together. Condition filters still match individual generations — a unit is evaluated when any of its generations matches, and sampling applies per unit. A 'session' evaluation only fires for generations that carry $ai_session_id. When and how the run fires is controlled by target_config's settle strategy.\n\n\* `generation` - Generation\n\* `trace` - Trace\n\* `session` - Session"
+            ),
+        target_config: zod
+            .union([
+                zod.object({
+                    strategy: zod
+                        .enum(['fixed_window'])
+                        .describe('Wait a fixed window after the first matching generation, then evaluate.'),
+                    window_seconds: zod
+                        .number()
+                        .min(evaluationsPartialUpdateBodyTargetConfigOneWindowSecondsMin)
+                        .max(evaluationsPartialUpdateBodyTargetConfigOneWindowSecondsMax)
                         .optional()
                         .describe(
-                            'Property filters (event or person) that scope which generations match this condition set.'
+                            "Seconds to wait after the first matching generation before evaluating the whole unit. Captured when the run is scheduled — editing it does not change runs already in flight. The accepted range depends on `target`: 10–7200 for 'trace', 10–604800 for 'session'. The default also depends on `target`; see the field-level help_text."
                         ),
-                })
-                .describe('A trigger condition set controlling which generations an evaluation runs on.')
-        )
-        .optional()
-        .describe(
-            'Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads.'
-        ),
-    target: zod
-        .enum(['generation', 'trace', 'session'])
-        .describe('\* `generation` - Generation\n\* `trace` - Trace\n\* `session` - Session')
-        .optional()
-        .describe(
-            "What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once and 'session' the whole $ai_session_id session once: the first matching generation schedules a run that waits for the unit to settle, then evaluates all of its events together. Condition filters still match individual generations — a unit is evaluated when any of its generations matches, and sampling applies per unit. A 'session' evaluation only fires for generations that carry $ai_session_id. When and how the run fires is controlled by target_config's settle strategy.\n\n\* `generation` - Generation\n\* `trace` - Trace\n\* `session` - Session"
-        ),
-    target_config: zod
-        .union([
-            zod.object({
-                strategy: zod
-                    .enum(['fixed_window'])
-                    .describe('Wait a fixed window after the first matching generation, then evaluate.'),
-                window_seconds: zod
-                    .number()
-                    .min(evaluationsPartialUpdateBodyTargetConfigOneWindowSecondsMin)
-                    .max(evaluationsPartialUpdateBodyTargetConfigOneWindowSecondsMax)
-                    .optional()
-                    .describe(
-                        "Seconds to wait after the first matching generation before evaluating the whole unit. Captured when the run is scheduled — editing it does not change runs already in flight. The accepted range depends on `target`: 10–7200 for 'trace', 10–604800 for 'session'. The default also depends on `target`; see the field-level help_text."
-                    ),
-            }),
-            zod.object({
-                strategy: zod
-                    .enum(['inactivity'])
-                    .describe('Evaluate once the unit has had no new activity for the quiet period.'),
-                quiet_period_seconds: zod
-                    .number()
-                    .min(evaluationsPartialUpdateBodyTargetConfigTwoQuietPeriodSecondsMin)
-                    .max(evaluationsPartialUpdateBodyTargetConfigTwoQuietPeriodSecondsMax)
-                    .optional()
-                    .describe(
-                        "Seconds without new activity before the unit counts as settled. The accepted range depends on `target`: 10–1800 for 'trace', 10–86400 for 'session'. The default also depends on `target`; see the field-level help_text."
-                    ),
-                max_age_seconds: zod
-                    .number()
-                    .min(evaluationsPartialUpdateBodyTargetConfigTwoMaxAgeSecondsMin)
-                    .max(evaluationsPartialUpdateBodyTargetConfigTwoMaxAgeSecondsMax)
-                    .optional()
-                    .describe(
-                        "Hard cap in seconds on the total wait from the first matching generation, even if the unit stays active. Must be at least quiet_period_seconds. The accepted range depends on `target`: 60–7200 for 'trace', 60–604800 for 'session'. The default also depends on `target`; see the field-level help_text."
-                    ),
-            }),
-        ])
-        .optional()
-        .describe(
-            "Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy`, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. Empty for 'generation'."
-        ),
-    model_configuration: zod
-        .union([
-            zod
-                .object({
-                    provider: zod
-                        .enum([
-                            'openai',
-                            'anthropic',
-                            'gemini',
-                            'openrouter',
-                            'fireworks',
-                            'azure_openai',
-                            'together_ai',
-                            'minimax',
-                            'zeabur',
-                        ])
+                }),
+                zod.object({
+                    strategy: zod
+                        .enum(['inactivity'])
+                        .describe('Evaluate once the unit has had no new activity for the quiet period.'),
+                    quiet_period_seconds: zod
+                        .number()
+                        .min(evaluationsPartialUpdateBodyTargetConfigTwoQuietPeriodSecondsMin)
+                        .max(evaluationsPartialUpdateBodyTargetConfigTwoQuietPeriodSecondsMax)
+                        .optional()
                         .describe(
-                            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
+                            "Seconds without new activity before the unit counts as settled. The accepted range depends on `target`: 10–1800 for 'trace', 10–86400 for 'session'. The default also depends on `target`; see the field-level help_text."
                         ),
-                    model: zod.string().max(evaluationsPartialUpdateBodyModelConfigurationOneModelMax),
-                    provider_key_id: zod
-                        .string()
-                        .nullish()
+                    max_age_seconds: zod
+                        .number()
+                        .min(evaluationsPartialUpdateBodyTargetConfigTwoMaxAgeSecondsMin)
+                        .max(evaluationsPartialUpdateBodyTargetConfigTwoMaxAgeSecondsMax)
+                        .optional()
                         .describe(
-                            'Optional team provider key to run this evaluation with; it must use the same provider. May be null when no key is pinned or after the selected key is removed.'
+                            "Hard cap in seconds on the total wait from the first matching generation, even if the unit stays active. Must be at least quiet_period_seconds. The accepted range depends on `target`: 60–7200 for 'trace', 60–604800 for 'session'. The default also depends on `target`; see the field-level help_text."
                         ),
-                    provider_key_name: zod.string().nullish(),
-                })
-                .describe('Nested serializer for model configuration.'),
-            zod.null(),
-        ])
-        .optional()
-        .describe(
-            'Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null.'
-        ),
-    deleted: zod.boolean().optional().describe('Set to true to soft-delete the evaluation.'),
-})
+                }),
+            ])
+            .optional()
+            .describe(
+                "Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy`, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. Empty for 'generation'."
+            ),
+        model_configuration: zod
+            .union([
+                zod
+                    .object({
+                        provider: zod
+                            .enum([
+                                'openai',
+                                'anthropic',
+                                'gemini',
+                                'openrouter',
+                                'fireworks',
+                                'azure_openai',
+                                'together_ai',
+                                'minimax',
+                                'zeabur',
+                            ])
+                            .describe(
+                                '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
+                            ),
+                        model: zod.string().max(evaluationsPartialUpdateBodyModelConfigurationOneModelMax),
+                        provider_key_id: zod
+                            .string()
+                            .nullish()
+                            .describe(
+                                'Optional team provider key to run this evaluation with; it must use the same provider. May be null when no key is pinned or after the selected key is removed.'
+                            ),
+                        provider_key_name: zod.string().nullish(),
+                    })
+                    .describe('Nested serializer for model configuration.'),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null.'
+            ),
+        deleted: zod.boolean().optional().describe('Set to true to soft-delete the evaluation.'),
+    })
+    .describe('An evaluation that scores LLM generations, traces, or sessions.')
 
 /**
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
@@ -1420,58 +1424,7 @@ export const LlmAnalyticsEvaluationReportsRunsListQueryParams = /* @__PURE__ */ 
 })
 
 /**
- *
- * Generate an AI-powered summary of evaluation results.
- *
- * This endpoint analyzes evaluation runs and identifies patterns in passing
- * and failing evaluations, providing actionable recommendations.
- *
- * Data is fetched server-side by evaluation ID to ensure data integrity.
- *
- * **Use Cases:**
- * - Understand why evaluations are passing or failing
- * - Identify systematic issues in LLM responses
- * - Get recommendations for improving response quality
- * - Review patterns across many evaluation runs at once
- *
- */
-export const LlmAnalyticsEvaluationSummaryCreateParams = /* @__PURE__ */ zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-export const llmAnalyticsEvaluationSummaryCreateBodyFilterDefault = `all`
-export const llmAnalyticsEvaluationSummaryCreateBodyGenerationIdsMax = 250
-
-export const llmAnalyticsEvaluationSummaryCreateBodyForceRefreshDefault = false
-
-export const LlmAnalyticsEvaluationSummaryCreateBody = /* @__PURE__ */ zod
-    .object({
-        evaluation_id: zod.string().describe('UUID of the evaluation config to summarize'),
-        filter: zod
-            .enum(['all', 'pass', 'fail', 'na'])
-            .describe('\* `all` - all\n\* `pass` - pass\n\* `fail` - fail\n\* `na` - na')
-            .default(llmAnalyticsEvaluationSummaryCreateBodyFilterDefault)
-            .describe(
-                "Filter type to apply ('all', 'pass', 'fail', or 'na')\n\n\* `all` - all\n\* `pass` - pass\n\* `fail` - fail\n\* `na` - na"
-            ),
-        generation_ids: zod
-            .array(zod.string())
-            .max(llmAnalyticsEvaluationSummaryCreateBodyGenerationIdsMax)
-            .optional()
-            .describe('Optional: specific generation IDs to include in summary (max 250)'),
-        force_refresh: zod
-            .boolean()
-            .default(llmAnalyticsEvaluationSummaryCreateBodyForceRefreshDefault)
-            .describe('If true, bypass cache and generate a fresh summary'),
-    })
-    .describe('Request serializer for evaluation summary - accepts IDs only, fetches data server-side.')
-
-/**
- * List available models for a provider.
+ * List available models, for one provider or for every supported provider.
  */
 export const LlmAnalyticsModelsRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -1486,7 +1439,7 @@ export const LlmAnalyticsModelsRetrieveQueryParams = /* @__PURE__ */ zod.object(
         .string()
         .optional()
         .describe(
-            'Optional provider key UUID. When supplied, models reachable with that specific key are returned (useful for Azure OpenAI, where the deployment list depends on the configured endpoint). Must belong to the same provider as the `provider` parameter.'
+            'Optional provider key UUID. When supplied, models reachable with that specific key are returned (useful for Azure OpenAI, where the deployment list depends on the configured endpoint). A key belongs to exactly one provider, so `provider` may be omitted alongside it; when both are given they must agree.'
         ),
     provider: zod
         .enum([
@@ -1500,7 +1453,10 @@ export const LlmAnalyticsModelsRetrieveQueryParams = /* @__PURE__ */ zod.object(
             'together_ai',
             'zeabur',
         ])
-        .describe('LLM provider to list models for. Must be one of the supported providers.'),
+        .optional()
+        .describe(
+            'LLM provider to list models for. Omit it to list every supported provider and its models in one call.'
+        ),
 })
 
 export const LlmAnalyticsProviderKeysListParams = /* @__PURE__ */ zod.object({

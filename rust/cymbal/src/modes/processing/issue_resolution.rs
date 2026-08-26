@@ -91,7 +91,7 @@ pub enum IssueStatus {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) enum IssueSeverity {
+pub enum IssueSeverity {
     Low,
     Medium,
     High,
@@ -212,6 +212,23 @@ impl Issue {
         .await?;
 
         Ok(issue)
+    }
+
+    pub async fn apply_initial_severity<'c, E>(
+        &mut self,
+        severity: String,
+        executor: E,
+    ) -> Result<(), sqlx::Error>
+    where
+        E: sqlx::Executor<'c, Database = sqlx::Postgres>,
+    {
+        sqlx::query("UPDATE posthog_errortrackingissue SET severity = $1 WHERE id = $2")
+            .bind(&severity)
+            .bind(self.id)
+            .execute(executor)
+            .await?;
+        self.severity = Some(severity);
+        Ok(())
     }
 
     pub async fn maybe_reopen<'c, E>(&mut self, executor: E) -> Result<bool, UnhandledError>
@@ -616,6 +633,7 @@ fn issue_snapshot(issue: &Issue) -> IssueSnapshot {
         name: issue.name.clone(),
         description: issue.description.clone(),
         status: issue.status.to_string(),
+        severity: issue.severity.clone(),
         created_at: issue.created_at,
     }
 }
@@ -739,6 +757,30 @@ mod test {
                 expected.map(str::to_string)
             );
         }
+    }
+
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn initial_severity_update_reaches_state_and_notification_payloads(pool: sqlx::PgPool) {
+        let mut issue = super::Issue::insert_new(
+            1,
+            "TypeError".to_string(),
+            "Example".to_string(),
+            None,
+            &pool,
+        )
+        .await
+        .unwrap();
+
+        issue
+            .apply_initial_severity("critical".to_string(), &pool)
+            .await
+            .unwrap();
+
+        let state =
+            super::FingerprintIssueState::new(&issue, "fingerprint", None, chrono::Utc::now());
+        let snapshot = super::issue_snapshot(&issue);
+        assert_eq!(state.issue_severity.as_deref(), Some("critical"));
+        assert_eq!(snapshot.severity.as_deref(), Some("critical"));
     }
 
     #[tokio::test]

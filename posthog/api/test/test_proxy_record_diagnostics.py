@@ -1,3 +1,5 @@
+import ipaddress
+
 from unittest.mock import MagicMock, patch
 
 from django.test import TestCase, override_settings
@@ -7,6 +9,9 @@ import dns.resolver
 from parameterized import parameterized
 
 from posthog.api import proxy_record_diagnostics as diagnostics
+from posthog.models.proxy_record import is_valid_proxy_domain
+from posthog.security.pinned_requests import SSRFBlockedError
+from posthog.security.url_validation import PinnedUrlVerdict
 from posthog.temporal.proxy_service.cloudflare import (
     CloudflareAPIError,
     CustomHostname,
@@ -119,6 +124,28 @@ class TestCheckCloudflare(TestCase):
         self.assertEqual(result.remediation.type, "retry")
         self.assertIsNone(info)
 
+    @parameterized.expand(
+        [
+            ("blocked", CustomHostnameStatus.BLOCKED, "zone hold"),
+            ("pending_blocked", CustomHostnameStatus.PENDING_BLOCKED, "zone hold"),
+            ("moved", CustomHostnameStatus.MOVED, "restore"),
+            ("pending_migration", CustomHostnameStatus.PENDING_MIGRATION, "restore"),
+        ]
+    )
+    @patch("posthog.api.proxy_record_diagnostics.get_custom_hostname_by_domain")
+    def test_fail_when_hostname_blocked_despite_active_cert(self, _name, status, remediation_word, get_mock):
+        # An active SSL certificate must not let a blocked or moved hostname pass the check.
+        info = _hostname_info(ssl_status=CustomHostnameSSLStatus.ACTIVE)
+        info.status = status
+        get_mock.return_value = info
+
+        result, _ = diagnostics._check_cloudflare(_record())
+
+        self.assertEqual(result.status, "failed")
+        assert result.remediation is not None
+        self.assertEqual(result.remediation.type, "config")
+        self.assertIn(remediation_word, result.remediation.summary)
+
     @patch("posthog.api.proxy_record_diagnostics.get_custom_hostname_by_domain")
     def test_fail_when_api_errors(self, get_mock):
         get_mock.side_effect = CloudflareAPIError("boom")
@@ -225,32 +252,67 @@ class TestCheckLiveEvent(TestCase):
             ("conn_error", requests.exceptions.ConnectionError("refused"), "failed", "connect"),
         ]
     )
-    @patch("posthog.api.proxy_record_diagnostics.requests.post")
+    @patch("posthog.api.proxy_record_diagnostics.pinned_request")
     def test_request_exceptions(self, _name, exc, expected_status, expected_substr, post_mock):
         post_mock.side_effect = exc
         result = diagnostics._check_live_event(_record())
         self.assertEqual(result.status, expected_status)
         self.assertIn(expected_substr, result.detail.lower())
 
-    @patch("posthog.api.proxy_record_diagnostics.requests.post")
+    @patch("posthog.api.proxy_record_diagnostics.pinned_request")
     def test_5xx_is_fail(self, post_mock):
         post_mock.return_value = MagicMock(status_code=502)
         result = diagnostics._check_live_event(_record())
         self.assertEqual(result.status, "failed")
 
-    @patch("posthog.api.proxy_record_diagnostics.requests.post")
+    @patch("posthog.api.proxy_record_diagnostics.pinned_request")
     def test_4xx_is_warn(self, post_mock):
         post_mock.return_value = MagicMock(status_code=403)
         result = diagnostics._check_live_event(_record())
         self.assertEqual(result.status, "warned")
 
-    @patch("posthog.api.proxy_record_diagnostics.requests.post")
+    @patch("posthog.api.proxy_record_diagnostics.pinned_request")
     def test_2xx_is_pass(self, post_mock):
         post_mock.return_value = MagicMock(status_code=200)
         result = diagnostics._check_live_event(_record())
         self.assertEqual(result.status, "passed")
 
+    @patch("posthog.api.proxy_record_diagnostics.pinned_request")
+    def test_403_with_cloudflare_1014_fails_with_authorization_message(self, post_mock):
+        # A 403 with Cloudflare error 1014 must fail the check with the authorization message.
+        post_mock.return_value = MagicMock(status_code=403, text="<h1>Error 1014</h1>")
+        result = diagnostics._check_live_event(_record())
+        self.assertEqual(result.status, "failed")
+        self.assertIn("1014", result.detail)
 
+    @patch("posthog.api.proxy_record_diagnostics.pinned_request")
+    def test_ssrf_block_fails_the_check_instead_of_escaping(self, post_mock):
+        # SSRFBlockedError is not a RequestException, so without its own handler it would
+        # escape _check_live_event and surface as a 500 from the diagnose endpoint. A domain
+        # that resolves somewhere internal has to read as a failed check.
+        post_mock.side_effect = SSRFBlockedError("Private IP address not allowed")
+
+        result = diagnostics._check_live_event(_record())
+
+        self.assertEqual(result.status, "failed")
+        self.assertIn("public address", result.detail)
+
+    @patch("posthog.api.proxy_record_diagnostics.pinned_request")
+    def test_probe_targets_the_domain_as_the_authority(self, post_mock):
+        post_mock.return_value = MagicMock(status_code=200)
+
+        diagnostics._check_live_event(_record())
+
+        self.assertEqual(post_mock.call_args[0][1], "https://e.example.com/i/v0/e/")
+
+
+PUBLIC_IP = ipaddress.ip_address("203.0.113.10")
+
+
+@patch(
+    "posthog.api.proxy_record_diagnostics.validate_url_and_pin_ips",
+    return_value=PinnedUrlVerdict(allowed=True, reason=None, pinned_ips={PUBLIC_IP}),
+)
 class TestCheckCertExpiry(TestCase):
     @parameterized.expand(
         [
@@ -261,7 +323,7 @@ class TestCheckCertExpiry(TestCase):
     @patch("posthog.api.proxy_record_diagnostics.ssl_module.create_default_context")
     @patch("posthog.api.proxy_record_diagnostics.socket.create_connection")
     def test_expiring_cert_remediation_depends_on_path(
-        self, _name, is_cloudflare, expected_type, _create_conn_mock, ctx_mock
+        self, _name, is_cloudflare, expected_type, _create_conn_mock, ctx_mock, _validate_mock
     ):
         # An expiring cert triggers the failed branch; the remediation differs by path — a
         # Cloudflare proxy can safely re-provision (retry), a legacy proxy must not (config),
@@ -274,6 +336,76 @@ class TestCheckCertExpiry(TestCase):
         self.assertEqual(result.status, "failed")
         assert result.remediation is not None
         self.assertEqual(result.remediation.type, expected_type)
+
+    @patch("posthog.api.proxy_record_diagnostics.ssl_module.create_default_context")
+    @patch("posthog.api.proxy_record_diagnostics.socket.create_connection")
+    def test_connects_to_the_validated_address_with_hostname_kept_for_sni(
+        self, create_conn_mock, ctx_mock, _validate_mock
+    ):
+        # The detail strings name the exception class, so an unpinned connection would report
+        # whether a port is open on whatever address the name resolves to at connect time.
+        # Connecting to the validated address closes that, and SNI has to stay on the hostname
+        # or certificate verification would check the literal address instead.
+        wrapped = ctx_mock.return_value.wrap_socket.return_value.__enter__.return_value
+        wrapped.getpeercert.return_value = {"notAfter": "Jan  1 00:00:00 2100 GMT"}
+
+        diagnostics._check_cert_expiry(_record(), is_cloudflare=True)
+
+        self.assertEqual(create_conn_mock.call_args[0][0], (str(PUBLIC_IP), 443))
+        self.assertEqual(ctx_mock.return_value.wrap_socket.call_args.kwargs["server_hostname"], "e.example.com")
+
+    @patch("posthog.api.proxy_record_diagnostics.socket.create_connection")
+    def test_warns_without_connecting_when_the_host_is_not_public(self, create_conn_mock, validate_mock):
+        validate_mock.return_value = PinnedUrlVerdict(
+            allowed=False, reason="Private IP address not allowed", pinned_ips=set()
+        )
+
+        result = diagnostics._check_cert_expiry(_record(), is_cloudflare=True)
+
+        create_conn_mock.assert_not_called()
+        self.assertEqual(result.status, "warned")
+
+
+class TestIsValidProxyDomain(TestCase):
+    @parameterized.expand(
+        [
+            ("plain", "e.example.com"),
+            ("deep_subdomain", "a.b.c.example.com"),
+            ("hyphenated", "other-diagnose.example.com"),
+            ("multi_part_tld", "ph.example.co.uk"),
+            ("digits_in_label", "proxy0.example.com"),
+            ("mixed_case", "Test.Example.COM"),
+        ]
+    )
+    def test_accepts_real_domain_shapes(self, _name, domain):
+        self.assertTrue(is_valid_proxy_domain(domain))
+
+    @parameterized.expand(
+        [
+            # A legal DNS query name that `requests` reads as the authority
+            # `169.254.169.254:80` with the rest demoted to the path.
+            ("authority_smuggled_into_label", "169.254.169.254:80/pad.attacker.example"),
+            ("port", "e.example.com:8080"),
+            ("path", "e.example.com/i/v0/e/"),
+            ("scheme", "https://e.example.com"),
+            ("userinfo", "e.example.com@attacker.example"),
+            ("backslash", "e.example.com\\@attacker.example"),
+            ("whitespace", "e.example.com "),
+            ("ipv4_literal", "169.254.169.254"),
+            ("ipv6_literal", "[::1]"),
+            ("single_label", "localhost"),
+            ("trailing_dot", "e.example.com."),
+            ("empty_label", "e..example.com"),
+            ("leading_hyphen_label", "-e.example.com"),
+            ("underscore", "_dmarc.example.com"),
+            ("wildcard", "*.example.com"),
+            ("empty", ""),
+            ("oversized_label", f"{'a' * 64}.example.com"),
+            ("oversized_total", ".".join(["a" * 63] * 4) + ".com"),
+        ]
+    )
+    def test_rejects_non_hostname_shapes(self, _name, domain):
+        self.assertFalse(is_valid_proxy_domain(domain))
 
 
 CF_TARGET = "abc.cf-prod-eu-proxy.europehog.com."
@@ -290,7 +422,7 @@ class TestDiagnoseOrchestrator(TestCase):
 
     @parameterized.expand([("cloudflare_path", CF_TARGET), ("legacy_path", LEGACY_TARGET)])
     @patch("posthog.api.proxy_record_diagnostics._check_cert_expiry")
-    @patch("posthog.api.proxy_record_diagnostics.requests.post")
+    @patch("posthog.api.proxy_record_diagnostics.pinned_request")
     @patch("posthog.api.proxy_record_diagnostics.get_custom_hostname_by_domain")
     @patch("posthog.api.proxy_record_diagnostics.dns.resolver.Resolver")
     def test_live_pass_short_circuits_to_healthy(self, _name, target, ResolverMock, get_mock, post_mock, cert_mock):
@@ -311,7 +443,7 @@ class TestDiagnoseOrchestrator(TestCase):
         self.assertEqual([c.id for c in report.checks], ["cname", "live_event", "cert_expiry"])
         get_mock.assert_not_called()
 
-    @patch("posthog.api.proxy_record_diagnostics.requests.post")
+    @patch("posthog.api.proxy_record_diagnostics.pinned_request")
     @patch("posthog.api.proxy_record_diagnostics.get_custom_hostname_by_domain")
     @patch("posthog.api.proxy_record_diagnostics.dns.resolver.Resolver")
     def test_cname_failure_skips_live_probe(self, ResolverMock, get_mock, post_mock):
@@ -335,7 +467,7 @@ class TestDiagnoseOrchestrator(TestCase):
         self.assertEqual(live_check.status, "skipped")
         self.assertEqual(report.summary.primary_issue, "cname")
 
-    @patch("posthog.api.proxy_record_diagnostics.requests.post")
+    @patch("posthog.api.proxy_record_diagnostics.pinned_request")
     @patch("posthog.api.proxy_record_diagnostics.get_custom_hostname_by_domain")
     @patch("posthog.api.proxy_record_diagnostics.dns.resolver.Resolver")
     def test_legacy_not_serving_skips_cloudflare_and_offers_no_retry(self, ResolverMock, get_mock, post_mock):
@@ -360,7 +492,7 @@ class TestDiagnoseOrchestrator(TestCase):
         self.assertFalse(any(c.remediation and c.remediation.type == "retry" for c in report.checks))
         self.assertEqual(report.summary.primary_issue, "live_event")
 
-    @patch("posthog.api.proxy_record_diagnostics.requests.post")
+    @patch("posthog.api.proxy_record_diagnostics.pinned_request")
     @patch("posthog.api.proxy_record_diagnostics.get_custom_hostname_by_domain")
     @patch("posthog.api.proxy_record_diagnostics.dns.resolver.Resolver")
     def test_cloudflare_missing_hostname_still_offers_retry(self, ResolverMock, get_mock, post_mock):
@@ -384,7 +516,7 @@ class TestDiagnoseOrchestrator(TestCase):
         assert cf_check.remediation is not None
         self.assertEqual(cf_check.remediation.type, "retry")
 
-    @patch("posthog.api.proxy_record_diagnostics.requests.post")
+    @patch("posthog.api.proxy_record_diagnostics.pinned_request")
     @patch("posthog.api.proxy_record_diagnostics.get_custom_hostname_by_domain")
     @patch("posthog.api.proxy_record_diagnostics.dns.resolver.Resolver")
     def test_cloudflare_unprovisioned_skips_hostname_check_when_dns_absent(self, ResolverMock, get_mock, post_mock):
@@ -410,7 +542,7 @@ class TestDiagnoseOrchestrator(TestCase):
         self.assertEqual(report.summary.primary_issue, "cname")
 
     @patch("posthog.api.proxy_record_diagnostics.requests.get")
-    @patch("posthog.api.proxy_record_diagnostics.requests.post")
+    @patch("posthog.api.proxy_record_diagnostics.pinned_request")
     @patch("posthog.api.proxy_record_diagnostics.get_custom_hostname_by_domain")
     @patch("posthog.api.proxy_record_diagnostics.dns.resolver.Resolver")
     def test_cloudflare_not_serving_caa_blocking_is_primary(self, ResolverMock, get_mock, post_mock, http_get_mock):
@@ -436,3 +568,35 @@ class TestDiagnoseOrchestrator(TestCase):
         self.assertEqual(report.summary.primary_issue, "caa")
         # next_action is the fix (authorize pki.goog), not the cause
         self.assertIn("pki.goog", report.summary.next_action or "")
+
+    @patch("posthog.api.proxy_record_diagnostics.ssl_module.create_default_context")
+    @patch("posthog.api.proxy_record_diagnostics.socket.create_connection")
+    @patch("posthog.api.proxy_record_diagnostics.requests.get")
+    @patch("posthog.api.proxy_record_diagnostics.pinned_request")
+    @patch("posthog.api.proxy_record_diagnostics.get_custom_hostname_by_domain")
+    @patch("posthog.api.proxy_record_diagnostics.dns.resolver.Resolver")
+    def test_stored_domain_that_is_not_a_hostname_never_reaches_the_network(
+        self, ResolverMock, get_mock, post_mock, http_get_mock, socket_mock, _ctx_mock
+    ):
+        # `domain` predates write-time validation, and passing the CNAME check does not
+        # constrain it: dnspython reads this as the DNS name `169.254.169.254:80/pad`
+        # `.attacker.example`, so a nameserver the attacker controls can answer it with the
+        # expected target, while `requests` reads the same string as the authority
+        # `169.254.169.254:80`. The two grammars disagree, so the record must fail closed
+        # before any check queries DNS or opens a connection.
+        cname = MagicMock()
+        cname.target.to_text.return_value = CF_TARGET
+        ResolverMock.return_value.resolve.return_value = [cname]
+        # A probe that fires would succeed, so the assertions below turn on whether it
+        # fired at all rather than on how a half-configured mock happens to fail.
+        post_mock.return_value = MagicMock(status_code=200)
+
+        report = diagnostics.diagnose(_record(domain="169.254.169.254:80/pad.attacker.example", target=CF_TARGET))
+
+        post_mock.assert_not_called()
+        http_get_mock.assert_not_called()
+        socket_mock.assert_not_called()
+        get_mock.assert_not_called()
+        ResolverMock.return_value.resolve.assert_not_called()
+        self.assertEqual(report.summary.status, "fail")
+        self.assertFalse(any(c.status == "passed" for c in report.checks))

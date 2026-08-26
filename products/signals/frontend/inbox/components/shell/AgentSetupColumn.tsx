@@ -1,25 +1,21 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import { IconBolt, IconCheckCircle, IconChevronRight, IconCompass, IconGithub, IconServer } from '@posthog/icons'
+import { IconBolt, IconCheckCircle, IconChevronRight, IconCompass, IconGithub } from '@posthog/icons'
 import { LemonModal, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
-import { ServerIcon } from '@posthog/products-mcp-store/frontend/scene/icons'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { slackChannelDisplayName } from 'lib/integrations/slackChannel'
 import { IconSlack } from 'lib/lemon-ui/icons'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 import { GithubIntegration } from 'scenes/integrations/components/GithubIntegration'
+import { urls } from 'scenes/urls'
 
+import { inboxUsageLogic } from '../../logics/inboxUsageLogic'
 import { scoutFleetLogic } from '../../logics/scoutFleetLogic'
-import { scoutMcpServersLogic } from '../../logics/scoutMcpServersLogic'
 import { signalTeamConfigLogic } from '../../logics/signalTeamConfigLogic'
 import { userAutonomyLogic } from '../../logics/userAutonomyLogic'
 import { signalSourcesLogic } from '../../signalSourcesLogic'
-import { McpServersSection } from '../config/McpServersSection'
-import { ScoutsFleetSection } from '../config/scouts/ScoutsFleetSection'
 import { SelfDrivingSection } from '../config/SelfDrivingSection'
 import { SignalSourcesPanel } from '../config/SignalSourcesPanel'
 import { SlackNotificationsSection } from '../config/SlackNotificationsSection'
@@ -188,7 +184,6 @@ function SignalSourcesWidget(): JSX.Element {
 function ScoutTroopWidget(): JSX.Element {
     useMountedLogic(scoutFleetLogic)
     const { scoutConfigs, enabledCount } = useValues(scoutFleetLogic)
-    const { openSetupModal } = useActions(agentSetupModalLogic)
     const hasAny = enabledCount > 0
     return (
         <SetupWidgetCard
@@ -199,7 +194,7 @@ function ScoutTroopWidget(): JSX.Element {
             loading={scoutConfigs === null}
             status={hasAny ? `${enabledCount} on patrol` : 'No scouts running'}
             description="Scheduled agents that sweep this project on a cadence and report signals."
-            onClick={() => openSetupModal('scout-troop')}
+            to={urls.inbox('scouts')}
         />
     )
 }
@@ -218,51 +213,6 @@ function CodeAccessWidget(): JSX.Element {
             status={hasGithub ? 'GitHub connected' : 'Foundational. Connect to start.'}
             onClick={() => openSetupModal('github')}
         />
-    )
-}
-
-function McpServersWidget(): JSX.Element {
-    useMountedLogic(scoutMcpServersLogic)
-    const { availableScoutServers, scoutAccount, scoutServersLoading, scoutServersNeedingSetup, yourScoutServers } =
-        useValues(scoutMcpServersLogic)
-    const { openSetupModal } = useActions(agentSetupModalLogic)
-    const availableCount = availableScoutServers.length
-    const needsSetupCount = scoutServersNeedingSetup.length
-    let status = 'Share external tools'
-    let tone: WidgetTone = 'neutral'
-    if (scoutAccount?.status === 'paused') {
-        status = 'MCP access paused'
-    } else if (availableCount > 0 && needsSetupCount > 0) {
-        status = `${availableCount} available · ${needsSetupCount} need setup`
-        tone = 'done'
-    } else if (availableCount > 0) {
-        status = `${availableCount} available to your scouts`
-        tone = 'done'
-    } else if (needsSetupCount > 0) {
-        status = `${needsSetupCount} need setup`
-        tone = 'todo'
-    }
-    return (
-        <SetupWidgetCard
-            icon={<IconServer />}
-            title="MCP servers"
-            size="md"
-            tone={tone}
-            loading={scoutServersLoading && yourScoutServers.length === 0}
-            status={status}
-            onClick={() => openSetupModal('mcp-servers')}
-        >
-            {yourScoutServers.length > 0 && (
-                <div className="flex items-center gap-1 pt-1">
-                    {yourScoutServers.slice(0, 6).map((server) => (
-                        <ServerIcon key={server.id} iconDomain={server.icon_domain} size={16} />
-                    ))}
-                    {yourScoutServers.length > 6 && (
-                        <span className="text-[11px] text-muted">+{yourScoutServers.length - 6}</span>
-                    )}
-                </div>
-            )}
-        </SetupWidgetCard>
     )
 }
 
@@ -320,12 +270,6 @@ const SETUP_MODALS: Record<
         width: 760,
         body: <SignalSourcesPanel />,
     },
-    'scout-troop': {
-        title: 'Scout troop',
-        description: 'Scheduled agents that sweep this project on a cadence and emit signals to your inbox.',
-        width: 760,
-        body: <ScoutsFleetSection />,
-    },
     slack: {
         title: 'Notifications',
         description: 'Get pinged in Slack when you’re a suggested reviewer on a new report.',
@@ -337,12 +281,6 @@ const SETUP_MODALS: Record<
         description: 'Connect GitHub so agents can read repositories and open pull requests.',
         width: 760,
         body: <GithubSetupBody />,
-    },
-    'mcp-servers': {
-        title: 'MCP servers',
-        description: 'Connections you share with your scheduled scouts.',
-        width: 560,
-        body: <McpServersSection />,
     },
 }
 
@@ -374,7 +312,9 @@ function SetupModal(): JSX.Element {
 export function AgentSetupColumn({ layout }: { layout: 'rail' | 'stacked' }): JSX.Element {
     useMountedLogic(integrationsLogic)
     useMountedLogic(signalSourcesLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
+    // The usage widget renders nothing without the billing product, so the section title
+    // must hide with it rather than sit over an empty area.
+    const { product: inboxUsageProduct, isLoading: inboxUsageLoading } = useValues(inboxUsageLogic)
 
     return (
         <div
@@ -392,11 +332,12 @@ export function AgentSetupColumn({ layout }: { layout: 'rail' | 'stacked' }): JS
             <SetupSection title="Connections">
                 <CodeAccessWidget />
                 <NotificationsWidget />
-                {featureFlags[FEATURE_FLAGS.MCP_SERVERS] && <McpServersWidget />}
             </SetupSection>
-            <SetupSection title="Usage">
-                <InboxUsageWidget />
-            </SetupSection>
+            {(inboxUsageProduct != null || inboxUsageLoading) && (
+                <SetupSection title="Usage">
+                    <InboxUsageWidget />
+                </SetupSection>
+            )}
             <SetupModal />
         </div>
     )

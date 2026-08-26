@@ -16,11 +16,19 @@ import type {
     AccountRelationshipDefinitionApi,
     AccountRelationshipDefinitionsListParams,
     AccountRelationshipWriteApi,
+    AccountTrackRulePreviewApi,
+    AccountTrackRuleRunRequestApi,
+    AccountTrackRuleRunViewApi,
+    AccountTrackRulesConfigApi,
+    AccountTrackRulesRunsListParams,
+    AccountsEmailThreadMessagesListParams,
+    AccountsEmailThreadsListParams,
     AccountsListParams,
     AccountsMeetingsListParams,
     AccountsNotebooksListParams,
     AccountsRelationshipsListParams,
     AccountsSummariesListParams,
+    AccountsSupportTicketMessagesListParams,
     AnnouncementApi,
     AnnouncementChannelApi,
     AnnouncementsListParams,
@@ -47,18 +55,30 @@ import type {
     EventStreamMemberWriteApi,
     EventStreamTestMessageApi,
     ExternalAccountListPageApi,
+    FeatureRequestAddAccountApi,
     FeatureRequestApi,
     FeatureRequestCreateApi,
+    FeatureRequestEvidenceCreateApi,
+    FeatureRequestEvidenceDeleteApi,
+    FeatureRequestEvidenceUpdateApi,
+    FeatureRequestHistoryApi,
     FeatureRequestProductAreaApi,
     FeatureRequestProductAreasListParams,
+    FeatureRequestStatusHistoryApi,
+    FeatureRequestUpdateApi,
+    FeatureRequestVersionApi,
     FeatureRequestsListParams,
     GroupUsageMetricApi,
     GroupsTypesMetricsListParams,
     PaginatedAccountChannelSummaryListApi,
+    PaginatedAccountEmailThreadListApi,
+    PaginatedAccountEmailThreadMessageListApi,
     PaginatedAccountListApi,
     PaginatedAccountNoteListApi,
     PaginatedAccountNotebookListApi,
     PaginatedAccountRelationshipDefinitionListApi,
+    PaginatedAccountSupportTicketMessageListApi,
+    PaginatedAccountTrackRuleRunViewListApi,
     PaginatedAnnouncementListApi,
     PaginatedCustomPropertyDefinitionListApi,
     PaginatedCustomPropertySourceListApi,
@@ -76,6 +96,7 @@ import type {
     PatchedCustomerProfileConfigApi,
     PatchedEventStreamApi,
     PatchedFeatureRequestProductAreaApi,
+    PatchedFeatureRequestUpdateApi,
     PatchedGroupUsageMetricApi,
     SupportTicketApi,
 } from './api.schemas'
@@ -116,7 +137,7 @@ export const getCustomerAnalyticsExternalAccountsRetrieveUrl = (
 }
 
 /**
- * List accounts with external IDs and their active relationship assignments. Requires a project secret API key with the `account:read` scope.
+ * List tracked accounts with external IDs, lifecycle timestamps, and active relationship assignments. Set `include_ignored=true` to include ignored accounts. Requires a project secret API key with the `account:read` scope.
  * @summary List external customer analytics accounts
  */
 export const customerAnalyticsExternalAccountsRetrieve = async (
@@ -272,6 +293,98 @@ export const accountRelationshipDefinitionsDestroy = async (
     return apiMutator<void>(getAccountRelationshipDefinitionsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getAccountTrackRulesListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/account_track_rules/`
+}
+
+export const accountTrackRulesList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<AccountTrackRulesConfigApi> => {
+    return apiMutator<AccountTrackRulesConfigApi>(getAccountTrackRulesListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAccountTrackRulesUpdateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/account_track_rules/`
+}
+
+export const accountTrackRulesUpdate = async (
+    projectId: string,
+    accountTrackRulesConfigApi: AccountTrackRulesConfigApi,
+    options?: RequestInit
+): Promise<AccountTrackRulesConfigApi> => {
+    return apiMutator<AccountTrackRulesConfigApi>(getAccountTrackRulesUpdateUrl(projectId), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(accountTrackRulesConfigApi),
+    })
+}
+
+export const getAccountTrackRulesPreviewCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/account_track_rules/preview/`
+}
+
+export const accountTrackRulesPreviewCreate = async (
+    projectId: string,
+    accountTrackRulesConfigApi: AccountTrackRulesConfigApi,
+    options?: RequestInit
+): Promise<AccountTrackRulePreviewApi> => {
+    return apiMutator<AccountTrackRulePreviewApi>(getAccountTrackRulesPreviewCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(accountTrackRulesConfigApi),
+    })
+}
+
+export const getAccountTrackRulesRunCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/account_track_rules/run/`
+}
+
+export const accountTrackRulesRunCreate = async (
+    projectId: string,
+    accountTrackRuleRunRequestApi: AccountTrackRuleRunRequestApi,
+    options?: RequestInit
+): Promise<AccountTrackRuleRunViewApi> => {
+    return apiMutator<AccountTrackRuleRunViewApi>(getAccountTrackRulesRunCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(accountTrackRuleRunRequestApi),
+    })
+}
+
+export const getAccountTrackRulesRunsListUrl = (projectId: string, params?: AccountTrackRulesRunsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/account_track_rules/runs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/account_track_rules/runs/`
+}
+
+export const accountTrackRulesRunsList = async (
+    projectId: string,
+    params?: AccountTrackRulesRunsListParams,
+    options?: RequestInit
+): Promise<PaginatedAccountTrackRuleRunViewListApi> => {
+    return apiMutator<PaginatedAccountTrackRuleRunViewListApi>(getAccountTrackRulesRunsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -558,6 +671,75 @@ export const accountsDestroy = async (projectId: string, id: string, options?: R
     })
 }
 
+export const getAccountsEmailThreadsListUrl = (
+    projectId: string,
+    id: string,
+    params?: AccountsEmailThreadsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/accounts/${id}/email_threads/?${stringifiedParams}`
+        : `/api/projects/${projectId}/accounts/${id}/email_threads/`
+}
+
+export const accountsEmailThreadsList = async (
+    projectId: string,
+    id: string,
+    params?: AccountsEmailThreadsListParams,
+    options?: RequestInit
+): Promise<PaginatedAccountEmailThreadListApi> => {
+    return apiMutator<PaginatedAccountEmailThreadListApi>(getAccountsEmailThreadsListUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAccountsEmailThreadMessagesListUrl = (
+    projectId: string,
+    id: string,
+    threadId: string,
+    params?: AccountsEmailThreadMessagesListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/accounts/${id}/email_threads/${threadId}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/accounts/${id}/email_threads/${threadId}/`
+}
+
+export const accountsEmailThreadMessagesList = async (
+    projectId: string,
+    id: string,
+    threadId: string,
+    params?: AccountsEmailThreadMessagesListParams,
+    options?: RequestInit
+): Promise<PaginatedAccountEmailThreadMessageListApi> => {
+    return apiMutator<PaginatedAccountEmailThreadMessageListApi>(
+        getAccountsEmailThreadMessagesListUrl(projectId, id, threadId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
 export const getAccountsMeetingsListUrl = (projectId: string, id: string, params?: AccountsMeetingsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -627,6 +809,43 @@ export const accountsSupportTicketsList = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getAccountsSupportTicketMessagesListUrl = (
+    projectId: string,
+    id: string,
+    ticketId: string,
+    params?: AccountsSupportTicketMessagesListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/accounts/${id}/support_tickets/${ticketId}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/accounts/${id}/support_tickets/${ticketId}/`
+}
+
+export const accountsSupportTicketMessagesList = async (
+    projectId: string,
+    id: string,
+    ticketId: string,
+    params?: AccountsSupportTicketMessagesListParams,
+    options?: RequestInit
+): Promise<PaginatedAccountSupportTicketMessageListApi> => {
+    return apiMutator<PaginatedAccountSupportTicketMessageListApi>(
+        getAccountsSupportTicketMessagesListUrl(projectId, id, ticketId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getAnnouncementsListUrl = (projectId: string, params?: AnnouncementsListParams) => {
@@ -1041,9 +1260,8 @@ export const getCustomPropertySourcesRunsListUrl = (
 }
 
 /**
- * Person and group sources only: the source's sync/backfill run history, newest first. Gated
- * on the caller's warehouse-source viewer access, since the runs expose its row counts and sync
- * errors.
+ * The source's sync history, newest first. Person and group runs require viewer access to
+ * their warehouse source because the response includes row counts and sync errors.
  */
 export const customPropertySourcesRunsList = async (
     projectId: string,
@@ -1065,9 +1283,9 @@ export const getCustomPropertySourcesSyncUrl = (projectId: string, id: string) =
 }
 
 /**
- * Person and group sources only: trigger the underlying warehouse schema's sync now. This
- * re-runs a real (billable) warehouse sync; the incremental person/group-property update runs
- * off it.
+ * Person and group sources only: run what this source reads now — an import for a table
+ * binding (a real, billable warehouse sync), a materialization for a view binding. The
+ * incremental person/group-property update runs off that run.
  */
 export const customPropertySourcesSync = async (
     projectId: string,
@@ -1617,6 +1835,180 @@ export const featureRequestsRetrieve = async (
     return apiMutator<FeatureRequestApi>(getFeatureRequestsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getFeatureRequestsUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/feature_requests/${id}/`
+}
+
+export const featureRequestsUpdate = async (
+    projectId: string,
+    id: string,
+    featureRequestUpdateApi: FeatureRequestUpdateApi,
+    options?: RequestInit
+): Promise<FeatureRequestApi> => {
+    return apiMutator<FeatureRequestApi>(getFeatureRequestsUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(featureRequestUpdateApi),
+    })
+}
+
+export const getFeatureRequestsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/feature_requests/${id}/`
+}
+
+export const featureRequestsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedFeatureRequestUpdateApi?: PatchedFeatureRequestUpdateApi,
+    options?: RequestInit
+): Promise<FeatureRequestApi> => {
+    return apiMutator<FeatureRequestApi>(getFeatureRequestsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedFeatureRequestUpdateApi),
+    })
+}
+
+export const getFeatureRequestsAddAccountCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/feature_requests/${id}/add_account/`
+}
+
+export const featureRequestsAddAccountCreate = async (
+    projectId: string,
+    id: string,
+    featureRequestAddAccountApi: FeatureRequestAddAccountApi,
+    options?: RequestInit
+): Promise<FeatureRequestApi> => {
+    return apiMutator<FeatureRequestApi>(getFeatureRequestsAddAccountCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(featureRequestAddAccountApi),
+    })
+}
+
+export const getFeatureRequestsAddEvidenceCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/feature_requests/${id}/add_evidence/`
+}
+
+export const featureRequestsAddEvidenceCreate = async (
+    projectId: string,
+    id: string,
+    featureRequestEvidenceCreateApi: FeatureRequestEvidenceCreateApi,
+    options?: RequestInit
+): Promise<FeatureRequestApi> => {
+    return apiMutator<FeatureRequestApi>(getFeatureRequestsAddEvidenceCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(featureRequestEvidenceCreateApi),
+    })
+}
+
+export const getFeatureRequestsArchiveCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/feature_requests/${id}/archive/`
+}
+
+export const featureRequestsArchiveCreate = async (
+    projectId: string,
+    id: string,
+    featureRequestVersionApi: FeatureRequestVersionApi,
+    options?: RequestInit
+): Promise<FeatureRequestApi> => {
+    return apiMutator<FeatureRequestApi>(getFeatureRequestsArchiveCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(featureRequestVersionApi),
+    })
+}
+
+export const getFeatureRequestsHistoryListUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/feature_requests/${id}/history/`
+}
+
+export const featureRequestsHistoryList = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<FeatureRequestHistoryApi[]> => {
+    return apiMutator<FeatureRequestHistoryApi[]>(getFeatureRequestsHistoryListUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getFeatureRequestsRemoveEvidenceCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/feature_requests/${id}/remove_evidence/`
+}
+
+export const featureRequestsRemoveEvidenceCreate = async (
+    projectId: string,
+    id: string,
+    featureRequestEvidenceDeleteApi: FeatureRequestEvidenceDeleteApi,
+    options?: RequestInit
+): Promise<FeatureRequestApi> => {
+    return apiMutator<FeatureRequestApi>(getFeatureRequestsRemoveEvidenceCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(featureRequestEvidenceDeleteApi),
+    })
+}
+
+export const getFeatureRequestsRestoreCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/feature_requests/${id}/restore/`
+}
+
+export const featureRequestsRestoreCreate = async (
+    projectId: string,
+    id: string,
+    featureRequestVersionApi: FeatureRequestVersionApi,
+    options?: RequestInit
+): Promise<FeatureRequestApi> => {
+    return apiMutator<FeatureRequestApi>(getFeatureRequestsRestoreCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(featureRequestVersionApi),
+    })
+}
+
+export const getFeatureRequestsStatusHistoryListUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/feature_requests/${id}/status_history/`
+}
+
+export const featureRequestsStatusHistoryList = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<FeatureRequestStatusHistoryApi[]> => {
+    return apiMutator<FeatureRequestStatusHistoryApi[]>(getFeatureRequestsStatusHistoryListUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getFeatureRequestsUpdateEvidenceCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/feature_requests/${id}/update_evidence/`
+}
+
+export const featureRequestsUpdateEvidenceCreate = async (
+    projectId: string,
+    id: string,
+    featureRequestEvidenceUpdateApi: FeatureRequestEvidenceUpdateApi,
+    options?: RequestInit
+): Promise<FeatureRequestApi> => {
+    return apiMutator<FeatureRequestApi>(getFeatureRequestsUpdateEvidenceCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(featureRequestEvidenceUpdateApi),
     })
 }
 

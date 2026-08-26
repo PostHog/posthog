@@ -10,6 +10,7 @@ import type {
   Query,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
+import type { BedrockGatewayVariant } from "@posthog/shared";
 import type { EffortLevel } from "@posthog/shared/domain-types";
 import type { PostHogProductId } from "../../posthog-products";
 import type { AgentMode } from "../../types";
@@ -59,6 +60,7 @@ export type Turn = {
   commandName?: string;
   /** Invoked once at activation, matching the pre-consumer broadcast timing. */
   broadcast: () => Promise<void>;
+  pendingInput?: SDKUserMessage;
   settled: boolean;
   resolve: (response: PromptResponse) => void;
   reject: (error: unknown) => void;
@@ -66,6 +68,9 @@ export type Turn = {
 
 export type Session = BaseSession & {
   query: Query;
+  /** Id of the underlying SDK session. Equal to the ACP session id until a
+   * /clear swaps in a fresh SDK session; resume/refresh must target this id. */
+  sdkSessionId: string;
   /** The Options object passed to query() — mutating it affects subsequent prompts */
   queryOptions: Options;
   /** Rebuilds the in-process ("sdk") signed-commit server with a fresh instance
@@ -88,7 +93,6 @@ export type Session = BaseSession & {
   cwd: string;
   taskRunId?: string;
   lastPlanFilePath?: string;
-  lastPlanContent?: string;
   effort?: EffortLevel;
   /** User intent; retained while a non-fast model hides the "fast" option. */
   fastModeEnabled: boolean;
@@ -117,6 +121,18 @@ export type Session = BaseSession & {
   queryGeneration: number;
   /** The query iterator ended and can't be revived; new prompts reject. */
   queryClosed?: boolean;
+  /** Set while an in-place SDK query swap (/clear or refreshSession) is in
+   * flight; resolves when it settles (success or failure). Prompts await it,
+   * cancel and the other swap path refuse during it, and a second swap is
+   * rejected — the swap must never be raced. */
+  querySwap?: Promise<void>;
+  /** Tracks whether we're inside a compaction. The SDK emits the terminal
+   * `status` (compact_result success/failed) twice for a single failed
+   * compaction, and the two messages are indistinguishable, so we report the
+   * outcome only while a compaction is in progress, then clear this. A fresh
+   * `compacting` status sets it again, so every distinct compaction (e.g.
+   * repeated auto-compactions in a long turn) is still shown. */
+  compacting?: boolean;
   cancelController?: AbortController;
   forceCancelTimer?: ReturnType<typeof setTimeout>;
   emitRawSDKMessages: boolean | SDKMessageFilter[];
@@ -220,12 +236,19 @@ export type NewSessionMeta = {
    * runtime whether it needs a repo and clones one only if so.
    */
   channelMode?: boolean;
+  taskOriginProduct?: string;
   /**
    * The user's spoken-narration setting at session start. Gates the speak
    * tool and its prompt instructions. Unset falls back by environment: cloud
    * emits always (consumers gate playback), local stays silent.
    */
   spokenNarration?: boolean;
+  /**
+   * Matched `bedrock-llm-gateway` variant at session start. `test` serves the
+   * session from Bedrock through the gateway. Only the desktop resolves this,
+   * so headless runs leave it unset and keep the gateway's default provider.
+   */
+  bedrockGatewayVariant?: BedrockGatewayVariant;
   jsonSchema?: Record<string, unknown> | null;
   mcpToolApprovals?: McpToolApprovals;
   posthogExecPermissionRegex?: string;

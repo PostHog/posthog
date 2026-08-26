@@ -9,10 +9,9 @@ import type { ReactNode } from "react";
 /**
  * Whether only its own members can see a channel, judged by its name.
  *
- * A guess, and the fallback for surfaces that hold a name and nothing else. Any
- * caller with the channel in hand should pass `personal` to `channelGlyph`
- * instead — a public space named "personal" reaches this function looking
- * exactly like the private one.
+ * This is a fallback for surfaces that hold a name and nothing else. A caller
+ * with the channel in hand must pass `personal` to avoid deciding privacy from
+ * a display label.
  */
 export function isPrivateChannel(channelName: string | undefined): boolean {
   if (!channelName) return false;

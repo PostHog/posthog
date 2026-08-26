@@ -8,25 +8,16 @@ import { playerSidebarLogic } from 'scenes/session-recordings/player/sidebar/pla
 
 import { ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import {
-    Experiment,
-    FilterLogicalOperator,
-    PropertyFilterType,
-    PropertyOperator,
-    SessionRecordingSidebarTab,
-} from '~/types'
+import { Experiment, FilterLogicalOperator, SessionRecordingSidebarTab } from '~/types'
 
 import {
     experimentsSessionBucketsCreate,
     experimentsSessionContextsCreate,
     experimentsSessionEventDeltasCreate,
 } from 'products/experiments/frontend/generated/api'
+import { visionScannersList } from 'products/replay_vision/frontend/generated/api'
 
-import {
-    FUNNEL_DATA_WAREHOUSE_COMPLETION_REASON,
-    FUNNEL_SERVER_SIDE_COMPLETION_REASON,
-    getViewRecordingFiltersForVariant,
-} from '../utils'
+import { FUNNEL_DATA_WAREHOUSE_COMPLETION_REASON, FUNNEL_SERVER_SIDE_COMPLETION_REASON } from '../utils'
 import { RETENTION_UNLINKABLE_REASON, viewRecordingsLinkabilityLogic } from '../viewRecordingsLinkabilityLogic'
 import { type ExperimentReplayRecording, experimentReplayTabLogic } from './experimentReplayTabLogic'
 
@@ -38,6 +29,10 @@ jest.mock('products/experiments/frontend/generated/api', () => ({
     experimentsSessionContextsCreate: jest.fn().mockResolvedValue({ results: [] }),
     experimentsSessionBucketsCreate: jest.fn(),
     experimentsSessionEventDeltasCreate: jest.fn(),
+}))
+
+jest.mock('products/replay_vision/frontend/generated/api', () => ({
+    visionScannersList: jest.fn().mockResolvedValue({ results: [] }),
 }))
 
 const BUCKET_RESPONSE = {
@@ -80,6 +75,8 @@ const DELTA_RESPONSE = {
     sessions_truncated: false,
     events_truncated: false,
     min_arm_persons: 50,
+    max_card_recordings: 20,
+    dropped_duplicate_cards: 0,
     too_early: false,
 }
 
@@ -129,6 +126,13 @@ const ALL_LINKABLE = {
     client_step: true,
 }
 
+// Exposure narrowing lives in `experiment_exposure`, not the filter tree, so an unfiltered
+// tab carries an empty group.
+const EMPTY_FILTER_GROUP = {
+    type: FilterLogicalOperator.And,
+    values: [{ type: FilterLogicalOperator.And, values: [] }],
+}
+
 describe('experimentReplayTabLogic', () => {
     let logic: ReturnType<typeof experimentReplayTabLogic.build>
     let seenTogetherSpy: jest.SpyInstance
@@ -142,6 +146,8 @@ describe('experimentReplayTabLogic', () => {
         ;(experimentsSessionBucketsCreate as jest.Mock).mockResolvedValue(BUCKET_RESPONSE)
         ;(experimentsSessionEventDeltasCreate as jest.Mock).mockClear()
         ;(experimentsSessionEventDeltasCreate as jest.Mock).mockResolvedValue(DELTA_RESPONSE)
+        ;(visionScannersList as jest.Mock).mockClear()
+        ;(visionScannersList as jest.Mock).mockResolvedValue({ results: [] })
         seenTogetherSpy = jest.spyOn(api.propertyDefinitions, 'seenTogether')
         seenTogetherSpy.mockResolvedValue(ALL_LINKABLE)
         logic = experimentReplayTabLogic({ experiment: EXPERIMENT })
@@ -159,22 +165,18 @@ describe('experimentReplayTabLogic', () => {
         })
     })
 
-    it('builds an exposure-only filter pinned to the run window', () => {
+    it('pins the person-scoped exposure filter to the run window', () => {
         const { recordingsFilters } = logic.values
 
+        // RecordingsQuery defaults to "-3d", which would silently hide older exposed sessions,
+        // so the window must come from the experiment.
         expect(recordingsFilters.date_from).toBe('2026-01-01T00:00:00Z')
         expect(recordingsFilters.date_to).toBe('2026-02-01T00:00:00Z')
         expect(recordingsFilters.filter_test_accounts).toBe(true)
-        // All facet: the inner filter is the exposure helper's "all variants" output, nothing metric-shaped.
-        expect(recordingsFilters.filter_group).toEqual({
-            type: FilterLogicalOperator.And,
-            values: [
-                {
-                    type: FilterLogicalOperator.And,
-                    values: getViewRecordingFiltersForVariant(EXPERIMENT, undefined),
-                },
-            ],
-        })
+        // All facet: the population is the server-resolved exposure filter, and nothing
+        // event-shaped stands in for it in the filter tree.
+        expect(recordingsFilters.experiment_exposure).toEqual({ experiment_id: 42 })
+        expect(recordingsFilters.filter_group).toEqual(EMPTY_FILTER_GROUP)
     })
 
     it('keeps the selected variant across remounts, in step with the playlist persisting its filters', async () => {
@@ -215,12 +217,7 @@ describe('experimentReplayTabLogic', () => {
         expect(remounted.values.selectedVariantKey).toBe('test')
         expect(remounted.values.effectiveVariantKey).toBeNull()
         // The stale key must not leak into the query; the filter falls back to all variants.
-        expect(remounted.values.recordingsFilters.filter_group.values).toEqual([
-            {
-                type: FilterLogicalOperator.And,
-                values: getViewRecordingFiltersForVariant(renamed, undefined),
-            },
-        ])
+        expect(remounted.values.recordingsFilters.experiment_exposure).toEqual({ experiment_id: 42 })
         remounted.unmount()
     })
 
@@ -231,61 +228,22 @@ describe('experimentReplayTabLogic', () => {
 
         const { recordingsFilters } = logic.values
         expect(recordingsFilters.date_from).toBe('2026-01-01T00:00:00Z')
-        expect(recordingsFilters.filter_group.values).toEqual([
-            {
-                type: FilterLogicalOperator.And,
-                values: getViewRecordingFiltersForVariant(EXPERIMENT, 'test'),
-            },
-        ])
+        expect(recordingsFilters.experiment_exposure).toEqual({ experiment_id: 42, variant: 'test' })
     })
 
-    it('falls back to the flag-value property filter when the default exposure event is server-side', async () => {
+    it('keeps the person-scoped filter when the exposure event is server-side', async () => {
+        // The case the person-scoped filter exists for: a server-side exposure event carries no
+        // session id, and any client-side downgrade of the query on that signal would reintroduce
+        // the empty tab this filter replaced.
         seenTogetherSpy.mockResolvedValue({ $feature_flag_called: false })
         // Distinct id: both this logic and the linkability lookup are keyed by experiment id.
         const serverSide = experimentReplayTabLogic({ experiment: { ...EXPERIMENT, id: 43 } as Experiment })
         serverSide.mount()
 
-        await expectLogic(serverSide)
-            .toFinishAllListeners()
-            .toMatchValues({ exposureUnlinkable: false, usingExposureFallback: true })
-        expect(serverSide.values.recordingsFilters.filter_group.values).toEqual([
-            {
-                type: FilterLogicalOperator.And,
-                values: [
-                    {
-                        key: '$feature/my-flag',
-                        type: PropertyFilterType.Event,
-                        value: ['control', 'test'],
-                        operator: PropertyOperator.Exact,
-                    },
-                ],
-            },
-        ])
+        await expectLogic(serverSide).toFinishAllListeners()
+        expect(serverSide.values.recordingsFilters.experiment_exposure).toEqual({ experiment_id: 43 })
+        expect(serverSide.values.recordingsFilters.filter_group).toEqual(EMPTY_FILTER_GROUP)
         serverSide.unmount()
-    })
-
-    it('flags a server-side custom exposure event as unlinkable, so the tab can explain the empty list', async () => {
-        seenTogetherSpy.mockResolvedValue({ signed_up: false })
-        const customExposure = {
-            ...EXPERIMENT,
-            id: 44,
-            exposure_criteria: {
-                exposure_config: { kind: NodeKind.ExperimentEventExposureConfig, event: 'signed_up', properties: [] },
-            },
-        } as unknown as Experiment
-        const serverSide = experimentReplayTabLogic({ experiment: customExposure })
-        serverSide.mount()
-
-        await expectLogic(serverSide)
-            .toFinishAllListeners()
-            .toMatchValues({ exposureUnlinkable: true, usingExposureFallback: false })
-        serverSide.unmount()
-    })
-
-    it('keeps the list when the exposure event is session-linkable', async () => {
-        await expectLogic(logic)
-            .toFinishAllListeners()
-            .toMatchValues({ exposureUnlinkable: false, usingExposureFallback: false })
     })
 
     it('ANDs each selected metric filter onto the exposure filter, and ignores unknown metric uuids', async () => {
@@ -297,10 +255,7 @@ describe('experimentReplayTabLogic', () => {
         expect(logic.values.recordingsFilters.filter_group.values).toEqual([
             {
                 type: FilterLogicalOperator.And,
-                values: [
-                    ...getViewRecordingFiltersForVariant(EXPERIMENT, undefined),
-                    { id: 'purchase', name: 'purchase', type: 'events', properties: [] },
-                ],
+                values: [{ id: 'purchase', name: 'purchase', type: 'events', properties: [] }],
             },
         ])
 
@@ -311,7 +266,6 @@ describe('experimentReplayTabLogic', () => {
             {
                 type: FilterLogicalOperator.And,
                 values: [
-                    ...getViewRecordingFiltersForVariant(EXPERIMENT, undefined),
                     { id: 'purchase', name: 'purchase', type: 'events', properties: [] },
                     { id: 'server_side_step', name: 'server_side_step', type: 'events', properties: [] },
                 ],
@@ -323,12 +277,7 @@ describe('experimentReplayTabLogic', () => {
         // A persisted uuid whose metric has since been removed must not leak into the query.
         logic.actions.setMetricSelected('ghost', true)
         expect(logic.values.effectiveMetricUuids).toEqual([])
-        expect(logic.values.recordingsFilters.filter_group.values).toEqual([
-            {
-                type: FilterLogicalOperator.And,
-                values: getViewRecordingFiltersForVariant(EXPERIMENT, undefined),
-            },
-        ])
+        expect(logic.values.recordingsFilters.filter_group).toEqual(EMPTY_FILTER_GROUP)
     })
 
     it('lists a retention metric as unmatchable instead of dropping it silently', async () => {
@@ -362,12 +311,7 @@ describe('experimentReplayTabLogic', () => {
         })
         withRetention.actions.setMetricSelected('metric-retention', true)
         expect(withRetention.values.effectiveMetricUuids).toEqual([])
-        expect(withRetention.values.recordingsFilters.filter_group.values).toEqual([
-            {
-                type: FilterLogicalOperator.And,
-                values: getViewRecordingFiltersForVariant(EXPERIMENT, undefined),
-            },
-        ])
+        expect(withRetention.values.recordingsFilters.filter_group).toEqual(EMPTY_FILTER_GROUP)
         withRetention.unmount()
     })
 
@@ -383,12 +327,7 @@ describe('experimentReplayTabLogic', () => {
         serverSideMetric.actions.setMetricSelected('metric-purchase', true)
         expect(serverSideMetric.values.effectiveMetricUuids).toEqual([])
         // The unlinkable event would zero the whole AND-combined query — it must never appear.
-        expect(serverSideMetric.values.recordingsFilters.filter_group.values).toEqual([
-            {
-                type: FilterLogicalOperator.And,
-                values: getViewRecordingFiltersForVariant(EXPERIMENT, undefined),
-            },
-        ])
+        expect(serverSideMetric.values.recordingsFilters.filter_group).toEqual(EMPTY_FILTER_GROUP)
         serverSideMetric.unmount()
     })
 
@@ -425,10 +364,7 @@ describe('experimentReplayTabLogic', () => {
         expect(logic.values.recordingsFilters.filter_group.values).toEqual([
             {
                 type: FilterLogicalOperator.And,
-                values: [
-                    ...getViewRecordingFiltersForVariant(EXPERIMENT, undefined),
-                    { id: 'purchase', name: 'purchase', type: 'events', properties: [] },
-                ],
+                values: [{ id: 'purchase', name: 'purchase', type: 'events', properties: [] }],
             },
         ])
 
@@ -472,22 +408,14 @@ describe('experimentReplayTabLogic', () => {
         pending.mount()
         pending.actions.setMetricSelected('metric-purchase', true)
 
-        expect(pending.values.recordingsFilters.filter_group.values).toEqual([
-            {
-                type: FilterLogicalOperator.And,
-                values: getViewRecordingFiltersForVariant(EXPERIMENT, undefined),
-            },
-        ])
+        expect(pending.values.recordingsFilters.filter_group).toEqual(EMPTY_FILTER_GROUP)
 
         resolveSeenTogether(ALL_LINKABLE)
         await expectLogic(pending).toFinishAllListeners()
         expect(pending.values.recordingsFilters.filter_group.values).toEqual([
             {
                 type: FilterLogicalOperator.And,
-                values: [
-                    ...getViewRecordingFiltersForVariant(EXPERIMENT, undefined),
-                    { id: 'purchase', name: 'purchase', type: 'events', properties: [] },
-                ],
+                values: [{ id: 'purchase', name: 'purchase', type: 'events', properties: [] }],
             },
         ])
         pending.unmount()
@@ -516,8 +444,6 @@ describe('experimentReplayTabLogic', () => {
         expect(tabViews()).toHaveLength(1)
         expect(tabViews()[0][1]).toMatchObject({
             experiment_id: 51,
-            exposure_unlinkable: false,
-            using_exposure_fallback: false,
             variant_count: 2,
             metric_count: 2,
             linkable_metric_count: 1,
@@ -558,8 +484,6 @@ describe('experimentReplayTabLogic', () => {
         expect(tabViews()).toHaveLength(1)
         expect(tabViews()[0][1]).toMatchObject({
             experiment_id: 52,
-            exposure_unlinkable: false,
-            using_exposure_fallback: false,
             linkable_metric_count: 2,
         })
         opened.unmount()
@@ -576,10 +500,7 @@ describe('experimentReplayTabLogic', () => {
         expect(failed.values.recordingsFilters.filter_group.values).toEqual([
             {
                 type: FilterLogicalOperator.And,
-                values: [
-                    ...getViewRecordingFiltersForVariant(EXPERIMENT, undefined),
-                    { id: 'purchase', name: 'purchase', type: 'events', properties: [] },
-                ],
+                values: [{ id: 'purchase', name: 'purchase', type: 'events', properties: [] }],
             },
         ])
         failed.unmount()
@@ -675,13 +596,10 @@ describe('experimentReplayTabLogic', () => {
         const { recordingsFilters } = logic.values
         expect(recordingsFilters.session_ids).toEqual(['bucket-1', 'bucket-2'])
         // The returned set already encodes the metric condition; ANDing the event filters back in
-        // would narrow it a second time.
-        expect(recordingsFilters.filter_group.values).toEqual([
-            {
-                type: FilterLogicalOperator.And,
-                values: getViewRecordingFiltersForVariant(EXPERIMENT, 'test'),
-            },
-        ])
+        // would narrow it a second time. The person-scoped filter stays alongside: bucket ids say
+        // the session saw the experiment, not that its person is in the analysis population.
+        expect(recordingsFilters.experiment_exposure).toEqual({ experiment_id: 42, variant: 'test' })
+        expect(recordingsFilters.filter_group).toEqual(EMPTY_FILTER_GROUP)
     })
 
     it('follows the playlist\'s own "Show all" back to the unbucketed list', async () => {
@@ -974,14 +892,10 @@ describe('experimentReplayTabLogic', () => {
         // The card's sessions are picked with no duration floor, so the default active-seconds
         // filter must not thin out the list the card's count promises.
         expect(logic.values.recordingsFilters.duration).toEqual([])
-        // The card's ids already encode the event condition, so no event filter is added on top —
-        // only the exposure filter stays, keeping the list's definition visible.
-        expect(logic.values.recordingsFilters.filter_group.values).toEqual([
-            {
-                type: FilterLogicalOperator.And,
-                values: [...getViewRecordingFiltersForVariant(EXPERIMENT, 'test')],
-            },
-        ])
+        // The card's ids already encode the event condition, so no event filter is added on top;
+        // the population definition rides `experiment_exposure`, following the card's variant.
+        expect(logic.values.recordingsFilters.filter_group).toEqual(EMPTY_FILTER_GROUP)
+        expect(logic.values.recordingsFilters.experiment_exposure).toEqual({ experiment_id: 42, variant: 'test' })
     })
 
     it.each([
@@ -1017,5 +931,73 @@ describe('experimentReplayTabLogic', () => {
                 session_ids: undefined,
             })
         }).toMatchValues({ selectedWatchCard: null })
+    })
+
+    it('loads the scanners watching this experiment, scoped by experiment_id', async () => {
+        // Guards the back-link on the Recordings tab: it must query the scanners endpoint with this
+        // experiment's id (dropping the filter would list every scanner in the project) and surface
+        // the name, type, and monthly observation count each row shows.
+        logic.unmount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.VISION_ENTRYPOINT_EXPERIMENTS]: true })
+        ;(visionScannersList as jest.Mock).mockResolvedValue({
+            results: [
+                { id: 's1', name: 'Checkout confusion', scanner_type: 'classifier', observations_this_month: 50 },
+                { id: 's2', name: 'Rage clicks', scanner_type: 'summarizer', observations_this_month: 3 },
+            ],
+        })
+        const withScanners = experimentReplayTabLogic({ experiment: EXPERIMENT })
+        withScanners.mount()
+
+        await expectLogic(withScanners)
+            .toFinishAllListeners()
+            .toMatchValues({
+                linkedScanners: [
+                    { id: 's1', name: 'Checkout confusion', scannerType: 'classifier', observationsThisMonth: 50 },
+                    { id: 's2', name: 'Rage clicks', scannerType: 'summarizer', observationsThisMonth: 3 },
+                ],
+            })
+        expect(visionScannersList).toHaveBeenCalledWith(expect.any(String), { experiment_id: '42' })
+        withScanners.unmount()
+    })
+
+    it('does not query scanners when the vision entry-point flag is off', async () => {
+        // The card only renders behind the flag, so the lookup must not fire for the many users who
+        // open the Recordings tab without it. The default test flags leave the flag off.
+        logic.unmount()
+        ;(visionScannersList as jest.Mock).mockClear()
+        const withoutFlag = experimentReplayTabLogic({ experiment: EXPERIMENT })
+        withoutFlag.mount()
+
+        await expectLogic(withoutFlag).toFinishAllListeners()
+        expect(visionScannersList).not.toHaveBeenCalled()
+        withoutFlag.unmount()
+    })
+
+    it('marks the scanners lookup loading while in flight, so the tab shows a skeleton not the banner', async () => {
+        // The skeleton branch keys off linkedScannersLoading. Without the loading flag, the tab would
+        // flash the cross-sell banner (linkedScanners is [] until the fetch resolves) before the card.
+        logic.unmount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.VISION_ENTRYPOINT_EXPERIMENTS]: true })
+        let resolve: (value: unknown) => void = () => {}
+        ;(visionScannersList as jest.Mock).mockReturnValue(new Promise((r) => (resolve = r)))
+        const loadingLogic = experimentReplayTabLogic({ experiment: EXPERIMENT })
+        loadingLogic.mount()
+
+        await expectLogic(loadingLogic).toMatchValues({ linkedScannersLoading: true })
+        resolve({ results: [] })
+        await expectLogic(loadingLogic).toFinishAllListeners().toMatchValues({ linkedScannersLoading: false })
+        loadingLogic.unmount()
+    })
+
+    it('degrades to no back-link when the scanner lookup fails', async () => {
+        // The tab must render even if the lookup errors, so the loader swallows to an empty list.
+        logic.unmount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.VISION_ENTRYPOINT_EXPERIMENTS]: true })
+        ;(visionScannersList as jest.Mock).mockRejectedValue(new Error('boom'))
+        const withError = experimentReplayTabLogic({ experiment: EXPERIMENT })
+        withError.mount()
+
+        await expectLogic(withError).toFinishAllListeners().toMatchValues({ linkedScanners: [] })
+        withError.unmount()
     })
 })

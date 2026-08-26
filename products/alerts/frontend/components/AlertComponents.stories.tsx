@@ -6,19 +6,21 @@ import { useEffect, useState } from 'react'
 import type { LemonSegmentedButtonOption, LemonSelectOptions } from '@posthog/lemon-ui'
 import { LemonCheckbox, LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui'
 
+import { NextScheduledRun, ProjectTimezoneNotice } from 'lib/components/ScheduledRunStatus'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 import { useStorybookMocks } from '~/mocks/browser'
-import { AlertCalculationInterval } from '~/queries/schema/schema-general'
+import { AlertCalculationInterval, AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
 import { IntegrationType } from '~/types'
 
+import type { AlertFormType } from 'products/alerts/frontend/logic/alertFormLogic'
 import { alertCadenceMinutes } from 'products/alerts/frontend/logic/alertIntervalHelpers'
 import { alertNotificationLogic } from 'products/alerts/frontend/logic/alertNotificationLogic'
 import type { ScheduleRestriction } from 'products/alerts/frontend/types'
 import { InlineAlertNotifications } from 'products/alerts/frontend/views/InlineAlertNotifications'
 
 import { AlertAdvancedOptions } from './AlertAdvancedOptions'
-import { AlertDefinitionRow, AlertNextEvaluationStatus, AlertTimezoneNotice } from './AlertDefinition'
+import { AlertDefinitionRow } from './AlertDefinition'
 import { AlertEditor, AlertEditorFormDetails, AlertEditorLoading, AlertEditorSection } from './AlertEditor'
 import {
     AlertEvaluationHistoryChart,
@@ -30,6 +32,7 @@ import {
     AlertNotificationDestinationView,
     PendingAlertNotificationDestinationView,
 } from './AlertNotificationDestinationEditor'
+import { AlertPreviewCard } from './AlertPreviewCard'
 import { QuietHoursFields } from './QuietHoursFields'
 
 const alertEditorStoryLogic = kea([
@@ -117,8 +120,8 @@ function DefinitionStory(): JSX.Element {
                 <AlertDefinitionRow label="Evaluate every">
                     <span className="font-semibold">15 minutes</span>
                 </AlertDefinitionRow>
-                <AlertNextEvaluationStatus>July 17, 2026 at 12:15 PM</AlertNextEvaluationStatus>
-                <AlertTimezoneNotice timezone="America/Toronto" settingsUrl="#project-settings" />
+                <NextScheduledRun label="Next planned evaluation:">July 17, 2026 at 12:15 PM</NextScheduledRun>
+                <ProjectTimezoneNotice timezone="America/Toronto" settingsUrl="#project-settings" />
             </div>
         </div>
     )
@@ -160,7 +163,10 @@ function NotificationsStory(): JSX.Element {
             title: 'Slack: #product-alerts',
             tags: [{ label: 'Active', type: 'success' }],
             viewAction: { kind: 'button', label: 'View', url: '#destination' },
-            onDelete: () => setExistingDestinations([]),
+            onDelete: () =>
+                setExistingDestinations((destinations) =>
+                    destinations.map((destination) => ({ ...destination, deleting: true }))
+                ),
         },
     ])
     const [pendingDestinations, setPendingDestinations] = useState<PendingAlertNotificationDestinationView[]>([
@@ -360,7 +366,7 @@ const HISTORY_POINTS: AlertEvaluationHistoryPoint[] = [
     { label: '11:30', value: 71, firedAtTime: true },
     { label: '11:45', value: 64, firedAtTime: true },
     { label: '12:00', value: 53, firedAtTime: false },
-    { label: '12:15', value: 38, firedAtTime: false },
+    { label: '12:15', value: 68, firedAtTime: false, wouldFireUnderCurrentConfiguration: true },
     { label: '12:30', value: 76, firedAtTime: true },
 ]
 
@@ -377,6 +383,68 @@ function EvaluationHistoryStory(): JSX.Element {
                 evaluationsTotal={47}
                 evaluationNoun="evaluation"
                 tableAvailable
+                formatValue={(value) => `$${value.toFixed(2)}`}
+            />
+        </div>
+    )
+}
+
+const PREVIEW_LABELS = ['Jun 1', 'Jun 2', 'Jun 3', 'Jun 4', 'Jun 5', 'Jun 6', 'Jun 7']
+
+function buildTrendsAlertForm(overrides: Partial<AlertFormType> = {}): AlertFormType {
+    return {
+        name: 'Preview alert',
+        enabled: true,
+        config: { type: 'TrendsAlertConfig', series_index: 0 },
+        condition: { type: AlertConditionType.ABSOLUTE_VALUE },
+        threshold: { configuration: { type: InsightThresholdType.ABSOLUTE, bounds: { upper: 60, lower: 20 } } },
+        ...overrides,
+    } as AlertFormType
+}
+
+function PreviewStory(): JSX.Element {
+    return (
+        <div className="max-w-md border rounded bg-surface-primary p-4">
+            <AlertPreviewCard
+                alertForm={buildTrendsAlertForm()}
+                trendsValues={[42, 48, 71, 64, 53, 68, 76]}
+                trendsLabels={PREVIEW_LABELS}
+                funnelPreview={null}
+                hogqlPreview={null}
+            />
+        </div>
+    )
+}
+
+function PreviewRelativeStory(): JSX.Element {
+    return (
+        <div className="max-w-md border rounded bg-surface-primary p-4">
+            <AlertPreviewCard
+                alertForm={buildTrendsAlertForm({
+                    condition: { type: AlertConditionType.RELATIVE_INCREASE },
+                    threshold: { configuration: { type: InsightThresholdType.PERCENTAGE, bounds: { upper: 0.25 } } },
+                })}
+                trendsValues={[100, 90, 130, 120, 160, 140, 175]}
+                trendsLabels={PREVIEW_LABELS}
+                funnelPreview={null}
+                hogqlPreview={null}
+            />
+        </div>
+    )
+}
+
+// Values span three orders of magnitude over a small threshold, so the card switches to a log scale.
+function PreviewLogScaleStory(): JSX.Element {
+    return (
+        <div className="max-w-md border rounded bg-surface-primary p-4">
+            <AlertPreviewCard
+                alertForm={buildTrendsAlertForm({
+                    threshold: { configuration: { type: InsightThresholdType.ABSOLUTE, bounds: { upper: 5 } } },
+                })}
+                trendsValues={[3, 5200, 8, 6100, 12, 4800, 6]}
+                trendsLabels={PREVIEW_LABELS}
+                funnelPreview={null}
+                hogqlPreview={null}
             />
         </div>
     )
@@ -411,3 +479,6 @@ export const Notifications: Story = { render: () => <NotificationsStory /> }
 export const NotificationsMultipleSlackWorkspaces: Story = { render: () => <MultipleSlackWorkspacesStory /> }
 export const QuietHours: Story = { render: () => <QuietHoursStory /> }
 export const EvaluationHistory: Story = { render: () => <EvaluationHistoryStory /> }
+export const Preview: Story = { render: () => <PreviewStory /> }
+export const PreviewRelative: Story = { render: () => <PreviewRelativeStory /> }
+export const PreviewLogScale: Story = { render: () => <PreviewLogScaleStory /> }

@@ -1,8 +1,8 @@
 import os
 from typing import Optional
 
-from posthog.settings import get_from_env
 from posthog.settings.base_variables import DEBUG, TEST
+from posthog.settings.utils import get_from_env
 from posthog.utils import str_to_bool
 
 if TEST or DEBUG:
@@ -63,6 +63,14 @@ NOTEBOOKS_FRAME_STORE_S3_BUCKET = os.getenv("NOTEBOOKS_FRAME_STORE_S3_BUCKET") o
 # Query cache specific bucket - falls back to general object storage bucket if not set
 QUERY_CACHE_S3_BUCKET = os.getenv("QUERY_CACHE_S3_BUCKET") or OBJECT_STORAGE_BUCKET
 
+# Entries whose zstd-compressed form is at least this large go to S3 (with a Redis pointer) when
+# the query-cache-s3-writes flag allows; smaller ones always stay inline in Redis. The threshold
+# applies to compressed bytes because that is what an entry actually costs in Redis. Query results
+# compress roughly 3-15x, so the 128KB default corresponds to about 0.4-2MB of serialized JSON:
+# dashboard tiles, which almost never reach that size, stay on sub-millisecond Redis reads while
+# the byte-heavy tail of ad-hoc and API results moves off the cluster.
+QUERY_CACHE_S3_MIN_COMPRESSED_BYTES = get_from_env("QUERY_CACHE_S3_MIN_COMPRESSED_BYTES", 128 * 1024, type_cast=int)
+
 # Video segment clustering workflow bucket - should have a 24h lifecycle rule for automatic cleanup
 VIDEO_SEGMENT_CLUSTERING_S3_BUCKET = os.getenv("VIDEO_SEGMENT_CLUSTERING_S3_BUCKET") or OBJECT_STORAGE_BUCKET
 
@@ -91,6 +99,14 @@ AI_BLOB_S3_PREFIX = os.getenv("AI_BLOB_S3_PREFIX", "aio/")
 # tables and mlhog training via a separate read-only credential.
 INBOX_RANKING_DATASET_S3_BUCKET = os.getenv("INBOX_RANKING_DATASET_S3_BUCKET", "")
 INBOX_RANKING_DATASET_S3_PREFIX = os.getenv("INBOX_RANKING_DATASET_S3_PREFIX", "inbox_ranking")
+# Training dag (products/signals/dags/inbox_ranking/training): how many daily snapshots back the
+# examples reach, how many trailing days of reports grade a candidate, and whether a winning
+# candidate rewrites the champion pointer on its own. Promotion stays manual until the first shadow
+# read has a frozen champion to read against; the candidate is still trained and graded daily.
+INBOX_RANKING_TRAINING_LOOKBACK_DAYS = get_from_env("INBOX_RANKING_TRAINING_LOOKBACK_DAYS", 60, type_cast=int)
+INBOX_RANKING_TRAINING_HOLDOUT_DAYS = get_from_env("INBOX_RANKING_TRAINING_HOLDOUT_DAYS", 7, type_cast=int)
+INBOX_RANKING_AUTO_PROMOTE = get_from_env("INBOX_RANKING_AUTO_PROMOTE", False, type_cast=str_to_bool)
+INBOX_RANKING_PROMOTION_MIN_DAYS = get_from_env("INBOX_RANKING_PROMOTION_MIN_DAYS", 3, type_cast=int)
 
 # Identity matching scratch storage (products/growth `identity_matching_job`). The job writes
 # per-run Parquet objects via ClickHouse `INSERT INTO FUNCTION s3(...)` and the read API globs

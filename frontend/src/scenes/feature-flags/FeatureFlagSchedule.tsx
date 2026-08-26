@@ -25,6 +25,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { describeCron } from 'lib/cron'
 import { dayjs } from 'lib/dayjs'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -39,15 +40,17 @@ import {
     MultivariateFlagVariant,
     RecurrenceInterval,
     ScheduledChangeOperationType,
+    ScheduledChangeRequestState,
     ScheduledChangeType,
 } from '~/types'
 
 import {
-    describeCron,
     featureFlagLogic,
     hasZeroRollout,
+    isScheduleDeniedApproval,
     PAIRED_PRESETS,
     validateFeatureFlagVariantKey,
+    validateVariantRolloutSum,
     variantKeyToIndexFeatureFlagPayloads,
 } from './featureFlagLogic'
 import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseConditionsCollapsible'
@@ -163,13 +166,24 @@ const RECURRING_SUPPORTED_OPERATIONS = new Set([
 // --- Schedule card for the list view ---
 
 function ScheduleStatusTag({ scheduledChange }: { scheduledChange: ScheduledChangeType }): JSX.Element {
-    const { executed_at, failure_reason, is_recurring } = scheduledChange
+    const { executed_at, failure_reason, is_recurring, change_request } = scheduledChange
     const { currentTeam } = useValues(teamLogic)
     const tz = currentTeam?.timezone || 'UTC'
 
     function getStatus(): { type: LemonTagType; text: string; tooltip?: string } {
+        const rejected = change_request?.state === ScheduledChangeRequestState.Rejected
+        const denied = rejected || change_request?.state === ScheduledChangeRequestState.Expired
+        const deniedText = rejected ? 'Rejected' : 'Approval expired'
+        const deniedCause = rejected ? 'The approval request was rejected' : 'The approval request expired'
+
         if (failure_reason) {
-            return { type: 'danger', text: 'Error', tooltip: `Failed: ${failure_reason}` }
+            return { type: 'danger', text: 'Error' }
+        } else if (isScheduleDeniedApproval(scheduledChange)) {
+            return {
+                type: 'danger',
+                text: deniedText,
+                tooltip: `${deniedCause}, so this change will not be applied.`,
+            }
         } else if (executed_at) {
             const executedAt = dayjs(executed_at)
             const tzShort = shortTimeZone(tz, executedAt.toDate()) ?? tz
@@ -183,6 +197,21 @@ function ScheduleStatusTag({ scheduledChange }: { scheduledChange: ScheduledChan
                 type: 'warning',
                 text: 'Paused',
                 tooltip: 'Recurring schedule is paused. It will not execute until resumed.',
+            }
+        } else if (change_request?.state === ScheduledChangeRequestState.Pending) {
+            return {
+                type: 'warning',
+                text: 'Needs approval',
+                tooltip: 'This change will be skipped if it is not approved before the scheduled time.',
+            }
+        } else if (denied && is_recurring) {
+            // A denied request on a recurring schedule is not terminal: the sweep skips the next
+            // occurrence and requests a fresh approval for the one after, so the row stays active
+            // but the tag must not read as a plain "Recurring" that will run.
+            return {
+                type: 'danger',
+                text: deniedText,
+                tooltip: `${deniedCause}, so the next occurrence will be skipped. A new approval request will be created for the following occurrence.`,
             }
         } else if (is_recurring) {
             return { type: 'highlight', text: 'Recurring' }
@@ -341,6 +370,19 @@ function ScheduleCard({
                 <div className="text-xs text-muted">
                     <ScheduleTiming scheduledChange={scheduledChange} />
                 </div>
+                {scheduledChange.failure_reason && (
+                    <div className="text-xs text-danger">{scheduledChange.failure_reason}</div>
+                )}
+                {scheduledChange.change_request && (
+                    <div className="text-xs">
+                        <Link
+                            to={urls.approval(scheduledChange.change_request.id)}
+                            data-attr="scheduled-change-view-approval-request"
+                        >
+                            View approval request
+                        </Link>
+                    </div>
+                )}
                 <div className="flex items-center gap-1.5 text-xs text-muted">
                     {scheduledChange.created_by && (
                         <>
@@ -414,6 +456,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
         customPairEnableCronPreview,
         customPairDisableCronPreview,
         canCreatePairedSchedule,
+        hasEarlyAccessFeatures,
     } = useValues(featureFlagLogic)
     const {
         deleteScheduledChange,
@@ -470,6 +513,37 @@ export default function FeatureFlagSchedule(): JSX.Element {
     const variantErrors = displayVariants.map(({ key: variantKey }) => ({
         key: validateFeatureFlagVariantKey(variantKey),
     }))
+
+    // A bad sum is rejected when the change fires. Other operations leave variants untouched.
+    const variantRolloutSumError =
+        scheduledChangeOperation === ScheduledChangeOperationType.UpdateVariants
+            ? validateVariantRolloutSum(displayVariants)
+            : undefined
+
+    function getScheduleDisabledReason(): string | undefined {
+        if (!scheduleDateMarker) {
+            return 'Select the scheduled date and time'
+        }
+        if (isRecurring && repeatsValue === 'none') {
+            return 'Select a repeat interval'
+        }
+        if (isRecurring && cronExpression !== null && cronExpression.trim() === '') {
+            return 'Enter a cron expression'
+        }
+        if (repeatsValue === 'cron' && cronPreview === 'Invalid cron expression') {
+            return 'Enter a valid cron expression'
+        }
+        if (hasFormErrors(schedulePayloadErrors)) {
+            return 'Fix release condition errors'
+        }
+        if (
+            scheduledChangeOperation === ScheduledChangeOperationType.UpdateVariants &&
+            variantErrors.some((error) => error.key != null)
+        ) {
+            return 'Fix schedule variant changes errors'
+        }
+        return variantRolloutSumError
+    }
 
     const supportsRecurring = RECURRING_SUPPORTED_OPERATIONS.has(scheduledChangeOperation)
 
@@ -800,6 +874,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
                                     filters={scheduleFilters}
                                     onChange={(value, errors) => setSchedulePayload(value, null, errors, null, null)}
                                     hideMatchOptions
+                                    hasEarlyAccessFeatures={hasEarlyAccessFeatures}
                                 />
                             </div>
                         </div>
@@ -904,23 +979,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
                             <LemonButton
                                 type="primary"
                                 onClick={createScheduledChange}
-                                disabledReason={
-                                    !scheduleDateMarker
-                                        ? 'Select the scheduled date and time'
-                                        : isRecurring && repeatsValue === 'none'
-                                          ? 'Select a repeat interval'
-                                          : isRecurring && cronExpression !== null && cronExpression.trim() === ''
-                                            ? 'Enter a cron expression'
-                                            : repeatsValue === 'cron' && cronPreview === 'Invalid cron expression'
-                                              ? 'Enter a valid cron expression'
-                                              : hasFormErrors(schedulePayloadErrors)
-                                                ? 'Fix release condition errors'
-                                                : scheduledChangeOperation ===
-                                                        ScheduledChangeOperationType.UpdateVariants &&
-                                                    variantErrors.some((error) => error.key != null)
-                                                  ? 'Fix schedule variant changes errors'
-                                                  : undefined
-                                }
+                                disabledReason={getScheduleDisabledReason()}
                             >
                                 Schedule
                             </LemonButton>

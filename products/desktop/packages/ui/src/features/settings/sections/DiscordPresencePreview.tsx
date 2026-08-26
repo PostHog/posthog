@@ -1,5 +1,7 @@
 import { DotsThree, GameController, Pause, Play } from "@phosphor-icons/react";
-import { Flex, SegmentedControl, Text } from "@radix-ui/themes";
+import { SettingsSection } from "@posthog/ui/features/settings/components/SettingsCard";
+import { SettingsSegmented } from "@posthog/ui/features/settings/components/SettingsSegmented";
+import { Flex, Text } from "@radix-ui/themes";
 import { useEffect, useState } from "react";
 import posthogIcon from "../../auth/assets/posthog-icon.svg";
 
@@ -63,27 +65,22 @@ export function DiscordPresencePreview({
   const state = showRepoName ? `${SAMPLE_REPO} · ${statusPart}` : statusPart;
 
   return (
-    <Flex direction="column" gap="3">
-      <Flex
-        align="center"
-        justify="between"
-        className="border-gray-6 border-t pt-4"
-      >
-        <Text className="font-medium text-sm">Preview</Text>
-        <div className={enabled ? "" : "pointer-events-none opacity-50"}>
-          <SegmentedControl.Root
-            size="1"
-            value={running ? "running" : "idle"}
-            onValueChange={(value) => setRunning(value === "running")}
-          >
-            <SegmentedControl.Item value="running">
-              Running
-            </SegmentedControl.Item>
-            <SegmentedControl.Item value="idle">Idle</SegmentedControl.Item>
-          </SegmentedControl.Root>
-        </div>
-      </Flex>
-
+    <SettingsSection
+      label="Preview"
+      description="What your Discord profile shows while you work."
+      action={
+        <SettingsSegmented
+          value={running ? "running" : "idle"}
+          options={[
+            { value: "running", label: "Running" },
+            { value: "idle", label: "Idle" },
+          ]}
+          onValueChange={(value) => setRunning(value === "running")}
+          ariaLabel="Preview state"
+          disabled={!enabled}
+        />
+      }
+    >
       <div
         className={`max-w-[380px] rounded-xl border border-gray-5 bg-gray-2 px-4 py-3 ${
           enabled ? "" : "pointer-events-none opacity-50"
@@ -130,6 +127,6 @@ export function DiscordPresencePreview({
           </Flex>
         </Flex>
       </div>
-    </Flex>
+    </SettingsSection>
   );
 }

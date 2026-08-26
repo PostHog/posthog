@@ -34,6 +34,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.user import User
 from posthog.models.utils import UUIDT
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.notebooks.backend.kernel_package import kernel_package_bytes_and_hash
 from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
 from products.notebooks.backend.sandbox.kernel import (
@@ -48,6 +49,7 @@ from products.notebooks.backend.sandbox.kernel.data_plane import (
 )
 from products.notebooks.backend.sql_v2 import (
     RESULT_CACHE_ROWS,
+    DataPlaneClaims,
     SQLV2KernelNotRunning,
     SQLV2PageError,
     build_callback_url,
@@ -74,8 +76,6 @@ from products.notebooks.backend.temporal.sql_v2 import (
     dispatch_sql_v2_run_activity,
     mark_sql_v2_run_failed_activity,
 )
-
-from ee.models.rbac.access_control import AccessControl
 
 
 def _restrict_query_access(test: APIBaseTest) -> None:
@@ -929,17 +929,25 @@ class TestSQLV2RunOnAConnection(APIBaseTest):
 
 
 class _RecordingSandbox:
-    """Stands in for the docker/Modal sandbox: records control-plane calls."""
+    """Stands in for the docker/Modal sandbox: records control-plane calls.
 
-    def __init__(self):
+    `baked_version` stands in for the stamp the image carries. It defaults to None,
+    which is an image with no baked package at all, so the probe reports nothing and
+    the deploy falls back to the tarball.
+    """
+
+    def __init__(self, baked_version: str | None = None):
         self.files: dict[str, bytes] = {}
         self.commands: list[str] = []
+        self.baked_version = baked_version
 
     def write_file(self, path: str, payload: bytes) -> None:
         self.files[path] = payload
 
-    def execute(self, command: str, timeout_seconds: int | None = None) -> None:
+    def execute(self, command: str, timeout_seconds: int | None = None):
         self.commands.append(command)
+        launched_baked = self.baked_version is not None and f'= "{self.baked_version}"' in command
+        return SimpleNamespace(stdout="nb_kernel_baked_ok\n" if launched_baked else "", exit_code=0)
 
     def get_connect_credentials(self):
         return SimpleNamespace(url="http://localhost:45678", token="connect-tok")
@@ -987,21 +995,46 @@ class TestSQLV2EnsureServer(APIBaseTest):
         package, _version = kernel_package_bytes_and_hash()
         self.assertEqual(self.sandbox.files["/tmp/nb_kernel.tar.gz"], package)
         self.assertEqual(self.sandbox.files["/tmp/nb_sql_v2_secret"], kernel_server_secret(str(runtime.id)).encode())
-        self.assertEqual(len(self.sandbox.commands), 1)
         self.assertEqual(result.server_url, "http://localhost:45678")
         self.assertEqual(result.server_connect_token, "connect-tok")
 
-    def test_launch_command_shape_regressions(self):
+    def test_image_without_the_current_package_still_gets_a_server(self):
+        # The baked probe stops the old server before it reads the stamp, so a miss that
+        # skipped the tarball would leave the sandbox with no server running at all.
+        self._create_runtime(server_url="http://localhost:1")
+        self.sandbox.baked_version = "an-older-image"
+        self._ensure(reported_version="some-old-version")
+        self.assertIn("/tmp/nb_kernel.tar.gz", self.sandbox.files)
+        self.assertIn("PYTHONPATH=/tmp/nb_kernel_pkg", self.sandbox.commands[-1])
+
+    def test_matching_image_launches_in_place_without_the_tarball(self):
+        # The upload and the tar extract are what baking the package removes. Losing the
+        # short-circuit costs a control-plane round trip on every cold start, and nothing
+        # at runtime shows it: both paths start an identical server.
+        self._create_runtime(server_url="http://localhost:1")
+        self.sandbox.baked_version = kernel_package_bytes_and_hash()[1]
+        self._ensure(reported_version="some-old-version")
+        self.assertNotIn("/tmp/nb_kernel.tar.gz", self.sandbox.files)
+        self.assertEqual(len(self.sandbox.commands), 1)
+        launch = self.sandbox.commands[0]
+        self.assertIn("PYTHONPATH=/opt/nb_kernel_pkg", launch)
+        self.assertNotIn("tar -xzf", launch)
+
+    @parameterized.expand([("baked", kernel_package_bytes_and_hash()[1]), ("tarball", None)])
+    def test_launch_command_shape_regressions(self, _name: str, baked_version: str | None):
         # Two bugs shipped from this one string: pkill -f of our own module name matches
         # the launch command's shell and kills the deploy; and backgrounding a compound
         # command records a wrapper subshell PID so later redeploys kill nothing.
         self._create_runtime(server_url="http://localhost:1")
+        self.sandbox.baked_version = baked_version
         self._ensure(reported_version="some-old-version")
-        launch = self.sandbox.commands[0]
+        launch = self.sandbox.commands[-1]
         self.assertNotRegex(launch, r"pkill[^;&]*[^\[]nb_kernel")
         self.assertIn("echo $! > /tmp/nb_kernel_server.pid", launch)
         # The backgrounded segment must be a single simple command (no cd &&-chain).
-        backgrounded = launch.rsplit(";", 1)[-1].split("&")[0]
+        nohup_segments = [segment for segment in launch.split(";") if "nohup" in segment]
+        self.assertEqual(len(nohup_segments), 1)
+        backgrounded = nohup_segments[0].split("&")[0]
         self.assertNotIn("&&", backgrounded)
         self.assertIn("nb_kernel.server", backgrounded)
 
@@ -1241,10 +1274,16 @@ class TestSQLV2RunResult(APIBaseTest):
     def _url(self, run_id: str) -> str:
         return f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/sql_v2/runs/{run_id}/"
 
-    def _create_run(self, status, envelope=None, error="") -> NotebookNodeRun:
+    def _create_run(self, status, envelope=None, error="", node_type=NotebookNodeRun.NodeType.HOGQL) -> NotebookNodeRun:
         with team_scope(self.team.id):
             return NotebookNodeRun.objects.create(
-                team=self.team, notebook=self.notebook, node_id="n1", status=status, envelope=envelope, error=error
+                team=self.team,
+                notebook=self.notebook,
+                node_id="n1",
+                status=status,
+                envelope=envelope,
+                error=error,
+                node_type=node_type,
             )
 
     @parameterized.expand(
@@ -1296,18 +1335,26 @@ class TestSQLV2RunResult(APIBaseTest):
         _restrict_query_access(self)
         self.assertEqual(self.client.get(self._url(str(run.id))).status_code, 403)
 
+    @parameterized.expand(
+        [
+            # hogql: no query status left, so the run can never complete.
+            ("direct", NotebookNodeRun.NodeType.HOGQL, "expired"),
+            # python: the sandbox delivers its envelope once with no retry, so a lost
+            # delivery leaves nothing able to move the row.
+            ("kernel", NotebookNodeRun.NodeType.PYTHON, "never reported"),
+        ]
+    )
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
-    def test_running_direct_run_expires_to_failed_after_grace(self, _mock_enabled):
-        # A RUNNING hogql run with no query status left can never complete — this poll is
-        # its watchdog. Within the grace window it keeps waiting (covers pre-deploy
-        # kernel-executed hogql runs whose callback is still due).
+    def test_running_run_expires_to_failed_after_grace(self, _name, node_type, expected_error, _mock_enabled):
+        # This poll is the watchdog for both lanes. Within the grace window it keeps waiting,
+        # which for hogql also covers pre-deploy kernel-executed runs whose callback is due.
         with freeze_time("2026-07-01T00:00:00Z"):
-            expired = self._create_run(NotebookNodeRun.Status.RUNNING)
+            expired = self._create_run(NotebookNodeRun.Status.RUNNING, node_type=node_type)
         body = self.client.get(self._url(str(expired.id))).json()
         self.assertEqual(body["status"], NotebookNodeRun.Status.FAILED)
-        self.assertIn("expired", body["error"])
+        self.assertIn(expected_error, body["error"])
 
-        young = self._create_run(NotebookNodeRun.Status.RUNNING)
+        young = self._create_run(NotebookNodeRun.Status.RUNNING, node_type=node_type)
         body = self.client.get(self._url(str(young.id))).json()
         self.assertEqual(body["status"], NotebookNodeRun.Status.RUNNING)
 
@@ -1583,8 +1630,8 @@ class TestSQLV2Activities(APIBaseTest):
         # Dropping cache_limit silently degrades every page fetch into a ClickHouse re-query.
         self.assertGreater(payload["cache_limit"], payload["page_limit"])
         # The kernel needs both legs to complete a run: the data plane to fetch, the callback to report.
-        short_id, team_id, _user_id = verify_data_plane_token(payload["data_plane_token"])
-        self.assertEqual((short_id, team_id), (self.notebook.short_id, self.team.id))
+        claims = verify_data_plane_token(payload["data_plane_token"])
+        self.assertEqual((claims.notebook_short_id, claims.team_id), (self.notebook.short_id, self.team.id))
         self.assertIn("/internal/notebooks/data_plane/query/", payload["data_plane_url"])
         self.assertEqual(self._reload(run).status, NotebookNodeRun.Status.RUNNING)
 
@@ -1618,7 +1665,9 @@ class TestSQLV2CommandToken(SimpleTestCase):
 class TestSQLV2DataPlaneToken(SimpleTestCase):
     def test_round_trip(self):
         token = mint_data_plane_token("nb123", 7, 42)
-        self.assertEqual(verify_data_plane_token(token), ("nb123", 7, 42))
+        self.assertEqual(
+            verify_data_plane_token(token), DataPlaneClaims(notebook_short_id="nb123", team_id=7, user_id=42)
+        )
 
     @parameterized.expand(
         [
@@ -1697,6 +1746,57 @@ class TestSQLV2DataPlaneEndpoint(APIBaseTest):
         # The real ClickHouse type must survive the Arrow round-trip (schema metadata).
         self.assertEqual(types[0][0], "answer")
         self.assertIn("Int", types[0][1])
+
+    @parameterized.expand(
+        [
+            # The reviewer's case on #88304: a python cell materializes one input per upstream
+            # node, in sequence, each with its own 11 minute data-plane deadline. Measured from
+            # dispatch, a two-input cell outruns the 20 minute budget while working correctly,
+            # and the watchdog fails it. A fetch is the kernel's only sign of life mid-run, so
+            # it has to move the clock.
+            ("running_run_stays_alive", NotebookNodeRun.Status.RUNNING, False, NotebookNodeRun.Status.RUNNING),
+            # And the guard on the other side: a fetch arriving after the run already finished
+            # must not revive its clock, or a late straggler would resurrect a settled row.
+            ("finished_run_is_not_revived", NotebookNodeRun.Status.DONE, False, NotebookNodeRun.Status.DONE),
+        ]
+    )
+    def test_a_data_plane_fetch_resets_the_run_watchdog_clock(
+        self, _name, initial_status, expect_expired, expected_status
+    ):
+        with freeze_time("2026-07-01T00:00:00Z"), team_scope(self.team.id):
+            run = NotebookNodeRun.objects.create(
+                team=self.team,
+                notebook=self.notebook,
+                node_id="n1",
+                node_type=NotebookNodeRun.NodeType.PYTHON,
+                status=initial_status,
+            )
+        token = mint_data_plane_token(self.notebook.short_id, self.team.id, self.user.id, str(run.id))
+        self.assertEqual(self._post({"query": "select 1"}, token=token).status_code, 202)
+
+        from products.notebooks.backend.sql_v2_runs import expire_stale_kernel_run
+
+        run.refresh_from_db()
+        self.assertEqual(expire_stale_kernel_run(run), expect_expired)
+        self.assertEqual(run.status, expected_status)
+
+    def test_a_fetch_without_a_run_claim_touches_no_run(self):
+        # Tokens minted before the run claim existed stay valid across the deploy that adds
+        # it. They fetch data as before; they just cannot advance any run's clock.
+        with freeze_time("2026-07-01T00:00:00Z"), team_scope(self.team.id):
+            run = NotebookNodeRun.objects.create(
+                team=self.team,
+                notebook=self.notebook,
+                node_id="n1",
+                node_type=NotebookNodeRun.NodeType.PYTHON,
+                status=NotebookNodeRun.Status.RUNNING,
+            )
+        self.assertEqual(self._post({"query": "select 1"}, token=self._token()).status_code, 202)
+
+        from products.notebooks.backend.sql_v2_runs import expire_stale_kernel_run
+
+        run.refresh_from_db()
+        self.assertTrue(expire_stale_kernel_run(run))
 
     def test_outer_limit_and_offset_cap_the_page(self):
         response = self._run_to_completion({"query": "select number from numbers(10)", "limit": 3, "offset": 2})

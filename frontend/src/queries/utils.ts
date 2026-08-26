@@ -474,7 +474,7 @@ export const getInterval = (query: InsightQueryNode): IntervalType | undefined =
 // For trends/stickiness, ActionsStackedBar is a deprecated alias of ActionsBar (which renders stacked):
 // the UI never emits it, but the API and MCP accept it. Normalizing here — the point all `display`
 // selectors derive from — makes such insights behave exactly like their UI-created equivalents.
-const normalizeDisplay = (display: ChartDisplayType | undefined): ChartDisplayType | undefined =>
+export const normalizeDisplay = (display: ChartDisplayType | undefined): ChartDisplayType | undefined =>
     display === ChartDisplayType.ActionsStackedBar ? ChartDisplayType.ActionsBar : display
 
 export const getDisplay = (query: InsightQueryNode): ChartDisplayType | undefined => {
@@ -502,6 +502,7 @@ const CANVAS_CHART_DISPLAY_TYPES = new Set<ChartDisplayType>([
     ChartDisplayType.BoxPlot,
     ChartDisplayType.SlopeGraph,
     ChartDisplayType.TwoDimensionalHeatmap,
+    ChartDisplayType.ScatterPlot,
 ])
 
 type QueryVizCanvasClassification = 'canvas' | 'non-canvas' | 'unknown'

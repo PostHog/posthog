@@ -165,7 +165,7 @@ class GatewayAgentPrincipal:
     whose MCP grants the run may use.
 
     `credential_owner_id` is None for a run nobody owns (an autonomous support
-    reply, a creatorless scout). Such a principal reaches team-scoped grants
+    reply, any scout run). Such a principal reaches team-scoped grants
     only, never a member's personal grant.
     """
 

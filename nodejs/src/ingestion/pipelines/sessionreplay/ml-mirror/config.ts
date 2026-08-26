@@ -47,12 +47,10 @@ export type MlMirrorConfig = {
     /**
      * Collect the URLs of remote images as well, so the fetch lane can download them later.
      *
-     * Enabling changes the mirrored JSONL shape a second time: a remote image's `src` carries an
-     * `imageurl:<pseudoTeam>:<hash>` ref instead of the grey placeholder. The prefix differs from
-     * the image lane's `image:` on purpose, because this hash names the URL rather than the bytes
-     * behind it. Nothing fetches those URLs yet, so every such ref is dangling, and a dangling ref
-     * renders as the same placeholder it replaced. What this buys is the measurement of how many
-     * URLs and how many distinct hosts real traffic carries.
+     * Enabling changes the mirrored JSONL shape a second time. A direct remote image keeps its
+     * placeholder and a `data-anon-image-ref-<attribute>` sibling carries its `imageurl:<hash>`
+     * ref. CSS keeps numbered placeholders and a `data-anon-image-refs-<field>` sibling carries a
+     * JSON slot-to-ref map. The URL hash names the URL rather than the bytes behind it.
      */
     SESSION_RECORDING_ML_URL_COLLECTION_ENABLED: boolean
 
@@ -62,30 +60,95 @@ export type MlMirrorConfig = {
      * This flag is separate from the collection flag, because the two steps have different risks.
      * Collection changes only the mirrored data. A produce puts original, unscrubbed URLs onto a
      * Kafka topic, so the fetch topic is as sensitive as the raw replay topic. Turn this flag on
-     * only after the topic exists with the retention that section 2.5 of the plan gives it.
+     * only after the topic exists with the required retention and every fetch consumer accepts the
+     * current ref format. The disabled default lets consumer support deploy before producers change.
      *
      * The flag does nothing unless SESSION_RECORDING_ML_URL_COLLECTION_ENABLED is also on, because
      * the anonymizer collects no URLs until then.
      */
     SESSION_RECORDING_ML_URL_PRODUCER_ENABLED: boolean
-
     /**
-     * While true the fetch lane sends no outbound request. It reads the topic, dedupes, writes the
-     * ledger and reports the metrics, which is the phase 0 measurement: how many requests the
-     * fetcher would offer, and how many of those dedup away before one is needed.
+     * Read crawl history before the mirror sends URLs to Kafka.
      *
-     * Turning it off makes this deployment send requests to customer sites, so it stays on until
-     * those numbers have been read and the per-site budget has been sized against them.
+     * Read failures publish every candidate, so the lookup cannot lose fetch work.
      */
+    SESSION_RECORDING_ML_URL_CRAWL_HISTORY_PRECHECK_ENABLED: boolean
+    /** Bounds one producer-side crawl-history read. */
+    SESSION_RECORDING_ML_URL_CRAWL_HISTORY_PRECHECK_TIMEOUT_MS: number
+
+    // US-only, PEM, multiple keys allowed (comma-separated)
+    WEB_BOT_AUTH_PRIVATE_KEYS: string
+
+    /** While true, the fetch lane parses input but sends no request and writes no crawl history. */
     SESSION_RECORDING_ML_IMAGE_FETCH_DRY_RUN: boolean
     SESSION_RECORDING_ML_IMAGE_FETCH_GROUP_ID: string
     SESSION_RECORDING_ML_IMAGE_FETCH_BATCH_SIZE: number
-    /** A URL older than this is dropped, so a lane with a backlog sheds work rather than fetching stale work. */
-    SESSION_RECORDING_ML_IMAGE_FETCH_MAX_AGE_MS: number
-    /** Capacity of the per-pod seen-ref cache that sits in front of the Redis ledger. */
-    SESSION_RECORDING_ML_IMAGE_FETCH_DEDUP_MAX_REFS: number
-    /** Bounds one round trip to the sighting store, including waiting for a pooled connection, so a Redis stall cannot hold the poll loop. */
-    SESSION_RECORDING_ML_IMAGE_FETCH_REDIS_TIMEOUT_MS: number
+    AI_RESEARCH_IMAGE_FETCH_DYNAMODB_TABLE: string
+    /** Bounds one DynamoDB request so an unavailable store cannot hold the poll loop. */
+    AI_RESEARCH_IMAGE_FETCH_DYNAMODB_TIMEOUT_MS: number
+    /** TTL on each DynamoDB crawl-history entry, which sets the recrawl interval. */
+    AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS: number
+
+    /** Optional steady request rate for one registrable domain. Zero uses the concurrency limit only. */
+    SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_REQUESTS_PER_SECOND: number
+    /** Tokens one idle registrable domain can retain when the steady request rate is enabled. */
+    SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_BURST: number
+    /** Also the worker count for one registrable domain or origin. */
+    SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_REGISTRABLE_DOMAIN: number
+    /**
+     * Requests this pod holds open across every registrable domain at once.
+     *
+     * The topic key sends one registrable domain to one partition and one pod. Its rate limit lives
+     * on that pod. The state limits prevent unbounded in-memory maps.
+     *
+     * This bounds the pod instead. A body reads into a buffer, so the resident peak is roughly this
+     * times SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES, and the sockets and the DNS lookups
+     * scale with it too. Raise the pod's memory before you raise this.
+     */
+    SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IN_FLIGHT_REQUESTS: number
+    /** Low-diversity mode starts when the remaining request capacity is lower than this value. */
+    SESSION_RECORDING_ML_IMAGE_FETCH_LOW_ORIGIN_DIVERSITY_MINIMUM_REQUEST_SLOTS: number
+    /** Low-diversity mode starts only when more than this many undeferred canonical URL jobs remain. */
+    SESSION_RECORDING_ML_IMAGE_FETCH_LOW_ORIGIN_DIVERSITY_REPUBLISH_THRESHOLD: number
+    /** Canonical URL jobs fetched in low-diversity mode before the remaining undeferred jobs return to Kafka. */
+    SESSION_RECORDING_ML_IMAGE_FETCH_LOW_ORIGIN_DIVERSITY_PROGRESS: number
+    /** Image bodies waiting for Kafka delivery. This must fit inside the producer byte queue. */
+    SESSION_RECORDING_ML_IMAGE_FETCH_MAX_PENDING_PUBLISHES: number
+    /**
+     * Wall time the fetch pass of one poll batch may take.
+     *
+     * A batch can hold more URLs for one registrable domain than a polite rate carries in this
+     * time. What the pass does not reach goes to a delay topic without spending a hop. The value
+     * sits well inside Kafka's max.poll.interval.ms of 300s, which the crawl history round trips
+     * share.
+     */
+    SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_BUDGET_MS: number
+    /** Refused before the body when the response declares more, and abandoned mid-body when it declares nothing. */
+    SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES: number
+    /** Covers one URL including its redirects, separate from the connect timeout of the shared request layer. */
+    SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_TIMEOUT_MS: number
+    SESSION_RECORDING_ML_IMAGE_FETCH_MAX_REDIRECTS: number
+    /** Consecutive failures before this pod stops sending to one registrable domain. */
+    SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_BREAKER_FAILURES: number
+    SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_BREAKER_COOLDOWN_MS: number
+    /** The longest calculated breaker back-off. A longer valid `Retry-After` remains authoritative. */
+    SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_BREAKER_MAX_COOLDOWN_MS: number
+    /** Registrable domains one pod holds request-control state for. */
+    SESSION_RECORDING_ML_IMAGE_FETCH_MAX_TRACKED_REGISTRABLE_DOMAINS: number
+    /** Origins one pod holds configuration and crawl-delay state for. */
+    SESSION_RECORDING_ML_IMAGE_FETCH_MAX_TRACKED_ORIGINS: number
+
+    /**
+     * The delay topic one retry pod drains, and the period every record in it waits.
+     *
+     * One server runs every tier, so three deployments of one image cover 1 minute, 10 minutes, and
+     * one hour. The pod's `max.poll.interval.ms` must exceed the period, or the broker evicts the
+     * consumer while it sleeps.
+     */
+    SESSION_RECORDING_ML_IMAGE_FETCH_RETRY_TOPIC: string
+    SESSION_RECORDING_ML_IMAGE_FETCH_RETRY_DELAY_MS: number
+    /** Records released together after one wait based on the latest broker append timestamp. */
+    SESSION_RECORDING_ML_IMAGE_FETCH_RETRY_BATCH_SIZE: number
 
     /**
      * Capacity of the mirror's produced-URL ref cache, which bounds re-produces onto the fetch
@@ -162,12 +225,35 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCER_ENABLED: false,
         SESSION_RECORDING_ML_URL_COLLECTION_ENABLED: false,
         SESSION_RECORDING_ML_URL_PRODUCER_ENABLED: false,
+        SESSION_RECORDING_ML_URL_CRAWL_HISTORY_PRECHECK_ENABLED: true,
+        SESSION_RECORDING_ML_URL_CRAWL_HISTORY_PRECHECK_TIMEOUT_MS: 500,
+        WEB_BOT_AUTH_PRIVATE_KEYS: '',
         SESSION_RECORDING_ML_IMAGE_FETCH_DRY_RUN: true,
         SESSION_RECORDING_ML_IMAGE_FETCH_GROUP_ID: 'session-replay-ml-image-fetch',
         SESSION_RECORDING_ML_IMAGE_FETCH_BATCH_SIZE: 500,
-        SESSION_RECORDING_ML_IMAGE_FETCH_MAX_AGE_MS: 6 * 60 * 60 * 1000,
-        SESSION_RECORDING_ML_IMAGE_FETCH_DEDUP_MAX_REFS: 500_000,
-        SESSION_RECORDING_ML_IMAGE_FETCH_REDIS_TIMEOUT_MS: 5_000,
+        AI_RESEARCH_IMAGE_FETCH_DYNAMODB_TABLE: '',
+        AI_RESEARCH_IMAGE_FETCH_DYNAMODB_TIMEOUT_MS: 5_000,
+        AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS: 30 * 24 * 60 * 60,
+        SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_REQUESTS_PER_SECOND: 0,
+        SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_BURST: 6,
+        SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_REGISTRABLE_DOMAIN: 6,
+        SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IN_FLIGHT_REQUESTS: 300,
+        SESSION_RECORDING_ML_IMAGE_FETCH_LOW_ORIGIN_DIVERSITY_MINIMUM_REQUEST_SLOTS: 48,
+        SESSION_RECORDING_ML_IMAGE_FETCH_LOW_ORIGIN_DIVERSITY_REPUBLISH_THRESHOLD: 50,
+        SESSION_RECORDING_ML_IMAGE_FETCH_LOW_ORIGIN_DIVERSITY_PROGRESS: 8,
+        SESSION_RECORDING_ML_IMAGE_FETCH_MAX_PENDING_PUBLISHES: 100,
+        SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_BUDGET_MS: 40_000,
+        SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES: 20 * 1024 * 1024,
+        SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_TIMEOUT_MS: 10_000,
+        SESSION_RECORDING_ML_IMAGE_FETCH_MAX_REDIRECTS: 3,
+        SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_BREAKER_FAILURES: 5,
+        SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_BREAKER_COOLDOWN_MS: 60_000,
+        SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_BREAKER_MAX_COOLDOWN_MS: 60 * 60 * 1000,
+        SESSION_RECORDING_ML_IMAGE_FETCH_MAX_TRACKED_REGISTRABLE_DOMAINS: 20_000,
+        SESSION_RECORDING_ML_IMAGE_FETCH_MAX_TRACKED_ORIGINS: 20_000,
+        SESSION_RECORDING_ML_IMAGE_FETCH_RETRY_TOPIC: '',
+        SESSION_RECORDING_ML_IMAGE_FETCH_RETRY_DELAY_MS: 60_000,
+        SESSION_RECORDING_ML_IMAGE_FETCH_RETRY_BATCH_SIZE: 500,
         SESSION_RECORDING_ML_URL_PRODUCED_REF_CACHE_MAX: 500_000,
         SESSION_RECORDING_ML_IMAGE_SCRUB_GROUP_ID: 'session-replay-ml-image-scrub',
         SESSION_RECORDING_ML_IMAGE_SCRUB_PREFIX: 'scrubbed-images',
