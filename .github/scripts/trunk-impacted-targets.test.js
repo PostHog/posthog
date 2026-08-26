@@ -153,9 +153,10 @@ test('a universal tripwire claims every known target', () => {
         // Read by pytest, jest, and playwright alike, so no one domain holds it.
         '.test_quarantine.json',
         // Trees that steer what every suite runs or what it runs against: the
-        // Depot copies of the workflows, the toolchain, the service configs the
-        // stack mounts, and the markdownlint config every tree's prose obeys.
-        '.depot/workflows/ci-backend.yml',
+        // Depot copies of the composite actions, the toolchain, the service
+        // configs the stack mounts, and the markdownlint config every tree's
+        // prose obeys.
+        '.depot/actions/paths-filter/action.yml',
         '.flox/env/manifest.toml',
         'docker/clickhouse/config.d/default.xml',
         'devenv/duckgres.yaml',
@@ -492,6 +493,16 @@ test('a single-language workflow claims that language rather than everything', (
     )
     assert.deepEqual(
         computeTargets(['.github/workflows/ci-backend.yml'], CONTEXT),
+        computeTargets(['mypy.ini'], CONTEXT)
+    )
+    // The Depot shadows take their canonical twin's domain instead of the
+    // .depot/** universal rule, so a shadow-only or paired edit stays on the
+    // python lanes.
+    assert.deepEqual(
+        computeTargets(
+            ['.depot/workflows/ci-backend.yml', '.depot/workflows/ci-backend-update-test-timing.yml'],
+            CONTEXT
+        ),
         computeTargets(['mypy.ini'], CONTEXT)
     )
 })

@@ -184,6 +184,15 @@ const TRIPWIRE_RULES = [
     ['.github/workflows/ci-rust.yml', RUST],
     ['.github/workflows/ci-rust-flags-integration.yml', RUST],
 
+    // The Depot shadows of workflows narrowed above take their canonical
+    // twin's domain: a shadow defines the same single-language suite, just on
+    // Depot runners, and ci-backend-shadow-drift.yml holds the pair in sync.
+    // A shadow of a workflow not narrowed above falls through to the .depot/**
+    // rule below and stays universal, the same way the canonical one does
+    // through .github/**.
+    ['.depot/workflows/ci-backend.yml', PYTHON],
+    ['.depot/workflows/ci-backend-update-test-timing.yml', PYTHON],
+
     // Lint rules that run repo-wide: a new rule fails code that merged in a
     // parallel lane, which is the same conflict .oxlintrc.json is here for. The
     // radius is the languages the rule matches, and semgrep requires every rule
