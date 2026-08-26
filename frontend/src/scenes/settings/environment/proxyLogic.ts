@@ -47,6 +47,14 @@ export type DiagnosticRemediation = DiagnosticRemediationApi
 export type DiagnosticCheckResult = DiagnosticCheckResultApi
 export type DiagnosticReport = DiagnosticReportApi
 
+export function canConfigureRootRedirect(proxyRecord: ProxyRecord, featureEnabled: boolean): boolean {
+    return (
+        featureEnabled &&
+        proxyRecord.root_redirect_supported &&
+        (proxyRecord.status === 'valid' || proxyRecord.status === 'warning')
+    )
+}
+
 export function domainFor(proxyRecord: ProxyRecord | undefined): string {
     if (!proxyRecord) {
         return apiHostOrigin()

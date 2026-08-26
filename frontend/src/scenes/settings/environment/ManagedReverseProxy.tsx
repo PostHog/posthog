@@ -32,7 +32,14 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
-import { DiagnosticCheckResult, DiagnosticCheckStatus, DiagnosticReport, ProxyRecord, proxyLogic } from './proxyLogic'
+import {
+    DiagnosticCheckResult,
+    DiagnosticCheckStatus,
+    DiagnosticReport,
+    ProxyRecord,
+    canConfigureRootRedirect,
+    proxyLogic,
+} from './proxyLogic'
 import { ProxySDKSetup } from './ProxySDKSetup'
 
 const statusText = {
@@ -367,7 +374,7 @@ const ExpandedRow = ({
                 </CodeSnippet>
             ),
         },
-        ...(rootRedirectEnabled && (record.status === 'valid' || record.status === 'warning')
+        ...(canConfigureRootRedirect(record, rootRedirectEnabled)
             ? [
                   {
                       label: 'Root redirect',

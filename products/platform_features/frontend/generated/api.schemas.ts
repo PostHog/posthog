@@ -503,6 +503,8 @@ export interface ProxyRecordApi {
      * @nullable
      */
     readonly root_redirect_url: string | null
+    /** Whether this managed proxy supports a redirect from its root URL. */
+    readonly root_redirect_supported: boolean
     /** Current provisioning status. Values: waiting (DNS verification pending), issuing (SSL certificate being issued), valid (proxy is live and working), warning (proxy has issues but is operational), erroring (proxy setup failed), deleting (removal in progress), timed_out (DNS verification timed out).
      *
      * * `waiting` - Waiting

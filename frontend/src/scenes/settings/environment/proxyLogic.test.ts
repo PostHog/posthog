@@ -9,7 +9,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { UserType } from '~/types'
 
-import { ProxyRecord, proxyLogic } from './proxyLogic'
+import { ProxyRecord, canConfigureRootRedirect, proxyLogic } from './proxyLogic'
 
 const MOCK_IMPERSONATED_USER: UserType = {
     ...MOCK_DEFAULT_USER,
@@ -22,6 +22,7 @@ const mockProxyRecord = (overrides: Partial<ProxyRecord> = {}): ProxyRecord => (
     status: 'valid',
     target_cname: 'proxy.posthog.com',
     root_redirect_url: null,
+    root_redirect_supported: true,
     message: null,
     created_at: '2026-08-24T00:00:00Z',
     updated_at: '2026-08-24T00:00:00Z',
@@ -141,6 +142,16 @@ describe('proxyLogic — shouldShowCloudflareOptIn', () => {
 })
 
 describe('proxyLogic — root redirect', () => {
+    it.each<[string, boolean, ProxyRecord, boolean]>([
+        ['supported valid proxy', true, mockProxyRecord(), true],
+        ['supported warning proxy', true, mockProxyRecord({ status: 'warning' }), true],
+        ['legacy proxy', true, mockProxyRecord({ root_redirect_supported: false }), false],
+        ['disabled feature', false, mockProxyRecord(), false],
+        ['proxy that is not ready', true, mockProxyRecord({ status: 'waiting' }), false],
+    ])('allows configuration for a %s when expected', (_name, featureEnabled, record, expected) => {
+        expect(canConfigureRootRedirect(record, featureEnabled)).toBe(expected)
+    })
+
     it('updates the record from the PATCH response', async () => {
         const record = mockProxyRecord()
         const updatedRecord = mockProxyRecord({ root_redirect_url: 'https://www.example.com/' })

@@ -9,7 +9,8 @@ from django.db import DatabaseError, transaction
 
 import requests
 import posthoganalytics
-from drf_spectacular.utils import extend_schema, extend_schema_serializer
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_serializer
 from rest_framework import serializers, status
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
@@ -70,6 +71,7 @@ class ProxyRecordSerializer(serializers.ModelSerializer):
             "domain",
             "target_cname",
             "root_redirect_url",
+            "root_redirect_supported",
             "status",
             "message",
             "created_at",
@@ -91,6 +93,9 @@ class ProxyRecordSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="HTTPS URL that requests to the proxy domain root redirect to, or null when disabled.",
     )
+    root_redirect_supported = serializers.SerializerMethodField(
+        help_text="Whether this managed proxy supports a redirect from its root URL."
+    )
     status = serializers.ChoiceField(
         choices=ProxyRecord.Status.choices,
         read_only=True,
@@ -111,6 +116,10 @@ class ProxyRecordSerializer(serializers.ModelSerializer):
     created_by: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(  # ty: ignore[invalid-assignment]
         read_only=True, help_text="ID of the user who created this proxy record."
     )
+
+    @extend_schema_field(OpenApiTypes.BOOL)
+    def get_root_redirect_supported(self, record: ProxyRecord) -> bool:
+        return is_cloudflare_proxy_by_cname(record.target_cname)
 
     def validate_domain(self, value: str) -> str:
         # The stored value is later used both as a DNS query name and as the authority of a
