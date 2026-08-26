@@ -1158,6 +1158,7 @@ doesn't conflict with concurrent PRs.
 - logrocket
 - lokalise
 - looker
+- lovable
 - m3ter
 - mailtrap
 - mantle
@@ -1472,6 +1473,7 @@ doesn't conflict with concurrent PRs.
 - zalando_zdirect
 - zapsign
 - zellify
+- zenchef
 - zenefits
 - zenloop
 - zitadel
