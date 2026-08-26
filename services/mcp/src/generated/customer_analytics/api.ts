@@ -869,9 +869,8 @@ export const CustomPropertySourcesBackfillParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Person and group sources only: the source's sync/backfill run history, newest first. Gated
- * on the caller's warehouse-source viewer access, since the runs expose its row counts and sync
- * errors.
+ * The source's sync history, newest first. Person and group runs require viewer access to
+ * their warehouse source because the response includes row counts and sync errors.
  */
 export const CustomPropertySourcesRunsListParams = /* @__PURE__ */ zod.object({
     id: zod.string(),
@@ -885,6 +884,10 @@ export const CustomPropertySourcesRunsListParams = /* @__PURE__ */ zod.object({
 export const CustomPropertySourcesRunsListQueryParams = /* @__PURE__ */ zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    search: zod
+        .string()
+        .optional()
+        .describe('Match run IDs, workflow IDs, job IDs, statuses, segments, triggers, or errors.'),
 })
 
 /**
