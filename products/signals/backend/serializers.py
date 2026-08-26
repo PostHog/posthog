@@ -835,14 +835,22 @@ class SignalNodeSerializer(serializers.Serializer):
     )
 
 
+class ReportSignalsQuerySerializer(serializers.Serializer):
+    collapse_duplicates = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Collapse repeated emissions from the same source object into one entry.",
+    )
+
+
 class ReportSignalsResponseSerializer(serializers.Serializer):
     """Response body for GET /api/projects/:id/signals/reports/:id/signals/."""
 
     report = SignalReportSerializer(help_text="The report these signals were clustered into.")
     signals = SignalNodeSerializer(
         many=True,
-        help_text="Signals contributing to the report, one entry per source object "
-        "(repeat emissions collapsed into duplicate_count).",
+        help_text="Signals contributing to the report. When collapse_duplicates is true, repeat emissions are "
+        "collapsed into one entry per source object with duplicate_count and collapsed_signal_ids.",
     )
 
 

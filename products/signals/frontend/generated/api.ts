@@ -75,6 +75,7 @@ import type {
     SignalsProcessingListParams,
     SignalsReportArtefactsListParams,
     SignalsReportsListParams,
+    SignalsReportsSignalsRetrieveParams,
     SignalsScoutConfigListParams,
     SignalsScoutMembersListParams,
     SignalsScoutNotesListParams,
@@ -436,20 +437,37 @@ export const signalsReportsRefundCreate = async (
     })
 }
 
-export const getSignalsReportsSignalsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/signals/reports/${id}/signals/`
+export const getSignalsReportsSignalsRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: SignalsReportsSignalsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/reports/${id}/signals/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/reports/${id}/signals/`
 }
 
 /**
- * Fetch a report's signals from ClickHouse, one entry per source object: repeat emissions of the same object are collapsed, with duplicate_count and collapsed_signal_ids carrying the occurrence history. The report's signal_count remains the raw emission count.
+ * Fetch a report's signals from ClickHouse. Repeat emissions can be collapsed into one entry per source object; the report's signal_count always remains the raw emission count.
  * @summary List a report's signals
  */
 export const signalsReportsSignalsRetrieve = async (
     projectId: string,
     id: string,
+    params?: SignalsReportsSignalsRetrieveParams,
     options?: RequestInit
 ): Promise<ReportSignalsResponseApi> => {
-    return apiMutator<ReportSignalsResponseApi>(getSignalsReportsSignalsRetrieveUrl(projectId, id), {
+    return apiMutator<ReportSignalsResponseApi>(getSignalsReportsSignalsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })

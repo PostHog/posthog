@@ -1614,6 +1614,32 @@ describe("PostHogAPIClient", () => {
     });
   });
 
+  describe("getSignalReportSignals", () => {
+    it("requests collapsed duplicate emissions", async () => {
+      const fetch = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ report: null, signals: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+      const client = new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+
+      await client.getSignalReportSignals("report-1");
+
+      const url = fetch.mock.calls[0][0] as URL;
+      expect(url.pathname).toBe(
+        "/api/projects/42/signals/reports/report-1/signals/",
+      );
+      expect(url.searchParams.get("collapse_duplicates")).toBe("true");
+    });
+  });
+
   describe("clearTaskRunConversation", () => {
     function makeClient(fetch: ReturnType<typeof vi.fn>) {
       const client = new PostHogAPIClient(

@@ -314,11 +314,7 @@ export function AgentRunDetail({ report }: { report: SignalReport }): JSX.Elemen
     const { reportSignals, reportSignalsLoading, isReResearch, priorityExplanation, actionabilityExplanation } =
         useValues(inboxReportDetailLogic({ reportId: report.id, report }))
     const signals = reportSignals ?? []
-    // Collapsed entries undercount raw emissions; sum duplicate_count instead.
-    const evidenceCount =
-        reportSignals !== null
-            ? signals.reduce((total, signal) => total + (signal.duplicate_count ?? 1), 0)
-            : report.signal_count
+    const evidenceCount = reportSignals !== null ? signals.length : report.signal_count
 
     return (
         <div className="@container w-full max-w-[calc(160ch+5rem)] mx-auto px-6 py-5 text-sm">

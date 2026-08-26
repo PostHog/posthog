@@ -4732,10 +4732,12 @@ export class PostHogAPIClient {
       const url = new URL(
         `${this.api.baseUrl}/api/projects/${teamId}/signals/reports/${reportId}/signals/`,
       );
+      url.searchParams.set("collapse_duplicates", "true");
+      const path = `${url.pathname}${url.search}`;
       const response = await this.api.fetcher.fetch({
         method: "get",
         url,
-        path: `/api/projects/${teamId}/signals/reports/${reportId}/signals/`,
+        path,
       });
 
       if (!response.ok) {

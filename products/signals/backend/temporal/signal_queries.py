@@ -618,12 +618,11 @@ def collapse_duplicate_signals(signals: list[dict]) -> list[dict]:
     return list(collapsed.values())
 
 
-def fetch_signals_for_report_sync(team: Team, report_id: str) -> list[dict]:
-    """Fetch a report's signals from ClickHouse, one entry per source object. Synchronous.
+def fetch_signals_for_report_sync(team: Team, report_id: str, *, collapse_duplicates: bool = False) -> list[dict]:
+    """Fetch a report's signals from ClickHouse. Synchronous.
 
-    Repeat emissions for the same source object come back collapsed (see
-    `collapse_duplicate_signals`); callers that need every raw occurrence should use
-    `fetch_signals_for_report_activity` instead.
+    Set ``collapse_duplicates`` to return one entry per source object (see
+    ``collapse_duplicate_signals``). The default preserves every emission.
     """
     tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
     result = execute_hogql_query(
@@ -651,7 +650,7 @@ def fetch_signals_for_report_sync(team: Team, report_id: str) -> list[dict]:
             }
         )
 
-    return collapse_duplicate_signals(signals_list)
+    return collapse_duplicate_signals(signals_list) if collapse_duplicates else signals_list
 
 
 # ---------------------------------------------------------------------------

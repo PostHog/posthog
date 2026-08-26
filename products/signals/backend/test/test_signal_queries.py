@@ -423,8 +423,10 @@ class TestFetchSignalsForReportSync(_SignalEmbeddingsTestBase):
             inserted_at=self.base + timedelta(hours=2),
         )
 
-        signals = fetch_signals_for_report_sync(self.team, "rA")
+        raw_signals = fetch_signals_for_report_sync(self.team, "rA")
+        signals = fetch_signals_for_report_sync(self.team, "rA", collapse_duplicates=True)
 
+        assert [s["signal_id"] for s in raw_signals] == ["s1", "s2", "other"]
         assert [(s["signal_id"], s["duplicate_count"], s["content"]) for s in signals] == [
             ("s2", 2, "latest spike"),
             ("other", 1, "the signal content"),

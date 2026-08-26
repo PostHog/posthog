@@ -1577,7 +1577,7 @@ export interface SignalNodeApi {
 export interface ReportSignalsResponseApi {
     /** The report these signals were clustered into. */
     report: SignalReportApi
-    /** Signals contributing to the report, one entry per source object (repeat emissions collapsed into duplicate_count). */
+    /** Signals contributing to the report. When collapse_duplicates is true, repeat emissions are collapsed into one entry per source object with duplicate_count and collapsed_signal_ids. */
     signals: SignalNodeApi[]
 }
 
@@ -4107,6 +4107,13 @@ export type SignalsReportsListParams = {
      * Only reports associated with this task (via the report's task associations).
      */
     task_id?: string
+}
+
+export type SignalsReportsSignalsRetrieveParams = {
+    /**
+     * Collapse repeated emissions from the same source object into one entry.
+     */
+    collapse_duplicates?: boolean
 }
 
 export type SignalsReportArtefactsListParams = {

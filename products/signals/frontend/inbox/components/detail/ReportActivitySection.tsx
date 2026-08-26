@@ -26,15 +26,7 @@ export function ReportActivitySection({ report }: { report: SignalReport }): JSX
     // The logic already resolved the research/implementation tasks; hand them to the `task_run` rows
     // so they don't re-fetch the same tasks the Runs section just loaded.
     const knownTasks = new Map((reportTasks ?? []).map((entry) => [entry.task.id, entry.task]))
-    // signal_finding artefacts store per-occurrence ids; the collapsed entry
-    // answers for every occurrence it absorbed.
-    const knownSignals = new Map(
-        (reportSignals ?? []).flatMap((signal) =>
-            (signal.collapsed_signal_ids?.length ? signal.collapsed_signal_ids : [signal.signal_id]).map(
-                (id) => [id, signal] as const
-            )
-        )
-    )
+    const knownSignals = new Map((reportSignals ?? []).map((signal) => [signal.signal_id, signal]))
 
     return (
         <DetailSection

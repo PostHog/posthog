@@ -1078,6 +1078,22 @@ class TestSignalReportListAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["report"]["source_products"] == ["zendesk"]
 
+    def test_signals_action_only_collapses_when_requested(self) -> None:
+        report = self._create_report()
+
+        def fetch_signals(_team: Team, _report_id: str, *, collapse_duplicates: bool = False) -> list[dict[str, str]]:
+            signal_ids = ["latest"] if collapse_duplicates else ["first", "latest"]
+            return [{"signal_id": signal_id} for signal_id in signal_ids]
+
+        with patch("products.signals.backend.views.fetch_signals_for_report_sync", side_effect=fetch_signals):
+            raw_response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/signals/")
+            collapsed_response = self.client.get(
+                f"/api/projects/{self.team.id}/signals/reports/{report.id}/signals/?collapse_duplicates=true"
+            )
+
+        assert [signal["signal_id"] for signal in raw_response.json()["signals"]] == ["first", "latest"]
+        assert [signal["signal_id"] for signal in collapsed_response.json()["signals"]] == ["latest"]
+
     def test_source_products_resilient_to_clickhouse_failure_on_retrieve(self):
         report = self._create_report()
 

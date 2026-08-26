@@ -317,12 +317,7 @@ export function InboxDetailFrame({
     const [activeDetailTab, setActiveDetailTab] = useState<'overview' | 'files'>('overview')
     const hasDiff = !!showFilesTab
     const signals = reportSignals ?? []
-    // Signals arrive collapsed (one entry per source object), so their length
-    // undercounts; summing duplicate_count keeps this equal to signal_count.
-    const evidenceCount =
-        reportSignals !== null
-            ? signals.reduce((total, signal) => total + (signal.duplicate_count ?? 1), 0)
-            : report.signal_count
+    const evidenceCount = reportSignals !== null ? signals.length : report.signal_count
     const hasEvidence = evidenceCount > 0
 
     const summaryPending =
