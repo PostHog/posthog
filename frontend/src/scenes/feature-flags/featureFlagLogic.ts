@@ -21,7 +21,7 @@ import { beforeUnload, router, urlToAction } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
 import { createElement } from 'react'
 
-import api, { PaginatedResponse } from 'lib/api'
+import api, { NetworkError, PaginatedResponse } from 'lib/api'
 import { isAccessDeniedError } from 'lib/api-error'
 import { handleApprovalRequired } from 'lib/approvals/utils'
 import { ACTIVITY_SEARCH_PARAM } from 'lib/components/ActivityLog/activityLogLogic'
@@ -387,6 +387,10 @@ const EMPTY_MULTIVARIATE_OPTIONS: MultivariateFlagOptions = {
 }
 
 const FLAG_DEPENDENCY_TIMEOUT_MS = 2000
+
+// Cap a save so a stalled request cannot hold the form in its loading skeleton forever.
+// A normal save finishes in a few seconds; this bound only cuts a request that never returns.
+const FEATURE_FLAG_SAVE_TIMEOUT_MS = 30_000
 
 // Only returns true when groups are present and ALL explicitly set to 0.
 // In feature flags, null/undefined rollout_percentage means "serve to all" (100%), not 0%.
@@ -2863,13 +2867,24 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 const flag = cleanFlag(updatedFlag)
                 const preparedFlag = indexToVariantKeyFeatureFlagPayloads(flag)
 
+                // Snapshot the baseline this save races against. The retry button re-sends this
+                // same payload, so if a later save re-baselines the flag first, the payload is
+                // stale and re-sending it would silently revert the newer server state.
+                const baselineAtSave = values.originalFeatureFlag
+
+                // Bound the request so a hung save releases the loading skeleton instead of
+                // leaving the form blank until the user reloads the page.
+                const controller = new AbortController()
+                const timeout = window.setTimeout(() => controller.abort(), FEATURE_FLAG_SAVE_TIMEOUT_MS)
+
                 try {
                     let savedFlag: FeatureFlagType
                     if (!updatedFlag.id) {
                         // Creating a new flag
                         savedFlag = await api.create(
                             `api/projects/${values.currentProjectId}/feature_flags`,
-                            preparedFlag
+                            preparedFlag,
+                            { signal: controller.signal }
                         )
                         actions.addProductIntent({
                             product_type: ProductKey.FEATURE_FLAGS,
@@ -2893,12 +2908,44 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             {
                                 ...preparedFlag,
                                 original_flag: values.originalFeatureFlag,
-                            }
+                            },
+                            { signal: controller.signal }
                         )
                     }
                     savedFlag.id && refreshTreeItem('feature_flag', String(savedFlag.id))
                     return variantKeyToIndexFeatureFlagPayloads(savedFlag)
                 } catch (error: any) {
+                    // A timed-out or dropped save carries no HTTP status, so the global loaders
+                    // handler stays silent. Surface a retryable toast so the user is not left
+                    // guessing whether the flag saved.
+                    if (controller.signal.aborted || error instanceof NetworkError) {
+                        lemonToast.error(
+                            controller.signal.aborted
+                                ? 'Saving the feature flag timed out. Check your connection and try again.'
+                                : 'Could not save the feature flag. Check your connection and try again.',
+                            {
+                                button: {
+                                    label: 'Retry',
+                                    action: () => {
+                                        // A later save may have re-baselined the flag while this toast
+                                        // stayed open. Re-sending the captured payload would overwrite
+                                        // that newer version, so skip the stale retry and say why.
+                                        if (
+                                            updatedFlag.id &&
+                                            !objectsEqual(values.originalFeatureFlag, baselineAtSave)
+                                        ) {
+                                            lemonToast.error(
+                                                'This flag was saved again after the failed attempt. Retry was skipped to keep the newer version. Open the flag to make your change again.'
+                                            )
+                                            return
+                                        }
+                                        actions.saveFeatureFlag(updatedFlag)
+                                    },
+                                },
+                            }
+                        )
+                        throw error
+                    }
                     if (error.code === 'behavioral_cohort_found' || error.code === 'cohort_does_not_exist') {
                         eventUsageLogic.actions.reportFailedToCreateFeatureFlagWithCohort(error.code, error.detail)
                     } else if (isAccessDeniedError(error)) {
@@ -2913,6 +2960,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     // Duplicate-key (`unique`/`key`) is toasted in the saveFeatureFlagFailure listener so
                     // the throw runs immediately and the form doesn't stay skeletoned during the lookup.
                     throw error
+                } finally {
+                    window.clearTimeout(timeout)
                 }
             },
             saveSidebarExperimentFeatureFlag: async (updatedFlag: Partial<FeatureFlagType>) => {
