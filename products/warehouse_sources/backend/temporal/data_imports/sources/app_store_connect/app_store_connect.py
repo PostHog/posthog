@@ -165,7 +165,7 @@ def _require_api_url(url: str) -> str:
     return url
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True, kw_only=True)
 class AppStoreConnectResumeConfig:
     # Fan-out bookmark: the app currently being walked. A stable Apple id rather than a positional
     # index, so apps added or removed between a crash and the retry can't resume into the wrong app.
