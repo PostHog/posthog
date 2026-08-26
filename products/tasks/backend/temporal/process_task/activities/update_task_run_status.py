@@ -1,7 +1,8 @@
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional
 
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from temporalio import activity
@@ -168,11 +169,18 @@ def _capture_posthog_ai_chat_analytics(
     """
     if task_run.task.origin_product != Task.OriginProduct.POSTHOG_AI:
         return
+    state = task_run.state if isinstance(task_run.state, dict) else {}
+    if state.get("await_user_message"):
+        # A prewarmed sandbox that idled out before anyone typed into it. The inactivity timeout
+        # terminalizes it as completed, so without this guard, opening the panel and walking away
+        # counts as a chat. PostHog AI removes the key when it delivers the first message; that
+        # removal is best-effort, so a failed one drops a real chat rather than inventing one.
+        return
     properties = {
         "agent_runtime": "sandbox",
         # Agent modes are a LangGraph concept, and the sandbox runtime has none.
         "agent_mode": None,
-        "is_new_conversation": _is_first_run_of_task(task_run),
+        "is_new_conversation": _is_first_chat_run_of_task(task_run, state),
         "duration_seconds": task_run._duration_seconds(),
         "termination_reason": termination_reason,
     }
@@ -189,15 +197,30 @@ def _capture_posthog_ai_chat_analytics(
     )
 
 
-def _is_first_run_of_task(task_run: TaskRun) -> bool:
+def _is_first_chat_run_of_task(task_run: TaskRun, state: dict[str, Any]) -> bool:
     """Whether this run opened the conversation, the run-level reading of `is_new_conversation`.
 
     A terminal run resumes into a successor rather than reopening, so "no earlier run" is what
-    separates a new conversation from a continued one.
+    separates a new conversation from a continued one. Two kinds of earlier history do not count:
+
+    - A prewarm nobody typed into. It idles out on its own and the next message resumes into a
+      successor, so counting it would report the user's first real chat as a continuation.
+    - The LangGraph half of a converted conversation. That conversation already counted once on
+      the legacy runtime, and its sandbox side starts on a fresh task with no earlier run.
     """
-    return not TaskRun.objects.filter(
-        task_id=task_run.task_id, team_id=task_run.team_id, created_at__lt=task_run.created_at
-    ).exists()
+    if state.get("converted_from_langgraph"):
+        return False
+    # Match the prewarm on the key's absence rather than with `exclude`. A queryset `exclude` on a
+    # JSON key compares NULL for every row that lacks the key, so it would drop exactly the earlier
+    # runs that did hold a chat and report every conversation as new.
+    held_a_chat = ~Q(state__has_key="await_user_message") | Q(state__await_user_message=False)
+    return (
+        not TaskRun.objects.filter(
+            task_id=task_run.task_id, team_id=task_run.team_id, created_at__lt=task_run.created_at
+        )
+        .filter(held_a_chat)
+        .exists()
+    )
 
 
 def _capture_terminal_analytics(task_run: TaskRun, input: UpdateTaskRunStatusInput) -> None:

@@ -365,25 +365,72 @@ class TestUpdateTaskRunStatusActivity:
             assert props["error_message"] == "boom"
 
     @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
+        "predecessor_state,run_state,expected_is_new",
+        [
+            # An earlier run that held a chat continues the conversation.
+            ({}, {}, False),
+            # An earlier prewarm nobody typed into does not — the next message resumes into a
+            # successor, so counting it would report the first real chat as a continuation.
+            ({"prewarmed": True, "await_user_message": True}, {}, True),
+            # A conversation carried over from LangGraph is continued, however little sandbox
+            # history it has: the conversion starts it on a fresh task with no earlier run.
+            (None, {"converted_from_langgraph": True}, False),
+            (None, {}, True),
+        ],
+    )
     @patch("products.tasks.backend.models.posthoganalytics.capture")
-    def test_a_resumed_conversation_is_not_a_new_one(self, mock_capture, activity_environment, test_task_run):
+    def test_prior_history_decides_whether_a_conversation_is_new(
+        self, mock_capture, activity_environment, test_task_run, predecessor_state, run_state, expected_is_new
+    ):
         test_task_run.task.origin_product = Task.OriginProduct.POSTHOG_AI
         test_task_run.task.save(update_fields=["origin_product"])
-        successor = TaskRun.objects.create(
-            task=test_task_run.task, team=test_task_run.team, status=TaskRun.Status.QUEUED
-        )
-        # `created_at` is auto_now_add, so pin the ordering rather than trusting two inserts
-        # microseconds apart.
-        TaskRun.objects.filter(id=successor.id).update(created_at=test_task_run.created_at + timedelta(seconds=1))
+        if run_state:
+            test_task_run.state = run_state
+            test_task_run.save(update_fields=["state", "updated_at"])
+        if predecessor_state is not None:
+            predecessor = TaskRun.objects.create(
+                task=test_task_run.task,
+                team=test_task_run.team,
+                status=TaskRun.Status.COMPLETED,
+                state=predecessor_state,
+            )
+            # `created_at` is auto_now_add, so pin the ordering rather than trusting two inserts
+            # microseconds apart.
+            TaskRun.objects.filter(id=predecessor.id).update(created_at=test_task_run.created_at - timedelta(seconds=1))
 
         async_to_sync(activity_environment.run)(
             update_task_run_status,
-            UpdateTaskRunStatusInput(run_id=str(successor.id), status=TaskRun.Status.COMPLETED),
+            UpdateTaskRunStatusInput(run_id=str(test_task_run.id), status=TaskRun.Status.COMPLETED),
         )
 
         chats = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "chat with ai"]
         assert len(chats) == 1
-        assert chats[0].kwargs["properties"]["is_new_conversation"] is False
+        assert chats[0].kwargs["properties"]["is_new_conversation"] is expected_is_new
+
+    @pytest.mark.django_db(transaction=True)
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_a_prewarm_nobody_typed_into_is_not_a_chat(self, mock_capture, activity_environment, test_task_run):
+        test_task_run.task.origin_product = Task.OriginProduct.POSTHOG_AI
+        test_task_run.task.title = ""
+        test_task_run.task.description = ""
+        test_task_run.task.save(update_fields=["origin_product", "title", "description", "updated_at"])
+        test_task_run.state = {"prewarmed": True, "await_user_message": True}
+        test_task_run.save(update_fields=["state", "updated_at"])
+
+        async_to_sync(_run_update_task_run_status)(
+            activity_environment,
+            UpdateTaskRunStatusInput(
+                run_id=str(test_task_run.id),
+                status=TaskRun.Status.COMPLETED,
+                timed_out_inactivity=True,
+            ),
+        )
+
+        events = [c.kwargs.get("event") for c in mock_capture.call_args_list]
+        assert not [e for e in events if str(e).startswith("chat with ai")]
+        # Only the chat reading is suppressed — the run still completed, and still reports it.
+        assert "task_run_completed" in events
 
     @pytest.mark.django_db(transaction=True)
     def test_terminal_retry_completes_loop_bookkeeping_exactly_once(self, activity_environment, test_task_run):
