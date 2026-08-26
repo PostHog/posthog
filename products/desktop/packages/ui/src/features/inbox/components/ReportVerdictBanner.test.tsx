@@ -1,10 +1,30 @@
 import type { SignalReport, Task } from "@posthog/shared/types";
 import { useReportChatPanelStore } from "@posthog/ui/features/inbox/stores/reportChatPanelStore";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { useReportTasks } = vi.hoisted(() => ({ useReportTasks: vi.fn() }));
+const {
+  discussReport,
+  invalidateQueries,
+  setQueryData,
+  useDiscussReport,
+  useReportTasks,
+} = vi.hoisted(() => ({
+  discussReport: vi.fn(),
+  invalidateQueries: vi.fn(),
+  setQueryData: vi.fn(),
+  useDiscussReport: vi.fn(),
+  useReportTasks: vi.fn(),
+}));
+
+vi.mock("@tanstack/react-query", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@tanstack/react-query")>();
+  return {
+    ...actual,
+    useQueryClient: () => ({ invalidateQueries, setQueryData }),
+  };
+});
 
 vi.mock(
   "@posthog/ui/features/inbox/hooks/useReportTasks",
@@ -19,6 +39,17 @@ vi.mock(
 
 vi.mock("@posthog/ui/features/inbox/hooks/useCreatePrReport", () => ({
   useCreatePrReport: () => ({ createPrReport: vi.fn(), isCreatingPr: false }),
+}));
+
+vi.mock("@posthog/ui/features/inbox/hooks/useDiscussReport", () => ({
+  useDiscussReport,
+}));
+
+vi.mock("@posthog/ui/features/canvas/hooks/useTaskChannels", () => ({
+  useTaskChannels: () => ({
+    generalChannel: { id: "general-channel" },
+    isLoading: false,
+  }),
 }));
 
 vi.mock("@posthog/ui/features/inbox/hooks/useInboxBulkActions", () => ({
@@ -62,15 +93,28 @@ const discussionTask = {
 };
 
 describe("ReportVerdictBanner", () => {
+  let onDiscussionCreated: ((task: Task) => void) | undefined;
+
   beforeEach(() => {
     useReportChatPanelStore.setState({
       open: false,
       startedTaskIdByReport: {},
     });
     useReportTasks.mockReturnValue({ data: [], isLoading: false });
+    discussReport.mockReset();
+    discussReport.mockResolvedValue(undefined);
+    invalidateQueries.mockReset();
+    setQueryData.mockReset();
+    onDiscussionCreated = undefined;
+    useDiscussReport.mockImplementation(
+      (options: { onTaskCreated?: (task: Task) => void }) => {
+        onDiscussionCreated = options.onTaskCreated;
+        return { discussReport, isDiscussing: false };
+      },
+    );
   });
 
-  it("hides the non-selectable detail actions after engagement", async () => {
+  it("starts a discussion and hides the non-selectable actions after creation", async () => {
     const user = userEvent.setup();
     render(<ReportVerdictBanner report={report} initialEngagementOnly />);
 
@@ -79,7 +123,16 @@ describe("ReportVerdictBanner", () => {
 
     await user.click(askButton);
 
+    expect(discussReport).toHaveBeenCalledWith();
+    expect(screen.getByText("Ask about it")).toBeInTheDocument();
+
+    act(() => onDiscussionCreated?.(discussionTask.task));
+
     expect(screen.queryByText("Ask about it")).not.toBeInTheDocument();
+    expect(setQueryData).toHaveBeenCalled();
+    expect(
+      useReportChatPanelStore.getState().startedTaskIdByReport[report.id],
+    ).toBe(discussionTask.task.id);
   });
 
   it("stays hidden when the report already has a discussion", () => {

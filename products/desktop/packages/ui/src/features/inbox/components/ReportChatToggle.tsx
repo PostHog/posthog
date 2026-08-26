@@ -14,8 +14,6 @@ import {
 } from "@posthog/ui/features/inbox/hooks/useReportTasks";
 import { useReportChatPanelStore } from "@posthog/ui/features/inbox/stores/reportChatPanelStore";
 
-const HEADER_ACTION_CLASS = "h-7 gap-1.5 px-2.5 text-[12px]";
-
 export function ReportChatToggle({ report }: { report: SignalReport }) {
   const chatOpen = useReportChatPanelStore((state) => state.open);
   const setChatOpen = useReportChatPanelStore((state) => state.setOpen);
@@ -27,10 +25,11 @@ export function ReportChatToggle({ report }: { report: SignalReport }) {
     startedTaskId !== null ||
     findContinuableImplementationTask(reportTasks) !== null ||
     findLatestDiscussionTask(reportTasks) !== null;
-  const actionLabel = chatOpen ? "Close chat" : "Open chat";
-  const accessibleLabel = hasConversation
-    ? `${actionLabel} (existing conversation)`
-    : actionLabel;
+  const actionLabel = chatOpen
+    ? "Close chat"
+    : hasConversation
+      ? "Open existing chat"
+      : "Open chat";
 
   return (
     <Tooltip>
@@ -39,20 +38,25 @@ export function ReportChatToggle({ report }: { report: SignalReport }) {
           <Button
             type="button"
             variant={chatOpen ? "primary" : "outline"}
-            size="xs"
-            className={HEADER_ACTION_CLASS}
-            aria-label={accessibleLabel}
+            size="icon-xs"
+            className="relative h-7 w-7"
+            aria-label={actionLabel}
             aria-pressed={chatOpen}
             data-attr="report-chat-toggle"
             onClick={() => setChatOpen(!chatOpen)}
           />
         }
       >
-        <ChatCircleIcon />
-        Chat
-        {hasConversation && <Dot variant="info" />}
+        <ChatCircleIcon size={14} />
+        {hasConversation && (
+          <Dot
+            aria-hidden
+            variant="info"
+            className="-top-0.5 -right-0.5 absolute"
+          />
+        )}
       </TooltipTrigger>
-      <TooltipContent side="bottom">{accessibleLabel}</TooltipContent>
+      <TooltipContent side="bottom">{actionLabel}</TooltipContent>
     </Tooltip>
   );
 }

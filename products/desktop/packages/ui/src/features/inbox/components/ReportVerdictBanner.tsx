@@ -24,8 +24,10 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@posthog/quill";
-import type { SignalReport } from "@posthog/shared/types";
+import type { SignalReport, Task } from "@posthog/shared/types";
+import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useCreatePrReport } from "@posthog/ui/features/inbox/hooks/useCreatePrReport";
+import { useDiscussReport } from "@posthog/ui/features/inbox/hooks/useDiscussReport";
 import { useInboxBulkActions } from "@posthog/ui/features/inbox/hooks/useInboxBulkActions";
 import { useInboxReportDismissAction } from "@posthog/ui/features/inbox/hooks/useInboxReportDismissAction";
 import { useInboxReportArtefacts } from "@posthog/ui/features/inbox/hooks/useInboxReports";
@@ -37,7 +39,9 @@ import {
   useReportTasks,
 } from "@posthog/ui/features/inbox/hooks/useReportTasks";
 import { useReportChatPanelStore } from "@posthog/ui/features/inbox/stores/reportChatPanelStore";
+import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
+import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 const isMac =
@@ -130,12 +134,30 @@ export function ReportVerdictBanner({
   const verdict = deriveReportVerdict(report, { hasExistingPr });
 
   const fireAction = useReportActionTracker(report);
+  const queryClient = useQueryClient();
 
   const setChatOpen = useReportChatPanelStore((s) => s.setOpen);
   const rememberStartedTask = useReportChatPanelStore(
     (s) => s.rememberStartedTask,
   );
   const [engaged, setEngaged] = useState(false);
+  const { generalChannel, isLoading: channelsLoading } = useTaskChannels();
+  const taskChannelId = report.channel_id ?? generalChannel?.id ?? null;
+  const awaitingChannel = taskChannelId === null && channelsLoading;
+
+  const handleTaskCreated = useCallback(
+    (task: Task) => {
+      queryClient.setQueryData(taskDetailQuery(task.id).queryKey, task);
+      rememberStartedTask(report.id, task.id);
+      setEngaged(true);
+      setChatOpen(true);
+      void queryClient.invalidateQueries({
+        queryKey: ["inbox", "report-tasks", report.id],
+      });
+      onEngaged?.();
+    },
+    [queryClient, rememberStartedTask, report.id, setChatOpen, onEngaged],
+  );
 
   const { createPrReport, isCreatingPr } = useCreatePrReport({
     reportId: report.id,
@@ -145,12 +167,13 @@ export function ReportVerdictBanner({
     // the view advance. A failed create (offline, missing repo/integration/
     // model, API error) never reaches here, so the report and its actions stay
     // put instead of opening an empty dock or, in triage, navigating away.
-    onTaskCreated: (task) => {
-      rememberStartedTask(report.id, task.id);
-      setEngaged(true);
-      setChatOpen(true);
-      onEngaged?.();
-    },
+    onTaskCreated: handleTaskCreated,
+  });
+  const { discussReport, isDiscussing } = useDiscussReport({
+    report,
+    channelId: taskChannelId,
+    redirectOnSuccess: false,
+    onTaskCreated: handleTaskCreated,
   });
 
   const [prOpen, setPrOpen] = useState(false);
@@ -198,6 +221,30 @@ export function ReportVerdictBanner({
     setChatOpen(true);
     onEngaged?.();
   }, [continuableTask, fireAction, setChatOpen, onEngaged]);
+
+  const handleAsk = useCallback(() => {
+    if (isCreatingPr || isDiscussing || awaitingChannel || reportTasksLoading) {
+      return;
+    }
+    fireAction("discuss", { has_question: false });
+    if (hasPriorEngagement) {
+      setEngaged(true);
+      setChatOpen(true);
+      onEngaged?.();
+      return;
+    }
+    void discussReport();
+  }, [
+    isCreatingPr,
+    isDiscussing,
+    awaitingChannel,
+    reportTasksLoading,
+    fireAction,
+    hasPriorEngagement,
+    setChatOpen,
+    onEngaged,
+    discussReport,
+  ]);
 
   // The banner carries the report's one action: create the PR, or continue the
   // one in flight. Offer it whenever the report can start a PR (`canCreatePr`
@@ -265,7 +312,7 @@ export function ReportVerdictBanner({
           <Button
             type="button"
             variant="primary"
-            disabled={isCreatingPr || !continuableTask}
+            disabled={isCreatingPr || isDiscussing || !continuableTask}
             onClick={handleContinuePr}
             className={buttonClass}
           >
@@ -303,7 +350,7 @@ export function ReportVerdictBanner({
               <Button
                 type="button"
                 variant="primary"
-                disabled={isCreatingPr}
+                disabled={isCreatingPr || isDiscussing}
                 className={buttonClass}
               >
                 {isCreatingPr ? <Spinner /> : <GitPullRequestIcon size={15} />}
@@ -339,7 +386,7 @@ export function ReportVerdictBanner({
                 type="button"
                 variant="primary"
                 size="sm"
-                disabled={isCreatingPr}
+                disabled={isCreatingPr || isDiscussing}
                 onClick={handleCreatePr}
               >
                 Fix & monitor
@@ -351,12 +398,9 @@ export function ReportVerdictBanner({
       <Button
         type="button"
         variant="outline"
-        onClick={() => {
-          fireAction("discuss");
-          setEngaged(true);
-          setChatOpen(true);
-          onEngaged?.();
-        }}
+        loading={isDiscussing}
+        disabled={isCreatingPr || awaitingChannel || reportTasksLoading}
+        onClick={handleAsk}
         className={buttonClass}
       >
         <ChatCircleIcon size={16} />

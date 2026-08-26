@@ -44,16 +44,16 @@ describe("ReportChatToggle", () => {
     const user = userEvent.setup();
     render(<ReportChatToggle report={report} />);
 
-    const openButton = screen.getByLabelText(
-      "Open chat (existing conversation)",
-    );
+    const openButton = screen.getByLabelText("Open existing chat");
     expect(openButton.querySelector('[data-slot="dot"]')).not.toBeNull();
+    expect(openButton).not.toHaveTextContent("Chat");
     expect(openButton).toHaveAttribute("aria-pressed", "false");
 
     await user.click(openButton);
 
-    expect(
-      screen.getByLabelText("Close chat (existing conversation)"),
-    ).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByLabelText("Close chat")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
   });
 });
