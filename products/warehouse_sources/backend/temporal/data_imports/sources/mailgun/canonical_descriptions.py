@@ -28,6 +28,33 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "skip_verification": "Whether the TLS certificate and hostname are not verified when delivering mail for the domain.",
         },
     },
+    "webhook_events": {
+        "description": (
+            "An event pushed by a Mailgun webhook (accepted, delivered, opened, clicked, failed, "
+            "complained, unsubscribed). Same shape as an events row, but kept past Mailgun's "
+            "retention window and without a sending domain, which webhook payloads don't carry."
+        ),
+        "docs_url": "https://documentation.mailgun.com/docs/mailgun/user-manual/events/",
+        "columns": {
+            "id": "Unique identifier for the event.",
+            "event": "The event type (accepted, delivered, opened, clicked, failed, complained, unsubscribed).",
+            "timestamp": "Time the event occurred.",
+            "recipient": "The recipient email address the event relates to.",
+            "recipient-domain": "The domain of the recipient email address.",
+            "message": "Details about the message that generated the event.",
+            "envelope": "The SMTP envelope the message was sent with.",
+            "tags": "The tags associated with the message.",
+            "campaigns": "The campaigns associated with the message.",
+            "delivery-status": "Delivery status details, including SMTP response codes.",
+            "severity": "Severity of a failure event (temporary or permanent).",
+            "reason": "The reason a delivery failed, if applicable.",
+            "client-info": "The client that generated an open or click (browser, OS, device type).",
+            "geolocation": "The approximate location an open or click came from.",
+            "url": "The link that was clicked, for click events.",
+            "log-level": "Mailgun's log level for the event (info, warn, error).",
+            "user-variables": "Custom variables attached to the message when it was sent.",
+        },
+    },
     "events": {
         "description": "An event in the Mailgun event log (delivered, opened, clicked, bounced, etc.) for a domain.",
         "docs_url": "https://documentation.mailgun.com/docs/mailgun/api-reference/openapi-final/tag/Events/",

@@ -34,7 +34,8 @@ describe('Conversations', { concurrent: false }, () => {
             expect(typeof data.count).toBe('number')
             expect(Array.isArray(data.results)).toBe(true)
             expect(typeof data._posthogUrl).toBe('string')
-            expect(data._posthogUrl).toContain('/conversations/tickets')
+            // The app route, not the API path — agents hand these links to humans.
+            expect(data._posthogUrl).toContain('/support/tickets')
         })
 
         it('should respect the limit parameter', async () => {

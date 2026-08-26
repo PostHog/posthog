@@ -80,10 +80,11 @@ class TestTopLevelPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_paginates_and_checkpoints_after_each_page(self, MockSession) -> None:
         session = MockSession.return_value
+        next_url = f"{BASE}/sites?filter=all&page=2&per_page=100"  # Netlify echoes the query, filter included
         snaps = _wire(
             session,
             [
-                _response([{"id": "a"}], next_url=f"{BASE}/sites?page=2&per_page=100"),
+                _response([{"id": "a"}], next_url=next_url),
                 _response([{"id": "b"}], next_url=None),
             ],
         )
@@ -92,15 +93,20 @@ class TestTopLevelPagination:
 
         assert rows == [{"id": "a"}, {"id": "b"}]
         assert snaps[0]["params"]["per_page"] == 100
-        # The next-page URL is self-contained, so its params are dropped on the follow-up request.
+        # filter=all is load-bearing: without it Netlify returns only sites the token's user
+        # personally owns, hiding team sites (and starving every site-scoped fan-out).
+        assert snaps[0]["params"]["filter"] == "all"
+        # The next-page URL is followed verbatim (params dropped, not re-appended), so the filter
+        # rides along to every subsequent page.
+        assert snaps[1]["url"] == next_url
         assert snaps[1]["params"] == {}
         # State saved once — after the first page, pointing at the second. The last page has no next
         # link, so nothing is saved for it.
-        manager.save_state.assert_called_once_with(NetlifyResumeConfig(next_url=f"{BASE}/sites?page=2&per_page=100"))
+        manager.save_state.assert_called_once_with(NetlifyResumeConfig(next_url=next_url))
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_url(self, MockSession) -> None:
-        resume_url = f"{BASE}/sites?page=3&per_page=100"
+        resume_url = f"{BASE}/sites?filter=all&page=3&per_page=100"
         session = MockSession.return_value
         snaps = _wire(session, [_response([{"id": "c"}], next_url=None)])
         manager = _manager(NetlifyResumeConfig(next_url=resume_url))
@@ -174,7 +180,7 @@ class TestFanOut:
         session = MockSession.return_value
 
         def route(url: str) -> Response:
-            if url == f"{BASE}/sites?per_page=100":
+            if url == f"{BASE}/sites?filter=all&per_page=100":
                 return _response([{"id": "s1"}], next_url=None)
             if url == f"{BASE}/sites/s1/builds?per_page=100":
                 return _response([{"id": "b1"}], next_url=None)
@@ -213,7 +219,7 @@ class TestFanOut:
         session = MockSession.return_value
 
         def route(url: str) -> Response:
-            if url == f"{BASE}/sites?per_page=100":
+            if url == f"{BASE}/sites?filter=all&per_page=100":
                 return _response([{"id": "s1"}, {"id": "s2"}], next_url=None)
             if url == f"{BASE}/sites/s2/builds?per_page=100":
                 return _response([{"id": "b2"}], next_url=None)
@@ -234,10 +240,12 @@ class TestPageCap:
         # Hitting the per-parent page cap must fail loudly rather than silently truncate the table.
         paginator = NetlifyCappedHeaderLinkPaginator(max_pages=2, context={"table": "builds"})
         page = [{"id": "x"}]
-        resp = _response(page, next_url=f"{BASE}/sites/s1/builds?page=2")
-        paginator.update_state(resp, page)  # page 1: under the cap
+        paginator.update_state(
+            _response(page, next_url=f"{BASE}/sites/s1/builds?page=2"), page
+        )  # page 1: under the cap
         with pytest.raises(NetlifyPageCapExceededError):
-            paginator.update_state(resp, page)  # page 2: cap reached with more pages remaining
+            # page 2: cap reached with more pages remaining
+            paginator.update_state(_response(page, next_url=f"{BASE}/sites/s1/builds?page=3"), page)
 
     def test_capped_paginator_stops_cleanly_when_no_more_pages(self) -> None:
         paginator = NetlifyCappedHeaderLinkPaginator(max_pages=2, context={"table": "builds"})

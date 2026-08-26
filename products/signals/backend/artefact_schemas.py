@@ -113,8 +113,12 @@ class ActionabilityAssessment(BaseModel):
     )
     already_addressed: bool = Field(
         description=(
-            "Whether the core issue described by this report appears to have been "
-            "already fixed or addressed in recent code changes. Tracked separately from `actionability`."
+            "Whether the core issue described by this report is already being handled — either fixed "
+            "in recent code changes, or with a fix already in flight: an open pull request, a recently "
+            "active branch, or an assigned / in-progress issue or agent task covering the same problem. "
+            "True in any of those cases; only a fix nobody has started is False. This gates autonomous "
+            "PRs, so a wrong False opens a duplicate PR against work a human or another agent already "
+            "has going. Tracked separately from `actionability`."
         ),
     )
 
@@ -205,7 +209,9 @@ class SuggestedReviewerEntry(BaseModel):
     def github_login_must_not_be_empty(cls, v: str) -> str:
         if not v.strip():
             raise ValueError("must not be empty or whitespace-only")
-        return v
+        # Strip on the way in: read-time enrichment and autostart look logins up with
+        # `login.lower()` and no strip, so a padded login would persist but never match.
+        return v.strip()
 
 
 class SuggestedReviewers(RootModel[list[SuggestedReviewerEntry]]):

@@ -5,6 +5,9 @@ from pydantic import BaseModel, Field
 
 from posthog.schema import ArtifactContentType, ArtifactSource, AssistantTool, AssistantToolCallMessage
 
+from products.notebooks.backend.facade.contracts import NotebookCellLimitExceeded
+from products.notebooks.backend.facade.widget_catalog import format_notebook_widget_catalog_for_agents
+
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.tools.create_notebook.helpers import (
     ArtifactStatus,
@@ -14,7 +17,9 @@ from ee.hogai.tools.create_notebook.helpers import (
     save_notebook_to_db,
 )
 
-CREATE_NOTEBOOK_PROMPT = """
+NOTEBOOK_WIDGET_CATALOG_PROMPT = format_notebook_widget_catalog_for_agents()
+
+CREATE_NOTEBOOK_PROMPT = f"""
 Use this tool to create a notebook document with rich content.
 
 # Use this when:
@@ -38,6 +43,12 @@ You must use EXACTLY ONE of these parameters:
 # How to use the <insight>insight_id</insight> tag:
 You can use the <insight>insight_id</insight> tag to reference existing visualization insights.
 Use the list_data tool with kind=artifacts to retrieve artifact ids, when in doubt.
+
+# PostHog object widgets:
+Add object widgets with component tags, for example `<FeatureFlag id={{123}} view="summary" />`.
+Use the identity prop and view that fit the task:
+
+{NOTEBOOK_WIDGET_CATALOG_PROMPT}
 
 # Best practices:
 The document should be structured as a series of sections, each with a heading and a body.
@@ -78,6 +89,8 @@ Our signup funnel shows the following conversion rates:
 - In that case, `content` must be the complete final markdown for the notebook, not just the text that replaces the inline prompt
 - Do not include the inline placeholder text, empty `<Prompt question="" />` blocks, or the user's instruction prompt in the final markdown unless the user explicitly asks to keep them
 - Use a direct assistant markdown response instead of this tool only for local answers or small insertions that should replace the inline response placeholder
+- Component tags such as `<Query … />`, `<SQLV2 … />`, and `<PythonV2 … />` render a `title` prop in their block header. Keep the titles already there, and give any tag you add a short one saying what it shows, so a reader can skim the notebook without opening each block
+- `<SQLV2 />` and `<PythonV2 />` carry their body in a `code` prop holding the SQL or Python as a string. Only `<Query />` takes a `query` prop holding a query object, so never give a code cell a `query` prop
 
 # Transient vs saved notebooks:
 - By default, notebooks are created as transient artifacts visible only in this conversation. Do NOT share URLs or references to notebook pages for transient artifacts.
@@ -154,6 +167,13 @@ class CreateNotebookTool(MaxTool):
                 return (
                     f"Error: The user does not have permission to edit the saved notebook {artifact.short_id}, "
                     "so it was not changed.",
+                    None,
+                )
+            except NotebookCellLimitExceeded as err:
+                # Deterministic: the same save fails again, so say so rather than letting the
+                # model spend turns retrying it.
+                return (
+                    f"Error: {err} The notebook was not changed, so do not retry this save.",
                     None,
                 )
 

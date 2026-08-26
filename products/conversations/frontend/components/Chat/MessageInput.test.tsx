@@ -14,12 +14,29 @@ import { MessageInput } from './MessageInput'
 jest.mock('../Editor', () => {
     const React = jest.requireActual<typeof import('react')>('react')
     return {
-        SupportEditor: ({ onCreate }: { onCreate: (editor: unknown) => void }) => {
+        SupportEditor: ({
+            onCreate,
+            onPressCmdEnter,
+            disabled,
+        }: {
+            onCreate: (editor: unknown) => void
+            onPressCmdEnter: () => void
+            disabled?: boolean
+        }) => {
             React.useEffect(() => {
-                onCreate({ getJSON: () => ({ type: 'doc' }), clear: () => {} })
+                onCreate({
+                    getJSON: () => ({ type: 'doc' }),
+                    clear: () => {},
+                    setContent: () => {},
+                    isEmpty: () => false,
+                })
                 // eslint-disable-next-line react-hooks/exhaustive-deps
             }, [])
-            return React.createElement('div')
+            return React.createElement(
+                'button',
+                { 'data-attr': 'support-editor', 'data-disabled': disabled, onClick: onPressCmdEnter },
+                'Editor shortcut'
+            )
         },
         serializeToMarkdown: (): string => 'hello',
     }
@@ -31,13 +48,33 @@ const SEND_AND_SET_STATUS_OPTIONS: { value: TicketStatus; statusLabel: string }[
     { value: 'resolved', statusLabel: 'resolved' },
 ]
 
-describe('MessageInput send-and-set-status dropdown', () => {
+describe('MessageInput', () => {
     beforeEach(() => {
         initKeaTests()
     })
 
     afterEach(() => {
         cleanup()
+    })
+
+    it('disables the editor and blocks its keyboard submit shortcut without edit access', async () => {
+        const onSendMessage = jest.fn()
+
+        render(
+            <Provider>
+                <MessageInput
+                    onSendMessage={onSendMessage}
+                    messageSending={false}
+                    draftContent={{ type: 'doc', content: [] }}
+                    sendDisabledReason="Requires edit access"
+                />
+            </Provider>
+        )
+
+        const editor = screen.getByTestId('support-editor')
+        expect(editor).toHaveAttribute('data-disabled', 'true')
+        await userEvent.click(editor)
+        expect(onSendMessage).not.toHaveBeenCalled()
     })
 
     // Guards the private-note flag through the dropdown path: dropping it would deliver an
@@ -75,5 +112,41 @@ describe('MessageInput send-and-set-status dropdown', () => {
         await userEvent.click(screen.getByText(`${verb} and set pending`))
         expect(onSendMessage).toHaveBeenCalledTimes(1)
         expect(onSendMessage).toHaveBeenCalledWith('hello', { type: 'doc' }, isPrivate, expect.any(Function), 'pending')
+    })
+})
+
+describe('MessageInput editing mode', () => {
+    beforeEach(() => {
+        initKeaTests()
+    })
+
+    afterEach(() => {
+        cleanup()
+    })
+
+    test('shows Save and Cancel, and locks the private checkbox', () => {
+        const onCancelEdit = jest.fn()
+
+        render(
+            <Provider>
+                <MessageInput
+                    onSendMessage={jest.fn()}
+                    messageSending={false}
+                    showPrivateOption
+                    isPrivate
+                    onPrivateChange={jest.fn()}
+                    draftContent={{ type: 'doc', content: [] }}
+                    editingMessageId="note-1"
+                    onCancelEdit={onCancelEdit}
+                />
+            </Provider>
+        )
+
+        expect(screen.getByText('Save')).toBeInTheDocument()
+        expect(screen.getByText('Cancel')).toBeInTheDocument()
+        expect(screen.queryByLabelText(/and set ticket status/)).not.toBeInTheDocument()
+
+        const checkbox = screen.getByRole('checkbox')
+        expect(checkbox).toBeDisabled()
     })
 })

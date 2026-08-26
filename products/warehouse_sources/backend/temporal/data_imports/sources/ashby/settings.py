@@ -47,6 +47,12 @@ ASHBY_ENDPOINTS: dict[str, AshbyEndpointConfig] = {
     "custom_fields": AshbyEndpointConfig(name="custom_fields", path="customField.list", primary_key=["id"]),
     "openings": AshbyEndpointConfig(name="openings", path="opening.list", primary_key=["id"]),
     "projects": AshbyEndpointConfig(name="projects", path="project.list", primary_key=["id"]),
+    "referrals": AshbyEndpointConfig(
+        name="referrals", path="referral.list", primary_key=["id"], partition_key="createdAt"
+    ),
+    "sequences": AshbyEndpointConfig(
+        name="sequences", path="sequence.list", primary_key=["id"], partition_key="createdAt"
+    ),
 }
 
 ENDPOINTS = tuple(ASHBY_ENDPOINTS.keys())

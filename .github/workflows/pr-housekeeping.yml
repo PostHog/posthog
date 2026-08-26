@@ -11,8 +11,11 @@ on:
 
 # Keyed by event action so a new push (synchronize) cancels the previous
 # push's run without cancelling runs fired by other event types on the PR.
+# A base retarget gets its own key within `edited`: it is the only edit that
+# recomputes impacted targets, and a title edit landing behind it would
+# otherwise cancel that recompute and leave the stale upload in place.
 concurrency:
-    group: pr-housekeeping-${{ github.event.action }}-${{ github.event.pull_request.number }}
+    group: pr-housekeeping-${{ github.event.action }}${{ github.event.changes.base && '-base' || '' }}-${{ github.event.pull_request.number }}
     cancel-in-progress: true
 
 # Parent defaults stay read-only; jobs that need more request it explicitly.
@@ -22,12 +25,34 @@ permissions:
 
 jobs:
     lint-pr:
-        if: contains(fromJSON('["opened", "edited", "synchronize"]'), github.event.action)
+        # The merge queue opens its own PR per batch, titled after the branch
+        # (trunk-merge/pr-70624/<uuid>), which can never satisfy Conventional
+        # Commits. The title that matters was already validated on the PR being
+        # queued, so checking the queue's copy only fails its run.
+        if: contains(fromJSON('["opened", "edited", "synchronize"]'), github.event.action) && !startsWith(github.head_ref, 'trunk-merge/')
         uses: ./.github/workflows/pr-updated.yml
 
     turbo:
         if: contains(fromJSON('["opened", "synchronize", "reopened"]'), github.event.action)
         uses: ./.github/workflows/ci-turbo.yml
+
+    trunk-impacted-targets:
+        # Also on ready_for_review: Trunk keys the upload to a head SHA, and a PR
+        # can sit in draft long enough for the queue to have forgotten it.
+        # Also on a base retarget, which GitHub does on the PR's behalf when the
+        # layer below a stack merges. The targets are computed against the merge
+        # target, so a retarget changes them with no push to recompute them on,
+        # and the stale upload is what the queue keeps scheduling by. Other
+        # `edited` actions (title, body) cannot move a target, so they are left out.
+        if: >-
+            contains(fromJSON('["opened", "synchronize", "reopened", "ready_for_review"]'), github.event.action)
+            || (github.event.action == 'edited' && github.event.changes.base != null)
+        uses: ./.github/workflows/trunk-impacted-targets.yml
+        permissions:
+            contents: read
+            pull-requests: write
+        secrets:
+            TRUNK_API_TOKEN: ${{ secrets.TRUNK_API_TOKEN }}
 
     rate-limit-monitor:
         if: contains(fromJSON('["opened", "synchronize"]'), github.event.action)
@@ -36,12 +61,24 @@ jobs:
             POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
             GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
             GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
+            GH_APP_POSTHOG_TESTS_APP_ID: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+            GH_APP_POSTHOG_TESTS_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+            GH_APP_POSTHOG_PATHS_FILTER_APP_ID: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+            GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+            GH_APP_TELEMETRY_APP_ID: ${{ secrets.GH_APP_TELEMETRY_APP_ID }}
+            GH_APP_TELEMETRY_PRIVATE_KEY: ${{ secrets.GH_APP_TELEMETRY_PRIVATE_KEY }}
+            GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+            GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+            GH_APP_POSTHOG_PRODUCT_TESTS_APP_ID: ${{ secrets.GH_APP_POSTHOG_PRODUCT_TESTS_APP_ID }}
+            GH_APP_POSTHOG_PRODUCT_TESTS_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_PRODUCT_TESTS_PRIVATE_KEY }}
 
     flags-project-board:
         # No synchronize: board status only transitions on reviewer/draft
         # changes, and pushes change neither. Re-asserting the same status on
         # every push wasted the run and fought manual card moves.
-        if: contains(fromJSON('["opened", "reopened", "ready_for_review", "review_requested", "converted_to_draft"]'), github.event.action) && github.event.pull_request.head.repo.full_name == github.repository
+        # No trunk-merge/**: the queue's copy of the PR would add a second,
+        # throwaway card for work the real PR already tracks.
+        if: contains(fromJSON('["opened", "reopened", "ready_for_review", "review_requested", "converted_to_draft"]'), github.event.action) && github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'trunk-merge/')
         uses: PostHog/.github/.github/workflows/flags-project-board.yml@2db3d3b946aeb9e479ce9f0078139a67f8ef38ce
         permissions:
             contents: read
@@ -54,7 +91,9 @@ jobs:
             PROJECT_BOARD_BOT_PRIVATE_KEY: ${{ secrets.PROJECT_BOARD_BOT_PRIVATE_KEY }}
 
     pr-opened:
-        if: contains(fromJSON('["opened", "ready_for_review"]'), github.event.action)
+        # The queue's PR is authored by the Trunk bot, so assigning it and
+        # nudging about the git email has nobody to reach.
+        if: contains(fromJSON('["opened", "ready_for_review"]'), github.event.action) && !startsWith(github.head_ref, 'trunk-merge/')
         uses: ./.github/workflows/pr-opened.yml
         permissions:
             pull-requests: write
@@ -70,7 +109,15 @@ jobs:
             GH_APP_POSTHOG_REVIEW_COMMENT_RESOLVER_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_REVIEW_COMMENT_RESOLVER_PRIVATE_KEY }}
 
     migrations-separation:
-        if: contains(fromJSON('["opened", "synchronize", "reopened"]'), github.event.action)
+        # Same reason the desktop coupling check skips trunk-merge/**: the queue's
+        # batch PR is the union of several PRs that each passed separately, so a
+        # migration PR batched with a nodejs or rust PR trips a coupling nobody wrote.
+        # Same-repo scoping too, so a fork can't skip the check by branch name.
+        if: |
+            contains(fromJSON('["opened", "synchronize", "reopened"]'), github.event.action) && !(
+                github.event.pull_request.head.repo.full_name == github.repository &&
+                startsWith(github.head_ref, 'trunk-merge/')
+            )
         uses: ./.github/workflows/ci-migrations-service-separation-check.yml
         secrets:
             GH_APP_POSTHOG_PATHS_FILTER_APP_ID: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}

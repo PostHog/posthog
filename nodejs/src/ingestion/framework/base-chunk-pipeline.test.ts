@@ -1,10 +1,22 @@
 import { Message } from 'node-rdkafka'
 
+import { logger } from '~/common/utils/logger'
 import { createMockPipeline } from '~/tests/helpers/mock-pipeline'
 
 import { BaseChunkPipeline } from './base-chunk-pipeline'
-import { createBatch, createContext, createNewChunkPipeline, createOkContext } from './helpers'
+import {
+    aggregateKafkaDebugContexts,
+    createBatch,
+    createContext,
+    createKafkaDebugContext,
+    createNewChunkPipeline,
+    createOkContext,
+} from './helpers'
 import { dlq, drop, ok } from './results'
+
+jest.mock('~/common/utils/logger', () => ({
+    logger: { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+}))
 
 function createTestMessage(overrides: Partial<Message> = {}): Message {
     return {
@@ -40,10 +52,12 @@ describe('BaseChunkPipeline', () => {
             expect(results).toEqual([
                 createContext(ok({ processed: 'test1' }), {
                     message: messages[0],
+                    debugContext: createKafkaDebugContext(messages[0]),
                     lastStep: 'anonymousChunkStep',
                 }),
                 createContext(ok({ processed: 'test2' }), {
                     message: messages[1],
+                    debugContext: createKafkaDebugContext(messages[1]),
                     lastStep: 'anonymousChunkStep',
                 }),
             ])
@@ -82,9 +96,21 @@ describe('BaseChunkPipeline', () => {
             const results = await pipeline.next()
 
             expect(results).toEqual([
-                createContext(ok({ count: 2 }), { message: messages[0], lastStep: 'anonymousChunkStep' }),
-                createContext(ok({ count: 4 }), { message: messages[1], lastStep: 'anonymousChunkStep' }),
-                createContext(ok({ count: 6 }), { message: messages[2], lastStep: 'anonymousChunkStep' }),
+                createContext(ok({ count: 2 }), {
+                    message: messages[0],
+                    debugContext: createKafkaDebugContext(messages[0]),
+                    lastStep: 'anonymousChunkStep',
+                }),
+                createContext(ok({ count: 4 }), {
+                    message: messages[1],
+                    debugContext: createKafkaDebugContext(messages[1]),
+                    lastStep: 'anonymousChunkStep',
+                }),
+                createContext(ok({ count: 6 }), {
+                    message: messages[2],
+                    debugContext: createKafkaDebugContext(messages[2]),
+                    lastStep: 'anonymousChunkStep',
+                }),
             ])
         })
 
@@ -122,11 +148,24 @@ describe('BaseChunkPipeline', () => {
             const results = await secondPipeline.next()
 
             expect(results).toEqual([
-                createContext(ok({ count: 2 }), { message: messages[0], lastStep: 'anonymousChunkStep' }),
-                createContext(drop('dropped item'), { message: messages[1], lastStep: 'anonymousChunkStep' }),
-                createContext(ok({ count: 6 }), { message: messages[2], lastStep: 'anonymousChunkStep' }),
+                createContext(ok({ count: 2 }), {
+                    message: messages[0],
+                    debugContext: createKafkaDebugContext(messages[0]),
+                    lastStep: 'anonymousChunkStep',
+                }),
+                createContext(drop('dropped item'), {
+                    message: messages[1],
+                    debugContext: createKafkaDebugContext(messages[1]),
+                    lastStep: 'anonymousChunkStep',
+                }),
+                createContext(ok({ count: 6 }), {
+                    message: messages[2],
+                    debugContext: createKafkaDebugContext(messages[2]),
+                    lastStep: 'anonymousChunkStep',
+                }),
                 createContext(dlq('dlq item', new Error('test error')), {
                     message: messages[3],
+                    debugContext: createKafkaDebugContext(messages[3]),
                     lastStep: 'anonymousChunkStep',
                 }),
             ])
@@ -134,17 +173,33 @@ describe('BaseChunkPipeline', () => {
     })
 
     describe('error handling', () => {
-        it('should propagate errors from chunk operations', async () => {
-            const messages: Message[] = [createTestMessage({ value: Buffer.from('1'), offset: 1 })]
+        it('should propagate errors from chunk operations and log aggregated debug contexts', async () => {
+            const messages: Message[] = [
+                createTestMessage({ value: Buffer.from('1'), offset: 1 }),
+                createTestMessage({ value: Buffer.from('2'), offset: 2 }),
+                createTestMessage({ value: Buffer.from('3'), offset: 5 }),
+            ]
 
             const batch = createBatch(messages.map((message) => ({ message })))
             const rootPipeline = createNewChunkPipeline().build()
-            const pipeline = new BaseChunkPipeline(() => {
-                return Promise.reject(new Error('Chunk step failed'))
-            }, rootPipeline)
+            const pipeline = new BaseChunkPipeline(
+                () => {
+                    return Promise.reject(new Error('Chunk step failed'))
+                },
+                rootPipeline,
+                { aggregateDebugContexts: aggregateKafkaDebugContexts }
+            )
 
             pipeline.feed(batch)
             await expect(pipeline.next()).rejects.toThrow('Chunk step failed')
+            expect(logger.error).toHaveBeenCalledWith(
+                '🔥',
+                expect.stringContaining('threw'),
+                expect.objectContaining({
+                    error: 'Chunk step failed',
+                    debugContext: { count: 3, offsets: ['test[0]:1-2,5'] },
+                })
+            )
         })
     })
 
@@ -170,10 +225,12 @@ describe('BaseChunkPipeline', () => {
             expect(results).toEqual([
                 createContext(ok({ processed: 'test1' }), {
                     message: messages[0],
+                    debugContext: createKafkaDebugContext(messages[0]),
                     lastStep: 'testChunkStep',
                 }),
                 createContext(ok({ processed: 'test2' }), {
                     message: messages[1],
+                    debugContext: createKafkaDebugContext(messages[1]),
                     lastStep: 'testChunkStep',
                 }),
             ])
@@ -197,6 +254,7 @@ describe('BaseChunkPipeline', () => {
             expect(results).toEqual([
                 createContext(ok({ processed: 'test1' }), {
                     message: messages[0],
+                    debugContext: createKafkaDebugContext(messages[0]),
                     lastStep: 'anonymousStep',
                 }),
             ])
@@ -231,10 +289,12 @@ describe('BaseChunkPipeline', () => {
             expect(results).toEqual([
                 createContext(ok({ processed: 'test1' }), {
                     message: messages[0],
+                    debugContext: createKafkaDebugContext(messages[0]),
                     lastStep: 'testChunkStep',
                 }),
                 createContext(drop('dropped item'), {
                     message: messages[1],
+                    debugContext: createKafkaDebugContext(messages[1]),
                     lastStep: 'testChunkStep',
                 }),
             ])

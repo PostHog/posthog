@@ -14,13 +14,15 @@ import AlphaRelease from "../\_snippets/alpha-release.mdx"
 
 <AlphaRelease />
 
-The Zendesk Sunshine source syncs your legacy Zendesk custom objects (the Sunshine custom data API) into PostHog: object types, object records, relationship types, relationship records, permission policies, and account limits.
+The Zendesk Sunshine source syncs your Zendesk custom objects into PostHog.
 
-> **Note:** Zendesk is retiring legacy custom objects in 2026 and no new legacy objects can be created since January 15, 2026. This source reads the legacy `/api/sunshine/` API, so it is mainly useful for keeping a queryable copy of that data before Zendesk removes it. It does not cover the newer custom objects experience under the Zendesk Support API.
+New sources use Zendesk's current custom objects API (`/api/v2/custom_objects`, version `v2`) and sync custom object definitions, their records, and field schemas.
+
+> **Note:** Zendesk is removing the legacy Sunshine custom objects API (`/api/sunshine/`, version `v1`) on June 30, 2026, and no new legacy objects can be created since January 15, 2026. Sources created before `v2` became the default are still pinned to `v1` and keep working until then. PostHog shows a deprecation warning on those sources; move each one to `v2` from the source's settings before the sunset date. Because the `v1` and `v2` table sets differ, switching a source to `v2` resyncs it under the new tables rather than converting the existing ones in place.
 
 ## Prerequisites
 
-- A Zendesk plan that includes legacy custom objects, with legacy custom objects activated by an admin in Admin Center (Objects and rules → Custom objects).
+- A Zendesk plan that includes custom objects, with custom objects activated by an admin in Admin Center (Objects and rules → Custom objects).
 - API token access enabled for your Zendesk account (Admin Center → Apps and integrations → APIs → Zendesk API).
 - A Zendesk API token. Generate one in Admin Center under Apps and integrations → APIs → Zendesk API → Add API token.
 
@@ -38,7 +40,7 @@ You'll need:
 
 <SyncModes />
 
-Object records support incremental syncs on `updated_at`, served by Zendesk's custom object search API which filters server side. All other tables are small catalogs and sync as full refreshes.
+On `v2`, all tables sync as full refreshes; the current records API has no server-side `updated_at` filter, so records are fetched sorted by `updated_at`. On legacy `v1`, object records support incremental syncs on `updated_at` via the Sunshine search API, and the other tables are small catalogs that full refresh.
 
 ## Configuration
 

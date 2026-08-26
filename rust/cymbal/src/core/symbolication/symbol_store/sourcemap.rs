@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{collections::HashMap, net::IpAddr, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use base64::Engine;
@@ -8,7 +8,7 @@ use posthog_symbol_data::{read_symbol_data_with_byte_count, write_symbol_data, S
 use reqwest::Url;
 use sqlx::PgPool;
 use symbolic::sourcemapcache::{SourceMapCache, SourceMapCacheWriter};
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use crate::{
     core::config::ResolverConfig,
@@ -31,6 +31,46 @@ pub struct SourcemapProvider {
     pub client: reqwest::Client,
     pub chunk_id_rescue: Option<ChunkIdRescue>,
     pub max_response_bytes: usize,
+    allow_internal_ips: bool,
+}
+
+/// How many redirects we follow. Installing a custom policy to vet each hop replaces reqwest's
+/// default limit, so we have to impose our own.
+const MAX_REDIRECTS: usize = 10;
+
+/// Rejects URLs whose host is an IP literal that isn't globally routable.
+///
+/// `PublicIPv4Resolver` only ever sees hostnames: hyper skips DNS resolution
+/// entirely when the host is already an IP literal, so `http://169.254.169.254/` or
+/// `http://127.0.0.1:6379/` would otherwise sail straight past it. `Url::parse` normalizes the
+/// octal, hex and integer IPv4 forms, so obfuscated literals arrive here as plain addresses.
+///
+/// Hostnames are passed through, to be vetted at connect time by whichever layer owns that:
+/// `PublicIPv4Resolver` normally, or the egress proxy when one is configured.
+fn ensure_fetchable_host(url: &Url, allow_internal_ips: bool) -> Result<(), JsResolveErr> {
+    if allow_internal_ips {
+        return Ok(());
+    }
+
+    let Some(host) = url.host_str() else {
+        return Err(JsResolveErr::BlockedUrl(url.to_string()));
+    };
+
+    // IPv6 literals are bracketed in URLs, but `IpAddr` wants them bare.
+    let bare = host
+        .strip_prefix('[')
+        .and_then(|h| h.strip_suffix(']'))
+        .unwrap_or(host);
+
+    let Ok(ip) = bare.parse::<IpAddr>() else {
+        return Ok(());
+    };
+
+    if common_dns::is_global_ip(&ip) {
+        return Ok(());
+    }
+
+    Err(JsResolveErr::BlockedUrl(url.to_string()))
 }
 
 #[derive(Clone)]
@@ -123,17 +163,35 @@ impl SourcemapProvider {
             || valid_proxy_url("https_proxy");
 
         if has_proxy {
-            // When an egress proxy (e.g. smokescreen) is configured, it handles SSRF
-            // protection. The PublicIPv4Resolver would block the connection to the proxy
-            // itself since it resolves to a cluster-internal IP.
-            info!(
-                "HTTP(S)_PROXY is set, skipping PublicIPv4Resolver (proxy handles SSRF protection)"
-            );
+            // When an egress proxy (e.g. smokescreen) is configured, it owns vetting where a
+            // *hostname* ends up resolving. We can't do that ourselves here: PublicIPv4Resolver
+            // would block the connection to the proxy itself, since the proxy resolves to a
+            // cluster-internal IP. `ensure_fetchable_host` below still applies either way - it
+            // inspects the target url's host, not the proxy's, so it costs the proxy nothing.
+            info!("HTTP(S)_PROXY is set, skipping PublicIPv4Resolver (proxy vets hostnames)");
         } else if !config.allow_internal_ips {
             client = client.dns_resolver(Arc::new(common_dns::PublicIPv4Resolver {}));
         } else {
             warn!("Internal IPs are allowed, this is a security risk");
         }
+
+        // Redirect targets are as attacker-controlled as the original URL, so vet every hop the
+        // same way. Whoever vets hostnames above covers those; this catches IP-literal hops,
+        // which never reach a DNS resolver at all.
+        let allow_internal_ips = config.allow_internal_ips;
+        client = client.redirect(reqwest::redirect::Policy::custom(move |attempt| {
+            // `previous` holds the urls already requested, so its length is the number of this
+            // hop - refusing above the limit follows exactly MAX_REDIRECTS of them.
+            if attempt.previous().len() > MAX_REDIRECTS {
+                return attempt.error(JsResolveErr::RedirectError(format!(
+                    "exceeded {MAX_REDIRECTS} redirects"
+                )));
+            }
+            match ensure_fetchable_host(attempt.url(), allow_internal_ips) {
+                Ok(()) => attempt.follow(),
+                Err(e) => attempt.error(e),
+            }
+        }));
 
         let client = client.build().unwrap();
 
@@ -141,6 +199,7 @@ impl SourcemapProvider {
             client,
             chunk_id_rescue: None,
             max_response_bytes: config.sourcemap_max_response_bytes,
+            allow_internal_ips,
         }
     }
 
@@ -178,7 +237,13 @@ impl Fetcher for SourcemapProvider {
     type Err = ResolveError;
     async fn fetch(&self, team_id: i32, r: Url) -> Result<Bytes, Self::Err> {
         let start = common_metrics::timing_guard(SOURCEMAP_FETCH, &[]);
-        let peek = find_sourcemap_url(&self.client, r, self.max_response_bytes).await?;
+        let peek = find_sourcemap_url(
+            &self.client,
+            r,
+            self.max_response_bytes,
+            self.allow_internal_ips,
+        )
+        .await?;
 
         let start = start.label("found_url", "true");
 
@@ -196,8 +261,13 @@ impl Fetcher for SourcemapProvider {
 
         let sourcemap = match peek.sourcemap_url {
             SourceMappingUrl::Url(sourcemap_url) => {
-                fetch_source_map(&self.client, sourcemap_url.clone(), self.max_response_bytes)
-                    .await?
+                fetch_source_map(
+                    &self.client,
+                    sourcemap_url.clone(),
+                    self.max_response_bytes,
+                    self.allow_internal_ips,
+                )
+                .await?
             }
             SourceMappingUrl::Data(data) => data,
         };
@@ -311,8 +381,14 @@ async fn find_sourcemap_url(
     client: &reqwest::Client,
     start: Url,
     max_response_bytes: usize,
+    allow_internal_ips: bool,
 ) -> Result<JsSourcePeek, ResolveError> {
-    info!("Fetching script source from {}", start);
+    // The frame's source url comes straight off an ingested event, so vet it before we connect.
+    // Every other url in here is derived from the response, and so keeps this validated host,
+    // except an absolute sourcemap url - `fetch_source_map` vets that one itself.
+    ensure_fetchable_host(&start, allow_internal_ips)?;
+
+    debug!("Fetching script source from {}", start);
 
     // If this request fails, we cannot resolve the frame, and hand this error to the frames
     // failure-case handling.
@@ -341,7 +417,7 @@ async fn find_sourcemap_url(
     let chunk_id_from_body = extract_chunk_id_from_body(&body);
 
     if let Some(header_url) = header_url {
-        info!("Found sourcemap header: {:?}", header_url);
+        debug!("Found sourcemap header: {:?}", header_url);
         metrics::counter!(SOURCEMAP_HEADER_FOUND).increment(1);
 
         // If the header was set but is unusable, that's a js-specific resolution error - one we can try to handle,
@@ -445,7 +521,12 @@ async fn fetch_source_map(
     client: &reqwest::Client,
     url: Url,
     max_response_bytes: usize,
+    allow_internal_ips: bool,
 ) -> Result<String, ResolveError> {
+    // A `SourceMap` header or `//# sourceMappingURL=` comment can name an absolute url on any
+    // host, so this needs vetting independently of the source url it came from.
+    ensure_fetchable_host(&url, allow_internal_ips)?;
+
     metrics::counter!(SOURCEMAP_BODY_FETCHES).increment(1);
     let res = client.get(url).send().await.map_err(JsResolveErr::from)?;
     res.error_for_status_ref().map_err(JsResolveErr::from)?;
@@ -633,7 +714,7 @@ mod test {
 
         let client = reqwest::Client::new();
         let url = server.url("/static/chunk-PGUQKT6S.js").parse().unwrap();
-        let peek = find_sourcemap_url(&client, url, TEST_MAX_RESPONSE_BYTES)
+        let peek = find_sourcemap_url(&client, url, TEST_MAX_RESPONSE_BYTES, true)
             .await
             .unwrap();
 
@@ -820,7 +901,7 @@ mod test {
             .url("/static/inline_sourcemap_example.js")
             .parse()
             .unwrap();
-        let peek = find_sourcemap_url(&client, url, TEST_MAX_RESPONSE_BYTES)
+        let peek = find_sourcemap_url(&client, url, TEST_MAX_RESPONSE_BYTES, true)
             .await
             .unwrap();
 
@@ -851,6 +932,105 @@ mod test {
                 message
             ))) if message.contains("exceeded the 4 byte limit")
         ));
+    }
+
+    #[test]
+    fn ensure_fetchable_host_blocks_internal_ip_literals() {
+        // Literal IPs never reach PublicIPv4Resolver, so this guard is the only thing
+        // standing between an ingested frame url and an internal host.
+        let blocked = [
+            "http://127.0.0.1/app.js",
+            "http://127.0.0.1:6379/app.js",
+            "http://169.254.169.254/latest/meta-data/",
+            "http://10.0.0.5/app.js",
+            "http://192.168.1.1/app.js",
+            "http://172.16.0.1/app.js",
+            "http://100.64.0.1/app.js",
+            "http://[::1]/app.js",
+            // Userinfo can dress a literal up as a hostname, but the host is still an IP.
+            "http://www.example.com@127.0.0.1/app.js",
+        ];
+
+        for raw in blocked {
+            let url: Url = raw.parse().unwrap();
+            assert!(
+                matches!(
+                    ensure_fetchable_host(&url, false),
+                    Err(JsResolveErr::BlockedUrl(_))
+                ),
+                "expected {raw} to be blocked"
+            );
+            // The local-development escape hatch still lets these through.
+            assert!(
+                ensure_fetchable_host(&url, true).is_ok(),
+                "expected {raw} to be allowed when internal IPs are permitted"
+            );
+        }
+
+        // Obfuscated literals: `Url::parse` normalizes these to plain addresses per the URL
+        // spec. If a form fails to parse instead, that's equally fine - we never fetch it.
+        for raw in ["http://2130706433/app.js", "http://0177.0.0.1/app.js"] {
+            let Ok(url) = raw.parse::<Url>() else {
+                continue;
+            };
+            assert_eq!(
+                url.host_str(),
+                Some("127.0.0.1"),
+                "expected {raw} to normalize to a plain address"
+            );
+            assert!(
+                matches!(
+                    ensure_fetchable_host(&url, false),
+                    Err(JsResolveErr::BlockedUrl(_))
+                ),
+                "expected {raw} to be blocked, normalized to {url}"
+            );
+        }
+
+        let allowed = [
+            "http://8.8.8.8/app.js",
+            "https://example.com/static/app.js",
+            // Hostnames are the DNS resolver's job, so the guard waves them through and
+            // PublicIPv4Resolver rejects them at connect time.
+            "http://localhost/app.js",
+        ];
+
+        for raw in allowed {
+            let url: Url = raw.parse().unwrap();
+            assert!(
+                ensure_fetchable_host(&url, false).is_ok(),
+                "expected {raw} to pass the guard"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn fetch_refuses_ip_literal_that_bypasses_the_dns_resolver() {
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method("GET").path("/static/chunk-PGUQKT6S.js");
+            then.status(200).body(MINIFIED);
+        });
+
+        // httpmock listens on a 127.0.0.1 literal, which hyper connects to without ever
+        // consulting the DNS resolver, so only the host guard can stop this fetch.
+        let mut config = ResolverConfig::init_with_defaults().unwrap();
+        config.allow_internal_ips = false;
+        let provider = SourcemapProvider::new(&config);
+        let url: Url = server.url("/static/chunk-PGUQKT6S.js").parse().unwrap();
+
+        let error = provider.fetch(1, url).await.unwrap_err();
+
+        assert!(
+            matches!(
+                error,
+                ResolveError::ResolutionError(FrameError::JavaScript(JsResolveErr::BlockedUrl(
+                    ref blocked
+                ))) if blocked.contains("127.0.0.1")
+            ),
+            "unexpected error: {error:?}"
+        );
+        mock.assert_hits(0);
     }
 
     #[test]

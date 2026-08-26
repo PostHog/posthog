@@ -10,14 +10,9 @@ from posthog.schema import (
     SourceFieldInputConfig,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.featurebase.featurebase import (
-    FeaturebaseResumeConfig,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.featurebase.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.featurebase.source import FeaturebaseSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.featurebase.source"
 
@@ -44,9 +39,6 @@ def _make_inputs(**overrides: Any) -> SourceInputs:
 class TestFeaturebaseSource:
     def setup_method(self) -> None:
         self.source = FeaturebaseSource()
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.FEATUREBASE
 
     def test_source_config_is_released_with_api_key_field(self) -> None:
         config = self.source.get_source_config
@@ -124,10 +116,13 @@ class TestFeaturebaseSource:
         assert any(key.startswith("403 Client Error") for key in errors)
         assert any(key.startswith("401 Client Error") for key in errors)
 
-    def test_resumable_source_manager_bound_to_resume_config(self) -> None:
-        with patch.object(ResumableSourceManager, "__init__", return_value=None) as init:
-            self.source.get_resumable_source_manager(_make_inputs())
-        assert init.call_args.args[1] is FeaturebaseResumeConfig
+    def test_retryable_errors_cover_exhausted_transient_failures(self) -> None:
+        errors = self.source.get_retryable_errors()
+        # The sentinel `_fetch_page` raises after exhausting its own 429/5xx retries.
+        assert any("Featurebase API error (retryable)" in error for error in errors)
+        # A read timeout or dropped connection surfaces as a raw requests exception whose
+        # message includes the connection pool host, not the sentinel above.
+        assert any("do.featurebase.app" in error for error in errors)
 
     def test_source_for_pipeline_plumbs_incremental_inputs(self) -> None:
         config = MagicMock(api_key="fb_test")

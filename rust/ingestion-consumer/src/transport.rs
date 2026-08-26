@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::io::Write;
 use std::sync::Arc;
 use std::time::Duration;
@@ -12,6 +13,11 @@ use tracing::{error, info, warn};
 
 use crate::debug_recorder::{record_if, DebugEventKind, DebugRecorder};
 use crate::types::{IngestBatchRequest, IngestBatchResponse, SerializedKafkaMessage};
+
+/// Default cap on the serialized JSON size of one /ingest request body. The
+/// worker's HTTP body limit is 20 MB; half that leaves headroom for the
+/// per-message size estimate (which ignores JSON string escaping).
+pub const DEFAULT_MAX_BODY_BYTES: usize = 10 * 1024 * 1024;
 
 /// RAII guard that tracks the number of batches currently in flight to a
 /// worker. Increments the gauge on creation and decrements on drop, so every
@@ -69,6 +75,10 @@ pub struct HttpTransport {
     /// Process-unique sender id stamped on every request, so the worker-side
     /// feed-order sentinel can rebaseline when the consumer restarts.
     consumer_id: String,
+    /// Cap on the serialized JSON size of one request body. Sub-batches whose
+    /// estimated size exceeds it are split into multiple sequential requests;
+    /// a request the worker still rejects with 413 is halved and resent.
+    max_body_bytes: usize,
     /// Debug event recorder; `None` unless `DEBUG_API_ENABLED`.
     debug_recorder: Option<Arc<DebugRecorder>>,
 }
@@ -111,6 +121,7 @@ impl HttpTransport {
             worker_concurrent_batches,
             compression_enabled,
             consumer_id: make_consumer_id(),
+            max_body_bytes: DEFAULT_MAX_BODY_BYTES,
             debug_recorder: None,
         }
     }
@@ -118,6 +129,12 @@ impl HttpTransport {
     /// Inject the debug UI recorder. Call before the transport is shared.
     pub fn set_debug_recorder(&mut self, recorder: Arc<DebugRecorder>) {
         self.debug_recorder = Some(recorder);
+    }
+
+    /// Override the request body size cap. Call before the transport is shared.
+    pub fn set_max_body_bytes(&mut self, bytes: usize) {
+        assert!(bytes > 0, "max_body_bytes must be > 0");
+        self.max_body_bytes = bytes;
     }
 
     /// Get the worker's concurrency semaphore, creating it on first use so the
@@ -187,6 +204,16 @@ impl HttpTransport {
     /// here — that's the natural backpressure. The permit is released on
     /// drop, covering all return paths (success, retriable error, retries
     /// exhausted, non-retriable error).
+    ///
+    /// A sub-batch whose estimated body size exceeds `max_body_bytes` is split
+    /// into multiple sequential requests (order-preserving, under the same
+    /// permit). A request the worker still rejects with 413 is halved and
+    /// resent; a single message the worker rejects with 413 is a non-retriable
+    /// failure. The result stays all-or-nothing: `Ok` only when every chunk was
+    /// accepted, and on any failure the `SendError` carries back the full
+    /// original message set — already-accepted chunks may then be re-sent
+    /// later, which is ordinary at-least-once replay.
+    ///
     /// `replay` marks a request that may repeat previously sent messages (a
     /// deferred-flush re-route); HTTP retries within this call are marked as
     /// replays automatically.
@@ -197,16 +224,6 @@ impl HttpTransport {
         messages: Vec<SerializedKafkaMessage>,
         replay: bool,
     ) -> Result<u32, SendError> {
-        let message_count = messages.len();
-        let mut request = IngestBatchRequest {
-            batch_id: batch_id.to_string(),
-            messages,
-            consumer_id: self.consumer_id.clone(),
-            replay,
-        };
-
-        let url = format!("{worker_url}/ingest");
-
         let semaphore = self.semaphore_for(worker_url);
 
         // Atomic "did we actually have to wait?" check. `available_permits`
@@ -231,6 +248,98 @@ impl HttpTransport {
         // Now that the permit is held, this batch is genuinely in flight to the
         // worker. The guard decrements the gauge on every return path.
         let _in_flight = InFlightGuard::new(worker_url);
+
+        let message_total = messages.len();
+        let mut queue: VecDeque<Vec<SerializedKafkaMessage>> =
+            split_by_size(messages, self.max_body_bytes).into();
+        if queue.len() > 1 {
+            counter!(
+                "ingestion_consumer_transport_batch_splits_total",
+                "reason" => "size_estimate"
+            )
+            .increment((queue.len() - 1) as u64);
+            record_if(&self.debug_recorder, || DebugEventKind::SendSplit {
+                worker: worker_url.to_string(),
+                batch_id: batch_id.to_string(),
+                reason: "size_estimate",
+                chunks: queue.len(),
+                messages: message_total,
+            });
+        }
+
+        let mut sent: Vec<SerializedKafkaMessage> = Vec::new();
+        let mut accepted_total = 0u32;
+        while let Some(chunk) = queue.pop_front() {
+            match self.send_chunk(worker_url, batch_id, chunk, replay).await {
+                ChunkOutcome::Accepted { accepted, messages } => {
+                    accepted_total += accepted;
+                    sent.extend(messages);
+                }
+                ChunkOutcome::TooLarge { messages } if messages.len() > 1 => {
+                    // The estimate undershot the worker's body limit — halve
+                    // the chunk and resend both parts, front of the queue so
+                    // message order is preserved.
+                    counter!(
+                        "ingestion_consumer_transport_batch_splits_total",
+                        "reason" => "http_413"
+                    )
+                    .increment(1);
+                    record_if(&self.debug_recorder, || DebugEventKind::SendSplit {
+                        worker: worker_url.to_string(),
+                        batch_id: batch_id.to_string(),
+                        reason: "http_413",
+                        chunks: 2,
+                        messages: messages.len(),
+                    });
+                    let mut left = messages;
+                    let right = left.split_off(left.len() / 2);
+                    queue.push_front(right);
+                    queue.push_front(left);
+                }
+                ChunkOutcome::TooLarge { messages } => {
+                    // A single message the worker refuses can never succeed by
+                    // splitting or retrying.
+                    error!(
+                        worker = %worker_url,
+                        batch_id = %batch_id,
+                        "Worker rejected a single message as too large"
+                    );
+                    return Err(SendError {
+                        error: TransportError::PayloadTooLarge(String::new()),
+                        messages: reassemble(sent, messages, queue),
+                    });
+                }
+                ChunkOutcome::Failed { error, messages } => {
+                    return Err(SendError {
+                        error,
+                        messages: reassemble(sent, messages, queue),
+                    });
+                }
+            }
+        }
+
+        Ok(accepted_total)
+    }
+
+    /// Send one already-size-bounded chunk with the retry loop. Ownership of
+    /// the messages travels through the outcome so the caller can split or
+    /// re-defer them.
+    async fn send_chunk(
+        &self,
+        worker_url: &str,
+        batch_id: &str,
+        messages: Vec<SerializedKafkaMessage>,
+        replay: bool,
+    ) -> ChunkOutcome {
+        let message_count = messages.len();
+        let mut request = IngestBatchRequest {
+            batch_id: batch_id.to_string(),
+            messages,
+            consumer_id: self.consumer_id.clone(),
+            replay,
+        };
+
+        let url = format!("{worker_url}/ingest");
 
         let mut last_err = None;
         // Whether the previous attempt failed with a 503. A busy worker gets a
@@ -267,7 +376,10 @@ impl HttpTransport {
                         .increment(1);
 
                     if response.status == "ok" {
-                        return Ok(response.accepted);
+                        return ChunkOutcome::Accepted {
+                            accepted: response.accepted,
+                            messages: request.messages,
+                        };
                     }
 
                     last_was_busy = false;
@@ -298,11 +410,18 @@ impl HttpTransport {
                         error = %err,
                         "Failed to send batch to worker"
                     );
+                    // 413 is deterministic for this chunk on every worker —
+                    // hand it back for splitting instead of retrying verbatim.
+                    if matches!(err, TransportError::PayloadTooLarge(_)) {
+                        return ChunkOutcome::TooLarge {
+                            messages: request.messages,
+                        };
+                    }
                     if !err.is_retriable() {
-                        return Err(SendError {
+                        return ChunkOutcome::Failed {
                             error: err,
                             messages: request.messages,
-                        });
+                        };
                     }
                     last_err = Some(err);
                 }
@@ -325,10 +444,10 @@ impl HttpTransport {
             messages: message_count,
             error: err.to_string(),
         });
-        Err(SendError {
+        ChunkOutcome::Failed {
             error: err,
             messages: request.messages,
-        })
+        }
     }
 
     async fn do_send(
@@ -370,6 +489,14 @@ impl HttpTransport {
             return Err(TransportError::WorkerBusy(body));
         }
 
+        // 413 means the body exceeded the worker's HTTP body limit. Every
+        // worker enforces the same limit, so retrying elsewhere can't succeed;
+        // the caller splits the chunk instead.
+        if status == reqwest::StatusCode::PAYLOAD_TOO_LARGE {
+            let body = response.text().await.unwrap_or_default();
+            return Err(TransportError::PayloadTooLarge(body));
+        }
+
         if status.is_client_error() || status.is_server_error() {
             let body = response.text().await.unwrap_or_default();
             return Err(TransportError::HttpStatus(status.as_u16(), body));
@@ -378,6 +505,80 @@ impl HttpTransport {
         let parsed: IngestBatchResponse = response.json().await?;
         Ok(parsed)
     }
+}
+
+/// Outcome of sending one size-bounded chunk of a sub-batch.
+enum ChunkOutcome {
+    Accepted {
+        accepted: u32,
+        messages: Vec<SerializedKafkaMessage>,
+    },
+    /// The worker rejected the body with 413 — split and resend, don't retry.
+    TooLarge {
+        messages: Vec<SerializedKafkaMessage>,
+    },
+    Failed {
+        error: TransportError,
+        messages: Vec<SerializedKafkaMessage>,
+    },
+}
+
+/// Rebuild the sub-batch's full message list, in original order, from the
+/// already-sent chunks, the failing chunk, and the not-yet-sent remainder —
+/// `send_batch`'s failure contract hands the whole sub-batch back to the
+/// caller for deferral.
+fn reassemble(
+    mut sent: Vec<SerializedKafkaMessage>,
+    failed: Vec<SerializedKafkaMessage>,
+    queue: VecDeque<Vec<SerializedKafkaMessage>>,
+) -> Vec<SerializedKafkaMessage> {
+    sent.extend(failed);
+    for chunk in queue {
+        sent.extend(chunk);
+    }
+    sent
+}
+
+/// Approximate serialized JSON size of one message within the batch body.
+/// Field names and punctuation are a small constant; escaping of the embedded
+/// JSON text is absorbed by the headroom between the split cap and the
+/// worker's hard body limit (and by the 413 halving fallback).
+fn approx_message_size(msg: &SerializedKafkaMessage) -> usize {
+    const PER_MESSAGE_OVERHEAD: usize = 96;
+    msg.topic.len()
+        + msg.key.as_deref().map_or(0, str::len)
+        + msg.value.as_deref().map_or(0, str::len)
+        + msg
+            .headers
+            .iter()
+            .map(|(k, v)| k.len() + v.len() + 8)
+            .sum::<usize>()
+        + PER_MESSAGE_OVERHEAD
+}
+
+/// Split a sub-batch into chunks whose estimated serialized size stays under
+/// `max_body_bytes`, preserving message order. A single message estimated
+/// above the cap gets its own chunk — it can't be split further.
+fn split_by_size(
+    messages: Vec<SerializedKafkaMessage>,
+    max_body_bytes: usize,
+) -> Vec<Vec<SerializedKafkaMessage>> {
+    let mut chunks = Vec::new();
+    let mut current = Vec::new();
+    let mut current_size = 0usize;
+    for msg in messages {
+        let size = approx_message_size(&msg);
+        if !current.is_empty() && current_size + size > max_body_bytes {
+            chunks.push(std::mem::take(&mut current));
+            current_size = 0;
+        }
+        current_size += size;
+        current.push(msg);
+    }
+    if !current.is_empty() {
+        chunks.push(current);
+    }
+    chunks
 }
 
 /// Failure from [`HttpTransport::send_batch`], carrying back the batch's
@@ -399,6 +600,9 @@ pub enum TransportError {
 
     #[error("Worker busy (HTTP 503): {0}")]
     WorkerBusy(String),
+
+    #[error("Request body too large (HTTP 413): {0}")]
+    PayloadTooLarge(String),
 
     #[error("Worker returned HTTP {0}: {1}")]
     HttpStatus(u16, String),
@@ -422,6 +626,7 @@ impl TransportError {
             TransportError::Http(_) => true,
             TransportError::Serialize(_) => false,
             TransportError::WorkerBusy(_) => true,
+            TransportError::PayloadTooLarge(_) => false,
             TransportError::WorkerError(_) => true,
             TransportError::RetriesExhausted => false,
         }
@@ -479,7 +684,61 @@ mod tests {
     #[test]
     fn test_client_errors_are_not_retriable() {
         assert!(!TransportError::HttpStatus(400, "bad".into()).is_retriable());
+        assert!(!TransportError::PayloadTooLarge("too big".into()).is_retriable());
         assert!(!TransportError::RetriesExhausted.is_retriable());
+    }
+
+    fn message_with_value(offset: i64, value_len: usize) -> SerializedKafkaMessage {
+        SerializedKafkaMessage {
+            topic: "t".to_string(),
+            partition: 0,
+            offset,
+            timestamp: 0,
+            key: None,
+            value: Some("x".repeat(value_len)),
+            headers: std::collections::HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn test_split_by_size_respects_cap_and_preserves_order() {
+        let messages: Vec<_> = (0..10).map(|i| message_with_value(i, 1000)).collect();
+        // Each message estimates to ~1100 bytes, so a 2500-byte cap fits two.
+        let chunks = split_by_size(messages, 2500);
+
+        assert!(
+            chunks.len() >= 5,
+            "expected >= 5 chunks, got {}",
+            chunks.len()
+        );
+        for chunk in &chunks {
+            let size: usize = chunk.iter().map(approx_message_size).sum();
+            assert!(size <= 2500, "chunk exceeds cap: {size}");
+        }
+        let offsets: Vec<i64> = chunks.iter().flatten().map(|m| m.offset).collect();
+        assert_eq!(offsets, (0..10).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_split_by_size_isolates_oversize_message() {
+        let messages = vec![
+            message_with_value(0, 10),
+            message_with_value(1, 5000),
+            message_with_value(2, 10),
+        ];
+        let chunks = split_by_size(messages, 1000);
+
+        assert_eq!(chunks.len(), 3);
+        assert_eq!(chunks[1].len(), 1);
+        assert_eq!(chunks[1][0].offset, 1);
+    }
+
+    #[test]
+    fn test_split_by_size_single_chunk_when_under_cap() {
+        let messages: Vec<_> = (0..3).map(|i| message_with_value(i, 10)).collect();
+        let chunks = split_by_size(messages, DEFAULT_MAX_BODY_BYTES);
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0].len(), 3);
     }
 
     #[test]

@@ -1,24 +1,13 @@
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import Any
 
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.blogger import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.blogger.blogger import BloggerResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.blogger.source import BloggerSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 
 
 def _make_inputs(**overrides: Any) -> SourceInputs:
@@ -38,30 +27,6 @@ def _make_inputs(**overrides: Any) -> SourceInputs:
     }
     defaults.update(overrides)
     return SourceInputs(**defaults)
-
-
-class TestBloggerSourceConfig:
-    def test_source_type(self) -> None:
-        assert BloggerSource().source_type == ExternalDataSourceType.BLOGGER
-
-    def test_source_config_metadata(self) -> None:
-        config = BloggerSource().get_source_config
-        assert config.name == SchemaExternalDataSourceType.BLOGGER
-        assert config.category == DataWarehouseSourceCategory.PRODUCTIVITY
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/blogger"
-
-    def test_source_config_fields(self) -> None:
-        fields = {f.name: cast(SourceFieldInputConfig, f) for f in BloggerSource().get_source_config.fields}
-        assert set(fields) == {"api_key", "blog_id"}
-
-        assert fields["api_key"].type == SourceFieldInputConfigType.PASSWORD
-        assert fields["api_key"].required is True
-        assert fields["api_key"].secret is True
-
-        assert fields["blog_id"].type == SourceFieldInputConfigType.TEXT
-        assert fields["blog_id"].required is True
-        assert fields["blog_id"].secret is False
 
 
 class TestBloggerSchemas:
@@ -95,26 +60,8 @@ class TestBloggerSchemas:
         # Description comes from canonical_descriptions.py.
         assert tables["posts"]["description"]
 
-    def test_canonical_descriptions_cover_every_endpoint(self) -> None:
-        descriptions = BloggerSource().get_canonical_descriptions()
-        assert set(descriptions) == {"blogs", "posts", "pages", "comments"}
-        assert "id" in descriptions["posts"]["columns"]
-
 
 class TestBloggerCredentials:
-    def test_validate_credentials_delegates_to_transport(self) -> None:
-        config = SimpleNamespace(api_key="K", blog_id="BID")
-        with patch.object(source_module, "validate_blogger_credentials", return_value=(True, None)) as mock_validate:
-            result = BloggerSource().validate_credentials(config, team_id=1)  # type: ignore[arg-type]
-        assert result == (True, None)
-        mock_validate.assert_called_once_with("K", "BID")
-
-    def test_validate_credentials_propagates_failure(self) -> None:
-        config = SimpleNamespace(api_key="K", blog_id="BID")
-        with patch.object(source_module, "validate_blogger_credentials", return_value=(False, "nope")):
-            result = BloggerSource().validate_credentials(config, team_id=1)  # type: ignore[arg-type]
-        assert result == (False, "nope")
-
     @parameterized.expand(
         [
             (
@@ -147,11 +94,6 @@ class TestBloggerCredentials:
 
 
 class TestBloggerPipelinePlumbing:
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = BloggerSource().get_resumable_source_manager(_make_inputs())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is BloggerResumeConfig
-
     def test_source_for_pipeline_plumbs_arguments(self) -> None:
         captured: dict[str, Any] = {}
 

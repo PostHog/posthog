@@ -11,6 +11,11 @@ on:
     push:
         branches:
             - 'release-*.*'
+    schedule:
+        # Nightly smoke test against master. The paths filter only runs this job on PRs that
+        # touch deploy-path files, so a hobby install broken by ordinary product code (a bad
+        # migration, a service that can't boot) would otherwise go uncaught until a release push.
+        - cron: '0 6 * * *'
     pull_request:
         types: [opened, synchronize, labeled, unlabeled]
 
@@ -55,6 +60,7 @@ jobs:
                         - docker-compose.hobby.yml
                         # Hobby-specific scripts
                         - 'bin/deploy-hobby'
+                        - 'bin/hobby-ci-setup-user.py'
                         - 'bin/hobby-ci.py'
                         - 'bin/upgrade-hobby'
                         - 'bin/migrate-*-hobby'
@@ -224,10 +230,13 @@ jobs:
 
     hobby-test:
         runs-on: ubuntu-24.04
-        timeout-minutes: 90
+        timeout-minutes: 120
         name: Setup DO Hobby Instance and test
         needs: [wait-for-docker-image, changes]
-        if: always() && ((needs.changes.outputs.should_run == 'true' && needs.wait-for-docker-image.outputs.conclusion == 'success') || github.event_name == 'push')
+        # A status function is required to read wait-for-docker-image's conclusion after it
+        # failed or was skipped. !cancelled() rather than always() so a superseded PR run stops
+        # this job promptly; the explicit conclusion/push/schedule checks preserve when it runs.
+        if: ${{ !cancelled() && ((needs.changes.outputs.should_run == 'true' && needs.wait-for-docker-image.outputs.conclusion == 'success') || github.event_name == 'push' || github.event_name == 'schedule') }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -303,7 +312,11 @@ jobs:
             - name: Wait for health check
               if: env.TEST_EXIT_CODE == '0'
               id: health-check
-              timeout-minutes: 40
+              # Must stay above wait_for_health_check's internal budget in bin/hobby-ci.py so the
+              # script times out first and reports container diagnostics instead of the runner
+              # killing the step. Raise both together: the budget covers the full Django migration
+              # run against an empty Postgres before /_health answers, which grows over time.
+              timeout-minutes: 65
               run: |
                   set +e
                   uv run bin/hobby-ci.py wait-for-health
@@ -318,8 +331,12 @@ jobs:
                   RUN_ATTEMPT: ${{ github.run_attempt }}
             - name: Smoke test event ingestion
               if: env.TEST_EXIT_CODE == '0' && env.PREVIEW_MODE == 'false'
-              timeout-minutes: 5
-              run: uv run bin/hobby-ci.py smoke-test-ingestion
+              timeout-minutes: 10
+              run: |
+                  set +e
+                  uv run bin/hobby-ci.py smoke-test-ingestion
+                  echo "TEST_EXIT_CODE=$?" >> $GITHUB_ENV
+                  exit 0
               env:
                   DIGITALOCEAN_TOKEN: ${{ secrets.DIGITAL_OCEAN_HOBBY_TOKEN }}
                   DIGITALOCEAN_SSH_PRIVATE_KEY: ${{ secrets.DO_DEPLOY_SSH_PRIVATE_KEY }}

@@ -1,6 +1,7 @@
 import { Team } from '~/types'
 
 import {
+    AccountAudienceResponse,
     BlastRadiusPersonsResponse,
     BlastRadiusResponse,
     HogFlowBatchPersonQueryService,
@@ -213,6 +214,51 @@ describe('HogFlowBatchPersonQueryService', () => {
             })
 
             await expect(service.getBlastRadiusPersons(team, filters)).rejects.toThrow('timeout')
+        })
+    })
+
+    describe('getAccountAudiencePage', () => {
+        const accountFilters = { audience_type: 'accounts', properties: [], tag_names: ['vip'] }
+
+        it('calls the Django endpoint and returns parsed response', async () => {
+            const service = createService()
+            const response: AccountAudienceResponse = {
+                accounts: ['acme', 'globex'],
+                cursor: 'globex',
+                has_more: false,
+                group_type: 'customer',
+            }
+
+            fetchMock.mockResolvedValue({
+                fetchResponse: createFetchResponse(200, response),
+                fetchError: null,
+            })
+
+            await expect(service.getAccountAudiencePage(team, accountFilters, 'abc')).resolves.toEqual(response)
+
+            expect(fetchMock).toHaveBeenCalledWith({
+                urlPath: '/api/projects/123/internal/hog_flows/account_audience',
+                fetchParams: {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        filters: accountFilters,
+                        cursor: 'abc',
+                    }),
+                },
+            })
+        })
+
+        it('throws when the endpoint responds with non-200 status', async () => {
+            const service = createService()
+
+            fetchMock.mockResolvedValue({
+                fetchResponse: createFetchResponse(400, 'bad filters'),
+                fetchError: null,
+            })
+
+            await expect(service.getAccountAudiencePage(team, accountFilters)).rejects.toThrow(
+                'Failed to fetch account audience: 400 bad filters'
+            )
         })
     })
 })

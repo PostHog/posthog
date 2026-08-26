@@ -59,6 +59,11 @@ export interface LemonTableProps<T extends Record<string, any>, K extends BulkSe
     /** Whether the table is still interactable while `loading` is `true`. Defaults to `true`. **/
     disableTableWhileLoading?: boolean
     pagination?: PaginationAuto | PaginationManual
+    /**
+     * Whether changing the page scrolls the table back into view. Defaults to `true`.
+     * Set to `false` for tables high up on a page where paging shouldn't move the viewport.
+     */
+    scrollToTopOnPageChange?: boolean
     expandable?: ExpandableConfig<T>
     /** Whether the header should be shown. The default value is `true`. */
     showHeader?: boolean
@@ -129,6 +134,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
     loading,
     disableTableWhileLoading = true,
     pagination,
+    scrollToTopOnPageChange = true,
     expandable,
     showHeader = true,
     uppercaseHeader = true,
@@ -336,6 +342,10 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
         }
         previousPageRef.current = paginationState.currentPage
 
+        if (!scrollToTopOnPageChange) {
+            return
+        }
+
         // When the current page changes, scroll back to the top of the table
         if (scrollRef.current) {
             const realTableOffsetTop = scrollRef.current.getBoundingClientRect().top - 320 // Extra breathing room
@@ -349,7 +359,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                 }
             }
         }
-    }, [paginationState.currentPage])
+    }, [paginationState.currentPage, scrollToTopOnPageChange])
 
     if (firstColumnSticky && expandable) {
         // Due to CSS, for firstColumnSticky to work the first column needs to be a content column
@@ -429,7 +439,13 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                                         >
                                                             {columnGroup.title}
                                                         </th>
-                                                        <th colSpan={columnGroup.children.length - 1} />
+                                                        {/* The DOM clamps colSpan 0 up to 1, so a single-child
+                                                            group must not render the filler at all: the phantom
+                                                            column shifts every group title after it one column
+                                                            to the right. */}
+                                                        {columnGroup.children.length > 1 && (
+                                                            <th colSpan={columnGroup.children.length - 1} />
+                                                        )}
                                                     </React.Fragment>
                                                 ) : (
                                                     <th
@@ -444,7 +460,11 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                         </tr>
                                     )}
                                     <tr>
-                                        {!!expandable && <th className="LemonTable__toggle" /> /* Expand/collapse */}
+                                        {
+                                            isRowExpansionToggleShown && (
+                                                <th className="LemonTable__toggle" />
+                                            ) /* Expand/collapse */
+                                        }
                                         {columnGroups.flatMap((columnGroup, columnGroupIndex) =>
                                             columnGroup.children
                                                 .filter((column) => !column.isHidden)
@@ -720,9 +740,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                         ))
                                 ) : (
                                     <tr className="LemonTable__empty-state">
-                                        <td colSpan={columns.length + Number(!!expandable)}>
-                                            {emptyState || `No ${nouns[1]}`}
-                                        </td>
+                                        <td colSpan={headerLoaderColSpan}>{emptyState || `No ${nouns[1]}`}</td>
                                     </tr>
                                 )}
                             </tbody>

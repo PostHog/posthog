@@ -24,7 +24,9 @@ tools:
             warehouse_source_webhook, site_app, or transformation) and either 'hog' source code or a 'template_id' to
             derive code from a template. Provide 'inputs_schema' to define configurable parameters and 'inputs' with
             their values. Use 'filters' to control which events trigger the function. Transformations run during
-            ingestion and have an 'execution_order' field.
+            ingestion and have an 'execution_order' field. Create destinations disabled: test with
+            cdp-functions-invocations-create, then enable with cdp-functions-partial-update once the config looks right.
+            (Other types, like internal_destination below, create as sent.)
 
             Recipe — deliver an insight alert to Slack, a webhook, or Discord (canonical reference; alert-create /
             alert-update point here):
@@ -61,11 +63,20 @@ tools:
                      {"type": "context", "elements": [{"type": "mrkdwn",
                        "text": "Project: <{project.url}|{project.name}>"}]},
                      {"type": "divider"},
-                     {"type": "actions", "elements": [
+                     {"type": "actions", "block_id": "insight_alert_snooze:{event.properties.alert_id}", "elements": [
                        {"type": "button", "text": {"type": "plain_text", "text": "View Insight"},
                         "url": "{project.url}/insights/{event.properties.insight_id}"},
                        {"type": "button", "text": {"type": "plain_text", "text": "View Alert"},
-                        "url": "{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}"}
+                        "url": "{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}"},
+                       {"type": "static_select", "action_id": "insight_alert_snooze",
+                        "placeholder": {"type": "plain_text", "text": "Snooze…"},
+                        "options": [
+                          {"text": {"type": "plain_text", "text": "For 1 hour"}, "value": "{event.properties.alert_id}|1h"},
+                          {"text": {"type": "plain_text", "text": "For 6 hours"}, "value": "{event.properties.alert_id}|6h"},
+                          {"text": {"type": "plain_text", "text": "For 1 day"}, "value": "{event.properties.alert_id}|1d"},
+                          {"text": {"type": "plain_text", "text": "For 1 week"}, "value": "{event.properties.alert_id}|1w"},
+                          {"text": {"type": "plain_text", "text": "Pick a date & time…"}, "value": "{event.properties.alert_id}|custom"}
+                        ]}
                      ]}
                    ]}
                  }
@@ -94,6 +105,7 @@ tools:
             created function's id. Never share a URL read from the function's inputs — those are destination endpoints
             (e.g. incoming webhook URLs) and may grant access to the destination.
         exclude_params:
+            - base_updated_at
             - _create_in_folder
             - batch_export_id
             - bytecode
@@ -162,9 +174,36 @@ tools:
             Delete a function by ID (soft delete). The function will no longer appear in lists or process events, but
             historical data is preserved.
         soft_delete: true
+    cdp-functions-discard-draft:
+        operation: hog_functions_discard_draft_create
+        enabled: true
+        scopes:
+            - hog_function:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Discard staged changes
+        description: >
+            Throw away the config staged on a function, leaving the live config untouched. Idempotent — discarding when
+            nothing is staged is a no-op. Returns 400 when drafts aren't enabled for the project.
     cdp-functions-enable-backfills-create:
         operation: hog_functions_enable_backfills_create
         enabled: false
+    cdp-functions-get-revision:
+        operation: hog_functions_revisions_retrieve
+        enabled: true
+        scopes:
+            - hog_function:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get function revision
+        description: >
+            Get one version of a function's config by version number, including the full snapshot (hog, inputs_schema,
+            inputs, filters, mappings, masking) as it was at that version. Secret input values are never included. Use
+            cdp-functions-list-revisions first to find the version you want.
     cdp-functions-icon-retrieve:
         operation: hog_functions_icon_retrieve
         enabled: false
@@ -184,7 +223,9 @@ tools:
         description: >
             Test-invoke a function with a mock event payload. Sends the function configuration and test data to the
             plugin server for execution and returns logs and status. Use 'mock_async_functions: true' (default) to
-            simulate external calls like fetch() without making real HTTP requests.
+            simulate external calls like fetch() without making real HTTP requests. To test config that is staged for
+            review, pass 'use_draft: true' instead of a 'configuration' — staged secret inputs are used, so the test
+            exercises exactly what publishing would ship.
     cdp-functions-list:
         operation: hog_functions_list
         enabled: true
@@ -218,6 +259,22 @@ tools:
                 - updated_at
                 - created_by
                 - filters
+    cdp-functions-list-revisions:
+        operation: hog_functions_revisions_list
+        enabled: true
+        scopes:
+            - hog_function:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List function revisions
+        description: >
+            List a function's config versions, newest first — one per change to its live config, with who made it and
+            when. The config itself is not included; fetch a single version with cdp-functions-get-revision, then stage
+            it for review with cdp-functions-restore-revision. Returns 400 when revision history isn't enabled for the
+            project.
     cdp-functions-logs-retrieve:
         operation: hog_functions_logs_retrieve
         enabled: true
@@ -265,6 +322,15 @@ tools:
             Partially update a function. Can enable/disable the function, change its name, description, source code,
             inputs, filters, mappings, or masking config. The 'type' field cannot be changed after creation. To delete a
             function, use the cdp-functions-delete tool instead.
+
+            On a destination that is currently enabled, config edits (hog, inputs_schema, inputs, filters, mappings,
+            masking) are staged for review rather than applied — they show up as 'draft' on the function and do not
+            change what is running. Name, description and enable/disable still apply immediately, except that enabling a
+            function with staged config is refused until it is published or discarded. Tell the user what you staged and
+            that they need to publish it; publish it yourself only when they ask, with cdp-functions-publish. Discard it
+            with cdp-functions-discard-draft. To test a staged config before publishing, call
+            cdp-functions-invocations-create with 'use_draft: true'. Optionally pass 'base_updated_at' (the
+            draft_updated_at or updated_at you last read) to fail with 409 instead of overwriting a concurrent edit.
         exclude_params:
             - _create_in_folder
             - batch_export_id
@@ -304,6 +370,24 @@ tools:
             exclude:
                 - inputs.*.value
                 - mappings.*.inputs.*.value
+    cdp-functions-publish:
+        operation: hog_functions_publish_create
+        enabled: true
+        scopes:
+            - hog_function:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Publish staged changes
+        description: >
+            Apply the config staged on a function to what is actually running. Two steps, and the first is mandatory on
+            an enabled function: call it without 'confirm' to see which config fields would change and get a
+            'confirm_token', then call it again with confirm=true and that token. The token expires after 15 minutes,
+            and any further edit to either the staged config or the live config invalidates it (409) — so you always
+            publish exactly what you previewed, and never silently overwrite someone else's edit. A disabled function
+            processes nothing, so publishing into one skips the token. Returns 400 when nothing is staged, when the
+            token is missing or expired, or when drafts aren't enabled for the project.
     cdp-functions-rearrange-partial-update:
         operation: hog_functions_rearrange_partial_update
         enabled: true
@@ -318,6 +402,20 @@ tools:
             Update the execution order of transformation functions. Send an 'orders' object mapping function UUIDs to
             their new execution_order integer values. Only applies to functions with type=transformation. Returns the
             updated list of transformations.
+    cdp-functions-restore-revision:
+        operation: hog_functions_revisions_restore_create
+        enabled: true
+        scopes:
+            - hog_function:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Restore function revision
+        description: >
+            Roll a function back to an earlier version by staging that version's config for review. Nothing goes live
+            here — finish with cdp-functions-publish so the rollback is previewed and confirmed like any other change.
+            Returns 409 when config is already staged; pass overwrite=true to replace it.
     cdp-functions-retrieve:
         operation: hog_functions_retrieve
         enabled: true

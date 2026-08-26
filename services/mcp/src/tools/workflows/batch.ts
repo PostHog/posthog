@@ -167,10 +167,10 @@ export const workflowsScheduleCreate = (): ToolBase<typeof ScheduleCreateSchema,
             )
         }
 
-        // Require the workflow to be active before scheduling. A draft's trigger can still be edited, so
-        // scheduling a draft would let the audience be broadened after you acknowledged it (the scheduler
-        // uses the trigger's filters at fire time). An active workflow's trigger can't be edited via MCP,
-        // so the acknowledged audience is locked in.
+        // Require the workflow to be active before scheduling. A draft's trigger can still be edited in
+        // place, so scheduling a draft would let the audience be broadened after you acknowledged it (the
+        // scheduler uses the trigger's filters at fire time). On an active workflow an MCP trigger edit only
+        // stages a draft, so the acknowledged audience can't change without an explicit publish.
         if (status !== 'active') {
             throw new Error(
                 `Workflow is not active (status '${status ?? 'unknown'}') — enable it with workflows-enable before ` +

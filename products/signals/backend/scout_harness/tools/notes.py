@@ -6,9 +6,13 @@ fleet to know (authored over the public MCP surface via `signal_scout:write`).
 A note targets one scout by `skill_name`, or the whole fleet when `skill_name`
 is blank; `list_notes` is what a run calls to pick up the notes addressed to it.
 
-Most notes are left by hand through that surface. The exception is `origin`
-`report_dismissal`: notes forwarded from the feedback someone typed when they
-dismissed, snoozed, or restored an inbox report (see `dismissal_notes.py`).
+Most notes are left by hand through that surface. Three `origin`s are derived from
+inbox activity instead: `report_dismissal`, forwarded from the feedback someone
+typed when they dismissed, snoozed, or restored an inbox report (see
+`dismissal_notes.py`); `report_discussion`, forwarded from the question someone
+asked when they opened a discussion on a report (see `discussion_notes.py`); and
+`report_feedback`, forwarded from the note someone left when rating a report useful
+or not (see `feedback_notes.py`).
 """
 
 from __future__ import annotations
@@ -86,8 +90,8 @@ def list_notes(
 
     `exclude_origins` drops whole classes of note before the cap is applied, so a caller
     who may not see one class still gets a full page of what it may see. The read surface
-    uses it to withhold `report_dismissal` notes (which quote report content) from callers
-    without report read access.
+    uses it to withhold the report-derived origins (`report_dismissal` / `report_discussion` /
+    `report_feedback`, which quote report content) from callers without report read access.
     """
     clamped_limit = min(max(limit, 1), MAX_NOTES_LIST_LIMIT)
     qs = SignalScoutNote.objects.filter(team_id=team_id).select_related("created_by")
@@ -120,7 +124,9 @@ def leave_note(
     """Create a note. Not an upsert — every call mints a new row; delete retires one.
 
     `origin` is server-owned and never caller-supplied over the API: the notes endpoint always
-    writes `HUMAN`, and `REPORT_DISMISSAL` belongs to `dismissal_notes.forward_dismissal_note`.
+    writes `HUMAN`. `REPORT_DISMISSAL` belongs to `dismissal_notes.forward_dismissal_note`,
+    `REPORT_DISCUSSION` to `discussion_notes.forward_discussion_note`, and `REPORT_FEEDBACK` to
+    `feedback_notes.forward_feedback_note`.
     """
     _validate_note(team_id=team_id, skill_name=skill_name, content=content)
     row = SignalScoutNote.objects.create(

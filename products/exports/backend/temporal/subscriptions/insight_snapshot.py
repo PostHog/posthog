@@ -22,14 +22,15 @@ from pydantic_core import to_jsonable_python
 
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_cache_key, calculate_for_query_based_insight
-from posthog.caching.fetch_from_cache import InsightResult, NothingInCacheResult
+from posthog.caching.insight_result import InsightResult, NothingInCacheResult
 from posthog.models import Team, User
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.subscription import Subscription
 from products.exports.backend.temporal.subscriptions.delivery_common import strip_null_bytes
-from products.product_analytics.backend.models.insight import Insight
+from products.exports.backend.temporal.subscriptions.types import safe_error_message
+from products.product_analytics.backend.facade.models import Insight
 
 logger = structlog.get_logger(__name__)
 
@@ -207,8 +208,13 @@ def _execute_and_serialize_insight_query(
         return {
             "query_results": None,
             "cache_key": None,
-            # str(e) can echo offending query data, so scrub it like the result payload.
-            "query_error": {"type": type(e).__name__, "message": strip_null_bytes(str(e))},
+            # str(e) can echo offending query data, so scrub it like the result payload. The UI
+            # renders human_readable_error (safe subset) instead of message.
+            "query_error": {
+                "type": type(e).__name__,
+                "message": strip_null_bytes(str(e)),
+                "human_readable_error": safe_error_message(e),
+            },
         }
 
     if isinstance(insight_result, NothingInCacheResult):
@@ -217,6 +223,8 @@ def _execute_and_serialize_insight_query(
             "query_error": {
                 "type": "cache_miss",
                 "message": "No synchronous result (async or cache-only response)",
+                # Static, audience-safe: a cold cache is a routine condition, not an internal error.
+                "human_readable_error": "No cached result was available for this insight.",
             },
         }
         if insight_result.cache_key:
@@ -259,6 +267,7 @@ def build_insight_delivery_snapshot(
         base["query_error"] = {
             "type": "missing_query",
             "message": "Insight has no query or convertible filters",
+            "human_readable_error": "This insight has no query to run.",
         }
         base["comparison_enabled"] = False
         base["value_format"] = None

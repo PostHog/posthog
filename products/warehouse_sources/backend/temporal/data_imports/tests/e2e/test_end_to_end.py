@@ -3,6 +3,7 @@ import json
 import uuid
 import functools
 import contextlib
+from collections.abc import AsyncIterator
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from typing import Any, Optional, cast
@@ -14,7 +15,9 @@ from unittest import mock
 from unittest.mock import AsyncMock
 
 from django.conf import settings
+from django.core.management import call_command
 from django.test import override_settings
+from django.utils import timezone
 
 import s3fs
 import orjson
@@ -31,6 +34,7 @@ from dlt.common.configuration.specs.aws_credentials import AwsCredentials
 from dlt.sources.helpers.rest_client.client import RESTClient
 from stripe import ListObject
 from temporalio.common import RetryPolicy
+from temporalio.service import RPCError, RPCStatusCode
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
@@ -51,13 +55,16 @@ from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQu
 from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.models.team.team import Team
 from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
-from posthog.temporal.ducklake import ACTIVITIES as DUCKLAKE_ACTIVITIES
-from posthog.temporal.ducklake.ducklake_copy_data_imports_workflow import DuckLakeCopyDataImportsWorkflow
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.facade.api import WebhookConsumerConfig, WebhookS3Sink
+from products.managed_warehouse.backend.facade.temporal import (
+    ACTIVITIES as DUCKLAKE_ACTIVITIES,
+    DuckLakeCopyDataImportsWorkflow,
+    DuckLakeRegisterDataImportsWorkflow,
+)
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
     ExternalDataJob,
@@ -66,13 +73,13 @@ from products.warehouse_sources.backend.facade.models import (
     get_latest_run_if_exists,
 )
 from products.warehouse_sources.backend.models.external_table_definitions import external_tables
+from products.warehouse_sources.backend.models.oom_event import ExternalDataSchemaOOMEvent
 from products.warehouse_sources.backend.temporal.data_imports.cdp_producer_job import CDPProducerJobWorkflow
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
-    DeltaTableHelper,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import DeltaMaintenance
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v2.pipeline import PipelineNonDLT
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor import (
     process_message,
 )
@@ -80,6 +87,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     BATCH_TABLE,
     PendingBatch,
+)
+from products.warehouse_sources.backend.temporal.data_imports.post_import_job import (
+    PostImportWorkflow,
+    build_post_import_workflow_id,
 )
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import get_rows
 from products.warehouse_sources.backend.temporal.data_imports.settings import ACTIVITIES
@@ -128,12 +139,6 @@ def pipeline_mode(request, _clean_sourcebatch_tables):
     _current_pipeline_mode = request.param
     yield request.param
     _current_pipeline_mode = "non_dlt"
-
-
-# TODO: remove _KafkaMessageCapture once Postgres producer is fully validated
-# class _KafkaMessageCapture:
-#     ...
-# _kafka_capture = _KafkaMessageCapture()
 
 
 def _get_test_database_url() -> str:
@@ -200,7 +205,7 @@ class _PostgresQueueReplay:
         schema_id: str,
         run_uuid: str,
         batch_index: int,
-        delta_table_helper: Any = None,
+        delta_table_ref: Any = None,
     ) -> bool:
         key = (run_uuid, batch_index)
         if key in self._processed_batches:
@@ -324,6 +329,33 @@ def mock_customer_io_client():
         yield set_response
 
 
+def _create_worker(activity_environment: WorkflowEnvironment, activity_executor: ThreadPoolExecutor) -> Worker:
+    return Worker(
+        activity_environment.client,
+        task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+        workflows=[
+            ExternalDataJobWorkflow,
+            CDPProducerJobWorkflow,
+            DuckLakeCopyDataImportsWorkflow,
+            DuckLakeRegisterDataImportsWorkflow,
+            PostImportWorkflow,
+        ],
+        activities=ACTIVITIES + DUCKLAKE_ACTIVITIES,  # type: ignore
+        workflow_runner=UnsandboxedWorkflowRunner(),
+        activity_executor=activity_executor,
+        max_concurrent_activities=50,
+        debug_mode=True,  # turn off sandbox/deadlock detector
+    )
+
+
+@pytest_asyncio.fixture(scope="module", loop_scope="module")
+async def warehouse_workflow_environment() -> AsyncIterator[WorkflowEnvironment]:
+    with ThreadPoolExecutor(max_workers=50) as activity_executor:
+        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+            async with _create_worker(activity_environment, activity_executor):
+                yield activity_environment
+
+
 @pytest_asyncio.fixture(autouse=True)
 async def minio_client():
     """Manage an S3 client to interact with a MinIO bucket.
@@ -355,6 +387,7 @@ async def _run(
     sync_type_config: Optional[dict] = None,
     billable: Optional[bool] = None,
     ignore_assertions: Optional[bool] = False,
+    activity_environment: Optional[WorkflowEnvironment] = None,
 ):
     source = await sync_to_async(ExternalDataSource.objects.create)(
         source_id=uuid.uuid4(),
@@ -385,7 +418,7 @@ async def _run(
     )
 
     with (
-        mock.patch.object(DeltaTableHelper, "compact_table") as mock_compact_table,
+        mock.patch.object(DeltaMaintenance, "compact_table") as mock_compact_table,
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.external_data_job.get_data_import_finished_metric"
         ) as mock_get_data_import_finished_metric,
@@ -393,7 +426,7 @@ async def _run(
             "products.warehouse_sources.backend.temporal.data_imports.metrics.get_producer"
         ) as mock_app_metrics_producer_cls,
     ):
-        await _execute_run(workflow_id, inputs, mock_data_response)
+        await _execute_run(workflow_id, inputs, mock_data_response, activity_environment)
 
         # In v3 mode, the job is still RUNNING after the workflow (consumer marks it COMPLETED),
         # so we need to query without status filter to get the job_id for the replay.
@@ -537,7 +570,41 @@ async def _replay_v3_consumer(team_id: int, schema_id, job_id: str | None = None
     _pg_queue_replay.clear()
 
 
-async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, mock_data_response):
+async def _execute_workflow(
+    activity_environment: WorkflowEnvironment, workflow_id: str, inputs: ExternalDataWorkflowInputs
+) -> None:
+    await activity_environment.client.execute_workflow(
+        ExternalDataJobWorkflow.run,
+        inputs,
+        id=workflow_id,
+        task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+        retry_policy=RetryPolicy(maximum_attempts=1),
+    )
+
+    # The load-dependent post-import steps run in an abandoned child, so
+    # assertions on its side effects (e.g. storage_delta_mib) would race
+    # worker shutdown — await it before leaving the worker context. Absent
+    # on paths that never start it (V3 consumer-owned, non-completed jobs).
+    job = await sync_to_async(
+        ExternalDataJob.objects.filter(team_id=inputs.team_id, schema_id=inputs.external_data_schema_id)
+        .order_by("-created_at")
+        .first
+    )()
+    if job is not None:
+        handle = activity_environment.client.get_workflow_handle(build_post_import_workflow_id(str(job.id)))
+        try:
+            await handle.result()
+        except RPCError as e:
+            if e.status != RPCStatusCode.NOT_FOUND:
+                raise
+
+
+async def _execute_run(
+    workflow_id: str,
+    inputs: ExternalDataWorkflowInputs,
+    mock_data_response: Any,
+    activity_environment: Optional[WorkflowEnvironment] = None,
+) -> None:
     def mock_paginate(
         class_self,
         path: str = "",
@@ -551,6 +618,7 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
         resume_hook: Optional[Any] = None,
         initial_paginator_state: Optional[dict[str, Any]] = None,
         data_selector_required: bool = False,
+        data_selector_empty_ok: bool = False,
         data_selector_malformed_retryable: bool = False,
     ):
         return iter(mock_data_response)
@@ -568,6 +636,7 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
         resume_hook: Optional[Any] = None,
         initial_paginator_state: Optional[dict[str, Any]] = None,
         data_selector_required: bool = False,
+        data_selector_empty_ok: bool = False,
         data_selector_malformed_retryable: bool = False,
     ):
         # Yield each record as its own page so tests that probe chunking
@@ -638,24 +707,13 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
                 )
             )
 
-        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
-            async with Worker(
-                activity_environment.client,
-                task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
-                workflows=[ExternalDataJobWorkflow, CDPProducerJobWorkflow, DuckLakeCopyDataImportsWorkflow],
-                activities=ACTIVITIES + DUCKLAKE_ACTIVITIES,  # type: ignore
-                workflow_runner=UnsandboxedWorkflowRunner(),
-                activity_executor=ThreadPoolExecutor(max_workers=50),
-                max_concurrent_activities=50,
-                debug_mode=True,  # turn off sandbox/deadlock detector
-            ):
-                await activity_environment.client.execute_workflow(
-                    ExternalDataJobWorkflow.run,
-                    inputs,
-                    id=workflow_id,
-                    task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
-                    retry_policy=RetryPolicy(maximum_attempts=1),
-                )
+        if activity_environment is not None:
+            await _execute_workflow(activity_environment, workflow_id, inputs)
+        else:
+            with ThreadPoolExecutor(max_workers=50) as activity_executor:
+                async with await WorkflowEnvironment.start_time_skipping() as isolated_environment:
+                    async with _create_worker(isolated_environment, activity_executor):
+                        await _execute_workflow(isolated_environment, workflow_id, inputs)
 
 
 _STRIPE_JOB_INPUTS: dict[str, str | dict[str, str]] = {
@@ -692,7 +750,9 @@ _STRIPE_JOB_INPUTS: dict[str, str | dict[str, str]] = {
         ),
     ],
 )
-async def test_stripe_source(team, mock_stripe_client, request, schema_name, table_name, fixture_name):
+async def test_stripe_source(
+    team, mock_stripe_client, request, schema_name, table_name, fixture_name, warehouse_workflow_environment
+):
     fixture_data = request.getfixturevalue(fixture_name)
     await _run(
         team=team,
@@ -701,6 +761,7 @@ async def test_stripe_source(team, mock_stripe_client, request, schema_name, tab
         source_type="Stripe",
         job_inputs=_STRIPE_JOB_INPUTS,
         mock_data_response=fixture_data["data"],
+        activity_environment=warehouse_workflow_environment,
     )
 
 
@@ -751,7 +812,9 @@ _ZENDESK_JOB_INPUTS: dict[str, str | dict[str, str]] = {
         ),
     ],
 )
-async def test_zendesk_source(team, request, schema_name, table_name, fixture_name, fixture_data_key):
+async def test_zendesk_source(
+    team, request, schema_name, table_name, fixture_name, fixture_data_key, warehouse_workflow_environment
+):
     fixture_data = request.getfixturevalue(fixture_name)
     await _run(
         team=team,
@@ -760,6 +823,7 @@ async def test_zendesk_source(team, request, schema_name, table_name, fixture_na
         source_type="Zendesk",
         job_inputs=_ZENDESK_JOB_INPUTS,
         mock_data_response=fixture_data[fixture_data_key],
+        activity_environment=warehouse_workflow_environment,
     )
 
 
@@ -788,7 +852,15 @@ async def test_paddle_source(team, mock_paddle_client, request, schema_name, tab
     )
 
 
-async def _run_customer_io(team, schema_name, table_name, mock_data, mock_customer_io_client, payload):
+async def _run_customer_io(
+    team,
+    schema_name,
+    table_name,
+    mock_data,
+    mock_customer_io_client,
+    payload,
+    activity_environment: Optional[WorkflowEnvironment] = None,
+):
     mock_customer_io_client(payload)
     await _run(
         team=team,
@@ -797,6 +869,7 @@ async def _run_customer_io(team, schema_name, table_name, mock_data, mock_custom
         source_type="CustomerIO",
         job_inputs={"app_api_key": "test-key", "region": "us"},
         mock_data_response=mock_data,
+        activity_environment=activity_environment,
     )
 
 
@@ -818,7 +891,14 @@ async def _run_customer_io(team, schema_name, table_name, mock_data, mock_custom
     ],
 )
 async def test_customer_io_source(
-    team, mock_customer_io_client, request, schema_name, table_name, fixture_name, fixture_data_key
+    team,
+    mock_customer_io_client,
+    request,
+    schema_name,
+    table_name,
+    fixture_name,
+    fixture_data_key,
+    warehouse_workflow_environment,
 ):
     fixture_data = request.getfixturevalue(fixture_name)
     await _run_customer_io(
@@ -828,6 +908,7 @@ async def test_customer_io_source(
         mock_data=fixture_data[fixture_data_key],
         mock_customer_io_client=mock_customer_io_client,
         payload=fixture_data,
+        activity_environment=warehouse_workflow_environment,
     )
 
 
@@ -899,6 +980,44 @@ async def test_postgres_binary_columns(team, postgres_config, postgres_connectio
     assert columns is not None
     assert len(columns) == 1
     assert any(x == "id" for x in columns)
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_postgres_binary_primary_key_synced_as_hex(team, postgres_config, postgres_connection):
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.binary_pk_test (pk_col bytea PRIMARY KEY, name text)".format(
+            schema=postgres_config["schema"]
+        )
+    )
+    # Non-UTF8 bytes on purpose: a binary key's bytes usually aren't valid text
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.binary_pk_test (pk_col, name) VALUES ('\\x8080fefe', 'row-1')".format(
+            schema=postgres_config["schema"]
+        )
+    )
+    await postgres_connection.commit()
+
+    await _run(
+        team=team,
+        schema_name="binary_pk_test",
+        table_name="postgres_binary_pk_test",
+        source_type="Postgres",
+        job_inputs={
+            "host": postgres_config["host"],
+            "port": postgres_config["port"],
+            "database": postgres_config["database"],
+            "user": postgres_config["user"],
+            "password": postgres_config["password"],
+            "schema": postgres_config["schema"],
+            "ssh_tunnel_enabled": "False",
+        },
+        mock_data_response=[],
+    )
+
+    res = await sync_to_async(execute_hogql_query)(f"SELECT pk_col, name FROM postgres_binary_pk_test", team)
+
+    assert res.results == [("8080fefe", "row-1")]
 
 
 @pytest.mark.django_db(transaction=True)
@@ -1687,6 +1806,11 @@ async def test_delta_no_merging_on_first_sync(team, postgres_config, postgres_co
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres._get_table_chunk_size"
         ) as mock_chunk_size,
+        # The pipeline batcher coalesces the source's 1-row Arrow tables back into one batch
+        # unless its own row cap is pinned to 1; this test needs two batches to reach the loader.
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher.DEFAULT_CHUNK_SIZE", 1
+        ),
         mock.patch.object(DeltaTable, "merge") as mock_merge,
         mock.patch.object(deltalake, "write_deltalake") as mock_write,
         mock.patch.object(PipelineNonDLT, "_post_run_operations") as mock_post_run_operations,
@@ -1880,6 +2004,11 @@ async def test_delta_no_merging_on_first_sync_after_reset(team, postgres_config,
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres._get_table_chunk_size"
         ) as mock_chunk_size,
+        # The pipeline batcher coalesces the source's 1-row Arrow tables back into one batch
+        # unless its own row cap is pinned to 1; this test needs two batches to reach the loader.
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher.DEFAULT_CHUNK_SIZE", 1
+        ),
         mock.patch.object(DeltaTable, "merge") as mock_merge,
         mock.patch.object(deltalake, "write_deltalake") as mock_write,
         mock.patch.object(PipelineNonDLT, "_post_run_operations") as mock_post_run_operations,
@@ -2160,7 +2289,14 @@ async def test_in_place_repartition_to_finer_datetime_format(team, postgres_conf
     )
     await postgres_connection.commit()
 
-    await _execute_run(str(uuid.uuid4()), inputs, [])
+    # The rollout flag gates the queued rewrite, not just detection, so a table whose repartition is
+    # already pending is still released when the flag is off. Force it on for the run under test.
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.workflow_activities."
+        "repartition_table.is_auto_repartition_enabled",
+        return_value=True,
+    ):
+        await _execute_run(str(uuid.uuid4()), inputs, [])
     await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
 
     schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
@@ -2185,6 +2321,356 @@ async def test_in_place_repartition_to_finer_datetime_format(team, postgres_conf
     # No rows lost or duplicated by the rewrite + the subsequent merge.
     count_after = await sync_to_async(execute_hogql_query)("SELECT count() FROM postgres_test_repartition", team)
     assert count_after.results[0][0] == 5
+
+
+_COARSEN_FLAGS_ON = (
+    "products.warehouse_sources.backend.temporal.data_imports.workflow_activities.repartition_table"
+    ".is_auto_repartition_enabled",
+    "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller"
+    ".is_auto_coarsen_enabled",
+)
+
+
+async def _seed_dated_rows(postgres_connection, postgres_config, table: str, timestamps: list[str]) -> None:
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.{table} (id uuid PRIMARY KEY, created_at timestamp)".format(
+            schema=postgres_config["schema"], table=table
+        )
+    )
+    for ts in timestamps:
+        await postgres_connection.execute(
+            "INSERT INTO {schema}.{table} (id, created_at) VALUES ('{id}', '{ts}T12:00:00.000Z')".format(
+                schema=postgres_config["schema"], table=table, id=uuid.uuid4(), ts=ts
+            )
+        )
+    await postgres_connection.commit()
+
+
+async def _partition_keys_on_s3(minio_client, team, source_id, table: str) -> set[str]:
+    job = await sync_to_async(
+        lambda: ExternalDataJob.objects.filter(team_id=team.pk, pipeline_id=source_id).order_by("-created_at").first()
+    )()
+    assert job is not None
+    folder_path = await sync_to_async(job.folder_path)()
+    listing = await minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=f"{folder_path}/{table}/")
+    keys = set()
+    for obj in listing.get("Contents", []):
+        for part in obj["Key"].split("/"):
+            if part.startswith(f"{PARTITION_KEY}="):
+                keys.add(part.split("=", 1)[1])
+    return keys
+
+
+async def _row_ids(team, table: str) -> list[str]:
+    # Explicit LIMIT: HogQL defaults to 100 rows, which would silently truncate the identity
+    # comparison and let a row-losing rewrite pass on any table bigger than that.
+    result = await sync_to_async(execute_hogql_query)(f"SELECT id FROM {table} ORDER BY id LIMIT 10000", team)
+    return [str(row[0]) for row in result.results]
+
+
+@sync_to_async
+def _record_suspected_ooms(team, schema, count: int) -> None:
+    # Whole call inside the sync context: resolving the team-scoped manager touches the DB, so it
+    # cannot be evaluated while building the sync_to_async argument.
+    for _ in range(count):
+        ExternalDataSchemaOOMEvent.objects.for_team(team.pk).create(
+            team_id=team.pk, schema_id=schema.id, run_id=str(uuid.uuid4())
+        )
+
+
+@sync_to_async
+def _backdate_last_repartition(schema, days: int) -> None:
+    # A staged rewrite stamps last_repartition_at, and a freshly rewritten layout is protected by the
+    # coarsening age gate. Backdating mirrors the real backlog, whose damage is weeks old.
+    schema.refresh_from_db(fields=["sync_type_config"])
+    schema.sync_type_config["last_repartition_at"] = (timezone.now() - timedelta(days=days)).isoformat()
+    schema.save(update_fields=["sync_type_config"])
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_in_place_coarsening_merges_weekly_partitions_into_months(
+    team, postgres_config, postgres_connection, minio_client
+):
+    # The reverse direction, end to end on real data. A year of weekly partitions is over-fragmented,
+    # so the controller merges it up to months in place. Week into month is the transition that cannot
+    # be sized exactly (ISO weeks straddle month boundaries), so this is the one that most needs to be
+    # proven against real Delta files rather than a simulation.
+    # One row every 7 days for a year: 52 distinct ISO weeks over 12 months. A month holds only about
+    # 4.3 weeks, so a full year is what clears the 4x minimum reduction with any margin.
+    timestamps = [(datetime(2025, 1, 1) + timedelta(days=7 * week)).strftime("%Y-%m-%d") for week in range(52)]
+    await _seed_dated_rows(postgres_connection, postgres_config, "test_coarsen_week", timestamps)
+
+    _workflow_id, inputs = await _run(
+        team=team,
+        schema_name="test_coarsen_week",
+        table_name="postgres_test_coarsen_week",
+        source_type="Postgres",
+        job_inputs=_postgres_job_inputs(postgres_config),
+        mock_data_response=[],
+        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type_config={"incremental_field": "created_at", "incremental_field_type": "timestamp"},
+        ignore_assertions=True,
+    )
+
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    assert schema.partition_format == "week"
+    keys_before = await _partition_keys_on_s3(minio_client, team, inputs.external_data_source_id, "test_coarsen_week")
+    assert len(keys_before) >= 16, keys_before
+    ids_before = await _row_ids(team, "postgres_test_coarsen_week")
+    assert len(ids_before) == len(timestamps)
+
+    # Coarsening evaluates on the next sync and, finding a layout that fits, rewrites in the same run.
+    with mock.patch(_COARSEN_FLAGS_ON[0], return_value=True), mock.patch(_COARSEN_FLAGS_ON[1], return_value=True):
+        await _execute_run(str(uuid.uuid4()), inputs, [])
+        await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
+
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    assert schema.partition_format == "month", "the table should have been merged up to monthly partitions"
+    assert schema.repartition_pending is None, "the rewrite should have consumed its own pending target"
+
+    keys_after = await _partition_keys_on_s3(minio_client, team, inputs.external_data_source_id, "test_coarsen_week")
+    assert keys_after == {f"2025-{month:02d}" for month in range(1, 13)}, keys_after
+    assert not any(key.startswith("2025-w") for key in keys_after), keys_after
+
+    # The rewrite moves every row between partitions, so identity is what has to survive, not just count.
+    assert await _row_ids(team, "postgres_test_coarsen_week") == ids_before
+
+    # And it must settle: a table just coarsened must not be split straight back on the next sync.
+    with mock.patch(_COARSEN_FLAGS_ON[0], return_value=True), mock.patch(_COARSEN_FLAGS_ON[1], return_value=True):
+        await _execute_run(str(uuid.uuid4()), inputs, [])
+        await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
+
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    assert schema.partition_format == "month", "the layout should have settled rather than oscillating"
+    assert schema.repartition_pending is None
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_oom_history_does_not_split_a_table_with_tiny_partitions(
+    team, postgres_config, postgres_connection, minio_client
+):
+    # The bug this whole change exists for. Repeated OOM occurrences on a table whose partitions are
+    # kilobytes used to drive the scheme finer and finer; the split floor must leave it alone, because
+    # partition size cannot be what is exhausting memory here.
+    timestamps = [f"2025-{month:02d}-{day:02d}" for month in range(1, 13) for day in (1, 15)]
+    await _seed_dated_rows(postgres_connection, postgres_config, "test_oom_floor", timestamps)
+
+    _workflow_id, inputs = await _run(
+        team=team,
+        schema_name="test_oom_floor",
+        table_name="postgres_test_oom_floor",
+        source_type="Postgres",
+        job_inputs=_postgres_job_inputs(postgres_config),
+        mock_data_response=[],
+        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type_config={"incremental_field": "created_at", "incremental_field_type": "timestamp"},
+        ignore_assertions=True,
+    )
+
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    assert schema.partition_format == "week"
+
+    await _record_suspected_ooms(team, schema, 3)  # enough to trip the OOM trigger on its own
+
+    with mock.patch(_COARSEN_FLAGS_ON[0], return_value=True):
+        await _execute_run(str(uuid.uuid4()), inputs, [])
+        await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
+
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    assert schema.partition_format == "week", "OOM history must not split a table whose partitions are already tiny"
+    assert schema.repartition_pending is None, "no finer rewrite should have been queued"
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_operator_nomination_coarsens_a_table_the_automatic_path_refuses(
+    team, postgres_config, postgres_connection, minio_client
+):
+    # The backlog path. This table has OOM history, so the automatic gate would never touch it, which
+    # is exactly the state the already-over-split tables in production are in. Nominating it through
+    # the management command has to get past that gate and still land a layout that fits.
+    timestamps = [(datetime(2025, 1, 1) + timedelta(days=7 * week)).strftime("%Y-%m-%d") for week in range(52)]
+    await _seed_dated_rows(postgres_connection, postgres_config, "test_nominated", timestamps)
+
+    _workflow_id, inputs = await _run(
+        team=team,
+        schema_name="test_nominated",
+        table_name="postgres_test_nominated",
+        source_type="Postgres",
+        job_inputs=_postgres_job_inputs(postgres_config),
+        mock_data_response=[],
+        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type_config={"incremental_field": "created_at", "incremental_field_type": "timestamp"},
+        ignore_assertions=True,
+    )
+
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    ids_before = await _row_ids(team, "postgres_test_nominated")
+    await _record_suspected_ooms(team, schema, 3)
+
+    await sync_to_async(call_command)(
+        "stage_warehouse_coarsening", "--execute", f"--schema-id={schema.id}", "--requested-by=e2e"
+    )
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    assert schema.coarsen_requested is not None
+
+    # No feature flag patched here: the nomination is what gets this table measured at all.
+    await _execute_run(str(uuid.uuid4()), inputs, [])
+    await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
+
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    assert schema.partition_format == "month", "the nominated table should have been coarsened"
+    assert schema.coarsen_requested is None, "the nomination should be consumed once evaluated"
+    assert await _row_ids(team, "postgres_test_nominated") == ids_before
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_in_place_coarsening_merges_hourly_partitions_up(
+    team, postgres_config, postgres_connection, minio_client
+):
+    # The production damage shape: most over-split tables were driven to the hour tier by the finer
+    # path, exactly as staged here. Coarsening must jump straight to the coarsest tier that fits (month
+    # for this data) rather than crawling back one tier per daily cooldown cycle.
+    timestamps = [(datetime(2025, 1, 1) + timedelta(days=7 * week)).strftime("%Y-%m-%d") for week in range(52)]
+    await _seed_dated_rows(postgres_connection, postgres_config, "test_coarsen_hour", timestamps)
+
+    _workflow_id, inputs = await _run(
+        team=team,
+        schema_name="test_coarsen_hour",
+        table_name="postgres_test_coarsen_hour",
+        source_type="Postgres",
+        job_inputs=_postgres_job_inputs(postgres_config),
+        mock_data_response=[],
+        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type_config={"incremental_field": "created_at", "incremental_field_type": "timestamp"},
+        ignore_assertions=True,
+    )
+
+    # Stage the damage the finer path used to do: rewrite the table down to hourly partitions.
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    await sync_to_async(schema.set_repartition_pending)(
+        {
+            "partition_mode": "datetime",
+            "partition_format": "hour",
+            "partition_keys": ["created_at"],
+            "partition_count": None,
+            "partition_size": None,
+            "trigger_reason": "test",
+            "attempts": 0,
+        }
+    )
+    # The rollout flag gates the queued rewrite too (a pending repartition is released, not run, when
+    # it's off), so force it on for the staging run that produces the over-split layout.
+    with mock.patch(_COARSEN_FLAGS_ON[0], return_value=True):
+        await _execute_run(str(uuid.uuid4()), inputs, [])
+    await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
+
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    assert schema.partition_format == "hour"
+    keys_hourly = await _partition_keys_on_s3(minio_client, team, inputs.external_data_source_id, "test_coarsen_hour")
+    assert len(keys_hourly) == len(timestamps) and all("T" in key for key in keys_hourly), keys_hourly
+    ids_before = await _row_ids(team, "postgres_test_coarsen_hour")
+
+    await _backdate_last_repartition(schema, days=8)
+    with mock.patch(_COARSEN_FLAGS_ON[0], return_value=True), mock.patch(_COARSEN_FLAGS_ON[1], return_value=True):
+        await _execute_run(str(uuid.uuid4()), inputs, [])
+        await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
+
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    assert schema.partition_format == "month", "hourly partitions should merge straight up to monthly"
+    keys_after = await _partition_keys_on_s3(minio_client, team, inputs.external_data_source_id, "test_coarsen_hour")
+    assert keys_after == {f"2025-{month:02d}" for month in range(1, 13)}, keys_after
+    assert await _row_ids(team, "postgres_test_coarsen_hour") == ids_before
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "mode,staged_target,expected_after",
+    [
+        # md5 buckets merge only into a divisor of the current count; for a tiny table the coarsest
+        # divisor that fits is a single bucket.
+        (
+            "md5",
+            {"partition_mode": "md5", "partition_count": 16, "partition_keys": ["id"]},
+            {"partition_mode": "md5", "partition_count": 1},
+        ),
+        # Numerical buckets are id // size, so coarsening multiplies the size; 320 dense ids at size 10
+        # give 32 buckets that merge into one bucket of size 320.
+        (
+            "numerical",
+            {"partition_mode": "numerical", "partition_size": 10, "partition_keys": ["id"]},
+            {"partition_mode": "numerical", "partition_size": 320},
+        ),
+    ],
+)
+async def test_in_place_coarsening_for_hashed_and_numerical_modes(
+    team, postgres_config, postgres_connection, minio_client, mode, staged_target, expected_after
+):
+    # The non-datetime modes use entirely different bucket arithmetic (modulo merge vs size multiply),
+    # so datetime passing e2e proves nothing about them. Same shape as the datetime tests: stage the
+    # over-split layout, coarsen, verify layout and row identity on real Delta files.
+    table = f"test_coarsen_{mode}"
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.{table} (id integer PRIMARY KEY)".format(
+            schema=postgres_config["schema"], table=table
+        )
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.{table} (id) SELECT generate_series(1, 320)".format(
+            schema=postgres_config["schema"], table=table
+        )
+    )
+    await postgres_connection.commit()
+
+    _workflow_id, inputs = await _run(
+        team=team,
+        schema_name=table,
+        table_name=f"postgres_{table}",
+        source_type="Postgres",
+        job_inputs=_postgres_job_inputs(postgres_config),
+        mock_data_response=[],
+        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type_config={"incremental_field": "id", "incremental_field_type": "integer"},
+        ignore_assertions=True,
+    )
+
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    await sync_to_async(schema.set_repartition_pending)(
+        {
+            **staged_target,
+            "partition_count": staged_target.get("partition_count"),
+            "partition_size": staged_target.get("partition_size"),
+            "trigger_reason": "test",
+            "attempts": 0,
+        }
+    )
+    # Same as the datetime test: the rollout flag must be on for the staging rewrite to run at all.
+    with mock.patch(_COARSEN_FLAGS_ON[0], return_value=True):
+        await _execute_run(str(uuid.uuid4()), inputs, [])
+    await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
+
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    assert schema.partition_mode == mode
+    keys_fragmented = await _partition_keys_on_s3(minio_client, team, inputs.external_data_source_id, table)
+    assert len(keys_fragmented) >= 16, keys_fragmented
+    ids_before = await _row_ids(team, f"postgres_{table}")
+    assert len(ids_before) == 320
+
+    await _backdate_last_repartition(schema, days=8)
+    with mock.patch(_COARSEN_FLAGS_ON[0], return_value=True), mock.patch(_COARSEN_FLAGS_ON[1], return_value=True):
+        await _execute_run(str(uuid.uuid4()), inputs, [])
+        await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
+
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    for field, value in expected_after.items():
+        assert getattr(schema, field) == value, (field, getattr(schema, field))
+    keys_after = await _partition_keys_on_s3(minio_client, team, inputs.external_data_source_id, table)
+    assert len(keys_after) * 4 <= len(keys_fragmented), (keys_fragmented, keys_after)
+    assert await _row_ids(team, f"postgres_{table}") == ids_before
 
 
 @pytest.mark.django_db(transaction=True)
@@ -2314,7 +2800,7 @@ async def test_partition_folders_with_existing_table(team, postgres_config, post
     # Emulate an existing table with no partitions
     with (
         mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.pipeline.setup_partitioning",
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v2.pipeline.setup_partitioning",
             mock_setup_partitioning,
         ),
         mock.patch(
@@ -2414,7 +2900,7 @@ async def test_partition_folders_with_existing_table_and_pipeline_reset(
     # Emulate an existing table with no partitions
     with (
         mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.pipeline.setup_partitioning",
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v2.pipeline.setup_partitioning",
             mock_setup_partitioning,
         ),
         mock.patch(
@@ -2584,7 +3070,7 @@ async def test_partition_folders_delta_merge_called_with_partition_predicate(
         "source": mock.ANY,
         "source_alias": "source",
         "target_alias": "target",
-        "predicate": f"source.id = target.id AND source.{PARTITION_KEY} = target.{PARTITION_KEY} AND target.{PARTITION_KEY} = '0'",
+        "predicate": f"(source.id IS NOT DISTINCT FROM target.id) AND source.{PARTITION_KEY} = target.{PARTITION_KEY} AND target.{PARTITION_KEY} = '0'",
         "streamed_exec": True,
         "commit_properties": mock.ANY,
     }
@@ -2717,6 +3203,8 @@ async def test_postgres_duplicate_primary_key(team, postgres_config, postgres_co
         schema_id=str(schema.id),
         team_id=team.id,
         should_sync=False,
+        disable_error_message=job.latest_error,
+        disable_exclude_workflow_id=mock.ANY,
     )
 
 
@@ -2758,7 +3246,7 @@ async def test_append_only_table(team, mock_stripe_client):
         sync_type_config={"incremental_field": "created", "incremental_field_type": "integer"},
     )
 
-    with mock.patch.object(DeltaTableHelper, "compact_table"):
+    with mock.patch.object(DeltaMaintenance, "compact_table"):
         await _execute_run(str(uuid.uuid4()), inputs, [])
 
     run_for_replay = await sync_to_async(
@@ -2800,7 +3288,7 @@ async def test_worker_shutdown_desc_sort_order(team):
             "products.warehouse_sources.backend.temporal.data_imports.external_data_job.trigger_schedule_buffer_one"
         ) as mock_trigger_schedule_buffer_one,
         mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher.DEFAULT_CHUNK_SIZE", 1
         ),
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.vitally.vitally.get_messages",
@@ -2845,7 +3333,7 @@ async def test_worker_shutdown_triggers_schedule_buffer_one(team, zendesk_brands
             "products.warehouse_sources.backend.temporal.data_imports.external_data_job.trigger_schedule_buffer_one"
         ) as mock_trigger_schedule_buffer_one,
         mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher.DEFAULT_CHUNK_SIZE", 1
         ),
     ):
         _, inputs = await _run(
@@ -3038,11 +3526,11 @@ async def test_pipeline_mb_chunk_size(team, zendesk_brands, pipeline_mode):
 
     with (
         mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE_BYTES",
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher.DEFAULT_CHUNK_SIZE_BYTES",
             1,
         ),
         mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE",
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher.DEFAULT_CHUNK_SIZE",
             5000,
         ),  # Explicitly make this big
         process_mock as mock_process,
@@ -3372,7 +3860,7 @@ async def test_v3_delta_commit_metadata_and_idempotency_fallback(team, stripe_cu
     the Redis idempotency flag is missing.
 
     This exercises the writer-side idempotency gap: if the writer crashes between
-    `write_to_deltalake` committing and `mark_batch_as_processed` running, Kafka redelivery
+    `DeltaWriter.write` committing and `mark_batch_as_processed` running, Kafka redelivery
     would otherwise re-write the same batch and produce duplicate rows. The delta-history
     fallback closes that gap.
     """
@@ -3417,14 +3905,14 @@ async def test_v3_delta_commit_metadata_and_idempotency_fallback(team, stripe_cu
         DATA_WAREHOUSE_REDIS_PORT="6379",
         DATAWAREHOUSE_BUCKET=BUCKET_NAME,
     ):
-        delta_table_helper = DeltaTableHelper(
+        delta_table_ref = DeltaTableRef(
             resource_name=STRIPE_CUSTOMER_RESOURCE_NAME,
             job=job,
             logger=mock.MagicMock(adebug=AsyncMock(), ainfo=AsyncMock()),
         )
 
         # 1. Every commit written by the v3 writer should carry userMetadata with (run_uuid, batch_index).
-        delta_table = await delta_table_helper.get_delta_table()
+        delta_table = await delta_table_ref.get_delta_table()
         assert delta_table is not None
 
         # delta-rs 1.x inlines `CommitProperties.custom_metadata` entries directly
@@ -3453,7 +3941,7 @@ async def test_v3_delta_commit_metadata_and_idempotency_fallback(team, stripe_cu
             schema_id=str(inputs.external_data_schema_id),
             run_uuid=run_uuid,
             batch_index=known_batch_index,
-            delta_table_helper=delta_table_helper,
+            delta_table_ref=delta_table_ref,
         )
         assert found is True, "delta-history fallback should detect a committed batch"
 
@@ -3463,7 +3951,7 @@ async def test_v3_delta_commit_metadata_and_idempotency_fallback(team, stripe_cu
             schema_id=str(inputs.external_data_schema_id),
             run_uuid="never-existed-run-uuid",
             batch_index=0,
-            delta_table_helper=delta_table_helper,
+            delta_table_ref=delta_table_ref,
         )
         assert not_found is False
 
@@ -3618,20 +4106,19 @@ async def test_cdp_producer_push_to_kafka(team, stripe_customer, mock_stripe_cli
     mock_kafka_producer.flush = mock.AsyncMock()
     mock_kafka_producer.close = mock.AsyncMock()
 
-    # CDPProducer now uses `async_producer_scope(profile=CYCLOTRON)` from the routing
-    # module instead of a per-instance `_get_kafka_producer` method; patch the async
-    # context manager at its import site.
+    # CDPProducer takes its producer from `async_producer_scope(profile=CYCLOTRON)` in the routing
+    # module, so patch that async context manager at its import site rather than the producer class.
     @contextlib.asynccontextmanager
     async def _fake_scope(*args, **kwargs):
         yield mock_kafka_producer
 
     with (
         mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.cdp_producer.async_producer_scope",
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer.async_producer_scope",
             _fake_scope,
         ),
         mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.pipeline.time.time_ns",
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v2.pipeline.time.time_ns",
             return_value=1768828644858352000,
         ),
     ):
@@ -3687,6 +4174,7 @@ async def test_cdp_producer_push_to_kafka(team, stripe_customer, mock_stripe_cli
     assert {key: value for key, value in data.items() if key != "event_id"} == {
         "team_id": team.id,
         "table_name": "stripe.customer",
+        "table_type": "source",
         "properties": expected_properties,
     }
 
@@ -3838,7 +4326,7 @@ async def test_stripe_webhook_s3_charges(team, stripe_charge, mock_stripe_client
     assert len(files.get("Contents", [])) == 1
 
     # Run the pipeline again to ingest the webhook parquet
-    with mock.patch.object(DeltaTableHelper, "compact_table"):
+    with mock.patch.object(DeltaMaintenance, "compact_table"):
         workflow_id = str(uuid.uuid4())
         await _execute_run(workflow_id, inputs, stripe_charge["data"])
 
@@ -4029,7 +4517,7 @@ async def test_stripe_webhook_consumer_e2e(team, stripe_charge, mock_stripe_clie
     consumer._consumer.commit.assert_called_once_with(asynchronous=False)
 
     # 6. Run the import pipeline to ingest the parquet
-    with mock.patch.object(DeltaTableHelper, "compact_table"):
+    with mock.patch.object(DeltaMaintenance, "compact_table"):
         workflow_id = str(uuid.uuid4())
         await _execute_run(workflow_id, inputs, stripe_charge["data"])
 
@@ -4066,9 +4554,11 @@ async def _mysql_setup(mysql_connection, statements: list[tuple[str, tuple | Non
     await sync_to_async(_run)()
 
 
+# test_mysql_source_full_refresh covers the non-DLT path against real MySQL.
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_mysql_full_refresh(team, mysql_config, mysql_connection):
+@pytest.mark.parametrize("pipeline_mode", ["v3"], indirect=True)
+async def test_mysql_full_refresh(team, mysql_config, mysql_connection, pipeline_mode):
     """Full-refresh sync of a simple table with a mix of common MySQL types."""
     await _mysql_setup(
         mysql_connection,
@@ -4109,9 +4599,11 @@ async def test_mysql_full_refresh(team, mysql_config, mysql_connection):
     assert row[2] == 30
 
 
+# test_mysql_source_incremental covers the non-DLT path against real MySQL.
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_mysql_incremental_integer_cursor(team, mysql_config, mysql_connection):
+@pytest.mark.parametrize("pipeline_mode", ["v3"], indirect=True)
+async def test_mysql_incremental_integer_cursor(team, mysql_config, mysql_connection, pipeline_mode):
     """Incremental sync with an INT cursor field — second run should pick up only new rows."""
     await _mysql_setup(
         mysql_connection,
@@ -4451,8 +4943,8 @@ async def test_postgres_switch_to_xmin_rebuilds_table(team, postgres_config, pos
     await _execute_run(str(uuid.uuid4()), inputs, [])
     await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
 
-    # The table was rebuilt from scratch under xmin (first xmin run reads everything below the
-    # ceiling), so both rows land and the `_ph_xmin` column is present.
+    # The table was rebuilt from scratch under xmin (the first xmin run reads the whole table),
+    # so both rows land and the `_ph_xmin` column is present.
     res = await sync_to_async(execute_hogql_query)(
         "SELECT id, name, _ph_xmin FROM postgres_switch_tbl ORDER BY id", team
     )

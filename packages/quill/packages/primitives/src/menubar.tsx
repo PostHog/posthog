@@ -85,10 +85,9 @@ function MenubarItem({
         <DropdownMenuItem
             data-slot="menubar-item"
             data-inset={inset}
-            // DropdownMenuItem owns destructive styling (red text at rest, red-tinted highlight).
             variant={variant}
             className={cn(
-                'group/menubar-item min-h-7 gap-2 rounded-sm px-2 py-1 text-xs/relaxed focus:bg-fill-hover data-disabled:opacity-50',
+                'group/menubar-item min-h-7 gap-2 rounded-sm px-2 py-1 text-xs/relaxed data-disabled:opacity-50',
                 className
             )}
             {...props}

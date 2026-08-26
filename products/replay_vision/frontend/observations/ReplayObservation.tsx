@@ -10,14 +10,12 @@ import {
     IconExpand,
     IconGear,
     IconInfo,
-    IconRefresh,
     IconSparkles,
     IconThoughtBubble,
     IconVideoCamera,
 } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonTag, Link, SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonTag, Link } from '@posthog/lemon-ui'
 
-import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -25,7 +23,6 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { humanFriendlyDuration, humanFriendlyMilliseconds } from 'lib/utils/durations'
-import { appLogic } from 'scenes/appLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import {
@@ -49,9 +46,9 @@ import {
     readResult,
 } from '../components/ObservationCard'
 import { ObservationProgressBar } from '../components/ObservationProgressBar'
+import { ObservationRetryButton } from '../components/ObservationRetryButton'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { ScannerTypeBadge } from '../components/ScannerTypeBadge'
-import { replayScannerLogic } from '../replay_scanners/replayScannerLogic'
 import {
     type ClassifierScannerConfig,
     type MonitorScannerConfig,
@@ -61,12 +58,12 @@ import {
     failureKindDescription,
     ineligibleKindDescription,
     modelLabel,
+    modelNamingVariant,
     parseFailureReason,
     parseIneligibleReason,
     OBSERVATION_TRIGGER_TAG,
     type ScannerType,
 } from '../replay_scanners/types'
-import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { ObservationLabelControl } from './ObservationLabelControl'
 import { neighborFilterParams, observationDetailUrl, replayObservationLogic } from './replayObservationLogic'
 import { replayObservationSceneLogic } from './replayObservationSceneLogic'
@@ -78,7 +75,7 @@ export const scene: SceneExport = {
 }
 
 const SUCCEEDED_OUTPUT_LABEL: Record<ScannerType, string> = {
-    classifier: 'Tags',
+    classifier: 'Categories',
     summarizer: 'Summary',
     monitor: 'Verdict',
     scorer: 'Score',
@@ -114,8 +111,8 @@ function AutoSeekToTime({
 export function ReplayObservationSceneComponent(): JSX.Element {
     const { observationId } = useValues(replayObservationSceneLogic)
     const { searchParams } = useValues(router)
-    const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
-    const { featureFlagsTimedOut } = useValues(appLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const namingVariant = modelNamingVariant(featureFlags[FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT])
     const [recordingExpanded, setRecordingExpanded] = useState(false)
     const [pendingSeek, setPendingSeek] = useState<{ ms: number; trigger: number } | null>(null)
 
@@ -129,18 +126,6 @@ export function ReplayObservationSceneComponent(): JSX.Element {
 
     const { observation, observationLoading, retrying } = useValues(observationLogic)
     const { retryObservation } = useActions(observationLogic)
-    // Hooks can't follow the early returns below, and the scanner id isn't known until `observation`
-    // loads — 'new' is the sentinel replayScannerLogic already uses to skip its fetch, so this is a
-    // harmless placeholder until the real id is available and the logic remounts keyed on it.
-    const { scanner } = useValues(replayScannerLogic({ id: observation?.scanner_id ?? 'new' }))
-
-    if (!featureFlags[FEATURE_FLAGS.REPLAY_VISION]) {
-        // Flags load asynchronously, so wait for them before deciding the page doesn't exist.
-        if (!receivedFeatureFlags && !featureFlagsTimedOut) {
-            return <SpinnerOverlay sceneLevel />
-        }
-        return <NotFound object="page" />
-    }
 
     if (observationLoading && !observation) {
         return (
@@ -353,17 +338,15 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                                 </LabeledRow>
                             )}
                             <div>
-                                <LemonButton
-                                    type="primary"
-                                    size="small"
-                                    icon={<IconRefresh />}
-                                    onClick={() => retryObservation()}
+                                <ObservationRetryButton
+                                    status={observation.status}
+                                    errorReason={observation.error_reason}
+                                    onRetry={() => retryObservation()}
                                     loading={retrying}
-                                    disabledReason={getReplayVisionEditDisabledReason(scanner?.user_access_level)}
-                                    data-attr="vision-observation-detail-retry"
-                                >
-                                    Retry scan
-                                </LemonButton>
+                                    emphasis="primary"
+                                    size="small"
+                                    dataAttr="vision-observation-detail-retry"
+                                />
                             </div>
                         </div>
                     )}
@@ -387,6 +370,16 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                                     <p className="text-sm text-default m-0 leading-snug">{ineligibleMessage}</p>
                                 </LabeledRow>
                             )}
+                            <div>
+                                <ObservationRetryButton
+                                    status={observation.status}
+                                    errorReason={observation.error_reason}
+                                    onRetry={() => retryObservation()}
+                                    loading={retrying}
+                                    size="small"
+                                    dataAttr="vision-observation-detail-retry"
+                                />
+                            </div>
                         </div>
                     )}
 
@@ -407,6 +400,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                                     observation={observation}
                                     showPrompt={false}
                                     onSeek={seekEmbeddedPlayer}
+                                    copyable
                                 />
                             </LabeledRow>
                             {observation.completed_at && (
@@ -456,7 +450,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                     <CardHeader icon={<IconInfo />} title="Observation details" />
                     <div className="flex flex-col gap-3 text-sm">
                         <LabeledRow label="Status">
-                            <ObservationStatusTag status={observation.status} />
+                            <ObservationStatusTag status={observation.status} errorReason={observation.error_reason} />
                         </LabeledRow>
                         {result && typeof result.confidence === 'number' && (
                             <LabeledRow label="Confidence">
@@ -481,6 +475,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                         <LabeledRow label="Session">
                             <Link
                                 to={urls.sessionProfile(observation.session_id)}
+                                className="break-all lg:break-normal"
                                 data-attr="vision-observation-session-link"
                             >
                                 {observation.session_id}
@@ -488,11 +483,14 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                         </LabeledRow>
                         <LabeledRow label="Person">
                             {observation.distinct_id ? (
-                                <Link to={urls.personByDistinctId(observation.distinct_id)}>
+                                <Link
+                                    to={urls.personByDistinctId(observation.distinct_id)}
+                                    className="break-all lg:break-normal"
+                                >
                                     {observation.recording_subject_email ?? observation.distinct_id}
                                 </Link>
                             ) : observation.recording_subject_email ? (
-                                <span>{observation.recording_subject_email}</span>
+                                <span className="break-all lg:break-normal">{observation.recording_subject_email}</span>
                             ) : (
                                 <span className="text-muted">—</span>
                             )}
@@ -529,7 +527,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                     <div className="flex flex-col gap-3 text-sm">
                         {snapshot?.model && (
                             <LabeledRow label="Model">
-                                <span>{modelLabel(snapshot.model)}</span>
+                                <span>{modelLabel(snapshot.model, namingVariant)}</span>
                             </LabeledRow>
                         )}
                         {summarizerLength && (
@@ -538,7 +536,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                             </LabeledRow>
                         )}
                         {classifierVocab && classifierVocab.length > 0 && (
-                            <LabeledRow label="Vocabulary">
+                            <LabeledRow label="Categories">
                                 <div className="flex flex-wrap gap-1">
                                     {classifierVocab.map((tag) => (
                                         <LemonTag key={tag} type="default" size="small">
@@ -554,12 +552,12 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                             </LabeledRow>
                         )}
                         {classifierMultiLabel !== null && (
-                            <LabeledRow label="Multi-label">
+                            <LabeledRow label="Multiple categories per session">
                                 <BooleanTag value={classifierMultiLabel} />
                             </LabeledRow>
                         )}
                         {classifierAllowFreeform !== null && (
-                            <LabeledRow label="Freeform tags">
+                            <LabeledRow label="Freeform categories">
                                 <BooleanTag value={classifierAllowFreeform} />
                             </LabeledRow>
                         )}

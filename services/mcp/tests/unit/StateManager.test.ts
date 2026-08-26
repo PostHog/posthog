@@ -81,6 +81,36 @@ describe('StateManager', () => {
         })
     })
 
+    describe('getApiKey', () => {
+        function oauthApi(clientName: string | null): ApiClient {
+            return {
+                config: { apiToken: 'phx_test' },
+                apiKeys: () => ({
+                    current: async () => ({ success: false, error: { message: 'not a personal key' } }),
+                }),
+                oauth: () => ({
+                    introspect: async () => ({
+                        success: true,
+                        data: { active: true, scope: 'insight:read', client_name: clientName },
+                    }),
+                }),
+            } as unknown as ApiClient
+        }
+
+        it.each([
+            { label: 'an OAuth app name', clientName: 'Claude', expected: 'Claude' },
+            { label: 'no OAuth app name', clientName: null, expected: undefined },
+        ])('stamps $label onto the live client so the same request forwards it', async ({ clientName, expected }) => {
+            const api = oauthApi(clientName)
+            stateManager = new StateManager(cache, api)
+
+            await stateManager.getApiKey()
+
+            expect(api.config.oauthClientName).toBe(expected)
+            expect(await cache.get('clientName')).toBe(expected)
+        })
+    })
+
     describe('setDefaultOrganizationAndProject', () => {
         it('should handle team-scoped API key with single team', async () => {
             const teamScopedApiKey = {
@@ -835,6 +865,36 @@ describe('StateManager', () => {
 
             const second = await stateManager.getOrFetchGroupTypes(projectId)
             expect(second).toEqual(mockGroupTypes)
+        })
+    })
+
+    describe('getOrFetchIntegrationKinds', () => {
+        const projectId = '42'
+
+        it('returns undefined without calling the API when the key lacks integration:read', async () => {
+            await cache.set('apiKey', { scopes: ['project:read'], scoped_organizations: [], scoped_teams: [] })
+            const request = vi.fn()
+            ;(stateManager as any)._api = { request }
+
+            const result = await stateManager.getOrFetchIntegrationKinds(projectId)
+
+            expect(result).toBeUndefined()
+            expect(request).not.toHaveBeenCalled()
+        })
+
+        it('fetches, dedupes, and sorts integration kinds when the scope is present', async () => {
+            await cache.set('apiKey', { scopes: ['integration:read'], scoped_organizations: [], scoped_teams: [] })
+            const request = vi.fn().mockResolvedValue({
+                results: [{ kind: 'slack' }, { kind: 'github' }, { kind: 'github' }],
+            })
+            ;(stateManager as any)._api = { request }
+
+            const result = await stateManager.getOrFetchIntegrationKinds(projectId)
+
+            expect(result).toEqual(['github', 'slack'])
+            expect(request).toHaveBeenCalledWith(
+                expect.objectContaining({ method: 'GET', path: `/api/projects/${projectId}/integrations/` })
+            )
         })
     })
 

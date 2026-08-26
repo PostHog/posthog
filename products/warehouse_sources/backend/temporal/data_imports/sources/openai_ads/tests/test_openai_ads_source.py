@@ -11,19 +11,14 @@ from posthog.schema import (
 from products.warehouse_sources.backend.temporal.data_imports.sources.openai_ads.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.openai_ads.openai_ads import OpenAIAdsResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.openai_ads.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.openai_ads.source import OpenAIAdsSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _ENTITY_ENDPOINTS = ["campaigns", "ad_groups", "ads"]
 _INSIGHTS_ENDPOINTS = ["campaign_insights", "ad_group_insights", "ad_insights", "ad_account_insights"]
 
 
 class TestOpenAIAdsSourceConfig:
-    def test_source_type(self) -> None:
-        assert OpenAIAdsSource().source_type == ExternalDataSourceType.OPENAIADS
-
     def test_config_is_released_with_single_secret_api_key_field(self) -> None:
         config = OpenAIAdsSource().get_source_config
         assert config.name == SchemaExternalDataSourceType.OPEN_AI_ADS
@@ -61,12 +56,6 @@ class TestOpenAIAdsSchemas:
     def test_names_filter(self) -> None:
         schemas = OpenAIAdsSource().get_schemas(MagicMock(), team_id=1, names=["campaigns"])
         assert [s.name for s in schemas] == ["campaigns"]
-
-
-class TestOpenAIAdsResumableManager:
-    def test_manager_bound_to_resume_config(self) -> None:
-        manager = OpenAIAdsSource().get_resumable_source_manager(MagicMock())
-        assert manager._data_class is OpenAIAdsResumeConfig
 
 
 class TestOpenAIAdsSourceForPipeline:
@@ -127,6 +116,54 @@ class TestNonRetryableErrors:
     def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
         non_retryable = OpenAIAdsSource().get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable)
+
+
+class TestRetryableErrors:
+    @parameterized.expand(
+        [
+            ("server_error", "HTTP 500 for https://api.ads.openai.com/v1/campaigns"),
+            ("rate_limited", "HTTP 429 for https://api.ads.openai.com/v1/ad_account/insights"),
+            (
+                "connection_error",
+                "Connection error (ConnectionError) for https://api.ads.openai.com/v1/ad_groups",
+            ),
+            (
+                "timeout",
+                "Request timed out (ReadTimeout) for https://api.ads.openai.com/v1/ads",
+            ),
+            (
+                "malformed_json",
+                "Malformed JSON response from https://api.ads.openai.com/v1/campaigns: Expecting value: line 1 column 1 (char 0)",
+            ),
+            (
+                "body_reported_server_error",
+                "400 Client Error: Bad Request for url: https://api.ads.openai.com/v1/ads?ad_group_id=adgrp_123&limit=500&order=asc | api error: code=server_error",
+            ),
+        ]
+    )
+    def test_exhausted_transient_failures_are_recognized(self, _name: str, observed_error: str) -> None:
+        retryable = OpenAIAdsSource().get_retryable_errors()
+        assert any(pattern in observed_error for pattern in retryable)
+
+    @parameterized.expand(
+        [
+            (
+                "unauthorized",
+                "401 Client Error: Unauthorized for url: https://api.ads.openai.com/v1/campaigns",
+            ),
+            (
+                "not_found",
+                "404 Client Error: Not Found for url: https://api.ads.openai.com/v1/campaigns/123",
+            ),
+            (
+                "genuine_bad_request",
+                "400 Client Error: Bad Request for url: https://api.ads.openai.com/v1/campaigns | api error: code=invalid_request_error",
+            ),
+        ]
+    )
+    def test_credential_and_client_errors_are_not_misclassified(self, _name: str, other_error: str) -> None:
+        retryable = OpenAIAdsSource().get_retryable_errors()
+        assert not any(pattern in other_error for pattern in retryable)
 
 
 class TestDocumentedTables:

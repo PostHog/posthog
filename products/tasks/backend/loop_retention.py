@@ -7,11 +7,13 @@ non-terminal TaskRun), and prunes old LoopFire dedup rows so that table doesn't 
 from datetime import timedelta
 from uuid import UUID
 
+from django.db import OperationalError, ProgrammingError
 from django.db.models import F, Window
 from django.db.models.functions import RowNumber
 from django.utils import timezone as django_timezone
 
 import structlog
+import psycopg.errors
 from celery import shared_task
 from celery.exceptions import SoftTimeLimitExceeded
 
@@ -105,6 +107,17 @@ def sweep_loop_task_retention_task() -> None:
         deleted_count = sweep_loop_task_retention()
     except SoftTimeLimitExceeded:
         raise
+    except ProgrammingError as exc:
+        if isinstance(exc.__cause__, psycopg.errors.UndefinedTable | psycopg.errors.UndefinedColumn):
+            logger.debug("loop_retention.task_sweep_missing_schema", exception=exc)
+        else:
+            capture_exception(exc)
+            logger.exception("loop_retention.task_sweep_failed")
+    except OperationalError as exc:
+        # Render to str: an exception object as a structlog kv crashes renderers that
+        # concatenate values, and which renderer is active depends on process-global
+        # logging state other tests may have configured.
+        logger.warning("loop_retention.task_sweep_transient_db_error", error=str(exc))
     except Exception as exc:
         capture_exception(exc)
         logger.exception("loop_retention.task_sweep_failed")

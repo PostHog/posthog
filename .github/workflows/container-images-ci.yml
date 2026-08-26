@@ -21,7 +21,7 @@ jobs:
             contents: read
             pull-requests: read
         outputs:
-            # The image is only consumed by ci-hobby.yml. Skip the ~20 min build
+            # The image is only consumed by ci-hobby.yml. Skip the long image build
             # when ci-hobby would also skip, plus on changes to inputs that can
             # only break inside the Docker build (workflow self-edits, frontend
             # lockfile bumps that ci-hobby's filter ignores).
@@ -59,6 +59,7 @@ jobs:
                         - docker-compose.base.yml
                         - docker-compose.hobby.yml
                         - 'bin/deploy-hobby'
+                        - 'bin/hobby-ci-setup-user.py'
                         - 'bin/hobby-ci.py'
                         - 'bin/upgrade-hobby'
                         - 'bin/migrate-*-hobby'
@@ -80,22 +81,28 @@ jobs:
                       # by the `hobby:` filter — workflow self-edits, `.dockerignore`
                       # (silently changes the build context), and `pnpm-lock.yaml` so
                       # Renovate-style dep bumps are exercised on PR (otherwise they'd
-                      # only fail after merging).
+                      # only fail after merging). Root `package.json` carries the
+                      # `packageManager` pin the image seeds corepack from, and a pin-only
+                      # edit leaves the lockfile untouched.
                       build_inputs:
                         - .github/workflows/container-images-ci.yml
                         - .github/actions/build-n-cache-image/**
                         - .dockerignore
                         - pnpm-lock.yaml
+                        - package.json
                       # Drives the fast PR-time guard below (models `COPY . .`, so it only reacts
                       # to .dockerignore — Dockerfile COPY changes are covered by the image boot check).
                       dockerignore:
                         - .dockerignore
                       # Drives the hadolint lint job below — the matched paths are passed straight
-                      # to hadolint via the `dockerfiles_files` output.
+                      # to hadolint via the `dockerfiles_files` output. Scoped to added|modified
+                      # so a PR that deletes a Dockerfile doesn't hand hadolint a path that no
+                      # longer exists in the tree.
                       dockerfiles:
-                        - '**/Dockerfile'
-                        - '**/*.Dockerfile'
-                        - '**/Dockerfile.*'
+                        - added|modified:
+                            - '**/Dockerfile'
+                            - '**/*.Dockerfile'
+                            - '**/Dockerfile.*'
 
     dockerignore_guard:
         needs: changes
@@ -139,7 +146,8 @@ jobs:
               with:
                   actions-id-token-request-url: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
                   push-image: ${{ github.repository == 'PostHog/posthog' }} # Don't push on forks due to lack of credentials
-                  aws-role-to-assume: ${{ secrets.AWS_ECR_PUBLISH_IAM_ROLE }}
+                  # PR-only publish role: any branch, but can ONLY push to posthog-cloud-prs (not posthog-cloud).
+                  aws-role-to-assume: ${{ vars.AWS_ECR_POSTHOG_PRS_PUBLISH_IAM_ROLE }}
                   dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
                   dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
                   pr-number: ${{ github.event.number }}
@@ -153,7 +161,7 @@ jobs:
                   echo "Image digest: $IMAGE_DIGEST"
                   echo "## Container image built :rocket:" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
-                  echo "**Image reference:** \`$IMAGE_REGISTRY/posthog-cloud@$IMAGE_DIGEST\`" >> $GITHUB_STEP_SUMMARY
+                  echo "**Image reference:** \`$IMAGE_REGISTRY/posthog-cloud-prs@$IMAGE_DIGEST\`" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
                   echo "**Image SHA:** \`${{ github.sha }}@$IMAGE_DIGEST\`" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY

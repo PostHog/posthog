@@ -24,17 +24,15 @@ def build(handle: SourceHandle) -> BuiltQuery:
 
     prefix = view_prefix_for_event(event.eventName)
 
-    comparison_expr, value_expr = revenue_comparison_and_value_exprs_for_events(
-        team, event, do_currency_conversion=False
-    )
-    _, currency_aware_amount_expr = revenue_comparison_and_value_exprs_for_events(
+    revenue_exprs = revenue_comparison_and_value_exprs_for_events(team, event, do_currency_conversion=False)
+    currency_aware_amount_expr = revenue_comparison_and_value_exprs_for_events(
         team,
         event,
         amount_expr=ast.Field(chain=["currency_aware_amount"]),
-    )
+    ).value_expr
 
     filter_exprs = [
-        comparison_expr,
+        revenue_exprs.comparison_expr,
         generic_team_expr,
         ast.CompareOperation(
             op=ast.CompareOperationOp.NotEq,
@@ -53,7 +51,7 @@ def build(handle: SourceHandle) -> BuiltQuery:
             ast.Alias(alias="session_id", expr=ast.Call(name="toString", args=[ast.Field(chain=["$session_id"])])),
             ast.Alias(alias="event_name", expr=ast.Field(chain=["event"])),
             ast.Alias(alias="original_currency", expr=currency_expression_for_events(team, event)),
-            ast.Alias(alias="original_amount", expr=value_expr),
+            ast.Alias(alias="original_amount", expr=revenue_exprs.value_expr),
             # Being zero-decimal implies we will NOT divide the original amount by 100
             # We should only do that if we've tagged the event with `currencyAwareDecimal`
             # Otherwise, we'll just assume it's a non-zero-decimal currency

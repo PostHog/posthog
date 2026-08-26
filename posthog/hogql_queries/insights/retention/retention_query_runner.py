@@ -28,7 +28,6 @@ from posthog.hogql.constants import (
     get_breakdown_limit_for_context,
 )
 from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.property import entity_to_expr, property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
@@ -38,7 +37,14 @@ from posthog.hogql_queries.insights.retention.retention_base_query_fixed import 
 from posthog.hogql_queries.insights.retention.retention_base_query_rolling import (
     RetentionRollingIntervalBaseQueryBuilder,
 )
-from posthog.hogql_queries.insights.retention.retention_validation_rules import DisallowCumulativeWith24HourWindows
+from posthog.hogql_queries.insights.retention.retention_validation_rules import (
+    DisallowBreakdownsWithDataWarehouse24HourWindows,
+    DisallowCumulativeWith24HourWindows,
+    DisallowGroupAggregationWithDataWarehouse24HourWindows,
+    DisallowPropertyAggregationWith24HourWindows,
+    DisallowUnsupportedDataWarehouseTimestampField,
+    RequireRetentionDataWarehouseEntitiesForCustomAggregationTarget,
+)
 from posthog.hogql_queries.insights.utils.breakdowns import (
     ALL_USERS_COHORT_ID,
     BREAKDOWN_OTHER_STRING_LABEL,
@@ -138,7 +144,15 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 self.modifiers.inCohortVia = InCohortVia.LEFTJOIN
 
     def validators(self) -> Sequence[QueryValidationRule[RetentionQuery]]:
-        return (DisallowCumulativeWith24HourWindows(), DisallowUnsupportedDataWarehouseSettings())
+        return (
+            DisallowCumulativeWith24HourWindows(),
+            DisallowBreakdownsWithDataWarehouse24HourWindows(),
+            DisallowGroupAggregationWithDataWarehouse24HourWindows(),
+            DisallowPropertyAggregationWith24HourWindows(),
+            DisallowUnsupportedDataWarehouseSettings(),
+            DisallowUnsupportedDataWarehouseTimestampField(),
+            RequireRetentionDataWarehouseEntitiesForCustomAggregationTarget(),
+        )
 
     @cached_property
     def property_aggregation_expr(self) -> ast.Expr | None:
@@ -234,6 +248,20 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             if 0 <= group_index <= 4:
                 return f"$group_{group_index}"
         return "person_id"
+
+    @cached_property
+    def has_data_warehouse_series(self) -> bool:
+        return self.start_event.type == EntityType.DATA_WAREHOUSE or self.return_event.type == EntityType.DATA_WAREHOUSE
+
+    def coerce_actor_id_expr(self, actor_id_expr: ast.Expr) -> ast.Expr:
+        # A query's arms resolve actor_id against different sources, which give it different ClickHouse
+        # types — a person_id UUID on the events side, whatever the configured target yields on the
+        # warehouse side. The UNION ALL, the 24-hour-window JOIN, and the actors-modal events JOIN each
+        # need one common type, so coerce to string the way funnels does for its own aggregation_target.
+        # Events-only series keep their UUID keys.
+        if not self.has_data_warehouse_series:
+            return actor_id_expr
+        return ast.Call(name="toString", args=[actor_id_expr])
 
     @cached_property
     def global_event_filters(self) -> list[ast.Expr]:
@@ -401,20 +429,25 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         # Pre-filter by event name
         if entities is None:
             entities = [self.start_event, self.return_event]
-        events = [event for entity in entities for event in self.get_events_for_entity(entity)]
-        unique_events = set(events)
-        # Don't pre-filter if any of them is "All events" or the entity has no events at all
-        if unique_events and None not in unique_events:
-            events_where.append(
-                ast.CompareOperation(
-                    left=ast.Field(chain=["event"]),
-                    # Sorting for consistent snapshots in tests
-                    right=ast.Tuple(exprs=[ast.Constant(value=event) for event in sorted(unique_events)]),  # type: ignore
-                    op=ast.CompareOperationOp.In,
-                )
-            )
+        event_name_filter = self.event_name_filter(entities)
+        if event_name_filter is not None:
+            events_where.append(event_name_filter)
 
         return events_where
+
+    def event_name_filter(self, entities: list[RetentionEntity]) -> ast.Expr | None:
+        """`event IN (...)` pre-filter for the given entities, or None when any of them is "All events"
+        (or an action with no concrete events), in which case no name filter can narrow the scan."""
+        events = [event for entity in entities for event in self.get_events_for_entity(entity)]
+        unique_events = set(events)
+        if not unique_events or None in unique_events:
+            return None
+        return ast.CompareOperation(
+            left=ast.Field(chain=["event"]),
+            # Sorting for consistent snapshots in tests
+            right=ast.Tuple(exprs=[ast.Constant(value=event) for event in sorted(unique_events)]),  # type: ignore
+            op=ast.CompareOperationOp.In,
+        )
 
     def _refresh_frequency(self):
         date_to = self.query_date_range.date_to()
@@ -617,14 +650,14 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
 
     def _calculate(self) -> RetentionQueryResponse:
         query = self.to_query()
-        # Display-only response HogQL (never executed); bypass warehouse ACL so printing doesn't fail closed userless.
-        hogql = to_printed_hogql(query, self.team, bypass_warehouse_access_control=True)
+        hogql = self.response_hogql(query)
 
         response = execute_hogql_query(
             query_type="RetentionQuery",
             query=query,
             team=self.team,
             user=self.user,
+            context=self.build_hogql_context(),
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
@@ -999,7 +1032,9 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                         "actor_subquery": actor_subquery,
                         "join_condition": ast.CompareOperation(
                             op=ast.CompareOperationOp.Eq,
-                            left=ast.Field(chain=["events", self.aggregation_target_events_column]),
+                            left=self.coerce_actor_id_expr(
+                                ast.Field(chain=["events", self.aggregation_target_events_column])
+                            ),
                             right=ast.Field(chain=["actors", "actor_id"]),
                         ),
                         "start_of_interval_sql": self.query_date_range.get_start_of_interval_hogql(

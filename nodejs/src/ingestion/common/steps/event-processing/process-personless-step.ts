@@ -6,11 +6,6 @@ import {
     isFlagCalledPersonlessCandidate,
 } from '~/ingestion/common/persons/flag-called-personless'
 import { uuidFromDistinctId } from '~/ingestion/common/persons/person-uuid'
-import {
-    hasInsertedPersonlessDistinctId,
-    markPersonlessDistinctIdInserted,
-    personlessDistinctIdCacheOperationsCounter,
-} from '~/ingestion/common/persons/personless-distinct-id-cache'
 import { PersonsStoreForBatch } from '~/ingestion/common/persons/persons-store-for-batch'
 import { DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS } from '~/ingestion/config'
 import { PipelineResult, ok } from '~/ingestion/framework/results'
@@ -42,9 +37,8 @@ export type ProcessPersonlessOutput = {
  *
  * For personless events, this step:
  * 1. Fetches existing person from cache (populated by prefetchPersonsStep)
- * 2. Checks batch results for is_merged flag (populated by processPersonlessDistinctIdsChunkStep)
- * 3. Calculates force_upgrade flag
- * 4. Returns person (real or fake) with potential force_upgrade flag
+ * 2. Calculates force_upgrade flag
+ * 3. Returns person (real or fake) with potential force_upgrade flag
  */
 export function createProcessPersonlessStep<TInput extends ProcessPersonlessInput>(
     flagCalledPersonlessDefaultTeams: string = DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS
@@ -76,22 +70,10 @@ export function createProcessPersonlessStep<TInput extends ProcessPersonlessInpu
             return ok({ ...input, personlessPerson: createFakePerson(team.id, distinctId) })
         }
 
-        // Check if a real person exists for this distinct_id (from prefetch cache)
-        let existingPerson = await personsStoreForBatch.fetchForChecking(team.id, distinctId)
-
-        if (!existingPerson) {
-            // Check if batch insert found this distinct_id was merged
-            // The chunk step (processPersonlessDistinctIdsChunkStep) already did the INSERT
-            // and stored is_merged=true results in the personsStore cache
-            const personIsMerged = personsStoreForBatch.getPersonlessBatchResult(team.id, distinctId)
-
-            if (personIsMerged) {
-                // If is_merged came back true, it means the posthog_personlessdistinctid
-                // was updated by a merge. We need to fetch the person again (using the leader)
-                // so that we properly associate this event with the Person we got merged into.
-                existingPerson = await personsStoreForBatch.fetchForUpdate(team.id, distinctId)
-            }
-        }
+        // Check if a real person exists for this distinct_id (from prefetch cache). An event
+        // racing a merge may miss the person and stay propertyless; the merge's always-written
+        // override re-points it.
+        const existingPerson = await personsStoreForBatch.fetchForChecking(team.id, distinctId)
 
         if (existingPerson) {
             const person = existingPerson as Person
@@ -129,34 +111,7 @@ async function applyFeatureFlagCalledPersonlessDefault<TInput extends ProcessPer
     const { normalizedEvent, team } = input
     const distinctId = normalizedEvent.distinct_id
 
-    let existingPerson = await personsStore.fetchForChecking(team.id, distinctId)
-
-    if (!existingPerson) {
-        let personIsMerged = personsStore.getPersonlessBatchResult(team.id, distinctId)
-
-        if (personIsMerged === undefined) {
-            if (hasInsertedPersonlessDistinctId(team.id, distinctId)) {
-                // The LRU keeps repeat distinct IDs from re-inserting on every event; a stale
-                // hit just means the event goes personless, the same trade-off the batch step
-                // accepts.
-                personlessDistinctIdCacheOperationsCounter.inc({ operation: 'hit', source: 'flag_called' })
-            } else {
-                personlessDistinctIdCacheOperationsCounter.inc({ operation: 'miss', source: 'flag_called' })
-                // The chunk step (processPersonlessDistinctIdsChunkStep) pre-inserts flag_called
-                // rows when enabled, but it may be disabled or this distinct ID may be first-seen,
-                // so record it here when the LRU shows no prior insert. Without the row, a later
-                // identify/merge would never re-point these events at the merged person.
-                personIsMerged = await personsStore.addPersonlessDistinctId(team.id, distinctId)
-                markPersonlessDistinctIdInserted(team.id, distinctId)
-            }
-        }
-
-        if (personIsMerged) {
-            // The posthog_personlessdistinctid row was updated by a merge, so fetch the
-            // person again (using the leader) to associate this event with the merge target.
-            existingPerson = await personsStore.fetchForUpdate(team.id, distinctId)
-        }
-    }
+    const existingPerson = await personsStore.fetchForChecking(team.id, distinctId)
 
     if (existingPerson) {
         // A person already exists for this distinct ID, so keep the event personful.

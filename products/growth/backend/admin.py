@@ -4,6 +4,7 @@ from typing import Any
 from django import forms
 from django.contrib import admin, messages
 from django.core.exceptions import ValidationError
+from django.db.models import QuerySet
 from django.db.models.fields import BLANK_CHOICE_DASH
 from django.http import HttpRequest
 from django.urls import reverse
@@ -16,9 +17,19 @@ from posthog.admin.inline_registry import register_admin_inline
 from posthog.models.organization import Organization
 from posthog.schema_enums import ProductKey
 
-from products.growth.backend.models import ProductPushCampaign
+from products.growth.backend.enrichment.icp_lists import clear_lists_cache
+from products.growth.backend.enrichment.labels import MAX_INPUT_COLUMNS, RESERVED_OUTPUT_FIELD_KEYS, UNKNOWN
+from products.growth.backend.models import (
+    EnrichmentLabelResult,
+    EnrichmentPromptConfig,
+    IcpScoringConfig,
+    ProductPushCampaign,
+)
 from products.growth.backend.product_push.selection import select_next_product
 from products.growth.backend.product_push.service import cancel_campaigns, get_eligible_organization_queryset
+
+# The classifier's only valid output types (enrichment/labels.py's _OUTPUT_FIELD_COERCERS).
+ALLOWED_OUTPUT_FIELD_TYPES = frozenset({"boolean", "number", "string"})
 
 logger = structlog.get_logger(__name__)
 
@@ -271,3 +282,213 @@ def _next_up_preview(organization: Organization) -> str:
 # Surface the inline on core's Organization admin page without core importing the
 # product. OrganizationAdmin pulls it in via get_inlines() — see posthog.admin.inline_registry.
 register_admin_inline(Organization, ProductPushCampaignInline)
+
+
+class EnrichmentLabelNameFilter(admin.SimpleListFilter):
+    """Sources choices from the tiny EnrichmentPromptConfig table, not a SELECT DISTINCT
+    label_name over the (much larger, ever-growing) EnrichmentLabelResult table."""
+
+    title = "label"
+    parameter_name = "label_name"
+
+    def lookups(self, request: HttpRequest, model_admin: admin.ModelAdmin) -> list[tuple[str, str]]:
+        names = EnrichmentPromptConfig.objects.order_by("name").values_list("name", flat=True).distinct()
+        return [(name, name) for name in names]
+
+    def queryset(
+        self, request: HttpRequest, queryset: QuerySet[EnrichmentLabelResult]
+    ) -> QuerySet[EnrichmentLabelResult]:
+        value = self.value()
+        return queryset.filter(label_name=value) if value else queryset
+
+
+class EnrichmentPromptVersionFilter(admin.SimpleListFilter):
+    """Sources choices from the tiny EnrichmentPromptConfig table; see EnrichmentLabelNameFilter."""
+
+    title = "prompt version"
+    parameter_name = "prompt_version"
+
+    def lookups(self, request: HttpRequest, model_admin: admin.ModelAdmin) -> list[tuple[str, str]]:
+        versions = EnrichmentPromptConfig.objects.order_by("version").values_list("version", flat=True).distinct()
+        return [(version, version) for version in versions]
+
+    def queryset(
+        self, request: HttpRequest, queryset: QuerySet[EnrichmentLabelResult]
+    ) -> QuerySet[EnrichmentLabelResult]:
+        value = self.value()
+        return queryset.filter(prompt_version=value) if value else queryset
+
+
+@admin.register(EnrichmentLabelResult)
+class EnrichmentLabelResultAdmin(admin.ModelAdmin):
+    """Read-only: rows are written only by the batch runner."""
+
+    list_display = ("organization_link", "label_name", "prompt_version", "verdict", "model", "created_at")
+    list_filter = (EnrichmentLabelNameFilter, EnrichmentPromptVersionFilter)
+    # organization_id__exact avoids the join to posthog_organization: construct_search casts the
+    # FK id to text for an exact match rather than an ILIKE, which UUID columns don't support.
+    search_fields = ("organization_id__exact",)
+    # The PK is a time-ordered uuid7, so -id is both "newest first" and served off the primary
+    # key index — no separate index or per-page sort needed, unlike -created_at.
+    ordering = ("-id",)
+    show_full_result_count = False
+    list_select_related = ("organization",)
+    readonly_fields = (
+        "id",
+        "organization",
+        "fetch",
+        "label_name",
+        "prompt_version",
+        "prompt_hash",
+        "model",
+        "output",
+        "created_at",
+    )
+
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        return False
+
+    def has_change_permission(self, request: HttpRequest, obj: EnrichmentLabelResult | None = None) -> bool:
+        return False
+
+    def has_delete_permission(self, request: HttpRequest, obj: EnrichmentLabelResult | None = None) -> bool:
+        return False
+
+    @admin.display(description="Organization", ordering="organization__name")
+    def organization_link(self, result: EnrichmentLabelResult) -> SafeString:
+        url = reverse("admin:posthog_organization_change", args=[result.organization_id])
+        return format_html('<a href="{}">{}</a>', url, result.organization.name)
+
+    @admin.display(description="Verdict")
+    def verdict(self, result: EnrichmentLabelResult) -> str:
+        # Read out of the stored output rather than looking the config up per row: label_name is
+        # a human name, never an output key, and the output's key order follows output_fields.
+        for key, value in result.output.items():
+            if key not in RESERVED_OUTPUT_FIELD_KEYS and (isinstance(value, bool) or value == UNKNOWN):
+                return f"{key}={str(value).lower()}"
+        return "?"
+
+
+class EnrichmentPromptConfigForm(forms.ModelForm):
+    class Meta:
+        model = EnrichmentPromptConfig
+        fields = "__all__"
+
+    def clean_input_fields(self) -> list[str]:
+        input_fields = self.cleaned_data.get("input_fields")
+        if not isinstance(input_fields, list) or not all(isinstance(field, str) and field for field in input_fields):
+            raise ValidationError("input_fields must be a list of non-empty strings.")
+        if len(input_fields) > MAX_INPUT_COLUMNS:
+            raise ValidationError(
+                f"input_fields has {len(input_fields)} entries; only the first {MAX_INPUT_COLUMNS} reach the prompt."
+            )
+        return input_fields
+
+    def clean_output_fields(self) -> list[dict[str, Any]]:
+        output_fields = self.cleaned_data.get("output_fields")
+        if not isinstance(output_fields, list):
+            raise ValidationError("output_fields must be a list of objects.")
+        for entry in output_fields:
+            if not isinstance(entry, dict):
+                raise ValidationError(f"output_fields entry {entry!r} must be an object.")
+            key = entry.get("key")
+            field_type = entry.get("type")
+            if not key or not isinstance(key, str):
+                raise ValidationError(f"output_fields entry {entry!r} is missing a non-empty 'key'.")
+            if key in RESERVED_OUTPUT_FIELD_KEYS:
+                raise ValidationError(
+                    f"output_fields key {key!r} is reserved for provenance {sorted(RESERVED_OUTPUT_FIELD_KEYS)}."
+                )
+            if field_type not in ALLOWED_OUTPUT_FIELD_TYPES:
+                raise ValidationError(
+                    f"output_fields entry {key!r} has type {field_type!r}; must be one of "
+                    f"{sorted(ALLOWED_OUTPUT_FIELD_TYPES)}."
+                )
+            if (entry.get("min") is None) != (entry.get("max") is None):
+                raise ValidationError(f"output_fields entry {key!r} must declare both 'min' and 'max', or neither.")
+            if entry.get("min") is not None:
+                if field_type != "number":
+                    raise ValidationError(f"output_fields entry {key!r} has a range but is not a number.")
+                try:
+                    low, high = float(entry["min"]), float(entry["max"])
+                except (TypeError, ValueError):
+                    raise ValidationError(f"output_fields entry {key!r} has a non-numeric 'min' or 'max'.")
+                if low > high:
+                    raise ValidationError(f"output_fields entry {key!r} has 'min' {low} above 'max' {high}.")
+        return output_fields
+
+
+@admin.register(EnrichmentPromptConfig)
+class EnrichmentPromptConfigAdmin(admin.ModelAdmin):
+    """Where the label owner iterates: a behavior change is a new row, never an in-place edit
+    (see the model docstring), so this form validates the output/input contract on the way in
+    and locks behavior-defining fields once a config has computed results."""
+
+    form = EnrichmentPromptConfigForm
+    list_display = ("name", "version", "is_active", "model", "created_by", "created_at")
+    list_filter = ("name", "is_active")
+    search_fields = ("name", "version")
+    ordering = ("-created_at",)
+    show_full_result_count = False
+
+    def get_readonly_fields(self, request: HttpRequest, obj: EnrichmentPromptConfig | None = None) -> tuple[str, ...]:
+        # created_by is always readonly (set from request.user in save_model below), which also
+        # satisfies this repo's FK-widget rule without needing autocomplete_fields for it.
+        readonly: tuple[str, ...] = ("id", "created_by", "created_at")
+        if obj is None:
+            return readonly
+        has_results = EnrichmentLabelResult.objects.filter(label_name=obj.name, prompt_version=obj.version).exists()
+        if has_results:
+            readonly = (*readonly, "name", "version", "prompt_text", "model", "input_fields", "output_fields")
+        return readonly
+
+    def save_model(
+        self, request: HttpRequest, obj: EnrichmentPromptConfig, form: forms.ModelForm, change: bool
+    ) -> None:
+        if not change and request.user.is_authenticated:
+            obj.created_by = request.user
+        super().save_model(request, obj, form, change)
+
+
+@admin.register(IcpScoringConfig)
+class IcpScoringConfigAdmin(admin.ModelAdmin):
+    """Versioned curated-list rows for V0.5 ICP scoring. Rows are created by the
+    sync_icp_scoring_lists command from the RevOps sheet exports; the admin exists to
+    inspect rows and move the active flag (activate here after a non---activate sync).
+    A list change is always a new row, so behavior-defining fields lock on save."""
+
+    list_display = ("version", "is_active", "tag_rows", "investor_rows", "created_by", "created_at")
+    list_filter = ("is_active",)
+    search_fields = ("version",)
+    ordering = ("-created_at",)
+    show_full_result_count = False
+
+    @admin.display(description="Tag rows")
+    def tag_rows(self, obj: IcpScoringConfig) -> int:
+        return len(obj.tags) if isinstance(obj.tags, list) else 0
+
+    @admin.display(description="Investors")
+    def investor_rows(self, obj: IcpScoringConfig) -> int:
+        return len(obj.quality_investors) if isinstance(obj.quality_investors, list) else 0
+
+    def get_readonly_fields(self, request: HttpRequest, obj: IcpScoringConfig | None = None) -> tuple[str, ...]:
+        readonly: tuple[str, ...] = ("id", "created_by", "created_at")
+        if obj is not None:
+            readonly = (*readonly, "version", "tags", "quality_investors")
+        return readonly
+
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        return False
+
+    def has_delete_permission(self, request: HttpRequest, obj: IcpScoringConfig | None = None) -> bool:
+        return False
+
+    def save_model(self, request: HttpRequest, obj: IcpScoringConfig, form: forms.ModelForm, change: bool) -> None:
+        if not change and request.user.is_authenticated:
+            obj.created_by = request.user
+        if obj.is_active:
+            # Activation moves the flag: the one-active partial unique constraint would
+            # otherwise reject the save with an IntegrityError.
+            IcpScoringConfig.objects.filter(is_active=True).exclude(pk=obj.pk).update(is_active=False)
+        super().save_model(request, obj, form, change)
+        clear_lists_cache()

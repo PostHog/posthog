@@ -36,6 +36,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_sea
     normalize_site_url,
     suggest_registered_site,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.settings import (
+    DEFAULT_SEARCH_TYPE,
+    SEARCH_ANALYTICS_SCHEMAS,
+    SEARCH_TYPES,
+    qualified_schema_name,
+    split_schema_name,
+)
 
 TODAY = dt.date(2026, 4, 30)
 
@@ -101,6 +108,19 @@ def test_row_to_dict_handles_missing_metrics():
     assert out["impressions"] == 0
     assert out["ctr"] == 0.0
     assert out["position"] == 0.0
+
+
+def test_row_to_dict_coerces_integer_serialized_rates_to_float():
+    # Google serializes an exact-zero rate as JSON `0`, which json.loads decodes to a Python int.
+    # Left as-is, an all-zero-clicks day would store `ctr`/`position` as int64 and reject a later
+    # day's fractional rate. The rates must always be floats; the counts always ints.
+    row = {"keys": ["2026-04-15"], "clicks": 3, "impressions": 20, "ctr": 0, "position": 0}
+    out = _row_to_dict(row, ["date"])
+
+    assert isinstance(out["ctr"], float)
+    assert isinstance(out["position"], float)
+    assert isinstance(out["clicks"], int)
+    assert isinstance(out["impressions"], int)
 
 
 def test_row_to_dict_injects_iter_date_when_date_not_in_dimensions():
@@ -229,7 +249,17 @@ def test_source_yields_rows_and_advances_dates(monkeypatch):
 
     queries: list[tuple[str, int]] = []
 
-    def fake_query(session, site_url, start_date, end_date, dimensions, start_row, row_limit=25000):
+    def fake_query(
+        session,
+        site_url,
+        start_date,
+        end_date,
+        dimensions,
+        start_row,
+        row_limit=25000,
+        data_state="final",
+        search_type="web",
+    ):
         queries.append((start_date, start_row))
         pages = pages_per_date.get(start_date, [[]])
         return pages.pop(0) if pages else []
@@ -269,7 +299,17 @@ def test_source_resumes_from_saved_state(monkeypatch):
     fake_today = dt.date(2026, 4, 30)
     queries: list[tuple[str, int]] = []
 
-    def fake_query(session, site_url, start_date, end_date, dimensions, start_row, row_limit=25000):
+    def fake_query(
+        session,
+        site_url,
+        start_date,
+        end_date,
+        dimensions,
+        start_row,
+        row_limit=25000,
+        data_state="final",
+        search_type="web",
+    ):
         queries.append((start_date, start_row))
         return []
 
@@ -326,6 +366,244 @@ def test_source_response_has_partition_metadata():
     assert response.partition_format == "day"
     assert response.partition_count == 1
     assert response.partition_size == 1
+
+
+def test_hourly_schema_refetches_full_window_with_hourly_data_state(monkeypatch):
+    # Hourly data is only retained for 10 days and Google keeps restating the most recent
+    # hours, so the table must ignore the watermark and refetch the whole window each sync.
+    # Resuming at the watermark would freeze partial rows at their first-imported values,
+    # and reusing the daily window would fire ~16 months of pointless requests.
+    config = GoogleSearchConsoleSourceConfig(
+        site_url="https://example.com/",
+        google_search_console_integration_id=1,
+    )
+    fake_today = dt.date(2026, 4, 30)
+    calls: list[dict] = []
+
+    def fake_query(**kwargs):
+        calls.append(kwargs)
+        return []
+
+    monkeypatch.setattr(gsc, "_today", lambda: fake_today)
+    monkeypatch.setattr(gsc, "google_search_console_session", lambda *a, **kw: mock.MagicMock())
+    monkeypatch.setattr(gsc, "_query_search_analytics", fake_query)
+
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = False
+    response = google_search_console_source(
+        config=config,
+        resource_name="search_analytics_by_hour",
+        team_id=1,
+        resumable_source_manager=manager,
+        should_use_incremental_field=True,
+        db_incremental_field_last_value=dt.date(2026, 4, 29),
+    )
+    list(response.items())  # type: ignore[arg-type]
+
+    queried_dates = [call["start_date"] for call in calls]
+    assert queried_dates[0] == "2026-04-20"
+    assert queried_dates[-1] == "2026-04-30"
+    assert {call["data_state"] for call in calls} == {"hourly_all"}
+    assert {tuple(call["dimensions"]) for call in calls} == {("hour",)}
+    assert response.primary_keys == ["date", "hour"]
+
+
+def test_daily_schemas_keep_final_data_state_and_freshness_lag(monkeypatch):
+    config = GoogleSearchConsoleSourceConfig(
+        site_url="https://example.com/",
+        google_search_console_integration_id=1,
+    )
+    fake_today = dt.date(2026, 4, 30)
+    calls: list[dict] = []
+
+    def fake_query(**kwargs):
+        calls.append(kwargs)
+        return []
+
+    monkeypatch.setattr(gsc, "_today", lambda: fake_today)
+    monkeypatch.setattr(gsc, "google_search_console_session", lambda *a, **kw: mock.MagicMock())
+    monkeypatch.setattr(gsc, "_query_search_analytics", fake_query)
+
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = False
+    response = google_search_console_source(
+        config=config,
+        resource_name="search_analytics_by_country_device",
+        team_id=1,
+        resumable_source_manager=manager,
+        should_use_incremental_field=True,
+        db_incremental_field_last_value=dt.date(2026, 4, 25),
+    )
+    list(response.items())  # type: ignore[arg-type]
+
+    assert [call["start_date"] for call in calls] == ["2026-04-25", "2026-04-26", "2026-04-27"]
+    assert {call["data_state"] for call in calls} == {"final"}
+    assert response.primary_keys == ["date", "country", "device"]
+
+
+def test_row_to_dict_parses_hour_dimension():
+    # The hour dimension arrives as an ISO-8601 offset string; storing it raw would make the
+    # column a string and break time filtering on the warehouse table.
+    row = {"keys": ["2026-04-15T13:00:00-07:00"], "clicks": 2, "impressions": 9, "ctr": 0.2, "position": 1.5}
+    out = _row_to_dict(row, ["hour"], iter_date=dt.date(2026, 4, 15))
+
+    assert out["hour"] == dt.datetime(2026, 4, 15, 13, 0, tzinfo=dt.timezone(-dt.timedelta(hours=7)))
+    assert out["date"] == dt.date(2026, 4, 15)
+
+
+def test_row_to_dict_tolerates_unparseable_hour():
+    row = {"keys": ["not-a-timestamp"], "clicks": 0, "impressions": 0, "ctr": 0, "position": 0}
+    out = _row_to_dict(row, ["hour"], iter_date=dt.date(2026, 4, 15))
+
+    assert out["hour"] is None
+
+
+def test_sitemap_to_dict_fills_omitted_counters_and_flags():
+    # Google omits zero counters and false flags entirely. Left missing, the first sync would
+    # store the column with whatever type the first present value had (or not at all), so a
+    # later sitemap with errors could not be merged in.
+    out = gsc._sitemap_to_dict(
+        {
+            "path": "https://example.com/sitemap.xml",
+            "type": "SITEMAP",
+            "lastSubmitted": "2026-04-15T10:30:00.000Z",
+        }
+    )
+
+    assert out["errors"] == 0
+    assert out["warnings"] == 0
+    assert out["isPending"] is False
+    assert out["isSitemapsIndex"] is False
+    assert out["lastSubmitted"] == dt.datetime(2026, 4, 15, 10, 30, tzinfo=dt.UTC)
+    assert out["lastDownloaded"] is None
+
+
+def test_sitemap_to_dict_coerces_string_serialized_counters():
+    # `errors` and `warnings` are int64 fields, which Google serializes as JSON strings.
+    out = gsc._sitemap_to_dict({"path": "https://example.com/sitemap.xml", "errors": "3", "warnings": "12"})
+
+    assert out["errors"] == 3
+    assert out["warnings"] == 12
+
+
+def test_sitemap_content_rows_carry_parent_path():
+    # `type` alone is not unique across sitemaps, so every content row must carry its parent
+    # sitemap path — that pair is the table's primary key.
+    rows = gsc._sitemap_content_rows(
+        {
+            "path": "https://example.com/sitemap.xml",
+            "contents": [{"type": "WEB", "submitted": "120"}, {"type": "IMAGE"}],
+        }
+    )
+
+    assert rows == [
+        {"path": "https://example.com/sitemap.xml", "type": "WEB", "submitted": 120},
+        {"path": "https://example.com/sitemap.xml", "type": "IMAGE", "submitted": 0},
+    ]
+
+
+def test_sitemap_content_rows_for_sitemap_without_contents():
+    assert gsc._sitemap_content_rows({"path": "https://example.com/sitemap.xml"}) == []
+
+
+@pytest.mark.parametrize(
+    "resource_name,primary_keys",
+    [
+        ("sites", ["siteUrl"]),
+        ("sitemaps", ["path"]),
+        ("sitemap_contents", ["path", "type"]),
+    ],
+)
+def test_property_source_response_is_unpartitioned_snapshot(resource_name, primary_keys):
+    # These tables have no date column, so declaring the daily partitioning the search
+    # analytics tables use would point the pipeline at a field that does not exist.
+    config = GoogleSearchConsoleSourceConfig(
+        site_url="https://example.com/",
+        google_search_console_integration_id=1,
+    )
+    response = google_search_console_source(
+        config=config,
+        resource_name=resource_name,
+        team_id=1,
+        resumable_source_manager=mock.MagicMock(),
+    )
+
+    assert response.primary_keys == primary_keys
+    assert response.partition_keys is None
+    assert response.partition_mode is None
+    assert response.sort_mode is None
+
+
+@pytest.mark.parametrize(
+    "resource_name,expected",
+    [
+        (
+            "sites",
+            [{"siteUrl": "https://example.com/", "permissionLevel": "siteOwner"}],
+        ),
+        (
+            "sitemap_contents",
+            [{"path": "https://example.com/sitemap.xml", "type": "WEB", "submitted": 5}],
+        ),
+    ],
+)
+def test_property_source_yields_rows(monkeypatch, resource_name, expected):
+    config = GoogleSearchConsoleSourceConfig(
+        site_url="https://example.com/",
+        google_search_console_integration_id=1,
+    )
+    monkeypatch.setattr(gsc, "google_search_console_session", lambda *a, **kw: mock.MagicMock())
+    monkeypatch.setattr(
+        gsc,
+        "list_sites",
+        lambda _session: [{"siteUrl": "https://example.com/", "permissionLevel": "siteOwner"}],
+    )
+    monkeypatch.setattr(
+        gsc,
+        "list_sitemaps",
+        lambda _session, _site: [
+            {"path": "https://example.com/sitemap.xml", "contents": [{"type": "WEB", "submitted": 5}]}
+        ],
+    )
+
+    response = google_search_console_source(
+        config=config,
+        resource_name=resource_name,
+        team_id=1,
+        resumable_source_manager=mock.MagicMock(),
+    )
+
+    assert list(response.items()) == [expected]  # type: ignore[arg-type]
+
+
+def test_property_source_yields_nothing_when_property_has_no_sitemaps(monkeypatch):
+    config = GoogleSearchConsoleSourceConfig(
+        site_url="https://example.com/",
+        google_search_console_integration_id=1,
+    )
+    monkeypatch.setattr(gsc, "google_search_console_session", lambda *a, **kw: mock.MagicMock())
+    monkeypatch.setattr(gsc, "list_sitemaps", lambda _session, _site: [])
+
+    response = google_search_console_source(
+        config=config,
+        resource_name="sitemaps",
+        team_id=1,
+        resumable_source_manager=mock.MagicMock(),
+    )
+
+    assert list(response.items()) == []  # type: ignore[arg-type]
+
+
+def test_list_sitemaps_percent_encodes_the_property(monkeypatch):
+    session = mock.MagicMock()
+    session.get.return_value = _fake_response(200, {"sitemap": [{"path": "https://example.com/sitemap.xml"}]})
+
+    sitemaps = gsc.list_sitemaps(session, "sc-domain:example.com")
+
+    assert sitemaps == [{"path": "https://example.com/sitemap.xml"}]
+    # The property is a path segment, so `sc-domain:` and any `/` in a URL-prefix property
+    # must be escaped or Google resolves a different (or non-existent) route.
+    session.get.assert_called_once_with(f"{gsc.GSC_API_BASE}/sites/sc-domain%3Aexample.com/sitemaps")
 
 
 def test_unknown_resource_name_raises():
@@ -570,6 +848,38 @@ def test_query_connection_error_bubbles_after_max_retries(monkeypatch):
     assert session.post.call_count == QUOTA_MAX_RETRIES + 1
 
 
+def test_query_retries_read_timeout_then_succeeds(monkeypatch):
+    monkeypatch.setattr(gsc.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(gsc, "_throttle", lambda _site: None)
+
+    session = mock.MagicMock()
+    session.post.side_effect = [
+        requests.ReadTimeout("Read timed out."),
+        requests.ReadTimeout("Read timed out."),
+        _fake_response(200, {"rows": [{"keys": ["2026-04-15"], "clicks": 1}]}),
+    ]
+
+    rows = _query_search_analytics(session, "sc-domain:example.com", "2026-04-15", "2026-04-15", ["date"], 0)
+
+    assert rows == [{"keys": ["2026-04-15"], "clicks": 1}]
+    assert session.post.call_count == 3
+
+
+def test_query_read_timeout_bubbles_after_max_retries(monkeypatch):
+    monkeypatch.setattr(gsc.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(gsc, "_throttle", lambda _site: None)
+
+    session = mock.MagicMock()
+    session.post.side_effect = requests.ReadTimeout("Read timed out.")
+
+    # A persistent read timeout exhausts the inline budget and surfaces the real
+    # ReadTimeout (retryable at the activity level).
+    with pytest.raises(requests.ReadTimeout):
+        _query_search_analytics(session, "sc-domain:example.com", "2026-04-15", "2026-04-15", ["date"], 0)
+
+    assert session.post.call_count == QUOTA_MAX_RETRIES + 1
+
+
 def test_query_retries_transient_token_refresh_error_then_succeeds(monkeypatch):
     monkeypatch.setattr(gsc.time, "sleep", lambda _s: None)
     monkeypatch.setattr(gsc, "_throttle", lambda _site: None)
@@ -675,3 +985,108 @@ def test_normalize_site_url(raw, expected):
 )
 def test_suggest_registered_site(site_url, registered, expected):
     assert suggest_registered_site(site_url, registered) == expected
+
+
+@pytest.mark.parametrize(
+    "resource_name,expected_type",
+    [
+        ("search_analytics_by_page", "web"),
+        ("search_analytics_by_page_image", "image"),
+        ("search_analytics_by_page_news", "news"),
+    ],
+)
+def test_query_sends_search_type(monkeypatch, resource_name, expected_type):
+    # Google defaults `type` to web, so an omitted or mis-parsed suffix silently returns
+    # web numbers under an image/news table name.
+    monkeypatch.setattr(gsc, "_throttle", lambda _site: None)
+    monkeypatch.setattr(gsc, "google_search_console_session", lambda *a, **kw: mock.MagicMock())
+    monkeypatch.setattr(gsc, "_today", lambda: TODAY)
+
+    session = mock.MagicMock()
+    session.post.return_value = _fake_response(200, {"rows": []})
+    base_name, search_type = split_schema_name(resource_name)
+    _query_search_analytics(
+        session,
+        "sc-domain:example.com",
+        "2026-04-15",
+        "2026-04-15",
+        SEARCH_ANALYTICS_SCHEMAS[base_name]["dimensions"],
+        0,
+        search_type=search_type,
+    )
+
+    assert session.post.call_args.kwargs["json"]["type"] == expected_type
+
+
+def test_suffixed_schema_queries_base_dimensions_under_suffixed_table_name(monkeypatch):
+    config = GoogleSearchConsoleSourceConfig(
+        site_url="https://example.com/",
+        google_search_console_integration_id=1,
+    )
+    calls: list[dict] = []
+
+    def fake_query(**kwargs):
+        calls.append(kwargs)
+        return [{"keys": ["2026-04-26", "/pricing"], "clicks": 3, "impressions": 9, "ctr": 0.33, "position": 2.0}]
+
+    monkeypatch.setattr(gsc, "_today", lambda: dt.date(2026, 4, 30))
+    monkeypatch.setattr(gsc, "google_search_console_session", lambda *a, **kw: mock.MagicMock())
+    monkeypatch.setattr(gsc, "_query_search_analytics", fake_query)
+
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = False
+    response = google_search_console_source(
+        config=config,
+        resource_name="search_analytics_by_page_image",
+        team_id=1,
+        resumable_source_manager=manager,
+        should_use_incremental_field=True,
+        db_incremental_field_last_value=dt.date(2026, 4, 26),
+    )
+    batches = list(response.items())  # type: ignore[arg-type]
+
+    assert response.name == "search_analytics_by_page_image"
+    # The suffix selects the search type; it must not leak into the requested dimensions.
+    assert calls[0]["dimensions"] == ["date", "page"]
+    assert {call["search_type"] for call in calls} == {"image"}
+    assert batches[0][0]["search_type"] == "image"
+    # Constant per table, so adding it to the key would only bloat the merge predicate.
+    assert response.primary_keys == ["date", "page"]
+
+
+@pytest.mark.parametrize(
+    "resource_name",
+    [
+        "not_a_real_schema_image",
+        # `discover` is not an offered search type, so this is not a suffixed name.
+        "search_analytics_by_query_discover",
+        # Hourly data only exists for web search.
+        "search_analytics_by_hour_image",
+        "search_analytics_by_search_appearance_news",
+    ],
+)
+def test_unavailable_schema_names_raise(resource_name):
+    config = GoogleSearchConsoleSourceConfig(
+        site_url="https://example.com/",
+        google_search_console_integration_id=1,
+    )
+    with pytest.raises(ValueError):
+        google_search_console_source(
+            config=config,
+            resource_name=resource_name,
+            team_id=1,
+            resumable_source_manager=mock.MagicMock(),
+        )
+
+
+@pytest.mark.parametrize("base_name", sorted(SEARCH_ANALYTICS_SCHEMAS))
+@pytest.mark.parametrize("search_type", SEARCH_TYPES)
+def test_schema_name_round_trips(base_name, search_type):
+    assert split_schema_name(qualified_schema_name(base_name, search_type)) == (base_name, search_type)
+
+
+def test_no_base_schema_name_collides_with_a_search_type_suffix():
+    # A base name ending in `_image` would be silently reinterpreted as the image variant
+    # of a shorter name, quietly querying the wrong dimensions.
+    for base_name in SEARCH_ANALYTICS_SCHEMAS:
+        assert split_schema_name(base_name) == (base_name, DEFAULT_SEARCH_TYPE)

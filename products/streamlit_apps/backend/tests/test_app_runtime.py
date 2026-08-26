@@ -10,6 +10,8 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.models.user import User
+
 from products.streamlit_apps.backend.logic.app_runtime import (
     MAX_RESTART_COUNT,
     RESTART_COUNT_STABILITY_SECONDS,
@@ -38,6 +40,9 @@ def _make_mock_sandbox():
     return sandbox
 
 
+_UNSET = object()
+
+
 def _make_mock_sandbox_class(sandbox=None):
     if sandbox is None:
         sandbox = _make_mock_sandbox()
@@ -50,7 +55,7 @@ def _make_mock_sandbox_class(sandbox=None):
 @patch("products.streamlit_apps.backend.logic.app_runtime._wait_for_health", return_value=True)
 @patch("products.streamlit_apps.backend.logic.app_runtime.get_sandbox_class")
 class TestAppRuntimeStartApp(BaseTest):
-    def _create_app_with_version(self, snapshot_id=None):
+    def _create_app_with_version(self, snapshot_id=None, version_author=_UNSET):
         app = StreamlitApp.objects.create(team=self.team, name="Test App", created_by=self.user)
         version = StreamlitAppVersion.objects.create(
             app=app,
@@ -58,6 +63,7 @@ class TestAppRuntimeStartApp(BaseTest):
             zip_file="s3://bucket/app.zip",
             zip_hash="abc123",
             snapshot_id=snapshot_id,
+            created_by=version_author if version_author is not _UNSET else self.user,
         )
         app.active_version = version
         app.save(update_fields=["active_version"])
@@ -88,6 +94,31 @@ class TestAppRuntimeStartApp(BaseTest):
         assert snapshot is not None
         assert snapshot.external_id == "snapshot-abc"
         assert snapshot.status == tasks_facade.SandboxSnapshotStatus.COMPLETE
+
+    @patch("products.streamlit_apps.backend.logic.app_runtime.create_sandbox_bridge_token")
+    def test_bridge_token_is_minted_for_the_active_version_author(self, mock_mint, mock_get_sandbox_class, _mock_wait):
+        """The bridge runs the app's HogQL as this user, so it must be the author of
+        the running code — minting for the app creator would let anyone who can edit
+        an app inherit the creator's warehouse access."""
+        mock_get_sandbox_class.return_value = _make_mock_sandbox_class()
+        mock_mint.return_value = "tok"
+
+        other_user = User.objects.create_and_join(self.organization, "editor@posthog.com", "pw")
+        app, _version = self._create_app_with_version(version_author=other_user)
+
+        AppRuntimeService().start_app(app, zip_content=_make_zip_bytes({"app.py": "pass"}))
+
+        assert mock_mint.call_args.kwargs["user"] == other_user
+
+    def test_start_refuses_when_active_version_author_is_gone(self, mock_get_sandbox_class, _mock_wait):
+        """created_by is SET_NULL, and a userless bridge token is rejected on every
+        query — so a null author must fail the start loudly instead of booting an app
+        whose queries all fail."""
+        mock_get_sandbox_class.return_value = _make_mock_sandbox_class()
+        app, _version = self._create_app_with_version(version_author=None)
+
+        with self.assertRaises(AppRuntimeError):
+            AppRuntimeService().start_app(app, zip_content=_make_zip_bytes({"app.py": "pass"}))
 
     def test_cold_start_ignores_requirements_txt_in_zip(self, mock_get_sandbox_class, _mock_wait):
         """requirements.txt support was deleted: a zip with one is accepted but
@@ -314,6 +345,7 @@ class TestAppRuntimeRestartApp(BaseTest):
             zip_file="a.zip",
             zip_hash="a",
             snapshot_id="snap",
+            created_by=self.user,
         )
         app.active_version = version
         app.save(update_fields=["active_version"])

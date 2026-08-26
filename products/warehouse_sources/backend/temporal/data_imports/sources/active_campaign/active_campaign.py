@@ -3,7 +3,6 @@ from typing import Any, Optional
 
 from posthog.security.url_validation import is_url_allowed
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.active_campaign.settings import (
     ACTIVE_CAMPAIGN_ENDPOINTS,
 )
@@ -17,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 # ActiveCampaign caps `limit` at 100 records per page across all list endpoints.
 PAGE_SIZE = 100

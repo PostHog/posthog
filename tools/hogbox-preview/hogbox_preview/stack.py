@@ -39,7 +39,7 @@ import secrets
 from . import timing
 from .backend import PreviewBackend
 
-# The tool's web override MUST stay in sync with the golden bake script (hogland
+# The tool's compose override MUST stay in sync with the golden bake script (hogland
 # scripts/posthog-preview-setup.sh): both write docker-compose.preview.yml, and
 # regenerating it here CLOBBERS the golden's baked copy — so anything the bake
 # adds (env, services) must be mirrored here or a per-PR override drops it. That
@@ -88,6 +88,13 @@ class PostHogPreviewStack:
     # depends_on edges), so a cold/reset box would otherwise boot web with
     # PERSONHOG_ADDR pointing at a service that was never started. On the warm
     # golden they're already running and `up` is a no-op.
+    #
+    # temporal is here too: the server has to be listening before web schedules
+    # anything, and auto-setup creates its schemas in the same postgres, so it
+    # wants the same "start early, wait for pg" slot as the rest. The WORKER is
+    # deliberately NOT in this list — it imports Django and touches the schema,
+    # so it can only start after migrate(), and it has to be (re)created from the
+    # override to pick up the PR's bind mounts. up_web handles it.
     DEPS = [
         "db",
         "redis7",
@@ -97,10 +104,14 @@ class PostHogPreviewStack:
         "objectstorage",
         "personhog-replica",
         "personhog-router",
+        "temporal",
     ]
-    # App services built from the checkout (build escape hatch only). web shares
-    # its image with the other build: . services, so building web warms them all.
-    BUILD_SERVICES = ["web"]
+    # App services built from the checkout (build escape hatch only). They share
+    # a build context, so the second one is a pure cache hit — but compose tags a
+    # build-without-image service as <project>-<service>, i.e. per service. So
+    # both must be listed or `up --no-build temporal-django-worker` finds no
+    # image on the build path.
+    BUILD_SERVICES = ["web", "temporal-django-worker"]
     # PR backend source bind-mounted over the image's /code (backend hot-mount).
     # The frontend stays baked in the image; mounting these swaps backend live.
     MOUNTS = [("posthog", "/code/posthog"), ("ee", "/code/ee"), ("products", "/code/products")]
@@ -260,6 +271,12 @@ class PostHogPreviewStack:
         # /api/projects/@current/ (and environment/@current, team create, some
         # HogQL paths) from 2026-07-06 to 2026-07-10 until this was fixed.
         #
+        # Services this file must keep in sync with the bake: web,
+        # personhog-replica, personhog-router, temporal, temporal-django-worker.
+        # The temporal pair fails EVEN QUIETER than personhog did — web still
+        # accepts the schedule, nothing services the queue, and a materialized
+        # view just sits there forever with no error on any surface.
+        #
         # A web recreate still happens in up_web — but only to bind-mount the PR's
         # backend source over the image's /code (you can't add a mount to a
         # running container). On the warm golden that's a ~18s warm import (1 Unit
@@ -312,6 +329,15 @@ class PostHogPreviewStack:
             # configured" without it — #65968). Same addr the dev/hobby composes
             # use; the router service is defined below. See write_override's note.
             "      - PERSONHOG_ADDR=personhog-router:50052",
+            # A preview runs DEBUG=0, and posthog otherwise derives
+            # USE_LOCAL_SETUP from TEST/DEBUG — so every data-warehouse path that
+            # branches on it (delta write creds, HogQL S3 read creds, the
+            # saved-query url_pattern) reaches for real AWS creds instead of the
+            # stack's own MinIO at objectstorage:19000. Forcing it on is what
+            # makes materialization work in a self-hosted-shaped stack. Needs the
+            # companion settings change that reads this from the env; it's an
+            # inert no-op on an image that predates it.
+            "      - USE_LOCAL_SETUP=1",
         ]
         # Mirror the bake script's personhog service definitions (hogland
         # scripts/posthog-preview-setup.sh): dev-full.yml carries NO personhog
@@ -335,6 +361,105 @@ class PostHogPreviewStack:
             "      file: docker-compose.base.yml",
             "      service: personhog-router",
             f"    image: ghcr.io/posthog/posthog/personhog-router:{personhog_tag}",
+        ]
+        # Temporal — what lets a preview actually RUN data-warehouse materialized
+        # views instead of just rendering the UI for them. Unlike personhog,
+        # dev-full.yml ALREADY defines both services (each extending base), so
+        # these blocks only OVERRIDE fields; do NOT re-extend base here or the
+        # definition gets pulled in twice and the merge order stops being obvious.
+        # Deliberately absent: elasticsearch (see ENABLE_ES), temporal-ui and
+        # temporal-admin-tools — the UI isn't reachable through the box edge
+        # anyway (custom guest ports are unimplemented), so they'd be dead weight.
+        lines += [
+            "  temporal:",
+            "    environment:",
+            # base sets ENABLE_ES=true + ES_SEEDS=elasticsearch, which would drag
+            # a whole ES container into every preview just to run workflows.
+            # Standard (postgres) visibility is plenty — only advanced
+            # list/search queries need ES. Same shape hobby uses. auto-setup
+            # creates the temporal / temporal_visibility DBs in the existing db
+            # service (POSTGRES_SEEDS=db), so no extra storage either.
+            "      - ENABLE_ES=false",
+            # ENABLE_ES=false alone is NOT enough. compose `extends` DOES
+            # propagate depends_on, and depends_on is a mapping, so it MERGES
+            # across files instead of being replaced — dev-full's temporal
+            # inherits base's `elasticsearch: service_healthy` edge and every
+            # `up` touching temporal would start and block on a ~1 GiB ES
+            # container we just told temporal not to use. `!override` is the
+            # only way to drop an inherited edge; keep the db one (auto-setup
+            # writes its schemas there). Verified against the merged config
+            # (compose 5.1.2): temporal's closure is {db, temporal} and the
+            # worker's is {clickhouse, db, kafka, objectstorage, redis7,
+            # temporal, zookeeper} — no elasticsearch anywhere.
+            "    depends_on: !override",
+            "      db:",
+            "        condition: service_healthy",
+            # The auto-setup image does NOT ship the dynamicconfig file base
+            # points DYNAMIC_CONFIG_FILE_PATH at — without this mount
+            # temporal-server exits on boot ("unable to validate dynamic
+            # config: ... no such file or directory") and restart-on-failure
+            # loops it forever, invisibly: `up -d` succeeds and the container
+            # just never turns healthy. Cost a full golden bake on 2026-08-07.
+            # Mount the checkout's copy, like hobby (whose ./posthog/docker/...
+            # prefix is its own deploy layout — the repo path is docker/...).
+            "    volumes:",
+            "      - ./docker/temporal/dynamicconfig:/etc/temporal/config/dynamicconfig",
+            "  temporal-django-worker:",
+        ]
+        if self.image:
+            # dev-full's definition carries `build: .` — pinning the image is the
+            # only thing keeping `up --no-build` from turning into the 20-min
+            # build, exactly the same trap as web above.
+            lines.append(f"    image: {self.image}")
+        if self.image and self.mount:
+            # The whole point of a per-PR worker: it has to execute the PR's
+            # code, not the golden image's :master. Without these mounts it
+            # silently materializes views against stale master and the feature is
+            # theatre. Same backend mounts as web — but NOT the frontend
+            # dist/staticfiles ones: the worker serves no HTTP.
+            lines.append("    volumes:")
+            lines += [f"      - ./{src}:{dst}" for src, dst in self.MOUNTS]
+        lines += [
+            "    environment:",
+            # One worker process serves exactly ONE task queue (a temporal
+            # limit), and posthog only collapses everything onto
+            # development-task-queue when DEBUG=1. A preview runs DEBUG=0, so the
+            # real queue names apply and we have to pick one. Materialized-view
+            # runs are scheduled onto DATA_MODELING_TASK_QUEUE by web
+            # (products/data_modeling/backend/logic/node_materialization.py +
+            # schedule_reconcile.py, products/data_warehouse .../
+            # saved_query_service.py), so that's the queue worth serving.
+            # Workflows on every OTHER queue (batch exports, max-ai, warehouse
+            # imports, ...) sit unstarted — accepted v1 scope; widening it means
+            # one more worker service per queue.
+            "      - TEMPORAL_TASK_QUEUE=data-modeling-task-queue",
+            # MUST be web's key, byte for byte. TEMPORAL_SECRET_KEY defaults to
+            # SECRET_KEY and keys the payload codec, so a mismatch makes every
+            # workflow payload undecodable across the web/worker boundary. We
+            # mint one key per preview (see self.secret_key) and write the SAME
+            # one into both services.
+            f"      - SECRET_KEY={self.secret_key}",
+            # Same hard requirement as web — the worker imports the same Django
+            # app, and require_personhog_client() raises without it.
+            "      - PERSONHOG_ADDR=personhog-router:50052",
+            # Same story as web's, and the worker is the side that actually
+            # writes the delta files to MinIO.
+            "      - USE_LOCAL_SETUP=1",
+            # The health server only starts when BOTH of these are set:
+            # start_temporal_worker.py gates on `health_port and
+            # health_max_idle_seconds` and both settings default to None, so
+            # setting just the port gets you no endpoint and a log warning.
+            # /healthz and /readyz are the same handler — "did this worker run
+            # anything within max_idle_seconds", with the idle clock starting at
+            # process import, not first work. A preview worker is idle by
+            # construction (and after a warm restore the clock resumes from bake
+            # time), so a long window degenerates it into the signal we want:
+            # the process got past create_worker() and is serving HTTP. Nothing
+            # here gates on it — a slow worker shouldn't sink an otherwise-usable
+            # preview — but the endpoint is what you curl when a materialization
+            # doesn't start. Values mirror the bake.
+            "      - TEMPORAL_HEALTH_PORT=7999",
+            "      - TEMPORAL_HEALTH_MAX_IDLE_SECONDS=86400",
         ]
         self.backend.write_file(f"{self.repo_dir}/{self.OVERRIDE}", "\n".join(lines) + "\n")
 
@@ -364,10 +489,14 @@ class PostHogPreviewStack:
         # coherent with the built code. Postgres keeps its data in a named volume
         # that survives container recreation, so the volume must be removed by
         # name; ClickHouse is volume-less, so recreating its container is enough.
+        # temporal must be recreated too: its temporal/temporal_visibility DBs
+        # live in that same postgres volume, and only its auto-setup ENTRYPOINT
+        # recreates the schema — a surviving container would just error against
+        # the wiped postgres forever. The worker follows so it reconnects cleanly.
         cmd = (
             f"cd {self.repo_dir} && "
-            f"docker compose -f {self.COMPOSE} -f {self.OVERRIDE} stop db clickhouse web ; "
-            f"docker compose -f {self.COMPOSE} -f {self.OVERRIDE} rm -f db clickhouse web ; "
+            f"docker compose -f {self.COMPOSE} -f {self.OVERRIDE} stop db clickhouse web temporal temporal-django-worker ; "
+            f"docker compose -f {self.COMPOSE} -f {self.OVERRIDE} rm -f db clickhouse web temporal temporal-django-worker ; "
             "docker volume rm posthog_postgres-15-data || true"
         )
         self.backend.run_long(cmd, name="reset-db", timeout=300)
@@ -390,8 +519,21 @@ class PostHogPreviewStack:
     def up_web(self) -> None:
         # Clean `up` (never `restart` — Unit-listener gotcha). --no-build reuses
         # the pulled image; the override mounts PR source over its /code.
-        timing.stage("start web container")
-        self.backend.run_long(self._compose("up -d --no-build web"), name="up-web", timeout=900)
+        #
+        # The temporal worker comes up here, alongside web and for the same
+        # reason: you can't add a bind mount to a running container, so the
+        # golden's warm worker has to be recreated from the override or it keeps
+        # running :master code. It's also the right ordering — the worker imports
+        # Django and touches the schema, so it must land after migrate(), which
+        # is why it isn't in DEPS. `up` on the two together lets the two heavy
+        # Django imports overlap.
+        #
+        # swap_frontend_only() calls this too. Recreating the worker there is
+        # redundant but harmless: it re-reads the same override (same key, same
+        # mounts — the frontend mounts are web-only), so it just costs one more
+        # container recreate on the deferred-swap path.
+        timing.stage("start web + temporal worker containers")
+        self.backend.run_long(self._compose("up -d --no-build web temporal-django-worker"), name="up-web", timeout=900)
 
     def migrate(self) -> None:
         # PostHog needs both: Postgres (schema) and ClickHouse (events DB +
@@ -407,6 +549,29 @@ class PostHogPreviewStack:
             self._compose("run --rm -T web python manage.py migrate_clickhouse"),
             name="migrate-clickhouse",
             timeout=1800,
+        )
+        # Custom search attributes (PostHogDagId & co.) must exist in the
+        # temporal namespace or /materialize/ 500s ("Namespace default has no
+        # mapping defined for search attribute PostHogDagId" — hit live
+        # 2026-08-07). The bake registers them too, but run it here as well:
+        # it's idempotent and ~seconds, it heals goldens baked before the bake
+        # learned to, and it covers --reset-db (reset_database recreates the
+        # temporal container so auto-setup rebuilds the schema in the wiped
+        # postgres — this then re-registers the attributes in it).
+        #
+        # Retried (up_deps only gates on db healthy, so temporal can still be
+        # warming on a cold boot) and NON-fatal: a PR branch that predates the
+        # management command would otherwise hard-abort bring-up with "Unknown
+        # command". Such a preview still serves; it just can't materialize —
+        # same as before temporal existed here — so warn and move on.
+        register = self._compose("run --rm -T web python manage.py register_temporal_search_attributes")
+        self.backend.run_long(
+            f"ok=0; for _ in 1 2 3; do {register} && ok=1 && break; sleep 10; done; "
+            '[ "$ok" = 1 ] || echo "WARN: register_temporal_search_attributes failed'
+            " (temporal still starting, or the PR predates the command) —"
+            ' materialized views may not run in this preview" >&2',
+            name="register-search-attrs",
+            timeout=600,
         )
         timing.stage("migrate done")
 
@@ -433,9 +598,13 @@ class PostHogPreviewStack:
         # so settings import is fine; collectstatic itself needs no live DB.
         import pathlib
 
-        timing.stage("frontend swap start (upload dist)")
-        tar = pathlib.Path(self.frontend_dist_tar).read_bytes()
-        self.backend.write_file(f"{self.repo_dir}/frontend/dist.tgz", tar)
+        # Upload and collectstatic are separately timed: together they're ~260s,
+        # a third of the whole wait, and they were one opaque block — the dist
+        # is chunked over the exec API, so "slow upload" and "slow collectstatic"
+        # need very different fixes.
+        with timing.span("frontend-dist-upload"):
+            tar = pathlib.Path(self.frontend_dist_tar).read_bytes()
+            self.backend.write_file(f"{self.repo_dir}/frontend/dist.tgz", tar)
         compose = f"docker compose -f {self.COMPOSE} -f {self.OVERRIDE}"
         # CI tars the dist with `-C frontend dist`, so its members are rooted at
         # `dist/`; strip that leading level on extract or the SPA double-nests to
@@ -456,9 +625,8 @@ class PostHogPreviewStack:
         # a restart skips it and leaves `listeners: {}`, so nothing serves.
         # up_services already brought web up cleanly — just wait for it to serve.
         # Django is a heavy import; first health can take ~7 min.
-        timing.stage("health poll start")
-        self.backend.wait_http_ok("/_health", expect=200, timeout=900)
-        timing.stage("health poll pass")
+        with timing.span("health-poll"):
+            self.backend.wait_http_ok("/_health", expect=200, timeout=900)
 
     def deep_health(self) -> None:
         # /_health is UNAUTHENTICATED — it passed the whole time previews were
@@ -475,8 +643,8 @@ class PostHogPreviewStack:
         # a failed LOGIN (a genuinely unseeded box has no demo user): that
         # soft-skips with a note instead of failing. Any failure past login —
         # and a failed login on a seeded run — is fatal.
-        timing.stage("deep health (authed api)")
-        self._run_authed_probe()
+        with timing.span("deep-health"):
+            self._run_authed_probe()
 
     def _run_authed_probe(self) -> None:
         # Everything runs INSIDE the box (curl against localhost:8000), so it's

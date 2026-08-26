@@ -5,13 +5,20 @@ from zoneinfo import ZoneInfo
 
 from dateutil.relativedelta import relativedelta
 
-from posthog.schema import DateRange, IntervalType
+from posthog.schema import DateRange, HogQLFilters, IntervalType
 
 from posthog.hogql.parser import ast
 
+from posthog.dataclasses import frozen
 from posthog.interval_specs import ORDERED_INTERVALS, PERIOD_MAP, IntervalLiteral, get_trunc_func, interval_spec
 from posthog.models.team import Team, WeekStartDay
 from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse, relative_date_parse_with_delta_mapping
+
+
+@frozen
+class DateRangeBounds:
+    date_from: datetime
+    date_to: datetime
 
 
 def compare_interval_length(
@@ -131,12 +138,34 @@ class QueryDateRange:
         clipped = current_interval_start - timedelta(microseconds=1)
         # The base implementation is called explicitly: subclasses redefine date_from() in terms of
         # date_to() (e.g. the previous-period range), which would recurse, and the clip must be
-        # evaluated against the current range's own start regardless.
-        if clipped < QueryDateRange.date_from(self):
+        # evaluated against the current range's own start regardless. The unclipped start is used
+        # because the start clip is itself defined in terms of date_to().
+        if clipped < QueryDateRange._date_from_unclipped(self):
             # No complete interval in range: keep the partial current one rather than inverting the
             # range (mirrors alerts never dropping the only data point).
             return date_to
         return clipped
+
+    def _clip_incomplete_period_start(self, date_from: datetime) -> datetime:
+        """Advance date_from to the next interval boundary when the range starts mid-interval, so
+        the leading partial bucket is excluded too (DateRange.excludeIncompletePeriods) — e.g.
+        "Last 180 days" by week starts mid-week and would otherwise chart a few-day first bucket."""
+        if not (self._date_range and self._date_range.excludeIncompletePeriods):
+            return date_from
+        if self._interval_count != 1:
+            # Multi-unit buckets don't sit on single-interval boundaries, so a clip here would
+            # truncate the leading bucket mid-bucket instead of excluding it.
+            return date_from
+        aligned = self.align_with_interval(date_from)
+        if aligned >= date_from:
+            return date_from
+        advanced = aligned + self.interval_relativedelta()
+        # Explicit base call for the same recursion reasons as in _clip_incomplete_period.
+        if advanced > QueryDateRange.date_to(self):
+            # No complete interval in range: keep the partial leading one rather than inverting the
+            # range (mirrors alerts never dropping the only data point).
+            return date_from
+        return advanced
 
     def get_earliest_timestamp(self) -> datetime:
         if self._earliest_timestamp_fallback:
@@ -148,6 +177,9 @@ class QueryDateRange:
         return get_earliest_timestamp_unfiltered(self._team)
 
     def date_from(self) -> datetime:
+        return self._clip_incomplete_period_start(self._date_from_unclipped())
+
+    def _date_from_unclipped(self) -> datetime:
         date_from: datetime
         if self._date_range and self._date_range.date_from == "all":
             date_from = self.get_earliest_timestamp()
@@ -171,6 +203,33 @@ class QueryDateRange:
     @cached_property
     def previous_period_date_from(self) -> datetime:
         return self.date_from() - (self.date_to() - self.date_from())
+
+    def nominal_comparison_date_to(self, current_period_date_to: datetime) -> datetime:
+        """End of the current period used to size a comparison (previous) period.
+
+        Day and coarser intervals snap `date_to` to the end of the current day, so the comparison
+        period comes back complete. Hour and minute intervals snap only to the end of the current
+        hour or minute, which sizes the comparison period to the elapsed part of the period and cuts
+        it short (the "both lines stop halfway" bug). For a day-anchored range that runs up to now
+        (today, this week, "-7d"), extend the end to the end of the current day so hour and minute
+        granularity match the coarser intervals. Rolling sub-day windows ("-24h", "-30m") keep their
+        real end, since their previous period is just the window before them.
+        """
+        if self.interval_name not in ("hour", "minute"):
+            return current_period_date_to
+        if self._exact_timerange or self.explicit:
+            return current_period_date_to
+        if self._date_range and self._date_range.date_to:
+            return current_period_date_to
+        date_from = (
+            self._date_range.date_from if self._date_range and isinstance(self._date_range.date_from, str) else "-7d"
+        )
+        if date_from == "all":
+            return current_period_date_to
+        delta = relative_date_parse_with_delta_mapping(date_from, self._timezone_info, now=self.now_with_timezone)[1]
+        if delta is None or any(unit in delta for unit in ("hours", "minutes", "seconds")):
+            return current_period_date_to
+        return current_period_date_to.replace(hour=23, minute=59, second=59, microsecond=999999)
 
     @cached_property
     def now_with_timezone(self) -> datetime:
@@ -408,6 +467,19 @@ class QueryDateRange:
                 else self.date_from_as_hogql()
             ),
         }
+
+    def to_hogql_filters(self) -> HogQLFilters:
+        """HogQLFilters carrying this range's bounds as absolute datetimes. The {filters} resolver
+        (posthog.hogql.filters.ReplaceFilters) snaps day-level relative bounds like "-7d" to calendar
+        days to match insights, so a runner that wants this range's exact bounds (logs, tracing) must
+        resolve them here and pass datetimes the resolver uses verbatim."""
+        return HogQLFilters(
+            dateRange=DateRange(
+                date_from=self.date_from().isoformat(),
+                date_to=self.date_to().isoformat(),
+                explicitDate=True,
+            )
+        )
 
 
 class QueryDateRangeWithIntervals(QueryDateRange):

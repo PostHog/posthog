@@ -1,8 +1,12 @@
+import { installMockEventSource, MockEventSource } from 'lib/wizard-sync/eventSource.mock'
+
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { SSE_RECONNECT_MAX_MS } from 'lib/wizard-sync/pollLoop'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { initKeaTests } from '~/test/init'
@@ -29,6 +33,9 @@ function makeSession(overrides: Partial<WizardSessionDTOApi> = {}): WizardSessio
         tasks: [],
         event_plan: null,
         error: null,
+        pending_input: null,
+        handoff_text: null,
+        created_by: null,
         created_at: '2026-01-01T00:00:00Z',
         updated_at: '2026-01-01T00:00:00Z',
         is_stale: false,
@@ -136,5 +143,66 @@ describe('wizardSessionStreamLogic polling mode', () => {
         jest.advanceTimersByTime(PAST_MAX_JITTERED_INTERVAL_MS)
         await expectLogic(logic).toDispatchActions(['sessionUpdated'])
         expect(mockLatestRetrieve).toHaveBeenCalledTimes(2)
+    })
+})
+
+// The first backoff step is 2s ±20%, so this window always contains the retry.
+const PAST_FIRST_RECONNECT_MS = 2600
+
+describe('wizardSessionStreamLogic SSE mode', () => {
+    let logic: ReturnType<typeof wizardSessionStreamLogic.build>
+    let restoreEventSource: () => void
+    let capture: jest.SpyInstance
+
+    beforeEach(async () => {
+        // Resolved feature flags are persisted, so the polling suite above would otherwise decide
+        // this suite's transport too.
+        window.localStorage.clear()
+        initKeaTests()
+        mockLatestRetrieve.mockReset()
+        restoreEventSource = installMockEventSource()
+        capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as never)
+        logic = wizardSessionStreamLogic({ workflowId: 'posthog-integration' })
+        logic.mount()
+        // connect() no-ops into an error without a project — wait for the test bootstrap to provide one.
+        await expectLogic(projectLogic).toMatchValues({ currentProjectId: expect.any(Number) })
+        jest.useFakeTimers()
+    })
+
+    afterEach(() => {
+        logic?.unmount()
+        jest.useRealTimers()
+        restoreEventSource()
+        capture.mockRestore()
+    })
+
+    const transportErrors = (): unknown[] =>
+        capture.mock.calls.filter(([event]) => event === 'wizard sync transport error')
+
+    it('reconnects after a fatal close and reports the transport error once per connect cycle', async () => {
+        logic.actions.connect()
+        MockEventSource.last().emitOpen()
+        await expectLogic(logic).toDispatchActions(['connectionOpened'])
+
+        MockEventSource.last().emitTransportError(MockEventSource.CLOSED)
+        await expectLogic(logic).toDispatchActions(['connectionErrored'])
+        jest.advanceTimersByTime(PAST_FIRST_RECONNECT_MS)
+        expect(MockEventSource.instances).toHaveLength(2)
+
+        // A stream that stays fatally closed retries for as long as the tab is open. One capture per
+        // backoff step would be one every 30s per tab, enough to drown the transport comparison.
+        MockEventSource.last().emitTransportError(MockEventSource.CLOSED)
+        await expectLogic(logic).toDispatchActions(['connectionErrored'])
+        expect(transportErrors()).toHaveLength(1)
+    })
+
+    it('cancels a pending reconnect on disconnect', async () => {
+        logic.actions.connect()
+        MockEventSource.last().emitTransportError(MockEventSource.CLOSED)
+        await expectLogic(logic).toDispatchActions(['connectionErrored'])
+
+        logic.actions.disconnect()
+        jest.advanceTimersByTime(SSE_RECONNECT_MAX_MS)
+        expect(MockEventSource.instances).toHaveLength(1)
     })
 })

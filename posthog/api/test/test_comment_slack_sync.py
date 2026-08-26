@@ -1,0 +1,634 @@
+from datetime import timedelta
+
+from posthog.test.base import APIBaseTest
+from unittest.mock import MagicMock, patch
+
+from django.utils import timezone
+
+from celery.exceptions import Retry
+from parameterized import parameterized
+from rest_framework import status
+from slack_sdk.errors import SlackApiError
+
+from posthog.api.comments import _slack_thread_url
+from posthog.helpers.slack_thread_mirror import _discussion_card_blocks, escape_slack_mrkdwn
+from posthog.models.comment import Comment, CommentSlackThread
+from posthog.models.integration import Integration
+from posthog.tasks.comment_slack_sync import (
+    BACKFILL_BATCH_SIZE,
+    BACKFILL_RESCHEDULE_COUNTDOWN_SECONDS,
+    SLACK_SYNCED_TS_KEY,
+    backfill_comment_slack_thread,
+    mirror_comment_reply_to_slack,
+)
+
+
+class TestDiscussionCardBlocks(APIBaseTest):
+    def _card_text(self, body: str) -> str:
+        blocks = _discussion_card_blocks(
+            body_mrkdwn=body, author_name="Ann", item_url="https://app.posthog.com/i/1", item_label="Insight"
+        )
+        return blocks[0]["text"]["text"]
+
+    def test_every_line_of_a_multiline_body_stays_in_the_quote(self):
+        # mrkdwn's ">" quotes one line, so without a prefix per line the tail of a comment
+        # renders as the card's own text rather than as the quoted comment.
+        text = self._card_text("first line\nsecond line\n\nfourth line")
+
+        quoted = text.split("in PostHog:\n\n", 1)[1]
+        assert quoted == "> first line\n> second line\n> \n> fourth line"
+
+    def test_empty_body_still_renders_a_quoted_placeholder(self):
+        assert self._card_text("").endswith("> _(no text)_")
+
+
+class TestSendCommentToSlack(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T123",
+            config={"authed_user": {"id": "u"}},
+            sensitive_config={"access_token": "xoxb-test"},
+        )
+
+    def _comment(self, **kwargs) -> Comment:
+        defaults: dict = {
+            "team": self.team,
+            "scope": "Insight",
+            "item_id": "42",
+            "content": "hello",
+            "created_by": self.user,
+        }
+        defaults.update(kwargs)
+        return Comment.objects.create(**defaults)
+
+    @parameterized.expand(
+        [
+            # ts dot stripped, archives permalink form
+            ("with_ts", "1700.1", "https://app.slack.com/archives/C1/p17001"),
+            # not yet posted: link to the channel
+            ("no_ts", "", "https://app.slack.com/archives/C1"),
+        ]
+    )
+    def test_slack_thread_url(self, _name, ts, expected):
+        thread = CommentSlackThread(slack_channel_id="C1", slack_thread_ts=ts, slack_team_id="T123")
+        assert _slack_thread_url(thread) == expected
+
+    def _send(self, comment_id, channel_id: str = "C1", integration_id: int | None = None, extra: dict | None = None):
+        return self.client.post(
+            f"/api/projects/{self.team.id}/comments/{comment_id}/send_to_slack/",
+            {
+                "integration_id": integration_id or self.integration.id,
+                "channel_id": channel_id,
+                **(extra or {}),
+            },
+        )
+
+    def _mock_channel_info(self, mock_slack, name: str = "team-support", is_private: bool = False, **flags) -> None:
+        mock_slack.return_value.client.conversations_info.return_value = {
+            "channel": {"id": "C1", "name": name, "is_private": is_private, **flags}
+        }
+
+    @parameterized.expand([("dm", {"is_im": True}), ("group_dm", {"is_mpim": True, "is_private": True})])
+    @patch("posthog.api.comments.backfill_comment_slack_thread.delay")
+    @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.comments.SlackIntegration")
+    def test_cannot_send_to_a_direct_message(self, _name, flags, mock_slack, _flag, _backfill):
+        # is_im conversations don't report is_private, so without an explicit guard a member
+        # could mirror a discussion into someone's DMs with the bot.
+        self._mock_channel_info(mock_slack, **flags)
+        comment = self._comment()
+
+        res = self._send(comment.id, channel_id="D1")
+
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+        assert "direct message" in str(res.json())
+        assert not CommentSlackThread.objects.for_team(self.team.id).exists()
+        mock_slack.return_value.client.chat_postMessage.assert_not_called()
+
+    @patch("posthog.api.comments.backfill_comment_slack_thread.delay")
+    @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.comments.SlackIntegration")
+    def test_creates_mirror_posts_root_and_enqueues_backfill(self, mock_slack, _flag, mock_backfill):
+        mock_slack.return_value.client.chat_postMessage.return_value = {"ts": "1700.1"}
+        self._mock_channel_info(mock_slack)
+        comment = self._comment()
+
+        # A client-supplied channel_name must have no effect — the name is resolved from Slack.
+        res = self._send(comment.id, extra={"channel_name": "#spoofed"})
+
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        mirror = CommentSlackThread.objects.for_team(self.team.id).get()
+        assert mirror.source_comment_id == comment.id
+        assert mirror.slack_thread_ts == "1700.1"
+        assert (mirror.slack_channel_id, mirror.slack_team_id) == ("C1", "T123")
+        assert mirror.slack_channel_name == "team-support"
+        assert res.json()["slack_channel_name"] == "team-support"
+        # Only the root is posted synchronously; replies are backfilled out-of-band.
+        assert mock_slack.return_value.client.chat_postMessage.call_count == 1
+        mock_backfill.assert_called_once_with(comment_slack_thread_id=str(mirror.id))
+
+    @patch("posthog.api.comments.backfill_comment_slack_thread.delay")
+    @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.comments.SlackIntegration")
+    def test_idempotent_does_not_repost(self, mock_slack, _flag, _backfill):
+        mock_slack.return_value.client.chat_postMessage.return_value = {"ts": "1700.1"}
+        self._mock_channel_info(mock_slack)
+        comment = self._comment()
+
+        first = self._send(comment.id)
+        second = self._send(comment.id)
+
+        assert first.status_code == status.HTTP_200_OK
+        assert second.status_code == status.HTTP_200_OK
+        assert CommentSlackThread.objects.for_team(self.team.id).count() == 1
+        assert mock_slack.return_value.client.chat_postMessage.call_count == 1
+
+    @patch("posthog.api.comments.backfill_comment_slack_thread.delay")
+    @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.comments.SlackIntegration")
+    def test_failed_post_releases_reservation(self, mock_slack, _flag, _backfill):
+        mock_slack.return_value.client.chat_postMessage.side_effect = Exception("slack down")
+        self._mock_channel_info(mock_slack)
+        comment = self._comment()
+
+        res = self._send(comment.id)
+
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+        # The reserved row is rolled back so a later attempt isn't blocked by the idempotency check.
+        assert not CommentSlackThread.objects.for_team(self.team.id).exists()
+
+    @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=False)
+    def test_404_when_flag_disabled(self, _flag):
+        comment = self._comment()
+
+        res = self._send(comment.id)
+
+        assert res.status_code == status.HTTP_404_NOT_FOUND
+        assert not CommentSlackThread.objects.for_team(self.team.id).exists()
+
+    @patch("posthog.api.comments.backfill_comment_slack_thread.delay")
+    @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.comments.SlackIntegration")
+    def test_resend_to_different_channel_names_existing_one(self, mock_slack, _flag, _backfill):
+        mock_slack.return_value.client.chat_postMessage.return_value = {"ts": "1700.1"}
+        self._mock_channel_info(mock_slack)
+        comment = self._comment()
+        self._send(comment.id, channel_id="C1")
+
+        res = self._send(comment.id, channel_id="C2")
+
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+        assert "C1" in str(res.json())
+        # No second root post, mapping unchanged.
+        assert mock_slack.return_value.client.chat_postMessage.call_count == 1
+        assert CommentSlackThread.objects.for_team(self.team.id).get().slack_channel_id == "C1"
+
+    @patch("posthog.api.comments.backfill_comment_slack_thread.delay")
+    @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.comments.SlackIntegration")
+    def test_in_flight_reservation_returns_409(self, mock_slack, _flag, _backfill):
+        self._mock_channel_info(mock_slack)
+        comment = self._comment()
+        # A fresh reservation with no posted root — another request is mid-send.
+        CommentSlackThread.objects.for_team(self.team.id).create(
+            team=self.team,
+            scope="Insight",
+            item_id="42",
+            source_comment=comment,
+            integration=self.integration,
+            slack_channel_id="C1",
+        )
+
+        res = self._send(comment.id)
+
+        assert res.status_code == status.HTTP_409_CONFLICT
+        mock_slack.return_value.client.chat_postMessage.assert_not_called()
+
+    @patch("posthog.api.comments.backfill_comment_slack_thread.delay")
+    @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.comments.SlackIntegration")
+    def test_stale_reservation_is_adopted_and_retried(self, mock_slack, _flag, mock_backfill):
+        mock_slack.return_value.client.chat_postMessage.return_value = {"ts": "1700.9"}
+        self._mock_channel_info(mock_slack)
+        comment = self._comment()
+        # A crashed send left an old reservation with no root message.
+        stale = CommentSlackThread.objects.for_team(self.team.id).create(
+            team=self.team,
+            scope="Insight",
+            item_id="42",
+            source_comment=comment,
+            integration=self.integration,
+            slack_channel_id="C1",
+        )
+        CommentSlackThread.objects.for_team(self.team.id).filter(id=stale.id).update(
+            created_at=timezone.now() - timedelta(minutes=10)
+        )
+
+        res = self._send(comment.id, channel_id="C2")
+
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        mirror = CommentSlackThread.objects.for_team(self.team.id).get()
+        assert (mirror.slack_thread_ts, mirror.slack_channel_id) == ("1700.9", "C2")
+        mock_backfill.assert_called_once_with(comment_slack_thread_id=str(mirror.id))
+
+    @parameterized.expand(
+        [
+            ("creator_sends_with_masked_name", True, status.HTTP_200_OK),
+            ("non_creator_forbidden", False, status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    @patch("posthog.api.comments.backfill_comment_slack_thread.delay")
+    @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.comments.SlackIntegration")
+    def test_private_channel_guard(self, _name, requester_is_creator, expected_status, mock_slack, _flag, _backfill):
+        if requester_is_creator:
+            self.integration.created_by = self.user
+            self.integration.save()
+        mock_slack.return_value.client.chat_postMessage.return_value = {"ts": "1700.1"}
+        self._mock_channel_info(mock_slack, name="secret-plans", is_private=True)
+        comment = self._comment()
+
+        res = self._send(comment.id)
+
+        assert res.status_code == expected_status, res.json()
+        if requester_is_creator:
+            mirror = CommentSlackThread.objects.for_team(self.team.id).get()
+            # A private channel's name is never persisted — it would be shown to every reader.
+            assert mirror.slack_channel_name == ""
+            assert res.json()["slack_channel_name"] == ""
+        else:
+            assert not CommentSlackThread.objects.for_team(self.team.id).exists()
+            mock_slack.return_value.client.chat_postMessage.assert_not_called()
+
+    @patch("posthog.api.comments.backfill_comment_slack_thread.delay")
+    @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.comments.SlackIntegration")
+    def test_channel_lookup_failure_is_a_400(self, mock_slack, _flag, _backfill):
+        mock_slack.return_value.client.conversations_info.side_effect = SlackApiError(
+            "boom", {"error": "channel_not_found"}
+        )
+        comment = self._comment()
+
+        res = self._send(comment.id)
+
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+        assert "channel_not_found" in str(res.json())
+        assert not CommentSlackThread.objects.for_team(self.team.id).exists()
+        mock_slack.return_value.client.chat_postMessage.assert_not_called()
+
+    @parameterized.expand([("reply", "source_comment"), ("unknown_integration", "integration")])
+    @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
+    def test_rejects_invalid_target(self, _name, bad, _flag):
+        if bad == "source_comment":
+            parent = self._comment()
+            res = self._send(self._comment(source_comment=parent).id)
+        else:
+            res = self._send(self._comment().id, integration_id=999999)
+
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+        assert not CommentSlackThread.objects.for_team(self.team.id).exists()
+
+
+class TestCommentReplySlackSignal(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.integration = Integration.objects.create(
+            team=self.team, kind="slack", integration_id="T1", sensitive_config={"access_token": "t"}
+        )
+        self.parent = Comment.objects.create(team=self.team, scope="Insight", item_id="42", content="root")
+        self.other_parent = Comment.objects.create(team=self.team, scope="Insight", item_id="99", content="root2")
+        CommentSlackThread.objects.for_team(self.team.id).create(
+            team=self.team,
+            scope="Insight",
+            item_id="42",
+            source_comment=self.parent,
+            integration=self.integration,
+            slack_channel_id="C1",
+            slack_thread_ts="1700.1",
+        )
+
+    @parameterized.expand(
+        [
+            ("mirrored_reply", "parent", "Insight", None, True),
+            ("non_mirrored_reply", "other_parent", "Insight", None, False),
+            ("from_slack_reply_not_echoed", "parent", "Insight", {"from_slack": True}, False),
+            ("emoji_reaction_not_mirrored", "parent", "Insight", {"is_emoji": True}, False),
+            ("conversations_ticket_excluded", "parent", "conversations_ticket", None, False),
+            ("email_thread_excluded", "parent", "EmailThread", None, False),
+            ("top_level_comment", None, "Insight", None, False),
+        ]
+    )
+    @patch("posthog.tasks.comment_slack_sync.mirror_comment_reply_to_slack.delay")
+    def test_reply_enqueues_only_when_it_should(
+        self, _name, parent_attr, scope, item_context, expected_called, mock_delay
+    ):
+        source = getattr(self, parent_attr) if parent_attr else None
+        # A valid-UUID item_id keeps the conversations product's own ticket signals (which parse
+        # item_id as a Ticket UUID for the conversations_ticket scope) from choking on this case.
+        item_id = "00000000-0000-0000-0000-000000000042"
+        with self.captureOnCommitCallbacks(execute=True):
+            Comment.objects.create(
+                team=self.team,
+                scope=scope,
+                item_id=item_id,
+                content="reply",
+                source_comment=source,
+                item_context=item_context,
+                created_by=self.user,
+            )
+
+        assert mock_delay.called is expected_called
+
+
+class TestReplyMirror(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.integration = Integration.objects.create(
+            team=self.team, kind="slack", integration_id="T1", sensitive_config={"access_token": "t"}
+        )
+        self.parent = Comment.objects.create(team=self.team, scope="Insight", item_id="42", content="root")
+
+    def _mirror(self) -> CommentSlackThread:
+        return CommentSlackThread.objects.for_team(self.team.id).create(
+            team=self.team,
+            scope="Insight",
+            item_id="42",
+            source_comment=self.parent,
+            integration=self.integration,
+            slack_channel_id="C1",
+            slack_thread_ts="100.1",
+        )
+
+    @patch("posthog.tasks.comment_slack_sync.SlackIntegration")
+    def test_posts_reply_to_the_mirrored_thread(self, mock_slack):
+        self._mirror()
+        reply = Comment.objects.create(
+            team=self.team, scope="Insight", item_id="42", content="reply", source_comment=self.parent
+        )
+
+        mirror_comment_reply_to_slack.apply(kwargs={"comment_id": str(reply.id)})
+
+        client = mock_slack.return_value.client
+        assert client.chat_postMessage.call_count == 1
+        assert client.chat_postMessage.call_args.kwargs["thread_ts"] == "100.1"
+
+    @patch("posthog.tasks.comment_slack_sync.SlackIntegration")
+    def test_noop_when_thread_has_no_mirror(self, mock_slack):
+        reply = Comment.objects.create(
+            team=self.team, scope="Insight", item_id="42", content="reply", source_comment=self.parent
+        )
+
+        mirror_comment_reply_to_slack.apply(kwargs={"comment_id": str(reply.id)})
+
+        mock_slack.assert_not_called()
+
+    @patch("posthog.tasks.comment_slack_sync.SlackIntegration")
+    def test_email_thread_reply_is_not_mirrored(self, mock_slack):
+        parent = Comment.objects.create(team=self.team, scope="EmailThread", item_id="thread-42", content="root")
+        CommentSlackThread.objects.for_team(self.team.id).create(
+            team=self.team,
+            scope="EmailThread",
+            item_id="thread-42",
+            source_comment=parent,
+            integration=self.integration,
+            slack_channel_id="C1",
+            slack_thread_ts="100.1",
+        )
+        reply = Comment.objects.create(
+            team=self.team,
+            scope="EmailThread",
+            item_id="thread-42",
+            content="reply",
+            source_comment=parent,
+        )
+
+        mirror_comment_reply_to_slack.apply(kwargs={"comment_id": str(reply.id)})
+
+        mock_slack.assert_not_called()
+
+    @patch("posthog.tasks.comment_slack_sync.SlackIntegration")
+    def test_reply_posts_once_across_task_reruns(self, mock_slack):
+        mock_slack.return_value.client.chat_postMessage.return_value = {"ts": "100.2"}
+        self._mirror()
+        reply = Comment.objects.create(
+            team=self.team, scope="Insight", item_id="42", content="reply", source_comment=self.parent
+        )
+
+        # A Celery retry after a successful post re-runs the whole task; the synced marker
+        # stamped on the first run must prevent a duplicate Slack message.
+        mirror_comment_reply_to_slack.apply(kwargs={"comment_id": str(reply.id)})
+        mirror_comment_reply_to_slack.apply(kwargs={"comment_id": str(reply.id)})
+
+        assert mock_slack.return_value.client.chat_postMessage.call_count == 1
+        reply.refresh_from_db()
+        assert reply.item_context is not None
+        assert reply.item_context[SLACK_SYNCED_TS_KEY] == "100.2"
+
+    @patch("posthog.tasks.comment_slack_sync.SlackIntegration")
+    def test_reply_retries_while_root_post_pending(self, mock_slack):
+        # Reservation exists but the root hasn't posted yet (send_to_slack mid-flight):
+        # the reply must be retried, not dropped and not posted out of order.
+        mirror = self._mirror()
+        CommentSlackThread.objects.for_team(self.team.id).filter(id=mirror.id).update(slack_thread_ts="")
+        reply = Comment.objects.create(
+            team=self.team, scope="Insight", item_id="42", content="reply", source_comment=self.parent
+        )
+
+        with self.assertRaises(Retry):
+            mirror_comment_reply_to_slack(comment_id=str(reply.id))
+
+        mock_slack.return_value.client.chat_postMessage.assert_not_called()
+
+    @patch("posthog.tasks.comment_slack_sync.posthoganalytics.feature_enabled", return_value=False)
+    @patch("posthog.tasks.comment_slack_sync.SlackIntegration")
+    def test_kill_switch_stops_reply_sync(self, mock_slack, _flag):
+        self._mirror()
+        reply = Comment.objects.create(
+            team=self.team, scope="Insight", item_id="42", content="reply", source_comment=self.parent
+        )
+
+        mirror_comment_reply_to_slack.apply(kwargs={"comment_id": str(reply.id)})
+
+        mock_slack.assert_not_called()
+
+
+class TestBackfill(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.integration = Integration.objects.create(
+            team=self.team, kind="slack", integration_id="T1", sensitive_config={"access_token": "t"}
+        )
+        self.parent = Comment.objects.create(team=self.team, scope="Insight", item_id="42", content="root")
+
+    def _reply(self, content: str, **kwargs) -> Comment:
+        return Comment.objects.create(
+            team=self.team, scope="Insight", item_id="42", content=content, source_comment=self.parent, **kwargs
+        )
+
+    def _mirror(self) -> CommentSlackThread:
+        # Matches the real flow: replies exist first, then send_to_slack creates the mirror.
+        return CommentSlackThread.objects.for_team(self.team.id).create(
+            team=self.team,
+            scope="Insight",
+            item_id="42",
+            source_comment=self.parent,
+            integration=self.integration,
+            slack_channel_id="C1",
+            slack_thread_ts="100.1",
+        )
+
+    @patch("posthog.tasks.comment_slack_sync.SlackIntegration")
+    def test_backfills_replies_and_skips_from_slack_and_emoji(self, mock_slack):
+        mock_slack.return_value.client.chat_postMessage.return_value = {"ts": "100.2"}
+        self._reply("r1")
+        self._reply("r2")
+        # A reply that came in from Slack must not be echoed back; reactions aren't messages.
+        self._reply("from slack", item_context={"from_slack": True})
+        self._reply("👍", item_context={"is_emoji": True})
+        mirror = self._mirror()
+
+        backfill_comment_slack_thread(str(mirror.id))
+
+        # r1 + r2 only — from_slack and emoji replies are skipped, and the root isn't a reply.
+        assert mock_slack.return_value.client.chat_postMessage.call_count == 2
+
+    @patch("posthog.tasks.comment_slack_sync.time.sleep")
+    @patch("posthog.tasks.comment_slack_sync.SlackIntegration")
+    def test_backfill_retries_once_after_slack_rate_limit(self, mock_slack, mock_sleep):
+        rate_limited = MagicMock()
+        rate_limited.get.side_effect = lambda key, default=None: {"error": "ratelimited"}.get(key, default)
+        rate_limited.headers = {"Retry-After": "2"}
+        mock_slack.return_value.client.chat_postMessage.side_effect = [
+            SlackApiError("ratelimited", rate_limited),
+            {"ts": "100.2"},
+        ]
+        reply = self._reply("r1")
+        mirror = self._mirror()
+
+        backfill_comment_slack_thread(str(mirror.id))
+
+        # The rate-limited post is retried after Slack's Retry-After instead of dropping the reply.
+        assert mock_slack.return_value.client.chat_postMessage.call_count == 2
+        mock_sleep.assert_called_once_with(2)
+        reply.refresh_from_db()
+        assert reply.item_context is not None
+        assert reply.item_context[SLACK_SYNCED_TS_KEY] == "100.2"
+
+    @patch("posthog.tasks.comment_slack_sync.SlackIntegration")
+    def test_backfill_owns_only_replies_that_predate_the_mirror(self, mock_slack):
+        mock_slack.return_value.client.chat_postMessage.return_value = {"ts": "100.2"}
+        self._reply("before")
+        mirror = self._mirror()
+        # Created after the mirror: the live post_save signal owns it — backfill posting it
+        # too is the double-post race.
+        self._reply("after")
+
+        backfill_comment_slack_thread(str(mirror.id))
+
+        assert mock_slack.return_value.client.chat_postMessage.call_count == 1
+
+    @patch("posthog.tasks.comment_slack_sync.SlackIntegration")
+    def test_backfill_rerun_does_not_double_post(self, mock_slack):
+        mock_slack.return_value.client.chat_postMessage.return_value = {"ts": "100.2"}
+        self._reply("r1")
+        mirror = self._mirror()
+
+        backfill_comment_slack_thread(str(mirror.id))
+        backfill_comment_slack_thread(str(mirror.id))
+
+        assert mock_slack.return_value.client.chat_postMessage.call_count == 1
+
+    @patch("posthog.tasks.comment_slack_sync.backfill_comment_slack_thread.apply_async")
+    @patch("posthog.tasks.comment_slack_sync.SlackIntegration")
+    def test_backfill_stops_at_the_batch_size_and_reschedules(self, mock_slack, mock_apply_async):
+        # Reply history is caller-controlled, so one run must not walk an unbounded thread while
+        # holding a shared worker.
+        mock_slack.return_value.client.chat_postMessage.return_value = {"ts": "100.2"}
+        for index in range(BACKFILL_BATCH_SIZE + 3):
+            self._reply(f"r{index}")
+        mirror = self._mirror()
+
+        backfill_comment_slack_thread(str(mirror.id))
+
+        assert mock_slack.return_value.client.chat_postMessage.call_count == BACKFILL_BATCH_SIZE
+        mock_apply_async.assert_called_once_with((str(mirror.id),), countdown=BACKFILL_RESCHEDULE_COUNTDOWN_SECONDS)
+
+    @patch("posthog.tasks.comment_slack_sync.backfill_comment_slack_thread.apply_async")
+    @patch("posthog.tasks.comment_slack_sync.SlackIntegration")
+    def test_backfill_does_not_reschedule_when_the_batch_posted_nothing(self, mock_slack, mock_apply_async):
+        # A failed post leaves the reply unstamped, so it stays in the next batch — rescheduling on
+        # "work remains" alone would requeue the same doomed batch forever.
+        mock_slack.return_value.client.chat_postMessage.side_effect = Exception("slack is down")
+        for index in range(BACKFILL_BATCH_SIZE + 3):
+            self._reply(f"r{index}")
+        mirror = self._mirror()
+
+        backfill_comment_slack_thread(str(mirror.id))
+
+        mock_apply_async.assert_not_called()
+
+
+class TestSlackThreadSerialization(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.integration = Integration.objects.create(
+            team=self.team, kind="slack", integration_id="T1", sensitive_config={"access_token": "t"}
+        )
+        self.parent = Comment.objects.create(team=self.team, scope="Insight", item_id="42", content="root")
+        self.mirror = CommentSlackThread.objects.for_team(self.team.id).create(
+            team=self.team,
+            scope="Insight",
+            item_id="42",
+            source_comment=self.parent,
+            integration=self.integration,
+            slack_channel_id="C1",
+            slack_channel_name="team-support",
+            slack_thread_ts="1700.1",
+        )
+
+    @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
+    def test_detail_response_includes_slack_thread(self, _mock_flag):
+        # Detail responses replace list entries client-side — dropping slack_thread there
+        # made the "Open in Slack" state vanish after an edit/complete.
+        res = self.client.get(f"/api/projects/{self.team.id}/comments/{self.parent.id}/")
+
+        assert res.status_code == status.HTTP_200_OK
+        assert res.json()["slack_thread"] == {
+            "channel_id": "C1",
+            "channel_name": "team-support",
+            "url": "https://app.slack.com/archives/C1/p17001",
+        }
+
+    @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
+    def test_unposted_reservation_serializes_as_null(self, _mock_flag):
+        # A reservation with no root message isn't a live mirror; reporting it would show a
+        # dead "Open in Slack" link and hide re-sending.
+        CommentSlackThread.objects.for_team(self.team.id).filter(id=self.mirror.id).update(slack_thread_ts="")
+
+        res = self.client.get(f"/api/projects/{self.team.id}/comments/?scope=Insight&item_id=42")
+
+        assert res.status_code == status.HTTP_200_OK
+        results = {r["id"]: r for r in res.json()["results"]}
+        assert results[str(self.parent.id)]["slack_thread"] is None
+
+    def test_slack_thread_lookup_skipped_when_flag_off(self):
+        # Unflagged teams must not pay the mirror lookup on the hot comments endpoint.
+        with patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=False):
+            res = self.client.get(f"/api/projects/{self.team.id}/comments/{self.parent.id}/")
+        assert res.status_code == status.HTTP_200_OK
+        assert res.json()["slack_thread"] is None
+
+
+class TestEscapeSlackMrkdwn(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("link_injection", "<https://evil|click>", "&lt;https://evil|click&gt;"),
+            ("ampersand", "Tom & Jerry", "Tom &amp; Jerry"),
+            ("plain", "Alice", "Alice"),
+        ]
+    )
+    def test_escapes_slack_control_chars(self, _name, raw, expected):
+        assert escape_slack_mrkdwn(raw) == expected

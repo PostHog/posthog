@@ -19,6 +19,9 @@ tools:
     visual-review-repos-create:
         operation: visual_review_repos_create
         enabled: false
+    visual-review-repos-flakiness-retrieve:
+        operation: visual_review_repos_flakiness_retrieve
+        enabled: false
     visual-review-repos-list:
         operation: visual_review_repos_list
         enabled: true
@@ -221,12 +224,13 @@ tools:
             destructive: false
             idempotent: true
         title: Tolerate visual review snapshot
-        description: >
+        description:
             Mark a single changed snapshot as a known tolerated alternate. The snapshot's current hash is recorded
             alongside the existing baseline so future runs producing the same alternate are not flagged as changes —
             useful for benign rendering variants (anti-aliasing noise, blinking cursors, etc.). Pass `snapshot_id` — the
-            UUID of the snapshot in this run. Does not change the baseline. Use approve to actually update the baseline
-            image.
+            UUID of the snapshot in this run. Does not change the baseline. To accept the change instead, use
+            `visual-review-runs-approve-create` to record the review, then `visual-review-runs-finalize-create` to
+            actually commit the new baseline.
         feature_flag: visual-review
     visual-review-runs-tolerated-hashes-list:
         operation: visual_review_runs_tolerated_hashes_list

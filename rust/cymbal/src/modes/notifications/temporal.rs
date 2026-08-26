@@ -1,5 +1,4 @@
-use std::collections::HashSet;
-
+use chrono::{DateTime, Utc};
 use common_temporal::{
     StartWorkflowOptions, StartWorkflowOutcome, TemporalClientConfig, TemporalWorkflowClient,
 };
@@ -7,56 +6,36 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use crate::core::error::UnhandledError;
-use crate::core::types::notification::{IssueCreated, IssueSnapshot};
+use crate::core::types::notification::{IssueCreated, IssueReopened, IssueSnapshot, IssueSpiking};
 use crate::modes::notifications::config::NotificationsConfig;
 
-const WORKFLOW_NAME: &str = "error-tracking-issue-created";
-const WORKFLOW_ID_PREFIX: &str = "error-tracking-issue-created";
-const WORKFLOW_STARTS_TOTAL: &str = "cymbal_issue_created_workflow_starts_total";
-const WORKFLOW_ROUTES_TOTAL: &str = "cymbal_issue_created_workflow_routes_total";
-
-#[derive(Clone, Default)]
-pub struct MaybeIssueCreatedWorkflowStarter(Option<IssueCreatedWorkflowStarter>);
-
-impl MaybeIssueCreatedWorkflowStarter {
-    pub async fn from_config(config: &NotificationsConfig) -> Result<Self, UnhandledError> {
-        if !config.issue_created_workflow_enabled {
-            return Ok(Self::default());
-        }
-
-        Ok(Self(Some(
-            IssueCreatedWorkflowStarter::from_config(config).await?,
-        )))
-    }
-
-    pub async fn start_if_enabled(
-        &self,
-        notification: &IssueCreated,
-    ) -> Result<bool, UnhandledError> {
-        let Some(starter) = &self.0 else {
-            metrics::counter!(WORKFLOW_ROUTES_TOTAL, "route" => "legacy").increment(1);
-            return Ok(false);
-        };
-        if !starter.is_enabled_for_team(notification.meta.team_id) {
-            metrics::counter!(WORKFLOW_ROUTES_TOTAL, "route" => "legacy").increment(1);
-            return Ok(false);
-        }
-
-        starter.start(notification).await?;
-        metrics::counter!(WORKFLOW_ROUTES_TOTAL, "route" => "temporal").increment(1);
-        Ok(true)
-    }
+#[derive(Clone, Copy)]
+struct WorkflowDefinition {
+    name: &'static str,
+    starts_metric: &'static str,
 }
+
+const ISSUE_CREATED_WORKFLOW: WorkflowDefinition = WorkflowDefinition {
+    name: "error-tracking-issue-created",
+    starts_metric: "cymbal_issue_created_workflow_starts_total",
+};
+const ISSUE_REOPENED_WORKFLOW: WorkflowDefinition = WorkflowDefinition {
+    name: "error-tracking-issue-reopened",
+    starts_metric: "cymbal_issue_reopened_workflow_starts_total",
+};
+const ISSUE_SPIKING_WORKFLOW: WorkflowDefinition = WorkflowDefinition {
+    name: "error-tracking-issue-spiking",
+    starts_metric: "cymbal_issue_spiking_workflow_starts_total",
+};
 
 #[derive(Clone)]
-struct IssueCreatedWorkflowStarter {
+pub struct IssueLifecycleWorkflowStarters {
     client: TemporalWorkflowClient,
     task_queue: String,
-    enabled_team_ids: Option<HashSet<i32>>,
 }
 
-impl IssueCreatedWorkflowStarter {
-    async fn from_config(config: &NotificationsConfig) -> Result<Self, UnhandledError> {
+impl IssueLifecycleWorkflowStarters {
+    pub async fn from_config(config: &NotificationsConfig) -> Result<Self, UnhandledError> {
         let client = TemporalWorkflowClient::connect(TemporalClientConfig {
             host: config.temporal_host.clone(),
             port: config.temporal_port,
@@ -69,6 +48,7 @@ impl IssueCreatedWorkflowStarter {
             server_root_ca_cert: None,
             payload_encryption_key: config.temporal_secret_key.clone(),
             identity: "cymbal-notifications".to_string(),
+            insecure: config.temporal_insecure,
         })
         .await
         .map_err(|error| UnhandledError::Other(error.to_string()))?;
@@ -76,48 +56,81 @@ impl IssueCreatedWorkflowStarter {
         Ok(Self {
             client,
             task_queue: config.error_tracking_lifecycle_task_queue.clone(),
-            enabled_team_ids: parse_team_ids(&config.issue_created_workflow_team_ids)?,
         })
     }
 
-    fn is_enabled_for_team(&self, team_id: i32) -> bool {
-        self.enabled_team_ids
-            .as_ref()
-            .is_none_or(|team_ids| team_ids.contains(&team_id))
+    /// Returns the outcome, because the caller charged a rate-limit token for
+    /// this start and gives it back when the workflow was already running.
+    pub async fn start_created(
+        &self,
+        notification: &IssueCreated,
+    ) -> Result<StartWorkflowOutcome, UnhandledError> {
+        self.start(
+            notification.meta.notification_id,
+            &IssueCreatedWorkflowInput::from(notification),
+            ISSUE_CREATED_WORKFLOW,
+        )
+        .await
     }
 
-    async fn start(&self, notification: &IssueCreated) -> Result<(), UnhandledError> {
-        let options = start_options(notification, &self.task_queue);
-        match self
-            .client
-            .start_workflow(&IssueCreatedWorkflowInput::from(notification), &options)
-            .await
-        {
-            Ok(StartWorkflowOutcome::Started { .. }) => {
-                metrics::counter!(WORKFLOW_STARTS_TOTAL, "outcome" => "started").increment(1);
-                Ok(())
+    pub async fn start_reopened(&self, notification: &IssueReopened) -> Result<(), UnhandledError> {
+        self.start(
+            notification.meta.notification_id,
+            &IssueReopenedWorkflowInput::from(notification),
+            ISSUE_REOPENED_WORKFLOW,
+        )
+        .await
+        .map(|_outcome| ())
+    }
+
+    pub async fn start_spiking(&self, notification: &IssueSpiking) -> Result<(), UnhandledError> {
+        self.start(
+            notification.meta.notification_id,
+            &IssueSpikingWorkflowInput::from(notification),
+            ISSUE_SPIKING_WORKFLOW,
+        )
+        .await
+        .map(|_outcome| ())
+    }
+
+    async fn start<T: Serialize>(
+        &self,
+        notification_id: Uuid,
+        input: &T,
+        workflow: WorkflowDefinition,
+    ) -> Result<StartWorkflowOutcome, UnhandledError> {
+        let options = start_options(notification_id, &self.task_queue, workflow);
+        match self.client.start_workflow(input, &options).await {
+            Ok(outcome @ StartWorkflowOutcome::Started { .. }) => {
+                metrics::counter!(workflow.starts_metric, "outcome" => "started").increment(1);
+                Ok(outcome)
             }
-            Ok(StartWorkflowOutcome::Existing { .. }) => {
-                metrics::counter!(WORKFLOW_STARTS_TOTAL, "outcome" => "already_started")
+            Ok(outcome @ StartWorkflowOutcome::Existing { .. }) => {
+                metrics::counter!(workflow.starts_metric, "outcome" => "already_started")
                     .increment(1);
-                Ok(())
+                Ok(outcome)
             }
             Err(error) => {
-                metrics::counter!(WORKFLOW_STARTS_TOTAL, "outcome" => "error").increment(1);
+                metrics::counter!(workflow.starts_metric, "outcome" => "error").increment(1);
                 Err(UnhandledError::Other(format!(
-                    "failed to start issue-created workflow: {error}"
+                    "failed to start {} workflow: {error}",
+                    workflow.name
                 )))
             }
         }
     }
 }
 
-fn start_options(notification: &IssueCreated, task_queue: &str) -> StartWorkflowOptions {
+fn start_options(
+    notification_id: Uuid,
+    task_queue: &str,
+    workflow: WorkflowDefinition,
+) -> StartWorkflowOptions {
     StartWorkflowOptions::idempotent(
-        WORKFLOW_NAME,
+        workflow.name,
         task_queue,
-        format!("{WORKFLOW_ID_PREFIX}-{}", notification.meta.notification_id),
-        notification.meta.notification_id.to_string(),
+        format!("{}-{notification_id}", workflow.name),
+        notification_id.to_string(),
     )
 }
 
@@ -148,20 +161,74 @@ impl<'a> From<&'a IssueCreated> for IssueCreatedWorkflowInput<'a> {
     }
 }
 
-fn parse_team_ids(raw: &str) -> Result<Option<HashSet<i32>>, UnhandledError> {
-    if raw.trim().is_empty() {
-        return Ok(None);
+#[derive(Serialize)]
+struct IssueReopenedWorkflowInput<'a> {
+    notification_id: Uuid,
+    team_id: i32,
+    issue_id: Uuid,
+    issue: &'a IssueSnapshot,
+    fingerprint: &'a str,
+    event_uuid: Uuid,
+    event_timestamp: &'a str,
+    assignee: Option<&'a str>,
+}
+
+impl<'a> From<&'a IssueReopened> for IssueReopenedWorkflowInput<'a> {
+    fn from(notification: &'a IssueReopened) -> Self {
+        Self {
+            notification_id: notification.meta.notification_id,
+            team_id: notification.meta.team_id,
+            issue_id: notification.issue.issue_id,
+            issue: &notification.issue.issue,
+            fingerprint: notification.issue.event_properties.fingerprint(),
+            event_uuid: notification.event_uuid,
+            event_timestamp: &notification.event_timestamp,
+            assignee: notification.assignee.as_deref(),
+        }
     }
-    raw.split(',')
-        .map(|value| {
-            value.trim().parse::<i32>().map_err(|error| {
-                UnhandledError::Other(format!(
-                    "invalid ERROR_TRACKING_ISSUE_CREATED_WORKFLOW_TEAM_IDS entry {value:?}: {error}"
-                ))
-            })
+}
+
+#[derive(Serialize)]
+struct IssueSpikingWorkflowInput<'a> {
+    notification_id: Uuid,
+    team_id: i32,
+    issue_id: Uuid,
+    issue: &'a IssueSnapshot,
+    fingerprint: &'a str,
+    event_uuid: Uuid,
+    event_timestamp: &'a str,
+    detected_at: DateTime<Utc>,
+    computed_baseline: f64,
+    current_bucket_value: f64,
+    assignee: Option<&'a str>,
+}
+
+impl<'a> From<&'a IssueSpiking> for IssueSpikingWorkflowInput<'a> {
+    fn from(notification: &'a IssueSpiking) -> Self {
+        Self {
+            notification_id: notification.meta.notification_id,
+            team_id: notification.meta.team_id,
+            issue_id: notification.issue.issue_id,
+            issue: &notification.issue.issue,
+            fingerprint: notification.issue.event_properties.fingerprint(),
+            event_uuid: notification.event_uuid,
+            event_timestamp: &notification.event_timestamp,
+            detected_at: notification_time(notification.meta.notification_id),
+            computed_baseline: notification.computed_baseline,
+            current_bucket_value: notification.current_bucket_value,
+            assignee: notification.assignee.as_deref(),
+        }
+    }
+}
+
+fn notification_time(notification_id: Uuid) -> DateTime<Utc> {
+    notification_id
+        .get_timestamp()
+        .and_then(|timestamp| {
+            let (seconds, nanos) = timestamp.to_unix();
+            DateTime::from_timestamp(seconds as i64, nanos)
         })
-        .collect::<Result<HashSet<_>, _>>()
-        .map(Some)
+        .unwrap_or_else(Utc::now)
 }
 
 #[cfg(test)]
@@ -177,71 +244,111 @@ mod tests {
         Uuid::parse_str("018f3f58-7a7b-7c00-8000-000000000001").unwrap()
     }
 
-    fn notification() -> IssueCreated {
+    fn issue_context() -> IssueNotificationContext {
+        IssueNotificationContext {
+            issue_id: Uuid::nil(),
+            issue: IssueSnapshot {
+                name: Some("TypeError".to_string()),
+                description: Some("boom".to_string()),
+                status: "active".to_string(),
+                severity: Some("high".to_string()),
+                created_at: Utc::now(),
+            },
+            event_properties: serde_json::from_value::<ProcessedExceptionProperties>(
+                serde_json::json!({
+                    "$exception_list": [{"type": "TypeError", "value": "boom"}],
+                    "$exception_fingerprint": "fingerprint",
+                    "$exception_fingerprint_record": [],
+                    "$exception_issue_id": Uuid::nil(),
+                    "$exception_handled": false,
+                    "$exception_types": ["TypeError"],
+                    "$exception_values": ["boom"],
+                    "$exception_sources": [],
+                    "$exception_functions": [],
+                }),
+            )
+            .unwrap(),
+        }
+    }
+
+    fn issue_created() -> IssueCreated {
         IssueCreated {
             meta: NotificationMeta {
                 notification_id: notification_id(),
                 team_id: 42,
             },
-            issue: IssueNotificationContext {
-                issue_id: Uuid::nil(),
-                issue: IssueSnapshot {
-                    name: Some("TypeError".to_string()),
-                    description: Some("boom".to_string()),
-                    status: "active".to_string(),
-                    created_at: Utc::now(),
-                },
-                event_properties: serde_json::from_value::<ProcessedExceptionProperties>(
-                    serde_json::json!({
-                        "$exception_list": [{"type": "TypeError", "value": "boom"}],
-                        "$exception_fingerprint": "fingerprint",
-                        "$exception_fingerprint_record": [],
-                        "$exception_issue_id": Uuid::nil(),
-                        "$exception_handled": false,
-                        "$exception_types": ["TypeError"],
-                        "$exception_values": ["boom"],
-                        "$exception_sources": [],
-                        "$exception_functions": [],
-                    }),
-                )
-                .unwrap(),
-            },
+            issue: issue_context(),
             fingerprint: "fingerprint".to_string(),
-            event_uuid: Uuid::nil(),
+            event_uuid: Uuid::now_v7(),
             event_timestamp: "2026-07-21T12:00:00Z".to_string(),
             assignee: None,
         }
     }
 
-    #[test]
-    fn workflow_input_excludes_event_properties() {
-        let value = serde_json::to_value(IssueCreatedWorkflowInput::from(&notification())).unwrap();
+    fn issue_reopened() -> IssueReopened {
+        IssueReopened {
+            meta: NotificationMeta {
+                notification_id: notification_id(),
+                team_id: 42,
+            },
+            issue: issue_context(),
+            event_uuid: Uuid::now_v7(),
+            event_timestamp: "2026-07-21T12:00:00Z".to_string(),
+            assignee: None,
+        }
+    }
 
-        assert_eq!(value["team_id"], 42);
-        assert_eq!(value["fingerprint"], "fingerprint");
-        assert!(value.get("event_properties").is_none());
+    fn issue_spiking() -> IssueSpiking {
+        IssueSpiking {
+            meta: NotificationMeta {
+                notification_id: notification_id(),
+                team_id: 42,
+            },
+            issue: issue_context(),
+            event_uuid: Uuid::now_v7(),
+            event_timestamp: "2026-07-21T12:00:00Z".to_string(),
+            computed_baseline: 2.0,
+            current_bucket_value: 20.0,
+            assignee: None,
+        }
+    }
+
+    #[test]
+    fn workflow_inputs_exclude_event_properties() {
+        let values = [
+            serde_json::to_value(IssueCreatedWorkflowInput::from(&issue_created())).unwrap(),
+            serde_json::to_value(IssueReopenedWorkflowInput::from(&issue_reopened())).unwrap(),
+            serde_json::to_value(IssueSpikingWorkflowInput::from(&issue_spiking())).unwrap(),
+        ];
+
+        for value in values {
+            assert_eq!(value["team_id"], 42);
+            assert_eq!(value["fingerprint"], "fingerprint");
+            assert_eq!(value["issue"]["severity"], "high");
+            assert!(value.get("event_properties").is_none());
+        }
     }
 
     #[test]
     fn start_options_are_idempotent_and_target_the_lifecycle_queue() {
-        let options = start_options(&notification(), "error-tracking-lifecycle-task-queue");
+        for workflow in [
+            ISSUE_CREATED_WORKFLOW,
+            ISSUE_REOPENED_WORKFLOW,
+            ISSUE_SPIKING_WORKFLOW,
+        ] {
+            let options = start_options(
+                notification_id(),
+                "error-tracking-lifecycle-task-queue",
+                workflow,
+            );
 
-        assert_eq!(options.workflow_name, "error-tracking-issue-created");
-        assert_eq!(
-            options.workflow_id,
-            format!("error-tracking-issue-created-{}", notification_id())
-        );
-        assert_eq!(options.request_id, notification_id().to_string());
-        assert_eq!(options.task_queue, "error-tracking-lifecycle-task-queue");
-    }
-
-    #[test]
-    fn parses_rollout_team_allowlist() {
-        assert_eq!(parse_team_ids("").unwrap(), None);
-        assert_eq!(
-            parse_team_ids("42, 43").unwrap(),
-            Some(HashSet::from([42, 43]))
-        );
-        assert!(parse_team_ids("42,nope").is_err());
+            assert_eq!(options.workflow_name, workflow.name);
+            assert_eq!(
+                options.workflow_id,
+                format!("{}-{}", workflow.name, notification_id())
+            );
+            assert_eq!(options.request_id, notification_id().to_string());
+            assert_eq!(options.task_queue, "error-tracking-lifecycle-task-queue");
+        }
     }
 }

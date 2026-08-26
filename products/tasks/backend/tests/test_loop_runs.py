@@ -2,7 +2,8 @@ from datetime import timedelta
 
 from unittest.mock import patch
 
-from django.test import SimpleTestCase, TestCase
+from django.apps import apps
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
@@ -23,7 +24,16 @@ from products.tasks.backend.logic.services.loop_runs import (
     handle_loop_run_terminal,
     render_trigger_context,
 )
-from products.tasks.backend.models import Channel, Loop, LoopFire, LoopTrigger, SandboxEnvironment, Task, TaskRun
+from products.tasks.backend.models import (
+    Channel,
+    Loop,
+    LoopFire,
+    LoopTrigger,
+    SandboxEnvironment,
+    Task,
+    TaskClientProvenance,
+    TaskRun,
+)
 from products.tasks.backend.temporal.client import _terminalize_unstarted_task_run
 from products.tasks.backend.temporal.constants import LOOP_RUN_STALE_SECONDS
 
@@ -85,7 +95,7 @@ class LoopRunsTestCase(TestCase):
         # non-deterministic (fails open when the gateway is down, blocks when it's up locally).
         # Default it to "allowed" so happy-path fires are deterministic; the gate-specific tests
         # override this with their own patch.
-        gate = patch(f"{LOOP_RUNS_MODULE}.cloud_usage_limit_response", return_value=None)
+        gate = patch(f"{LOOP_RUNS_MODULE}.usage_limit_response", return_value=None)
         gate.start()
         self.addCleanup(gate.stop)
         # Cancelling a displaced run signals its Temporal workflow; mock it so tests neither hit
@@ -176,7 +186,7 @@ class TestFireLoopGuardrails(LoopRunsTestCase):
         self.assertEqual(Task.objects.filter(team=self.team, origin_product=Task.OriginProduct.LOOP).count(), 0)
 
     def test_same_fire_key_on_a_trigger_dedups_and_returns_the_original_run(self):
-        loop = self.create_loop()
+        loop = self.create_loop(client_provenance=TaskClientProvenance.POSTHOG_DESKTOP)
         trigger = self.create_trigger(loop)
 
         first = fire_loop(loop, trigger, "delivery-1", "ctx")
@@ -190,6 +200,11 @@ class TestFireLoopGuardrails(LoopRunsTestCase):
         self.assertEqual(second.task_run_id, first.task_run_id)
         self.assertEqual(LoopFire.objects.unscoped().filter(loop_trigger=trigger).count(), 1)
         self.assertEqual(Task.objects.filter(team=self.team, origin_product=Task.OriginProduct.LOOP).count(), 1)
+        assert first.task_id is not None
+        self.assertEqual(
+            Task.objects.get(id=first.task_id).client_provenance,
+            TaskClientProvenance.POSTHOG_DESKTOP,
+        )
 
     def test_manual_fire_dedups_on_the_idempotency_key(self):
         # Manual "run now" has no trigger; a double-click with the same Idempotency-Key must
@@ -205,7 +220,7 @@ class TestFireLoopGuardrails(LoopRunsTestCase):
         self.assertEqual(Task.objects.filter(team=self.team, origin_product=Task.OriginProduct.LOOP).count(), 1)
 
     @patch(f"{LOOP_RUNS_MODULE}.dispatch_loop_event")
-    @patch(f"{LOOP_RUNS_MODULE}.cloud_usage_limit_response")
+    @patch(f"{LOOP_RUNS_MODULE}.usage_limit_response")
     def test_usage_gate_blocked_records_failure_and_flags_attention_without_creating_a_run(
         self, mock_gate, mock_dispatch
     ):
@@ -225,7 +240,7 @@ class TestFireLoopGuardrails(LoopRunsTestCase):
 
     @patch(f"{LOOP_RUNS_MODULE}.dispatch_loop_event")
     @patch(f"{LOOP_RUNS_MODULE}.pause_loop_schedules")
-    @patch(f"{LOOP_RUNS_MODULE}.cloud_usage_limit_response")
+    @patch(f"{LOOP_RUNS_MODULE}.usage_limit_response")
     def test_usage_gate_blocked_pauses_loop_after_reaching_failure_threshold(
         self, mock_gate, mock_pause, mock_dispatch
     ):
@@ -287,7 +302,7 @@ class TestFireLoopGuardrails(LoopRunsTestCase):
             LOOP_RATE_CAP_PER_DAY,
         )
 
-    @patch(f"{LOOP_RUNS_MODULE}.cloud_usage_limit_response", return_value=None)
+    @patch(f"{LOOP_RUNS_MODULE}.usage_limit_response", return_value=None)
     def test_team_wide_rate_cap_blocks_a_loop_under_its_own_cap(self, _mock_gate):
         # Two loops each below the per-loop cap, but together over the team aggregate: the
         # team cap must still stop the fire, or N loops would each spend the per-loop cap.
@@ -315,7 +330,7 @@ class TestFireLoopGuardrails(LoopRunsTestCase):
         self.assertEqual(result.reason, "team_rate_capped")
         mock_dispatch.assert_called_once_with(fresh, "needs_attention", {"reason": "team_rate_capped"})
 
-    @patch(f"{LOOP_RUNS_MODULE}.cloud_usage_limit_response", return_value=None)
+    @patch(f"{LOOP_RUNS_MODULE}.usage_limit_response", return_value=None)
     def test_rejected_fires_do_not_consume_the_team_rate_budget(self, _mock_gate):
         # Regression: rejected fires still record a LoopFire row (for idempotent replay) but must
         # not count toward the caps. Otherwise spamming unique keys at an already-capped loop drains
@@ -464,6 +479,30 @@ class TestFireLoopCreatesRun(LoopRunsTestCase):
         self.assertEqual(task_run.state["config_snapshot"]["connectors"], loop.connectors)
         self.assertEqual(task_run.state["config_snapshot"]["notifications"], loop.notifications)
         self.assertEqual(task_run.state["config_snapshot"]["repositories"], loop.repositories)
+
+    @parameterized.expand(
+        [
+            ("repo_less_loop_gets_read_only_github", False, True),
+            ("repo_pinned_loop_uses_repository_integration", True, False),
+        ]
+    )
+    def test_fire_grants_github_read_access_only_to_repo_less_loops(self, _name, pin_repository, expected_flag):
+        repositories = []
+        if pin_repository:
+            integration = Integration.objects.create(team=self.team, kind="github", integration_id="12345", config={})
+            repositories = [{"github_integration_id": integration.id, "full_name": "acme/repo"}]
+        loop = self.create_loop(repositories=repositories)
+        trigger = self.create_trigger(loop)
+
+        result = fire_loop(loop, trigger, f"fire-{_name}", "rendered context")
+
+        self.assertTrue(result.created)
+        assert result.task_run_id is not None
+        task_run = TaskRun.objects.get(id=result.task_run_id)
+        if expected_flag:
+            self.assertIs(task_run.state["github_read_access"], True)
+        else:
+            self.assertNotIn("github_read_access", task_run.state)
 
     @parameterized.expand(
         [
@@ -713,19 +752,30 @@ class TestFireLoopSeedsSkillBundles(LoopRunsTestCase):
 
 
 class TestFireLoopContextTarget(LoopRunsTestCase):
-    FOLDER_ID = "11111111-1111-1111-1111-111111111111"
     CANVAS_ID = "22222222-2222-2222-2222-222222222222"
 
     def setUp(self):
         super().setUp()
         # The cloud usage gate is a billing boundary; with no limit it returns None. Mock it so a
         # fire actually spawns a run regardless of the local env's billing state (CI returns None).
-        gate = patch(f"{LOOP_RUNS_MODULE}.cloud_usage_limit_response", return_value=None)
+        gate = patch(f"{LOOP_RUNS_MODULE}.usage_limit_response", return_value=None)
         gate.start()
         self.addCleanup(gate.stop)
+        self.channel = Channel(
+            team=self.team, name="growth-team", channel_type=Channel.ChannelType.PUBLIC, created_by=self.user
+        )
+        self.channel.save()
+        canvas_model = apps.get_model("canvas", "Canvas")
+        canvas_model.objects.unscoped().create(
+            id=self.CANVAS_ID,
+            team=self.team,
+            channel=self.channel,
+            name="Growth Team",
+            created_by=self.user,
+        )
 
     def context_target(self, **outputs) -> dict:
-        return {"folder_id": self.FOLDER_ID, "name": "Growth Team", "outputs": outputs}
+        return {"channel_id": str(self.channel.id), "name": "Growth Team", "outputs": outputs}
 
     def fire_and_capture(self, loop: Loop, trigger: LoopTrigger, fire_key: str = "fire-ctx"):
         """Fire once, executing the post-commit dispatch against a mock so the resolved
@@ -736,15 +786,9 @@ class TestFireLoopContextTarget(LoopRunsTestCase):
         scopes = mock_dispatch.call_args.kwargs["posthog_mcp_scopes"] if mock_dispatch.call_args else None
         return result, scopes
 
-    def team_channel(self, name: str) -> Channel:
-        return Channel.objects.for_team(self.team.id, canonical=True).get(
-            name=name, channel_type=Channel.ChannelType.PUBLIC
-        )
-
     def test_feed_output_files_the_run_into_the_contexts_feed_channel(self):
-        # Attaching a loop to a context with post_to_feed must land each run in that context's
-        # feed. The feed channel is keyed by the normalized context name, resolved (or created)
-        # at fire time — dropping the channel wiring would silently orphan the runs.
+        # Attaching a loop to a context with post_to_feed must land each run in that channel's
+        # feed — dropping the channel wiring would silently orphan the runs.
         loop = self.create_loop(context_target=self.context_target(post_to_feed=True))
         trigger = self.create_trigger(loop)
 
@@ -752,39 +796,61 @@ class TestFireLoopContextTarget(LoopRunsTestCase):
 
         assert result.task_id is not None
         task = Task.objects.get(id=result.task_id)
-        self.assertEqual(task.channel_id, self.team_channel("growth-team").id)
+        self.assertEqual(task.channel_id, self.channel.id)
 
-    def test_feed_output_reuses_an_existing_feed_channel(self):
-        existing = Channel(
-            team=self.team, name="growth-team", channel_type=Channel.ChannelType.PUBLIC, created_by=self.user
-        )
-        existing.save()
+    def test_feed_output_skips_a_deleted_channel(self):
+        # A context attachment pointing at a since-deleted channel must not file runs into it.
         loop = self.create_loop(context_target=self.context_target(post_to_feed=True))
+        Channel.objects.unscoped().filter(id=self.channel.id).update(deleted=True)
         trigger = self.create_trigger(loop)
 
         result, _ = self.fire_and_capture(loop, trigger)
 
         assert result.task_id is not None
-        task = Task.objects.get(id=result.task_id)
-        self.assertEqual(task.channel_id, existing.id)
-        self.assertEqual(Channel.objects.unscoped().filter(team=self.team, name="growth-team").count(), 1)
+        self.assertIsNone(Task.objects.get(id=result.task_id).channel_id)
 
     @parameterized.expand(
         [
-            ("update_context_only", {"update_context": True}, [FOLDER_ID], ["desktop-file-system-instructions"]),
-            ("canvas_only", {"canvas_id": CANVAS_ID}, [CANVAS_ID], ["desktop-file-system-canvas-partial-update"]),
+            (
+                "update_context_only",
+                {"update_context": True},
+                [
+                    "loop-context-wiki-channel-resolve",
+                    "loop-context-wiki-page-retrieve",
+                    "loop-context-wiki-page-update",
+                    "loop-channel-instructions-retrieve",
+                    "loop-channel-instructions-update",
+                ],
+            ),
+            (
+                "canvas_only",
+                {"canvas_id": CANVAS_ID},
+                [
+                    CANVAS_ID,
+                    "canvas-source-retrieve",
+                    "canvas-publish-create",
+                    "expected_current_version_id",
+                ],
+            ),
             (
                 "both",
                 {"update_context": True, "canvas_id": CANVAS_ID},
-                [FOLDER_ID, CANVAS_ID],
-                ["desktop-file-system-instructions", "desktop-file-system-canvas-partial-update"],
+                [
+                    CANVAS_ID,
+                    "loop-context-wiki-channel-resolve",
+                    "loop-context-wiki-page-retrieve",
+                    "loop-context-wiki-page-update",
+                    "loop-channel-instructions-retrieve",
+                    "loop-channel-instructions-update",
+                    "canvas-source-retrieve",
+                    "canvas-publish-create",
+                    "expected_current_version_id",
+                ],
             ),
         ]
     )
-    def test_context_write_outputs_add_the_publish_block_to_the_prompt(
-        self, _name, outputs, expected_ids, expected_tool_fragments
-    ):
-        # A context-maintaining loop must be told, in its prompt, which folder/canvas to publish to
+    def test_context_write_outputs_add_the_publish_block_to_the_prompt(self, _name, outputs, expected_tool_fragments):
+        # A context-maintaining loop must be told, in its prompt, which channel/canvas to publish to
         # and through which tool — the sandbox agent has no other way to know its target.
         loop = self.create_loop(context_target=self.context_target(**outputs))
         trigger = self.create_trigger(loop)
@@ -793,8 +859,8 @@ class TestFireLoopContextTarget(LoopRunsTestCase):
 
         assert result.task_run_id is not None
         pending_user_message = TaskRun.objects.get(id=result.task_run_id).state["pending_user_message"]
-        for expected_id in expected_ids:
-            self.assertIn(expected_id, pending_user_message)
+        if "update_context" in outputs:
+            self.assertIn(str(self.channel.id), pending_user_message)
         for fragment in expected_tool_fragments:
             self.assertIn(fragment, pending_user_message)
 
@@ -804,10 +870,11 @@ class TestFireLoopContextTarget(LoopRunsTestCase):
             ("canvas", {"canvas_id": CANVAS_ID}),
         ]
     )
-    def test_context_write_outputs_grant_file_system_write_without_widening_to_full(self, _name, outputs):
-        # Least privilege: maintaining context.md / a canvas needs file_system write, but must not
-        # promote the run to the whole `full` write surface. Regressing either way is a real bug —
-        # too narrow breaks the publish, too broad hands an unattended run every write scope.
+    def test_context_write_outputs_grant_targeted_write_scopes_without_widening_to_full(self, _name, outputs):
+        # Least privilege: maintaining context.md needs the channels API (task scope) and a canvas
+        # needs canvas scope, but neither must promote the run to the whole `full` write surface.
+        # Regressing either way is a real bug — too narrow breaks the publish, too broad hands an
+        # unattended run every write scope.
         loop = self.create_loop(
             connectors={"posthog_mcp_scopes": "read_only"}, context_target=self.context_target(**outputs)
         )
@@ -816,8 +883,14 @@ class TestFireLoopContextTarget(LoopRunsTestCase):
         _, scopes = self.fire_and_capture(loop, trigger)
 
         self.assertIsInstance(scopes, list)
-        self.assertIn("file_system:write", scopes)
-        self.assertIn("file_system:read", scopes)
+        if outputs.get("update_context"):
+            self.assertIn("task:read", scopes)
+            self.assertIn("task:write", scopes)
+            self.assertIn("loop_context_internal:write", scopes)
+            self.assertNotIn("organization:write", scopes)
+        if outputs.get("canvas_id"):
+            self.assertIn("canvas:write", scopes)
+            self.assertIn("canvas:read", scopes)
         self.assertNotEqual(scopes, "full")
 
     def test_feed_only_attachment_keeps_read_only_scope_and_omits_publish_block(self):
@@ -832,8 +905,21 @@ class TestFireLoopContextTarget(LoopRunsTestCase):
 
         assert result.task_id is not None
         task_run = TaskRun.objects.get(id=result.task_run_id)
-        self.assertNotIn("desktop-file-system", task_run.state["pending_user_message"])
+        self.assertNotIn("living deliverables", task_run.state["pending_user_message"])
         self.assertEqual(scopes, "read_only")
+
+    def test_context_update_adds_loop_scope_to_full_preset(self):
+        loop = self.create_loop(
+            connectors={"posthog_mcp_scopes": "full"},
+            context_target=self.context_target(update_context=True),
+        )
+        trigger = self.create_trigger(loop)
+
+        _, scopes = self.fire_and_capture(loop, trigger)
+
+        self.assertIsInstance(scopes, list)
+        self.assertIn("loop_context_internal:write", scopes)
+        self.assertIn("task:write", scopes)
 
     def test_unattached_loop_sets_no_channel_and_no_publish_block(self):
         loop = self.create_loop()
@@ -845,9 +931,10 @@ class TestFireLoopContextTarget(LoopRunsTestCase):
         task = Task.objects.get(id=result.task_id)
         self.assertIsNone(task.channel_id)
         task_run = TaskRun.objects.get(id=result.task_run_id)
-        self.assertNotIn("desktop-file-system", task_run.state["pending_user_message"])
+        self.assertNotIn("living deliverables", task_run.state["pending_user_message"])
 
 
+@override_settings(CELERY_TASK_ALWAYS_EAGER=True)
 class TestHandleLoopRunTerminal(LoopRunsTestCase):
     def make_terminal_task_run(self, loop: Loop, *, status: str, error_message: str | None = None) -> TaskRun:
         task = Task.objects.create(
@@ -925,24 +1012,53 @@ class TestHandleLoopRunTerminal(LoopRunsTestCase):
         loop = self.create_loop(consecutive_failures=3, last_error="previous failure")
         task_run = self.make_terminal_task_run(loop, status=TaskRun.Status.COMPLETED)
 
-        handle_loop_run_terminal(task_run)
+        with self.captureOnCommitCallbacks(execute=True):
+            handle_loop_run_terminal(task_run)
 
         loop.refresh_from_db()
         self.assertEqual(loop.consecutive_failures, 0)
         self.assertIsNone(loop.last_error)
         self.assertEqual(loop.last_run_status, TaskRun.Status.COMPLETED)
-        mock_dispatch.assert_called_once_with(
-            loop,
-            "run_completed",
+        dispatched_loop, dispatched_event, dispatched_payload = mock_dispatch.call_args[0]
+        self.assertEqual(dispatched_loop.id, loop.id)
+        self.assertEqual(dispatched_event, "run_completed")
+        self.assertEqual(
+            dispatched_payload,
             {"task_id": str(task_run.task_id), "task_run_id": str(task_run.id), "status": TaskRun.Status.COMPLETED},
         )
+
+    @patch(f"{LOOP_RUNS_MODULE}.dispatch_loop_event")
+    def test_completed_run_with_final_message_dispatches_report(self, mock_dispatch):
+        loop = self.create_loop(consecutive_failures=0)
+        task_run = self.make_terminal_task_run(loop, status=TaskRun.Status.COMPLETED)
+        task_run.output = {"final_message": "Weekly summary: all green."}
+        task_run.save(update_fields=["output", "updated_at"])
+
+        with self.captureOnCommitCallbacks(execute=True):
+            handle_loop_run_terminal(task_run)
+
+        _, dispatched_event, dispatched_payload = mock_dispatch.call_args[0]
+        self.assertEqual(dispatched_event, "run_completed")
+        self.assertEqual(dispatched_payload["report"], "Weekly summary: all green.")
+
+    @patch(f"{LOOP_RUNS_MODULE}.dispatch_loop_event")
+    def test_completed_run_without_final_message_dispatches_no_report_key(self, mock_dispatch):
+        loop = self.create_loop(consecutive_failures=0)
+        task_run = self.make_terminal_task_run(loop, status=TaskRun.Status.COMPLETED)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            handle_loop_run_terminal(task_run)
+
+        _, _, dispatched_payload = mock_dispatch.call_args[0]
+        self.assertNotIn("report", dispatched_payload)
 
     @patch(f"{LOOP_RUNS_MODULE}.dispatch_loop_event")
     def test_failed_run_increments_consecutive_failures_and_dispatches_run_failed(self, mock_dispatch):
         loop = self.create_loop(consecutive_failures=0)
         task_run = self.make_terminal_task_run(loop, status=TaskRun.Status.FAILED, error_message="boom")
 
-        handle_loop_run_terminal(task_run)
+        with self.captureOnCommitCallbacks(execute=True):
+            handle_loop_run_terminal(task_run)
 
         loop.refresh_from_db()
         self.assertEqual(loop.consecutive_failures, 1)
@@ -957,11 +1073,27 @@ class TestHandleLoopRunTerminal(LoopRunsTestCase):
 
     @patch(f"{LOOP_RUNS_MODULE}.dispatch_loop_event")
     @patch(f"{LOOP_RUNS_MODULE}.pause_loop_schedules")
+    def test_compute_billing_denial_pauses_without_retrying(self, mock_pause, mock_dispatch):
+        loop = self.create_loop(consecutive_failures=0)
+        task_run = self.make_terminal_task_run(loop, status=TaskRun.Status.FAILED, error_message="backend detail")
+
+        with self.captureOnCommitCallbacks(execute=True):
+            handle_loop_run_terminal(task_run, error_type="ComputeBillingLimitError")
+
+        loop.refresh_from_db()
+        self.assertFalse(loop.enabled)
+        self.assertEqual(loop.disabled_reason, DISABLED_REASON_USAGE_LIMITED)
+        self.assertEqual(loop.last_error, "Your organization has reached its PostHog Desktop credit limit.")
+        mock_pause.assert_called_once()
+
+    @patch(f"{LOOP_RUNS_MODULE}.dispatch_loop_event")
+    @patch(f"{LOOP_RUNS_MODULE}.pause_loop_schedules")
     def test_failed_run_reaching_threshold_auto_pauses_the_loop(self, mock_pause, mock_dispatch):
         loop = self.create_loop(consecutive_failures=LOOP_AUTO_PAUSE_THRESHOLD - 1)
         task_run = self.make_terminal_task_run(loop, status=TaskRun.Status.FAILED, error_message="boom")
 
-        handle_loop_run_terminal(task_run)
+        with self.captureOnCommitCallbacks(execute=True):
+            handle_loop_run_terminal(task_run)
 
         loop.refresh_from_db()
         self.assertFalse(loop.enabled)
@@ -978,6 +1110,7 @@ class TestHandleLoopRunTerminal(LoopRunsTestCase):
         )
 
 
+@override_settings(CELERY_TASK_ALWAYS_EAGER=True)
 class TestTerminalizeUnstartedTaskRun(LoopRunsTestCase):
     @patch("products.tasks.backend.models.publish_task_run_stream_event")
     @patch(f"{LOOP_RUNS_MODULE}.dispatch_loop_event")
@@ -995,7 +1128,8 @@ class TestTerminalizeUnstartedTaskRun(LoopRunsTestCase):
         )
         task_run = task.create_run(mode="background", extra_state={"loop_id": str(loop.id)})
 
-        terminalized = _terminalize_unstarted_task_run(str(task_run.id), "workflow start failed")
+        with self.captureOnCommitCallbacks(execute=True):
+            terminalized = _terminalize_unstarted_task_run(str(task_run.id), "workflow start failed")
 
         self.assertTrue(terminalized)
         loop.refresh_from_db()

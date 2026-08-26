@@ -61,8 +61,10 @@ def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, 
     return snapshots
 
 
-def _source(endpoint: str, manager: mock.MagicMock, **kwargs: Any):
-    return streamelements_source("jwt", endpoint, team_id=1, job_id="j", resumable_source_manager=manager, **kwargs)
+def _source(endpoint: str, manager: mock.MagicMock, *, api_version: str = "v2", **kwargs: Any):
+    return streamelements_source(
+        "jwt", endpoint, team_id=1, job_id="j", resumable_source_manager=manager, api_version=api_version, **kwargs
+    )
 
 
 def _rows(source_response) -> list[dict[str, Any]]:
@@ -108,7 +110,7 @@ class TestValidateCredentials:
     @mock.patch(SESSION_PATCH)
     def test_status_mapping(self, mock_session: mock.MagicMock, status_code: int, expected_valid: bool) -> None:
         mock_session.return_value.get.return_value = _response({"_id": CHANNEL_ID}, status_code=status_code)
-        valid, _ = validate_credentials("jwt")
+        valid, _ = validate_credentials("jwt", "v2")
         assert valid is expected_valid
 
     @mock.patch(SESSION_PATCH)
@@ -116,9 +118,17 @@ class TestValidateCredentials:
         import requests
 
         mock_session.return_value.get.side_effect = requests.exceptions.ConnectionError("boom")
-        valid, message = validate_credentials("jwt")
+        valid, message = validate_credentials("jwt", "v2")
         assert valid is False
         assert message == "boom"
+
+    @pytest.mark.parametrize("api_version", ["v2", "v3"])
+    @mock.patch(SESSION_PATCH)
+    def test_probes_channels_me_under_pinned_version(self, mock_session: mock.MagicMock, api_version: str) -> None:
+        mock_session.return_value.get.return_value = _response({"_id": CHANNEL_ID})
+        validate_credentials("jwt", api_version)
+        url = mock_session.return_value.get.call_args.args[0]
+        assert url == f"https://api.streamelements.com/kappa/{api_version}/channels/me"
 
 
 class TestCaptureDisabled:
@@ -140,14 +150,33 @@ class TestCaptureDisabled:
     @mock.patch(SESSION_PATCH)
     def test_get_channel_id_disables_capture(self, mock_session: mock.MagicMock) -> None:
         mock_session.return_value.get.return_value = _response({"_id": CHANNEL_ID})
-        get_channel_id("jwt")
+        get_channel_id("jwt", "v2")
         mock_session.assert_called_once_with(redact_values=("jwt",), capture=False)
 
     @mock.patch(SESSION_PATCH)
     def test_validate_credentials_disables_capture(self, mock_session: mock.MagicMock) -> None:
         mock_session.return_value.get.return_value = _response({"_id": CHANNEL_ID})
-        validate_credentials("jwt")
+        validate_credentials("jwt", "v2")
         mock_session.assert_called_once_with(redact_values=("jwt",), capture=False)
+
+
+class TestApiVersion:
+    """The version label is the kappa/<version> base-URL segment. Both the channel-id probe and
+    every pipeline request must target the pinned version so a v2-pinned source stays on v2 while
+    new v3 sources hit /kappa/v3."""
+
+    @pytest.mark.parametrize("api_version", ["v2", "v3"])
+    @mock.patch(SESSION_PATCH)
+    def test_pipeline_requests_target_pinned_version(self, MockSession: mock.MagicMock, api_version: str) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(session, [_response({"docs": [_tip(1)], "total": 1})])
+
+        _rows(_source("tips", _make_manager(), api_version=api_version))
+
+        # get_channel_id probes /channels/me under the pinned version...
+        assert session.get.call_args.args[0] == f"https://api.streamelements.com/kappa/{api_version}/channels/me"
+        # ...and the paginated request builds its URL from the same base.
+        assert snapshots[0]["url"].startswith(f"https://api.streamelements.com/kappa/{api_version}/tips/")
 
 
 class TestTips:

@@ -2,6 +2,7 @@ from collections.abc import Callable
 from functools import cached_property
 from typing import Any, Literal, Union, cast
 
+from django.db import transaction
 from django.db.models import Model, QuerySet
 from django.shortcuts import get_object_or_404
 
@@ -24,7 +25,9 @@ from posthog.caching.organization_serializer_cache import (
 )
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX, AvailableFeature
+from posthog.data_freshness import LOOKBACK_DAYS, QUIET_AFTER_DAYS, Freshness, get_organization_data_freshness
 from posthog.event_usage import (
+    exclude_internal_organization_from_crm,
     groups,
     report_organization_action,
     report_organization_deleted,
@@ -32,9 +35,11 @@ from posthog.event_usage import (
 )
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import validate_display_name
+from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, verified_domain_email_q
 from posthog.models import Organization, User
 from posthog.models.activity_logging.model_activity import ImpersonatedContext
 from posthog.models.organization import OrganizationMembership
+from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.uploaded_media import UploadedMedia
 from posthog.permissions import (
     CREATE_ACTIONS,
@@ -47,10 +52,12 @@ from posthog.permissions import (
 from posthog.rate_limit import PostHogAIAccessRequestIPThrottle, PostHogAIAccessRequestUserThrottle
 from posthog.rbac.migrations.rbac_feature_flag_migration import rbac_feature_flag_role_access_migration
 from posthog.rbac.migrations.rbac_team_migration import rbac_team_access_control_migration
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.tasks.email import send_posthog_ai_access_request
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 from posthog.utils import get_safe_cache, safe_cache_set
+
+from products.access_control.backend.facade.user_access_control import UserAccessControl, visible_teams_for_user
+from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 
 
 class PremiumMultiorganizationPermission(permissions.BasePermission):
@@ -176,6 +183,7 @@ class OrganizationSerializer(
             "metadata",
             "customer_id",
             "enforce_2fa",
+            "enforce_verified_domains",
             "members_can_invite",
             "members_can_create_projects",
             "members_can_use_personal_api_keys",
@@ -238,6 +246,7 @@ class OrganizationSerializer(
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
         user = self.context["request"].user
         organization, _, _ = Organization.objects.bootstrap(user, **validated_data)
+        exclude_internal_organization_from_crm(organization, user)
         return organization
 
     @tracer.start_as_current_span("organization_serializer.membership_level")
@@ -253,16 +262,9 @@ class OrganizationSerializer(
         return _cached_per_user_org("teams", user_id, str(instance.id), lambda: self._fetch_visible_teams(instance))
 
     def _fetch_visible_teams(self, instance: Organization) -> list[dict[str, Any]]:
-        # Support new access control system
-        visible_teams = (
-            self.user_access_control.filter_queryset_by_access_level(instance.teams.all(), include_all_if_admin=True)
-            if self.user_access_control
-            else instance.teams.none()
-        )
-        # Support old access control system
-        visible_teams = visible_teams.filter(id__in=self.user_permissions.team_ids_visible_for_user).select_related(
-            "project"
-        )
+        visible_teams = visible_teams_for_user(
+            instance, self.user_access_control, self.user_permissions
+        ).select_related("project")
         return list(TeamBasicSerializer(visible_teams, context=self.context, many=True).data)
 
     @tracer.start_as_current_span("organization_serializer.projects")
@@ -310,6 +312,43 @@ class OrganizationSerializer(
                     "You must upgrade your plan to enforce 2FA.",
                     code="payment_required",
                 )
+        return value
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        # A blocked admin gets through the domain gates only to use the escape hatch: turning
+        # `enforce_verified_domains` off. Reject anything else they try to change on the way.
+        request = self.context.get("request")
+        if (
+            self.instance
+            and request
+            and isinstance(request.user, User)
+            and OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(request.user.email, self.instance)
+        ):
+            if set(attrs) != {"enforce_verified_domains"} or attrs["enforce_verified_domains"]:
+                raise exceptions.PermissionDenied(VERIFIED_DOMAIN_REQUIRED_ERROR, code="verified_domain_required")
+        return attrs
+
+    def validate_enforce_verified_domains(self, value: bool | None) -> bool | None:
+        # Only turning it on is gated. This setting denies access rather than prompting for setup, so
+        # an organization that lost the entitlement or ended up misconfigured must always be able to
+        # switch it off and let its members back in.
+        if not value or not self.instance or self.instance.enforce_verified_domains == value:
+            return value
+
+        if not self.instance.is_feature_available(AvailableFeature.AUTOMATIC_PROVISIONING):
+            raise serializers.ValidationError(
+                "You must upgrade your plan to restrict members to verified domains.",
+                code="payment_required",
+            )
+
+        if not OrganizationDomain.objects.is_domain_verified_for_organization(
+            self.context["request"].user.email, self.instance
+        ):
+            raise serializers.ValidationError(
+                "Your own email address isn't on a verified domain for this organization, so turning this on would lock you out. Verify the domain of your email address first.",
+                code="would_block_self",
+            )
+
         return value
 
     def validate_allow_publicly_shared_resources(self, value: bool) -> bool:
@@ -366,6 +405,51 @@ class OrganizationSerializer(
 class OrganizationAIAccessRequestResponseSerializer(serializers.Serializer):
     success = serializers.BooleanField(
         help_text="Whether the access request was accepted and the organization admins were notified."
+    )
+
+
+class OrganizationRemoveBlockedMembersResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField(help_text="Whether verified-domain enforcement was turned on.")
+    removed_members = serializers.IntegerField(
+        help_text="How many members with an email outside the verified domains were removed from the organization. Owners are never removed."
+    )
+
+
+class DataFreshnessSourceSerializer(serializers.Serializer):
+    data_source = serializers.CharField(
+        help_text=(
+            "The product this timestamp is about, as a `ProductKey` (e.g. `session_replay`, `logs`). "
+            "Not an enum: products declare their own data sources, so the set grows without an API change."
+        )
+    )
+    last_data_at = serializers.DateTimeField(
+        help_text="When data of this kind last reached the project. Only sources with data inside the lookback window are listed."
+    )
+
+
+class DataFreshnessProjectSerializer(serializers.Serializer):
+    team_id = serializers.IntegerField(help_text="ID of the project this freshness verdict is for.")
+    freshness = serializers.ChoiceField(
+        choices=[(freshness.value, freshness.value) for freshness in Freshness],
+        help_text=(
+            "`live` if data of any kind arrived within `quiet_after_days`, `stale` if none did, "
+            "`never` if the project has never ingested anything at all."
+        ),
+    )
+    last_data_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text="When data of any kind last reached the project, or null if nothing arrived within the lookback window.",
+    )
+    sources = DataFreshnessSourceSerializer(many=True, help_text="Per-source breakdown, most recently active first.")
+
+
+class OrganizationDataFreshnessSerializer(serializers.Serializer):
+    results = DataFreshnessProjectSerializer(many=True, help_text="One entry per project the requesting user can see.")
+    lookback_days = serializers.IntegerField(
+        help_text="How many days back the check looks. Data older than this is not visible to the check."
+    )
+    quiet_after_days = serializers.IntegerField(
+        help_text="How many days without data make a project or source count as quiet."
     )
 
 
@@ -605,3 +689,69 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             requesting_user_id=user.id,
         )
         return Response({"success": True})
+
+    @extend_schema(
+        request=None,
+        responses={200: OrganizationRemoveBlockedMembersResponseSerializer},
+    )
+    @action(detail=True, methods=["post"], url_path="remove_blocked_members_and_enforce_verified_domains")
+    def remove_blocked_members_and_enforce_verified_domains(self, request: Request, **kwargs) -> Response:
+        """
+        Remove the members whose email domain is outside the organization's verified domains and turn
+        `enforce_verified_domains` on, in one transaction. Owners are never removed; they keep gated
+        access and can disable the setting themselves. Admin only.
+
+        Use this only when the caller has confirmed the removals. To turn the setting on without
+        touching memberships, PATCH `enforce_verified_domains` on the organization instead.
+        """
+        organization = self.organization
+        self.check_object_permissions(request, organization)
+
+        # Reuses the paygate and the would-block-self guard on the field's validator.
+        serializer = self.get_serializer(organization, data={"enforce_verified_domains": True}, partial=True)
+        serializer.is_valid(raise_exception=True)
+
+        blocked = organization.memberships.exclude(level=OrganizationMembership.Level.OWNER).select_related("user")
+        admitted = verified_domain_email_q(organization)
+        if admitted is not None:
+            blocked = blocked.exclude(admitted)
+
+        removed = 0
+        with transaction.atomic():
+            for membership in blocked:
+                membership.user.leave(organization=organization)
+                removed += 1
+            serializer.save()
+        return Response({"success": True, "removed_members": removed})
+
+    @extend_schema(request=None, responses={200: OrganizationDataFreshnessSerializer})
+    @action(
+        detail=True,
+        methods=["GET"],
+        url_path="teams/data_freshness",
+        pagination_class=None,
+        # A scope is only derived for `list` and `retrieve`, so without this the action reaches
+        # APIScopePermission with no required scope and every personal API key is rejected.
+        required_scopes=["organization:read"],
+    )
+    def data_freshness(self, request: Request, **kwargs) -> Response:
+        """When each project in the organization last received data, broken down by kind of data."""
+        organization = self.organization
+        user = cast(User, request.user)
+        # `self.user_access_control` is scoped to the user's current organization, which on this route isn't
+        # necessarily the one being requested - so build one for the organization actually in the URL
+        visible_teams = visible_teams_for_user(
+            organization,
+            UserAccessControl(user=user, organization_id=str(organization.id)),
+            UserPermissions(user=user),
+        ).only("id", "project_id", "ingested_event")
+        results = get_organization_data_freshness(str(organization.id), list(visible_teams))
+        return Response(
+            OrganizationDataFreshnessSerializer(
+                {
+                    "results": results,
+                    "lookback_days": LOOKBACK_DAYS,
+                    "quiet_after_days": QUIET_AFTER_DAYS,
+                }
+            ).data
+        )

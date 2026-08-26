@@ -200,6 +200,22 @@ export interface MCPIntentClusterJourneyApi {
     readonly leak: MCPIntentClusterJourneyPathApi | null
 }
 
+export interface MCPClusterSwitchApi {
+    /** Tool whose errored call the agent abandoned. */
+    readonly from_tool: string
+    /** Different tool the agent tried immediately after. */
+    readonly to_tool: string
+    /** How many times this exact error-then-switch happened within the cluster. */
+    readonly count: number
+}
+
+export interface MCPClusterSelfRetryApi {
+    /** Tool the agent retried immediately after its own error. */
+    readonly tool: string
+    /** Number of immediate same-tool retries after an error. */
+    readonly count: number
+}
+
 export interface MCPIntentClusterApi {
     /** Stable cluster identifier within this snapshot. */
     readonly id: number
@@ -223,6 +239,84 @@ export interface MCPIntentClusterApi {
     readonly sample_intents: readonly string[]
     /** Top Sankey-shaped paths the agents took within this cluster. Each path is up to four ordered tool calls plus a completed/error outcome. Null when journey data is unavailable. */
     readonly journey: MCPIntentClusterJourneyApi | null
+    /** Errored call immediately followed by a different tool for the same intent: the strongest evidence agents mix the tools up. Top 10 by count. */
+    readonly switches: readonly MCPClusterSwitchApi[]
+    /** Errored call immediately retried with the same tool. Top 5 by count. */
+    readonly self_retries: readonly MCPClusterSelfRetryApi[]
+}
+
+export interface MCPToolPivotCompetitorApi {
+    /** The other tool with the largest share of this cluster's calls. */
+    readonly tool: string
+    /** That competitor's share of the cluster's calls, 0-100. */
+    readonly pct: number
+}
+
+export interface MCPToolPivotClusterEntryApi {
+    /** Cluster this entry refers to, within the snapshot. The cluster's own label, totals, and entropy live on that cluster — join on this id rather than expecting them here. */
+    readonly cluster_id: number
+    /** Calls routed to this tool for this intent cluster. */
+    readonly calls: number
+    /** Share of the cluster's calls this tool captured, 0-100. Low capture on a well-fitting description suggests agents are not finding the tool for this intent. */
+    readonly capture_pct: number
+    /** This tool's position in the cluster's tool distribution; 1 is the cluster's top tool. */
+    readonly rank: number
+    /**
+     * Cosine similarity between the tool's description embedding and the cluster centroid, -1 to 1. Null when no description has been captured for the tool.
+     * @nullable
+     */
+    readonly description_fit: number | null
+    /** The strongest other tool in this cluster. Null when this tool is the only one. */
+    readonly top_competitor: MCPToolPivotCompetitorApi | null
+}
+
+export interface MCPToolPivotApi {
+    /** Effective MCP tool name. */
+    readonly tool: string
+    /** Intent-attributed calls to this tool across the sampled corpus, counting every cluster the run produced — including clusters the snapshot's cluster cap left out. */
+    readonly call_count: number
+    /** Errored attributed calls across the corpus. */
+    readonly error_count: number
+    /** Sampled sessions with at least one intent-attributed call to this tool. Same population as call_count. */
+    readonly session_count: number
+    /**
+     * Call-weighted mean routing entropy of the clusters this tool serves, 0-1. High means the tool's intents are regularly split with other tools. Null when the tool has no attributed calls.
+     * @nullable
+     */
+    readonly contested_score: number | null
+    /** Sampled sessions whose tools-list catalog included this tool. Only sessions with an observed $mcp_tools_list event count. */
+    readonly advertised_sessions: number
+    /** Of the advertised sessions, how many actually called the tool. */
+    readonly called_when_advertised: number
+    /**
+     * called_when_advertised / advertised_sessions as a percentage. Null when the tool was advertised in fewer than 5 sampled sessions, which is not enough signal to compute a rate.
+     * @nullable
+     */
+    readonly discovery_rate_pct: number | null
+    /**
+     * Latest description observed for the tool (clipped to 512 characters). Null when calls never carried one.
+     * @nullable
+     */
+    readonly description: string | null
+    /** How many intent clusters this tool serves in total, before the per-tool entry cap. Compare against len(clusters) to tell whether the entry list below is complete. */
+    readonly n_clusters_served: number
+    /** Intent clusters this tool serves, by call volume desc, capped at 20 and limited to clusters the snapshot carries. Use n_clusters_served for the true count. */
+    readonly clusters: readonly MCPToolPivotClusterEntryApi[]
+}
+
+export interface MCPToolOverlapApi {
+    /** First tool of the pair (lexicographic order). */
+    readonly tool_a: string
+    /** Second tool of the pair. */
+    readonly tool_b: string
+    /** Sum over shared clusters of the smaller tool's calls: the volume both tools plausibly compete for. */
+    readonly contested_calls: number
+    /** Sampled sessions that called both tools. High relative to sessions_with_either suggests the pair is a workflow, not confusion. */
+    readonly sessions_with_both: number
+    /** Sampled sessions that called at least one of the pair. */
+    readonly sessions_with_either: number
+    /** The cluster contributing the most contested calls for this pair. */
+    readonly top_cluster_id: number
 }
 
 export interface MCPIntentClusterSnapshotMetaApi {
@@ -234,6 +328,71 @@ export interface MCPIntentClusterSnapshotMetaApi {
     readonly n_intents: number
     /** Number of clusters produced by the run. */
     readonly n_clusters: number
+    /**
+     * Corpus granularity. 'per_call' when each call was attributed to its own intent; null on snapshots computed before the per-call pipeline.
+     * @nullable
+     */
+    readonly corpus: string | null
+    /**
+     * Sessions sampled into the corpus. Null on pre-v2 snapshots.
+     * @nullable
+     */
+    readonly sampled_sessions: number | null
+    /**
+     * Total sessions with tool calls in the lookback window (unsampled).
+     * @nullable
+     */
+    readonly window_sessions: number | null
+    /**
+     * sampled_sessions / window_sessions as a percentage: how much of the window the corpus represents.
+     * @nullable
+     */
+    readonly session_coverage_pct: number | null
+    /**
+     * Share of the window's calls that carried an $mcp_intent. Low coverage makes capture rates less reliable.
+     * @nullable
+     */
+    readonly intent_coverage_pct: number | null
+    /**
+     * Share of attributed calls whose intent was carried forward from an earlier call in the session rather than stated on the call itself.
+     * @nullable
+     */
+    readonly imputed_call_pct: number | null
+    /**
+     * Share of sampled calls with no attributable intent (before the session's first stated intent). These calls are excluded from clusters.
+     * @nullable
+     */
+    readonly unattributed_call_pct: number | null
+    /**
+     * Share of attributed calls whose intent made the top-N cut that feeds clustering.
+     * @nullable
+     */
+    readonly corpus_call_coverage_pct: number | null
+    /**
+     * Share of sampled sessions with an observed $mcp_tools_list catalog. Discovery rates only draw on those sessions.
+     * @nullable
+     */
+    readonly advertisement_coverage_pct: number | null
+    /**
+     * Tools included in the tool pivot.
+     * @nullable
+     */
+    readonly n_tools: number | null
+    /**
+     * Tools dropped from the pivot by the volume cap. Zero means the pivot is complete.
+     * @nullable
+     */
+    readonly dropped_tools: number | null
+    /**
+     * Overlap pairs dropped by the pair cap.
+     * @nullable
+     */
+    readonly dropped_overlap_pairs: number | null
+    /**
+     * Share of pivot tools with a captured description. Description fit is only available for those.
+     * @nullable
+     */
+    readonly description_coverage_pct: number | null
 }
 
 export interface MCPIntentClusterSnapshotApi {
@@ -254,7 +413,11 @@ export interface MCPIntentClusterSnapshotApi {
     readonly last_computed_by_email: string
     /** All clusters in the snapshot. */
     readonly clusters: readonly MCPIntentClusterApi[]
-    /** Settings used to produce the snapshot. Null when no snapshot has been computed yet. */
+    /** Tool-centric pivot of the clusters: per tool, the intents it serves, capture per cluster, contested score, discovery rate, and description fit. Empty on snapshots computed before the per-call pipeline; recompute to populate. */
+    readonly tools: readonly MCPToolPivotApi[]
+    /** Tool pairs competing for the same intent clusters, by contested call volume desc, capped at 50. */
+    readonly tool_overlaps: readonly MCPToolOverlapApi[]
+    /** Settings and coverage of the snapshot's corpus. Null when no snapshot has been computed yet. */
     readonly computed_with: MCPIntentClusterSnapshotMetaApi | null
 }
 
@@ -445,14 +608,29 @@ export interface MCPActivityOverviewApi {
     readonly recent_calls: readonly MCPActivityRecentCallApi[]
 }
 
+export interface MCPIntentThemeApi {
+    /** Short sentence-case name for this group of intents. */
+    readonly name: string
+    /** One concrete sentence describing what agents in this theme are doing. */
+    readonly description: string
+    /** How many of the analysed intents the LLM assigned to this theme, counted from the corpus rather than reported by the LLM. Each intent belongs to at most one theme, so these never sum to more than the digest's intent_count. */
+    readonly intent_count: number
+    /** One of this theme's intents, verbatim from the corpus. */
+    readonly example_intent: string
+    /** The MCP tool names recorded alongside this theme's intents, sorted, taken from the corpus. */
+    readonly tools: readonly string[]
+}
+
 export interface MCPIntentDigestApi {
     /**
-     * LLM-generated digest (at most three sentences) of what agents are trying to do with this MCP server, derived from the most recent recorded $mcp_intents across all sessions. Null when the project has no recorded intents yet.
+     * LLM-generated one-sentence summary of what agents are trying to do with this MCP server, derived from the most recent recorded $mcp_intents across all sessions. Null when the project has no recorded intents yet.
      * @nullable
      */
     readonly digest: string | null
     /** How many recorded intents (the most recent, capped at 100) the digest was derived from. */
     readonly intent_count: number
+    /** Up to 5 semantic groupings of the analysed intents, largest first. May be empty when the digest is null, or when none of the LLM's groupings resolved to recorded intents. */
+    readonly themes: readonly MCPIntentThemeApi[]
 }
 
 export type McpAnalyticsFeedbackListParams = {
@@ -464,6 +642,13 @@ export type McpAnalyticsFeedbackListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type McpAnalyticsIntentClustersRetrieveParams = {
+    /**
+     * Narrow the response to one tool: its pivot entry, the clusters it serves or switches with, and the overlap pairs it belongs to. Coverage meta stays whole-snapshot. Use this for single-tool views so they don't download every cluster and pivot to render one row. An unknown tool returns empty sections, not a 404.
+     */
+    tool?: string
 }
 
 export type McpAnalyticsMissingCapabilitiesListParams = {

@@ -40,11 +40,14 @@ export function promptActivityDescriber(logItem: ActivityLogItem, asNotification
     if (logItem.activity === 'published') {
         const version = changeAfter(logItem, 'version')
         const versionDescription = changeAfter(logItem, 'version_description')
+        // Config contents are never logged; the change entry only records that it changed.
+        const configChanged = logItem.detail?.changes?.some((change) => change.field === 'config')
         return {
             description: (
                 <>
                     <strong className="ph-no-capture">{user}</strong> published <b>v{version ?? '?'}</b> of prompt{' '}
                     <b>{promptName}</b>
+                    {configChanged ? <> (configuration changed)</> : null}
                     {versionDescription ? <>: "{versionDescription}"</> : null}
                 </>
             ),

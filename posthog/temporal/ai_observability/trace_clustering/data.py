@@ -15,6 +15,7 @@ from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.team import Team
 from posthog.temporal.ai_observability.trace_clustering import constants
@@ -124,6 +125,9 @@ def fetch_item_embeddings_for_clustering(
             query=query,
             placeholders=placeholders,
             team=team,
+            # Background clustering scans run on the offline cluster so they don't compete with
+            # user-facing traffic on the online `default` pool (this is a large embedding scan).
+            workload=Workload.OFFLINE,
             settings=HogQLGlobalSettings(max_execution_time=CLUSTERING_QUERY_MAX_EXECUTION_TIME),
         )
 
@@ -244,6 +248,7 @@ def fetch_item_summaries(
                 "max_rows": ast.Constant(value=max_rows),
             },
             team=team,
+            workload=Workload.OFFLINE,
             settings=HogQLGlobalSettings(max_execution_time=CLUSTERING_QUERY_MAX_EXECUTION_TIME),
         )
 
@@ -380,6 +385,7 @@ def fetch_item_metrics(
             query=query,
             placeholders=placeholders,
             team=team,
+            workload=Workload.OFFLINE,
             settings=HogQLGlobalSettings(max_execution_time=CLUSTERING_QUERY_MAX_EXECUTION_TIME),
         )
 

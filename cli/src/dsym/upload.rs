@@ -5,9 +5,9 @@ use tracing::info;
 
 use crate::{
     api::{self, releases::ReleaseBuilder, symbol_sets::SymbolSetUpload},
-    dsym::{find_dsym_bundles, DsymFile, PlistInfo},
+    dsym::{find_dsym_bundles, DsymFile},
     sourcemaps::args::{pack_version, ReleaseArgs, UploadConflictArgs},
-    utils::git::get_git_info,
+    utils::{git::get_git_info, xcode::PlistInfo},
 };
 
 #[derive(clap::Args, Clone)]
@@ -35,6 +35,12 @@ pub struct Args {
     /// Implies --force unless --skip-on-conflict is set. [default: false]
     #[arg(long, default_value_t = false)]
     pub include_source: bool,
+
+    /// Don't bind the uploaded symbol sets to the release. The release is still created, so the
+    /// server resolves it from the app version and namespace the SDK sends on every event, but the
+    /// chunks stay content-addressed and release-independent. [default: false]
+    #[arg(long, default_value_t = false)]
+    pub no_release_bind: bool,
 }
 
 pub fn upload(args: &Args) -> Result<()> {
@@ -44,8 +50,9 @@ pub fn upload(args: &Args) -> Result<()> {
         conflict,
         main_dsym,
         include_source,
+        no_release_bind,
     } = args;
-    let release_args = release;
+    let release_args = release.resolve_info_plist()?;
 
     let directory = directory.canonicalize().map_err(|e| {
         anyhow!(
@@ -168,6 +175,15 @@ pub fn upload(args: &Args) -> Result<()> {
 
     let release_id = created_release.map(|r| r.id.to_string());
 
+    // With --no-release-bind the release is still created above (so the server can resolve it from
+    // the app metadata the SDK sends on each event), but the uploaded chunks are left
+    // release-independent.
+    let chunk_release_id = if *no_release_bind {
+        None
+    } else {
+        release_id.clone()
+    };
+
     // Process each dSYM
     let mut uploads: Vec<SymbolSetUpload> = Vec::new();
 
@@ -176,7 +192,7 @@ pub fn upload(args: &Args) -> Result<()> {
 
         match DsymFile::new(&dsym_path, *include_source) {
             Ok(mut dsym_file) => {
-                dsym_file.release_id = release_id.clone();
+                dsym_file.release_id = chunk_release_id.clone();
                 info!(
                     "  UUIDs: {} ({})",
                     dsym_file.uuids().join(", "),
@@ -201,13 +217,14 @@ pub fn upload(args: &Args) -> Result<()> {
     // --include-source implies force unless the user explicitly asked to keep
     // existing symbol sets with --skip-on-conflict.
     let effective_force = conflict.force || (*include_source && !conflict.skip_on_conflict);
-    api::symbol_sets::upload_with_retry(
+    let (_summary, upload_result) = api::symbol_sets::upload_with_retry(
         uploads,
         10,
         release_args.skip_release_on_fail,
         effective_force,
         conflict.skip_on_conflict,
-    )?;
+    );
+    upload_result?;
     info!("dSYM upload complete");
 
     Ok(())

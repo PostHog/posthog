@@ -18,6 +18,26 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
+# Ably REST protocol version, sent via the `X-Ably-Version` header. The legacy label
+# (`UNVERSIONED_API_VERSION`, "v1") predates this source declaring a version and maps to *no*
+# header — the exact request the source has always made, which Ably serves under its current
+# default. Ably protocol 1 was sunset on 2025-11-01, so sending an explicit `X-Ably-Version: 1`
+# would only start failing otherwise-working syncs; the deprecation banner and repin migration
+# move those rows to "2" instead. The "2" pin sends the header so the source stays on protocol 2
+# rather than silently tracking whatever Ably later makes its default.
+ABLY_VERSION_2 = "2"
+
+_VERSION_HEADER: dict[str, str] = {
+    ABLY_VERSION_2: ABLY_VERSION_2,
+}
+
+
+def version_header(api_version: str) -> dict[str, str]:
+    """`X-Ably-Version` header for a resolved version pin. Versions absent from the map (the
+    legacy unversioned label) send no header — see the note on `_VERSION_HEADER`."""
+    value = _VERSION_HEADER.get(api_version)
+    return {"X-Ably-Version": value} if value else {}
+
 
 @dataclasses.dataclass
 class AblyResumeConfig:
@@ -107,6 +127,7 @@ def ably_source(
     job_id: str,
     resumable_source_manager: ResumableSourceManager[AblyResumeConfig],
     db_incremental_field_last_value: Optional[Any],
+    api_version: str,
     should_use_incremental_field: bool = False,
 ):
     username, password = split_api_key(api_key)
@@ -114,6 +135,7 @@ def ably_source(
     config: RESTAPIConfig = {
         "client": {
             "base_url": BASE_URL,
+            "headers": version_header(api_version),
             "auth": {
                 "type": "http_basic",
                 "username": username,
@@ -158,12 +180,12 @@ def ably_source(
     )
 
 
-def validate_credentials(api_key: str) -> tuple[bool, str | None]:
+def validate_credentials(api_key: str, api_version: str) -> tuple[bool, str | None]:
     username, password = split_api_key(api_key)
     if not password:
         return False, "Ably API key is malformed — expected the format `{app-id}.{key-id}:{key-secret}`."
 
-    session = make_tracked_session(redact_values=(password, api_key))
+    session = make_tracked_session(headers=version_header(api_version), redact_values=(password, api_key))
     try:
         response = session.get(
             f"{BASE_URL}/stats",

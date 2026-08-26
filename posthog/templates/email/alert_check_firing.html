@@ -1,7 +1,12 @@
 {% extends "email/base.html" %} {% load posthog_assets %} {% block section %}
     <p>
-        The <a href="{% absolute_uri alert_url %}">{{ alert_name }}</a> alert is firing for <a
-            href="{% absolute_uri insight_url %}">{{ insight_name }}</a> in project <strong>{{ project_name }}</strong>:
+        {% if is_test %}
+            This is a test delivery for the <a href="{% absolute_uri alert_url %}">{{ alert_name }}</a> alert on <a
+                href="{% absolute_uri insight_url %}">{{ insight_name }}</a> in project <strong>{{ project_name }}</strong>:
+        {% else %}
+            The <a href="{% absolute_uri alert_url %}">{{ alert_name }}</a> alert is firing for <a
+                href="{% absolute_uri insight_url %}">{{ insight_name }}</a> in project <strong>{{ project_name }}</strong>:
+        {% endif %}
     </p>
     <ul>
         {% for item in match_descriptions %}

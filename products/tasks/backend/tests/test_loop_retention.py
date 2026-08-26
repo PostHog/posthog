@@ -2,19 +2,27 @@ from datetime import timedelta
 
 from unittest.mock import patch
 
-from django.test import TestCase
+from django.db import OperationalError, ProgrammingError
+from django.test import SimpleTestCase, TestCase
 from django.utils import timezone as django_timezone
 
+import psycopg.errors
 from parameterized import parameterized
 
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.tasks.backend.loop_retention import sweep_loop_task_retention
+from products.tasks.backend.loop_retention import sweep_loop_task_retention, sweep_loop_task_retention_task
 from products.tasks.backend.models import Loop, Task, TaskRun
 
 RETENTION_MODULE = "products.tasks.backend.loop_retention"
+
+
+def programming_error_from(cause: BaseException) -> ProgrammingError:
+    error = ProgrammingError(str(cause))
+    error.__cause__ = cause
+    return error
 
 
 class LoopRetentionTestCase(TestCase):
@@ -51,6 +59,40 @@ class LoopRetentionTestCase(TestCase):
         )
         TaskRun.objects.create(task=task, team=self.team, status=run_status, state={"loop_id": str(loop.id)})
         return task
+
+
+class TestSweepLoopTaskRetentionTask(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("missing_table", programming_error_from(psycopg.errors.UndefinedTable("missing table"))),
+            ("missing_column", programming_error_from(psycopg.errors.UndefinedColumn("missing column"))),
+            ("transient_database_failure", OperationalError("connection unavailable")),
+        ]
+    )
+    def test_expected_database_errors_are_not_reported(
+        self, _name: str, database_error: ProgrammingError | OperationalError
+    ) -> None:
+        with (
+            patch(f"{RETENTION_MODULE}.sweep_loop_task_retention", side_effect=database_error),
+            patch(f"{RETENTION_MODULE}.prune_loop_fire_records", return_value=0) as mock_prune,
+            patch(f"{RETENTION_MODULE}.capture_exception") as mock_capture,
+        ):
+            sweep_loop_task_retention_task()
+
+        mock_capture.assert_not_called()
+        mock_prune.assert_called_once_with()
+
+    def test_unexpected_programming_errors_are_reported(self) -> None:
+        database_error = programming_error_from(psycopg.errors.SyntaxError("invalid query"))
+        with (
+            patch(f"{RETENTION_MODULE}.sweep_loop_task_retention", side_effect=database_error),
+            patch(f"{RETENTION_MODULE}.prune_loop_fire_records", return_value=0) as mock_prune,
+            patch(f"{RETENTION_MODULE}.capture_exception") as mock_capture,
+        ):
+            sweep_loop_task_retention_task()
+
+        mock_capture.assert_called_once_with(database_error)
+        mock_prune.assert_called_once_with()
 
 
 class TestSweepLoopTaskRetention(LoopRetentionTestCase):

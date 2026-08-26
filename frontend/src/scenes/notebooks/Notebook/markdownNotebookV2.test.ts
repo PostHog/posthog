@@ -1,5 +1,7 @@
 import { parseMarkdownNotebook } from 'lib/components/MarkdownNotebook/markdown'
+import { NotebookComponentProps } from 'lib/components/MarkdownNotebook/types'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
+import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 
 import {
     ArtifactContentType,
@@ -7,6 +9,7 @@ import {
     VisualizationArtifactContent,
 } from '~/queries/schema/schema-assistant-messages'
 import { NodeKind } from '~/queries/schema/schema-general'
+import { ChartDisplayType } from '~/types'
 
 import { NotebookNodeType } from '../types'
 import {
@@ -17,6 +20,8 @@ import {
     convertNotebookContentToMarkdown,
     getMarkdownNotebookMarkdown,
     getMarkdownNotebookTitle,
+    getSqlV2PropsFromQueryProp,
+    insertMarkdownNotebookBlockAfterNode,
     isMarkdownNotebookContent,
     notebookArtifactContentToMarkdown,
     notebookContentHasCommentMarks,
@@ -57,9 +62,43 @@ describe('markdownNotebookV2', () => {
             '<Query query={{"kind":"SavedInsightNode","shortId":"abc123"}} />'
         )
 
-        expect(getMarkdownNotebookMarkdown(nextContent)).toEqual(`# Activation
+        // Two blank lines: an appended block is a node of its own, not a continuation of the
+        // card the notebook currently ends with.
+        expect(getMarkdownNotebookMarkdown(nextContent)).toEqual(
+            '# Activation\n\n\n<Query query={{"kind":"SavedInsightNode","shortId":"abc123"}} />'
+        )
+    })
 
-<Query query={{"kind":"SavedInsightNode","shortId":"abc123"}} />`)
+    it('inserts markdown blocks after the block with a matching nodeId prop', () => {
+        const content = buildMarkdownNotebookContent(
+            '# Activation\n\n<UsageMetrics nodeId="target-node" />\n\nClosing paragraph'
+        )
+        const nextContent = insertMarkdownNotebookBlockAfterNode(content, 'target-node', '<Survey id="s1" />')
+
+        expect(getMarkdownNotebookMarkdown(nextContent)).toEqual(
+            '# Activation\n\n<UsageMetrics nodeId="target-node" />\n\n<Survey id="s1" />\n\nClosing paragraph'
+        )
+    })
+
+    it('inserts markdown blocks after the block with a matching parsed block id', () => {
+        const markdown = '# Activation\n\nMiddle paragraph\n\nClosing paragraph'
+        const middleBlockId = parseMarkdownNotebook(markdown).nodes[1].id
+        const nextContent = insertMarkdownNotebookBlockAfterNode(
+            buildMarkdownNotebookContent(markdown),
+            middleBlockId,
+            'Inserted paragraph'
+        )
+
+        expect(getMarkdownNotebookMarkdown(nextContent)).toEqual(
+            '# Activation\n\nMiddle paragraph\n\nInserted paragraph\n\nClosing paragraph'
+        )
+    })
+
+    it('appends at the end when no block matches the target node id', () => {
+        const content = buildMarkdownNotebookContent('# Activation')
+        const nextContent = insertMarkdownNotebookBlockAfterNode(content, 'missing-node', '<Survey id="s1" />')
+
+        expect(getMarkdownNotebookMarkdown(nextContent)).toEqual('# Activation\n\n\n<Survey id="s1" />')
     })
 
     it('converts common legacy notebook nodes to markdown', () => {
@@ -109,14 +148,14 @@ describe('markdownNotebookV2', () => {
 
 A **bold** paragraph.
 
-<Query hideFilters query={{"kind":"InsightVizNode","source":{"kind":"FunnelsQuery","series":[]}}} />
+<Query query={{"kind":"InsightVizNode","source":{"kind":"FunnelsQuery","series":[]}}} />
 
-<Recording hideFilters id="018b4205-f670-7fa8-928a-040abaaf596d" title="Session replay" />
+<Recording id="018b4205-f670-7fa8-928a-040abaaf596d" title="Session replay" />
 
 ![PostHog engineering](https://res.cloudinary.com/demo/image/upload/posthog.png)`)
     })
 
-    it('preserves explicitly open legacy widget filters', () => {
+    it('removes legacy panel props that match the new defaults', () => {
         const content: JSONContent = {
             type: 'doc',
             content: [
@@ -185,9 +224,9 @@ Wrapped paragraph`)
         }
 
         expect(convertNotebookContentToMarkdown(content))
-            .toEqual(`<Query hideFilters query={{"kind":"SavedInsightNode","shortId":"abc123"}} />
+            .toEqual(`<Query query={{"kind":"SavedInsightNode","shortId":"abc123"}} />
 
-<Query hideFilters query={{"kind":"SavedInsightNode","shortId":"def456"}} />`)
+<Query query={{"kind":"SavedInsightNode","shortId":"def456"}} />`)
     })
 
     it('converts remaining legacy production node shapes without unknown nodes', () => {
@@ -212,7 +251,30 @@ Wrapped paragraph`)
 
 Dashboard 123
 
-<Query hideFilters query={{"kind":"DataVisualizationNode","source":{"kind":"HogQLQuery","query":"select event from events limit 1"}}} />`)
+<Query query={{"kind":"DataVisualizationNode","source":{"kind":"HogQLQuery","query":"select event from events limit 1"}}} />`)
+    })
+
+    it.each([
+        [NotebookNodeType.Dashboard, 'Dashboard'],
+        [NotebookNodeType.Action, 'Action'],
+        [NotebookNodeType.Workflow, 'Workflow'],
+        [NotebookNodeType.ErrorTrackingIssue, 'ErrorTrackingIssue'],
+    ])('converts the %s widget node to its markdown component', (nodeType, tagName) => {
+        expect(
+            convertNotebookContentToMarkdown({
+                type: 'doc',
+                content: [{ type: nodeType, attrs: { id: 'resource-id' } }],
+            })
+        ).toEqual(`<${tagName} id="resource-id" />`)
+    })
+
+    it('converts query nodes with an insight ID to the Insight component', () => {
+        expect(
+            convertNotebookContentToMarkdown({
+                type: 'doc',
+                content: [{ type: NotebookNodeType.Query, attrs: { id: 'insight-id', view: 'summary' } }],
+            })
+        ).toEqual('<Insight id="insight-id" view="summary" />')
     })
 
     it('keeps the stable id vector for markdown query blocks without nodeId props', () => {
@@ -246,7 +308,7 @@ Dashboard 123
 
         // Nested undefined must be stripped, not cause the whole query prop to be dropped.
         expect(convertNotebookContentToMarkdown(content)).toEqual(
-            '<Query hideFilters query={{"kind":"InsightVizNode","source":{"kind":"TrendsQuery","series":[{"kind":"EventsNode","event":"$pageview"}]}}} isDefaultFilterApplied={false} />'
+            '<Query query={{"kind":"InsightVizNode","source":{"kind":"TrendsQuery","series":[{"kind":"EventsNode","event":"$pageview"}]}}} isDefaultFilterApplied={false} />'
         )
     })
 
@@ -634,7 +696,7 @@ after`)
 
 Users activated faster.
 
-<Query hideFilters query={{"kind":"InsightVizNode","source":{"kind":"TrendsQuery","series":[]},"showHeader":true}} title="Activation trend" />
+<Query query={{"kind":"InsightVizNode","source":{"kind":"TrendsQuery","series":[]},"showHeader":true}} title="Activation trend" />
 
 <Recording id="018a8a51-a39d-7b18-897f-94054eec5f61" timestampMs={12000} title="Activation replay" />`)
     })
@@ -655,7 +717,7 @@ Users activated faster.
         }
 
         expect(notebookArtifactContentToMarkdown(content)).toEqual(
-            '<Query hideFilters query={{"kind":"DataVisualizationNode","source":{"kind":"HogQLQuery","query":"select event, count() from events group by event"},"display":"ActionsPie"}} title="Events pie chart" />'
+            '<Query query={{"kind":"DataVisualizationNode","source":{"kind":"HogQLQuery","query":"select event, count() from events group by event"},"display":"ActionsPie"}} title="Events pie chart" />'
         )
     })
 
@@ -682,7 +744,7 @@ Users activated faster.
             ],
         })
         expect(notebookArtifactContentToMarkdown(notebookContent)).toEqual(
-            '<Query hideFilters query={{"kind":"DataVisualizationNode","source":{"kind":"HogQLQuery","query":"select event, count() from events group by event"},"display":"ActionsPie"}} title="Create a pie chart" />'
+            '<Query query={{"kind":"DataVisualizationNode","source":{"kind":"HogQLQuery","query":"select event, count() from events group by event"},"display":"ActionsPie"}} title="Create a pie chart" />'
         )
     })
 
@@ -826,7 +888,7 @@ Body`)
                 '/insights/AbC123',
                 {
                     tagName: 'Query',
-                    props: { query: { kind: 'SavedInsightNode', shortId: 'AbC123' }, hideFilters: true },
+                    props: { query: { kind: 'SavedInsightNode', shortId: 'AbC123' } },
                 },
             ],
             [
@@ -867,6 +929,59 @@ Body`)
         })
     })
 
+    describe('getSqlV2PropsFromQueryProp', () => {
+        const hogqlQuery = { kind: NodeKind.HogQLQuery, query: 'select event from events' }
+        const visualizationQuery = {
+            kind: NodeKind.DataVisualizationNode,
+            source: hogqlQuery,
+            display: ChartDisplayType.ActionsBar,
+        }
+
+        it.each<[string, NotebookComponentProps, NotebookComponentProps]>([
+            [
+                'a visualization query',
+                { query: visualizationQuery },
+                {
+                    code: 'select event from events',
+                    vizQuery: visualizationQuery,
+                    outputTab: OutputTab.Visualization,
+                },
+            ],
+            [
+                'a data table query',
+                { query: { kind: NodeKind.DataTableNode, source: hogqlQuery } },
+                { code: 'select event from events' },
+            ],
+            ['a bare HogQL query', { query: hogqlQuery }, { code: 'select event from events' }],
+            ['a plain SQL string', { query: 'select event from events' }, { code: 'select event from events' }],
+            [
+                'a query serialized to a JSON string',
+                { query: JSON.stringify(visualizationQuery) },
+                {
+                    code: 'select event from events',
+                    vizQuery: visualizationQuery,
+                    outputTab: OutputTab.Visualization,
+                },
+            ],
+        ])('recovers the SQL from a cell written with %s', (_case, props, expected) => {
+            expect(getSqlV2PropsFromQueryProp(props)).toEqual(expected)
+        })
+
+        it.each<[string, NotebookComponentProps]>([
+            ['the cell already has code', { code: 'select 1', query: hogqlQuery }],
+            ['there is no query prop', { title: 'Events' }],
+            [
+                'the query holds no SQL',
+                { query: { kind: NodeKind.DataTableNode, source: { kind: NodeKind.EventsQuery, select: ['event'] } } },
+            ],
+            // Never fall through to the plain-SQL reading here: the editor would show JSON and run it.
+            ['a JSON string does not parse', { query: '{"kind":"HogQLQuery",' }],
+            ['a JSON string carries no SQL', { query: JSON.stringify({ kind: NodeKind.EventsQuery }) }],
+        ])('leaves the cell untouched when %s', (_case, props) => {
+            expect(getSqlV2PropsFromQueryProp(props)).toBeNull()
+        })
+    })
+
     describe('convertDroppedRichContentNodeToMarkdownNode', () => {
         it('maps a dragged recording payload to its markdown component', () => {
             const node = convertDroppedRichContentNodeToMarkdownNode(NotebookNodeType.Recording, {
@@ -881,12 +996,15 @@ Body`)
             })
         })
 
-        it('defaults dropped queries to hidden filters', () => {
+        it('uses the default panel visibility for dropped queries', () => {
             const node = convertDroppedRichContentNodeToMarkdownNode(NotebookNodeType.Query, {
                 query: { kind: NodeKind.EventsQuery, select: ['event'] },
             })
 
-            expect(node).toMatchObject({ tagName: 'Query', props: { hideFilters: true } })
+            expect(node).toMatchObject({
+                tagName: 'Query',
+                props: { query: { kind: NodeKind.EventsQuery, select: ['event'] } },
+            })
         })
 
         it('returns null for node types without a markdown counterpart', () => {

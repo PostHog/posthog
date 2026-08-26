@@ -2,7 +2,6 @@ import { samplePersonProperties, sampleRetentionPeopleResponse } from 'scenes/in
 
 import { Meta, StoryObj } from '@storybook/react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -66,19 +65,15 @@ SQLLineChartBreakdown.parameters = {
 export const SQLLineChartTrendLineQuill: Story = createInsightStory(__sqlLineChartTrendLine as any)
 SQLLineChartTrendLineQuill.parameters = {
     ...meta.parameters,
-    featureFlags: [FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_SQL_CHARTS],
     testOptions: {
         ...meta.parameters?.testOptions,
         waitForSelector: '.DataVisualization canvas',
     },
 }
 
-// The legacy chart.js SQL renderer does not paint in the visual-regression harness (a pre-existing gap
-// that also affects the SQL line stories above), so this story targets the quill renderer, which does.
 export const SQLBarChartValueLabelsQuill: Story = createInsightStory(__sqlBarChartValueLabels as any)
 SQLBarChartValueLabelsQuill.parameters = {
     ...meta.parameters,
-    featureFlags: [FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_SQL_CHARTS],
     testOptions: {
         ...meta.parameters?.testOptions,
         waitForSelector: '.DataVisualization canvas',

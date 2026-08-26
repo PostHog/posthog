@@ -1,4 +1,4 @@
-import { APP_METRICS_OUTPUT, DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT } from '~/common/outputs'
+import { APP_METRICS_OUTPUT, DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT, TOPHOG_OUTPUT } from '~/common/outputs'
 import { IngestionOutputsBuilder } from '~/common/outputs/ingestion-outputs-builder'
 
 /**
@@ -19,5 +19,9 @@ export function createOutputsRegistry() {
         .register(APP_METRICS_OUTPUT, {
             topicKey: 'INGESTION_OUTPUT_APP_METRICS_TOPIC',
             producerKey: 'INGESTION_OUTPUT_APP_METRICS_PRODUCER',
+        })
+        .register(TOPHOG_OUTPUT, {
+            topicKey: 'INGESTION_OUTPUT_TOPHOG_TOPIC',
+            producerKey: 'INGESTION_OUTPUT_TOPHOG_PRODUCER',
         })
 }

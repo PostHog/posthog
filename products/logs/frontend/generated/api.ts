@@ -11,6 +11,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     ExplainRequestApi,
     LogsAlertConfigurationApi,
+    LogsAlertConfigurationDetailApi,
     LogsAlertCreateDestinationApi,
     LogsAlertDeleteDestinationApi,
     LogsAlertDestinationResponseApi,
@@ -18,26 +19,38 @@ import type {
     LogsAlertSimulateResponseApi,
     LogsAlertsEventsListParams,
     LogsAlertsListParams,
+    LogsAnomalyScanRequestApi,
+    LogsAnomalyScanResponseApi,
     LogsAttributesRetrieveParams,
     LogsExportCreate201,
     LogsHasLogsRetrieve200,
     LogsMetricRuleApi,
     LogsMetricRulesListParams,
+    LogsRetentionRuleApi,
+    LogsRetentionRuleNameSuggestionApi,
+    LogsRetentionRuleReorderApi,
+    LogsRetentionRuleSuggestNameApi,
+    LogsRetentionRulesListParams,
+    LogsRetentionRulesReorderCreateParams,
     LogsSamplingRuleApi,
     LogsSamplingRuleReorderApi,
     LogsSamplingRuleSimulateResponseApi,
     LogsSamplingRulesListParams,
     LogsSamplingRulesReorderCreateParams,
+    LogsSeriesBandsRequestApi,
+    LogsSeriesBandsResponseApi,
     LogsValuesRetrieveParams,
     LogsViewApi,
     LogsViewsListParams,
     PaginatedLogsAlertConfigurationListApi,
     PaginatedLogsAlertEventListApi,
     PaginatedLogsMetricRuleListApi,
+    PaginatedLogsRetentionRuleListApi,
     PaginatedLogsSamplingRuleListApi,
     PaginatedLogsViewListApi,
     PatchedLogsAlertConfigurationApi,
     PatchedLogsMetricRuleApi,
+    PatchedLogsRetentionRuleApi,
     PatchedLogsSamplingRuleApi,
     PatchedLogsViewApi,
     _LogsAttributesResponseApi,
@@ -131,8 +144,8 @@ export const logsAlertsRetrieve = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<LogsAlertConfigurationApi> => {
-    return apiMutator<LogsAlertConfigurationApi>(getLogsAlertsRetrieveUrl(projectId, id), {
+): Promise<LogsAlertConfigurationDetailApi> => {
+    return apiMutator<LogsAlertConfigurationDetailApi>(getLogsAlertsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
@@ -293,6 +306,48 @@ export const logsAlertsSimulateCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(logsAlertSimulateRequestApi),
+    })
+}
+
+export const getLogsAnomaliesScanCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/anomalies/scan/`
+}
+
+/**
+ * Runs anomaly detection on demand over one service's log volume for the given window. Learns per severity baselines from up to 6 weeks of history and returns per bucket expected bands plus any spike, drop, or silence issues. Synchronous and read only.
+ * @summary Scan a service's logs for volume anomalies
+ */
+export const logsAnomaliesScanCreate = async (
+    projectId: string,
+    logsAnomalyScanRequestApi: LogsAnomalyScanRequestApi,
+    options?: RequestInit
+): Promise<LogsAnomalyScanResponseApi> => {
+    return apiMutator<LogsAnomalyScanResponseApi>(getLogsAnomaliesScanCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsAnomalyScanRequestApi),
+    })
+}
+
+export const getLogsAnomaliesSeriesBandsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/anomalies/series_bands/`
+}
+
+/**
+ * Returns the last 7 days of log volume for every (namespace, environment, severity) series of one service, with a time-of-week expected band derived from the prior weeks of the volume rollup. Synchronous and read only.
+ * @summary Per-series log volume with expected bands
+ */
+export const logsAnomaliesSeriesBandsCreate = async (
+    projectId: string,
+    logsSeriesBandsRequestApi: LogsSeriesBandsRequestApi,
+    options?: RequestInit
+): Promise<LogsSeriesBandsResponseApi> => {
+    return apiMutator<LogsSeriesBandsResponseApi>(getLogsAnomaliesSeriesBandsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsSeriesBandsRequestApi),
     })
 }
 
@@ -592,6 +647,172 @@ export const logsQueryCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(_logsQueryRequestApi),
+    })
+}
+
+export const getLogsRetentionRulesListUrl = (projectId: string, params?: LogsRetentionRulesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/logs/retention_rules/?${stringifiedParams}`
+        : `/api/projects/${projectId}/logs/retention_rules/`
+}
+
+export const logsRetentionRulesList = async (
+    projectId: string,
+    params?: LogsRetentionRulesListParams,
+    options?: RequestInit
+): Promise<PaginatedLogsRetentionRuleListApi> => {
+    return apiMutator<PaginatedLogsRetentionRuleListApi>(getLogsRetentionRulesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLogsRetentionRulesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/retention_rules/`
+}
+
+export const logsRetentionRulesCreate = async (
+    projectId: string,
+    logsRetentionRuleApi: NonReadonly<LogsRetentionRuleApi>,
+    options?: RequestInit
+): Promise<LogsRetentionRuleApi> => {
+    return apiMutator<LogsRetentionRuleApi>(getLogsRetentionRulesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsRetentionRuleApi),
+    })
+}
+
+export const getLogsRetentionRulesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/logs/retention_rules/${id}/`
+}
+
+export const logsRetentionRulesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<LogsRetentionRuleApi> => {
+    return apiMutator<LogsRetentionRuleApi>(getLogsRetentionRulesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLogsRetentionRulesUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/logs/retention_rules/${id}/`
+}
+
+export const logsRetentionRulesUpdate = async (
+    projectId: string,
+    id: string,
+    logsRetentionRuleApi: NonReadonly<LogsRetentionRuleApi>,
+    options?: RequestInit
+): Promise<LogsRetentionRuleApi> => {
+    return apiMutator<LogsRetentionRuleApi>(getLogsRetentionRulesUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsRetentionRuleApi),
+    })
+}
+
+export const getLogsRetentionRulesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/logs/retention_rules/${id}/`
+}
+
+export const logsRetentionRulesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedLogsRetentionRuleApi?: NonReadonly<PatchedLogsRetentionRuleApi>,
+    options?: RequestInit
+): Promise<LogsRetentionRuleApi> => {
+    return apiMutator<LogsRetentionRuleApi>(getLogsRetentionRulesPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedLogsRetentionRuleApi),
+    })
+}
+
+export const getLogsRetentionRulesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/logs/retention_rules/${id}/`
+}
+
+export const logsRetentionRulesDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getLogsRetentionRulesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getLogsRetentionRulesReorderCreateUrl = (
+    projectId: string,
+    params?: LogsRetentionRulesReorderCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/logs/retention_rules/reorder/?${stringifiedParams}`
+        : `/api/projects/${projectId}/logs/retention_rules/reorder/`
+}
+
+/**
+ * Atomically reassign priorities so the given ID order maps to ascending priorities (0..n-1).
+ */
+export const logsRetentionRulesReorderCreate = async (
+    projectId: string,
+    logsRetentionRuleReorderApi: LogsRetentionRuleReorderApi,
+    params?: LogsRetentionRulesReorderCreateParams,
+    options?: RequestInit
+): Promise<PaginatedLogsRetentionRuleListApi> => {
+    return apiMutator<PaginatedLogsRetentionRuleListApi>(getLogsRetentionRulesReorderCreateUrl(projectId, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsRetentionRuleReorderApi),
+    })
+}
+
+export const getLogsRetentionRulesSuggestNameCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/retention_rules/suggest_name/`
+}
+
+/**
+ * Suggest a human-readable name for a retention rule from its retention tier and filter group. Used by the create form as an auto-suggest; nothing is persisted. Returns an empty name when a suggestion can't be generated.
+ */
+export const logsRetentionRulesSuggestNameCreate = async (
+    projectId: string,
+    logsRetentionRuleSuggestNameApi: LogsRetentionRuleSuggestNameApi,
+    options?: RequestInit
+): Promise<LogsRetentionRuleNameSuggestionApi> => {
+    return apiMutator<LogsRetentionRuleNameSuggestionApi>(getLogsRetentionRulesSuggestNameCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsRetentionRuleSuggestNameApi),
     })
 }
 

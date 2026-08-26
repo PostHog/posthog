@@ -13,6 +13,7 @@ use cohort_core::DayIdx;
 use serde::{Deserialize, Serialize};
 
 use super::ids::{ChunkId, ClaimEpoch, RunId, SChunkMs};
+use super::person::PersonRange;
 use super::window::DomainError;
 use cohort_core::seed::SeedTile;
 
@@ -167,6 +168,8 @@ pub struct ChunkSpec {
     pub day: DayIdx,
     pub band: BandSpec,
     pub s_chunk: SChunkMs,
+    /// `Some` ⇔ person chunk (behavioral chunks never write the range columns).
+    pub person_range: Option<PersonRange>,
 }
 
 /// Freshly claimed and locked; minted only by `store.claim_next` (or `test_support`).
@@ -187,6 +190,33 @@ impl ClaimedChunk {
     /// Pure transition: attach the scanned tiles. No DB effect.
     pub fn into_scanned(self, tiles: Vec<SeedTile>) -> ScannedChunk {
         ScannedChunk::new(self.spec, tiles)
+    }
+
+    /// Pure transition for the person path: the chunk's seeds were streamed out as they were
+    /// scanned, so only the count remains. No DB effect.
+    pub fn into_streamed(self, seeds_produced: u64) -> StreamedChunk {
+        StreamedChunk {
+            spec: self.spec,
+            seeds_produced,
+        }
+    }
+}
+
+/// A person chunk whose seeds were interleaved scan→enqueue — never buffered — awaiting the
+/// `scanning`→`produced` CAS.
+#[derive(Debug)]
+pub struct StreamedChunk {
+    spec: ChunkSpec,
+    seeds_produced: u64,
+}
+
+impl StreamedChunk {
+    pub const fn spec(&self) -> ChunkSpec {
+        self.spec
+    }
+
+    pub const fn seeds_produced(&self) -> u64 {
+        self.seeds_produced
     }
 }
 

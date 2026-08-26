@@ -13,14 +13,16 @@ name: Monitor GitHub Rate Limit
 # Alerting belongs downstream in PostHog (windowed thresholds, attribution by
 # repo) — not in the workflow itself. Keep this file focused on emission.
 #
-# A burn-rate alert is wired up downstream in PostHog (DevEx project, id 347861) —
+# A burn-rate alert is wired up downstream in PostHog (DevEx project, id 347861);
 # these are live PostHog resources, not config in this repo:
-#   - Insight "GitHub core rate-limit — early-window peak utilization" (short id
-#     iGGXQ1mF): per hour, the peak `core` utilization among samples with >30 min
-#     left in the reset window (reset_in_seconds > 1800), which filters out the
-#     harmless pre-reset sawtooth peak.
-#   - A PostHog alert on that insight fires when it exceeds 0.8 (80%) — i.e. the
-#     bucket is burning early, not just spiking right before its hourly reset.
+#   - Insight "GitHub core rate-limit — hourly peak utilization (alerted)" (short
+#     id iGGXQ1mF): per hour, the peak `core` utilization across monitored
+#     buckets. Deliberately unfiltered: restricting it to early-window samples
+#     (reset_in_seconds > 1800) hides a burn that accelerates in the back half of
+#     the reset window, which is how the 2026-07-29 exhaustion evaded the alert.
+#   - A PostHog alert "GitHub core rate-limit hot" fires when the insight exceeds
+#     0.8 (80%); the multi-week baseline peak stays below that, so a breach is
+#     always worth a look.
 #   - A Slack destination relays the firing alert to #alerts-devex (and email).
 # To change the threshold/window, edit the insight + alert in PostHog, not here.
 
@@ -32,6 +34,26 @@ on:
             GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID:
                 required: false
             GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY:
+                required: false
+            GH_APP_POSTHOG_TESTS_APP_ID:
+                required: false
+            GH_APP_POSTHOG_TESTS_PRIVATE_KEY:
+                required: false
+            GH_APP_POSTHOG_PATHS_FILTER_APP_ID:
+                required: false
+            GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY:
+                required: false
+            GH_APP_TELEMETRY_APP_ID:
+                required: false
+            GH_APP_TELEMETRY_PRIVATE_KEY:
+                required: false
+            GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID:
+                required: false
+            GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY:
+                required: false
+            GH_APP_POSTHOG_PRODUCT_TESTS_APP_ID:
+                required: false
+            GH_APP_POSTHOG_PRODUCT_TESTS_PRIVATE_KEY:
                 required: false
     push:
         branches: [master]
@@ -65,12 +87,13 @@ jobs:
                       const script = require('./.github/scripts/monitor-github-rate-limit.js')
                       await script({ github, context, core }, { source: 'github_token' })
 
-            # The setup-action offload bucket (posthog-devex-general) is a
-            # separate 15k installation bucket from GITHUB_TOKEN. Mint its token
-            # and poll /rate_limit through it so its core budget is observable as
-            # its own series. /rate_limit reads don't consume the budget they
-            # report, so this doesn't distort the measurement. No-ops until the
-            # org secret exists (continue-on-error mint + empty-token guard).
+            # The setup-action offload buckets are their own 15k/hr installation
+            # buckets, separate from the per-repo GITHUB_TOKEN core bucket
+            # (30k/hr). Mint each token and poll /rate_limit through it so its
+            # core budget is observable as its own series. /rate_limit reads
+            # don't consume the budget they report, so this doesn't distort the
+            # measurement. No-ops until the org secret exists (continue-on-error
+            # mint + empty-token guard).
             - name: Mint posthog-devex-general token
               id: devex-token
               continue-on-error: true
@@ -89,3 +112,129 @@ jobs:
                   script: |
                       const script = require('./.github/scripts/monitor-github-rate-limit.js')
                       await script({ github, context, core }, { source: 'posthog-devex-general' })
+
+            # Same pattern for the other high-volume App buckets: posthog-tests (CI
+            # alerter, migration-risk checks, test-timing), posthog-paths-filter (the
+            # changes jobs across the workflow fleet), and the telemetry app (job-duration
+            # emitters). Each is its own 15k/hr bucket, so each gets its own series.
+            - name: Mint posthog-tests token
+              id: tests-token
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+
+            - name: Poll posthog-tests bucket and emit to PostHog
+              if: steps.tests-token.outputs.token != ''
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+              env:
+                  POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+              with:
+                  github-token: ${{ steps.tests-token.outputs.token }}
+                  script: |
+                      const script = require('./.github/scripts/monitor-github-rate-limit.js')
+                      await script({ github, context, core }, { source: 'posthog-tests' })
+
+            - name: Mint posthog-paths-filter token
+              id: paths-filter-token
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+
+            - name: Poll posthog-paths-filter bucket and emit to PostHog
+              if: steps.paths-filter-token.outputs.token != ''
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+              env:
+                  POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+              with:
+                  github-token: ${{ steps.paths-filter-token.outputs.token }}
+                  script: |
+                      const script = require('./.github/scripts/monitor-github-rate-limit.js')
+                      await script({ github, context, core }, { source: 'posthog-paths-filter' })
+
+            - name: Mint posthog-telemetry token
+              id: telemetry-token
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_TELEMETRY_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_TELEMETRY_PRIVATE_KEY }}
+
+            - name: Poll posthog-telemetry bucket and emit to PostHog
+              if: steps.telemetry-token.outputs.token != ''
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+              env:
+                  POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+              with:
+                  github-token: ${{ steps.telemetry-token.outputs.token }}
+                  script: |
+                      const script = require('./.github/scripts/monitor-github-rate-limit.js')
+                      await script({ github, context, core }, { source: 'posthog-telemetry' })
+
+            # posthog-setup-actions carries the highest-fanout setup-node/python
+            # sites (backend product matrix, storybook, frontend, nodejs, mcp).
+            - name: Mint posthog-setup-actions token
+              id: setup-actions-token
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+
+            - name: Poll posthog-setup-actions bucket and emit to PostHog
+              if: steps.setup-actions-token.outputs.token != ''
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+              env:
+                  POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+              with:
+                  github-token: ${{ steps.setup-actions-token.outputs.token }}
+                  script: |
+                      const script = require('./.github/scripts/monitor-github-rate-limit.js')
+                      await script({ github, context, core }, { source: 'posthog-setup-actions' })
+
+            # posthog-product-tests carries only ci-backend's product-test matrix,
+            # ~half the offloadable setup-action volume on its own.
+            - name: Mint posthog-product-tests token
+              id: product-tests-token
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_PRODUCT_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PRODUCT_TESTS_PRIVATE_KEY }}
+
+            - name: Poll posthog-product-tests bucket and emit to PostHog
+              if: steps.product-tests-token.outputs.token != ''
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+              env:
+                  POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+              with:
+                  github-token: ${{ steps.product-tests-token.outputs.token }}
+                  script: |
+                      const script = require('./.github/scripts/monitor-github-rate-limit.js')
+                      await script({ github, context, core }, { source: 'posthog-product-tests' })
+
+            # A mint that fails is invisible from the buckets alone: the poll for
+            # that source is simply absent, which looks the same as an App whose
+            # secrets were never configured. Report the two apart so a broken
+            # credential — which silently redirects that App's whole call volume
+            # onto the shared GITHUB_TOKEN bucket — can be alerted on downstream.
+            # Only booleans are interpolated here, never the tokens themselves.
+            - name: Report App token mint failures
+              if: always()
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+              env:
+                  POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+                  MINTS: >-
+                      [{"source":"posthog-devex-general","configured":${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID != '' && secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY != '' }},"minted":${{ steps.devex-token.outputs.token != '' }}},
+                      {"source":"posthog-tests","configured":${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID != '' && secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY != '' }},"minted":${{ steps.tests-token.outputs.token != '' }}},
+                      {"source":"posthog-paths-filter","configured":${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID != '' && secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY != '' }},"minted":${{ steps.paths-filter-token.outputs.token != '' }}},
+                      {"source":"posthog-telemetry","configured":${{ secrets.GH_APP_TELEMETRY_APP_ID != '' && secrets.GH_APP_TELEMETRY_PRIVATE_KEY != '' }},"minted":${{ steps.telemetry-token.outputs.token != '' }}},
+                      {"source":"posthog-setup-actions","configured":${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID != '' && secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY != '' }},"minted":${{ steps.setup-actions-token.outputs.token != '' }}},
+                      {"source":"posthog-product-tests","configured":${{ secrets.GH_APP_POSTHOG_PRODUCT_TESTS_APP_ID != '' && secrets.GH_APP_POSTHOG_PRODUCT_TESTS_PRIVATE_KEY != '' }},"minted":${{ steps.product-tests-token.outputs.token != '' }}}]
+              with:
+                  script: |
+                      const script = require('./.github/scripts/monitor-github-rate-limit.js')
+                      await script.reportMintFailures({ github, context, core }, { mints: JSON.parse(process.env.MINTS) })

@@ -26,11 +26,14 @@ const StatusTagSetting: Record<ExternalDataJob['status'], LemonTagType> = {
 
 interface SyncsTabProps {
     id: string
+    // When set, the tab is locked to this single schema's jobs and the schema filter is hidden.
+    // Used by the schema detail page's Syncs tab.
+    lockedSchema?: string
 }
 
 const LOG_LEVELS: LogEntryLevel[] = ['LOG', 'INFO', 'WARN', 'WARNING', 'ERROR']
 
-export const SyncsTab = ({ id }: SyncsTabProps): JSX.Element => {
+export const SyncsTab = ({ id, lockedSchema }: SyncsTabProps): JSX.Element => {
     const logic = sourceSettingsLogic({ id, availableSources: {} })
     const { timezone } = useValues(teamLogic)
     const { user } = useValues(userLogic)
@@ -38,12 +41,24 @@ export const SyncsTab = ({ id }: SyncsTabProps): JSX.Element => {
     const { loadJobs, loadMoreJobs, setSelectedSchemas } = useActions(logic)
     const showDebugLogs = user?.is_staff || user?.is_impersonated
 
-    // Apply a `?schema=<name>` deep link once on mount so links from the schemas list and the
-    // schema configuration page land here pre-filtered to a single schema.
+    // Lock to a single schema when asked, otherwise apply a `?schema=<name>` deep link once on
+    // mount so links from the schemas list and the schema configuration page land here filtered.
     useEffect(() => {
-        const schemaParam = router.values.searchParams.schema
-        if (schemaParam) {
-            setSelectedSchemas(Array.isArray(schemaParam) ? schemaParam : [schemaParam])
+        if (!lockedSchema) {
+            const schemaParam = router.values.searchParams.schema
+            if (schemaParam) {
+                setSelectedSchemas(Array.isArray(schemaParam) ? schemaParam : [schemaParam])
+            }
+            return
+        }
+        setSelectedSchemas([lockedSchema])
+        // `sourceSettingsLogic` is keyed by source id and shared with the source page, which can
+        // keep it mounted past this tab. Release the lock on the way out, or the source's own
+        // Syncs tab stays filtered to this one schema.
+        return () => {
+            if (logic.isMounted()) {
+                logic.actions.setSelectedSchemas([])
+            }
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
@@ -65,7 +80,7 @@ export const SyncsTab = ({ id }: SyncsTabProps): JSX.Element => {
 
     return (
         <>
-            {schemaOptions.length > 1 && (
+            {!lockedSchema && schemaOptions.length > 1 && (
                 <>
                     <div className="flex items-center gap-2 mb-2">
                         <LemonLabel>Schema</LemonLabel>

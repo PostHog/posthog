@@ -62,18 +62,21 @@ export function DagsTab(): JSX.Element {
         {
             title: 'Sync frequency',
             key: 'sync_frequency',
-            render: (_, dag) => (
-                <LemonSelect<DataModelingSyncInterval>
-                    value={dag.sync_frequency ?? '24hour'}
-                    options={SYNC_FREQUENCY_OPTIONS}
-                    size="small"
-                    onChange={(value) => {
-                        if (value && value !== dag.sync_frequency) {
-                            updateDag({ ...dag, sync_frequency: value })
-                        }
-                    }}
-                />
-            ),
+            render: (_, dag) =>
+                dag.frequency_managed_by_nodes ? (
+                    <span className="text-muted">Managed per model</span>
+                ) : (
+                    <LemonSelect<DataModelingSyncInterval>
+                        value={dag.sync_frequency ?? '24hour'}
+                        options={SYNC_FREQUENCY_OPTIONS}
+                        size="small"
+                        onChange={(value) => {
+                            if (value && value !== dag.sync_frequency) {
+                                updateDag({ ...dag, sync_frequency: value })
+                            }
+                        }}
+                    />
+                ),
         },
         {
             key: 'actions',

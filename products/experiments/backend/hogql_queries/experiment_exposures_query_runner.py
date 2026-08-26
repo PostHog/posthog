@@ -45,7 +45,7 @@ from products.experiments.backend.hogql_queries.experiment_query_runner import (
     experiment_precompute_ttl_schedule,
     has_uncalculated_cohorts,
 )
-from products.experiments.backend.hogql_queries.exposure_query_logic import get_entity_key
+from products.experiments.backend.hogql_queries.exposure_query_logic import get_entity_key, has_activation_config
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
@@ -92,12 +92,21 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         # the experiment, so they don't belong in the exposure chart. self.query.holdout
         # is still consulted by _calculate_srm for the holdout-adjusted rollout math.
         self.excluded_variants = set(self.experiment.excluded_variants or [])
-        multivariate_data = self.query.feature_flag.get("filters", {}).get("multivariate", {})
+        multivariate_data = (self.query.feature_flag.get("filters") or {}).get("multivariate") or {}
         self.variants = [
             variant.get("key")
             for variant in multivariate_data.get("variants", [])
             if variant.get("key") not in self.excluded_variants
         ]
+        # No variants means the exposure SQL (`variant IN {variants}`) matches nothing.
+        # For a running experiment that's a broken flag (variants stripped out from under
+        # it) — surface it rather than render an empty chart that reads as "no exposures".
+        # Stopped/draft experiments may legitimately keep a flag that was later simplified
+        # to boolean, so they fall through and degrade to an empty result instead.
+        if not multivariate_data.get("variants") and self.experiment.is_running:
+            raise ValidationError(
+                "This experiment's feature flag has no variants. Restore the flag's variants to see exposure data."
+            )
 
         self.date_range = self._get_date_range()
         self.date_range_query = QueryDateRange(
@@ -133,21 +142,20 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         )
 
     def _get_exposure_query(self) -> ast.SelectQuery:
-        (
-            exposure_config,
-            multiple_variant_handling,
-            filter_test_accounts,
-        ) = get_exposure_config_params_for_builder(self.exposure_criteria)
+        exposure_params = get_exposure_config_params_for_builder(
+            self.exposure_criteria, self.team, self.experiment.start_date
+        )
 
         builder = ExperimentQueryBuilder(
             team=self.team,
             feature_flag_key=self.feature_flag_key,
-            exposure_config=exposure_config,
-            filter_test_accounts=filter_test_accounts,
-            multiple_variant_handling=multiple_variant_handling,
+            exposure_config=exposure_params.exposure_config,
+            filter_test_accounts=exposure_params.filter_test_accounts,
+            multiple_variant_handling=exposure_params.multiple_variant_handling,
             variants=self.variants,
             date_range_query=self.date_range_query,
             entity_key=get_entity_key(self.group_type_index),
+            activation_config=exposure_params.activation_config,
         )
 
         # TODO: Add query-level precomputation_mode override for ExperimentExposureQuery.
@@ -166,6 +174,9 @@ class ExperimentExposuresQueryRunner(QueryRunner):
                 self.experiment.end_date,
             )
             and not has_uncalculated_cohorts(self.team, self.exposure_criteria)
+            # Activation-mode exposures can't be cached per day: the flag→activation
+            # ordering crosses bucket boundaries.
+            and not has_activation_config(self.exposure_criteria)
         ):
             try:
                 with tags_context(experiment_query_surface="precompute_build", experiment_precompute_table="exposures"):
@@ -188,7 +199,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         Compares observed variant distribution against expected (from rollout percentages).
         Returns None if insufficient data.
         """
-        multivariate_data = self.query.feature_flag.get("filters", {}).get("multivariate", {})
+        multivariate_data = (self.query.feature_flag.get("filters") or {}).get("multivariate") or {}
         variants_config = multivariate_data.get("variants", [])
 
         if not variants_config or not total_exposures:
@@ -276,12 +287,14 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         # query (the cache key), so the running/stopped decision matches the cached window.
         if self.window_end_date is not None:
             return None
-        multivariate_data = self.query.feature_flag.get("filters", {}).get("multivariate", {})
+        multivariate_data = (self.query.feature_flag.get("filters") or {}).get("multivariate") or {}
         flag_variants = multivariate_data.get("variants", [])
-        _, handling, _ = get_exposure_config_params_for_builder(self.exposure_criteria)
+        exposure_params = get_exposure_config_params_for_builder(
+            self.exposure_criteria, self.team, self.experiment.start_date
+        )
         return evaluate_bias_risk(
             flag_variants=flag_variants,
-            multiple_variant_handling=handling,
+            multiple_variant_handling=exposure_params.multiple_variant_handling,
             total_exposures=total_exposures,
         )
 

@@ -73,7 +73,7 @@ logger = logging.getLogger(__name__)
 # rows whose `source_version` doesn't match the current build, so adding a new key here
 # (or restructuring an existing one) without bumping the version would silently mix old
 # and new shapes in the cache.
-INVENTORY_SOURCE_VERSION = "v11"
+INVENTORY_SOURCE_VERSION = "v12"
 
 # Top-events ClickHouse query bounds. 7d is short enough to spot recent bursts and long
 # enough to stabilize counts on low-traffic teams; 50 covers the long tail without
@@ -357,11 +357,18 @@ def _scout_fleet(team: Team) -> dict[str, Any]:
     disabled: list[dict[str, Any]] = []
     for config in SignalScoutConfig.objects.for_team(team.id).exclude(skill_name__in=withheld).order_by("skill_name"):
         last_emitted_at = last_emitted_by_skill.get(config.skill_name)
-        # `enabled` is what an operator set, so it names the reason when it's off; a skill that
-        # can't dispatch is the residual case where the operator left the scout on.
+        # `status` says who switched an off scout off: `turned_off` is a human's (or a seed
+        # posture's) decision, `auto_paused` is the system's own verdict. Conflating them
+        # would tell the fleet an operator chose something no operator chose. A skill that
+        # can't dispatch is the residual case where the scout was left on.
         not_running_reason = None
+        pause_reason = None
         if not config.enabled:
-            not_running_reason = "turned_off"
+            if config.status == SignalScoutConfig.Status.PAUSED_BY_SYSTEM:
+                not_running_reason = "auto_paused"
+                pause_reason = config.pause_reason
+            else:
+                not_running_reason = "turned_off"
         elif config.skill_name not in live_skills:
             not_running_reason = "skill_unavailable"
         entry = {
@@ -372,6 +379,7 @@ def _scout_fleet(team: Team) -> dict[str, Any]:
             "last_run_at": config.last_run_at.isoformat() if config.last_run_at else None,
             "last_emitted_at": last_emitted_at.isoformat() if last_emitted_at else None,
             "not_running_reason": not_running_reason,
+            "pause_reason": pause_reason,
         }
         (disabled if not_running_reason else enabled).append(entry)
     return {
@@ -717,11 +725,11 @@ def _business_knowledge(team: Team) -> dict[str, Any]:
     """Business knowledge orientation — total + ready count, aggregate doc/chunk volume,
     plus the 5 most recently updated sources.
 
-    Tells the scout whether the team has a curated knowledge base worth searching via
-    `business-knowledge-documents-search`. The profile does NOT evaluate the
-    `product-business-knowledge` feature flag — it reads only authoritative tables so
-    cached profiles stay valid across flag flips; the base prompt conditions on "tool
-    present AND ready_count > 0" instead.
+    Inventory for a scout that already knows the knowledge base exists: which sources are there,
+    how much is searchable, what changed recently. The profile does NOT evaluate the
+    `product-business-knowledge` feature flag — it reads only authoritative tables so cached
+    profiles stay valid across flag flips. Whether the run is told about the base at all is the
+    prompt's call, gated per run on flag + a maintained base (`prompt._BUSINESS_KNOWLEDGE`).
     """
     qs = KnowledgeSource.objects.for_team(team.id)
     total = qs.count()

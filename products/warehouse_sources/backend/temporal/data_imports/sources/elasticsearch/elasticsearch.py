@@ -7,8 +7,10 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 # Scroll pages cap at 1000 docs to stay well under the pipeline's buffering thresholds.
 PAGE_SIZE = 1000
@@ -34,11 +36,11 @@ class ElasticsearchRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@frozen
 class ElasticsearchAuth:
     username: Optional[str] = None
-    password: Optional[str] = None
-    api_key: Optional[str] = None
+    password: Optional[str] = dataclasses.field(default=None, repr=False)
+    api_key: Optional[str] = dataclasses.field(default=None, repr=False)
 
 
 def normalize_host(host: str) -> str:

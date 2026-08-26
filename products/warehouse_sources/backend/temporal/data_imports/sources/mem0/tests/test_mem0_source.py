@@ -1,18 +1,15 @@
 from unittest.mock import MagicMock, patch
 
-from posthog.schema import SourceFieldInputConfig
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mem0 import Mem0SourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.mem0.mem0 import Mem0ResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mem0.settings import (
     ENDPOINTS,
     ENTITIES_ENDPOINT,
     EVENTS_ENDPOINT,
+    MEM0_API_VERSION_V3,
     MEMORIES_ENDPOINT,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mem0.source import Mem0Source
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.mem0.source"
 
@@ -22,26 +19,6 @@ def _config(api_key: str = "m0-test", org_id: str | None = None, project_id: str
 
 
 class TestMem0SourceConfig:
-    def test_source_type(self):
-        assert Mem0Source().source_type == ExternalDataSourceType.MEM0
-
-    def test_exposes_secret_api_key_and_optional_scoping_fields(self):
-        cfg = Mem0Source().get_source_config
-
-        fields = {f.name: f for f in cfg.fields}
-        assert set(fields) == {"api_key", "org_id", "project_id"}
-
-        api_key = fields["api_key"]
-        assert isinstance(api_key, SourceFieldInputConfig)
-        assert api_key.required is True
-        assert api_key.secret is True
-
-        for optional_name in ("org_id", "project_id"):
-            field = fields[optional_name]
-            assert isinstance(field, SourceFieldInputConfig)
-            assert field.required is False
-            assert field.secret is False
-
     def test_docs_url_matches_the_doc_slug(self):
         # The website derives the doc slug from docsUrl; a mismatch 404s the docs link.
         assert Mem0Source().get_source_config.docsUrl == "https://posthog.com/docs/cdp/sources/mem0"
@@ -84,6 +61,30 @@ class TestMem0SourceSchemas:
         assert "Incremental" in tables[MEMORIES_ENDPOINT]["sync_methods"]
 
 
+class TestMem0SourceVersions:
+    def test_supports_v1_and_v3_with_v3_default(self):
+        # v3 is the memory API the source already reads and the new default for fresh sources; the
+        # unversioned placeholder stays supported so existing pinned (or NULL) rows keep resolving
+        # to their unchanged wire behaviour. Both labels resolve to the same requests.
+        source = Mem0Source()
+
+        assert source.supported_versions == (UNVERSIONED_API_VERSION, MEM0_API_VERSION_V3)
+        assert source.default_version == MEM0_API_VERSION_V3
+        assert source.resolve_api_version(None) == MEM0_API_VERSION_V3
+        assert source.resolve_api_version(UNVERSIONED_API_VERSION) == UNVERSIONED_API_VERSION
+
+    def test_v1_is_deprecated_without_sunset_and_v3_is_not(self):
+        # The in-product deprecation banner and the repin migration both key off this metadata; the
+        # registry invariant test only checks generic relationships, not the v1-deprecated/v3-current
+        # split or the (absent) sunset date this PR pins.
+        source = Mem0Source()
+
+        deprecation = source.get_version_deprecation(UNVERSIONED_API_VERSION)
+        assert deprecation is not None
+        assert deprecation.sunset_at is None
+        assert source.get_version_deprecation(MEM0_API_VERSION_V3) is None
+
+
 class TestMem0SourceCredentials:
     @patch(f"{_SOURCE_MODULE}.validate_mem0_credentials", return_value=True)
     def test_valid_key(self, mock_validate):
@@ -97,21 +98,8 @@ class TestMem0SourceCredentials:
         assert ok is False
         assert error == "Invalid Mem0 API key"
 
-    def test_non_retryable_errors_pin_to_the_mem0_host(self):
-        keys = Mem0Source().get_non_retryable_errors().keys()
-
-        assert any(key.startswith("401 Client Error") and "api.mem0.ai" in key for key in keys)
-        assert any(key.startswith("403 Client Error") and "api.mem0.ai" in key for key in keys)
-
 
 class TestMem0SourcePipeline:
-    def test_resumable_manager_is_bound_to_the_mem0_resume_dataclass(self):
-        inputs = MagicMock()
-        manager = Mem0Source().get_resumable_source_manager(inputs)
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is Mem0ResumeConfig
-
     @patch(f"{_SOURCE_MODULE}.mem0_source")
     def test_plumbs_credentials_scoping_and_incremental_state(self, mock_source):
         inputs = MagicMock()

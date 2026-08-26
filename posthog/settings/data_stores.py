@@ -159,7 +159,7 @@ PRODUCT_DB_WRITER_URLS: dict[str, str] = {}
 # through PgBouncer (in-cluster, plaintext, no SSL); only the direct migration
 # connection reaches Aurora, whose pg_hba requires SSL (hostssl). dj_database_url
 # sets only connect_timeout, so set sslmode here. Scoped per product (e.g.
-# PRODUCT_DB_AGENT_PLATFORM_SSL_MODE); unset for local dev/test (plain Postgres).
+# PRODUCT_DB_<PRODUCT>_SSL_MODE); unset for local dev/test (plain Postgres).
 def _apply_product_db_ssl_options(db: str, options: dict) -> None:
     ssl_mode = os.getenv(f"PRODUCT_DB_{db.upper()}_SSL_MODE")
     ssl_root_cert = os.getenv(f"PRODUCT_DB_{db.upper()}_SSL_ROOT_CERT")
@@ -316,6 +316,10 @@ CLICKHOUSE_WRITABLE_CLUSTER: str = os.getenv("CLICKHOUSE_WRITABLE_CLUSTER", "pos
 CLICKHOUSE_PRIMARY_REPLICA_CLUSTER: str = os.getenv("CLICKHOUSE_PRIMARY_REPLICA_CLUSTER", "posthog_primary_replica")
 CLICKHOUSE_AUX_CLUSTER: str = os.getenv("CLICKHOUSE_AUX_CLUSTER", "aux")
 CLICKHOUSE_AI_EVENTS_CLUSTER: str = os.getenv("CLICKHOUSE_AI_EVENTS_CLUSTER", "ai_events")
+# The cluster the native-JSON events tables are rolled out on. Named here so the deletion
+# registry can say where a storage table lives; whether a given deployment can reach it is
+# decided by probing the hosts, not by comparing this against the handle's cluster.
+CLICKHOUSE_EVENTS_CLUSTER: str = os.getenv("CLICKHOUSE_EVENTS_CLUSTER", "events")
 # CI uses this to run the test suite against both schemas. Production reads use the instance settings.
 CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: bool = TEST and get_from_env(
     "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA", False, type_cast=str_to_bool
@@ -419,6 +423,12 @@ API_QUERIES_PER_TEAM: dict[int, int] = {}
 with suppress(Exception):
     as_json = json.loads(os.getenv("API_QUERIES_PER_TEAM", "{}"))
     API_QUERIES_PER_TEAM = {int(k): int(v) for k, v in as_json.items()}
+
+# Fleet-wide, unlike ClickHouse's per-node max_concurrent_queries_for_user, so keep it at or below
+# that user's per-node value for the bound to mean anything.
+CLICKHOUSE_LLM_ANALYTICS_MAX_CONCURRENT_QUERIES: int = get_from_env(
+    "CLICKHOUSE_LLM_ANALYTICS_MAX_CONCURRENT_QUERIES", 8, type_cast=int
+)
 
 _clickhouse_http_protocol = "http://"
 _clickhouse_http_port = "8123"
@@ -547,6 +557,23 @@ WORKFLOWS_RESCHEDULE_JWT_SECRETS = get_list(
     get_from_env("WORKFLOWS_RESCHEDULE_JWT_SECRET", "local-dev-workflows-reschedule-jwt" if DEBUG or TEST else "")
 )
 
+# Scoped JWT keys for the workflows cancel routes (invocations/cancel and batch_jobs/:id/cancel).
+# Web mints, the plugin server's cancel routes verify. A dedicated key per the scoped-JWT rule
+# (one key per caller/callee surface), so cancel from the web tier never carries the reschedule
+# sweep's key, and a leak of one can't forge the other. Comma-separated, newest first: the first
+# key signs, the plugin server verifies against all. Empty outside dev/test, so the cancel routes
+# fail closed until provisioned. The dev/test value must match the plugin server's default
+# (nodejs/src/cdp/config.ts).
+WORKFLOWS_CANCEL_JWT_SECRETS = get_list(
+    get_from_env("WORKFLOWS_CANCEL_JWT_SECRET", "local-dev-workflows-cancel-jwt" if DEBUG or TEST else "")
+)
+
+# Signs the tokens a workflow's "Create AI task" action calls back with. The dev/test value
+# must match the plugin server's minting default so local workflows work with no setup.
+TASKS_CREATE_JWT_SECRETS = get_list(
+    get_from_env("TASKS_CREATE_JWT_SECRET", "local-dev-tasks-create-jwt" if DEBUG or TEST else "")
+)
+
 EMBEDDING_API_URL = get_from_env("EMBEDDING_API_URL", "")
 
 # Used to generate embeddings on the fly, for use with the document embeddings table
@@ -559,7 +586,7 @@ FLAGS_REDIS_URL = os.getenv("FLAGS_REDIS_URL", None)
 
 # Dedicated Redis for ai-gateway HyperCache reads. In local dev defaults to the
 # sibling ai-gateway's valkey (host port 6381) so the gateway-credential blob is
-# published where the gateway reads it — zero config for the agent-platform e2e
+# published where the gateway reads it — zero config for the gateway e2e
 # (see bin/setup-gateway-e2e). Prod sets it explicitly; tests leave it unset.
 AI_GATEWAY_REDIS_URL = os.getenv("AI_GATEWAY_REDIS_URL", "redis://localhost:6381" if DEBUG and not TEST else None)
 

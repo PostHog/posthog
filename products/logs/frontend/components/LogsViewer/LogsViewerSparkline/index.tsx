@@ -1,18 +1,23 @@
-import { useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
 import { LemonButton, LemonSelect, SpinnerOverlay } from '@posthog/lemon-ui'
+import { DefaultTooltip, HighlightedRange, TimeSeriesBarChart } from '@posthog/quill-charts'
+import type { DateRangeZoomData, Series, TimeSeriesBarChartConfig, TooltipContext } from '@posthog/quill-charts'
 
-import { AnyScaleOptions, Sparkline } from 'lib/components/Sparkline'
+import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
+import { getColorVar } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { shortTimeZone } from 'lib/utils/timezones'
 
 import { DateRange, LogsSparklineBreakdownBy } from '~/queries/schema/schema-general'
 
-import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
+import type { VisibleLogsTimeRange } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
+
+import { highlightedBucketRange, selectedDateRange } from './bucketRanges'
 
 export interface LogsSparklineData {
     data: {
@@ -21,10 +26,9 @@ export interface LogsSparklineData {
         values: number[]
     }[]
     dates: string[]
-    labels: string[]
 }
 
-interface LogsViewerSparklineProps {
+export interface LogsViewerSparklineProps {
     sparklineData: LogsSparklineData
     sparklineLoading: boolean
     onDateRangeChange: (dateRange: DateRange) => void
@@ -34,6 +38,7 @@ interface LogsViewerSparklineProps {
     collapsed?: boolean
     onToggleCollapse?: () => void
     incompleteBarIndices?: number[]
+    visibleRowDateRange?: VisibleLogsTimeRange | null
 }
 
 const BREAKDOWN_OPTIONS: { value: LogsSparklineBreakdownBy; label: string }[] = [
@@ -51,97 +56,103 @@ export function LogsSparkline({
     collapsed = false,
     onToggleCollapse,
     incompleteBarIndices,
+    visibleRowDateRange,
 }: LogsViewerSparklineProps): JSX.Element | null {
     const showServiceBreakdown = useFeatureFlag('LOGS_SPARKLINE_SERVICE_BREAKDOWN')
+    const theme = useChartTheme()
 
-    const { timeUnit, tickFormat } = useMemo(() => {
+    // Quill's automatic date axis has no seconds mode, and buckets target ~50 across the queried
+    // range, so an hour of logs lands under a minute per bucket and needs explicit formats.
+    const tickFormat = useMemo(() => {
         if (!sparklineData.dates.length) {
-            return { timeUnit: 'hour' as const, tickFormat: 'HH:mm:ss' }
+            return 'HH:mm:ss'
         }
-        const firstDate = dayjs(sparklineData.dates[0])
-        const lastDate = dayjs(sparklineData.dates[sparklineData.dates.length - 1])
-        const hoursDiff = lastDate.diff(firstDate, 'hours')
-
-        if (hoursDiff <= 1) {
-            return { timeUnit: 'second' as const, tickFormat: 'HH:mm:ss' }
-        } else if (hoursDiff <= 6) {
-            return { timeUnit: 'minute' as const, tickFormat: 'HH:mm:ss' }
-        } else if (hoursDiff <= 48) {
-            return { timeUnit: 'hour' as const, tickFormat: 'HH:mm' }
+        const hoursDiff = dayjs(sparklineData.dates[sparklineData.dates.length - 1]).diff(
+            dayjs(sparklineData.dates[0]),
+            'hours'
+        )
+        if (hoursDiff <= 6) {
+            return 'HH:mm:ss'
         }
-        return { timeUnit: 'day' as const, tickFormat: 'D MMM HH:mm' }
+        return hoursDiff <= 48 ? 'HH:mm' : 'D MMM HH:mm'
     }, [sparklineData.dates])
 
-    const withXScale = useCallback(
-        (scale: AnyScaleOptions): AnyScaleOptions => {
-            return {
-                ...scale,
-                type: 'timeseries',
-                ticks: {
-                    display: true,
-                    maxRotation: 0,
-                    maxTicksLimit: 6,
-                    font: {
-                        size: 10,
-                        lineHeight: 1,
-                    },
-                    callback: function (value: string | number) {
-                        const d = displayTimezone ? dayjs(value).tz(displayTimezone) : dayjs(value)
-                        return d.format(tickFormat)
-                    },
-                },
-                time: {
-                    unit: timeUnit,
-                },
-            } as AnyScaleOptions
-        },
-        [timeUnit, tickFormat, displayTimezone]
+    const sparklineLabels = useMemo(
+        () => sparklineData.dates.map((date) => dayjs(date).toISOString()),
+        [sparklineData.dates]
     )
 
-    const renderLabel = useCallback(
+    const series = useMemo<Series[]>(
+        () =>
+            sparklineData.data.map((timeseries) => ({
+                key: timeseries.name,
+                label: timeseries.name,
+                data: timeseries.values,
+                // The logic hands back vars.scss color names ('danger', 'data-color-1'); a canvas
+                // fill needs a real color. `theme` is a dep so a light/dark flip re-resolves them.
+                color: getColorVar(timeseries.color || 'muted'),
+                // Buckets past the ingestion checkpoint are always a trailing run.
+                ...(incompleteBarIndices?.length
+                    ? { stroke: { partial: { fromIndex: Math.min(...incompleteBarIndices) } } }
+                    : {}),
+            })),
+        [sparklineData.data, incompleteBarIndices, theme]
+    )
+
+    const highlight = useMemo(() => {
+        if (!visibleRowDateRange || !sparklineLabels.length) {
+            return null
+        }
+        return highlightedBucketRange(
+            sparklineLabels.map((label) => dayjs(label).valueOf()),
+            dayjs(visibleRowDateRange.date_from).valueOf(),
+            dayjs(visibleRowDateRange.date_to).valueOf()
+        )
+    }, [visibleRowDateRange, sparklineLabels])
+
+    const config = useChartConfig<TimeSeriesBarChartConfig>(
+        () => ({
+            xAxis: { tickFormatter: (value: string) => dayjs(value).tz(displayTimezone).format(tickFormat) },
+            yAxis: { tickFormatter: humanFriendlyNumber },
+            barCornerRadius: 2,
+            // A service breakdown reaches 13 rows, overflowing the tooltip, so it has to be scrollable.
+            tooltip: { pinnable: true },
+        }),
+        [displayTimezone, tickFormat]
+    )
+
+    const tooltipHeader = useCallback(
         (label: string): string => {
-            const d = displayTimezone ? dayjs(label).tz(displayTimezone) : dayjs(label)
-            const tz = displayTimezone === 'UTC' ? 'UTC' : (shortTimeZone(displayTimezone, d.toDate()) ?? 'Local')
-            return `${d.format('D MMM YYYY HH:mm:ss')} ${tz}`
+            const date = dayjs(label).tz(displayTimezone)
+            const tz = displayTimezone === 'UTC' ? 'UTC' : (shortTimeZone(displayTimezone, date.toDate()) ?? 'Local')
+            return `${date.format('D MMM YYYY HH:mm:ss')} ${tz}`
         },
         [displayTimezone]
     )
 
-    const sparklineLabels = useMemo(() => {
-        return sparklineData.dates.map((date) => dayjs(date).toISOString())
-    }, [sparklineData.dates])
+    // `hideZeroRows` and `sortedByValue` are `DefaultTooltip` props that `config.tooltip` does not
+    // forward, so a sparse bucket would otherwise list every zero-count series.
+    const renderTooltip = useCallback(
+        (ctx: TooltipContext): JSX.Element => (
+            <DefaultTooltip
+                {...ctx}
+                hideZeroRows
+                sortedByValue
+                valueFormatter={(value: number) => humanFriendlyNumber(value)}
+                labelFormatter={tooltipHeader}
+            />
+        ),
+        [tooltipHeader]
+    )
 
-    const { visibleRowDateRange } = useValues(logsViewerLogic)
-
-    const highlightedRange = useMemo(() => {
-        if (!visibleRowDateRange || sparklineData.dates.length === 0) {
-            return null
-        }
-        const firstMs = dayjs(sparklineData.dates[0]).valueOf()
-        const lastMs = dayjs(sparklineData.dates[sparklineData.dates.length - 1]).valueOf()
-        const clamp = (ms: number): number => Math.min(Math.max(ms, firstMs), lastMs)
-        const xMin = clamp(dayjs(visibleRowDateRange.date_from).valueOf())
-        const xMax = clamp(dayjs(visibleRowDateRange.date_to).valueOf())
-        if (xMax <= xMin) {
-            return null
-        }
-        return { xMin, xMax }
-    }, [visibleRowDateRange, sparklineData.dates])
-
-    const onSelectionChange = useCallback(
-        (selection: { startIndex: number; endIndex: number }): void => {
-            const dates = sparklineData.dates
-            const dateFrom = dates[selection.startIndex]
-            const dateTo = dates[selection.endIndex + 1]
-
-            if (!dateFrom) {
-                return
+    // Wired straight through rather than via `useDateRangeZoom()`, because that hook's flag would
+    // take this drag away from anyone the rollout has not reached, and it already ships to everyone.
+    const onDateRangeZoom = useCallback(
+        ({ startIndex, endIndex }: DateRangeZoomData): void => {
+            const dateRange = selectedDateRange(sparklineData.dates, startIndex, endIndex)
+            if (dateRange) {
+                onDateRangeChange(dateRange)
             }
-
-            onDateRangeChange({
-                date_from: dateFrom,
-                date_to: dateTo,
-            })
         },
         [sparklineData.dates, onDateRangeChange]
     )
@@ -169,21 +180,22 @@ export function LogsSparkline({
                 )}
             </div>
             {!collapsed && (
-                <div id="logs-sparkline-content" className="relative h-32">
-                    {sparklineData.data.length > 0 ? (
-                        <Sparkline
+                // Quill chart roots are `flex-1`, so the sized box has to be a flex column.
+                <div id="logs-sparkline-content" className="relative h-32 flex flex-col">
+                    {series.length > 0 ? (
+                        <TimeSeriesBarChart
+                            series={series}
                             labels={sparklineLabels}
-                            data={sparklineData.data}
-                            className="w-full h-full"
-                            onSelectionChange={onSelectionChange}
-                            withXScale={withXScale}
-                            renderLabel={renderLabel}
-                            tooltipRowCutoff={100}
-                            hideZerosInTooltip
-                            sortTooltipByCount
-                            highlightedRange={highlightedRange}
-                            incompleteBars={incompleteBarIndices?.length ? { indices: incompleteBarIndices } : null}
-                        />
+                            theme={theme}
+                            config={config}
+                            onDateRangeZoom={onDateRangeZoom}
+                            tooltip={renderTooltip}
+                            dataAttr="logs-viewer-volume-chart"
+                        >
+                            {highlight ? (
+                                <HighlightedRange start={highlight.startIndex} end={highlight.endIndex} />
+                            ) : null}
+                        </TimeSeriesBarChart>
                     ) : !sparklineLoading ? (
                         <div className="h-full text-muted flex items-center justify-center">
                             No results matching filters

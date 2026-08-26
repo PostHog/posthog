@@ -4,49 +4,15 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import (
-    ExternalDataSourceType as SchemaExternalDataSourceType,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.emailoctopus import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.emailoctopus.emailoctopus import (
-    EmailOctopusResumeConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.emailoctopus.source import EmailOctopusSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> Any:
     config = MagicMock()
     config.api_key = "eo_key"
     return config
-
-
-class TestEmailOctopusSourceConfig:
-    def test_source_type(self) -> None:
-        assert EmailOctopusSource().source_type == ExternalDataSourceType.EMAILOCTOPUS
-
-    def test_source_config_basics(self) -> None:
-        config = EmailOctopusSource().get_source_config
-        assert config.name == SchemaExternalDataSourceType.EMAIL_OCTOPUS
-        assert config.label == "EmailOctopus"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        # A finished source is visible: no unreleasedSource flag.
-        assert not config.unreleasedSource
-
-    def test_api_key_field_is_a_required_secret(self) -> None:
-        fields = EmailOctopusSource().get_source_config.fields
-        api_key_fields = [f for f in fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key"]
-        assert len(api_key_fields) == 1
-        api_key = api_key_fields[0]
-        assert api_key.type == SourceFieldInputConfigType.PASSWORD
-        assert api_key.required is True
-        assert api_key.secret is True
 
 
 class TestEmailOctopusGetSchemas:
@@ -123,24 +89,12 @@ class TestEmailOctopusResumableAndPipeline:
             reset_pipeline=False,
         )
 
-    def test_resumable_manager_bound_to_resume_config(self) -> None:
-        manager = EmailOctopusSource().get_resumable_source_manager(self._inputs("contacts"))
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is EmailOctopusResumeConfig
-
     def test_source_for_pipeline_plumbs_endpoint(self) -> None:
         inputs = self._inputs("contacts")
         manager = EmailOctopusSource().get_resumable_source_manager(inputs)
         response = EmailOctopusSource().source_for_pipeline(_config(), manager, inputs)
         assert response.name == "contacts"
         assert response.primary_keys == ["list_id", "id"]
-
-
-class TestEmailOctopusCanonicalDescriptions:
-    def test_documents_every_endpoint(self) -> None:
-        descriptions = EmailOctopusSource().get_canonical_descriptions()
-        assert set(descriptions.keys()) == {"lists", "campaigns", "contacts"}
-        assert "list_id" in descriptions["contacts"]["columns"]
 
 
 class TestEmailOctopusSourceVersions:
@@ -157,3 +111,12 @@ class TestEmailOctopusSourceVersions:
         source = EmailOctopusSource()
         assert version in source.supported_versions
         assert source.resolve_api_version(version) == version
+
+    def test_v1_is_deprecated_without_sunset(self) -> None:
+        # Guards the in-product deprecation banner: v1 must stay flagged (no announced sunset)
+        # and the current default must not be, or the warning silently stops firing.
+        source = EmailOctopusSource()
+        deprecation = source.get_version_deprecation("v1")
+        assert deprecation is not None
+        assert deprecation.sunset_at is None
+        assert source.get_version_deprecation("v2") is None

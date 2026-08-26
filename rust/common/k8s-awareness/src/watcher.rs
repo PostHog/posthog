@@ -66,6 +66,46 @@ impl K8sAwareness {
         Ok(pod_info)
     }
 
+    /// Start watching a controller known by reference — the entry point
+    /// for consumers that learn controllers from member registrations
+    /// rather than pod-name discovery (the coordinator sees each pod's
+    /// self-reported controller ref and has no pod of its own to
+    /// discover from). Idempotent: an already-watched controller is a
+    /// no-op. Returns whether this call started a new watch, so callers
+    /// that need intent can bound-wait for the first report instead of
+    /// planning without it.
+    pub async fn watch_controller(
+        &self,
+        controller: &ControllerRef,
+    ) -> Result<bool, K8sAwarenessError> {
+        self.ensure_watching(controller).await
+    }
+
+    /// Like [`Self::cluster_intent`], but polls up to `deadline` for a
+    /// just-started watcher's first report. A freshly elected
+    /// coordinator's first evaluation otherwise plans deterministically
+    /// without intent — and mid-rollout, planning without placement
+    /// policies means a balanced plan that moves partitions the rollout
+    /// has already placed. `None` after the deadline (API server down,
+    /// or controller genuinely unwatched) degrades exactly like
+    /// [`Self::cluster_intent`] returning `None`.
+    pub async fn cluster_intent_within(
+        &self,
+        controller: &ControllerRef,
+        deadline: Duration,
+    ) -> Option<ClusterIntent> {
+        let start = tokio::time::Instant::now();
+        loop {
+            if let Some(intent) = self.cluster_intent(controller).await {
+                return Some(intent);
+            }
+            if start.elapsed() >= deadline {
+                return None;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    }
+
     /// Classify why a member is departing based on its controller's current intent.
     ///
     /// Returns `DepartureReason::Unknown` if the controller isn't being watched
@@ -96,11 +136,25 @@ impl K8sAwareness {
         }
     }
 
-    /// Start watching a controller if not already watching.
-    async fn ensure_watching(&self, controller: &ControllerRef) -> Result<(), K8sAwarenessError> {
+    /// The watcher's current view of a controller's intent, if watched.
+    ///
+    /// Returns `None` when the controller isn't being watched or hasn't
+    /// reported yet — callers must treat that as "no rollout signal" and
+    /// fall back to policy-free behavior. Waits for the lock (writers
+    /// hold it only for map updates): a `try_read` here would blank the
+    /// intent under contention, and a blanked intent flips a whole
+    /// rollout's placement policies to plain balancing for that
+    /// evaluation, churning partitions in both directions.
+    pub async fn cluster_intent(&self, controller: &ControllerRef) -> Option<ClusterIntent> {
+        self.controllers.read().await.get(controller).cloned()
+    }
+
+    /// Start watching a controller if not already watching. Returns
+    /// whether a new watch was started.
+    async fn ensure_watching(&self, controller: &ControllerRef) -> Result<bool, K8sAwarenessError> {
         let mut watching = self.watching.write().await;
         if watching.contains_key(controller) {
-            return Ok(());
+            return Ok(false);
         }
 
         let child_cancel = self.cancel.child_token();
@@ -142,7 +196,7 @@ impl K8sAwareness {
             }
         });
 
-        Ok(())
+        Ok(true)
     }
 }
 
@@ -242,7 +296,12 @@ async fn handle_deployment_event(
     let desired_replicas = spec.replicas.unwrap_or(1) as u32;
     let generation = deploy.metadata.generation.unwrap_or(0);
     let observed_generation = status.and_then(|s| s.observed_generation).unwrap_or(0);
-    let rollout_in_progress = generation != observed_generation;
+    // observedGeneration catches up seconds after a spec change, long
+    // before pods actually roll — on its own it only covers the window
+    // until the new ReplicaSet exists. The rollout itself is in progress
+    // for as long as more than one generation has desired replicas, which
+    // is judged below once the ReplicaSets are listed.
+    let spec_pending = generation != observed_generation;
 
     // Build a label selector from the Deployment's matchLabels to scope RS queries
     let label_selector = spec
@@ -267,7 +326,7 @@ async fn handle_deployment_event(
     let rses = match owned_rses {
         Ok(rses) => rses,
         Err(e) => {
-            if rollout_in_progress {
+            if spec_pending {
                 warn!(
                     controller = %controller,
                     error = %e,
@@ -283,6 +342,9 @@ async fn handle_deployment_event(
             return;
         }
     };
+
+    let live_generations = rses.iter().filter(|(_, _, replicas)| *replicas > 0).count();
+    let rollout_in_progress = spec_pending || live_generations > 1;
 
     let (current_gen, target_gen) = if rollout_in_progress {
         let target = rses

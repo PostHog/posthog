@@ -50,10 +50,6 @@ export interface ProjectNoticeBlueprint {
     mountNoEventsBannerLogic?: boolean
 }
 
-export function shouldShowNoEventsProjectNotice(activeSceneId: string | null, liveEventCount: number): boolean {
-    return activeSceneId !== Scene.Quickstart && !(activeSceneId === Scene.LiveEvents && liveEventCount > 0)
-}
-
 const NOTICE_DISMISS_PREFIX = 'project-notice-dismissed.'
 
 // The products we want every provisioned account exploring. Keys resolve in both PRODUCT_BRANDING
@@ -130,29 +126,75 @@ function shouldFetchProxyRecords(user: UserType | null, currentOrganizationId: s
     return !!user && !!currentOrganizationId && new Date().getDate() <= 7 && !isNoticeDismissed('missing_reverse_proxy')
 }
 
+function buildBillingAlertAction(
+    billingAlert: BillingAlertConfig,
+    canAccessBilling: boolean
+): LemonBannerProps['action'] | undefined {
+    if (billingAlert.action) {
+        return billingAlert.action
+    }
+
+    if (billingAlert.contactSupport) {
+        return {
+            to: 'mailto:sales@posthog.com',
+            children: billingAlert.buttonCTA || 'Contact support',
+            onClick: () => billingLogic.actions.reportBillingAlertActionClicked(billingAlert),
+        }
+    }
+
+    if (!canAccessBilling) {
+        return undefined
+    }
+
+    return {
+        to: getBillingAlertBillingUrl(billingAlert),
+        children: 'Manage billing',
+        onClick: () => billingLogic.actions.reportBillingAlertActionClicked(billingAlert),
+    }
+}
+
+function getBillingAlertBillingUrl(billingAlert: BillingAlertConfig): string {
+    return urls.organizationBilling(billingAlert.productKey ? [billingAlert.productKey] : undefined)
+}
+
+function isBillingPathname(pathname: string): boolean {
+    const billingPathname = urls.organizationBilling()
+
+    return pathname === billingPathname || pathname.startsWith(`${billingPathname}/`)
+}
+
+function isCurrentBillingAlertBillingUrl(
+    billingAlert: BillingAlertConfig,
+    currentLocation: { pathname: string; searchParams: Record<string, any> }
+): boolean {
+    if (!isBillingPathname(currentLocation.pathname)) {
+        return false
+    }
+
+    if (!billingAlert.productKey) {
+        return true
+    }
+
+    const productsParam = currentLocation.searchParams.products
+    const productKeys = Array.isArray(productsParam)
+        ? productsParam
+        : typeof productsParam === 'string'
+          ? productsParam.split(',')
+          : []
+
+    return productKeys.includes(billingAlert.productKey)
+}
+
 function buildBillingAlertNotice(
     billingAlert: BillingAlertConfig,
     canAccessBilling: boolean,
-    currentPathname: string
+    currentLocation: { pathname: string; searchParams: Record<string, any> }
 ): ProjectNoticeBlueprint {
     const showButton =
-        billingAlert.action || billingAlert.contactSupport || currentPathname !== urls.organizationBilling()
-
-    const action = billingAlert.action
-        ? billingAlert.action
-        : billingAlert.contactSupport
-          ? {
-                to: 'mailto:sales@posthog.com',
-                children: billingAlert.buttonCTA || 'Contact support',
-                onClick: () => billingLogic.actions.reportBillingAlertActionClicked(billingAlert),
-            }
-          : canAccessBilling
-            ? {
-                  to: urls.organizationBilling(),
-                  children: 'Manage billing',
-                  onClick: () => billingLogic.actions.reportBillingAlertActionClicked(billingAlert),
-              }
-            : undefined
+        billingAlert.action ||
+        billingAlert.contactSupport ||
+        !isCurrentBillingAlertBillingUrl(billingAlert, currentLocation)
+    const action = buildBillingAlertAction(billingAlert, canAccessBilling)
 
     return {
         message: (
@@ -320,9 +362,10 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                     const response = await api.get(`api/organizations/${values.currentOrganizationId}/proxy_records`)
                     return response.results
                 } catch (error) {
-                    // A missing or expired session makes this boot-time GET 401. There's no banner to
-                    // show an unauthenticated user, so swallow it rather than polluting error tracking.
-                    if (error instanceof ApiError && error.status === 401) {
+                    // A missing or expired session makes this boot-time GET 401. A restricted org member
+                    // whose access level to the org resource is below read gets a 403 from the RBAC layer.
+                    // Either way there's no banner to show, so swallow it rather than polluting error tracking.
+                    if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
                         return null
                     }
                     throw error
@@ -433,7 +476,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                     // Belt-and-braces: never claim "no events" while the live activity feed is
                     // actively rendering events on the same screen — `currentTeam.ingested_event`
                     // can lag behind the live SSE stream during the first ingestion window.
-                    shouldShowNoEventsProjectNotice(activeSceneId, liveEventCount)
+                    !(activeSceneId === Scene.LiveEvents && liveEventCount > 0)
                 ) {
                     return 'real_project_with_no_events'
                 } else if (hasEventIngestionRestriction) {
@@ -517,11 +560,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                         if (!effectiveBillingAlert) {
                             return null
                         }
-                        const notice = buildBillingAlertNotice(
-                            effectiveBillingAlert,
-                            canAccessBilling,
-                            currentLocation.pathname
-                        )
+                        const notice = buildBillingAlertNotice(effectiveBillingAlert, canAccessBilling, currentLocation)
                         const canClose = dismiss || notice.onClose
                         return {
                             ...notice,

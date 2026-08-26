@@ -1,7 +1,8 @@
-from typing import ClassVar, cast
+from typing import ClassVar, cast, get_args
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLDialect
+from posthog.hogql.errors import ImpossibleASTError, QueryError
 from posthog.hogql.printer.base import BasePrinter
 
 
@@ -21,6 +22,14 @@ class HogQLPrinter(BasePrinter):
         # QUALIFY clause fails when `query.py` renders `self.hogql` for the response, before
         # the target dialect ever runs.
         return
+
+    def _assert_set_operator_supported(self, set_operator: str) -> None:
+        # BY NAME is valid HogQL (the SQL dialects lower or reject it), so the round-trip
+        # prints it back verbatim. Keep the base allowlist and INTERSECT ALL/EXCEPT ALL gates.
+        if set_operator not in get_args(ast.SetOperator):
+            raise QueryError(f"Invalid set operator: {set_operator!r}")
+        if set_operator in ("INTERSECT ALL", "EXCEPT ALL"):
+            raise ImpossibleASTError(f"{set_operator} is not supported in the '{self.DIALECT_NAME}' dialect")
 
     def visit_cte(self, node: ast.CTE) -> str:
         materialization_hint = (

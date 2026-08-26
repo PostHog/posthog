@@ -16,12 +16,17 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { Breakdown, BreakdownFilter } from '~/queries/schema/schema-general'
-import { BreakdownType, ChartDisplayType, InsightLogicProps } from '~/types'
+import { ChartDisplayType, InsightLogicProps } from '~/types'
 
 import type { FeatureFlagsSet } from '../../../../lib/logic/featureFlagLogic'
 import type { DatabaseSchemaField } from '../../../../queries/schema/schema-general'
 import type { PropertyDefinition, PropertyDefinitionType } from '../../../../types'
-import { isCohortBreakdown, isMultipleBreakdownType, isURLNormalizeable } from './taxonomicBreakdownFilterUtils'
+import {
+    isBreakdownType,
+    isCohortBreakdown,
+    isMultipleBreakdownType,
+    isURLNormalizeable,
+} from './taxonomicBreakdownFilterUtils'
 
 // Kept in sync with the `@maxItems` on `BreakdownFilter.breakdowns` in schema-general.ts.
 const MAX_TRENDS_BREAKDOWNS = 3
@@ -73,6 +78,7 @@ export interface taxonomicBreakdownFilterLogicValues {
         | TaxonomicFilterGroupType.CohortsWithAllUsers
         | TaxonomicFilterGroupType.DataWarehouse
         | TaxonomicFilterGroupType.DataWarehouseSourceTables
+        | TaxonomicFilterGroupType.DataWarehouseMaterializedViews
         | TaxonomicFilterGroupType.DataWarehouseProperties
         | TaxonomicFilterGroupType.DataWarehousePersonProperties
         | TaxonomicFilterGroupType.Elements
@@ -116,6 +122,7 @@ export interface taxonomicBreakdownFilterLogicValues {
         | TaxonomicFilterGroupType.Replay
         | TaxonomicFilterGroupType.ReplaySavedFilters
         | TaxonomicFilterGroupType.RevenueAnalyticsProperties
+        | TaxonomicFilterGroupType.AccountFields
         | TaxonomicFilterGroupType.AccountCustomProperties
         | TaxonomicFilterGroupType.Resources
         | TaxonomicFilterGroupType.ErrorTrackingProperties
@@ -237,6 +244,7 @@ export interface taxonomicBreakdownFilterLogicMeta {
             | TaxonomicFilterGroupType.CohortsWithAllUsers
             | TaxonomicFilterGroupType.DataWarehouse
             | TaxonomicFilterGroupType.DataWarehouseSourceTables
+            | TaxonomicFilterGroupType.DataWarehouseMaterializedViews
             | TaxonomicFilterGroupType.DataWarehouseProperties
             | TaxonomicFilterGroupType.DataWarehousePersonProperties
             | TaxonomicFilterGroupType.Elements
@@ -280,6 +288,7 @@ export interface taxonomicBreakdownFilterLogicMeta {
             | TaxonomicFilterGroupType.Replay
             | TaxonomicFilterGroupType.ReplaySavedFilters
             | TaxonomicFilterGroupType.RevenueAnalyticsProperties
+            | TaxonomicFilterGroupType.AccountFields
             | TaxonomicFilterGroupType.AccountCustomProperties
             | TaxonomicFilterGroupType.Resources
             | TaxonomicFilterGroupType.ErrorTrackingProperties
@@ -548,7 +557,8 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
     }),
     listeners(({ props, values, actions }) => ({
         addBreakdown: ({ breakdown, taxonomicGroup }) => {
-            const breakdownType = taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type) as BreakdownType
+            const propertyFilterType = taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type)
+            const breakdownType = isBreakdownType(propertyFilterType) ? propertyFilterType : undefined
             const propertyDefinitionType = propertyFilterTypeToPropertyDefinitionType(breakdownType)
             const isHistogramable =
                 !!values.getPropertyDefinition(breakdown, propertyDefinitionType)?.is_numerical && props.isTrends
@@ -701,9 +711,10 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
             }
         },
         replaceBreakdown: ({ previousBreakdown, newBreakdown }) => {
-            const breakdownType = taxonomicFilterTypeToPropertyFilterType(newBreakdown.group.type) as
-                | BreakdownType
-                | undefined
+            const newBreakdownPropertyFilterType = taxonomicFilterTypeToPropertyFilterType(newBreakdown.group.type)
+            const breakdownType = isBreakdownType(newBreakdownPropertyFilterType)
+                ? newBreakdownPropertyFilterType
+                : undefined
             const breakdownValue = newBreakdown.value
 
             const propertyDefinitionType = propertyFilterTypeToPropertyDefinitionType(breakdownType)

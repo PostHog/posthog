@@ -53,6 +53,11 @@
             },
             "type": "object"
         },
+        "grid_spacing": {
+            "description": "Named tile density preset. Use tight, condensed, standard, relaxed, or wide.\n\n* `tight` - tight\n* `condensed` - condensed\n* `standard` - standard\n* `relaxed` - relaxed\n* `wide` - wide",
+            "enum": ["tight", "condensed", "standard", "relaxed", "wide"],
+            "type": "string"
+        },
         "id": {
             "description": "A unique integer value identifying this dashboard.",
             "type": "number"
@@ -60,6 +65,11 @@
         "include_dashboards": {
             "description": "Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.",
             "type": "boolean"
+        },
+        "layout_compaction": {
+            "description": "How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.\n\n* `vertical` - vertical\n* `horizontal` - horizontal\n* `stable` - stable",
+            "enum": ["vertical", "horizontal", "stable"],
+            "type": "string"
         },
         "name": {
             "anyOf": [
@@ -211,6 +221,10 @@
                                                                         "is_not",
                                                                         "icontains",
                                                                         "not_icontains",
+                                                                        "starts_with",
+                                                                        "not_starts_with",
+                                                                        "ends_with",
+                                                                        "not_ends_with",
                                                                         "regex",
                                                                         "not_regex",
                                                                         "gt",
@@ -311,6 +325,10 @@
                                                                         "is_not",
                                                                         "icontains",
                                                                         "not_icontains",
+                                                                        "starts_with",
+                                                                        "not_starts_with",
+                                                                        "ends_with",
+                                                                        "not_ends_with",
                                                                         "regex",
                                                                         "not_regex",
                                                                         "gt",
@@ -510,6 +528,10 @@
                                                                         "is_not",
                                                                         "icontains",
                                                                         "not_icontains",
+                                                                        "starts_with",
+                                                                        "not_starts_with",
+                                                                        "ends_with",
+                                                                        "not_ends_with",
                                                                         "regex",
                                                                         "not_regex",
                                                                         "gt",
@@ -697,6 +719,10 @@
                                                                         "is_not",
                                                                         "icontains",
                                                                         "not_icontains",
+                                                                        "starts_with",
+                                                                        "not_starts_with",
+                                                                        "ends_with",
+                                                                        "not_ends_with",
                                                                         "regex",
                                                                         "not_regex",
                                                                         "gt",
@@ -984,6 +1010,89 @@
                                             }
                                         },
                                         "type": "object"
+                                    },
+                                    {
+                                        "properties": {
+                                            "assignees": {
+                                                "description": "Only show tickets assigned to these users or roles. 'me' means the requesting user and 'unassigned' means tickets without an assignment. Empty shows all assignees.",
+                                                "items": {
+                                                    "anyOf": [
+                                                        {
+                                                            "enum": ["me", "unassigned"],
+                                                            "type": "string"
+                                                        },
+                                                        {
+                                                            "properties": {
+                                                                "id": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "type": "string"
+                                                                        },
+                                                                        {
+                                                                            "type": "number"
+                                                                        }
+                                                                    ]
+                                                                },
+                                                                "type": {
+                                                                    "enum": ["user", "role"],
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "required": ["id", "type"],
+                                                            "type": "object"
+                                                        }
+                                                    ]
+                                                },
+                                                "maxItems": 100,
+                                                "type": "array"
+                                            },
+                                            "channel": {
+                                                "default": "all",
+                                                "description": "Ticket channel filter.",
+                                                "enum": ["widget", "email", "slack", "teams", "github", "all"],
+                                                "type": "string"
+                                            },
+                                            "limit": {
+                                                "default": 10,
+                                                "description": "Maximum number of tickets to return.",
+                                                "maximum": 25,
+                                                "minimum": 1,
+                                                "type": "number"
+                                            },
+                                            "priorities": {
+                                                "description": "Only show tickets with these priorities. Empty shows all priorities.",
+                                                "items": {
+                                                    "enum": ["low", "medium", "high", "critical"],
+                                                    "type": "string"
+                                                },
+                                                "type": "array"
+                                            },
+                                            "savedViewId": {
+                                                "anyOf": [
+                                                    {
+                                                        "maxLength": 12,
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "short_id of a saved Support view to use as the source. When set, the saved view owns the ticket filters; the widget still sorts by most recently updated and applies its limit."
+                                            },
+                                            "search": {
+                                                "default": "",
+                                                "description": "Search requester name or email, ticket subject, message text, or ticket number.",
+                                                "maxLength": 200,
+                                                "type": "string"
+                                            },
+                                            "status": {
+                                                "default": "all",
+                                                "description": "Ticket status filter.",
+                                                "enum": ["new", "open", "pending", "on_hold", "resolved", "all"],
+                                                "type": "string"
+                                            }
+                                        },
+                                        "type": "object"
                                     }
                                 ],
                                 "description": "Widget-specific configuration. Shape depends on the tile's widget_type."
@@ -1009,9 +1118,10 @@
                                 "description": "Optional custom display name for the widget tile."
                             },
                             "widget_type": {
-                                "description": "Widget type identifier (cannot be changed on update).\n\n* `activity_events_list` - activity_events_list\n* `error_tracking_list` - error_tracking_list\n* `experiment_results` - experiment_results\n* `experiments_list` - experiments_list\n* `logs_list` - logs_list\n* `session_replay_list` - session_replay_list\n* `survey_results` - survey_results",
+                                "description": "Widget type identifier (cannot be changed on update).\n\n* `activity_events_list` - activity_events_list\n* `conversations_recent_tickets` - conversations_recent_tickets\n* `error_tracking_list` - error_tracking_list\n* `experiment_results` - experiment_results\n* `experiments_list` - experiments_list\n* `logs_list` - logs_list\n* `session_replay_list` - session_replay_list\n* `survey_results` - survey_results",
                                 "enum": [
                                     "activity_events_list",
+                                    "conversations_recent_tickets",
                                     "error_tracking_list",
                                     "experiment_results",
                                     "experiments_list",

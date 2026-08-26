@@ -29,8 +29,16 @@
             "description": "Comma-separated list of scout skill_name slugs (e.g. signals-scout-error-tracking). Reports are kept if at least one of their contributing signals was authored by one of these scouts. Combines with source_product as an AND.",
             "type": "string"
         },
+        "scout_prefix": {
+            "description": "Scout skill_name prefix (e.g. signals-scout-customer-analytics). Reports are kept if at least one of their contributing signals was authored by a scout whose skill_name starts with this prefix — new scouts in the family match without callers listing every name. Combines with the other filters as an AND.",
+            "type": "string"
+        },
         "search": {
             "description": "Case-insensitive substring match against report title and summary.",
+            "type": "string"
+        },
+        "source_id": {
+            "description": "Comma-separated list of source record ids. Reports are kept if at least one of their contributing signals came from one of these records — e.g. pass a support ticket's UUID to see what the inbox already found for that ticket. Requires exactly one source_product, since a source id is only unique within its product.",
             "type": "string"
         },
         "source_product": {

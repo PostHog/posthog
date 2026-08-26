@@ -28,6 +28,7 @@ pub fn prepared<E: SinkEvent + ?Sized>(events: &[&E], ctx: &RequestContext) -> V
             payload: e.serialize(ctx).expect("test payload must serialize"),
             headers: e.headers(ctx),
             partition_key: e.partition_key(ctx),
+            ordering: e.ordering(),
         })
         .collect()
 }
@@ -104,6 +105,7 @@ pub fn wrapped_event(event_name: &str, distinct_id: &str) -> WrappedEvent {
         details: None,
         destination: Destination::default(),
         force_disable_person_processing: false,
+        spread_partitions: false,
         is_gateway_verified: false,
     }
 }
@@ -128,6 +130,7 @@ pub fn wrapped_event_at(timestamp: DateTime<Utc>) -> WrappedEvent {
         details: None,
         destination: Destination::default(),
         force_disable_person_processing: false,
+        spread_partitions: false,
         is_gateway_verified: false,
     }
 }
@@ -152,6 +155,7 @@ pub fn malformed_wrapped_event() -> WrappedEvent {
         details: Some("missing_event_name"),
         destination: Destination::default(),
         force_disable_person_processing: false,
+        spread_partitions: false,
         is_gateway_verified: false,
     }
 }
@@ -182,7 +186,7 @@ pub fn test_kafka_config() -> crate::v1::sinks::kafka::config::Config {
     // Mirrors production, where setup injects the deployment-level
     // CAPTURE_ANALYTICS_AI_EVENTS_TOPIC and CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC into every sink config
     // after env loading.
-    cfg.topic_ai = Some("ai_events".to_string());
+    cfg.topic_ai = "ai_events".to_string();
     cfg.topic_ai_overflow = Some("ai_events_overflow".to_string());
     cfg
 }
@@ -226,6 +230,7 @@ pub fn realistic_pageview(distinct_id: &str) -> WrappedEvent {
         details: None,
         destination: Destination::AnalyticsMain,
         force_disable_person_processing: false,
+        spread_partitions: false,
         is_gateway_verified: false,
     }
 }
@@ -264,6 +269,7 @@ pub fn realistic_identify(distinct_id: &str) -> WrappedEvent {
         details: None,
         destination: Destination::AnalyticsMain,
         force_disable_person_processing: false,
+        spread_partitions: false,
         is_gateway_verified: false,
     }
 }
@@ -302,6 +308,7 @@ pub fn realistic_custom(distinct_id: &str, event_name: &str) -> WrappedEvent {
         details: None,
         destination: Destination::AnalyticsMain,
         force_disable_person_processing: false,
+        spread_partitions: false,
         is_gateway_verified: false,
     }
 }
@@ -452,6 +459,16 @@ pub fn assert_round_trip(
 // ---------------------------------------------------------------------------
 
 /// Serialize a list of Events into a valid V1 batch JSON payload.
+/// A non-historical batch wrapping `events`, the shape `process_batch` takes.
+pub fn valid_batch(events: Vec<Event>) -> crate::v1::analytics::types::Batch {
+    crate::v1::analytics::types::Batch {
+        created_at: "2026-03-19T14:30:00.000Z".to_string(),
+        historical_migration: false,
+        capture_internal: None,
+        batch: events,
+    }
+}
+
 pub fn batch_payload(events: &[Event]) -> Vec<u8> {
     let batch_json = serde_json::json!({
         "created_at": "2026-03-19T14:30:00.000Z",
@@ -678,14 +695,17 @@ pub struct TestState {
 pub struct TestStateBuilder {
     quota_limited: bool,
     overflow_limiter: Option<(NonZeroU32, NonZeroU32)>,
+    overflow_preserve_locality: bool,
+    overflow_forced_key: Option<String>,
     ai_events_overflow_limiter: Option<(NonZeroU32, NonZeroU32)>,
     historical_threshold_days: Option<i64>,
     restriction_service: Option<EventRestrictionService>,
     global_rate_limiter: Option<Arc<GlobalRateLimiter>>,
+    ai_byte_rate_limiter: Option<Arc<GlobalRateLimiter>>,
     mock_producer: Option<Arc<MockProducer>>,
     ai_gateway_signing_secret: Option<String>,
-    ai_routing: crate::config::AiRouting,
     ingestion_warning_emitter: Option<Arc<dyn common_ingestion_warnings::WarningEmitter>>,
+    capture_mode: CaptureMode,
 }
 
 impl Default for TestStateBuilder {
@@ -699,21 +719,18 @@ impl TestStateBuilder {
         Self {
             quota_limited: false,
             overflow_limiter: None,
+            overflow_preserve_locality: false,
+            overflow_forced_key: None,
             ai_events_overflow_limiter: None,
             historical_threshold_days: None,
             restriction_service: None,
             global_rate_limiter: None,
+            ai_byte_rate_limiter: None,
             mock_producer: None,
             ai_gateway_signing_secret: None,
-            ai_routing: crate::config::AiRouting::Primary,
             ingestion_warning_emitter: None,
+            capture_mode: CaptureMode::Events,
         }
-    }
-
-    /// Set the `$ai_*` topic routing policy (defaults to `Primary`: no diversion).
-    pub fn with_ai_routing(mut self, routing: crate::config::AiRouting) -> Self {
-        self.ai_routing = routing;
-        self
     }
 
     /// Configure quota limiter to reject all events for any token.
@@ -734,6 +751,20 @@ impl TestStateBuilder {
             NonZeroU32::new(per_second).expect("per_second must be > 0"),
             NonZeroU32::new(burst).expect("burst must be > 0"),
         ));
+        self
+    }
+
+    /// Keep partition keys when rerouting to overflow, as prod-US does via
+    /// `OVERFLOW_PRESERVE_PARTITION_LOCALITY`. Applies to both lanes' limiters
+    /// because production derives both from that one setting.
+    pub fn with_overflow_preserve_locality(mut self) -> Self {
+        self.overflow_preserve_locality = true;
+        self
+    }
+
+    /// Force-route this key outright, as an ops-configured hot key does.
+    pub fn with_overflow_forced_key(mut self, key: impl Into<String>) -> Self {
+        self.overflow_forced_key = Some(key.into());
         self
     }
 
@@ -766,6 +797,12 @@ impl TestStateBuilder {
         self
     }
 
+    /// Add the AI lane's byte-budget limiter.
+    pub fn with_ai_byte_rate_limiter(mut self, limiter: Arc<GlobalRateLimiter>) -> Self {
+        self.ai_byte_rate_limiter = Some(limiter);
+        self
+    }
+
     /// Supply a pre-configured MockProducer (e.g. for error injection).
     pub fn with_mock_producer(mut self, producer: Arc<MockProducer>) -> Self {
         self.mock_producer = Some(producer);
@@ -778,6 +815,12 @@ impl TestStateBuilder {
         emitter: Arc<dyn common_ingestion_warnings::WarningEmitter>,
     ) -> Self {
         self.ingestion_warning_emitter = Some(emitter);
+        self
+    }
+
+    /// Set the deployment capture mode (defaults to `Events`).
+    pub fn with_capture_mode(mut self, mode: CaptureMode) -> Self {
+        self.capture_mode = mode;
         self
     }
 
@@ -828,13 +871,23 @@ impl TestStateBuilder {
             None => HistoricalConfig::new(false, 1),
         };
 
-        let overflow_limiter = self
-            .overflow_limiter
-            .map(|(per_sec, burst)| Arc::new(OverflowLimiter::new(per_sec, burst, None, false)));
+        let overflow_limiter = self.overflow_limiter.map(|(per_sec, burst)| {
+            Arc::new(OverflowLimiter::new(
+                per_sec,
+                burst,
+                self.overflow_forced_key.clone(),
+                self.overflow_preserve_locality,
+            ))
+        });
 
-        let ai_events_overflow_limiter = self
-            .ai_events_overflow_limiter
-            .map(|(per_sec, burst)| Arc::new(OverflowLimiter::new(per_sec, burst, None, false)));
+        let ai_events_overflow_limiter = self.ai_events_overflow_limiter.map(|(per_sec, burst)| {
+            Arc::new(OverflowLimiter::new(
+                per_sec,
+                burst,
+                self.overflow_forced_key.clone(),
+                self.overflow_preserve_locality,
+            ))
+        });
         let ai_events_overflow_enabled = ai_events_overflow_limiter.is_some();
 
         // Build the v1 sink router with a MockProducer-backed KafkaSink
@@ -880,20 +933,21 @@ impl TestStateBuilder {
             is_mirror_deploy: false,
             verbose_sample_percent: 0.0,
             ai_max_sum_of_parts_bytes: 100 * 1024 * 1024,
-            ai_blob_storage: None,
+            ai_max_event_bytes: 0,
             body_chunk_read_timeout: None,
             body_read_chunk_size_kb: 64,
             capture_v1_max_compressed_body_bytes: 2 * 1024 * 1024,
             capture_v1_max_decompressed_body_bytes: 20 * 1024 * 1024,
             overflow_limiter,
             ai_events_overflow_limiter,
+            ai_byte_rate_limiter: self.ai_byte_rate_limiter,
             replay_overflow_limiter: None,
             v1_sink_router: Some(Arc::new(v1_router)),
             capture_v1_scatter_gather_min_batch: 8,
             ai_gateway_signing_secret: self.ai_gateway_signing_secret,
-            ai_routing: self.ai_routing,
             ai_events_overflow_enabled,
             ingestion_warning_emitter: self.ingestion_warning_emitter,
+            capture_mode: self.capture_mode,
         };
 
         TestState {

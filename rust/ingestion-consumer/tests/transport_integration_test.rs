@@ -185,6 +185,46 @@ async fn start_slow_worker(
     serve_worker(app).await
 }
 
+/// Spin up a mock worker that rejects bodies larger than `limit` bytes with
+/// 413 (like the real worker's JSON body limit) and otherwise records the
+/// batch and returns OK.
+async fn start_size_limited_worker(
+    limit: usize,
+    received: Arc<Mutex<Vec<IngestBatchRequest>>>,
+) -> (String, tokio::task::JoinHandle<()>) {
+    let app = Router::new().route(
+        "/ingest",
+        post({
+            let received = received.clone();
+            move |body: axum::body::Bytes| {
+                let received = received.clone();
+                async move {
+                    if body.len() > limit {
+                        return (
+                            axum::http::StatusCode::PAYLOAD_TOO_LARGE,
+                            "Request entity too large".to_string(),
+                        )
+                            .into_response();
+                    }
+                    let req: IngestBatchRequest = serde_json::from_slice(&body).unwrap();
+                    let accepted = req.messages.len() as u32;
+                    let batch_id = req.batch_id.clone();
+                    received.lock().unwrap().push(req);
+                    Json(IngestBatchResponse {
+                        batch_id,
+                        status: "ok".to_string(),
+                        accepted,
+                        error: None,
+                    })
+                    .into_response()
+                }
+            }
+        }),
+    );
+
+    serve_worker(app).await
+}
+
 #[tokio::test]
 async fn transport_sends_batch_and_receives_ack() {
     let received = Arc::new(Mutex::new(Vec::new()));
@@ -294,6 +334,107 @@ async fn transport_fails_on_unreachable_worker() {
         .send_batch(&url, "batch-fail", messages, false)
         .await;
     assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn transport_splits_oversized_batch_by_estimate() {
+    // A sub-batch whose estimated body size exceeds the cap is split into
+    // multiple sequential requests, preserving message order, and the result
+    // still reports every message accepted.
+    let received = Arc::new(Mutex::new(Vec::new()));
+    let (url, _handle) = start_mock_worker(received.clone()).await;
+
+    let urls = vec![url.clone()];
+    let mut transport = HttpTransport::new(Duration::from_secs(5), 0, None, &urls, 1, true);
+    transport.set_max_body_bytes(3000);
+
+    let value = "x".repeat(1000);
+    let messages: Vec<_> = (0..10)
+        .map(|i| make_message("tok", "user", i, &value))
+        .collect();
+
+    let accepted = transport
+        .send_batch(&url, "batch-split", messages, false)
+        .await
+        .expect("split batch should be fully accepted");
+    assert_eq!(accepted, 10);
+
+    let batches = received.lock().unwrap();
+    assert!(
+        batches.len() > 1,
+        "expected multiple requests, got {}",
+        batches.len()
+    );
+    let offsets: Vec<i64> = batches
+        .iter()
+        .flat_map(|b| &b.messages)
+        .map(|m| m.offset)
+        .collect();
+    assert_eq!(offsets, (0..10).collect::<Vec<_>>());
+}
+
+#[tokio::test]
+async fn transport_halves_chunk_on_413() {
+    // The size estimate can undershoot the worker's body limit. A 413 response
+    // must split the chunk in half and resend rather than retrying verbatim
+    // (which would loop forever) or giving up (which would poison the batch).
+    let received = Arc::new(Mutex::new(Vec::new()));
+    let (url, _handle) = start_size_limited_worker(2000, received.clone()).await;
+
+    let urls = vec![url.clone()];
+    // Compression off so the mock's body-length check sees raw JSON sizes.
+    let transport = HttpTransport::new(Duration::from_secs(5), 0, None, &urls, 1, false);
+
+    let value = "x".repeat(700);
+    let messages: Vec<_> = (0..4)
+        .map(|i| make_message("tok", "user", i, &value))
+        .collect();
+
+    let accepted = transport
+        .send_batch(&url, "batch-413", messages, false)
+        .await
+        .expect("batch should succeed after halving on 413");
+    assert_eq!(accepted, 4);
+
+    let batches = received.lock().unwrap();
+    assert!(
+        batches.len() >= 2,
+        "expected the batch to be split after 413, got {} request(s)",
+        batches.len()
+    );
+    let offsets: Vec<i64> = batches
+        .iter()
+        .flat_map(|b| &b.messages)
+        .map(|m| m.offset)
+        .collect();
+    assert_eq!(offsets, (0..4).collect::<Vec<_>>());
+}
+
+#[tokio::test]
+async fn transport_single_oversize_message_fails_without_splitting() {
+    // A single message the worker rejects with 413 can't be split further —
+    // the send fails with a non-retriable error carrying the message back.
+    let received = Arc::new(Mutex::new(Vec::new()));
+    let (url, _handle) = start_size_limited_worker(500, received.clone()).await;
+
+    let urls = vec![url.clone()];
+    let transport = HttpTransport::new(Duration::from_secs(5), 3, None, &urls, 1, false);
+
+    let value = "x".repeat(1000);
+    let messages = vec![make_message("tok", "user", 0, &value)];
+
+    let err = transport
+        .send_batch(&url, "batch-giant", messages, false)
+        .await
+        .unwrap_err();
+
+    assert!(
+        matches!(err.error, TransportError::PayloadTooLarge(_)),
+        "expected PayloadTooLarge, got {:?}",
+        err.error
+    );
+    assert_eq!(err.messages.len(), 1);
+    assert!(!err.error.is_retriable());
 }
 
 #[tokio::test]

@@ -13,6 +13,14 @@ jest.mock('~/ingestion/pipelines/ai/otel/attribute-mapping', () => ({
 }))
 
 const mockedMapOtelAttributes = jest.mocked(mapOtelAttributes)
+const AI_CONTEXT_PREFIXES = ['ai.telemetry.metadata.', 'ai.settings.context.']
+const PROMOTED_CONTEXT_CASES: [string, string, string | number][] = AI_CONTEXT_PREFIXES.flatMap((prefix) => [
+    [prefix, 'posthog_distinct_id', 'user-1'],
+    [prefix, '$ai_session_id', 'session-123'],
+    [prefix, '$ai_prompt_name', 'my-prompt'],
+    [prefix, '$ai_prompt_version', 'v2'],
+    [prefix, '$ai_prompt_version', 2],
+])
 
 /**
  * Minimal mock that replicates the subset of mapOtelAttributes behavior
@@ -28,6 +36,7 @@ function mockMapOtelAttributes(e: { event: string; properties?: Record<string, u
         'gen_ai.usage.cache_creation.input_tokens': '$ai_cache_creation_input_tokens',
         'gen_ai.response.model': '$ai_model',
         'gen_ai.provider.name': '$ai_provider',
+        $otel_span_name: '$ai_span_name',
     }
     if (props['gen_ai.input.messages'] !== undefined) {
         const val = props['gen_ai.input.messages']
@@ -78,6 +87,23 @@ describe('vercel-ai middleware', () => {
             expect(event.properties!['ai.prompt.messages']).toBeUndefined()
             expect(event.properties!['ai.response.text']).toBeUndefined()
             expect(event.properties!['ai.operationId']).toBeUndefined()
+        })
+
+        it('parses legacy ai.prompt.tools entries into gen_ai.tool.definitions', () => {
+            const event = createEvent('$ai_generation', {
+                'ai.operationId': 'ai.generateText.doGenerate',
+                'ai.prompt.tools': [
+                    JSON.stringify({ type: 'function', name: 'get_weather', parameters: { type: 'object' } }),
+                    'not json {',
+                ],
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['gen_ai.tool.definitions']).toEqual([
+                { type: 'function', name: 'get_weather', parameters: { type: 'object' } },
+                'not json {',
+            ])
+            expect(event.properties!['ai.prompt.tools']).toBeUndefined()
         })
 
         it('strips Vercel-specific attributes', () => {
@@ -242,45 +268,55 @@ describe('vercel-ai middleware', () => {
             expect(event.properties!['$ai_stop_reason']).toBeUndefined()
         })
 
-        it.each([
-            ['posthog_distinct_id', 'user-1'],
-            ['$ai_session_id', 'session-123'],
-            ['$ai_prompt_name', 'my-prompt'],
-            ['$ai_prompt_version', 'v2'],
-            ['$ai_prompt_version', 2],
-        ])('promotes ai.telemetry.metadata.%s to event properties', (key, value) => {
+        it.each(PROMOTED_CONTEXT_CASES)('promotes %s%s value %p to event properties', (prefix, key, value) => {
             const event = createEvent('$ai_generation', {
                 'ai.operationId': 'ai.generateText.doGenerate',
-                [`ai.telemetry.metadata.${key}`]: value,
-                'ai.telemetry.metadata.org_id': 'org-456',
+                [`${prefix}${key}`]: value,
+                [`${prefix}org_id`]: 'org-456',
             })
             convertOtelEvent(event)
 
             expect(event.properties![key]).toBe(value)
-            expect(event.properties!['org_id']).toBeUndefined()
-            expect(event.properties![`ai.telemetry.metadata.${key}`]).toBeUndefined()
+            expect(event.properties![`${prefix}org_id`]).toBeUndefined()
+            expect(event.properties![`${prefix}${key}`]).toBeUndefined()
         })
 
-        it('promotes posthog_-prefixed telemetry metadata as a custom property', () => {
+        it.each(AI_CONTEXT_PREFIXES)('promotes posthog_-prefixed values from %s', (prefix) => {
             const event = createEvent('$ai_generation', {
                 'ai.operationId': 'ai.generateText.doGenerate',
-                'ai.telemetry.metadata.posthog_tags': ['beta'],
+                [`${prefix}posthog_tags`]: ['beta'],
             })
             convertOtelEvent(event)
 
             expect(event.properties!['tags']).toEqual(['beta'])
-            expect(event.properties!['ai.telemetry.metadata.posthog_tags']).toBeUndefined()
+            expect(event.properties![`${prefix}posthog_tags`]).toBeUndefined()
         })
 
-        it('uses posthog_distinct_id as the event distinct_id without creating a bare distinct_id property', () => {
+        it.each(AI_CONTEXT_PREFIXES)(
+            'uses posthog_distinct_id from %s as the event distinct_id without creating a bare distinct_id property',
+            (prefix) => {
+                const event = createEvent('$ai_generation', {
+                    'ai.operationId': 'ai.generateText.doGenerate',
+                    [`${prefix}posthog_distinct_id`]: 'user-1',
+                })
+                convertOtelEvent(event)
+
+                expect(event.distinct_id).toBe('user-1')
+                expect(event.properties!['distinct_id']).toBeUndefined()
+            }
+        )
+
+        it('prefers telemetry metadata over runtime context', () => {
             const event = createEvent('$ai_generation', {
                 'ai.operationId': 'ai.generateText.doGenerate',
-                'ai.telemetry.metadata.posthog_distinct_id': 'user-1',
+                'ai.telemetry.metadata.posthog_distinct_id': 'metadata-user',
+                'ai.settings.context.posthog_distinct_id': 'context-user',
             })
             convertOtelEvent(event)
 
-            expect(event.distinct_id).toBe('user-1')
-            expect(event.properties!['distinct_id']).toBeUndefined()
+            expect(event.distinct_id).toBe('metadata-user')
+            expect(event.properties!['ai.telemetry.metadata.posthog_distinct_id']).toBeUndefined()
+            expect(event.properties!['ai.settings.context.posthog_distinct_id']).toBeUndefined()
         })
 
         it('ignores empty posthog_distinct_id metadata', () => {
@@ -319,15 +355,15 @@ describe('vercel-ai middleware', () => {
             expect(event.properties!['ai.telemetry.metadata.$ai_prompt_version']).toBeUndefined()
         })
 
-        it('promotes ai.telemetry.metadata.$groups so the mapper can parse it', () => {
+        it.each(AI_CONTEXT_PREFIXES)('promotes %s$groups so the mapper can parse it', (prefix) => {
             const event = createEvent('$ai_generation', {
                 'ai.operationId': 'ai.generateText.doGenerate',
-                'ai.telemetry.metadata.$groups': '{"organization":"org-1"}',
+                [`${prefix}$groups`]: '{"organization":"org-1"}',
             })
             convertOtelEvent(event)
 
             expect(event.properties!['$groups']).toBe('{"organization":"org-1"}')
-            expect(event.properties!['ai.telemetry.metadata.$groups']).toBeUndefined()
+            expect(event.properties![`${prefix}$groups`]).toBeUndefined()
         })
 
         it.each(['', 42, true, ['org-1']])('does not promote invalid groups metadata %p', (metadataGroups) => {
@@ -593,6 +629,50 @@ describe('vercel-ai middleware', () => {
             convertOtelEvent(event)
             expect(event.properties!['$ai_lib']).toBe('opentelemetry/vercel-ai')
             expect(event.properties!['$ai_framework']).toBe('vercel')
+        })
+    })
+
+    describe('Eve', () => {
+        it('normalizes Eve attributes from AI SDK runtime context', () => {
+            const event = createEvent('$ai_span', {
+                'ai.settings.context.eve.version': '0.27.8',
+                'ai.settings.context.eve.session.id': 'session-123',
+                'ai.settings.context.eve.turn.id': 'turn-1',
+                'ai.settings.context.posthog_distinct_id': 'user-1',
+                $ai_parent_id: 'eve-turn-span',
+            })
+            convertOtelEvent(event)
+
+            expect(event.event).toBe('$ai_span')
+            expect(event.distinct_id).toBe('user-1')
+            expect(event.properties!['$ai_framework']).toBe('eve')
+            expect(event.properties!['$ai_session_id']).toBe('session-123')
+            expect(event.properties!['eve.turn.id']).toBe('turn-1')
+            expect(event.properties!['ai.settings.context.eve.version']).toBeUndefined()
+            expect(event.properties!['ai.settings.context.eve.session.id']).toBeUndefined()
+            expect(event.properties!['ai.settings.context.eve.turn.id']).toBeUndefined()
+        })
+
+        it('normalizes Eve turns with filtered Workflow parents as trace roots', () => {
+            const event = createEvent('$ai_span', {
+                'eve.version': '0.27.8',
+                'eve.environment': 'production',
+                'eve.session.id': 'session-123',
+                'eve.turn.id': 'turn-1',
+                'ai.telemetry.functionId': 'customer-support',
+                $ai_parent_id: 'filtered-workflow-step',
+                $otel_span_name: 'ai.eve.turn',
+            })
+            convertOtelEvent(event)
+
+            expect(event.event).toBe('$ai_trace')
+            expect(event.properties!['$ai_parent_id']).toBeUndefined()
+            expect(event.properties!['$ai_span_name']).toBe('customer-support')
+            expect(event.properties!['$ai_framework']).toBe('eve')
+            expect(event.properties!['$ai_session_id']).toBe('session-123')
+            expect(event.properties!['eve.session.id']).toBeUndefined()
+            expect(event.properties!['$ai_lib']).toBe('opentelemetry/vercel-ai')
+            expect(event.properties!['eve.turn.id']).toBe('turn-1')
         })
     })
 })

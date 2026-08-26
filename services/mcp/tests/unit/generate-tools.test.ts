@@ -360,6 +360,52 @@ describe('generateToolCode with input_schema', () => {
         expect(result.code).toMatchSnapshot()
     })
 
+    it('applies list enrichment without inserting a path slash before a query-string prefix', () => {
+        const config: ToolConfig = {
+            operation: 'things_list',
+            enabled: true,
+            input_schema: 'ThingListSchema',
+            list: true,
+            enrich_url: '?tab=alerts&alert_id={id}',
+        }
+        const resolved = makeResolved({ method: 'GET' })
+
+        const result = generateToolCode(
+            'things-list',
+            config,
+            resolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        expect(result.code).toContain('`/things?tab=alerts&alert_id=${item.id}`')
+    })
+
+    it('applies list enrichment without inserting a path slash before a fragment prefix', () => {
+        const config: ToolConfig = {
+            operation: 'things_list',
+            enabled: true,
+            input_schema: 'ThingListSchema',
+            list: true,
+            enrich_url: '#tab-{id}',
+        }
+        const resolved = makeResolved({ method: 'GET' })
+
+        const result = generateToolCode(
+            'things-list',
+            config,
+            resolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        expect(result.code).toContain('`/things#tab-${item.id}`')
+    })
+
     it('extends the custom schema with a selectable `fields` param and narrows the response', () => {
         const config: ToolConfig = {
             operation: 'things_list',
@@ -987,6 +1033,53 @@ describe('rename_params', () => {
         expect(result.code).toContain('params.property_key !== undefined')
         expect(result.code).toContain('body["$unset"] = params.property_key')
         expect(result.code).not.toContain('params.$unset')
+    })
+
+    it('keeps the path param when the renamed body field shares its name', () => {
+        // The body part is merged over the path part, so a writable body field that shares a
+        // path param's name collapses into one input: the URL and the new value become the same
+        // string, and the resource can never be renamed. Renaming must drop only the body copy.
+        const config: ToolConfig = {
+            operation: 'things_partial_update',
+            enabled: true,
+            rename_params: { name: 'new_name' },
+        }
+        const resolved = makeResolved({
+            method: 'PATCH',
+            path: '/api/projects/{project_id}/things/{name}/',
+            operation: {
+                operationId: 'things_partial_update',
+                parameters: [{ name: 'name', in: 'path', required: true, schema: { type: 'string' } }],
+                requestBody: {
+                    content: {
+                        'application/json': {
+                            schema: {
+                                properties: {
+                                    name: { type: 'string' },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        })
+
+        const composed = composeToolSchema(config, resolved, makeSpec(), stubGetQuerySchema)
+        expect(composed.schemaExpr).toContain("ThingsPartialUpdateBody.omit({ 'name': true })")
+        expect(composed.schemaExpr).not.toContain("ThingsPartialUpdateParams.omit({ 'name': true })")
+        expect(composed.renamedFields).toEqual({ new_name: 'name' })
+
+        const generated = generateToolCode(
+            'things-partial-update',
+            config,
+            resolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+        expect(generated.code).toContain('body["name"] = params.new_name')
+        expect(generated.code).toContain('String(params.name)')
     })
 })
 

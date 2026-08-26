@@ -4,6 +4,8 @@ from freezegun import freeze_time
 
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from posthog.schema import (
     Breakdown,
     BreakdownFilter,
@@ -162,11 +164,18 @@ class TestAddMissingVariants(ExperimentQueryRunnerBaseTest):
         assert ("MacOS", "Chrome") in breakdown_values
         assert ("Windows", "Firefox") in breakdown_values
 
+    @parameterized.expand(
+        [
+            ("without_breakdown", None),
+            ("with_breakdown", BreakdownFilter(breakdowns=[Breakdown(property="$browser")])),
+        ]
+    )
     @freeze_time("2020-01-01T12:00:00Z")
-    def test_empty_variants_list(self):
+    def test_empty_variants_list(self, _name, breakdown_filter):
         """Should add all configured variants when input is empty."""
         metric = ExperimentMeanMetric(
             source=EventsNode(event="purchase", math=ExperimentMetricMathType.TOTAL),
+            breakdownFilter=breakdown_filter,
         )
         query = ExperimentQuery(experiment_id=self.experiment.id, kind="ExperimentQuery", metric=metric)
         runner = ExperimentQueryRunner(query=query, team=self.team)

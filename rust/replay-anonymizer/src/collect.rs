@@ -34,10 +34,62 @@ pub fn image_ref(pseudo_team: &str, hash: &str) -> String {
     format!("image:{pseudo_team}:{hash}")
 }
 
+/// The prefix of a ref whose hash comes from a URL rather than from bytes.
+///
+/// Deliberately not `image:`. A content ref promises that the hash names the bytes behind it, which
+/// is what lets a reader treat one as content-addressed. A URL ref promises only that the hash
+/// names the URL the image came from, and the bytes at that URL can change. Sharing one prefix
+/// would leave a reader unable to tell which promise it holds, and the failure would be a silent
+/// mis-join rather than an error.
+pub const URL_REF_PREFIX: &str = "imageurl";
+
+pub fn url_ref(hash: &str) -> String {
+    format!("{URL_REF_PREFIX}:{hash}")
+}
+
 /// True for strings shaped like a content ref. The `image:` prefix cannot collide with a data URI,
 /// a URL (no scheme is registered as `image`), or base64 payloads (`:` is not in the alphabet).
+///
+/// Only sound on values this crate produced. To decide whether a value *read back out of a payload*
+/// may skip scrubbing, use [`is_image_ref_strict`]: capture input is attacker-controlled and this
+/// prefix is trivial to forge.
 pub fn is_image_ref(s: &str) -> bool {
     s.starts_with("image:")
+}
+
+/// True only for a fully well-formed content ref or URL ref.
+///
+/// The loose prefix check would let a captured page set a media attribute to `image:<anything>` and
+/// have it copied verbatim into anonymized output. This bounds what can survive to a fixed-width
+/// opaque token with no room for readable content.
+pub fn is_image_ref_strict(s: &str) -> bool {
+    if let Some(rest) = s.strip_prefix("image:") {
+        let Some((team, hash)) = rest.split_once(':') else {
+            return false;
+        };
+        return is_pseudo_team(team) && is_ref_hash(hash);
+    }
+    if let Some(rest) = s.strip_prefix("imageurl:") {
+        return is_ref_hash(rest)
+            || rest
+                .split_once(':')
+                .is_some_and(|(team, hash)| is_pseudo_team(team) && is_ref_hash(hash));
+    }
+    false
+}
+
+fn is_pseudo_team(team: &str) -> bool {
+    team.len() == 32
+        && team
+            .bytes()
+            .all(|b| b.is_ascii_digit() || b.is_ascii_lowercase() && b <= b'f')
+}
+
+fn is_ref_hash(hash: &str) -> bool {
+    hash.len() == 22
+        && hash
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
 /// Per-image cap: a collected image must fit in one Kafka message on the scrub topic with headroom
@@ -136,7 +188,6 @@ const COLLECTED_MIME_ALLOWLIST: &[&str] = &[
     "image/jpeg",
     "image/gif",
     "image/webp",
-    "image/bmp",
     "image/avif",
 ];
 
@@ -160,7 +211,10 @@ pub fn collectable_data_uri_bytes(uri: &str) -> Option<Vec<u8>> {
     if !meta.starts_with("image/") || !meta.contains("base64") {
         return None;
     }
-    if meta.starts_with("image/svg") {
+    let mime_type = meta
+        .split_once(';')
+        .map_or(meta.as_str(), |(mime_type, _)| mime_type);
+    if mime_type.starts_with("image/svg") || mime_type.contains("bmp") {
         return None;
     }
     // An encoded payload that can't decode under the per-image cap would be decoded here only to
@@ -169,9 +223,13 @@ pub fn collectable_data_uri_bytes(uri: &str) -> Option<Vec<u8>> {
     if payload.len() > MAX_IMAGE_BYTES.div_ceil(3) * 4 {
         return None;
     }
-    base64::engine::general_purpose::STANDARD
+    let bytes = base64::engine::general_purpose::STANDARD
         .decode(payload.as_bytes())
-        .ok()
+        .ok()?;
+    if bytes.starts_with(b"BM") {
+        return None;
+    }
+    Some(bytes)
 }
 
 #[cfg(test)]
@@ -250,6 +308,10 @@ mod tests {
     #[test]
     fn collectable_rejects_svg_non_base64_and_non_image() {
         assert!(collectable_data_uri_bytes("data:image/svg+xml;base64,PHN2Zz4=").is_none());
+        assert!(collectable_data_uri_bytes("data:image/bmp;base64,Qk0=").is_none());
+        assert!(collectable_data_uri_bytes("data:image/x-bmp;base64,Qk0=").is_none());
+        assert!(collectable_data_uri_bytes("data:image/x-ms-bmp;base64,Qk0=").is_none());
+        assert!(collectable_data_uri_bytes("data:image/png;base64,Qk0=").is_none());
         assert!(collectable_data_uri_bytes("data:image/svg+xml;utf8,<svg/>").is_none());
         assert!(collectable_data_uri_bytes("data:text/plain;base64,aGk=").is_none());
         assert!(collectable_data_uri_bytes("data:image/png;utf8,notbase64").is_none());

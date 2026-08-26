@@ -13,6 +13,7 @@ function makeNode(properties: Record<string, any>, children?: EnrichedTraceTreeN
         displayTotalCost: 0,
         displayLatency: 0,
         displayUsage: null,
+        attachedFeedback: [],
     }
 }
 

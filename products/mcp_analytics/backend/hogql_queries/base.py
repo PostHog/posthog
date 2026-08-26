@@ -14,10 +14,11 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlError
+
+from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 
 if TYPE_CHECKING:
-    from posthog.schema import DateRange
+    from posthog.schema import DateRange, IntervalType
 
     from posthog.models.team import Team
     from posthog.models.user import User
@@ -32,6 +33,14 @@ MCP_ANALYTICS_FEATURE_FLAG = "mcp-analytics"
 # scopes to one tool, so the expression lives OnceAndOnlyOnce.
 EFFECTIVE_TOOL_SQL = (
     "coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name))"
+)
+# The description of the *effective* tool: for single-exec calls the inner tool's
+# $mcp_exec_tool_call_description, else the directly-registered $mcp_tool_description.
+# Without this, an inner tool's description would resolve to the exec wrapper's text
+# (another tool's description) — a tool-level disclosure.
+EFFECTIVE_DESCRIPTION_SQL = (
+    "coalesce(nullIf(toString(properties.$mcp_exec_tool_call_description), ''), "
+    "toString(properties.$mcp_tool_description))"
 )
 # Marker the posthog-node MCP analytics SDK stamps on the events it sends.
 NEW_SDK_SOURCE = "posthog_mcp_analytics"
@@ -66,10 +75,15 @@ def validate_mcp_analytics_access(team: "Team", user: "User") -> bool:
     return UserAccessControl(user=user, team=team).assert_access_level_for_resource("mcp_analytics", "viewer")
 
 
-def mcp_query_date_range(team: "Team", date_range: "DateRange | None") -> QueryDateRange:
+def mcp_query_date_range(
+    team: "Team", date_range: "DateRange | None", interval: "IntervalType | None" = None
+) -> QueryDateRange:
+    # Runners that bucket should pass their interval: QueryDateRange only leaves a relative
+    # date_from untruncated at minute and second granularity, so without it a "last hour" window
+    # starts at the top of the hour and pulls up to an extra interval of calls.
     return QueryDateRange(
         date_range=date_range,
         team=team,
-        interval=None,
+        interval=interval,
         now=datetime.now(team.timezone_info),
     )

@@ -90,7 +90,10 @@ SELECT $channel_type AS channel,
                       AND $start_timestamp <  now() - INTERVAL 14 DAY) AS aligned_2w_ago,
        round(avgIf($is_bounce, $start_timestamp >= now() - INTERVAL 1 DAY), 3) AS bounce_24h
 FROM sessions
-WHERE $start_timestamp >= now() - INTERVAL 15 DAY
+WHERE ($start_timestamp >= now() - INTERVAL 1 DAY
+    OR ($start_timestamp >= now() - INTERVAL 8 DAY  AND $start_timestamp <  now() - INTERVAL 7 DAY)
+    OR ($start_timestamp >= now() - INTERVAL 15 DAY AND $start_timestamp <  now() - INTERVAL 14 DAY))
+  AND $start_timestamp >= now() - INTERVAL 15 DAY
   AND $start_timestamp <= now() + INTERVAL 1 DAY
 GROUP BY channel ORDER BY sessions_24h DESC
 LIMIT 25
@@ -132,13 +135,22 @@ SELECT $channel_type AS channel,
        (deviations[2] + deviations[3]) / 2 AS mad,
        round((sessions_24h - baseline) / greatest(1.4826 * mad, sqrt(baseline)), 1) AS z
 FROM sessions
-WHERE $start_timestamp >= now() - INTERVAL 29 DAY
+WHERE ($start_timestamp >= now() - INTERVAL 1 DAY
+    OR ($start_timestamp >= now() - INTERVAL 8 DAY  AND $start_timestamp <  now() - INTERVAL 7 DAY)
+    OR ($start_timestamp >= now() - INTERVAL 15 DAY AND $start_timestamp <  now() - INTERVAL 14 DAY)
+    OR ($start_timestamp >= now() - INTERVAL 22 DAY AND $start_timestamp <  now() - INTERVAL 21 DAY)
+    OR ($start_timestamp >= now() - INTERVAL 29 DAY AND $start_timestamp <  now() - INTERVAL 28 DAY))
+  AND $start_timestamp >= now() - INTERVAL 29 DAY
   AND $start_timestamp <= now() + INTERVAL 1 DAY
 GROUP BY channel
 HAVING baseline >= 10
 ORDER BY abs(z) DESC
 LIMIT 25
 ```
+
+**Filter to the windows you score, not to their span.** Five aligned 24h windows is all these aggregates ever read, so the `WHERE` enumerates those five days and keeps the outer 29-day bounds only for partition pruning and the future-clock guard. A plain contiguous `>= now() - INTERVAL 29 DAY` range costs the same bytes off disk but pushes roughly six times the rows through the session-level aggregation — on a high-traffic project that is the difference between a query that returns in a couple of seconds and one that dies on the memory limit. Apply the same shape to any query here whose aggregates only read specific windows; the entry-path query below is the exception, because its `bounce_prior` genuinely reads the whole range.
+
+If the scored query still exceeds memory on a very high-volume project, narrow in this order and record which step you took in the close-out: first scope to the site's own hosts (`$entry_hostname IN (...)`, minus whatever is already in `noise:`), then fall back to three windows (7/14/21 days back), where the median is `aligned[2]` and the MAD is `deviations[2]`. Three windows still scores, but the baseline is thinner — treat a borderline `|z|` as a `remember`, not a report.
 
 Same-weekday alignment absorbs weekly rhythm for free (a Tuesday send-day spike is scored against four prior Tuesdays), and a channel that spikes _every_ week carries that spike in its MAD — so recurring campaign cadence self-suppresses. For each candidate, find the moving part _inside_ the channel:
 
@@ -242,7 +254,10 @@ For each candidate, the call is **edit an existing report, author a new one, rem
 
 - **Search the inbox first.** The `report:web-analytics:<segment-slug>` scratchpad pointer is the reliable path (it holds the `report_id` — `inbox-reports-retrieve` it directly); with no pointer, `inbox-reports-list` by the segment's specific terms (the channel name, path, referrer domain, or campaign — `ordering=-updated_at`), never a broad word like `traffic`. A segment with a live report and no material change is a **skip**.
 - **Edit** (`scout-edit-report`) when a still-live report already covers the same segment problem — the channel still diverging, the tagged share still depressed, the 404 spike still running. `append_note` the fresh window's numbers (the 24h value against both aligned windows, deepening or recovering), or rewrite the title/summary on a report you authored. This is the default when a match exists — a divergence persisting across runs is one report across weeks, not one per run. `edit-report` can't change status, so if the matched report is `resolved` / `suppressed` / `failed`, don't append (it won't resurface) — author a fresh report for the relapse and repoint the `report:` key.
-- **Author** (`scout-emit-report`) only when nothing live covers it — one report per segment divergence, never one per query row. A **report-worthy finding** (confidence ≥ 0.8): names the segment (channel, path, referrer, campaign), quantifies the step against both aligned windows, shows the aggregate held (that's what makes it yours), dates the onset, and names the moving part inside the segment — with the numbers in the `evidence`. Below that bar, write memory instead. The fix for a web-analytics finding almost always lives in the team's site, campaign tooling, or marketing stack — territory you can't open a PR against — so default to `actionability=requires_human_input` and `repository=NO_REPO` (NO_REPO is what stops `priority`+reviewers from spawning a pointless repo-selection sandbox). Set `priority` + `priority_explanation`: an acquisition cliff or 404 spike on a major surface P2; attribution breakage P2 (mechanical fix, compounding cost); bounce steps P3, P2 if the page is a top-3 landing surface. Set `suggested_reviewers` via `scout-members-list` (objects — a `{github_login}` or `{user_uuid}`, not bare strings; cache under `reviewer:web-analytics:<area>`); left empty the report reaches no one. After authoring, write the `report:web-analytics:<segment-slug>` pointer with the `report_id` so the next run edits instead of duplicating, and update the `dedupe:` entry.
+- **Author** (`scout-emit-report`) only when nothing live covers it — one report per segment divergence, never one per query row. A **report-worthy finding** (confidence ≥ 0.8): names the segment (channel, path, referrer, campaign), quantifies the step against both aligned windows, shows the aggregate held (that's what makes it yours), dates the onset, and names the moving part inside the segment — with the numbers in the `evidence`. Below that bar, write memory instead. The divergence-on-steady-aggregate shape is the argument, so show it — attach the segment's daily series (with the aggregate alongside) via `charts`. The fix for a web-analytics finding almost always lives in the team's site, campaign tooling, or marketing stack — territory you can't open a PR against — so default to `actionability=requires_human_input` and `repository=NO_REPO` (NO_REPO is what stops `priority`+reviewers from spawning a pointless repo-selection sandbox).
+  Because you default to a human handoff, the handoff must be explicit in the summary: who acts (the site, marketing, or campaign owner — name the surface), the exact change or check to make, and a success criterion — the metric, the target value or return-to-baseline level, and the re-measure window.
+  A report that says "review the page" without those three is below the bar; hold it back and gather the missing piece instead.
+  Set `priority` + `priority_explanation`: an acquisition cliff or 404 spike on a major surface P2; attribution breakage P2 (mechanical fix, compounding cost); bounce steps P3, P2 if the page is a top-3 landing surface. Set `suggested_reviewers` via `scout-members-list` (objects — a `{github_login}` or `{user_uuid}`, not bare strings; cache under `reviewer:web-analytics:<area>`); left empty the report reaches no one. After authoring, write the `report:web-analytics:<segment-slug>` pointer with the `report_id` so the next run edits instead of duplicating, and update the `dedupe:` entry.
 - **Remember** if below the bar but worth carrying forward (a channel drifting inside the noise band, or a new referrer building history).
 - **Skip** with a one-line note if a `noise:` / `addressed:` / `dedupe:` entry or a live inbox report already covers it.
 

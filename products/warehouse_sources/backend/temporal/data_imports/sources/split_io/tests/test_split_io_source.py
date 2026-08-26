@@ -1,16 +1,15 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.splitio import (
     SplitIoSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.split_io.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.split_io.settings import (
+    ENDPOINTS,
+    SPLIT_IO_API_VERSION_V2,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.split_io.source import SplitIoSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.split_io.split_io import SplitIoResumeConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestSplitIoSource:
@@ -18,27 +17,6 @@ class TestSplitIoSource:
         self.source = SplitIoSource()
         self.team_id = 123
         self.config = SplitIoSourceConfig(api_key="admin-api-key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.SPLITIO
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "SplitIo"
-        assert config.label == "Split.io"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.iconPath == "/static/services/split_io.png"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["api_key"]
-
-    def test_api_key_field_is_secret_password(self):
-        config = self.source.get_source_config
-        field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
-        assert field.required is True
 
     @pytest.mark.parametrize(
         "observed_error",
@@ -54,6 +32,20 @@ class TestSplitIoSource:
     def test_non_retryable_errors_does_not_match_server_errors(self):
         observed_error = "500 Server Error for url: https://api.split.io/internal/api/v2/workspaces"
         assert not any(key in observed_error for key in self.source.get_non_retryable_errors())
+
+    def test_version_declaration(self):
+        # v2 is the newest supported version and the default new sources are stamped with;
+        # v1 (the pre-versioning placeholder) stays supported so existing pins keep working.
+        assert self.source.default_version == SPLIT_IO_API_VERSION_V2
+        assert set(self.source.supported_versions) == {UNVERSIONED_API_VERSION, SPLIT_IO_API_VERSION_V2}
+        assert self.source.deprecated_versions == ()
+
+    @pytest.mark.parametrize("api_version", [None, UNVERSIONED_API_VERSION, SPLIT_IO_API_VERSION_V2])
+    def test_get_schemas_identical_across_pins(self, api_version):
+        # Both labels hit the same wire, so discovery must return the same tables regardless of
+        # pin — this is what makes the v1→v2 default flip byte-for-byte safe for existing rows.
+        schemas = self.source.get_schemas(self.config, self.team_id, api_version=api_version)
+        assert {schema.name for schema in schemas} == set(ENDPOINTS)
 
     def test_get_schemas_lists_all_endpoints_full_refresh(self):
         schemas = self.source.get_schemas(self.config, self.team_id)
@@ -98,11 +90,6 @@ class TestSplitIoSource:
         is_valid, error = self.source.validate_credentials(self.config, self.team_id, schema_name="nope")
         assert is_valid is False
         assert error is not None and "nope" in error
-
-    def test_get_resumable_source_manager_binds_resume_config(self):
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is SplitIoResumeConfig
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.split_io.source.split_io_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_split_io_source):

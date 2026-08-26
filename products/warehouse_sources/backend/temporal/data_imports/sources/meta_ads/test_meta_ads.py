@@ -13,6 +13,7 @@ from requests.exceptions import (
     JSONDecodeError as RequestsJSONDecodeError,
 )
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import VersionDeprecation
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccountListingError,
 )
@@ -25,10 +26,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.m
     AD_ACCOUNT_LISTING_TIMEOUT_SECONDS,
     MALFORMED_JSON_MAX_ATTEMPTS,
     MAX_AD_ACCOUNT_PAGES,
+    META_ADS_API_VERSION_V25,
+    META_ADS_API_VERSION_V26,
     META_ADS_MAX_HISTORY_DAYS,
     META_AUTH_ERROR_MESSAGE,
     META_TRANSIENT_ERROR_MAX_ATTEMPTS,
     PAGE_LIMIT_FALLBACK_SIZES,
+    SHRINK_EXHAUSTED_ERROR_MESSAGE,
     MetaAdsAuthError,
     MetaAdsResumeConfig,
     _earliest_supported_since,
@@ -37,13 +41,20 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.m
     _is_transient_error,
     _iter_simple_pagination,
     _iter_time_range_pagination,
+    _next_smaller_chunk_size,
     _next_smaller_limit,
     _override_limit,
     _raise_meta_api_error,
     _strip_access_token,
     get_integration,
+    get_schemas as get_meta_ads_schemas,
     list_ad_accounts,
     meta_ads_source,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.schemas import (
+    BREAKDOWN_STATS_ENDPOINTS,
+    ENDPOINTS,
+    MetaAdsResource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.source import MetaAdsSource
 from products.warehouse_sources.backend.types import IncrementalFieldType
@@ -309,7 +320,8 @@ class TestSimplePaginationLimitFallback:
             "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
         ) as mock_get:
             mock_get.return_value.get.side_effect = responses
-            with pytest.raises(Exception, match="Meta API request failed: 500"):
+            # Terminal: the next attempt would re-issue the same request.
+            with pytest.raises(Exception, match=SHRINK_EXHAUSTED_ERROR_MESSAGE):
                 list(_iter_simple_pagination(self.INITIAL_URL, self.PARAMS, None, manager))
 
         # One attempt per rung, then it gives up.
@@ -411,10 +423,20 @@ class TestIsTransientError:
     def test_reads_transient_flag_or_code(self, body: dict, expected: bool) -> None:
         assert _is_transient_error(_mock_response(500, body)) is expected
 
-    def test_non_json_body_is_not_transient(self) -> None:
-        # A proxy/gateway can return a non-JSON error page; the flag check must not crash on it.
+    def test_non_json_5xx_body_is_transient(self) -> None:
+        # A proxy/gateway can return a 5xx with no parseable body at all (an empty response, or
+        # a non-JSON error page); the flag check must not crash on it, and a bare server-side
+        # failure with no diagnostic body is itself the signature of a momentary blip.
         response = mock.MagicMock()
         response.status_code = 500
+        response.json.side_effect = RequestsJSONDecodeError("Expecting value", "<html>", 0)
+        assert _is_transient_error(response) is True
+
+    def test_non_json_4xx_body_is_not_transient(self) -> None:
+        # A 4xx more likely reflects a bad request of ours than a backend blip, so an
+        # unparseable body there must not be swept into the transient-retry path.
+        response = mock.MagicMock()
+        response.status_code = 400
         response.json.side_effect = RequestsJSONDecodeError("Expecting value", "<html>", 0)
         assert _is_transient_error(response) is False
 
@@ -783,6 +805,70 @@ class TestTimeRangePagination:
         tr = json.loads(mock_get.return_value.get.call_args_list[1].kwargs["params"]["time_range"])
         assert tr == {"since": "2026-03-01", "until": "2026-03-07"}
 
+    def test_heavy_query_subcode_retries_unchanged_then_shrinks_chunk(self, monkeypatch) -> None:
+        monkeypatch.setattr(meta_ads_module, "_backoff_sleep", lambda attempt: None)
+        manager = _build_manager()
+        # Production shape: labeled code 2, so it retries unchanged before shrinking.
+        heavy_body = {
+            "error": {
+                "message": "Service temporarily unavailable",
+                "type": "OAuthException",
+                "is_transient": False,
+                "code": 2,
+                "error_subcode": 1504044,
+            }
+        }
+        responses = [_mock_response(400, heavy_body) for _ in range(META_TRANSIENT_ERROR_MAX_ATTEMPTS)] + [
+            _mock_response(200, {"data": [{"ad_id": str(i)}], "paging": {}}) for i in range(1, 6)
+        ]
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
+        ) as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            batches = list(
+                _iter_time_range_pagination(
+                    self.URL,
+                    self.PARAMS,
+                    {"since": "2026-03-01", "until": "2026-03-30"},
+                    None,
+                    manager,
+                )
+            )
+
+        assert [b[0]["ad_id"] for b in batches] == ["1", "2", "3", "4", "5"]
+        calls = mock_get.return_value.get.call_args_list
+        for call in calls[:META_TRANSIENT_ERROR_MAX_ATTEMPTS]:
+            assert json.loads(call.kwargs["params"]["time_range"]) == {"since": "2026-03-01", "until": "2026-03-30"}
+        assert json.loads(calls[META_TRANSIENT_ERROR_MAX_ATTEMPTS].kwargs["params"]["time_range"]) == {
+            "since": "2026-03-01",
+            "until": "2026-03-07",
+        }
+
+    def test_exhausting_both_ladders_on_initial_chunk_raises_non_retryable(self) -> None:
+        manager = _build_manager()
+        timeout_body = {"error": {"error_subcode": 1504018, "message": "timeout"}}
+        # Three chunk rungs, then two page-limit rungs once the chunk hits one day.
+        responses = [_mock_response(500, timeout_body) for _ in range(5)]
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
+        ) as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            with pytest.raises(Exception, match=SHRINK_EXHAUSTED_ERROR_MESSAGE):
+                list(
+                    _iter_time_range_pagination(
+                        self.URL,
+                        self.PARAMS,
+                        {"since": "2026-03-01", "until": "2026-03-30"},
+                        None,
+                        manager,
+                    )
+                )
+
+        limits = [call.kwargs["params"]["limit"] for call in mock_get.return_value.get.call_args_list]
+        assert limits == [500, 500, 500, 100, 50]
+
 
 class TestOverrideLimit:
     @pytest.mark.parametrize(
@@ -833,6 +919,24 @@ class TestNextSmallerLimit:
     )
     def test_step(self, current: int, expected: int | None) -> None:
         assert _next_smaller_limit(current) == expected
+
+
+class TestNextSmallerChunkSize:
+    @pytest.mark.parametrize(
+        "current,expected",
+        [
+            (30, 7),
+            (7, 1),
+            # Smallest rung, so no further fallback is available.
+            (1, None),
+            # A resumed sync can carry a size between rungs; it picks the largest below it.
+            (14, 7),
+            # A resumed size above the largest rung steps down to that rung.
+            (60, 30),
+        ],
+    )
+    def test_step(self, current: int, expected: int | None) -> None:
+        assert _next_smaller_chunk_size(current) == expected
 
 
 class TestMidChunkLimitFallback:
@@ -950,9 +1054,11 @@ class TestMidChunkLimitFallback:
         sent_params = mock_get.return_value.get.call_args_list[0].kwargs["params"]
         assert sent_params["limit"] == 100
 
-    def test_exhausting_limit_ladder_raises(self) -> None:
+    def test_exhausting_limit_ladder_falls_back_to_smaller_chunk(self) -> None:
         manager = _build_manager()
         timeout_body = {"error": {"error_subcode": 1504018, "message": "timeout"}}
+        # 04-01..04-08 is one 30-day attempt clamped to the range end. Once the limit
+        # ladder bottoms out mid-chunk, 7-day chunks cover it: 04-01..04-07, 04-08.
         responses = [
             # Initial chunk: page 1 + cursor.
             _mock_response(
@@ -964,6 +1070,59 @@ class TestMidChunkLimitFallback:
             ),
             # All limits in PAGE_LIMIT_FALLBACK_SIZES time out.
             *[_mock_response(500, timeout_body) for _ in PAGE_LIMIT_FALLBACK_SIZES],
+            _mock_response(200, {"data": [{"ad_id": "2"}], "paging": {}}),
+            _mock_response(200, {"data": [{"ad_id": "3"}], "paging": {}}),
+        ]
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
+        ) as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            batches = list(
+                _iter_time_range_pagination(
+                    self.URL, self.PARAMS, {"since": "2026-04-01", "until": "2026-04-08"}, None, manager
+                )
+            )
+
+        assert [b[0]["ad_id"] for b in batches] == ["1", "2", "3"]
+
+        # Every rung was tried on the same cursor before the chunk narrowed.
+        cursor_calls = [c.args[0] for c in mock_get.return_value.get.call_args_list[1:4]]
+        assert cursor_calls == [
+            f"https://graph.facebook.com/v20/act_1/insights?after=p1&limit={limit}"
+            for limit in PAGE_LIMIT_FALLBACK_SIZES
+        ]
+
+        # The restarted chunk re-requests the window from its first day, at 7 days,
+        # keeping the smallest limit so the request only ever gets cheaper.
+        restart_params = mock_get.return_value.get.call_args_list[4].kwargs["params"]
+        assert json.loads(restart_params["time_range"]) == {"since": "2026-04-01", "until": "2026-04-07"}
+        assert restart_params["limit"] == PAGE_LIMIT_FALLBACK_SIZES[-1]
+
+        # The restart drops the saved cursor, which still encodes the wider window.
+        restart_save: MetaAdsResumeConfig = next(
+            s.args[0] for s in manager.save_state.call_args_list if s.args[0].chunk_size_days == 7
+        )
+        assert restart_save.chunk_since == "2026-04-01"
+        assert restart_save.chunk_next_url is None
+
+    def test_exhausting_both_ladders_mid_chunk_raises(self) -> None:
+        manager = _build_manager()
+        timeout_body = {"error": {"error_subcode": 1504018, "message": "timeout"}}
+        responses = [
+            # Initial chunk: page 1 + cursor.
+            _mock_response(
+                200,
+                {
+                    "data": [{"ad_id": "1"}],
+                    "paging": {"next": "https://graph.facebook.com/v20/act_1/insights?after=p1"},
+                },
+            ),
+            # Every page limit on the cursor times out, and so does the restarted
+            # chunk at each remaining size (7 days, then 1 day).
+            *[_mock_response(500, timeout_body) for _ in PAGE_LIMIT_FALLBACK_SIZES],
+            _mock_response(500, timeout_body),
+            _mock_response(500, timeout_body),
         ]
 
         with mock.patch(
@@ -975,8 +1134,11 @@ class TestMidChunkLimitFallback:
             )
             # Drain the first batch (which succeeds), then expect the failure.
             assert next(gen) == [{"ad_id": "1"}]
-            with pytest.raises(Exception, match="Meta API request failed: 500"):
+            with pytest.raises(Exception, match=SHRINK_EXHAUSTED_ERROR_MESSAGE):
                 list(gen)
+
+        # Both ladders terminate rather than looping on the smallest request.
+        assert mock_get.return_value.get.call_count == len(responses)
 
     def test_non_timeout_mid_chunk_error_does_not_retry(self) -> None:
         manager = _build_manager()
@@ -1181,9 +1343,19 @@ class TestNonRetryableErrors:
             'Meta API request failed: 400 - {"error":{"message":"(#200) Ad account owner has NOT granted ads_management or ads_read permission.","type":"OAuthException","code":200}}',
             # 400 when a specific endpoint cannot be accessed with the granted permissions.
             'Meta API request failed: 400 - {"error":{"message":"(#100) This endpoint cannot be loaded due to missing permissions."}}',
+            # 400 when a business_management-gated field is requested without that scope.
+            'Meta API request failed: 400 - {"error":{"message":"(#200) Requires business_management permission to manage the object.","type":"OAuthException","code":200}}',
+            # 400 when the source's configured attribution windows include a value Meta's
+            # Insights API doesn't recognise.
+            'Meta API request failed: 400 - {"error":{"message":"(#100) action_attribution_windows[0] must be '
+            'one of the following values: 1d_view, 7d_view, 28d_view, 1d_click, 7d_click, 28d_click","type":"OAuthException","code":100}}',
             # 500 when Meta's backend refuses to service the query even after adaptive
             # chunking has shrunk the window to its smallest size.
             'Meta API request failed: 500 - {"error":{"code":1,"message":"Please reduce the amount of data you\'re asking for, then retry your request"}}',
+            # Both shrink ladders bottomed out, so the next attempt would re-issue
+            # the identical single-day, smallest-page request that just failed.
+            f"{SHRINK_EXHAUSTED_ERROR_MESSAGE} (Meta API response: 400 - "
+            '{"error":{"message":"Service temporarily unavailable","code":2,"error_subcode":1504044}})',
             # code 190 / subcode 459 — account checkpoint, the user must log in to Facebook.
             f"{META_AUTH_ERROR_MESSAGE} (Meta API response: 400 - "
             '{"error":{"message":"You cannot access the app till you log in to www.facebook.com and follow the '
@@ -1211,6 +1383,23 @@ class TestNonRetryableErrors:
             ({"error": {"code": 10}}, True),
             ({"error": {"code": 200}}, True),
             ({"error": {"code": 299}}, True),
+            # Real-world "(#100) Unsupported get request" — the token's own account could no
+            # longer be resolved, surfaced under the generic "Invalid parameter" code instead
+            # of one of the dedicated auth codes above.
+            (
+                {
+                    "error": {
+                        "message": "(#100) Unsupported get request. Please read the Graph API documentation "
+                        "at https://developers.facebook.com/docs/graph-api",
+                        "type": "OAuthException",
+                        "code": 100,
+                    }
+                },
+                True,
+            ),
+            # A different code-100 message is a genuine malformed-request bug, not an auth
+            # failure — it must not be swept into the same reclassification.
+            ({"error": {"message": "Invalid parameter", "code": 100}}, False),
             # Transient / retryable errors — Meta still tags some of these OAuthException.
             ({"error": {"code": 2, "type": "OAuthException"}}, False),
             ({"error": {"code": 1, "error_subcode": 99}}, False),
@@ -1237,6 +1426,38 @@ class TestRetryableErrors:
         patterns = MetaAdsSource().get_retryable_errors()
         with pytest.raises(Exception) as exc_info:
             _raise_meta_api_error(_mock_response(500, body))
+        assert any(pattern in str(exc_info.value) for pattern in patterns)
+
+    @pytest.mark.parametrize("code", sorted(meta_ads_module.META_RATE_LIMIT_ERROR_CODES))
+    def test_rate_limit_error_matches_retryable_pattern(self, code: int) -> None:
+        # Real-world Meta throttling response: code 17 "User request limit reached" with
+        # is_transient: false. It must be tagged retryable rather than falling through to the
+        # generic, unclassified message and getting reported to error tracking on every attempt.
+        body = {
+            "error": {
+                "message": "User request limit reached",
+                "type": "OAuthException",
+                "code": code,
+                "is_transient": False,
+            }
+        }
+        patterns = MetaAdsSource().get_retryable_errors()
+        with pytest.raises(Exception) as exc_info:
+            _raise_meta_api_error(_mock_response(400, body))
+        assert any(pattern in str(exc_info.value) for pattern in patterns)
+
+    def test_empty_body_500_matches_retryable_pattern(self) -> None:
+        # Meta (or a fronting proxy) occasionally returns a bare 500 with an empty body — no
+        # JSON, no error code to classify by. It must still be tagged retryable rather than
+        # surfacing as a raw, unclassified failure on every attempt.
+        response = mock.MagicMock()
+        response.status_code = 500
+        response.json.side_effect = RequestsJSONDecodeError("Expecting value", "", 0)
+        response.text = ""
+
+        patterns = MetaAdsSource().get_retryable_errors()
+        with pytest.raises(Exception) as exc_info:
+            _raise_meta_api_error(response)
         assert any(pattern in str(exc_info.value) for pattern in patterns)
 
     def test_too_much_data_timeout_does_not_match_retryable_pattern(self) -> None:
@@ -1283,12 +1504,15 @@ class TestTimeRangeClamping:
         config.account_id = "act_123"
         config.meta_ads_integration_id = 1
         config.sync_lookback_days = source_kwargs.pop("sync_lookback_days", None)
+        config.action_attribution_windows = None
+        config.use_unified_attribution_setting = None
 
         response = meta_ads_source(
             resource_name="campaign_stats",
             config=config,
             team_id=1,
             resumable_source_manager=_build_manager(),
+            api_version=META_ADS_API_VERSION_V26,
             **source_kwargs,
         )
         list(cast(Any, response.items()))
@@ -1534,3 +1758,256 @@ class TestListAdAccounts:
         assert session.get.call_count == 2
         for call in session.get.call_args_list:
             assert call.kwargs["timeout"] == AD_ACCOUNT_LISTING_TIMEOUT_SECONDS
+
+
+def _source_config(
+    *, action_attribution_windows: str | None = None, use_unified_attribution_setting: str | None = None
+) -> mock.MagicMock:
+    config = mock.MagicMock()
+    config.account_id = "act_123"
+    config.meta_ads_integration_id = 1
+    config.sync_lookback_days = None
+    config.action_attribution_windows = action_attribution_windows
+    config.use_unified_attribution_setting = use_unified_attribution_setting
+    return config
+
+
+class TestEndpointCatalog:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_every_advertised_endpoint_has_a_resource_schema(self, endpoint: str) -> None:
+        # `meta_ads_source` looks the endpoint up by name, so advertising one in `get_schemas`
+        # without a `RESOURCE_SCHEMAS` entry only fails at sync time with a KeyError.
+        assert endpoint in get_meta_ads_schemas()
+
+
+class TestBreakdownStatsSchemas:
+    """Insights breakdown tables fan a campaign/day pair out into one row per dimension combination."""
+
+    @pytest.mark.parametrize("endpoint", list(BREAKDOWN_STATS_ENDPOINTS))
+    def test_breakdown_dimensions_are_part_of_the_primary_key(self, endpoint: str) -> None:
+        schema = get_meta_ads_schemas()[endpoint]
+        breakdowns = schema.extra_params["breakdowns"].split(",")
+
+        # Without the dimensions in the key, every combination for a campaign/day collapses onto
+        # one key: duplicate rows seed the Delta table and each later merge multi-matches them.
+        assert set(breakdowns) <= set(schema.primary_keys)
+
+    @pytest.mark.parametrize(
+        "endpoint,level,grain_column",
+        [
+            (MetaAdsResource.CampaignStatsByCountry, "campaign", "campaign_id"),
+            (MetaAdsResource.AdsetStatsByCountry, "adset", "adset_id"),
+            (MetaAdsResource.AdStatsByCountry, "ad", "ad_id"),
+        ],
+    )
+    def test_level_sets_its_grain_column_as_key_and_field(self, endpoint: str, level: str, grain_column: str) -> None:
+        schema = get_meta_ads_schemas()[endpoint]
+
+        # The grain column is what makes an ad-level table distinct from the campaign-level one:
+        # keying an ad breakdown on `campaign_id` (or omitting `ad_id` from the request) would
+        # collapse every ad in a campaign onto one row and defeat the point of the finer grain.
+        assert schema.extra_params["level"] == level
+        assert grain_column in schema.primary_keys
+        assert grain_column in schema.field_names
+
+    @pytest.mark.parametrize("endpoint", list(BREAKDOWN_STATS_ENDPOINTS))
+    def test_breakdown_dimensions_are_not_requested_as_fields(self, endpoint: str) -> None:
+        schema = get_meta_ads_schemas()[endpoint]
+        breakdowns = schema.extra_params["breakdowns"].split(",")
+
+        # Meta returns breakdowns as columns automatically and rejects the request outright when
+        # they are also listed in `fields`, so the table would 400 on every sync.
+        assert set(breakdowns).isdisjoint(schema.field_names)
+
+    @pytest.mark.parametrize("endpoint", list(BREAKDOWN_STATS_ENDPOINTS))
+    def test_breakdown_tables_are_off_by_default(self, endpoint: str) -> None:
+        schemas = {schema.name: schema for schema in MetaAdsSource().get_schemas(cast(Any, None), team_id=1)}
+
+        # Each breakdown multiplies the daily row count, so a new connection must not pick them
+        # up unless the user asks for them.
+        assert schemas[endpoint].should_sync_default is False
+
+    def test_hourly_table_omits_metrics_meta_cannot_report_hourly(self) -> None:
+        # "Hourly breakdowns do not support unique fields, which are any fields prepended with
+        # `unique_*`, `reach` or `frequency`" — requesting them stores columns Meta zeroes out.
+        unique_metrics = {"reach", "frequency", "cpp", "cost_per_unique_click", "unique_clicks", "unique_ctr"}
+        schemas = get_meta_ads_schemas()
+
+        assert unique_metrics.isdisjoint(schemas[MetaAdsResource.CampaignStatsHourly].field_names)
+        assert unique_metrics <= set(schemas[MetaAdsResource.CampaignStatsByCountry].field_names)
+
+
+class TestBreakdownStatsRequests:
+    def _capture_request(self, monkeypatch, resource_name: str, config: mock.MagicMock | None = None) -> dict[str, Any]:
+        integration = mock.MagicMock()
+        integration.access_token = "token"
+        monkeypatch.setattr(meta_ads_module, "get_integration", lambda config, team_id: integration)
+
+        captured: dict[str, Any] = {}
+
+        def fake_request(url, params, access_token, time_range, resumable_source_manager):
+            captured.update(url=url, params=params, time_range=time_range)
+            yield from ()
+
+        monkeypatch.setattr(meta_ads_module, "_make_paginated_api_request", fake_request)
+
+        response = meta_ads_source(
+            resource_name=resource_name,
+            config=config or _source_config(),
+            team_id=1,
+            resumable_source_manager=_build_manager(),
+            api_version=META_ADS_API_VERSION_V26,
+        )
+        list(cast(Any, response.items()))
+        return captured
+
+    @pytest.mark.parametrize("endpoint", list(BREAKDOWN_STATS_ENDPOINTS))
+    def test_breakdown_request_is_windowed_and_carries_its_breakdowns(self, monkeypatch, endpoint: str) -> None:
+        captured = self._capture_request(monkeypatch, endpoint)
+        schema = get_meta_ads_schemas()[endpoint]
+
+        # A breakdown table that loses `is_stats` would drop the time window and ask Meta for the
+        # whole account history on every sync. Each level (campaign/adset/ad) must send its own
+        # `level`, or ad-level breakdowns would silently return campaign-grain rows.
+        assert captured["time_range"] is not None
+        assert captured["params"]["breakdowns"] == schema.extra_params["breakdowns"]
+        assert captured["params"]["level"] == schema.extra_params["level"]
+
+    def test_non_stats_endpoint_is_not_windowed(self, monkeypatch) -> None:
+        captured = self._capture_request(monkeypatch, MetaAdsResource.AdCreatives)
+
+        assert captured["time_range"] is None
+        assert captured["url"].endswith("/act_123/adcreatives")
+
+    def test_attribution_settings_omitted_when_unset(self, monkeypatch) -> None:
+        # Backward compatibility: an existing connection that never set attribution config must
+        # produce the same Insights request as before — Meta then applies its own default window.
+        captured = self._capture_request(monkeypatch, MetaAdsResource.CampaignStats)
+
+        assert "action_attribution_windows" not in captured["params"]
+        assert "use_unified_attribution_setting" not in captured["params"]
+
+    def test_attribution_settings_threaded_into_stats_request(self, monkeypatch) -> None:
+        config = _source_config(action_attribution_windows="7d_click, 1d_view", use_unified_attribution_setting="true")
+        captured = self._capture_request(monkeypatch, MetaAdsResource.CampaignStats, config)
+
+        # Windows are sent JSON-encoded (Meta's list-parameter shape) with surrounding whitespace
+        # trimmed; the unified-setting flag is passed through verbatim.
+        assert json.loads(captured["params"]["action_attribution_windows"]) == ["7d_click", "1d_view"]
+        assert captured["params"]["use_unified_attribution_setting"] == "true"
+
+    def test_attribution_default_sentinel_leaves_unified_setting_unset(self, monkeypatch) -> None:
+        # The "use Meta's default" picker option stores an empty string; it must not be sent as a
+        # value, or it would override Meta's default with a blank flag.
+        config = _source_config(use_unified_attribution_setting="")
+        captured = self._capture_request(monkeypatch, MetaAdsResource.CampaignStats, config)
+
+        assert "use_unified_attribution_setting" not in captured["params"]
+
+    def test_attribution_settings_not_sent_on_entity_endpoints(self, monkeypatch) -> None:
+        # Entity endpoints (campaigns, ads, ...) aren't Insights calls; Meta rejects attribution
+        # params there, so they must only ride on `is_stats` requests.
+        config = _source_config(action_attribution_windows="7d_click", use_unified_attribution_setting="true")
+        captured = self._capture_request(monkeypatch, MetaAdsResource.AdCreatives, config)
+
+        assert "action_attribution_windows" not in captured["params"]
+        assert "use_unified_attribution_setting" not in captured["params"]
+
+
+class TestSingleObjectEndpoint:
+    """`GET /act_<id>` returns the account node itself, not a paged `data` list."""
+
+    def _rows(self, monkeypatch, response: mock.MagicMock) -> list[list[dict]]:
+        integration = mock.MagicMock()
+        integration.access_token = "token"
+        monkeypatch.setattr(meta_ads_module, "get_integration", lambda config, team_id: integration)
+        monkeypatch.setattr(meta_ads_module, "_get_initial_request", lambda url, params: response)
+
+        source = meta_ads_source(
+            resource_name=MetaAdsResource.AdAccount,
+            config=_source_config(),
+            team_id=1,
+            resumable_source_manager=_build_manager(),
+            api_version=META_ADS_API_VERSION_V26,
+        )
+        return list(cast(Any, source.items()))
+
+    def test_account_node_is_yielded_as_a_single_row(self, monkeypatch) -> None:
+        body = {"id": "act_123", "account_id": "123", "currency": "GBP"}
+
+        # Routing this through the list paginator would read a `data` key that is not there and
+        # sync the table empty.
+        assert self._rows(monkeypatch, _mock_response(200, body)) == [[body]]
+
+    def test_permanent_auth_failure_surfaces_the_actionable_message(self, monkeypatch) -> None:
+        response = _mock_response(400, {"error": {"code": 190, "message": "Invalid OAuth access token"}})
+
+        with pytest.raises(Exception, match=META_AUTH_ERROR_MESSAGE):
+            self._rows(monkeypatch, response)
+
+    def test_field_list_omits_business_field_requiring_ungranted_scope(self) -> None:
+        # `business` needs the `business_management` scope, which the Meta OAuth consent never
+        # requests (`ads_read` only), so Meta 400s the whole request whenever it's asked for —
+        # failing every sync of this table. `business_name` and `business_country_code` are plain
+        # fields with no such requirement and must stay.
+        field_names = get_meta_ads_schemas()[MetaAdsResource.AdAccount].field_names
+        assert "business" not in field_names
+        assert {"business_name", "business_country_code"} <= set(field_names)
+
+    def test_field_list_omits_fields_gated_behind_business_management(self) -> None:
+        # These four live in the same business_management-gated family as `business` above, but
+        # each was pruned only from `AD_ACCOUNT_FIELDS` in meta_ads.py, not from this list — Meta
+        # rejects the whole field set when any one field needs a scope beyond `ads_read`, so any
+        # one of them sneaking back in fails every sync of this table, not just that field.
+        gated_fields = {"owner", "funding_source_details", "is_prepay_account", "tos_accepted"}
+        field_names = get_meta_ads_schemas()[MetaAdsResource.AdAccount].field_names
+        assert gated_fields.isdisjoint(field_names)
+
+
+class TestApiVersionDispatch:
+    """The resolved source pin must reach the request URL — otherwise a pinned source silently
+    syncs against the wrong Graph API version, the drift the pinning framework exists to prevent."""
+
+    def _capture_url(self, monkeypatch, api_version: str) -> str:
+        integration = mock.MagicMock()
+        integration.access_token = "token"
+        monkeypatch.setattr(meta_ads_module, "get_integration", lambda config, team_id: integration)
+
+        captured: dict[str, str] = {}
+
+        def fake_request(url, params, access_token, time_range, resumable_source_manager):
+            captured["url"] = url
+            yield from ()
+
+        monkeypatch.setattr(meta_ads_module, "_make_paginated_api_request", fake_request)
+
+        response = meta_ads_source(
+            resource_name=MetaAdsResource.Campaigns,
+            config=_source_config(),
+            team_id=1,
+            resumable_source_manager=_build_manager(),
+            api_version=api_version,
+        )
+        list(cast(Any, response.items()))
+        return captured["url"]
+
+    @pytest.mark.parametrize("api_version", list(MetaAdsSource.supported_versions))
+    def test_resolved_version_reaches_request_url(self, monkeypatch, api_version: str) -> None:
+        assert (
+            self._capture_url(monkeypatch, api_version) == f"https://graph.facebook.com/{api_version}/act_123/campaigns"
+        )
+
+    def test_new_sources_default_to_latest_while_previous_stays_supported(self) -> None:
+        assert MetaAdsSource.default_version == META_ADS_API_VERSION_V26
+        assert set(MetaAdsSource.supported_versions) == {META_ADS_API_VERSION_V25, META_ADS_API_VERSION_V26}
+
+    def test_v25_is_deprecated_with_vendor_sunset_date(self) -> None:
+        # The deprecation metadata (not just membership in `supported_versions`) drives the
+        # in-product warning banner and the sunset countdown, so lock in the exact version and date.
+        source = MetaAdsSource()
+        assert source.get_version_deprecation(META_ADS_API_VERSION_V25) == VersionDeprecation(
+            version=META_ADS_API_VERSION_V25, sunset_at=dt.date(2028, 7, 29)
+        )
+        # The default must never be deprecated — a pinned-off-default warning on every new source
+        # would be the drift the framework prevents.
+        assert source.get_version_deprecation(META_ADS_API_VERSION_V26) is None

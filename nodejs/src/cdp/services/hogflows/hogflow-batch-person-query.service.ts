@@ -16,6 +16,13 @@ export interface BlastRadiusPersonsResponse {
     has_more: boolean
 }
 
+export interface AccountAudienceResponse {
+    accounts: Array<string>
+    cursor: string | null
+    has_more: boolean
+    group_type: string
+}
+
 /**
  * Service for querying persons via Django internal API for batch HogFlow processing.
  * Calls internal endpoints authenticated with INTERNAL_API_SECRET.
@@ -126,6 +133,55 @@ export class HogFlowBatchPersonQueryService {
             return data
         } catch (error) {
             logger.error('Error calling blast radius persons endpoint', { error: serializeError(error), urlPath })
+            throw error
+        }
+    }
+
+    /**
+     * Page a customer analytics account audience (external ids), cursor-paginated.
+     */
+    async getAccountAudiencePage(
+        team: Team,
+        filters: unknown,
+        cursor?: string | null
+    ): Promise<AccountAudienceResponse> {
+        const urlPath = `/api/projects/${team.id}/internal/hog_flows/account_audience` as const
+
+        try {
+            const { fetchResponse, fetchError } = await this.internalFetchService.fetch({
+                urlPath,
+                fetchParams: {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        filters,
+                        cursor: cursor || null,
+                    }),
+                },
+            })
+
+            if (!fetchResponse || fetchError) {
+                logger.error('Error fetching account audience from Django', {
+                    error: serializeError(fetchError),
+                    urlPath,
+                })
+                throw fetchError
+            }
+
+            if (fetchResponse.status !== 200) {
+                const errorText = await fetchResponse.text()
+                logger.error('Failed to fetch account audience from Django', {
+                    status: fetchResponse.status,
+                    error: errorText,
+                    urlPath,
+                })
+                throw new Error(`Failed to fetch account audience: ${fetchResponse.status} ${errorText}`)
+            }
+
+            const data = parseJSON(await fetchResponse.text()) as AccountAudienceResponse
+
+            return data
+        } catch (error) {
+            logger.error('Error calling account audience endpoint', { error: serializeError(error), urlPath })
             throw error
         }
     }

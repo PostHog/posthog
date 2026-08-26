@@ -29,6 +29,16 @@ export interface ExternalAccountListItemApi {
     external_id: string
     /** Human-readable account name. */
     name: string
+    /**
+     * When the account churned, or null if it has not churned.
+     * @nullable
+     */
+    churned_at: string | null
+    /**
+     * When Track Rules ignored the account, or null if it is tracked.
+     * @nullable
+     */
+    ignored_at: string | null
     /** Active relationship assignments to current organization members, keyed by relationship definition name (e.g. 'CSM', 'Account executive'). Definitions with no active assignment are omitted. */
     relationships: ExternalAccountListItemApiRelationships
 }
@@ -66,6 +76,7 @@ export interface ErrorResponseApi {
  * * `leadership` - Leadership
  * * `marketing` - Marketing
  * * `sales` - Sales / Success
+ * * `student` - Student
  * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
@@ -78,6 +89,7 @@ export const RoleAtOrganizationEnumApi = {
     Leadership: 'leadership',
     Marketing: 'marketing',
     Sales: 'sales',
+    Student: 'student',
     Other: 'other',
 } as const
 
@@ -195,25 +207,165 @@ export interface PatchedAccountRelationshipDefinitionApi {
 }
 
 /**
- * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
+ * * `account_field` - account_field
+ * * `custom_property` - custom_property
+ */
+export type AccountTrackRuleFieldKindEnumApi =
+    (typeof AccountTrackRuleFieldKindEnumApi)[keyof typeof AccountTrackRuleFieldKindEnumApi]
+
+export const AccountTrackRuleFieldKindEnumApi = {
+    AccountField: 'account_field',
+    CustomProperty: 'custom_property',
+} as const
+
+/**
+ * * `name` - name
+ * * `external_id` - external_id
+ * * `created_at` - created_at
+ * * `updated_at` - updated_at
+ * * `churned_at` - churned_at
+ * * `ignored_at` - ignored_at
+ * * `stripe_customer_id` - stripe_customer_id
+ * * `hubspot_deal_id` - hubspot_deal_id
+ * * `billing_id` - billing_id
+ * * `sfdc_id` - sfdc_id
+ * * `zendesk_id` - zendesk_id
+ */
+export type AccountTrackRuleFieldFieldEnumApi =
+    (typeof AccountTrackRuleFieldFieldEnumApi)[keyof typeof AccountTrackRuleFieldFieldEnumApi]
+
+export const AccountTrackRuleFieldFieldEnumApi = {
+    Name: 'name',
+    ExternalId: 'external_id',
+    CreatedAt: 'created_at',
+    UpdatedAt: 'updated_at',
+    ChurnedAt: 'churned_at',
+    IgnoredAt: 'ignored_at',
+    StripeCustomerId: 'stripe_customer_id',
+    HubspotDealId: 'hubspot_deal_id',
+    BillingId: 'billing_id',
+    SfdcId: 'sfdc_id',
+    ZendeskId: 'zendesk_id',
+} as const
+
+export interface AccountTrackRuleFieldApi {
+    kind: AccountTrackRuleFieldKindEnumApi
+    field?: AccountTrackRuleFieldFieldEnumApi | null
+    /** @nullable */
+    definition_id?: string | null
+}
+
+export interface AccountTrackRuleConditionApi {
+    field: AccountTrackRuleFieldApi
+    operator: string
+    values?: unknown[]
+}
+
+export interface AccountTrackRuleGroupApi {
+    conditions: AccountTrackRuleConditionApi[]
+}
+
+export interface AccountTrackRulesConfigApi {
+    schema_version: number
+    /** @minimum 0 */
+    version: number
+    enabled: boolean
+    groups: AccountTrackRuleGroupApi[]
+}
+
+export type AccountTrackRuleSampleApiRuleValues = { [key: string]: unknown }
+
+export interface AccountTrackRuleSampleApi {
+    readonly id: string
+    readonly name: string
+    /** @nullable */
+    readonly external_id: string | null
+    readonly rule_values: AccountTrackRuleSampleApiRuleValues
+}
+
+export interface AccountTrackRulePreviewApi {
+    config_version: number
+    eligible_active: number
+    skipped_churned: number
+    tracked: number
+    ignored: number
+    newly_ignored: number
+    restored: number
+    readonly tracked_samples: readonly AccountTrackRuleSampleApi[]
+    readonly ignored_samples: readonly AccountTrackRuleSampleApi[]
+    validation_errors?: string[]
+}
+
+export interface AccountTrackRuleRunRequestApi {
+    idempotency_key: string
+    confirmed: boolean
+}
+
+export interface AccountTrackRuleRunViewApi {
+    readonly id: string
+    /** @minimum 0 */
+    readonly config_version: number
+    readonly trigger: string
+    readonly status: string
+    /** @minimum 0 */
+    readonly eligible_active: number
+    /** @minimum 0 */
+    readonly skipped_churned: number
+    /** @minimum 0 */
+    readonly tracked: number
+    /** @minimum 0 */
+    readonly ignored: number
+    /** @minimum 0 */
+    readonly newly_ignored: number
+    /** @minimum 0 */
+    readonly restored: number
+    /** @nullable */
+    readonly started_at: string | null
+    /** @nullable */
+    readonly finished_at: string | null
+    /** @nullable */
+    readonly error: string | null
+    /** @nullable */
+    readonly created_by: number | null
+    readonly created_at: string
+}
+
+export interface PaginatedAccountTrackRuleRunViewListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: AccountTrackRuleRunViewApi[]
+}
+
+/**
+ * * `daily` - daily
+ * * `weekly` - weekly
+ * * `monthly` - monthly
+ */
+export type SlackSummaryCadenceEnumApi = (typeof SlackSummaryCadenceEnumApi)[keyof typeof SlackSummaryCadenceEnumApi]
+
+export const SlackSummaryCadenceEnumApi = {
+    Daily: 'daily',
+    Weekly: 'weekly',
+    Monthly: 'monthly',
+} as const
+
+/**
+ * Typed account properties: website_domain, external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link), and touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
  * @nullable
  */
 export type AccountApiProperties = {
-    /** @nullable */
-    csm?: {
-        id: number
-        email: string
-    } | null
-    /** @nullable */
-    account_executive?: {
-        id: number
-        email: string
-    } | null
-    /** @nullable */
-    account_owner?: {
-        id: number
-        email: string
-    } | null
+    /**
+     * Primary company website hostname used for account identity and logo lookup.
+     * @nullable
+     */
+    website_domain?: string | null
+    /** Email domains owned by this account's company, used to match inbound touchpoints to the account. */
+    email_domains?: string[]
+    /** Individual email addresses pinned to this account, matched before the domain fallback. */
+    known_emails?: string[]
     /** @nullable */
     stripe_customer_id?: string | null
     /** @nullable */
@@ -228,7 +380,9 @@ export type AccountApiProperties = {
     slack_channel_id?: string | null
     /** @nullable */
     usage_dashboard_link?: string | null
-} | null
+    /** @nullable */
+    metabase_link?: string | null
+} | null | null
 
 /**
  * A Customer Analytics account — a logical grouping used to assign customer-success ownership.
@@ -247,7 +401,7 @@ export interface AccountApi {
      */
     external_id?: string | null
     /**
-     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
+     * Typed account properties: website_domain, external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link), and touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
      * @nullable
      */
     properties?: AccountApiProperties
@@ -255,6 +409,22 @@ export interface AccountApi {
     tags?: string[]
     /** Short IDs of the internal notebooks linked to this account, used to persist investigations, call notes, and other free-form context. Empty list if no notebooks have been created for the account. */
     readonly notebooks: readonly string[]
+    /** How often to generate an AI summary of the account's bound Slack channel (daily, weekly, or monthly). Null means summaries are off.
+     *
+     * * `daily` - daily
+     * * `weekly` - weekly
+     * * `monthly` - monthly */
+    slack_summary_cadence?: SlackSummaryCadenceEnumApi | null
+    /**
+     * When the account churned. Null means the account has not churned.
+     * @nullable
+     */
+    churned_at?: string | null
+    /**
+     * When Track Rules ignored the account. Null means the account is tracked.
+     * @nullable
+     */
+    readonly ignored_at: string | null
     readonly created_at: string
     /** @nullable */
     readonly created_by: number | null
@@ -370,25 +540,19 @@ export interface AccountRelationshipWriteApi {
 }
 
 /**
- * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
+ * Typed account properties: website_domain, external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link), and touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
  * @nullable
  */
 export type PatchedAccountApiProperties = {
-    /** @nullable */
-    csm?: {
-        id: number
-        email: string
-    } | null
-    /** @nullable */
-    account_executive?: {
-        id: number
-        email: string
-    } | null
-    /** @nullable */
-    account_owner?: {
-        id: number
-        email: string
-    } | null
+    /**
+     * Primary company website hostname used for account identity and logo lookup.
+     * @nullable
+     */
+    website_domain?: string | null
+    /** Email domains owned by this account's company, used to match inbound touchpoints to the account. */
+    email_domains?: string[]
+    /** Individual email addresses pinned to this account, matched before the domain fallback. */
+    known_emails?: string[]
     /** @nullable */
     stripe_customer_id?: string | null
     /** @nullable */
@@ -403,7 +567,9 @@ export type PatchedAccountApiProperties = {
     slack_channel_id?: string | null
     /** @nullable */
     usage_dashboard_link?: string | null
-} | null
+    /** @nullable */
+    metabase_link?: string | null
+} | null | null
 
 /**
  * A Customer Analytics account — a logical grouping used to assign customer-success ownership.
@@ -422,7 +588,7 @@ export interface PatchedAccountApi {
      */
     external_id?: string | null
     /**
-     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
+     * Typed account properties: website_domain, external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link), and touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
      * @nullable
      */
     properties?: PatchedAccountApiProperties
@@ -430,11 +596,333 @@ export interface PatchedAccountApi {
     tags?: string[]
     /** Short IDs of the internal notebooks linked to this account, used to persist investigations, call notes, and other free-form context. Empty list if no notebooks have been created for the account. */
     readonly notebooks?: readonly string[]
+    /** How often to generate an AI summary of the account's bound Slack channel (daily, weekly, or monthly). Null means summaries are off.
+     *
+     * * `daily` - daily
+     * * `weekly` - weekly
+     * * `monthly` - monthly */
+    slack_summary_cadence?: SlackSummaryCadenceEnumApi | null
+    /**
+     * When the account churned. Null means the account has not churned.
+     * @nullable
+     */
+    churned_at?: string | null
+    /**
+     * When Track Rules ignored the account. Null means the account is tracked.
+     * @nullable
+     */
+    readonly ignored_at?: string | null
     readonly created_at?: string
     /** @nullable */
     readonly created_by?: number | null
     /** @nullable */
     readonly updated_at?: string | null
+}
+
+export interface ConversationMessageSenderApi {
+    /** Display name of the message sender. */
+    readonly name: string
+    /**
+     * Email address of the message sender, when available.
+     * @nullable
+     */
+    readonly email: string | null
+    /**
+     * UUID of the matched PostHog person, when available.
+     * @nullable
+     */
+    readonly person_id: string | null
+    /**
+     * Distinct ID of the sender, when available.
+     * @nullable
+     */
+    readonly distinct_id: string | null
+}
+
+/**
+ * * `inbound` - Inbound
+ * * `outbound` - Outbound
+ */
+export type EmailThreadMessageDirectionEnumApi =
+    (typeof EmailThreadMessageDirectionEnumApi)[keyof typeof EmailThreadMessageDirectionEnumApi]
+
+export const EmailThreadMessageDirectionEnumApi = {
+    Inbound: 'inbound',
+    Outbound: 'outbound',
+} as const
+
+export interface ConversationMessageSummaryApi {
+    /** Sender of the message. */
+    readonly sender: ConversationMessageSenderApi
+    /** Timestamp from the message source. */
+    readonly sent_at: string
+    /** Whether PostHog received or sent the message.
+     *
+     * * `inbound` - Inbound
+     * * `outbound` - Outbound */
+    readonly direction: EmailThreadMessageDirectionEnumApi
+}
+
+/**
+ * * `internal` - Internal
+ * * `customer` - Customer
+ */
+export type EmailThreadParticipantKindEnumApi =
+    (typeof EmailThreadParticipantKindEnumApi)[keyof typeof EmailThreadParticipantKindEnumApi]
+
+export const EmailThreadParticipantKindEnumApi = {
+    Internal: 'internal',
+    Customer: 'customer',
+} as const
+
+export interface AccountEmailThreadParticipantApi {
+    /** Email address of the thread participant. */
+    readonly email: string
+    /** Display name from the captured email headers. */
+    readonly display_name: string
+    /** Whether the participant belongs to the PostHog organization or the customer.
+     *
+     * * `internal` - Internal
+     * * `customer` - Customer */
+    readonly kind: EmailThreadParticipantKindEnumApi
+    /**
+     * UUID of the matched PostHog person for a customer participant, when available.
+     * @nullable
+     */
+    readonly person_id: string | null
+}
+
+export interface AccountEmailThreadApi {
+    /** UUID of the captured email thread. */
+    readonly id: string
+    /** Email thread subject. */
+    readonly subject: string
+    /** Plain-text preview of the latest captured message. */
+    readonly preview: string
+    /**
+     * Source timestamp of the first captured message.
+     * @nullable
+     */
+    readonly first_message_at: string | null
+    /** Sender, timestamp, and direction of the first captured message, when available. */
+    readonly first_message: ConversationMessageSummaryApi | null
+    /**
+     * Source timestamp of the latest captured message.
+     * @nullable
+     */
+    readonly last_message_at: string | null
+    /** Sender, timestamp, and direction of the latest captured message, when available. */
+    readonly last_message: ConversationMessageSummaryApi | null
+    /** Number of captured messages in the thread. */
+    readonly message_count: number
+    /** Participants included in the email thread. */
+    readonly participants: readonly AccountEmailThreadParticipantApi[]
+}
+
+export interface PaginatedAccountEmailThreadListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: AccountEmailThreadApi[]
+}
+
+export interface AccountEmailThreadAddressApi {
+    /** Name from the email header. */
+    readonly name: string
+    /** Email address from the email header. */
+    readonly email: string
+}
+
+export interface AccountEmailThreadMessageApi {
+    /** UUID of the captured email message. */
+    readonly id: string
+    /** Timestamp from the source email. */
+    readonly sent_at: string
+    /** Sender from the email From header. */
+    readonly sender: AccountEmailThreadAddressApi
+    /** Recipients from the email To header. */
+    readonly to_recipients: readonly AccountEmailThreadAddressApi[]
+    /** Recipients from the email Cc header. */
+    readonly cc_recipients: readonly AccountEmailThreadAddressApi[]
+    /** Whether Mailgun authentication verified the sender domain. */
+    readonly sender_authenticated: boolean
+    /** Whether PostHog received or sent the message.
+     *
+     * * `inbound` - Inbound
+     * * `outbound` - Outbound */
+    readonly direction: EmailThreadMessageDirectionEnumApi
+    /** Plain-text email content. */
+    readonly content: string
+}
+
+export interface PaginatedAccountEmailThreadMessageListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: AccountEmailThreadMessageApi[]
+}
+
+/**
+ * One attendee of a synced calendar meeting (read-only).
+ */
+export interface MeetingParticipantApi {
+    /** Email address of the attendee. */
+    readonly email: string
+    /** Display name from the calendar event; may be empty. */
+    readonly display_name: string
+    /** The attendee's RSVP: 'needs_action', 'accepted', 'declined', or 'tentative'. */
+    readonly response_status: string
+    /** Whether this attendee organized the meeting. */
+    readonly is_organizer: boolean
+    /**
+     * UUID of the PostHog person resolved for this attendee, if any.
+     * @nullable
+     */
+    readonly person_id: string | null
+}
+
+/**
+ * A calendar meeting synced from a connected employee calendar (read-only).
+ */
+export interface MeetingApi {
+    /** UUID of the meeting. */
+    readonly id: string
+    /** Meeting title; may be empty. */
+    readonly title: string
+    /** When the meeting starts. */
+    readonly start_time: string
+    /**
+     * When the meeting ends.
+     * @nullable
+     */
+    readonly end_time: string | null
+    /** Email address of the meeting organizer; may be empty. */
+    readonly organizer_email: string
+    /** Meeting status: 'confirmed', 'tentative', or 'cancelled'. */
+    readonly status: string
+    /** Attendees of the meeting. */
+    readonly participants: readonly MeetingParticipantApi[]
+}
+
+export interface PaginatedMeetingListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: MeetingApi[]
+}
+
+/**
+ * Metadata for one message a channel summary covered — never the message text.
+ */
+export interface ChannelSummaryMessageApi {
+    /** Display name of the message author. */
+    readonly author: string
+    /** When the message was sent. */
+    readonly sent_at: string
+    /** Slack permalink to the message. */
+    readonly permalink: string
+}
+
+/**
+ * An AI summary of one closed period of the account's bound Slack channel (read-only).
+ */
+export interface AccountChannelSummaryApi {
+    /** UUID of the summary. */
+    readonly id: string
+    /** Slack channel the summary covered — kept even if the account is later rebound. */
+    readonly slack_channel_id: string
+    /** Cadence the summarized period belongs to (daily, weekly, or monthly).
+     *
+     * * `daily` - daily
+     * * `weekly` - weekly
+     * * `monthly` - monthly */
+    readonly cadence: SlackSummaryCadenceEnumApi
+    /** Start of the summarized period (inclusive). */
+    readonly period_start: string
+    /** End of the summarized period (exclusive). */
+    readonly period_end: string
+    /** Markdown summary citing the original Slack messages with permalinks. */
+    readonly content: string
+    /** Number of channel messages the summary covered. */
+    readonly message_count: number
+    /** The messages the summary covered, in transcript order — metadata only, no message text. */
+    readonly messages: readonly ChannelSummaryMessageApi[]
+    /** When the summary was generated. */
+    readonly generated_at: string
+}
+
+export interface PaginatedAccountChannelSummaryListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: AccountChannelSummaryApi[]
+}
+
+/**
+ * A support ticket linked to an account, sourced from the conversations product (read-only).
+ */
+export interface SupportTicketApi {
+    /** UUID of the support ticket. */
+    readonly id: string
+    /** Human-readable ticket number. */
+    readonly ticket_number: number
+    /** Current status of the ticket (e.g. 'new', 'open'). */
+    readonly status: string
+    /**
+     * When the most recent message was sent on this ticket.
+     * @nullable
+     */
+    readonly last_message_at: string | null
+    /**
+     * Truncated preview of the most recent message.
+     * @nullable
+     */
+    readonly last_message_text: string | null
+    /** Sender, timestamp, and direction of the latest public message, when available. */
+    readonly last_message: ConversationMessageSummaryApi | null
+    /** Absolute URL to open this ticket in the app. */
+    readonly deep_link: string
+    /** When the ticket conversation started. */
+    readonly created_at: string
+    /** Display name of the customer who started the ticket. */
+    readonly started_by: string
+    /** Distinct ID of the customer who started the ticket. */
+    readonly distinct_id: string
+}
+
+export interface AccountSupportTicketMessageApi {
+    /** UUID of the support ticket message. */
+    readonly id: string
+    /** Plain-text message content. */
+    readonly content: string
+    /** Display name of the message author. */
+    readonly author_name: string
+    /** Whether PostHog received or sent the message.
+     *
+     * * `inbound` - Inbound
+     * * `outbound` - Outbound */
+    readonly direction: EmailThreadMessageDirectionEnumApi
+    /** Whether the message is an internal note hidden from the customer. */
+    readonly is_private: boolean
+    /** When the message was created. */
+    readonly created_at: string
+}
+
+export interface PaginatedAccountSupportTicketMessageListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: AccountSupportTicketMessageApi[]
 }
 
 /**
@@ -549,6 +1037,52 @@ export interface AnnouncementChannelApi {
 }
 
 /**
+ * Sync state of one connected calendar (read-only).
+ */
+export interface CalendarSyncStatusApi {
+    /** Id of the google-calendar integration. */
+    readonly integration_id: number
+    /**
+     * When the last sync run completed; null before the first sync.
+     * @nullable
+     */
+    readonly last_synced_at: string | null
+    /** Whether a sync run is currently in flight. */
+    readonly is_syncing: boolean
+}
+
+/**
+ * Request body of the calendar sync-now trigger.
+ */
+export interface CalendarSyncTriggerApi {
+    /** Id of the google-calendar integration to sync. */
+    integration_id: number
+}
+
+/**
+ * * `started` - started
+ * * `already_running` - already_running
+ */
+export type CalendarSyncTriggerResponseStatusEnumApi =
+    (typeof CalendarSyncTriggerResponseStatusEnumApi)[keyof typeof CalendarSyncTriggerResponseStatusEnumApi]
+
+export const CalendarSyncTriggerResponseStatusEnumApi = {
+    Started: 'started',
+    AlreadyRunning: 'already_running',
+} as const
+
+/**
+ * Response of the calendar sync-now trigger.
+ */
+export interface CalendarSyncTriggerResponseApi {
+    /** 'started' (a sync run began) or 'already_running' (a sync for this calendar was already in flight, so this was a no-op).
+     *
+     * * `started` - started
+     * * `already_running` - already_running */
+    status: CalendarSyncTriggerResponseStatusEnumApi
+}
+
+/**
  * * `text` - text
  * * `number` - number
  * * `currency` - currency
@@ -649,7 +1183,7 @@ export interface CustomPropertyOptionApi {
  */
 export interface CustomPropertySyncRunApi {
     readonly id: string
-    /** What started the run: 'scheduled' (rode a warehouse sync), 'manual', or 'backfill'. */
+    /** What started the run: 'scheduled' (rode a warehouse sync), 'sync' (a warehouse sync started from the UI), 'manual' (a backfill started from the UI), or 'backfill' (the automatic backfill run when a mapping is created or re-enabled). */
     readonly trigger: string
     /** Run status: 'running', 'completed', or 'failed'. */
     readonly status: string
@@ -683,21 +1217,22 @@ export interface CustomPropertySyncRunApi {
 }
 
 /**
- * Binds a data-warehouse source to a custom property definition. Account sources read a
- * materialized view column and sync onto matching accounts; person and group sources read a
- * warehouse schema and sync onto matching persons or groups on each warehouse sync.
+ * Binds warehouse columns to a custom property definition. Account sources read a materialized
+ * view column and sync onto matching accounts; person and group sources read either an imported
+ * warehouse table or a materialized view, and sync onto matching persons or groups on every
+ * warehouse run of what they read.
  */
 export interface CustomPropertySourceApi {
     readonly id: string
     /** UUID of the custom property definition this source feeds. One source per definition. */
     definition: string
     /**
-     * Account sources only: UUID of the data-warehouse saved query (materialized view) to read values from. Mutually exclusive with external_data_schema.
+     * UUID of the data-warehouse saved query to read from. Required for an account source. For a person or group source it must be a materialized view, and is one of the two binding options. Mutually exclusive with external_data_schema.
      * @nullable
      */
     saved_query?: string | null
     /**
-     * Person and group sources only: UUID of the warehouse schema (raw incremental table) to read from. Mutually exclusive with saved_query.
+     * Person and group sources only: UUID of the warehouse schema (an imported table) to read from. Mutually exclusive with saved_query; a person or group source sets exactly one.
      * @nullable
      */
     external_data_schema?: string | null
@@ -709,7 +1244,7 @@ export interface CustomPropertySourceApi {
     source_column?: string | null
     /** Person and group sources only: {warehouse_column: property_name} mapping the columns this source writes onto the person or group. */
     column_property_map?: unknown
-    /** Person sources only: {warehouse_column: description} giving each mapped column a human-facing description, seeded from the warehouse column's information_schema description. Optional per column. Create-only. */
+    /** Person and group sources only: {warehouse_column: description} giving each mapped column a human-facing description, seeded from the warehouse column's information_schema description. Optional per column. Create-only. */
     column_descriptions?: unknown
     /**
      * Column whose value identifies the target: an account's external_id for account sources, the person's distinct_id for person sources, or the group key for group sources.
@@ -736,17 +1271,32 @@ export interface CustomPropertySourceApi {
     /** @nullable */
     readonly updated_at: string | null
     /**
-     * Person and group sources only: how often the underlying warehouse schema syncs, in seconds. Null for account sources or when unavailable.
+     * Person and group sources only: how often the bound table or view runs, in seconds. Null for account sources, or when the schedule is unavailable — including a view whose frequency is set on its data-modeling DAG.
      * @nullable
      */
     readonly sync_frequency_interval_seconds: number | null
     /**
-     * Person and group sources only: approximate time of the next scheduled sync (last synced + interval). Approximate — drifts if the schedule was paused. Null for account sources or if never synced.
+     * Person and group sources only: approximate time of the next scheduled run (last run + interval). Approximate — drifts if the schedule was paused. Null for account sources, if never run, or when the interval is unavailable.
      * @nullable
      */
     readonly next_sync_at: string | null
     /** Person and group sources only: the most recent sync/backfill run, or null if none yet. */
     readonly latest_run: CustomPropertySyncRunApi | null
+    /**
+     * Table-bound person and group sources only: UUID of the warehouse source owning the schema, so the UI can link to the table. Null for account sources, view-bound sources, or when unavailable.
+     * @nullable
+     */
+    readonly external_data_source: string | null
+    /**
+     * Person and group sources only: what this source reads, as it is named in HogQL — the imported table, or the view. Null for account sources or when unavailable.
+     * @nullable
+     */
+    readonly table_name: string | null
+    /**
+     * View-bound person and group sources only: the materialized view's name, so the UI can tell a view-backed source from a table-backed one. Null for account and table-bound sources.
+     * @nullable
+     */
+    readonly saved_query_name: string | null
 }
 
 /**
@@ -807,6 +1357,8 @@ export interface CustomPropertyDefinitionApi {
     group_type_index?: number | null
     /** Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties. */
     is_big_number?: boolean
+    /** True when PostHog writes this property itself. Its name and display type are fixed — an update changing either is rejected. */
+    readonly is_canonical: boolean
     /**
      * For select properties: the allowed options. Required (non-empty) when display_type is 'select'; cleared server-side for other types.
      * @nullable
@@ -876,6 +1428,8 @@ export interface PatchedCustomPropertyDefinitionApi {
     group_type_index?: number | null
     /** Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties. */
     is_big_number?: boolean
+    /** True when PostHog writes this property itself. Its name and display type are fixed — an update changing either is rejected. */
+    readonly is_canonical?: boolean
     /**
      * For select properties: the allowed options. Required (non-empty) when display_type is 'select'; cleared server-side for other types.
      * @nullable
@@ -1173,6 +1727,585 @@ export interface EventStreamTestMessageApi {
     readonly channel_id: string
 }
 
+export interface FeatureRequestProductAreaApi {
+    /** Stable product area ID. */
+    readonly id: string
+    /**
+     * Team-maintained product area name.
+     * @maxLength 200
+     */
+    name: string
+    /**
+     * Position in product area selectors. Lower values appear first.
+     * @minimum 0
+     */
+    display_order?: number
+    /** Whether editors can select this product area for new requests. */
+    is_active?: boolean
+    /** When the product area was created. */
+    readonly created_at: string
+    /** When the product area was last updated. */
+    readonly updated_at: string
+}
+
+export interface PatchedFeatureRequestProductAreaApi {
+    /** Stable product area ID. */
+    readonly id?: string
+    /**
+     * Team-maintained product area name.
+     * @maxLength 200
+     */
+    name?: string
+    /**
+     * Position in product area selectors. Lower values appear first.
+     * @minimum 0
+     */
+    display_order?: number
+    /** Whether editors can select this product area for new requests. */
+    is_active?: boolean
+    /** When the product area was created. */
+    readonly created_at?: string
+    /** When the product area was last updated. */
+    readonly updated_at?: string
+}
+
+/**
+ * * `requested` - Requested
+ * * `planned` - Planned
+ * * `completed` - Completed
+ * * `wont_fix` - Won't fix
+ * * `duplicate` - Duplicate
+ */
+export type FeatureRequestStatusEnumApi = (typeof FeatureRequestStatusEnumApi)[keyof typeof FeatureRequestStatusEnumApi]
+
+export const FeatureRequestStatusEnumApi = {
+    Requested: 'requested',
+    Planned: 'planned',
+    Completed: 'completed',
+    WontFix: 'wont_fix',
+    Duplicate: 'duplicate',
+} as const
+
+/**
+ * * `high` - High
+ * * `medium` - Medium
+ * * `low` - Low
+ */
+export type RequestPriorityEnumApi = (typeof RequestPriorityEnumApi)[keyof typeof RequestPriorityEnumApi]
+
+export const RequestPriorityEnumApi = {
+    High: 'high',
+    Medium: 'medium',
+    Low: 'low',
+} as const
+
+export interface FeatureRequestAccountApi {
+    /** ID of the affected Customer Analytics account. */
+    readonly id: string
+    /** Name of the affected account. */
+    readonly name: string
+}
+
+export interface FeatureRequestEvidenceApi {
+    /** Stable evidence ID. */
+    readonly id: string
+    /** Internal summary of this account's request evidence. */
+    readonly summary: string
+    /** Customer quote kept with this evidence item. */
+    readonly customer_quote: string
+    /**
+     * Free-form name of the source where this evidence was recorded.
+     * @maxLength 200
+     */
+    readonly evidence_source: string
+    /** HTTP or HTTPS link to the source, or an empty string. */
+    readonly source_url: string
+    /**
+     * Date the account made the request, or null when unknown.
+     * @nullable
+     */
+    readonly requested_on: string | null
+    /** Uploaded image IDs attached to this evidence item, in display order. */
+    readonly image_ids: readonly string[]
+    /**
+     * ID of the user who added the evidence.
+     * @nullable
+     */
+    readonly created_by: number | null
+    /**
+     * ID of the last user to update the evidence.
+     * @nullable
+     */
+    readonly updated_by: number | null
+    /** When the evidence was added. */
+    readonly created_at: string
+    /** When the evidence was last updated. */
+    readonly updated_at: string
+}
+
+export interface FeatureRequestAccountLinkApi {
+    /** Stable link ID between the request and account. */
+    readonly id: string
+    /** Affected Customer Analytics account. */
+    readonly account: FeatureRequestAccountApi
+    /** Evidence recorded for this account and request. List responses omit these items. */
+    readonly evidence: readonly FeatureRequestEvidenceApi[]
+    /**
+     * Total evidence items recorded for this account and request.
+     * @minimum 0
+     */
+    readonly evidence_count: number
+    /** When the account was first linked. */
+    readonly created_at: string
+    /**
+     * When the account link was last changed.
+     * @nullable
+     */
+    readonly updated_at: string | null
+}
+
+export interface FeatureRequestApi {
+    /** Stable feature request ID. */
+    readonly id: string
+    /** Customer-facing request title. */
+    readonly title: string
+    /** Customer-facing request description in Markdown. */
+    readonly description: string
+    /** Current customer-facing lifecycle status.
+     *
+     * * `requested` - Requested
+     * * `planned` - Planned
+     * * `completed` - Completed
+     * * `wont_fix` - Won't fix
+     * * `duplicate` - Duplicate */
+    readonly request_status: FeatureRequestStatusEnumApi
+    /** Manual request priority. Null means no priority.
+     *
+     * * `high` - High
+     * * `medium` - Medium
+     * * `low` - Low */
+    readonly request_priority: RequestPriorityEnumApi | null
+    /** Whether the request is archived. */
+    readonly is_archived: boolean
+    /**
+     * When the request was archived, or null while active.
+     * @nullable
+     */
+    readonly archived_at: string | null
+    /**
+     * ID of the user who archived the request, or null while active.
+     * @nullable
+     */
+    readonly archived_by: number | null
+    /**
+     * Version required for optimistic concurrency on mutations.
+     * @minimum 1
+     */
+    readonly version: number
+    /** Whether the caller can update this request and all its active account links. */
+    readonly can_update: boolean
+    /** First visible account retained for client compatibility. Use account_links for the complete list. */
+    readonly account: FeatureRequestAccountApi
+    /** Active account links visible to the caller, with account-specific evidence. */
+    readonly account_links: readonly FeatureRequestAccountLinkApi[]
+    /** Product areas affected by this request. */
+    readonly product_areas: readonly FeatureRequestProductAreaApi[]
+    /**
+     * ID of the user who created the request.
+     * @nullable
+     */
+    readonly created_by: number | null
+    /**
+     * ID of the last user to update the request.
+     * @nullable
+     */
+    readonly updated_by: number | null
+    /** When the request was created. */
+    readonly created_at: string
+    /** When the request was last updated. */
+    readonly updated_at: string
+}
+
+export interface PaginatedFeatureRequestListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: FeatureRequestApi[]
+}
+
+export interface FeatureRequestEvidencePayloadApi {
+    /** Internal summary of this account's request evidence. */
+    summary?: string
+    /** Customer quote kept with this evidence item. */
+    customer_quote?: string
+    /**
+     * Free-form name of the source where this evidence was recorded.
+     * @maxLength 200
+     */
+    evidence_source: string
+    /**
+     * Optional HTTP or HTTPS link to the source.
+     * @maxLength 2000
+     */
+    source_url?: string
+    /**
+     * Date the account made the request, or null when unknown.
+     * @nullable
+     */
+    requested_on?: string | null
+    /** Uploaded image IDs from this project to attach in display order. */
+    image_ids?: string[]
+}
+
+export interface FeatureRequestCreateApi {
+    /**
+     * Required customer-facing request title.
+     * @maxLength 400
+     */
+    title: string
+    /** Optional customer-facing request description in Markdown. */
+    description?: string
+    /** ID of the affected Customer Analytics account. */
+    account_id: string
+    /** One or more active product area IDs. Duplicate IDs are ignored. */
+    product_area_ids: string[]
+    /** Client-generated key that makes retries return the original request instead of creating a duplicate. */
+    idempotency_key: string
+    /** Optional first evidence item to create for the selected account. */
+    evidence?: FeatureRequestEvidencePayloadApi | null
+}
+
+export interface FeatureRequestUpdateApi {
+    /**
+     * Request version loaded by the editor. Stale versions return 409 Conflict.
+     * @minimum 1
+     */
+    expected_version: number
+    /**
+     * Updated customer-facing request title.
+     * @maxLength 400
+     */
+    title?: string
+    /** Updated optional customer-facing request description in Markdown. */
+    description?: string
+    /** Deprecated single affected account ID. Use account_ids. */
+    account_id?: string
+    /** One or more affected account IDs. Removed accounts are unlinked without deleting their evidence. */
+    account_ids?: string[]
+    /** One or more product area IDs. Existing inactive areas can remain linked. */
+    product_area_ids?: string[]
+    /** Updated customer-facing lifecycle status.
+     *
+     * * `requested` - Requested
+     * * `planned` - Planned
+     * * `completed` - Completed
+     * * `wont_fix` - Won't fix
+     * * `duplicate` - Duplicate */
+    request_status?: FeatureRequestStatusEnumApi
+    /** Updated manual priority. Pass null to remove the priority.
+     *
+     * * `high` - High
+     * * `medium` - Medium
+     * * `low` - Low */
+    request_priority?: RequestPriorityEnumApi | null
+}
+
+export interface PatchedFeatureRequestUpdateApi {
+    /**
+     * Request version loaded by the editor. Stale versions return 409 Conflict.
+     * @minimum 1
+     */
+    expected_version?: number
+    /**
+     * Updated customer-facing request title.
+     * @maxLength 400
+     */
+    title?: string
+    /** Updated optional customer-facing request description in Markdown. */
+    description?: string
+    /** Deprecated single affected account ID. Use account_ids. */
+    account_id?: string
+    /** One or more affected account IDs. Removed accounts are unlinked without deleting their evidence. */
+    account_ids?: string[]
+    /** One or more product area IDs. Existing inactive areas can remain linked. */
+    product_area_ids?: string[]
+    /** Updated customer-facing lifecycle status.
+     *
+     * * `requested` - Requested
+     * * `planned` - Planned
+     * * `completed` - Completed
+     * * `wont_fix` - Won't fix
+     * * `duplicate` - Duplicate */
+    request_status?: FeatureRequestStatusEnumApi
+    /** Updated manual priority. Pass null to remove the priority.
+     *
+     * * `high` - High
+     * * `medium` - Medium
+     * * `low` - Low */
+    request_priority?: RequestPriorityEnumApi | null
+}
+
+export interface FeatureRequestAddAccountApi {
+    /**
+     * Request version loaded by the editor. Stale versions return 409 Conflict.
+     * @minimum 1
+     */
+    expected_version: number
+    /** Accessible account to link to this feature request. */
+    account_id: string
+    /** Optional first evidence item to create for the account in the same change. */
+    evidence?: FeatureRequestEvidencePayloadApi | null
+}
+
+export interface FeatureRequestEvidenceCreateApi {
+    /** Internal summary of this account's request evidence. */
+    summary?: string
+    /** Customer quote kept with this evidence item. */
+    customer_quote?: string
+    /**
+     * Free-form name of the source where this evidence was recorded.
+     * @maxLength 200
+     */
+    evidence_source: string
+    /**
+     * Optional HTTP or HTTPS link to the source.
+     * @maxLength 2000
+     */
+    source_url?: string
+    /**
+     * Date the account made the request, or null when unknown.
+     * @nullable
+     */
+    requested_on?: string | null
+    /** Uploaded image IDs from this project to attach in display order. */
+    image_ids?: string[]
+    /**
+     * Request version loaded by the editor. Stale versions return 409 Conflict.
+     * @minimum 1
+     */
+    expected_version: number
+    /** Active account link that owns this evidence. */
+    account_link_id: string
+}
+
+export interface FeatureRequestVersionApi {
+    /**
+     * Request version loaded by the editor. Stale versions return 409 Conflict.
+     * @minimum 1
+     */
+    expected_version: number
+}
+
+/**
+ * * `status` - Status
+ * * `priority` - Priority
+ * * `account` - Account
+ * * `accounts` - Accounts
+ * * `evidence` - Evidence
+ * * `product_areas` - Product areas
+ */
+export type FeatureRequestHistoryChangeFieldEnumApi =
+    (typeof FeatureRequestHistoryChangeFieldEnumApi)[keyof typeof FeatureRequestHistoryChangeFieldEnumApi]
+
+export const FeatureRequestHistoryChangeFieldEnumApi = {
+    Status: 'status',
+    Priority: 'priority',
+    Account: 'account',
+    Accounts: 'accounts',
+    Evidence: 'evidence',
+    ProductAreas: 'product_areas',
+} as const
+
+/**
+ * Value before the update, including relation snapshots.
+ */
+export type FeatureRequestHistoryChangeApiBefore =
+    | string
+    | {
+          /** @nullable */
+          id: string | null
+          name: string
+      }
+    | {
+          id: string
+          name: string
+      }[]
+    | {
+          id: string
+          account: {
+              id: string
+              name: string
+          }
+          summary: string
+          customer_quote: string
+          source: string
+          source_url: string
+          /** @nullable */
+          requested_on: string | null
+          image_ids?: string[]
+      }
+    | null
+
+/**
+ * Value after the update, including relation snapshots.
+ */
+export type FeatureRequestHistoryChangeApiAfter =
+    | string
+    | {
+          /** @nullable */
+          id: string | null
+          name: string
+      }
+    | {
+          id: string
+          name: string
+      }[]
+    | {
+          id: string
+          account: {
+              id: string
+              name: string
+          }
+          summary: string
+          customer_quote: string
+          source: string
+          source_url: string
+          /** @nullable */
+          requested_on: string | null
+          image_ids?: string[]
+      }
+    | null
+
+export interface FeatureRequestHistoryChangeApi {
+    /** Request field represented by this change.
+     *
+     * * `status` - Status
+     * * `priority` - Priority
+     * * `account` - Account
+     * * `accounts` - Accounts
+     * * `evidence` - Evidence
+     * * `product_areas` - Product areas */
+    readonly field: FeatureRequestHistoryChangeFieldEnumApi
+    /** Value before the update, including relation snapshots. */
+    readonly before: FeatureRequestHistoryChangeApiBefore
+    /** Value after the update, including relation snapshots. */
+    readonly after: FeatureRequestHistoryChangeApiAfter
+}
+
+/**
+ * * `manual` - Manual
+ */
+export type ChangeSourceEnumApi = (typeof ChangeSourceEnumApi)[keyof typeof ChangeSourceEnumApi]
+
+export const ChangeSourceEnumApi = {
+    Manual: 'manual',
+} as const
+
+export interface FeatureRequestHistoryApi {
+    /** Stable request history entry ID. */
+    readonly id: string
+    /** Tracked fields changed together in one successful save. */
+    readonly changes: readonly FeatureRequestHistoryChangeApi[]
+    /** Whether this entry records the request's initial values. */
+    readonly is_initial: boolean
+    /** System that recorded the request change.
+     *
+     * * `manual` - Manual */
+    readonly change_source: ChangeSourceEnumApi
+    /**
+     * ID of the user who changed the request, if known.
+     * @nullable
+     */
+    readonly actor_id: number | null
+    /**
+     * Display name of the user who changed the request, if known.
+     * @nullable
+     */
+    readonly actor_name: string | null
+    /** When the request changed. */
+    readonly changed_at: string
+}
+
+export interface FeatureRequestEvidenceDeleteApi {
+    /**
+     * Request version loaded by the editor. Stale versions return 409 Conflict.
+     * @minimum 1
+     */
+    expected_version: number
+    /** Evidence item to delete. */
+    evidence_id: string
+}
+
+export interface FeatureRequestStatusHistoryApi {
+    /** Stable status history entry ID. */
+    readonly id: string
+    /** Status before this change. Null identifies the initial status.
+     *
+     * * `requested` - Requested
+     * * `planned` - Planned
+     * * `completed` - Completed
+     * * `wont_fix` - Won't fix
+     * * `duplicate` - Duplicate */
+    readonly previous_status: FeatureRequestStatusEnumApi | null
+    /** Status after this change.
+     *
+     * * `requested` - Requested
+     * * `planned` - Planned
+     * * `completed` - Completed
+     * * `wont_fix` - Won't fix
+     * * `duplicate` - Duplicate */
+    readonly request_status: FeatureRequestStatusEnumApi
+    /** System that recorded the status change.
+     *
+     * * `manual` - Manual */
+    readonly change_source: ChangeSourceEnumApi
+    /**
+     * ID of the user who changed the status, if known.
+     * @nullable
+     */
+    readonly actor_id: number | null
+    /**
+     * Display name of the user who changed the status, if known.
+     * @nullable
+     */
+    readonly actor_name: string | null
+    /** When the status changed. */
+    readonly changed_at: string
+}
+
+export interface FeatureRequestEvidenceUpdateApi {
+    /** Internal summary of this account's request evidence. */
+    summary?: string
+    /** Customer quote kept with this evidence item. */
+    customer_quote?: string
+    /**
+     * Free-form name of the source where this evidence was recorded.
+     * @maxLength 200
+     */
+    evidence_source: string
+    /**
+     * Optional HTTP or HTTPS link to the source.
+     * @maxLength 2000
+     */
+    source_url?: string
+    /**
+     * Date the account made the request, or null when unknown.
+     * @nullable
+     */
+    requested_on?: string | null
+    /** Uploaded image IDs from this project to attach in display order. */
+    image_ids?: string[]
+    /**
+     * Request version loaded by the editor. Stale versions return 409 Conflict.
+     * @minimum 1
+     */
+    expected_version: number
+    /** Evidence item to replace. */
+    evidence_id: string
+}
+
 /**
  * * `numeric` - numeric
  * * `currency` - currency
@@ -1321,6 +2454,10 @@ export type CustomerAnalyticsExternalAccountsRetrieveParams = {
      */
     cursor?: string
     /**
+     * Include ignored accounts. Ignored accounts are hidden by default.
+     */
+    include_ignored?: boolean
+    /**
      * Maximum number of accounts to return. Values below 1 are clamped to 1; values above 100 are clamped to 100.
      */
     limit?: number
@@ -1364,23 +2501,30 @@ export type AccountRelationshipDefinitionsListParams = {
     offset?: number
 }
 
+export type AccountTrackRulesRunsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type AccountsListParams = {
     /**
-     * Filter by account executive. Use 'unassigned' or an integer user id.
-     */
-    account_executive?: string
-    /**
-     * Filter by account owner. Use 'unassigned' or an integer user id.
-     */
-    account_owner?: string
-    /**
-     * When true, returns only accounts where CSM, account executive, and account owner are all unset.
+     * When true, returns only accounts where no user actively holds any relationship.
      */
     all_roles_unassigned?: boolean
     /**
-     * Filter by CSM. Use 'unassigned' for accounts with no CSM, or an integer user id.
+     * Include churned accounts. Churned accounts are hidden by default.
      */
-    csm?: string
+    include_churned?: boolean
+    /**
+     * Include ignored accounts. Ignored accounts are hidden by default.
+     */
+    include_ignored?: boolean
     /**
      * Number of results to return per page.
      */
@@ -1427,6 +2571,65 @@ export type AccountsRelationshipsListParams = {
      * Include ended assignments (the full timeline), not just active ones.
      */
     include_history?: boolean
+}
+
+export type AccountsEmailThreadsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type AccountsEmailThreadMessagesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type AccountsMeetingsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Filter meetings by title or attendee email/name.
+     */
+    search?: string
+}
+
+export type AccountsSummariesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type AccountsSupportTicketMessagesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type AnnouncementsListParams = {
@@ -1505,6 +2708,115 @@ export type CustomerProfileConfigsListParams = {
      */
     offset?: number
 }
+
+export type FeatureRequestProductAreasListParams = {
+    /**
+     * Include inactive product areas. Defaults to false.
+     */
+    include_inactive?: boolean
+}
+
+export type FeatureRequestsListParams = {
+    /**
+     * Accessible account IDs to include. Multiple values use OR semantics.
+     */
+    account_ids?: string[]
+    /**
+     * Whether to return active requests, archived requests, or all requests.
+     *
+     * * `active` - Active
+     * * `archived` - Archived
+     * * `all` - All
+     * @minLength 1
+     */
+    archive_state?: FeatureRequestsListArchiveState
+    /**
+     * Creator user IDs to include. Multiple values use OR semantics.
+     * @items.minimum 1
+     */
+    created_by_ids?: number[]
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Priorities to include. Use none for requests without a priority.
+     */
+    priorities?: FeatureRequestsListPrioritiesItem[]
+    /**
+     * Product area IDs to include. Multiple values use OR semantics.
+     */
+    product_area_ids?: string[]
+    /**
+     * Stable ordering for the result list.
+     *
+     * * `-updated_at` - Last updated: newest
+     * * `updated_at` - Last updated: oldest
+     * * `-created_at` - Date created: newest
+     * * `created_at` - Date created: oldest
+     * * `-priority` - Priority: high to low
+     * * `priority` - Priority: low to high
+     * * `title` - Title: A to Z
+     * * `-title` - Title: Z to A
+     * @minLength 1
+     */
+    request_ordering?: string
+    /**
+     * Case-insensitive text to find in request titles and descriptions.
+     */
+    search?: string
+    /**
+     * Lifecycle statuses to include. Multiple values use OR semantics.
+     */
+    statuses?: FeatureRequestsListStatusesItem[]
+}
+
+export type FeatureRequestsListArchiveState =
+    (typeof FeatureRequestsListArchiveState)[keyof typeof FeatureRequestsListArchiveState]
+
+export const FeatureRequestsListArchiveState = {
+    Active: 'active',
+    Archived: 'archived',
+    All: 'all',
+} as const
+
+/**
+ * * `high` - High
+ * * `medium` - Medium
+ * * `low` - Low
+ * * `none` - No priority
+ */
+export type FeatureRequestsListPrioritiesItem =
+    (typeof FeatureRequestsListPrioritiesItem)[keyof typeof FeatureRequestsListPrioritiesItem]
+
+export const FeatureRequestsListPrioritiesItem = {
+    High: 'high',
+    Medium: 'medium',
+    Low: 'low',
+    None: 'none',
+} as const
+
+/**
+ * * `requested` - Requested
+ * * `planned` - Planned
+ * * `completed` - Completed
+ * * `wont_fix` - Won't fix
+ * * `duplicate` - Duplicate
+ */
+export type FeatureRequestsListStatusesItem =
+    (typeof FeatureRequestsListStatusesItem)[keyof typeof FeatureRequestsListStatusesItem]
+
+export const FeatureRequestsListStatusesItem = {
+    Requested: 'requested',
+    Planned: 'planned',
+    Completed: 'completed',
+    WontFix: 'wont_fix',
+    Duplicate: 'duplicate',
+} as const
 
 export type GroupsTypesMetricsListParams = {
     /**

@@ -168,9 +168,14 @@ tools:
             destructive: false
             idempotent: true
         title: Update data warehouse table schema sync config
-        description: >
-            Update a table schema's sync configuration. Can change sync type, sync frequency, incremental field, primary
-            key columns, CDC table mode, and enable/disable the schema.
+        description: "Update one table schema's sync configuration: enable/disable syncing (should_sync), sync_type
+            (incremental, full_refresh, append, webhook, cdc, xmin), sync frequency and UTC time of day, incremental
+            field (plus type and lookback window), primary key columns, CDC table mode, column selection
+            (enabled_columns), row filters, and vendor API version. Changes take effect on the next sync, not
+            retroactively. Before changing incremental_field or sync_type, call
+            'external-data-schemas-incremental-fields-create' to see which fields and sync methods the source actually
+            supports; before switching to cdc, validate with 'external-data-sources-check-cdc-prerequisites-create'. To
+            run a sync immediately after reconfiguring, use 'external-data-schemas-reload'."
     external-data-schemas-reload:
         operation: external_data_schemas_reload_create
         enabled: true
@@ -259,7 +264,10 @@ tools:
             source_type, access_method ('direct' for pure live-query sources, 'warehouse' for synced sources with live
             queries on), and supports_hogql for each; when supports_hogql is false, only raw SQL (sendRawQuery) works.
             Unlike external-data-sources-list, it does not include table schemas or sources that cannot be live-queried.
-            Use this to discover valid connectionId values.
+            Use this to discover valid connectionId values. To then see what a connection holds, run execute-sql with
+            that connectionId and `SELECT table_name FROM system.information_schema.tables` (or
+            `system.information_schema.columns` for one table's columns) — a connection's tables are absent from the
+            default catalog, so this is the only way to list them.
     external-data-sources-create:
         operation: external_data_sources_create
         enabled: true
@@ -271,15 +279,16 @@ tools:
             idempotent: false
         title: Create data warehouse source (advanced; prefer source setup)
         description: >
-            Low-level create for a data warehouse import source when you need to hand-pick tables and sync types. For
-            most cases prefer 'data-warehouse-source-setup', which validates credentials, discovers tables, applies
-            sensible sync defaults, and creates the source in one call. Use this advanced path only for fine-grained
-            control. The 'schemas' array is NOT a top-level argument — it goes INSIDE 'payload', alongside the
-            credential fields: payload = {<credential fields…>, "schemas": [...]}. Each schemas entry has: name,
-            should_sync (bool), sync_type (incremental/full_refresh/append), and optionally incremental_field,
-            incremental_field_type, and primary_key_columns. Build the entries from the rows returned by
-            'external-data-sources-db-schema' first. Sources back queryable warehouse tables for revenue (Stripe), CRM
-            (Hubspot, Salesforce), support (Zendesk), and your own databases (Postgres, MySQL, BigQuery).
+            Low-level create for a data warehouse import source when you need to hand-pick tables and sync types. If you
+            only have credentials and want every table, call 'data-warehouse-source-setup' instead — one call, fewer
+            ways to get it wrong. Use this path when the user asked for specific tables or sync types. The 'schemas'
+            array is NOT a top-level argument — it goes INSIDE 'payload', alongside the credential fields: payload =
+            {<credential fields…>, "schemas": [...]}. Each schemas entry has: name, should_sync (bool), sync_type
+            (incremental/full_refresh/append), and optionally incremental_field, incremental_field_type, and
+            primary_key_columns. Build the entries from the rows returned by 'external-data-sources-db-schema' first.
+            Omit 'schemas' entirely and every discovered table syncs with default settings. Sources back queryable
+            warehouse tables for revenue (Stripe), CRM (Hubspot, Salesforce), support (Zendesk), and your own databases
+            (Postgres, MySQL, BigQuery).
         exclude_params:
             - client_secret
             - account_id
@@ -345,6 +354,9 @@ tools:
             Delete a data warehouse source and all its table schemas, synced tables, and sync schedules. This is a soft
             delete. Any running syncs are cancelled first. This cannot be undone — the source must be recreated to
             resume syncing.
+    external-data-sources-direct-connection-options-list:
+        operation: external_data_sources_direct_connection_options_list
+        enabled: false
     external-data-sources-disable-cdc-create:
         operation: external_data_sources_disable_cdc_create
         enabled: false
@@ -373,14 +385,11 @@ tools:
             support-ticket, or product-database question — call this first so you JOIN against an existing source
             instead of telling the user the data isn't available. Lists every configured import source with its type
             (Postgres, Stripe, Hubspot, etc.), connection status, prefix, schemas, latest error, and last sync
-            timestamp. If nothing relevant is connected, offer to set one up with 'data-warehouse-source-setup'.
-            Per-schema column definitions are omitted to keep the payload small — to look up a single table's sync
-            status by name use external-data-schemas-list with a search, and to see a table's columns use
-            external-data-schemas-retrieve.
-        response:
-            exclude:
-                - schemas.*.table.columns
-                - schemas.*.available_columns
+            timestamp. If nothing relevant is connected, offer to set one up with 'data-warehouse-source-setup'. Each
+            schema is summarized (name, label, status, sync type, last sync, error, table name, row count) — column
+            definitions and full sync configuration (sync frequency, incremental field, primary keys, row filters,
+            column selection) are on external-data-schemas-retrieve. To look up a single table's sync status by name use
+            external-data-schemas-list with a search.
     external-data-sources-oauth-accounts-retrieve:
         operation: external_data_sources_oauth_accounts_retrieve
         enabled: false
@@ -474,7 +483,13 @@ tools:
         title: Get data warehouse source
         description: >
             Get a single data warehouse source by ID. Returns full details including source type, connection status,
-            prefix, all table schemas with their sync statuses, latest error, and last sync timestamp.
+            prefix, all table schemas with their sync statuses, latest error, and last sync timestamp. Per-schema column
+            definitions are omitted to keep the payload small — use external-data-schemas-retrieve for a single table's
+            columns.
+        response:
+            exclude:
+                - schemas.*.table.columns
+                - schemas.*.available_columns
     external-data-sources-revenue-analytics-config-partial-update:
         operation: external_data_sources_revenue_analytics_config_partial_update
         enabled: false
@@ -540,7 +555,8 @@ tools:
             source type: the required fields (host, port, database, credentials, etc.), field types, and OAuth flows, so
             you know what a connection needs. ALWAYS pass 'source_type' with the specific kind(s) you need
             (comma-separated, e.g. 'Postgres,Stripe') — the unfiltered response describes every source and is very large
-            (hundreds of KB). Only omit 'source_type' if you genuinely need to enumerate every available type. To
+            (hundreds of KB). Only omit 'source_type' if you genuinely need to enumerate every available type — and when
+            enumerating, pass fields: ['*.name', '*.caption'] to skip the large per-source field definitions. To
             actually connect a source, prefer 'data-warehouse-source-setup'.
         response:
             include:
@@ -550,3 +566,10 @@ tools:
                 - '*.featured'
                 - '*.unreleasedSource'
                 - '*.fields'
+            selectable: true
+    warehouse-column-statistics-list:
+        operation: warehouse_column_statistics_list
+        enabled: false
+    warehouse-column-statistics-retrieve:
+        operation: warehouse_column_statistics_retrieve
+        enabled: false

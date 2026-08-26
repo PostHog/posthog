@@ -273,11 +273,12 @@ impl ImageQueue {
                     continue;
                 }
             };
-            if !self.jobs.borrow().contains_key(&id) {
-                // Marker collision with real payload bytes; astronomically unlikely — leave as-is.
-                search_from = start + needle.len();
-                continue;
-            }
+            // An id this queue never issued still gets substituted, deliberately. Leaving it would
+            // put a live token in output, which is unrecoverable: the marker is random per process,
+            // so nothing downstream can turn it back into an image. Payload bytes cannot realistically
+            // carry this process's 128-bit marker, so an unknown id means a token reached a buffer its
+            // own queue did not patch — a bug — and the fallback is the safe way to fail it.
+            let known = self.jobs.borrow().contains_key(&id);
             let wrapped = start >= DATA_URI_PREFIX.len()
                 && &buf[start - DATA_URI_PREFIX.len()..start] == DATA_URI_PREFIX;
             let span_start = if wrapped {
@@ -286,7 +287,8 @@ impl ImageQueue {
                 start
             };
             let span_end = start + token_len;
-            let replacement: String = match (self.resolve(id), fallback) {
+            let resolved = if known { self.resolve(id) } else { None };
+            let replacement: String = match (resolved, fallback) {
                 (Some(b64), _) => {
                     if wrapped {
                         format!("data:image/png;base64,{b64}")
@@ -322,6 +324,18 @@ impl ImageQueue {
 fn parse_hex_id(bytes: &[u8]) -> Option<u32> {
     let s = std::str::from_utf8(bytes).ok()?;
     u32::from_str_radix(s, 16).ok()
+}
+
+/// True if `buf` still carries this process's token marker.
+///
+/// The barrier check. `patch` can only fix what it is handed, so every point where scrubbed bytes
+/// stop being patchable — a cv payload about to compress, the finished block lines — asserts this
+/// is false before letting them past. A hit means some serialization path reached that point
+/// without patching, which is silent, unrecoverable data loss if it ships (the marker is random
+/// per process, so no reader can ever resolve the token back to an image). Cheap: one memmem over
+/// bytes that are about to be compressed or written anyway.
+pub(crate) fn contains_token(buf: &[u8]) -> bool {
+    memchr::memmem::find(buf, TOKEN_MARKER.as_bytes()).is_some()
 }
 
 #[cfg(test)]
@@ -422,5 +436,22 @@ mod tests {
         let q = ImageQueue::default();
         let buf = b"{\"text\":\"no tokens here\"}".to_vec();
         assert_eq!(q.patch(buf.clone()), buf);
+    }
+
+    #[test]
+    fn a_token_this_queue_never_issued_still_never_survives() {
+        // A token reaching a buffer whose queue did not mint it is a bug, but it must degrade to
+        // the fallback rather than ship a live token: the marker is per-process, so a token in
+        // output is an image nothing can ever resolve.
+        let q = ImageQueue::default();
+        let uri = png_data_uri(8, 8, [1, 2, 3, 255]);
+        q.submit(&uri, ImageFallback::Blank, true, MAX_QUEUED_URI_BYTES)
+            .unwrap();
+        let foreign = format!("{}{:08x}p", &*TOKEN_MARKER, 0xdead_beefu32);
+        let buf = format!("{{\"src\":\"data:image/png;base64,{foreign}\"}}").into_bytes();
+
+        let patched = String::from_utf8(q.patch(buf)).unwrap();
+        assert_eq!(patched, format!("{{\"src\":\"{PLACEHOLDER_SRC}\"}}"));
+        assert!(!patched.contains(&*TOKEN_MARKER));
     }
 }

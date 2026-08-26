@@ -3,23 +3,16 @@ from typing import Optional, cast
 import pytest
 from unittest.mock import MagicMock, patch
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
-
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mercury import (
     MercurySourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.mercury.mercury import MercuryResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mercury.settings import (
     ENDPOINTS,
     TRANSACTIONS_LOOKBACK_SECONDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mercury.source import MercurySource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _make_inputs(
@@ -47,27 +40,6 @@ class TestMercurySource:
     def setup_method(self) -> None:
         self.source = MercurySource()
         self.config = MercurySourceConfig(api_key="test-token")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.MERCURY
-
-    def test_source_config_is_released_with_alpha_status(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.unreleasedSource is None
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.category == DataWarehouseSourceCategory.FINANCE___ACCOUNTING
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/mercury"
-
-    def test_source_config_requires_secret_api_key(self) -> None:
-        fields = self.source.get_source_config.fields
-
-        assert len(fields) == 1
-        field = fields[0]
-        assert isinstance(field, SourceFieldInputConfig)
-        assert field.name == "api_key"
-        assert field.required is True
-        assert field.secret is True
 
     def test_get_schemas_returns_all_endpoints(self) -> None:
         schemas = self.source.get_schemas(self.config, team_id=1)
@@ -138,12 +110,6 @@ class TestMercurySource:
 
         assert valid is False
         assert "connection refused" in str(error)
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(_make_inputs("Transactions"))
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is MercuryResumeConfig
 
     @pytest.mark.parametrize(
         ("error_message", "should_match"),

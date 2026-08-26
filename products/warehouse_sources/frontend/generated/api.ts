@@ -10,9 +10,11 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     DatabaseSchemaRequestApi,
+    DirectConnectionSourceOptionApi,
     DraftCustomManifestRequestApi,
     DraftCustomManifestResponseApi,
     ExternalDataSchemaApi,
+    ExternalDataSchemasCancelCreate200,
     ExternalDataSchemasListParams,
     ExternalDataSchemasLogsRetrieveParams,
     ExternalDataSourceConnectionOptionApi,
@@ -31,6 +33,7 @@ import type {
     IntegrationAccountsResponseApi,
     PaginatedExternalDataSchemaListApi,
     PaginatedExternalDataSourceSerializersListApi,
+    PaginatedWarehouseColumnStatisticsListApi,
     PatchedExternalDataSchemaApi,
     PatchedExternalDataSourceBulkUpdateSchemasApi,
     PatchedExternalDataSourceSerializersApi,
@@ -41,6 +44,8 @@ import type {
     SourcePreviewResponseApi,
     SourceSetupApi,
     SourceSetupResponseApi,
+    WarehouseColumnStatisticsApi,
+    WarehouseColumnStatisticsListParams,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -161,8 +166,8 @@ export const externalDataSchemasCancelCreate = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExternalDataSchemasCancelCreateUrl(projectId, id), {
+): Promise<ExternalDataSchemasCancelCreate200> => {
+    return apiMutator<ExternalDataSchemasCancelCreate200>(getExternalDataSchemasCancelCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
     })
@@ -240,14 +245,11 @@ export const getExternalDataSchemasReloadCreateUrl = (projectId: string, id: str
 export const externalDataSchemasReloadCreate = async (
     projectId: string,
     id: string,
-    externalDataSchemaApi?: NonReadonly<ExternalDataSchemaApi>,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getExternalDataSchemasReloadCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSchemaApi),
     })
 }
 
@@ -258,14 +260,11 @@ export const getExternalDataSchemasResyncCreateUrl = (projectId: string, id: str
 export const externalDataSchemasResyncCreate = async (
     projectId: string,
     id: string,
-    externalDataSchemaApi?: NonReadonly<ExternalDataSchemaApi>,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getExternalDataSchemasResyncCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSchemaApi),
     })
 }
 
@@ -890,6 +889,27 @@ export const externalDataSourcesDatabaseSchemaCreate = async (
     })
 }
 
+export const getExternalDataSourcesDirectConnectionOptionsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/external_data_sources/direct_connection_options/`
+}
+
+/**
+ * Source types the user can add as a direct connection, driven by the direct-SQL capability
+ * surface so the picker never drifts from the engines we actually support.
+ */
+export const externalDataSourcesDirectConnectionOptionsList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<DirectConnectionSourceOptionApi[]> => {
+    return apiMutator<DirectConnectionSourceOptionApi[]>(
+        getExternalDataSourcesDirectConnectionOptionsListUrl(projectId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
 export const getExternalDataSourcesDraftCustomManifestCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/external_data_sources/draft_custom_manifest/`
 }
@@ -1122,6 +1142,68 @@ export const externalDataSourcesWizardRetrieve = async (
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getExternalDataSourcesWizardRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWarehouseColumnStatisticsListUrl = (
+    projectId: string,
+    params?: WarehouseColumnStatisticsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/warehouse_column_statistics/?${stringifiedParams}`
+        : `/api/projects/${projectId}/warehouse_column_statistics/`
+}
+
+/**
+ * Read per-column data statistics (null fraction, min/max, row count) for warehouse tables.
+ *
+ * Statistics are computed automatically after a sync and surfaced to the AI agent so it can write
+ * better queries. They are system-owned and read-only here. List can be filtered to one table with
+ * `?table_id=<uuid>`.
+ */
+export const warehouseColumnStatisticsList = async (
+    projectId: string,
+    params?: WarehouseColumnStatisticsListParams,
+    options?: RequestInit
+): Promise<PaginatedWarehouseColumnStatisticsListApi> => {
+    return apiMutator<PaginatedWarehouseColumnStatisticsListApi>(
+        getWarehouseColumnStatisticsListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getWarehouseColumnStatisticsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_column_statistics/${id}/`
+}
+
+/**
+ * Read per-column data statistics (null fraction, min/max, row count) for warehouse tables.
+ *
+ * Statistics are computed automatically after a sync and surfaced to the AI agent so it can write
+ * better queries. They are system-owned and read-only here. List can be filtered to one table with
+ * `?table_id=<uuid>`.
+ */
+export const warehouseColumnStatisticsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<WarehouseColumnStatisticsApi> => {
+    return apiMutator<WarehouseColumnStatisticsApi>(getWarehouseColumnStatisticsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })

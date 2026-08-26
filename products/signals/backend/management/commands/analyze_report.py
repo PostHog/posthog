@@ -244,6 +244,9 @@ class Command(BaseCommand):
                 previous_report_research=previous_report_research,
                 verbose=verbose,
                 output_fn=self._flushing_write,
+                # Local debug tool: always exercise the chart-authoring path, mirroring the
+                # DEBUG-on default of the production `signals-report-charts` gate.
+                charts_enabled=True,
             )
         )
 
@@ -251,6 +254,9 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS("=== Research Result ==="))
         self.stdout.write(f"Title: {result.title}")
         self.stdout.write(f"Summary: {result.summary}")
+        self.stdout.write(f"Charts: {len(result.charts)}")
+        for chart in result.charts:
+            self.stdout.write(f"  - {chart.chart_id}: {chart.title}")
         actionability = result.effective_actionability()
         priority = result.effective_priority()
         self.stdout.write(f"Actionability: {actionability.actionability}")

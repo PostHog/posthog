@@ -19,10 +19,10 @@ from posthog.settings.overrides import *
 
 from posthog.settings.logs import *
 from posthog.settings.base_variables import *
+from posthog.settings.canvas import *
 
 from posthog.settings.access import *
 from posthog.settings.activity_log import *
-from posthog.settings.agents import *
 from posthog.settings.async_migrations import *
 from posthog.settings.batch_exports import *
 from posthog.settings.celery import *
@@ -44,6 +44,7 @@ from posthog.settings.statsd import *
 from posthog.settings.object_storage import *
 from posthog.settings.temporal import *
 from posthog.settings.web import *
+from posthog.settings.web_bot_auth import *
 from posthog.settings.data_warehouse import *
 from posthog.settings.managed_migrations import *
 from posthog.settings.session_replay import *
@@ -79,6 +80,11 @@ INSTANCE_TAG: str = os.getenv("INSTANCE_TAG", "none")
 # hitting Slack's users.info API, so it matches the seeded fixture user. Set it
 # empty to use the real Slack email while keeping DEBUG on. Ignored outside DEBUG.
 SLACK_APP_LOCAL_DEV_EMAIL: str = os.getenv("SLACK_APP_LOCAL_DEV_EMAIL", "test@posthog.com")
+
+# Forward every Slack channel message onto the internal events topic, where a workflow with a Slack
+# trigger can pick it up. Off by default: this is the only thing admitting the full channel
+# firehose, so it doubles as the kill switch.
+SLACK_WORKFLOW_TRIGGERS_ENABLED: bool = get_from_env("SLACK_WORKFLOW_TRIGGERS_ENABLED", False, type_cast=str_to_bool)
 
 # Vapi voice-AI integration (used by user_interviews to host public interview pages).
 VAPI_PUBLIC_KEY: str = os.getenv("VAPI_PUBLIC_KEY", "")

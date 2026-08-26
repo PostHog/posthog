@@ -341,6 +341,14 @@ class AppRuntimeService:
         version = app.active_version
         if version is None:
             raise AppRuntimeError("App has no active version")
+        # The bridge runs the app's HogQL as the author of the code that is about to
+        # execute — not the app's creator, or a member who can only edit apps would
+        # inherit the creator's warehouse access. Checked before any sandbox is built:
+        # a deleted author is a deterministic no-start, not a provision-then-fail.
+        if version.created_by is None:
+            raise AppRuntimeError(
+                "The author of this app's active version no longer exists. Upload a new version to run it."
+            )
 
         with transaction.atomic():
             existing = StreamlitAppSandbox.objects.select_for_update().filter(app=app).first()
@@ -390,7 +398,7 @@ class AppRuntimeService:
                 version.save(update_fields=["snapshot_id", "snapshot_created_at"])
 
             # Write before the proxy boots so it can read+unlink the file.
-            bridge_token = create_sandbox_bridge_token(user=app.created_by, team_id=app.team_id)
+            bridge_token = create_sandbox_bridge_token(user=version.created_by, team_id=app.team_id)
             _write_bridge_token(sandbox, bridge_token)
 
             _start_auth_proxy(sandbox)
@@ -471,7 +479,10 @@ class AppRuntimeService:
 
         if destroy_error is None:
             sandbox_record.status = StreamlitAppSandbox.Status.STOPPED
-            sandbox_record.save(update_fields=["status"])
+            # Clear the TTL marker too: auto_restart_crashed_streamlit_sandboxes matches
+            # on it, so a deliberate stop of a TTL-expired sandbox would be undone.
+            sandbox_record.last_error = ""
+            sandbox_record.save(update_fields=["status", "last_error"])
         else:
             # Modal may still be running; TTL or cleanup will reclaim it.
             sandbox_record.status = StreamlitAppSandbox.Status.ERROR

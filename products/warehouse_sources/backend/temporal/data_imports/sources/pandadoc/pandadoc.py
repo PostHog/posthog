@@ -4,7 +4,6 @@ from typing import Any, Optional
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
@@ -16,10 +15,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.pandadoc.settings import (
     PANDADOC_ENDPOINTS,
     PandaDocEndpointConfig,
 )
+
+# PandaDoc versions its API per endpoint via a URL segment (/public/v1, /public/v2), not
+# globally: /public/v2 is a small, growing set of new endpoints (API logs, document audit
+# trail), NOT a mirror of v1. Every resource this source reads (documents, templates, forms,
+# contacts, members, folders) is served only under /public/v1 and has no v2 route, so both
+# pins resolve to the same wire here and the base URL stays on v1 regardless of the pin.
+API_VERSION_V1 = "v1"
+API_VERSION_V2 = "v2"
 
 PANDADOC_BASE_URL = "https://api.pandadoc.com/public/v1"
 # PandaDoc list pages cap at 100 items.

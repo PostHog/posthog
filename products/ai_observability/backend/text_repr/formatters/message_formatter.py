@@ -11,14 +11,26 @@ import base64
 from typing import Any, TypedDict
 
 from .constants import (
+    CHAT_COMPLETIONS_MESSAGE_KEYS,
     DEFAULT_TRUNCATE_BUFFER,
+    MAX_RESPONSES_FIELD_CHARS,
     MAX_UNABLE_TO_PARSE_REPR_LENGTH,
     MAX_UNPARSED_DISPLAY_LENGTH,
+    MISSING_REASONING_NOTE,
+    MISSING_TOOL_OUTPUT_NOTE,
+    MISSING_TOOLS_NOTE,
+    OVERSIZED_FIELD_NOTE,
+    PLAIN_TEXT_BLOCK_TYPES,
     PRESERVE_HEADER_LINES,
+    RESPONSES_ITEM_METADATA_KEYS,
+    RESPONSES_TOOL_CALL_TYPES,
+    RESPONSES_TOOL_OUTPUT_TYPES,
     SAMPLED_VIEW_HEADER,
     SAMPLING_MAX_ITERATIONS,
     SAMPLING_REDUCTION_FACTOR,
+    SPECIAL_BLOCK_TYPES,
 )
+from .tool_formatter import format_tools
 
 
 class FormatterOptions(TypedDict, total=False):
@@ -89,14 +101,16 @@ def reduce_by_uniform_sampling(
     lines = text.split("\n")
     total_lines = len(lines)
 
+    # Sampling drops whole lines, so text that is oversized but has too few lines to sample (one
+    # huge payload on a single line, for example) can only be cut mid-line.
     if total_lines <= preserve_header_lines:
-        return text, False
+        return text[:max_length], True
 
     header_lines = lines[:preserve_header_lines]
     body_lines = lines[preserve_header_lines:]
 
     if not body_lines:
-        return text, False
+        return text[:max_length], True
 
     sample_header_template_size = len(SAMPLED_VIEW_HEADER.format(percent=100, total=total_lines)) + 1
 
@@ -105,13 +119,13 @@ def reduce_by_uniform_sampling(
 
     available_for_body = max_length - header_size
     if available_for_body <= 0:
-        return text, False
+        return text[:max_length], True
 
     avg_line_length = sum(len(line) + 1 for line in body_lines) / len(body_lines)
     target_body_lines = int(available_for_body / avg_line_length)
 
     if target_body_lines >= len(body_lines):
-        return text, False
+        return text[:max_length], True
 
     target_body_lines = max(target_body_lines, 1)
 
@@ -206,17 +220,26 @@ def format_single_tool_call(name: str, args: Any) -> str:
     return f"{name}()"
 
 
-def format_tool_calls(tool_calls: list[ToolCall]) -> list[str]:
-    """Format tool calls for display."""
+def format_tool_calls(tool_calls: list[Any]) -> list[str]:
+    """Format tool calls for display.
+
+    Typed as `list[Any]` because recorded tool calls do not always match the `ToolCall` shape;
+    some SDKs write a bare string, which the loop handles rather than crashing on `.get`.
+    """
     lines: list[str] = []
     lines.append(f"Tool calls: {len(tool_calls)}")
 
     for tc in tool_calls:
+        if not isinstance(tc, dict):
+            lines.append(f"  - {tc}")
+            continue
+
         # Handle both OpenAI format (function: {name, arguments})
         # and LangChain format (name, args)
-        if tc.get("function"):
-            name = tc["function"].get("name", "unknown")
-            args = tc["function"].get("arguments", "")
+        function = tc.get("function")
+        if isinstance(function, dict):
+            name = function.get("name", "unknown")
+            args = function.get("arguments", "")
         else:
             name = tc.get("name", "unknown")
             args = tc.get("args", "")
@@ -279,8 +302,8 @@ def safe_extract_text(content: Any) -> str:
                         if i > 0 and text_parts:
                             text_parts.append("")  # Blank line separator
 
-                        # If we have a type and it's not just "text", label it
-                        if item_type and item_type != "text":
+                        # If we have a type that isn't already plain text, label it
+                        if item_type and item_type not in PLAIN_TEXT_BLOCK_TYPES:
                             text_parts.append(f"[{item_type.upper()}]")
                             text_parts.append("")  # Blank line after label
 
@@ -313,7 +336,7 @@ def _is_special_block(block: Any) -> bool:
         return False
 
     block_type = block.get("type")
-    if block_type in ("tool-call", "tool_use", "function"):
+    if block_type in SPECIAL_BLOCK_TYPES:
         return True
 
     # Check for tool-call content format
@@ -400,6 +423,146 @@ def extract_text_content(content: Any) -> str:
     return safe_extract_text(content)
 
 
+def extract_payload_text(payload: Any) -> str:
+    """Extract text from a tool payload, returning "" only when nothing was recorded.
+
+    A falsey scalar such as `0` or `False` is a real result, so it must not collapse to "" the
+    way `None` and empty containers do. Callers label the "" case as unrecorded, and a tool that
+    counted zero rows would otherwise be reported as missing evidence.
+    """
+    if payload is None:
+        return ""
+    if isinstance(payload, str):
+        return payload
+    if isinstance(payload, list | dict | tuple) and not payload:
+        # `extract_text_content`'s repr fallback would render an empty container as a literal
+        # "[]" / "{}", which reads as recorded output.
+        return ""
+    return extract_text_content(payload)
+
+
+def _is_responses_item(msg: dict[str, Any]) -> bool:
+    """True for a Responses API item, which is a typed entry carrying no Chat Completions message.
+
+    Responses items sit at the top level of the conversation array with a `type` and none of
+    `role`, `content`, or `tool_calls`. Matching on that shape rather than on a list of known
+    types means a built-in tool OpenAI adds later renders its fields instead of a bare header.
+    Excluding `tool_calls` keeps the shape from claiming a Chat Completions message that happens
+    to be keyed by `type` and carries nothing but tool calls.
+    """
+    item_type = msg.get("type")
+    return bool(item_type) and item_type not in PLAIN_TEXT_BLOCK_TYPES and CHAT_COMPLETIONS_MESSAGE_KEYS.isdisjoint(msg)
+
+
+def _format_call_signature(msg: dict[str, Any]) -> str:
+    """Render a Responses item as a function signature.
+
+    `arguments` is a JSON tool-call payload, so it parses into keyword arguments. `input` is
+    freeform custom-tool text, so it goes through verbatim. Reparsing it would rewrite an input
+    that happens to look like JSON.
+    """
+    name = str(msg.get("name") or msg.get("type") or "unknown")
+    arguments = msg.get("arguments")
+    if arguments is not None:
+        return format_single_tool_call(name, arguments)
+    return f"{name}({msg.get('input') or ''})"
+
+
+def _cap_long_strings(value: Any) -> Any:
+    """Replace long strings with a note of their size, recursing into containers.
+
+    An unrecognized item's payload can be a base64 image or screenshot. `truncate_content` would
+    carry the whole value in its expand marker, so the cap has to happen before the dump.
+    """
+    if isinstance(value, str) and len(value) > MAX_RESPONSES_FIELD_CHARS:
+        return OVERSIZED_FIELD_NOTE.format(chars=len(value))
+    if isinstance(value, dict):
+        return {key: _cap_long_strings(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_cap_long_strings(item) for item in value]
+    return value
+
+
+def _format_responses_item_fields(msg: dict[str, Any], options: FormatterOptions | None) -> list[str]:
+    """Format a Responses item from its own fields, for types with no dedicated branch.
+
+    Built-in tools each carry a different payload (`action`, `code`, `queries`, `result`), so
+    render what the item holds rather than fitting every type to a function signature.
+    """
+    signature = _format_call_signature(msg)
+    status = msg.get("status")
+    parts = [f"{signature} ({status})" if status else signature]
+
+    payload = {key: value for key, value in msg.items() if key not in RESPONSES_ITEM_METADATA_KEYS}
+    if payload:
+        parts.append(json.dumps(_cap_long_strings(payload), indent=2, default=str))
+
+    lines, _ = truncate_content("\n".join(parts), options)
+    return lines
+
+
+def _format_responses_item(msg: dict[str, Any], options: FormatterOptions | None = None) -> list[str] | None:
+    """Format one OpenAI Responses API item, or return None when the item is not one.
+
+    Returning None lets the caller fall back to the Chat Completions `content` path. These items
+    are worth special-casing because they hold their payload outside `content`, so reading
+    `content` alone drops every tool call, tool result, and reasoning summary in the conversation
+    while still printing its header.
+    """
+    item_type = msg.get("type")
+
+    if item_type in RESPONSES_TOOL_CALL_TYPES:
+        lines, _ = truncate_content(_format_call_signature(msg), options)
+        return lines
+
+    if item_type in RESPONSES_TOOL_OUTPUT_TYPES:
+        output = msg.get("output")
+        text = extract_payload_text(msg.get("content") if output is None else output)
+        if not text:
+            return [MISSING_TOOL_OUTPUT_NOTE]
+        lines, _ = truncate_content(text, options)
+        return lines
+
+    if item_type == "reasoning":
+        text = extract_payload_text(msg.get("summary") or msg.get("content"))
+        if not text:
+            # Reasoning is frequently returned encrypted, with no readable summary at all.
+            return [MISSING_REASONING_NOTE]
+        lines, _ = truncate_content(text, options)
+        return lines
+
+    if item_type == "additional_tools":
+        # The tool catalog this item carries runs to tens of thousands of characters, so lean on
+        # `format_tools` to collapse anything longer than a short list down to a count.
+        return format_tools(msg.get("tools"), options) or [MISSING_TOOLS_NOTE]
+
+    if item_type in SPECIAL_BLOCK_TYPES:
+        # Anthropic and Vercel tool blocks reach this array too, and already have a renderer that
+        # produces a signature rather than a field dump.
+        formatted = _format_special_block(msg)
+        if formatted:
+            lines, _ = truncate_content(formatted, options)
+            return lines
+
+    if _is_responses_item(msg):
+        return _format_responses_item_fields(msg, options)
+
+    return None
+
+
+def _extract_responses_output_items(value: Any) -> list[Any] | None:
+    """Return the item list of an OpenAI Responses API response object, or None if it isn't one.
+
+    The Responses API answers with `{"object": "response", "output": [...]}` where Chat
+    Completions answers with `{"choices": [...]}`, so a formatter that only knows `choices`
+    renders no model output at all.
+    """
+    if not isinstance(value, dict) or value.get("object") != "response":
+        return None
+    output = value.get("output")
+    return output if isinstance(output, list) else None
+
+
 def format_messages_array(messages: list[Any], options: FormatterOptions | None = None) -> list[str]:
     """
     Format an array of message objects without header.
@@ -420,7 +583,8 @@ def format_messages_array(messages: list[Any], options: FormatterOptions | None 
         if not isinstance(msg, dict):
             continue
 
-        role = msg.get("role") or msg.get("type") or "unknown"
+        # SDKs record non-string roles, which crash `.upper()`.
+        role = str(msg.get("role") or msg.get("type") or "unknown")
         content = msg.get("content", "")
         tool_calls = msg.get("tool_calls", [])
 
@@ -428,7 +592,10 @@ def format_messages_array(messages: list[Any], options: FormatterOptions | None 
         lines.append(f"[{i + 1}] {role.upper()}")
         lines.append("")
 
-        if content:
+        responses_lines = _format_responses_item(msg, options)
+        if responses_lines is not None:
+            lines.extend(responses_lines)
+        elif content:
             text_content = extract_text_content(content)
             if text_content:
                 content_lines, _ = truncate_content(text_content, options)
@@ -485,6 +652,15 @@ def format_output_messages(
     """Format output messages section."""
     lines: list[str] = []
 
+    # Responses API output (an item list) rather than Chat Completions choices. An empty item
+    # list falls through, so a recorded `$ai_output` string still gets rendered below.
+    responses_items = _extract_responses_output_items(ai_output_choices) or _extract_responses_output_items(ai_output)
+    if responses_items:
+        lines.append("")
+        lines.append("OUTPUT:")
+        lines.extend(format_messages_array(responses_items, options))
+        return lines
+
     # Simple string output
     if ai_output and isinstance(ai_output, str):
         lines.append("")
@@ -506,6 +682,13 @@ def format_output_messages(
         messages = []
         for choice in choices:
             if not isinstance(choice, dict):
+                continue
+
+            # The Responses API can send its items at the top level of the array, with no `role`
+            # and no `content`. Pass those straight to `format_messages_array`, which knows their
+            # shapes, rather than dropping them for failing the role check below.
+            if _is_responses_item(choice):
+                messages.append(choice)
                 continue
 
             # Extract message from choice

@@ -17,9 +17,9 @@ import { TeamBasicType } from '~/types'
 import { pendingInvitesLogic } from './pendingInvitesLogic'
 import { ProjectCombobox } from './ProjectCombobox'
 
-export function ProjectName({ team }: { team: TeamBasicType }): JSX.Element {
+export function ProjectName({ team, className }: { team: TeamBasicType; className?: string }): JSX.Element {
     return (
-        <div className="flex items-center max-w-full">
+        <div className={cn('flex items-center max-w-full', className)}>
             <span className="truncate">{team.name}</span>
             {team.is_demo ? <LemonSnack className="ml-2 text-xs shrink-0">Demo</LemonSnack> : null}
         </div>

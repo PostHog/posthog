@@ -6,6 +6,7 @@ import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiError, getCookie } from 'lib/api'
 import { globalSetupLogic } from 'lib/components/ProductSetup'
+import { buildGithubDisconnectDescription } from 'lib/integrations/githubDisconnectCopy'
 import { describeGithubSetupError, GITHUB_INSTALL_PENDING_MESSAGE } from 'lib/integrations/githubSetupErrors'
 import { describeOAuthCallbackError } from 'lib/integrations/oauthCallbackErrors'
 import { preflightLogic } from 'lib/logic/preflightLogic'
@@ -17,15 +18,24 @@ import { urls } from 'scenes/urls'
 import { EmailIntegrationDomainGroupedType, IntegrationKind, IntegrationType } from '~/types'
 
 import {
+    integrationsGithubAvailableInstallationsRetrieve,
     integrationsGithubReposRetrieve,
     integrationsRequestAccessCreate,
 } from 'products/integrations/frontend/generated/api'
-import type { GitHubRepoApi, IntegrationKindEnumApi } from 'products/integrations/frontend/generated/api.schemas'
+import type {
+    GitHubAvailableInstallationApi,
+    GitHubAvailableInstallationsResponseApi,
+    GitHubRepoApi,
+    InstallationStatusEnumApi,
+    IntegrationKindEnumApi,
+} from 'products/integrations/frontend/generated/api.schemas'
 import { ChannelType } from 'products/workflows/frontend/Channels/MessageChannels'
 
 import type { AvailableSetupTaskIdsEnumApi } from '../../generated/core/api.schemas'
 import type { PreflightStatus, UserBasicType } from '../../types'
-import { ICONS } from './utils'
+import { ICONS, getIntegrationNameFromKind } from './utils'
+
+const INTEGRATIONS_POLL_INTERVAL_MS = 30_000
 
 function toastApiError(e: unknown): void {
     const detail = e instanceof ApiError ? e.detail : null
@@ -43,6 +53,7 @@ export interface integrationsLogicValues {
     domainGroupedEmailIntegrations: EmailIntegrationDomainGroupedType[]
     getGitHubRepositories: (integrationId: number) => string[]
     getGitHubRepositoriesFull: (integrationId: number) => GitHubRepoApi[]
+    getGitHubRepositoriesTotal: (integrationId: number) => number | null
     getIntegrationsByKind: (
         kinds: (
             | 'apns'
@@ -60,17 +71,20 @@ export interface integrationsLogicValues {
             | 'gitlab'
             | 'google-ads'
             | 'google-analytics'
+            | 'google-calendar'
             | 'google-cloud-service-account'
             | 'google-cloud-storage'
             | 'google-pubsub'
             | 'google-search-console'
             | 'google-sheets'
             | 'hubspot'
+            | 'instagram'
             | 'intercom'
             | 'jira'
             | 'linear'
             | 'linkedin-ads'
             | 'meta-ads'
+            | 'pardot'
             | 'pinterest-ads'
             | 'postgresql'
             | 'reddit-ads'
@@ -83,15 +97,23 @@ export interface integrationsLogicValues {
             | 'tiktok-ads'
             | 'twilio'
             | 'vercel'
+            | 'youtube-analytics'
         )[]
     ) => IntegrationType[]
+    githubAvailableInstallations: GitHubAvailableInstallationApi[] | null
+    githubAvailableInstallationsResponse: GitHubAvailableInstallationsResponseApi | null
+    githubAvailableInstallationsResponseLoading: boolean
+    githubIntegrations: IntegrationType[]
+    githubPersonalConnected: boolean | null
     githubRepositories: Record<number, GitHubRepoApi[]>
     githubRepositoriesLoading: boolean
+    githubRepositoriesTotal: Record<number, number>
     integrations: IntegrationType[] | null
     integrationsLoading: boolean
     linkedGithubInstallation: IntegrationType | null
     linkedGithubInstallationLoading: boolean
     newIntegrationModalKind: IntegrationKind | null
+    pollingSubscribers: number
     requestedAccessKinds: IntegrationKind[]
     selectedIntegration: IntegrationType | null
     setupModalOpen: boolean
@@ -134,17 +156,20 @@ export interface integrationsLogicActions {
             | 'gitlab'
             | 'google-ads'
             | 'google-analytics'
+            | 'google-calendar'
             | 'google-cloud-service-account'
             | 'google-cloud-storage'
             | 'google-pubsub'
             | 'google-search-console'
             | 'google-sheets'
             | 'hubspot'
+            | 'instagram'
             | 'intercom'
             | 'jira'
             | 'linear'
             | 'linkedin-ads'
             | 'meta-ads'
+            | 'pardot'
             | 'pinterest-ads'
             | 'postgresql'
             | 'reddit-ads'
@@ -157,9 +182,10 @@ export interface integrationsLogicActions {
             | 'tiktok-ads'
             | 'twilio'
             | 'vercel'
+            | 'youtube-analytics'
         searchParams: any
     }
-    linkExistingGithubInstallation: () => any
+    linkExistingGithubInstallation: (installationId?: string) => string
     linkExistingGithubInstallationFailure: (
         error: string,
         errorObject?: any
@@ -169,10 +195,10 @@ export interface integrationsLogicActions {
     }
     linkExistingGithubInstallationSuccess: (
         linkedGithubInstallation: IntegrationType,
-        payload?: any
+        payload?: string
     ) => {
         linkedGithubInstallation: IntegrationType
-        payload?: any
+        payload?: string
     }
     loadGitHubRepositories: (integrationId: number) => {
         integrationId: number
@@ -190,11 +216,28 @@ export interface integrationsLogicActions {
     loadGitHubRepositoriesPageSuccess: (
         integrationId: number,
         repositories: GitHubRepoApi[],
-        hasMore: boolean
+        hasMore: boolean,
+        total?: number | null
     ) => {
         hasMore: boolean
         integrationId: number
         repositories: GitHubRepoApi[]
+        total: number | null
+    }
+    loadGithubAvailableInstallations: () => any
+    loadGithubAvailableInstallationsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadGithubAvailableInstallationsSuccess: (
+        githubAvailableInstallationsResponse: GitHubAvailableInstallationsResponseApi,
+        payload?: any
+    ) => {
+        githubAvailableInstallationsResponse: GitHubAvailableInstallationsResponseApi
+        payload?: any
     }
     loadIntegrations: () => any
     loadIntegrationsFailure: (
@@ -213,6 +256,8 @@ export interface integrationsLogicActions {
             errors?: string | undefined
             icon_url: any
             id: number
+            installation_shared?: boolean | null | undefined
+            installation_status?: InstallationStatusEnumApi | null | undefined
             kind:
                 | 'apns'
                 | 'aws-s3'
@@ -229,17 +274,20 @@ export interface integrationsLogicActions {
                 | 'gitlab'
                 | 'google-ads'
                 | 'google-analytics'
+                | 'google-calendar'
                 | 'google-cloud-service-account'
                 | 'google-cloud-storage'
                 | 'google-pubsub'
                 | 'google-search-console'
                 | 'google-sheets'
                 | 'hubspot'
+                | 'instagram'
                 | 'intercom'
                 | 'jira'
                 | 'linear'
                 | 'linkedin-ads'
                 | 'meta-ads'
+                | 'pardot'
                 | 'pinterest-ads'
                 | 'postgresql'
                 | 'reddit-ads'
@@ -252,6 +300,7 @@ export interface integrationsLogicActions {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'youtube-analytics'
         }[],
         payload?: any
     ) => {
@@ -263,6 +312,8 @@ export interface integrationsLogicActions {
             errors?: string | undefined
             icon_url: any
             id: number
+            installation_shared?: boolean | null | undefined
+            installation_status?: InstallationStatusEnumApi | null | undefined
             kind:
                 | 'apns'
                 | 'aws-s3'
@@ -279,17 +330,20 @@ export interface integrationsLogicActions {
                 | 'gitlab'
                 | 'google-ads'
                 | 'google-analytics'
+                | 'google-calendar'
                 | 'google-cloud-service-account'
                 | 'google-cloud-storage'
                 | 'google-pubsub'
                 | 'google-search-console'
                 | 'google-sheets'
                 | 'hubspot'
+                | 'instagram'
                 | 'intercom'
                 | 'jira'
                 | 'linear'
                 | 'linkedin-ads'
                 | 'meta-ads'
+                | 'pardot'
                 | 'pinterest-ads'
                 | 'postgresql'
                 | 'reddit-ads'
@@ -302,6 +356,7 @@ export interface integrationsLogicActions {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'youtube-analytics'
         }[]
         payload?: any
     }
@@ -330,6 +385,8 @@ export interface integrationsLogicActions {
             errors?: string | undefined
             icon_url: any
             id: number
+            installation_shared?: boolean | null | undefined
+            installation_status?: InstallationStatusEnumApi | null | undefined
             kind:
                 | 'apns'
                 | 'aws-s3'
@@ -346,17 +403,20 @@ export interface integrationsLogicActions {
                 | 'gitlab'
                 | 'google-ads'
                 | 'google-analytics'
+                | 'google-calendar'
                 | 'google-cloud-service-account'
                 | 'google-cloud-storage'
                 | 'google-pubsub'
                 | 'google-search-console'
                 | 'google-sheets'
                 | 'hubspot'
+                | 'instagram'
                 | 'intercom'
                 | 'jira'
                 | 'linear'
                 | 'linkedin-ads'
                 | 'meta-ads'
+                | 'pardot'
                 | 'pinterest-ads'
                 | 'postgresql'
                 | 'reddit-ads'
@@ -369,6 +429,7 @@ export interface integrationsLogicActions {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'youtube-analytics'
         }[],
         payload?: {
             callback: ((integration: IntegrationType) => void) | undefined
@@ -384,6 +445,8 @@ export interface integrationsLogicActions {
             errors?: string | undefined
             icon_url: any
             id: number
+            installation_shared?: boolean | null | undefined
+            installation_status?: InstallationStatusEnumApi | null | undefined
             kind:
                 | 'apns'
                 | 'aws-s3'
@@ -400,17 +463,20 @@ export interface integrationsLogicActions {
                 | 'gitlab'
                 | 'google-ads'
                 | 'google-analytics'
+                | 'google-calendar'
                 | 'google-cloud-service-account'
                 | 'google-cloud-storage'
                 | 'google-pubsub'
                 | 'google-search-console'
                 | 'google-sheets'
                 | 'hubspot'
+                | 'instagram'
                 | 'intercom'
                 | 'jira'
                 | 'linear'
                 | 'linkedin-ads'
                 | 'meta-ads'
+                | 'pardot'
                 | 'pinterest-ads'
                 | 'postgresql'
                 | 'reddit-ads'
@@ -423,6 +489,7 @@ export interface integrationsLogicActions {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'youtube-analytics'
         }[]
         payload?: {
             callback: ((integration: IntegrationType) => void) | undefined
@@ -447,17 +514,20 @@ export interface integrationsLogicActions {
             | 'gitlab'
             | 'google-ads'
             | 'google-analytics'
+            | 'google-calendar'
             | 'google-cloud-service-account'
             | 'google-cloud-storage'
             | 'google-pubsub'
             | 'google-search-console'
             | 'google-sheets'
             | 'hubspot'
+            | 'instagram'
             | 'intercom'
             | 'jira'
             | 'linear'
             | 'linkedin-ads'
             | 'meta-ads'
+            | 'pardot'
             | 'pinterest-ads'
             | 'postgresql'
             | 'reddit-ads'
@@ -470,6 +540,7 @@ export interface integrationsLogicActions {
             | 'tiktok-ads'
             | 'twilio'
             | 'vercel'
+            | 'youtube-analytics'
     }
     openSetupModal: (
         integration?: IntegrationType,
@@ -505,17 +576,20 @@ export interface integrationsLogicActions {
             | 'gitlab'
             | 'google-ads'
             | 'google-analytics'
+            | 'google-calendar'
             | 'google-cloud-service-account'
             | 'google-cloud-storage'
             | 'google-pubsub'
             | 'google-search-console'
             | 'google-sheets'
             | 'hubspot'
+            | 'instagram'
             | 'intercom'
             | 'jira'
             | 'linear'
             | 'linkedin-ads'
             | 'meta-ads'
+            | 'pardot'
             | 'pinterest-ads'
             | 'postgresql'
             | 'reddit-ads'
@@ -527,7 +601,8 @@ export interface integrationsLogicActions {
             | 'stripe'
             | 'tiktok-ads'
             | 'twilio'
-            | 'vercel',
+            | 'vercel'
+            | 'youtube-analytics',
         payload?: {
             kind: IntegrationKind
         }
@@ -548,17 +623,20 @@ export interface integrationsLogicActions {
             | 'gitlab'
             | 'google-ads'
             | 'google-analytics'
+            | 'google-calendar'
             | 'google-cloud-service-account'
             | 'google-cloud-storage'
             | 'google-pubsub'
             | 'google-search-console'
             | 'google-sheets'
             | 'hubspot'
+            | 'instagram'
             | 'intercom'
             | 'jira'
             | 'linear'
             | 'linkedin-ads'
             | 'meta-ads'
+            | 'pardot'
             | 'pinterest-ads'
             | 'postgresql'
             | 'reddit-ads'
@@ -571,6 +649,7 @@ export interface integrationsLogicActions {
             | 'tiktok-ads'
             | 'twilio'
             | 'vercel'
+            | 'youtube-analytics'
         payload?: {
             kind: IntegrationKind
         }
@@ -578,12 +657,25 @@ export interface integrationsLogicActions {
     setAccessRequestReason: (reason: string) => {
         reason: string
     }
+    startPolling: () => {
+        value: true
+    }
+    stopPolling: () => {
+        value: true
+    }
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface integrationsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         slackIntegrations: (integrations: IntegrationType[] | null) => IntegrationType[] | undefined
+        githubIntegrations: (integrations: IntegrationType[] | null) => IntegrationType[]
+        githubAvailableInstallations: (
+            githubAvailableInstallationsResponse: GitHubAvailableInstallationsResponseApi | null
+        ) => GitHubAvailableInstallationApi[] | null
+        githubPersonalConnected: (
+            githubAvailableInstallationsResponse: GitHubAvailableInstallationsResponseApi | null
+        ) => boolean | null
         getIntegrationsByKind: (
             integrations: IntegrationType[] | null
         ) => (
@@ -603,17 +695,20 @@ export interface integrationsLogicMeta {
                 | 'gitlab'
                 | 'google-ads'
                 | 'google-analytics'
+                | 'google-calendar'
                 | 'google-cloud-service-account'
                 | 'google-cloud-storage'
                 | 'google-pubsub'
                 | 'google-search-console'
                 | 'google-sheets'
                 | 'hubspot'
+                | 'instagram'
                 | 'intercom'
                 | 'jira'
                 | 'linear'
                 | 'linkedin-ads'
                 | 'meta-ads'
+                | 'pardot'
                 | 'pinterest-ads'
                 | 'postgresql'
                 | 'reddit-ads'
@@ -626,6 +721,7 @@ export interface integrationsLogicMeta {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'youtube-analytics'
             )[]
         ) => IntegrationType[]
         slackAvailable: (preflight: PreflightStatus | null) => boolean | undefined
@@ -635,6 +731,9 @@ export interface integrationsLogicMeta {
         getGitHubRepositoriesFull: (
             githubRepositories: Record<number, GitHubRepoApi[]>
         ) => (integrationId: number) => GitHubRepoApi[]
+        getGitHubRepositoriesTotal: (
+            githubRepositoriesTotal: Record<number, number>
+        ) => (integrationId: number) => number | null
         domainGroupedEmailIntegrations: (integrations: IntegrationType[] | null) => EmailIntegrationDomainGroupedType[]
     }
 }
@@ -670,14 +769,18 @@ export const integrationsLogic = kea<integrationsLogicType>([
         loadGitHubRepositoriesPageSuccess: (
             integrationId: number,
             repositories: GitHubRepoApi[],
-            hasMore: boolean
+            hasMore: boolean,
+            total: number | null = null
         ) => ({
             integrationId,
             repositories,
             hasMore,
+            total,
         }),
         loadGitHubRepositoriesPageFailure: (integrationId: number) => ({ integrationId }),
         setAccessRequestReason: (reason: string) => ({ reason }),
+        startPolling: true,
+        stopPolling: true,
     }),
     reducers({
         newIntegrationModalKind: [
@@ -729,6 +832,30 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 loadGitHubRepositories: () => true,
                 loadGitHubRepositoriesPageSuccess: (_, { hasMore }) => hasMore,
                 loadGitHubRepositoriesPageFailure: () => false,
+            },
+        ],
+        githubRepositoriesTotal: [
+            {} as Record<number, number>,
+            {
+                // Clear the cached total when a reload starts so a scope change can't briefly (or, on a
+                // slow/failed refetch, indefinitely) show the previous selection's count.
+                loadGitHubRepositories: (state, { integrationId }) => {
+                    if (!(integrationId in state)) {
+                        return state
+                    }
+                    const next = { ...state }
+                    delete next[integrationId]
+                    return next
+                },
+                loadGitHubRepositoriesPageSuccess: (state, { integrationId, total }) =>
+                    total == null ? state : { ...state, [integrationId]: total },
+            },
+        ],
+        pollingSubscribers: [
+            0,
+            {
+                startPolling: (state) => state + 1,
+                stopPolling: (state) => Math.max(0, state - 1),
             },
         ],
         requestedAccessKinds: [
@@ -802,9 +929,13 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 // Reuse a GitHub App installation already connected to another project in the same
                 // org. A GitHub App installs once per org, so a second project can't reinstall; this
                 // links the existing install without the fragile GitHub setup redirect roundtrip.
-                linkExistingGithubInstallation: async () => {
+                // When the org has more than one installation the caller passes the chosen
+                // installationId, since the backend can't auto-resolve between them.
+                linkExistingGithubInstallation: async (installationId?: string) => {
                     try {
-                        const integration = await api.integrations.githubLinkExisting({})
+                        const integration = await api.integrations.githubLinkExisting(
+                            installationId ? { installation_id: installationId } : {}
+                        )
                         lemonToast.success('Linked the existing GitHub installation to this project.')
                         actions.loadIntegrations()
                         return integration
@@ -812,6 +943,16 @@ export const integrationsLogic = kea<integrationsLogicType>([
                         toastApiError(e)
                         throw e
                     }
+                },
+            },
+        ],
+        githubAvailableInstallationsResponse: [
+            null as GitHubAvailableInstallationsResponseApi | null,
+            {
+                // The org's other GitHub installations, so the UI can offer a picker when there's
+                // more than one, rather than failing the auto-resolve link as ambiguous.
+                loadGithubAvailableInstallations: async () => {
+                    return await integrationsGithubAvailableInstallationsRetrieve(String(values.currentProjectId))
                 },
             },
         ],
@@ -834,7 +975,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
             },
         ],
     })),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         loadGitHubRepositories: ({ integrationId }) => {
             actions.loadGitHubRepositoriesPage(integrationId, 0)
         },
@@ -851,14 +992,47 @@ export const integrationsLogic = kea<integrationsLogicType>([
                     offset,
                 })
                 await breakpoint()
-                actions.loadGitHubRepositoriesPageSuccess(integrationId, response.repositories, response.has_more)
+                // An "all repositories" installation is summarized by its total, so one page is enough.
+                const integration = values.integrations?.find((x) => x.id === integrationId)
+                const summarizedByTotal = integration?.config?.repository_selection === 'all'
+                actions.loadGitHubRepositoriesPageSuccess(
+                    integrationId,
+                    response.repositories,
+                    summarizedByTotal ? false : response.has_more,
+                    response.total ?? null
+                )
             } catch {
                 actions.loadGitHubRepositoriesPageFailure(integrationId)
             }
         },
+        startPolling: () => {
+            if (cache.disposables.registry.has('poll')) {
+                return
+            }
+            cache.disposables.add(() => {
+                const pollTimer = window.setInterval(() => actions.loadIntegrations(), INTEGRATIONS_POLL_INTERVAL_MS)
+                return () => clearInterval(pollTimer)
+            }, 'poll')
+            cache.disposables.add(
+                () => {
+                    const onFocus = (): void => actions.loadIntegrations()
+                    window.addEventListener('focus', onFocus)
+                    return () => window.removeEventListener('focus', onFocus)
+                },
+                'focusRefetch',
+                { pauseOnPageHidden: false }
+            )
+        },
+        stopPolling: () => {
+            if (values.pollingSubscribers > 0) {
+                return
+            }
+            cache.disposables.dispose('poll')
+            cache.disposables.dispose('focusRefetch')
+        },
         handleOauthCallback: async ({ kind, searchParams }) => {
             const { state, code, error, stripe_user_id, account_id, user_id } = searchParams
-            const { next, token, source, server_id } = fromParamsGivenUrl(state)
+            const { next, token, source, server_id, team_id } = fromParamsGivenUrl(state)
             const resolvedKind = kind
             let replaceUrl: string = next || urls.settings('project-integrations')
 
@@ -894,19 +1068,34 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 return
             }
 
-            try {
-                if (token !== getCookie('ph_oauth_state')) {
-                    throw new Error('Invalid state token')
-                }
+            // The CSRF state cookie only lives for a few minutes (see ph_oauth_state max_age). If the
+            // authorization round-trip outlived it, or the browser dropped the cookie, the token won't
+            // match. That's recoverable by simply retrying, so say so instead of surfacing the generic
+            // "Something went wrong" that a thrown error would fall back to.
+            if (token !== getCookie('ph_oauth_state')) {
+                lemonToast.error('This connection attempt expired before it could finish. Please try connecting again.')
+                router.actions.replace(replaceUrl)
+                return
+            }
 
+            try {
                 if (source === 'mcp_store') {
                     replaceUrl += `${replaceUrl.includes('?') ? '&' : '?'}code=${encodeURIComponent(code)}&server_id=${encodeURIComponent(server_id)}&state_token=${encodeURIComponent(token)}`
                     lemonToast.success('Authorization successful.')
                 } else {
-                    const integration = await api.integrations.create({
-                        kind: resolvedKind,
-                        config: { state, code },
-                    })
+                    // The callback URL is not project-scoped, so after this full-page round-trip
+                    // the SPA may have re-resolved to the user's default team. Target the team
+                    // that started the flow (carried through the OAuth state) so the integration
+                    // lands on the project the user actually chose.
+                    const parsedTeamId = Number(team_id)
+                    const initiatingTeamId = Number.isFinite(parsedTeamId) ? parsedTeamId : undefined
+                    const integration = await api.integrations.create(
+                        {
+                            kind: resolvedKind,
+                            config: { state, code },
+                        },
+                        initiatingTeamId
+                    )
 
                     // Add the integration ID to the replaceUrl so that the landing page can use it
                     const url = new URL(replaceUrl, window.location.origin)
@@ -929,24 +1118,35 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 return
             }
 
+            const integrationName = getIntegrationNameFromKind(integration.kind)
             LemonDialog.open({
-                title: `Do you want to disconnect from this ${integration.kind} integration?`,
+                title: `Disconnect ${integrationName}?`,
                 description:
-                    'This cannot be undone. PostHog resources configured to use this integration will remain but will stop working.',
+                    integration.kind === 'github'
+                        ? buildGithubDisconnectDescription(
+                              integration.config?.account?.name || integrationName,
+                              !!integration.installation_shared
+                          )
+                        : 'This cannot be undone. PostHog resources configured to use this integration will remain but will stop working.',
                 primaryButton: {
-                    children: 'Yes, disconnect',
+                    children: 'Disconnect',
                     status: 'danger',
                     onClick: async () => {
                         try {
                             await api.integrations.delete(id)
                             actions.loadIntegrations()
                         } catch (e) {
-                            toastApiError(e)
+                            if (e instanceof ApiError && e.status === 404) {
+                                lemonToast.info('Already disconnected.')
+                                actions.loadIntegrations()
+                            } else {
+                                toastApiError(e)
+                            }
                         }
                     },
                 },
                 secondaryButton: {
-                    children: 'No thanks',
+                    children: 'Cancel',
                 },
             })
         },
@@ -976,6 +1176,24 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 return integrations?.filter((x) => x.kind == 'slack')
             },
         ],
+        githubIntegrations: [
+            (s) => [s.integrations],
+            (integrations: IntegrationType[] | null): IntegrationType[] => {
+                return integrations?.filter((x) => x.kind === 'github') ?? []
+            },
+        ],
+        githubAvailableInstallations: [
+            (s) => [s.githubAvailableInstallationsResponse],
+            (response: GitHubAvailableInstallationsResponseApi | null): GitHubAvailableInstallationApi[] | null => {
+                return response?.installations ?? null
+            },
+        ],
+        githubPersonalConnected: [
+            (s) => [s.githubAvailableInstallationsResponse],
+            (response: GitHubAvailableInstallationsResponseApi | null): boolean | null => {
+                return response ? response.personal_github_connected : null
+            },
+        ],
         getIntegrationsByKind: [
             (s) => [s.integrations],
             (integrations: IntegrationType[] | null) => {
@@ -1000,6 +1218,12 @@ export const integrationsLogic = kea<integrationsLogicType>([
             (s) => [s.githubRepositories],
             (githubRepositories: Record<number, GitHubRepoApi[]>) => {
                 return (integrationId: number): GitHubRepoApi[] => githubRepositories[integrationId] || []
+            },
+        ],
+        getGitHubRepositoriesTotal: [
+            (s) => [s.githubRepositoriesTotal],
+            (githubRepositoriesTotal: Record<number, number>) => {
+                return (integrationId: number): number | null => githubRepositoriesTotal[integrationId] ?? null
             },
         ],
 

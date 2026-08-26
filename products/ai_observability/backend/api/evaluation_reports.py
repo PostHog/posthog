@@ -1,10 +1,11 @@
 """API endpoints for evaluation report configuration and report run history."""
 
 import datetime as dt
-from typing import Any, cast
+from typing import Any, Protocol, cast
+from uuid import UUID
 
 from django.conf import settings
-from django.db.models import QuerySet
+from django.db.models import Count, Max, QuerySet
 from django.utils import timezone
 
 import structlog
@@ -12,15 +13,25 @@ from asgiref.sync import async_to_sync
 from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.auth import InternalAPIAuthentication
 from posthog.event_usage import report_user_action
 from posthog.models.integration import Integration
-from posthog.permissions import AccessControlPermission
+from posthog.permissions import (
+    AccessControlPermission,
+    APIScopePermission,
+    TeamMemberAccessPermission,
+    get_authenticator_scopes,
+    is_service_auth,
+)
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
+    EvalReportGenerationStatus,
     normalize_metrics_payload,
     normalize_report_content_payload,
 )
@@ -32,7 +43,7 @@ from products.ai_observability.backend.models.evaluation_reports import (
     EvaluationReportQuerySet,
     EvaluationReportRun,
 )
-from products.ai_observability.backend.models.evaluations import EvaluationTarget
+from products.ai_observability.backend.models.evaluations import Evaluation, EvaluationTarget
 from products.workflows.backend.utils.rrule_utils import validate_rrule
 
 logger = structlog.get_logger(__name__)
@@ -77,6 +88,31 @@ def validate_report_schedule_rrule(rrule_string: str) -> None:
 
 
 class EvaluationReportSerializer(serializers.ModelSerializer):
+    generated_report_count = serializers.SerializerMethodField(
+        help_text="Number of reports generated from this evaluation report config.",
+    )
+    last_generated_at = serializers.SerializerMethodField(
+        help_text="When the most recent report was generated, or null if no reports have been generated.",
+    )
+
+    @extend_schema_field(
+        serializers.IntegerField(help_text="Number of reports generated from this evaluation report config.")
+    )
+    def get_generated_report_count(self, report: EvaluationReport) -> int:
+        annotated_count = getattr(report, "generated_report_count", None)
+        return annotated_count if isinstance(annotated_count, int) else report.runs.count()
+
+    @extend_schema_field(
+        serializers.DateTimeField(
+            allow_null=True,
+            help_text="When the most recent report was generated, or null if no reports have been generated.",
+        )
+    )
+    def get_last_generated_at(self, report: EvaluationReport) -> dt.datetime | None:
+        if "last_generated_at" in report.__dict__:
+            return cast(dt.datetime | None, report.__dict__["last_generated_at"])
+        return report.runs.values_list("created_at", flat=True).first()
+
     class Meta:
         model = EvaluationReport
         fields = [
@@ -92,6 +128,8 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
             "enabled",
             "deleted",
             "last_delivered_at",
+            "generated_report_count",
+            "last_generated_at",
             "report_prompt_guidance",
             "trigger_threshold",
             "cooldown_minutes",
@@ -378,6 +416,10 @@ class EvaluationReportCitationSerializer(serializers.Serializer):
         required=False,
         help_text="Identifier of the trace cited by this report.",
     )
+    session_id = serializers.CharField(
+        required=False,
+        help_text="Optional session identifier for session-target report citations.",
+    )
     reason = serializers.CharField(
         required=False,
         help_text="Short explanation of why this example is cited.",
@@ -460,10 +502,18 @@ class EvaluationReportRunContentSerializer(serializers.Serializer):
         required=False,
         help_text="References grounding findings in the report.",
     )
+    generation_status = serializers.ChoiceField(
+        choices=[(status.value, status.value) for status in EvalReportGenerationStatus],
+        required=False,
+        help_text=(
+            "Whether report generation completed or metrics were temporarily unavailable. "
+            "Legacy runs without this field completed normally."
+        ),
+    )
     metrics = EvaluationReportMetricsSerializer(
         required=False,
         allow_null=True,
-        help_text="Structured metrics computed for the report period.",
+        help_text="Structured metrics for completed reports, or null when metrics were temporarily unavailable.",
     )
 
 
@@ -527,13 +577,52 @@ class EvaluationReportRunSerializer(serializers.ModelSerializer):
         }
 
 
+class _EvaluationReportPermissionView(Protocol):
+    action: str
+    team_id: int
+
+
+class EvaluationReportAccessControlPermission(AccessControlPermission):
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        report_view = cast(_EvaluationReportPermissionView, view)
+        if report_view.action != "create":
+            return super().has_permission(request, view)
+
+        # Scoped tokens must pass the standard scope and resource checks. Session users can be
+        # authorized against the submitted parent before the generic create check rejects them.
+        if get_authenticator_scopes(request.successful_authenticator) is not None:
+            return super().has_permission(request, view)
+
+        try:
+            evaluation_id = UUID(str(request.data.get("evaluation")))
+            evaluation = Evaluation.objects.filter(team_id=report_view.team_id, id=evaluation_id).first()
+        except (TypeError, ValueError):
+            return False
+        return evaluation is not None and self.has_object_permission(request, view, evaluation)
+
+    def has_object_permission(self, request: Request, view: APIView, obj: object) -> bool:
+        if not isinstance(obj, (EvaluationReport, Evaluation)):
+            return False
+        evaluation = obj.evaluation if isinstance(obj, EvaluationReport) else obj
+        return super().has_object_permission(request, view, evaluation)
+
+
 class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     """CRUD for evaluation report configurations + report run history."""
 
-    scope_object = "llm_analytics"
-    permission_classes = [AccessControlPermission]
+    scope_object = "evaluation"
     serializer_class = EvaluationReportSerializer
     queryset = EvaluationReport.objects.all()
+
+    def dangerously_get_permissions(self) -> list[BasePermission]:
+        if isinstance(self.request.successful_authenticator, InternalAPIAuthentication):
+            return [IsAuthenticated()]
+        return [
+            IsAuthenticated(),
+            APIScopePermission(),
+            EvaluationReportAccessControlPermission(),
+            TeamMemberAccessPermission(),
+        ]
 
     @staticmethod
     def _is_mcp_request(request: Request) -> bool:
@@ -549,8 +638,18 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
     def safely_get_queryset(self, queryset: QuerySet[EvaluationReport]) -> QuerySet[EvaluationReport]:
         report_queryset = cast(
             EvaluationReportQuerySet,
-            queryset.filter(team_id=self.team_id).order_by("-created_at"),
+            queryset.filter(team_id=self.team_id)
+            .annotate(
+                generated_report_count=Count("runs"),
+                last_generated_at=Max("runs__created_at"),
+            )
+            .order_by("-created_at"),
         )
+        if not is_service_auth(self.request):
+            visible_evaluation_ids = self.user_access_control.filter_queryset_by_access_level(
+                Evaluation.objects.filter(team_id=self.team_id, deleted=False)
+            ).values("id")
+            report_queryset = report_queryset.filter(evaluation_id__in=visible_evaluation_ids)
         # Generate validates eligibility explicitly so unsupported legacy rows return a useful 400.
         if self.action != "generate":
             report_queryset = report_queryset.reportable()
@@ -574,6 +673,7 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
     def create(self, request: Request, *args, **kwargs) -> Response:
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        self.check_object_permissions(request, serializer.validated_data["evaluation"])
         self.perform_create(serializer)
         headers = self.get_success_headers(serializer.data)
         status_code = status.HTTP_201_CREATED if getattr(serializer, "created_instance", True) else status.HTTP_200_OK
@@ -667,7 +767,7 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
             )
 
     @extend_schema(responses=EvaluationReportRunSerializer(many=True))
-    @action(detail=True, methods=["get"], url_path="runs", required_scopes=["llm_analytics:read"])
+    @action(detail=True, methods=["get"], url_path="runs", required_scopes=["evaluation:read"])
     @llma_track_latency("llma_evaluation_report_runs_list")
     def runs(self, request: Request, **kwargs) -> Response:
         """List report runs (history) for this report."""
@@ -681,7 +781,7 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
         return Response(serializer.data)
 
     @extend_schema(request=None, responses={202: None})
-    @action(detail=True, methods=["post"], url_path="generate", required_scopes=["llm_analytics:write"])
+    @action(detail=True, methods=["post"], url_path="generate", required_scopes=["evaluation:write"])
     @llma_track_latency("llma_evaluation_report_generate")
     def generate(self, request: Request, **kwargs) -> Response:
         """Trigger immediate report generation."""

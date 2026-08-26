@@ -204,6 +204,95 @@ describe('Toolbar flag loading', () => {
         expect(mockPostHog.featureFlags.overrideFeatureFlags).not.toHaveBeenCalled()
     })
 
+    it('is idempotent — a repeat ph_load_toolbar keeps the live toolbar instead of remounting it', async () => {
+        // On an SPA, posthog-js calls ph_load_toolbar again on client-side route changes.
+        // Remounting resets the Kea context out from under the mounted React tree, so the toolbar
+        // the user is interacting with disappears (and a duplicate shadow root is stacked). A
+        // repeat call must leave the existing instance untouched.
+        await import('./index')
+
+        const mockPostHog = {
+            featureFlags: { overrideFeatureFlags: jest.fn(), reloadFeatureFlags: jest.fn() },
+        }
+        const toolbarParams: ToolbarParams = {
+            apiURL: 'http://localhost:8010',
+            token: 'test-token',
+            // no toolbarFlagsKey → skips the flags preload, straight to mount
+        }
+
+        await (window as any).ph_load_toolbar(toolbarParams, mockPostHog)
+        const container = document.body.firstElementChild
+        const childCountAfterFirstLoad = document.body.childElementCount
+        expect(container).toBeTruthy()
+
+        await (window as any).ph_load_toolbar(toolbarParams, mockPostHog)
+        // Nothing added, same node still first: the second call was a no-op, not a fresh mount
+        // (which would append another container) or a teardown + remount (which would swap it).
+        expect(document.body.childElementCount).toBe(childCountAfterFirstLoad)
+        expect(document.body.firstElementChild).toBe(container)
+    })
+
+    it('dedupes overlapping ph_load_toolbar calls onto a single mount', async () => {
+        // posthog-js can fire ph_load_toolbar calls that overlap (e.g. two SPA route changes in
+        // quick succession). The mounted-state flag is only set at the end of the async mount, so
+        // without an in-flight guard the second call races past the mounted check and mounts a
+        // second toolbar. Here the flags preload provides the async gap the race needs.
+        await import('./index')
+
+        const mockPostHog = {
+            featureFlags: { overrideFeatureFlags: jest.fn(), reloadFeatureFlags: jest.fn() },
+        }
+        const toolbarParams: ToolbarParams = {
+            apiURL: 'http://localhost:8010',
+            token: 'test-token',
+            toolbarFlagsKey: 'test-key-123',
+        }
+        // Resolve every fetch (flags preload + uiHost reachability check) so the mount completes.
+        mockFetch.mockResolvedValue({ ok: true, json: async () => ({ featureFlags: {} }) })
+
+        const childCountBeforeLoad = document.body.childElementCount
+
+        // Fire the second call before awaiting the first, so it arrives mid-mount.
+        const first = (window as any).ph_load_toolbar(toolbarParams, mockPostHog)
+        const second = (window as any).ph_load_toolbar(toolbarParams, mockPostHog)
+        await Promise.all([first, second])
+
+        // Exactly one container was appended: the two calls shared a single mount.
+        expect(document.body.childElementCount - childCountBeforeLoad).toBe(1)
+    })
+
+    it('remounts a fresh toolbar when the host page has detached the old container', async () => {
+        // The mounted check also requires the container to still be attached, so a stale loaded
+        // flag — the host page ripped our node out of the DOM — must not turn a repeat call into a
+        // no-op, or the toolbar would be gone for good. The repeat call should tear the stale
+        // instance down and mount a fresh, attached one.
+        await import('./index')
+
+        const mockPostHog = {
+            featureFlags: { overrideFeatureFlags: jest.fn(), reloadFeatureFlags: jest.fn() },
+        }
+        const toolbarParams: ToolbarParams = {
+            apiURL: 'http://localhost:8010',
+            token: 'test-token',
+            // no toolbarFlagsKey → skips the flags preload, straight to mount
+        }
+
+        await (window as any).ph_load_toolbar(toolbarParams, mockPostHog)
+        const firstContainer = document.body.firstElementChild
+        expect(firstContainer).toBeTruthy()
+
+        // The host page removes our node (e.g. an SPA wiping document.body on a route change).
+        firstContainer?.remove()
+        expect(document.body.firstElementChild).toBeNull()
+
+        await (window as any).ph_load_toolbar(toolbarParams, mockPostHog)
+        // Recovered: a fresh container is mounted — not a no-op that leaves the toolbar gone, and
+        // a new node rather than the stale detached one.
+        const recovered = document.body.firstElementChild
+        expect(recovered).toBeTruthy()
+        expect(recovered).not.toBe(firstContainer)
+    })
+
     it('should still load toolbar even if flag fetching fails', async () => {
         // The failed flags fetch is reported through toolbarLogger's console.warn by design
         const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation()

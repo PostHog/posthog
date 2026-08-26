@@ -5,25 +5,31 @@ import { ApiConfig } from 'lib/api'
 import { urls } from 'scenes/urls'
 
 import IconPostHog from 'public/posthog-icon.svg'
+import IconClickHouse from 'public/services/clickhouse.png'
 import IconDuckDB from 'public/services/duckdb.svg'
+import IconMotherDuck from 'public/services/motherduck.png'
 import IconMySQL from 'public/services/mysql.png'
 import IconPostgres from 'public/services/postgres.png'
 import IconRedshift from 'public/services/redshift.png'
 import IconSnowflake from 'public/services/snowflake.png'
 
 import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
-import { externalDataSourcesConnectionsList } from 'products/warehouse_sources/frontend/generated/api'
-import type { ExternalDataSourceConnectionOptionApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
+import {
+    externalDataSourcesConnectionsList,
+    externalDataSourcesDirectConnectionOptionsList,
+} from 'products/warehouse_sources/frontend/generated/api'
+import type {
+    DirectConnectionSourceOptionApi,
+    ExternalDataSourceConnectionOptionApi,
+} from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import type { PaginatedResponse } from '../../../lib/api'
 import type { ExternalDataSource } from '../../../types'
 
 export const POSTHOG_WAREHOUSE = '__posthog_warehouse__'
 export const LOADING_CONNECTIONS = '__loading_connections__'
-export const ADD_POSTGRES_DIRECT_CONNECTION = '__add_postgres_direct_connection__'
-export const ADD_MYSQL_DIRECT_CONNECTION = '__add_mysql_direct_connection__'
-export const ADD_SNOWFLAKE_DIRECT_CONNECTION = '__add_snowflake_direct_connection__'
-export const ADD_REDSHIFT_DIRECT_CONNECTION = '__add_redshift_direct_connection__'
+// A direct-connection menu item's value is this prefix + the source type (e.g. '...:Postgres').
+export const ADD_DIRECT_CONNECTION_PREFIX = '__add_direct_connection__:'
 export const CONFIGURE_SOURCES = '__configure_sources__'
 
 export interface ConnectionSelectOption {
@@ -31,6 +37,7 @@ export interface ConnectionSelectOption {
     value?: string
     label: string
     disabled?: boolean
+    hidden?: boolean
     iconSrc?: string
     managementUrl?: string
     options?: ConnectionSelectOption[]
@@ -40,7 +47,7 @@ export interface ConnectionSelectOptionGroup {
     options: ConnectionSelectOption[]
 }
 
-type ConnectionEngine = 'duckdb' | 'postgres' | 'mysql' | 'snowflake' | 'redshift'
+type ConnectionEngine = 'duckdb' | 'postgres' | 'mysql' | 'snowflake' | 'redshift' | 'clickhouse' | 'motherduck'
 
 const ENGINE_LABELS: Record<ConnectionEngine, string> = {
     duckdb: 'DuckDB',
@@ -48,6 +55,8 @@ const ENGINE_LABELS: Record<ConnectionEngine, string> = {
     mysql: 'MySQL',
     snowflake: 'Snowflake',
     redshift: 'Redshift',
+    clickhouse: 'ClickHouse',
+    motherduck: 'MotherDuck',
 }
 
 const ENGINE_ICONS: Record<ConnectionEngine, string> = {
@@ -56,6 +65,8 @@ const ENGINE_ICONS: Record<ConnectionEngine, string> = {
     mysql: IconMySQL,
     snowflake: IconSnowflake,
     redshift: IconRedshift,
+    clickhouse: IconClickHouse,
+    motherduck: IconMotherDuck,
 }
 
 function getConnectionEngine(
@@ -65,7 +76,9 @@ function getConnectionEngine(
         source.engine === 'duckdb' ||
         source.engine === 'mysql' ||
         source.engine === 'snowflake' ||
-        source.engine === 'redshift'
+        source.engine === 'redshift' ||
+        source.engine === 'clickhouse' ||
+        source.engine === 'motherduck'
     ) {
         return source.engine
     }
@@ -77,8 +90,22 @@ function getConnectionEngine(
     return 'postgres'
 }
 
+export function getConnectionOptionLabel(source: ExternalDataSourceConnectionOptionApi): string {
+    const engine = getConnectionEngine(source)
+    if (isManagedWarehouseConnection(source)) {
+        return 'PostHog (Managed warehouse)'
+    }
+    const isSynced = source.access_method === 'warehouse'
+    // Prefer the user-set description, then the prefix; fall back to the source type name (never the raw UUID).
+    const name = source.description || source.prefix || source.source_type || source.id
+    return `${name} (${ENGINE_LABELS[engine]}${isSynced ? ' · synced' : ''})`
+}
+
+function isManagedWarehouseConnection(source: ExternalDataSourceConnectionOptionApi): boolean {
+    return source.is_builtin_managed_warehouse
+}
+
 export function getConnectionSelectorValue(
-    connectionOptions: ExternalDataSourceConnectionOptionApi[] | null,
     connectionOptionsLoading: boolean,
     selectedConnectionId: string | undefined
 ): string {
@@ -86,11 +113,46 @@ export function getConnectionSelectorValue(
         return LOADING_CONNECTIONS
     }
 
-    if (selectedConnectionId && (connectionOptions ?? []).some((source) => source.id === selectedConnectionId)) {
+    if (selectedConnectionId) {
         return selectedConnectionId
     }
 
     return POSTHOG_WAREHOUSE
+}
+
+export function addHiddenSelectedConnectionOption(
+    optionGroups: ConnectionSelectOptionGroup[],
+    connectionOptions: ExternalDataSourceConnectionOptionApi[] | null,
+    connectionOptionsLoading: boolean,
+    selectedConnectionId: string | undefined
+): ConnectionSelectOptionGroup[] {
+    if (
+        connectionOptionsLoading ||
+        !selectedConnectionId ||
+        (connectionOptions ?? []).some((source) => source.id === selectedConnectionId)
+    ) {
+        return optionGroups
+    }
+
+    const [sourceGroup, ...remainingGroups] = optionGroups
+    if (!sourceGroup) {
+        return optionGroups
+    }
+
+    return [
+        {
+            ...sourceGroup,
+            options: [
+                ...sourceGroup.options,
+                {
+                    value: selectedConnectionId,
+                    label: 'Selected connection (hidden)',
+                    hidden: true,
+                },
+            ],
+        },
+        ...remainingGroups,
+    ]
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
@@ -98,6 +160,8 @@ export interface connectionSelectorLogicValues {
     connectionOptions: ExternalDataSourceConnectionOptionApi[] | null
     connectionOptionsLoading: boolean
     connectionSelectOptions: ConnectionSelectOptionGroup[]
+    directConnectionOptions: DirectConnectionSourceOptionApi[] | null
+    directConnectionOptionsLoading: boolean
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
@@ -144,6 +208,21 @@ export interface connectionSelectorLogicActions {
         connectionOptions: ExternalDataSourceConnectionOptionApi[]
         payload?: any
     }
+    loadDirectConnectionOptions: () => any
+    loadDirectConnectionOptionsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadDirectConnectionOptionsSuccess: (
+        directConnectionOptions: DirectConnectionSourceOptionApi[],
+        payload?: any
+    ) => {
+        directConnectionOptions: DirectConnectionSourceOptionApi[]
+        payload?: any
+    }
     maybeLoadConnectionOptions: () => {
         value: true
     }
@@ -154,7 +233,9 @@ export interface connectionSelectorLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         connectionSelectOptions: (
             connectionOptions: ExternalDataSourceConnectionOptionApi[] | null,
-            connectionOptionsLoading: boolean
+            connectionOptionsLoading: boolean,
+            directConnectionOptions: DirectConnectionSourceOptionApi[] | null,
+            directConnectionOptionsLoading: boolean
         ) => ConnectionSelectOptionGroup[]
     }
 }
@@ -193,29 +274,58 @@ export const connectionSelectorLogic = kea<connectionSelectorLogicType>([
                 },
             },
         ],
+        directConnectionOptions: [
+            null as DirectConnectionSourceOptionApi[] | null,
+            {
+                loadDirectConnectionOptions: async (): Promise<DirectConnectionSourceOptionApi[]> => {
+                    try {
+                        return await externalDataSourcesDirectConnectionOptionsList(
+                            String(ApiConfig.getCurrentTeamId())
+                        )
+                    } catch {
+                        return []
+                    }
+                },
+            },
+        ],
     })),
     selectors({
         connectionSelectOptions: [
-            (s) => [s.connectionOptions, s.connectionOptionsLoading],
+            (s) => [
+                s.connectionOptions,
+                s.connectionOptionsLoading,
+                s.directConnectionOptions,
+                s.directConnectionOptionsLoading,
+            ],
             (
                 connectionOptions: ExternalDataSourceConnectionOptionApi[] | null,
-                connectionOptionsLoading: boolean
+                connectionOptionsLoading: boolean,
+                directConnectionOptions: DirectConnectionSourceOptionApi[] | null,
+                directConnectionOptionsLoading: boolean
             ): ConnectionSelectOptionGroup[] => {
                 const sourceOptions = connectionOptionsLoading
                     ? [{ value: LOADING_CONNECTIONS, label: 'Loading...', disabled: true }]
                     : (connectionOptions ?? []).map((source) => {
-                          const engine = getConnectionEngine(source)
-                          const isSynced = source.access_method === 'warehouse'
-
+                          const isManagedWarehouse = isManagedWarehouseConnection(source)
                           return {
                               value: source.id,
-                              label: `${source.prefix ? source.prefix : source.id} (${ENGINE_LABELS[engine]}${
-                                  isSynced ? ' · synced' : ''
-                              })`,
-                              iconSrc: ENGINE_ICONS[engine],
-                              managementUrl: urls.dataWarehouseSource(`managed-${source.id}`),
+                              label: getConnectionOptionLabel(source),
+                              iconSrc: isManagedWarehouse ? IconPostHog : ENGINE_ICONS[getConnectionEngine(source)],
+                              ...(isManagedWarehouse
+                                  ? {}
+                                  : { managementUrl: urls.dataWarehouseSource(`managed-${source.id}`) }),
                           }
                       })
+
+                // Driven by the backend direct-SQL capability surface so the menu never drifts from
+                // the engines we actually support (a new direct source shows up with no frontend change).
+                const directConnectionSubmenu = directConnectionOptionsLoading
+                    ? [{ value: LOADING_CONNECTIONS, label: 'Loading...', disabled: true }]
+                    : (directConnectionOptions ?? []).map((option) => ({
+                          value: `${ADD_DIRECT_CONNECTION_PREFIX}${option.source_type}`,
+                          label: option.label,
+                          iconSrc: option.icon_path ?? undefined,
+                      }))
 
                 return [
                     {
@@ -233,24 +343,7 @@ export const connectionSelectorLogic = kea<connectionSelectorLogicType>([
                             { value: CONFIGURE_SOURCES, label: 'Configure sources' },
                             {
                                 label: 'Add direct connection',
-                                options: [
-                                    {
-                                        value: ADD_POSTGRES_DIRECT_CONNECTION,
-                                        label: 'Postgres',
-                                        iconSrc: IconPostgres,
-                                    },
-                                    { value: ADD_MYSQL_DIRECT_CONNECTION, label: 'MySQL', iconSrc: IconMySQL },
-                                    {
-                                        value: ADD_SNOWFLAKE_DIRECT_CONNECTION,
-                                        label: 'Snowflake',
-                                        iconSrc: IconSnowflake,
-                                    },
-                                    {
-                                        value: ADD_REDSHIFT_DIRECT_CONNECTION,
-                                        label: 'Redshift',
-                                        iconSrc: IconRedshift,
-                                    },
-                                ],
+                                options: directConnectionSubmenu,
                             },
                         ],
                     },
@@ -265,6 +358,9 @@ export const connectionSelectorLogic = kea<connectionSelectorLogicType>([
         maybeLoadConnectionOptions: () => {
             if (values.connectionOptions === null && !values.connectionOptionsLoading) {
                 actions.loadConnectionOptions()
+            }
+            if (values.directConnectionOptions === null && !values.directConnectionOptionsLoading) {
+                actions.loadDirectConnectionOptions()
             }
         },
         loadSourcesSuccess: () => {

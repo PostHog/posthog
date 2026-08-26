@@ -30,8 +30,8 @@ describe('getKeyStore', () => {
         ;(envUtils.isCloud as jest.Mock).mockReturnValue(true)
 
         const keyStore = getKeyStore('us-east-1', {
-            kmsEndpoint: 'http://localhost:4566',
-            dynamoDBEndpoint: 'http://localhost:4566',
+            kmsEndpoint: 'http://kms.test',
+            dynamoDBEndpoint: 'http://dynamodb.test',
         })
 
         expect(keyStore).toBeInstanceOf(DynamoDBKeyStore)

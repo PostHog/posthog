@@ -15,8 +15,10 @@ import os
 import re
 import json
 import shlex
+import threading
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
 from enum import Enum
 from types import TracebackType
@@ -27,7 +29,13 @@ from django.conf import settings
 import structlog
 from pydantic import BaseModel, model_validator
 
-from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR, SNAPSHOT_KIND_FILESYSTEM, SnapshotKind
+from products.tasks.backend.constants import (
+    DEFAULT_SANDBOX_WORKING_DIR,
+    DEV_STACK_IMAGE_NAME,
+    SNAPSHOT_KIND_DIRECTORY,
+    SNAPSHOT_KIND_FILESYSTEM,
+    SnapshotKind,
+)
 from products.tasks.backend.logic.services.sandbox_config import (
     BURSTABLE_REQUEST_CPU_CORES,
     BURSTABLE_REQUEST_MEMORY_MB,
@@ -63,6 +71,44 @@ class SandboxTemplate(str, Enum):
     # sandboxes like stamphog that never run the agent server. See
     # Dockerfile.sandbox-slim and modal_sandbox.py's SLIM_BASE image definition.
     SLIM_BASE = "slim_base"
+    CANVAS_BUILD = "canvas_build"
+
+
+class SandboxWorkload(str, Enum):
+    """Which provider-side project a sandbox is booked against, independent of its image.
+
+    Modal groups sandboxes and their cost by app. The template already picks an app for the
+    product-specific images; this picks one for workloads that share an image but should be
+    metered apart.
+    """
+
+    DEFAULT = "default"
+    SELF_DRIVING = "self_driving"
+
+
+SELF_DRIVING_ORIGIN_PRODUCTS: frozenset[str] = frozenset(
+    {
+        # Signals report research + repo selection
+        "signal_report",
+        # Headless Signals scouts
+        "signals_scout",
+        # ReviewHog's per-chunk review, blind-spot, and validation sandboxes
+        "review_hog",
+    }
+)
+"""Origin products whose sandboxes are booked against the self-driving provider project.
+
+Wider than the self-driving *quota* gate (`enforce_self_driving_quota.py`), which only covers the
+billable implementation-PR run: this is every sandbox the fleet opens, research and review included.
+Held as strings rather than ``Task.OriginProduct`` members to keep the model layer off this module's
+import path; a test pins them to the enum so a rename can't drop a product off the fleet.
+"""
+
+
+def workload_for_origin_product(origin_product: str | None) -> SandboxWorkload:
+    if origin_product in SELF_DRIVING_ORIGIN_PRODUCTS:
+        return SandboxWorkload.SELF_DRIVING
+    return SandboxWorkload.DEFAULT
 
 
 class ExecutionResult(BaseModel):
@@ -90,6 +136,9 @@ class SandboxResources:
 class SandboxConfig(BaseModel):
     name: str
     template: SandboxTemplate = SandboxTemplate.DEFAULT_BASE
+    # Decides which Modal app owns the box, and with it how its cost is attributed. Changes
+    # nothing about the box itself — same image, same resources, same isolation.
+    workload: SandboxWorkload = SandboxWorkload.DEFAULT
     default_execution_timeout_seconds: int = 10 * 60  # 10 minutes
     environment_variables: dict[str, str] | None = None
     snapshot_id: str | None = None
@@ -107,14 +156,22 @@ class SandboxConfig(BaseModel):
     # (the limit); Modal bills max(request, actual). When False, request == limit (fixed size).
     burstable_resources: bool = False
     # Request floor used when `burstable_resources` is True: the box reserves this much and bursts
-    # up to `cpu_cores` / `memory_gb`. Clamped to the limit at create time so it never exceeds it.
+    # up to `cpu_cores` / `memory_gb`. Read through the `effective_*_request` properties, which
+    # apply the limit clamp and the VM memory pin.
     cpu_request_cores: float = BURSTABLE_REQUEST_CPU_CORES
     memory_request_mb: int = BURSTABLE_REQUEST_MEMORY_MB
     vm_runtime: bool = False
-    # gVisor only — Modal rejects this under vm_runtime.
     outbound_domain_allowlist: list[str] | None = None
+    network_policy_fingerprint: str | None = None
+    # gVisor only. An empty domain allowlist means unrestricted network in
+    # Modal, so callers that require no egress must state it explicitly.
+    block_network: bool = False
     # VM runtime only — custom images layer on the VM base; snapshot restores take precedence.
     custom_image_name: str | None = None
+    # Set by the provider when the sandbox could not be created from the intended image and a
+    # downgraded one was used instead (e.g. published custom image -> plain base). Human-readable,
+    # surfaced in the run log so image downgrades are never silent.
+    image_fallback: str | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -134,6 +191,21 @@ class SandboxConfig(BaseModel):
     def is_vm(self) -> bool:
         return self.vm_runtime or self.template == SandboxTemplate.VM_BASE
 
+    @property
+    def effective_cpu_request_cores(self) -> float:
+        """CPU floor the provider actually reserves when burstable: the configured request,
+        clamped to the limit."""
+        return min(float(self.cpu_request_cores), float(self.cpu_cores))
+
+    @property
+    def effective_memory_request_mb(self) -> int:
+        """Memory floor the provider actually reserves when burstable. VM memory can't burst,
+        so a VM's request is pinned to its limit; gVisor requests are clamped to the limit."""
+        memory_limit_mb = int(self.memory_gb * 1024)
+        if self.is_vm:
+            return memory_limit_mb
+        return min(int(self.memory_request_mb), memory_limit_mb)
+
 
 WORKING_DIR = DEFAULT_SANDBOX_WORKING_DIR
 
@@ -143,7 +215,9 @@ PUBLIC_SANDBOX_REPOS: frozenset[str] = frozenset({"posthog/hedgebox", "posthog/.
 """Repos the sandbox is allowed to clone unauthenticated, even when the team has no GitHub integration"""
 # TODO: Remove `posthog/.github` when we switch repo discovery to repo-less agent (now it works as a lightweight dummy)
 
-SENSITIVE_AGENT_RUNTIME_ENV_NAMES: frozenset[str] = frozenset({"POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN"})
+SENSITIVE_AGENT_RUNTIME_ENV_NAMES: frozenset[str] = frozenset(
+    {"POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN", "POSTHOG_TASK_RUN_SESSION_TOKEN"}
+)
 SENSITIVE_AGENT_RUNTIME_ENV_PATTERN = re.compile(
     r"(?P<name>" + "|".join(re.escape(name) for name in SENSITIVE_AGENT_RUNTIME_ENV_NAMES) + r")="
     r"(?P<value>'(?:[^']|'\"'\"')*'|\"(?:\\.|[^\"])*\"|\S+)"
@@ -167,29 +241,45 @@ def redact_sandbox_command(command: str) -> str:
 def build_agent_runtime_env_prefix(
     *,
     interaction_origin: str | None = None,
+    agent_runtime: str | None = None,
+    sandbox_id: str | None = None,
     runtime_adapter: str | None = None,
     provider: str | None = None,
     model: str | None = None,
     reasoning_effort: str | None = None,
+    context_window: str | None = None,
+    fast_mode: bool | None = None,
     initial_permission_mode: str | None = None,
     event_ingest_token: str | None = None,
+    task_run_session_token: str | None = None,
     event_ingest_url: str | None = None,
     event_ingest_keep_stream_open: bool = False,
     rtk_enabled: bool = True,
+    peer_messaging: bool = False,
 ) -> str:
     env_vars = {
         "POSTHOG_CODE_INTERACTION_ORIGIN": interaction_origin,
+        "POSTHOG_AGENT_RUNTIME": agent_runtime,
+        "POSTHOG_SANDBOX_ID": sandbox_id,
         "POSTHOG_CODE_RUNTIME_ADAPTER": runtime_adapter,
         "POSTHOG_CODE_PROVIDER": provider,
         "POSTHOG_CODE_MODEL": model,
         "POSTHOG_CODE_REASONING_EFFORT": reasoning_effort,
+        "POSTHOG_CODE_CONTEXT_WINDOW": context_window,
+        # Explicit false pins fast mode off even if a stale env value survives in a resumed sandbox.
+        "POSTHOG_CODE_FAST_MODE": None if fast_mode is None else ("true" if fast_mode else "false"),
         "POSTHOG_CODE_INITIAL_PERMISSION_MODE": initial_permission_mode,
         "POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN": event_ingest_token,
+        "POSTHOG_TASK_RUN_SESSION_TOKEN": task_run_session_token,
         "POSTHOG_TASK_RUN_EVENT_INGEST_URL": event_ingest_url,
         "POSTHOG_TASK_RUN_EVENT_INGEST_KEEP_STREAM_OPEN": "true" if event_ingest_keep_stream_open else None,
         # Set explicitly in both states: "0" opts the run out, "1" pins auto-detection on
         # even if a stale env value survives in a resumed sandbox.
         "POSTHOG_RTK": "1" if rtk_enabled else "0",
+        # Exposure gate for the peer-messaging tools (PR: agent peer messaging). Set in
+        # both states so a stale "1" in a resumed sandbox can't outlive a flag rollback;
+        # the peers endpoints re-check authorization server-side regardless.
+        "POSTHOG_AGENT_PEER_MESSAGING": "1" if peer_messaging else "0",
     }
     assignments = " ".join(
         f"{name}={shlex.quote(value)}" for name, value in env_vars.items() if value is not None and value != ""
@@ -200,6 +290,12 @@ def build_agent_runtime_env_prefix(
 class SandboxBase(ABC):
     id: str
     config: SandboxConfig
+    supports_creation_cancellation = False
+    creation_timeout_seconds = 300
+
+    @staticmethod
+    def creation_cancellation_scope(cancel_event: threading.Event) -> AbstractContextManager[None]:
+        return nullcontext()
 
     @property
     @abstractmethod
@@ -243,6 +339,76 @@ class SandboxBase(ABC):
             timeout_seconds=45,
         )
 
+    def launch_dev_stack_bootstrap(self) -> bool:
+        """Fire-and-forget the baked dev-stack bootstrap helper when this image carries it.
+
+        The prebaked dev-stack image ships /usr/local/bin/bootstrap-dev-stack (see
+        bake-posthog-dev-stack.sh): it restores the compose /etc/hosts aliases the sandbox
+        boot wiped and starts dockerd. Launching it detached at provision time overlaps
+        that warmup with the repo clone and agent-server boot, so a task-time `hogli start`
+        finds dockerd already up. The helper is idempotent — an agent running it again per
+        AGENTS.md just blocks until the warmup completes.
+
+        Best-effort by design: returns whether the helper was found and launched, and never
+        raises. A missed warmup only costs the overlap; the agent-side bootstrap still works.
+        """
+        # Only a sandbox that actually booted the PostHog-published dev-stack image gets
+        # its bootstrap run by the backend. This hook runs after credentials land in the
+        # sandbox env, so executing a script from any less-trusted filesystem would hand
+        # its author code execution with another member's secrets. Two checks:
+        #   - the reserved name (user images always publish as posthog-sandbox-custom-*),
+        #     with the absolute path below avoiding PATH shadowing;
+        #   - not a filesystem-snapshot restore: such a resume boots a mutable snapshot
+        #     of a prior run — one that processed untrusted repo content and could have
+        #     replaced the helper file itself. Directory restores only mount the workspace
+        #     dir (ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS), leaving the helper the
+        #     vetted image's own binary, so the warmup stays on for them — but the
+        #     workspace is still attacker-controlled, so the launcher below scrubs the
+        #     environment (fixed PATH, no credentials) rather than trusting it. Anything
+        #     not explicitly a directory restore is treated as filesystem — fail closed.
+        restored_untrusted_filesystem = (
+            self.config.snapshot_restored and self.config.snapshot_kind != SNAPSHOT_KIND_DIRECTORY
+        )
+        if (
+            not self.config.is_vm
+            or self.config.custom_image_name != DEV_STACK_IMAGE_NAME
+            or restored_untrusted_filesystem
+        ):
+            return False
+        try:
+            # Exit 3 = helper not present (downgraded to the plain VM base, or a pre-helper
+            # image) — an expected skip, not a failure. setsid + redirects detach the helper
+            # from this exec, which the sandbox runtime reaps as soon as the command returns.
+            #
+            # Run the helper through `/usr/bin/env -i` (absolute — a user PATH cannot shadow
+            # the launcher) with a fixed system PATH and no other environment. This is what
+            # makes the directory-restore case above safe: a directory resume mounts the
+            # untrusted workspace at /tmp/workspace, and PATH is a settable sandbox env var,
+            # so without scrubbing the helper's `start-dockerd`/`docker` lookups could resolve
+            # an attacker binary from the workspace — and would run it with the injected
+            # POSTHOG_PERSONAL_API_KEY / GITHUB_TOKEN. `env -i` drops those credentials and the
+            # user PATH; the fixed PATH resolves only real system binaries (start-dockerd lives
+            # in /usr/local/bin). HOME=/root covers tooling that needs it (dockerd runs as root).
+            result = self.execute(
+                "[ -x /usr/local/bin/bootstrap-dev-stack ] || exit 3; "
+                "/usr/bin/env -i HOME=/root PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin "
+                "setsid /usr/local/bin/bootstrap-dev-stack >/var/log/bootstrap-dev-stack.log 2>&1 </dev/null &",
+                timeout_seconds=30,
+            )
+        except Exception as e:
+            _logger.warning("dev_stack_bootstrap_launch_failed", sandbox_id=self.id, error=str(e))
+            return False
+        if result.exit_code == 0:
+            return True
+        if result.exit_code != 3:
+            _logger.warning(
+                "dev_stack_bootstrap_launch_failed",
+                sandbox_id=self.id,
+                exit_code=result.exit_code,
+                stderr=result.stderr,
+            )
+        return False
+
     def agent_server_supports_auto_publish(self) -> bool:
         """Sandboxes restored from old snapshots can carry an agent-server that rejects unknown
         CLI options, so probe the installed binary before passing --autoPublish; unsupported
@@ -259,12 +425,27 @@ class SandboxBase(ABC):
         )
         return result.exit_code == 0
 
+    def agent_server_supports_pi_runtime(self) -> bool:
+        result = self.execute(
+            "grep -q POSTHOG_AGENT_RUNTIME /scripts/node_modules/.bin/agent-server",
+            timeout_seconds=10,
+        )
+        return result.exit_code == 0
+
+    def agent_server_supports_prewarmed_resume_idle(self) -> bool:
+        result = self.execute(
+            "grep -q prewarmedResumeIdle /scripts/node_modules/.bin/agent-server",
+            timeout_seconds=10,
+        )
+        return result.exit_code == 0
+
     def clone_repository(
         self,
         repository: str,
         github_token: str | None = "",
         shallow: bool = True,
         branch: str | None = None,
+        blobless: bool = False,
     ) -> ExecutionResult:
         if not self.is_running():
             raise RuntimeError("Sandbox not in running state.")
@@ -281,9 +462,9 @@ class SandboxBase(ABC):
 
         depth_flag = f" --depth {shlex.quote('1')}" if shallow else ""
         branch_flag = f" --branch {shlex.quote(branch)}" if branch else ""
-        # Skip blobs over 128kB during full clones — large test snapshots and auto-generated
-        # files get fetched on demand. Shallow clones are already small enough.
-        blob_filter = "" if shallow else " --filter=blob:limit=128k"
+        blob_filter = ""
+        if not shallow:
+            blob_filter = " --filter=blob:none" if blobless else " --filter=blob:limit=128k"
         clone_command = (
             f"rm -rf {shlex.quote(target_path)} && "
             f"mkdir -p {shlex.quote(org_path)} && "
@@ -329,20 +510,25 @@ class SandboxBase(ABC):
         auto_publish: bool = False,
         interaction_origin: str | None = None,
         branch: str | None = None,
+        agent_runtime: str | None = None,
         runtime_adapter: str | None = None,
         provider: str | None = None,
         model: str | None = None,
         reasoning_effort: str | None = None,
+        context_window: str | None = None,
+        fast_mode: bool | None = None,
         initial_permission_mode: str | None = None,
         mcp_configs: list[McpServerConfig] | None = None,
         relayed_mcp_servers: list[str] | None = None,
         allowed_domains: list[str] | None = None,
         event_ingest_token: str | None = None,
+        task_run_session_token: str | None = None,
         event_ingest_url: str | None = None,
         event_ingest_keep_stream_open: bool = False,
         repo_ready_file: str | None = None,
         wait_for_health: bool = True,
         rtk_enabled: bool = True,
+        peer_messaging: bool = False,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -358,10 +544,13 @@ class SandboxBase(ABC):
     def mark_repo_ready(self, repo_ready_file: str) -> None: ...
 
     @abstractmethod
-    def create_snapshot(self) -> str: ...
+    def create_snapshot(self, *, timeout_seconds: int | None = None) -> str: ...
 
     @abstractmethod
     def create_directory_snapshot(self, path: str) -> str: ...
+
+    @abstractmethod
+    def prune_snapshot_heavy_dirs(self, path: str) -> None: ...
 
     @abstractmethod
     def destroy(self) -> None: ...
@@ -372,6 +561,24 @@ class SandboxBase(ABC):
     def read_agent_server_session_init_ms(self) -> int | None:
         return None
 
+    def read_agent_server_boot_phases_ms(self) -> dict[str, int]:
+        return {}
+
+    def read_agent_server_boot_metrics(self) -> tuple[int | None, dict[str, int]]:
+        return None, {}
+
+    def agent_server_health_url(self) -> str:
+        return "http://127.0.0.1:8080/health"
+
+    def read_cpu_usage_usec(self) -> int | None:
+        return None
+
+    def start_cpu_billing_sampler(self) -> bool:
+        return False
+
+    def read_billed_cpu_usage_usec(self) -> int | None:
+        return None
+
     def _read_health_session_init_ms(self, port: int) -> int | None:
         try:
             result = self.execute(f"curl -s --max-time 5 http://localhost:{port}/health", timeout_seconds=10)
@@ -380,6 +587,54 @@ class SandboxBase(ABC):
             return int(session_init_ms) if isinstance(session_init_ms, int | float) else None
         except Exception:
             return None
+
+    def _read_health_boot_metrics(self, port: int) -> tuple[int | None, dict[str, int]]:
+        try:
+            result = self.execute(f"curl -s --max-time 5 http://localhost:{port}/health", timeout_seconds=10)
+            payload = json.loads(result.stdout or "{}")
+            session_init_ms = payload.get("sessionInitMs")
+            raw_phases = payload.get("boot", {}).get("phasesMs", {})
+            allowed_phases = {
+                "context_fetch",
+                "acp_initialize",
+                "repository_ready",
+                "session_dependencies",
+                "session_create",
+            }
+            phases = (
+                {
+                    phase: max(0, int(duration))
+                    for phase, duration in raw_phases.items()
+                    if phase in allowed_phases and isinstance(duration, int | float)
+                }
+                if isinstance(raw_phases, dict)
+                else {}
+            )
+            return int(session_init_ms) if isinstance(session_init_ms, int | float) else None, phases
+        except Exception:
+            return None, {}
+
+    def _read_health_boot_phases_ms(self, port: int) -> dict[str, int]:
+        try:
+            result = self.execute(f"curl -s --max-time 5 http://localhost:{port}/health", timeout_seconds=10)
+            payload = json.loads(result.stdout or "{}")
+            raw_phases = payload.get("boot", {}).get("phasesMs", {})
+            allowed_phases = {
+                "context_fetch",
+                "acp_initialize",
+                "repository_ready",
+                "session_dependencies",
+                "session_create",
+            }
+            if not isinstance(raw_phases, dict):
+                return {}
+            return {
+                phase: max(0, int(duration))
+                for phase, duration in raw_phases.items()
+                if phase in allowed_phases and isinstance(duration, int | float)
+            }
+        except Exception:
+            return {}
 
     def __enter__(self) -> Self:
         return self
@@ -497,6 +752,8 @@ def _get_modal_docker_sandbox_class() -> SandboxClass:
     class ModalDockerSandbox(ModalSandbox):
         DEFAULT_APP_NAME = "posthog-sandbox-modal-docker-default"
         NOTEBOOK_APP_NAME = "posthog-sandbox-modal-docker-notebook"
+        STREAMLIT_APP_NAME = "posthog-sandbox-modal-docker-streamlit"
+        SELF_DRIVING_APP_NAME = "posthog-sandbox-modal-docker-self-driving"
 
     return ModalDockerSandbox
 
@@ -510,8 +767,17 @@ def _get_modal_evals_sandbox_class() -> SandboxClass:
     class ModalEvalsSandbox(ModalSandbox):
         DEFAULT_APP_NAME = "posthog-sandbox-evals"
         NOTEBOOK_APP_NAME = "posthog-sandbox-evals"
+        STREAMLIT_APP_NAME = "posthog-sandbox-evals"
+        # Evals are their own cost centre already — a self-driving eval stays in the evals app.
+        SELF_DRIVING_APP_NAME = "posthog-sandbox-evals"
 
     return ModalEvalsSandbox
+
+
+def _get_hogland_sandbox_class() -> SandboxClass:
+    from .hogland_sandbox import HoglandSandbox
+
+    return HoglandSandbox
 
 
 def get_sandbox_class() -> SandboxClass:
@@ -525,6 +791,16 @@ def get_sandbox_class() -> SandboxClass:
 
     if provider and provider.upper() == "MODAL_EVALS":
         return _get_modal_evals_sandbox_class()
+
+    if provider and provider.lower() == "hogland":
+        # Global default only for local development — production routes per run via
+        # get_sandbox_class_for_backend, driven by the tasks-hogland-sandbox flag.
+        if not (settings.DEBUG or settings.TEST):
+            raise RuntimeError(
+                "SANDBOX_PROVIDER=hogland is for local development only. In production the "
+                "hogland backend is selected per run by the tasks-hogland-sandbox feature flag."
+            )
+        return _get_hogland_sandbox_class()
 
     # Default to Modal everywhere
     from .modal_sandbox import ModalSandbox
@@ -543,7 +819,48 @@ def get_sandbox_class_for_backend(backend: str) -> SandboxClass:
         return _get_modal_evals_sandbox_class()
     if backend == "docker":
         return _get_docker_sandbox_class()
+    if backend == "hogland":
+        return _get_hogland_sandbox_class()
     raise RuntimeError(f"Unsupported sandbox backend: {backend}")
+
+
+def get_sandbox_class_for_run_backend(backend: str) -> SandboxClass:
+    """Resolve the provider class for a run whose backend was chosen at context time.
+
+    Only ``"hogland"`` diverts from the process default. Every other value — including
+    the ``"modal"`` default — falls through to ``get_sandbox_class()`` so
+    ``SANDBOX_PROVIDER`` still selects docker / modal-docker / modal-evals in dev, test,
+    and evals. Routing straight to ``get_sandbox_class_for_backend("modal")`` here would
+    force ModalSandbox even under ``SANDBOX_PROVIDER=docker``, breaking local runs.
+    """
+    if backend == "hogland":
+        return _get_hogland_sandbox_class()
+    return get_sandbox_class()
+
+
+# hogland mints `box-<12 hex>` (hogd enforces `^box-[0-9a-f]{12}$`); Modal object ids
+# are `sb-...`. A box restored from a pen keeps a `box-` id, so this covers pens too.
+HOGLAND_SANDBOX_ID_PREFIX = "box-"
+
+
+def get_sandbox_class_for_sandbox_id(sandbox_id: str) -> SandboxClass:
+    """Resolve the provider class for an existing sandbox from its id alone.
+
+    Hogland box ids are `box-...` and Modal object ids `sb-...`, so the prefix is enough
+    to route the ~20 `get_by_id` call sites that hold only a persisted sandbox id (the
+    reaper, cleanup, and snapshot activities have no other backend context). Anything
+    that is not a hogland id falls through to the process-wide provider, preserving the
+    docker/local-dev behavior.
+
+    Getting this prefix wrong fails closed to the wrong provider: a hogland id would
+    resolve to Modal, whose `get_by_id` raises `SandboxNotFoundError`, so cleanup and the
+    reaper would silently skip a real hogbox and leak it. The persisted `sandbox_backend`
+    (see get_task_processing_context) is the authoritative signal for behavioral branches;
+    this prefix is a routing convenience checked against hogland's enforced id shape.
+    """
+    if sandbox_id.startswith(HOGLAND_SANDBOX_ID_PREFIX):
+        return _get_hogland_sandbox_class()
+    return get_sandbox_class()
 
 
 if TYPE_CHECKING:

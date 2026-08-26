@@ -16,6 +16,10 @@ extend-select = ["ANN001", "ANN201", "ANN202", "ANN204"]
 "**/scripts/**" = ["ANN"]
 "**/stats/**" = ["ANN"]
 
+# CLI; prints its report (T201).
+"data_catalog/scripts/offline_governance_experiment.py" = ["T201"]
+"logs/backend/pattern_replay.py" = ["T201"]
+
 # Temporarily exempted — too many violations to fix in one pass.
 # Run: ruff check products/<name>/backend --select ANN --statistics
 # to check remaining count before removing the exemption.
@@ -42,6 +46,7 @@ extend-select = ["ANN001", "ANN201", "ANN202", "ANN204"]
 "ai_observability/backend/**" = ["ANN"]
 "logs/backend/**" = ["ANN"]
 "managed_migrations/backend/**" = ["ANN"]
+"managed_warehouse/backend/**" = ["ANN"]
 "marketing_analytics/backend/**" = ["ANN"]
 "messaging/backend/**" = ["ANN"]
 "notebooks/backend/**" = ["ANN"]
@@ -56,6 +61,10 @@ extend-select = ["ANN001", "ANN201", "ANN202", "ANN204"]
 "web_analytics/backend/**" = ["ANN"]
 "warehouse_sources/backend/**" = ["ANN"]
 "workflows/backend/**" = ["ANN"]
+
+"access_control/backend/presentation/access_control.py" = ["ANN"]
+"access_control/backend/presentation/access_control_settings.py" = ["ANN"]
+"access_control/backend/facade/user_access_control.py" = ["ANN"]
 
 # PLC0415 exemptions. New products not listed here are enforced.
 # Run `ruff check <product>/ --select PLC0415 --statistics` before removing an entry.
@@ -90,6 +99,7 @@ extend-select = ["ANN001", "ANN201", "ANN202", "ANN204"]
 "ai_observability/**" = ["PLC0415"]
 "logs/**" = ["PLC0415"]
 "managed_migrations/**" = ["PLC0415"]
+"managed_warehouse/**" = ["PLC0415"]
 "marketing_analytics/**" = ["PLC0415"]
 "mcp_analytics/**" = ["PLC0415"]
 "mcp_store/**" = ["PLC0415"]

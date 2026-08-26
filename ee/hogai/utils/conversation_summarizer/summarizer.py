@@ -1,4 +1,5 @@
 import re
+import datetime
 from abc import abstractmethod
 from collections.abc import Sequence
 
@@ -14,9 +15,10 @@ from .prompts import SYSTEM_PROMPT, USER_PROMPT
 
 
 class ConversationSummarizer:
-    def __init__(self, team: Team, user: User):
+    def __init__(self, team: Team, user: User, conversation_start_dt: datetime.datetime | None = None):
         self._user = user
         self._team = team
+        self._conversation_start_dt = conversation_start_dt
 
     async def summarize(self, messages: Sequence[BaseMessage]) -> str:
         prompt = self._construct_messages(messages)
@@ -56,18 +58,23 @@ class ConversationSummarizer:
 
 
 class AnthropicConversationSummarizer(ConversationSummarizer):
-    def __init__(self, team: Team, user: User, extend_context_window: bool | None = False):
-        super().__init__(team, user)
-        self._extend_context_window = extend_context_window
-
     def _get_model(self):
-        # Haiku has 200k token limit. Sonnet has 1M token limit (GA on claude-sonnet-4-6).
         return MaxChatAnthropic(
-            model="claude-sonnet-4-6" if self._extend_context_window else "claude-haiku-4-5",
+            # Sonnet 5 has a 1M token limit, so it can compact a conversation of any size we let
+            # grow. Haiku's 200k limit no longer covers CONVERSATION_WINDOW_SIZE.
+            model="claude-sonnet-5",
             streaming=False,
             stream_usage=False,
-            max_tokens=8192,
+            max_tokens=16384,
             disable_streaming=True,
+            # Sonnet 5 thinks by default, and `max_tokens` caps thinking plus response text
+            # together. A thinking overrun here would truncate the summary, which silently drops
+            # the conversation history it is supposed to preserve. The prompt already asks for an
+            # explicit `<analysis>` pass before `<summary>`, so the reasoning happens either way.
+            thinking={"type": "disabled"},
+            # Without this, `MaxChatMixin._get_project_org_user_variables` stamps the current
+            # wall-clock second into the injected context message.
+            conversation_start_dt=self._conversation_start_dt,
             user=self._user,
             team=self._team,
             billable=True,

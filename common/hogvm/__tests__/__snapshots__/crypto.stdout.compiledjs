@@ -19,9 +19,29 @@ sha256(string, 'base64'): sha256 not implemented
 sha256(null, 'base64'): sha256 not implemented
 sha256(string, 'base64url'): sha256 not implemented
 sha256(null, 'base64url'): sha256 not implemented
+sha1Hex(string): sha1Hex not implemented
+sha1Hex(null): sha1Hex not implemented
+sha1(string, 'hex'): sha1 not implemented
+sha1(null, 'hex'): sha1 not implemented
+sha1(string, 'binary'): sha1 not implemented
+sha1(null, 'binary'): sha1 not implemented
+sha1(string, 'base64'): sha1 not implemented
+sha1(null, 'base64'): sha1 not implemented
+sha1(string, 'base64url'): sha1 not implemented
+sha1(null, 'base64url'): sha1 not implemented
 data: ['1', 'string', 'more', 'keys']
 sha256HmacChainHex(data): sha256HmacChainHex not implemented
 sha256HmacChain(data, 'hex'): sha256HmacChain not implemented
 sha256HmacChain(data, 'base64'): sha256HmacChain not implemented
 sha256HmacChain(data, 'binary'): sha256HmacChain not implemented
 sha256HmacChain(data, 'base64url'): sha256HmacChain not implemented
+sha1HmacChainHex(data): sha1HmacChainHex not implemented
+sha1HmacChain(data, 'hex'): sha1HmacChain not implemented
+sha1HmacChain(data, 'base64'): sha1HmacChain not implemented
+sha1HmacChain(data, 'binary'): sha1HmacChain not implemented
+sha1HmacChain(data, 'base64url'): sha1HmacChain not implemented
+sha1Hex('abc'): sha1Hex not implemented
+sha1Hex(''): sha1Hex not implemented
+rfc2202 case 1: sha1HmacChainHex not implemented
+rfc2202 case 2: sha1HmacChainHex not implemented
+rfc2202 case 5: sha1HmacChainHex not implemented

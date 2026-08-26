@@ -16,9 +16,9 @@ from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_
 
 from posthog.security.url_validation import is_url_allowed
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.qualys_vmdr.settings import (
     QUALYS_VMDR_ENDPOINTS,
     QualysVmdrEndpointConfig,
@@ -41,8 +41,17 @@ RESPONSE_CHUNK_BYTES = 256 * 1024
 # and far above a slow-drip stall.
 MAX_DOWNLOAD_SECONDS = 300
 
+# The gateway /auth body is a single JWT (a few KiB at most), so it gets far tighter caps than a
+# data page. The gateway server is user-supplied too, so the same unbounded-buffering and
+# slow-drip concerns apply — a token exchange just has no legitimate reason to be big or slow.
+MAX_JWT_RESPONSE_BYTES = 64 * 1024
+MAX_JWT_DOWNLOAD_SECONDS = 30
+
 RESPONSE_TOO_LARGE_ERROR = "Qualys API response body was too large"
 RESPONSE_TOO_SLOW_ERROR = "Qualys API response download was too slow"
+# Raised when a JWT-authenticated endpoint (KnowledgeBase on 4.0) is synced but no gateway URL is
+# configured — the token can't be minted without it. Non-retryable: retrying can't create the field.
+MISSING_GATEWAY_ERROR = "Qualys API gateway URL is required for API version 4.0"
 
 # Qualys rejects any request without an X-Requested-With header.
 _BASE_HEADERS = {"X-Requested-With": "PostHog Data Warehouse"}
@@ -62,30 +71,35 @@ class QualysVmdrResponseTooSlowError(Exception):
     """Non-retryable: a host dribbling one page's body will dribble it again on retry."""
 
 
-def _read_capped_body(response: requests.Response) -> bytes:
-    """Stream the body into memory, aborting past MAX_RESPONSE_BYTES or MAX_DOWNLOAD_SECONDS.
+def _read_capped_body(
+    response: requests.Response,
+    max_bytes: int | None = None,
+    max_seconds: int | None = None,
+) -> bytes:
+    """Stream the body into memory, aborting past `max_bytes` or `max_seconds`.
 
-    The API server is user-supplied, so a body must never be buffered unbounded (size cap) nor be
-    allowed to hold the connection open indefinitely by dribbling under the per-read timeout (time
-    cap). Both limits are non-retryable — re-fetching the same page yields the same oversized/slow
-    body.
+    The hosts we talk to are user-supplied, so a body must never be buffered unbounded (size cap)
+    nor be allowed to hold the connection open indefinitely by dribbling under the per-read timeout
+    (time cap). Both limits are non-retryable — re-fetching the same page yields the same
+    oversized/slow body. Defaults suit a data page; the gateway token exchange passes its own much
+    tighter caps.
     """
+    max_bytes = MAX_RESPONSE_BYTES if max_bytes is None else max_bytes
+    max_seconds = MAX_DOWNLOAD_SECONDS if max_seconds is None else max_seconds
     chunks: list[bytes] = []
     total = 0
-    deadline = time.monotonic() + MAX_DOWNLOAD_SECONDS
+    deadline = time.monotonic() + max_seconds
     try:
         for chunk in response.iter_content(chunk_size=RESPONSE_CHUNK_BYTES):
             if time.monotonic() > deadline:
                 raise QualysVmdrResponseTooSlowError(
-                    f"{RESPONSE_TOO_SLOW_ERROR}: exceeded {MAX_DOWNLOAD_SECONDS}s download budget"
+                    f"{RESPONSE_TOO_SLOW_ERROR}: exceeded {max_seconds}s download budget"
                 )
             if not chunk:
                 continue
             total += len(chunk)
-            if total > MAX_RESPONSE_BYTES:
-                raise QualysVmdrResponseTooLargeError(
-                    f"{RESPONSE_TOO_LARGE_ERROR}: exceeded {MAX_RESPONSE_BYTES} bytes"
-                )
+            if total > max_bytes:
+                raise QualysVmdrResponseTooLargeError(f"{RESPONSE_TOO_LARGE_ERROR}: exceeded {max_bytes} bytes")
             chunks.append(chunk)
     finally:
         response.close()
@@ -122,13 +136,55 @@ def _format_since_value(value: Any) -> str:
     return str(value)
 
 
-def _make_session(username: str, password: str) -> requests.Session:
+def _make_session(username: str, password: str, bearer_token: str | None = None) -> requests.Session:
     # `allow_redirects=False` as defense-in-depth: the API server is user-supplied and a valid
     # Qualys platform responds directly, so there is no legitimate redirect to follow — pinning
-    # redirects off keeps the basic-auth credential on the validated host.
-    session = make_tracked_session(headers=_BASE_HEADERS, redact_values=(password,), allow_redirects=False)
-    session.auth = (username, password)
+    # redirects off keeps the credential on the validated host.
+    redact = (password,) if bearer_token is None else (password, bearer_token)
+    session = make_tracked_session(headers=_BASE_HEADERS, redact_values=redact, allow_redirects=False)
+    if bearer_token is not None:
+        # KnowledgeBase 4.0 authenticates with a gateway-minted JWT, not basic auth.
+        session.headers["Authorization"] = f"Bearer {bearer_token}"
+    else:
+        session.auth = (username, password)
     return session
+
+
+def _fetch_jwt(gateway_server: str, username: str, password: str, logger: FilteringBoundLogger) -> str:
+    """Mint a Qualys JWT from the account gateway for JWT-authenticated endpoints (KnowledgeBase 4.0).
+
+    The gateway host (`gateway.<platform>.apps.qualys.com`) is a different host from the FO API
+    server and can't be reliably derived from it, so it is a separate user-supplied field and is
+    SSRF-validated here before the credential leaves the worker. A single KnowledgeBase sync makes
+    one authenticated request (no truncation pagination), well inside the token's lifetime, so the
+    token is minted once per run and never refreshed mid-sync.
+    """
+    gateway_url = build_base_url(gateway_server)
+    _check_url_allowed(gateway_url)
+    # `capture=False`: the response body is the raw minted JWT, which the name-based sample
+    # scrubbers can't recognise (and it doesn't exist yet to be listed in `redact_values`), so the
+    # exchange is metered and logged but never written to HTTP sample storage.
+    session = make_tracked_session(
+        headers=_BASE_HEADERS, redact_values=(password,), allow_redirects=False, capture=False
+    )
+    # stream=True so a hostile gateway host can't make us buffer an unbounded body — the token is
+    # read under the tight JWT caps below.
+    response = session.post(
+        f"{gateway_url}/auth",
+        data={"username": username, "password": password, "token": "true"},
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        timeout=30,
+        stream=True,
+    )
+    if not response.ok:
+        response.close()
+        logger.error(f"Qualys gateway auth error: status={response.status_code}")
+        response.raise_for_status()
+    body = _read_capped_body(response, max_bytes=MAX_JWT_RESPONSE_BYTES, max_seconds=MAX_JWT_DOWNLOAD_SECONDS)
+    token = body.decode(response.encoding or "utf-8", errors="replace").strip()
+    if not token:
+        raise ValueError("Qualys gateway returned an empty JWT")
+    return token
 
 
 def _check_url_allowed(base_url: str) -> None:
@@ -275,6 +331,7 @@ def _next_batch_url(root: Element, base_url: str) -> str | None:
 def _build_initial_url(
     base_url: str,
     config: QualysVmdrEndpointConfig,
+    api_version: str,
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
 ) -> str:
@@ -283,7 +340,7 @@ def _build_initial_url(
         params["truncation_limit"] = str(config.truncation_limit)
     if should_use_incremental_field and db_incremental_field_last_value is not None and config.incremental_param:
         params[config.incremental_param] = _format_since_value(db_incremental_field_last_value)
-    return f"{base_url}{config.path}?{urlencode(params)}"
+    return f"{base_url}{config.resolve_path(api_version)}?{urlencode(params)}"
 
 
 def get_rows(
@@ -291,8 +348,10 @@ def get_rows(
     username: str,
     password: str,
     endpoint: str,
+    api_version: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[QualysVmdrResumeConfig],
+    gateway_server: str | None = None,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
 ) -> Iterator[list[dict[str, Any]]]:
@@ -301,14 +360,22 @@ def get_rows(
     # Re-validate on every sync, not just at source creation: the stored api_server can be
     # edited after the credential was saved.
     _check_url_allowed(base_url)
-    session = _make_session(username, password)
+
+    if config.requires_jwt(api_version):
+        if not gateway_server:
+            raise ValueError(MISSING_GATEWAY_ERROR)
+        session = _make_session(username, password, bearer_token=_fetch_jwt(gateway_server, username, password, logger))
+    else:
+        session = _make_session(username, password)
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume is not None and resume.next_url:
         url = resume.next_url
         logger.debug(f"Qualys VMDR: resuming from URL: {url}")
     else:
-        url = _build_initial_url(base_url, config, should_use_incremental_field, db_incremental_field_last_value)
+        url = _build_initial_url(
+            base_url, config, api_version, should_use_incremental_field, db_incremental_field_last_value
+        )
 
     while True:
         root = _fetch_page(session, url, logger)
@@ -360,8 +427,10 @@ def qualys_vmdr_source(
     username: str,
     password: str,
     endpoint: str,
+    api_version: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[QualysVmdrResumeConfig],
+    gateway_server: Optional[str] = None,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
@@ -374,8 +443,10 @@ def qualys_vmdr_source(
             username=username,
             password=password,
             endpoint=endpoint,
+            api_version=api_version,
             logger=logger,
             resumable_source_manager=resumable_source_manager,
+            gateway_server=gateway_server,
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
         ),

@@ -7,10 +7,24 @@ import { IconSlack } from 'lib/lemon-ui/icons'
 import { range } from 'lib/utils/arrays'
 import { urls } from 'scenes/urls'
 
-import { SubscriptionAIPromptMaxLength } from '~/queries/schema/schema-general'
-import { InsightShortId, SubscriptionType } from '~/types'
+import { SubscriptionAIPromptMaxLength, SubscriptionFreeTierLimit } from '~/queries/schema/schema-general'
+import { InsightShortId, SubscriptionType, WeekdayType } from '~/types'
 
 export const AI_PROMPT_MAX_LENGTH = SubscriptionAIPromptMaxLength.CHARACTERS
+
+export function isFreeTierCreateAtLimit(subscriptionCount: number | null): boolean {
+    return subscriptionCount !== null && subscriptionCount >= SubscriptionFreeTierLimit.COUNT
+}
+
+export function canNudgeToSubscribe(
+    hasSubscriptionsFeature: boolean,
+    freeTierSubscriptionCount: number | null
+): boolean {
+    return (
+        hasSubscriptionsFeature ||
+        (freeTierSubscriptionCount !== null && !isFreeTierCreateAtLimit(freeTierSubscriptionCount))
+    )
+}
 
 export interface SubscriptionBaseProps {
     dashboardId?: number
@@ -28,20 +42,6 @@ export const urlForSubscriptions = ({ dashboardId, insightShortId }: Subscriptio
     // Parent-less (e.g. AI prompt) subscriptions live at the top-level list.
     return urls.subscriptions()
 }
-
-/**
- * Deep-link params the subscribe-nudge uses to open the new-subscription form prefilled.
- * Single source of truth shared by the producer (dashboard toast) and the consumer (this
- * logic's urlToAction). The backend notification's source_url must mirror these — see the
- * comment on source_url in products/dashboards/backend/api/dashboard.py.
- */
-export const SUBSCRIPTION_PREFILL_PARAMS = {
-    param: 'prefill',
-    nudge: 'nudge',
-    viaParam: 'via',
-    viaToast: 'toast',
-    viaNotification: 'notification',
-} as const
 
 export const urlForSubscription = (
     id: number | 'new',
@@ -65,6 +65,10 @@ export const intervalOptions: LemonSelectOptions<number> = range(1, 13).map((x) 
 
 export type FrequencyOptionValue = 'daily' | 'weekly' | 'monthly'
 
+export function shouldShowDayPicker(frequency: SubscriptionType['frequency'], interval: number): boolean {
+    return frequency === 'weekly' || (frequency === 'daily' && interval === 1)
+}
+
 export const frequencyOptionsSingular: LemonSelectOption<FrequencyOptionValue>[] = [
     { value: 'daily', label: 'day' },
     { value: 'weekly', label: 'week' },
@@ -76,9 +80,7 @@ export const frequencyOptionsPlural: LemonSelectOption<FrequencyOptionValue>[] =
     { value: 'monthly', label: 'months' },
 ]
 
-export const weekdayOptions: LemonSelectOptionLeaf<
-    'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday'
->[] = [
+export const weekdayOptions = [
     { value: 'monday', label: 'Monday' },
     { value: 'tuesday', label: 'Tuesday' },
     { value: 'wednesday', label: 'Wednesday' },
@@ -86,9 +88,48 @@ export const weekdayOptions: LemonSelectOptionLeaf<
     { value: 'friday', label: 'Friday' },
     { value: 'saturday', label: 'Saturday' },
     { value: 'sunday', label: 'Sunday' },
-]
+] satisfies LemonSelectOptionLeaf<WeekdayType>[]
 
-export const WEEKDAYS: Set<string> = new Set(['monday', 'tuesday', 'wednesday', 'thursday', 'friday'])
+export const ALL_DAYS = weekdayOptions.map(({ value }) => value)
+export const WEEKDAY_DAYS = ALL_DAYS.slice(0, 5)
+export const WEEKEND_DAYS = ALL_DAYS.slice(5)
+
+export const WEEKDAYS: Set<string> = new Set(WEEKDAY_DAYS)
+
+function hasSameDays(selectedDays: WeekdayType[], presetDays: WeekdayType[]): boolean {
+    const selectedSet = new Set(selectedDays)
+    return selectedSet.size === presetDays.length && presetDays.every((day) => selectedSet.has(day))
+}
+
+export function selectedDaysToDayPickerLabel(selectedDays: WeekdayType[]): string {
+    if (selectedDays.length === 0) {
+        return 'Select at least one day'
+    }
+    if (hasSameDays(selectedDays, ALL_DAYS)) {
+        return 'on Monday to Sunday'
+    }
+    if (hasSameDays(selectedDays, WEEKDAY_DAYS)) {
+        return 'on weekdays'
+    }
+    if (hasSameDays(selectedDays, WEEKEND_DAYS)) {
+        return 'on weekends'
+    }
+    if (selectedDays.length === 1) {
+        const dayLabel = weekdayOptions.find(({ value }) => value === selectedDays[0])?.label ?? selectedDays[0]
+        return `on ${dayLabel}`
+    }
+    return `on ${selectedDays.length} days`
+}
+
+export function toggleSelectedDay(selectedDays: WeekdayType[], day: WeekdayType): WeekdayType[] {
+    const nextDays = new Set(selectedDays)
+    if (nextDays.has(day)) {
+        nextDays.delete(day)
+    } else {
+        nextDays.add(day)
+    }
+    return ALL_DAYS.filter((weekday) => nextDays.has(weekday))
+}
 
 export const monthlyWeekdayOptions: LemonSelectOptions<
     'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday' | 'day' | 'weekday'
@@ -104,7 +145,7 @@ export const bysetposOptions: LemonSelectOptions<'1' | '2' | '3' | '4' | '-1'> =
 
 export const timeOptions: LemonSelectOptions<string> = range(0, 24).map((x) => ({
     value: String(x),
-    label: `${String(x).padStart(2, '0')}:00`,
+    label: `${x % 12 || 12}:00 ${x < 12 ? 'AM' : 'PM'}`,
 }))
 
 const RRULE_WEEKDAY_MAP: Record<string, (typeof RRule)['MO']> = {
@@ -136,7 +177,7 @@ export function getNextDeliveryDate(subscription: Partial<SubscriptionType>): Da
             interval: subscription.interval ?? 1,
             dtstart: new Date(subscription.start_date),
             byweekday: subscription.byweekday?.map((d) => RRULE_WEEKDAY_MAP[d]) ?? null,
-            bysetpos: subscription.bysetpos ?? null,
+            bysetpos: subscription.frequency === 'monthly' ? (subscription.bysetpos ?? null) : null,
         })
         return rule.after(new Date())
     } catch {

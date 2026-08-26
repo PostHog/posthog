@@ -141,7 +141,7 @@ where
             }
             SymbolSetLoadResult::MissingStoragePtr(set_ref) => {
                 // It's never valid to have no failure reason and no storage pointer - if we hit this case, just panic
-                error!("No storage pointer found for chunk id {}", set_ref);
+                error!(team_id, "No storage pointer found for chunk id {}", set_ref);
                 panic!("No storage pointer found for chunk id {set_ref}");
             }
             SymbolSetLoadResult::MissingBlob(mut record) => {

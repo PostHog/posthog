@@ -19,7 +19,6 @@ import {
 import { InsightLogicProps } from '~/types'
 
 import { IssueActions } from 'products/error_tracking/frontend/components/IssueActions/IssueActions'
-import { IssueQueryOptions } from 'products/error_tracking/frontend/components/IssueQueryOptions/IssueQueryOptions'
 import { IssueListTitleColumn, IssueListTitleHeader } from 'products/error_tracking/frontend/components/TableColumns'
 import { errorTrackingVolumeSparklineLogic } from 'products/error_tracking/frontend/components/VolumeSparkline/errorTrackingVolumeSparklineLogic'
 import {
@@ -33,6 +32,8 @@ import { bulkSelectLogic } from 'products/error_tracking/frontend/logics/bulkSel
 import { issuesDataNodeLogic } from 'products/error_tracking/frontend/logics/issuesDataNodeLogic'
 import { errorTrackingSceneLogic } from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/errorTrackingSceneLogic'
 import { ERROR_TRACKING_LISTING_RESOLUTION } from 'products/error_tracking/frontend/utils'
+
+import { IssuesFilters } from './IssuesFilters'
 
 const VolumeColumn: QueryContextColumnComponent = (props) => {
     const record = props.record as ErrorTrackingIssue
@@ -153,7 +154,10 @@ export function IssuesList(): JSX.Element {
             logic={issuesDataNodeLogic}
             props={{ key: insightVizDataNodeKey(insightProps), query: query.source }}
         >
-            <SceneStickyBar showBorderBottom={false}>
+            {/* first:-mt-4 tucks the bar flush under the tab bar, but only when no banner
+                renders above — an unconditional -mt-4 would cover the banner's bottom edge */}
+            <SceneStickyBar className="first:-mt-4" showBorderBottom={false}>
+                <IssuesFilters />
                 <ListOptions />
             </SceneStickyBar>
 
@@ -164,7 +168,7 @@ export function IssuesList(): JSX.Element {
     )
 }
 
-export const ListOptions = (): JSX.Element => {
+export const ListOptions = (): JSX.Element | null => {
     const { selectedIssueIds } = useValues(bulkSelectLogic)
     const { results } = useValues(issuesDataNodeLogic)
 
@@ -172,5 +176,5 @@ export const ListOptions = (): JSX.Element => {
         return <IssueActions issues={results} selectedIds={selectedIssueIds} />
     }
 
-    return <IssueQueryOptions />
+    return null
 }

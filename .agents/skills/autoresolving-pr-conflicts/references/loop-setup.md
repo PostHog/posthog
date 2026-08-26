@@ -73,6 +73,7 @@ Keep that boundary least-privilege:
 
 ## Relationship to the CI implementation
 
-PR #73036 proposes the same job as a GitHub Actions workflow.
-Both use the same `autoresolve-attempt` marker format, so if both end up deployed they never double-attempt the same `(head, master)` state.
-Prefer running exactly one of them long-term; the Loop version keeps API traffic on a dedicated rate-limit bucket and burns no Actions runners.
+`.github/workflows/pr-autoresolve-conflicts.yml` runs the same job as a GitHub Actions workflow.
+Its schedule is disabled and it stays dispatchable by hand, so it is a fallback rather than a second scheduled sweep.
+Both write the same `autoresolve-attempt` marker format, so if both do end up running they never double-attempt the same `(head, master)` state.
+Keep exactly one of them scheduled; the Loop version keeps API traffic on a dedicated rate-limit bucket and burns no Actions runners.

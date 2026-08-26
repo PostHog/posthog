@@ -32,17 +32,19 @@ from posthog.api.webauthn import (
 from posthog.email import is_email_available
 from posthog.event_usage import alias_invite_id, report_user_joined_organization, report_user_signed_up
 from posthog.exceptions_capture import capture_exception
-from posthog.helpers.email_utils import EmailValidationHelper, validate_display_name
+from posthog.helpers.email_utils import EmailValidationHelper, reject_plus_addressed_email, validate_display_name
+from posthog.helpers.verified_domain_enforcement import resolve_login_organization
 from posthog.models import InviteExpiredException, Organization, OrganizationDomain, OrganizationInvite, Team, User
+from posthog.models.identity_provider_config import ConfigScope, IdentityProviderConfig
 from posthog.models.organization_invite import INVITE_DAYS_VALIDITY
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import CanCreateOrg
 from posthog.rate_limit import SignupEmailPrecheckThrottle, SignupIPThrottle, SignupResendInviteThrottle
-from posthog.temporal.signup_enrichment.trigger import start_signup_enrichment_workflow
 from posthog.utils import get_can_create_org, get_trusted_client_ip, is_relative_url
 from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_attempt
 
 from products.demo.backend.facade.api import HedgeboxMatrix, MatrixManager
+from products.growth.backend.temporal.signup_enrichment.trigger import start_signup_enrichment_workflow
 
 logger = structlog.get_logger(__name__)
 
@@ -182,8 +184,15 @@ class SignupSerializer(serializers.Serializer):
 
             value = session_email
 
-        if not settings.DEMO and EmailValidationHelper.user_exists(value):
-            raise serializers.ValidationError("There is already an account with this email address.", code="unique")
+        if not settings.DEMO:
+            if not self.is_social_signup:
+                reject_plus_addressed_email(value)
+                if EmailValidationHelper.user_exists_with_stripped_alias(value):
+                    raise serializers.ValidationError(
+                        "There is already an account with this email address.", code="unique"
+                    )
+            elif EmailValidationHelper.user_exists(value):
+                raise serializers.ValidationError("There is already an account with this email address.", code="unique")
         return value
 
     def is_email_auto_verified(self):
@@ -390,7 +399,12 @@ class SignupEmailPrecheckViewset(generics.GenericAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         email = serializer.validated_data["email"]
-        email_exists = False if settings.DEMO else EmailValidationHelper.user_exists(email)
+        email_exists = False
+        if not settings.DEMO:
+            # Mirror SignupSerializer.validate_email. Without this the form clears the email step,
+            # the user fills in the rest, and only then hits the rejection on submit.
+            reject_plus_addressed_email(email)
+            email_exists = EmailValidationHelper.user_exists_with_stripped_alias(email)
         if email_exists:
             return response.Response(
                 {
@@ -550,6 +564,17 @@ class InviteSignupSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 "Sign up with a password is disabled because SSO login is enforced for this domain. Please log in with your SSO credentials.",
                 code="sso_enforced",
+            )
+
+        # The check above keys on the email's own domain; this one keys on the org:
+        # an org that requires a verified email domain only admits members on its verified domains,
+        # so a pre-existing outside-domain invite can't be accepted.
+        if invite.target_email and OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(
+            invite.target_email, invite.organization
+        ):
+            raise serializers.ValidationError(
+                "This organization only allows members with a verified email domain. Please use an email address on one of the organization's domains.",
+                code="verified_domain_required",
             )
 
         with transaction.atomic():
@@ -794,13 +819,17 @@ class CompanyNameForm(forms.Form):
     emailOptIn = forms.BooleanField(required=False)
 
 
-def lookup_invite_for_saml(email: str, organization_domain_id: str) -> Optional[OrganizationInvite]:
-    # nosemgrep: idor-lookup-without-org (ID from SAML response)
-    organization_domain = OrganizationDomain.objects.get(id=organization_domain_id)
-    if not organization_domain:
+def lookup_invite_for_saml(email: str, saml_relay_state: str) -> Optional[OrganizationInvite]:
+    # The assertion round-trips the IdP config's `saml_relay_state`, which the SAML backend has
+    # already resolved to a config to validate the response. Resolve the organization the same way:
+    # the identifier holds a domain id on configs created before it moved onto the config, and that
+    # domain may since have been deleted out from under a config its siblings still back.
+    # nosemgrep: idor-lookup-without-org (identifier from an already-verified SAML response)
+    config = IdentityProviderConfig.objects.filter(saml_relay_state=saml_relay_state).first()
+    if config is None:
         return None
     return (
-        OrganizationInvite.objects.filter(target_email=email, organization=organization_domain.organization)
+        OrganizationInvite.objects.filter(target_email=email, organization_id=config.organization_id)
         .order_by("-created_at")
         .first()
     )
@@ -818,6 +847,10 @@ def process_social_invite_signup(
         try:
             invite = TeamInviteSurrogate(invite_id)
         except Team.DoesNotExist:
+            return None
+        # Legacy team signup tokens bind to no email and never expire, so this branch must run the
+        # domain gate itself — real invites get it upstream via their resolved organization.
+        if OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(email, invite.organization):
             return None
 
     # Capture before invite.use() — use() deletes the invite row, so the in-memory boolean is
@@ -860,12 +893,15 @@ def process_social_domain_jit_provisioning_signup(
         )
         return user
     else:
+        scim_enabled = (
+            domain_instance.identity_provider_configs_for_scope(ConfigScope.SCIM).filter(scim_enabled=True).exists()
+        )
         logger.info(
             f"process_social_domain_jit_provisioning_signup_domain_exists",
             domain=domain,
             is_verified=domain_instance.is_verified,
             jit_provisioning_enabled=domain_instance.jit_provisioning_enabled,
-            scim_enabled=domain_instance.idp_config.scim_enabled,
+            scim_enabled=scim_enabled,
         )
         if domain_instance.is_verified and domain_instance.jit_provisioning_enabled:
             if not user:
@@ -916,10 +952,20 @@ def process_social_domain_jit_provisioning_signup(
                     domain=domain,
                     user=user.email,
                     organization=domain_instance.organization_id,
-                    scim_enabled=domain_instance.idp_config.scim_enabled,
+                    scim_enabled=scim_enabled,
                 )
 
     return user
+
+
+def _resolve_invite_organization(invite_id: str) -> Optional[Organization]:
+    """Organization an invite grants access to, or None for legacy team-invite surrogates / missing invites."""
+    try:
+        # nosemgrep: idor-lookup-without-org (invite UUID from server session serves as auth token)
+        invite = OrganizationInvite.objects.select_related("organization").get(id=invite_id)
+    except (OrganizationInvite.DoesNotExist, ValidationError):
+        return None
+    return invite.organization
 
 
 @partial
@@ -942,11 +988,30 @@ def social_create_user(
         or details.get("username")
     )
 
-    # Handle SAML invites (organization_domain_id is the relay_state)
-    organization_domain_id = kwargs.get("response", {}).get("idp_name")
-    if not invite_id and organization_domain_id:
-        invite = lookup_invite_for_saml(email, organization_domain_id)
+    # Handle SAML invites (idp_name is the IdP config's relay state)
+    saml_relay_state = kwargs.get("response", {}).get("idp_name")
+    if not invite_id and saml_relay_state:
+        invite = lookup_invite_for_saml(email, saml_relay_state)
         invite_id = invite.id if invite else None
+
+    # Domain enforcement: refuse blocked members — blocked admins still get a gated session.
+    # Joins (below) stay blocked for everyone.
+    if user and not resolve_login_organization(user):
+        logger.warning("social_create_user_blocked_domain_enforcement", user_id=user.pk)
+        return redirect("/login?error_code=verified_domain_required")
+
+    invite_organization = _resolve_invite_organization(invite_id) if invite_id else None
+    enforcement_email = user.email if user else email
+    if (
+        invite_organization is not None
+        and enforcement_email
+        and OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(enforcement_email, invite_organization)
+    ):
+        logger.warning(
+            "social_create_user_blocked_domain_enforcement",
+            organization=str(invite_organization.id),
+        )
+        return redirect("/login?error_code=verified_domain_required")
 
     if user:
         # If the user is already authenticated, we're looking for outstanding invites for them

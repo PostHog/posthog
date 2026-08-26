@@ -87,6 +87,8 @@ export interface LemonCalendarSelectProps {
     onToggleTime?: (value: boolean) => void
     /** Use 24-hour format instead of 12-hour with AM/PM */
     use24HourFormat?: boolean
+    /** Extra "Apply" variants shown in a dropdown next to the Apply button. Each receives the selected date. */
+    applyActions?: { label: string; onClick: (date: dayjs.Dayjs) => void }[]
 }
 
 export function LemonCalendarSelect({
@@ -100,6 +102,7 @@ export function LemonCalendarSelect({
     showTimeToggle,
     onToggleTime,
     use24HourFormat = false,
+    applyActions,
 }: LemonCalendarSelectProps): JSX.Element {
     const calendarRef = useRef<HTMLDivElement | null>(null)
     const [selectValue, setSelectValue] = useState<dayjs.Dayjs | null>(value ? value.startOf(granularity) : null)
@@ -232,6 +235,28 @@ export function LemonCalendarSelect({
                         disabled={!selectValue}
                         onClick={() => selectValue && onChange && onChange(selectValue)}
                         data-attr="lemon-calendar-select-apply"
+                        sideAction={
+                            applyActions?.length
+                                ? {
+                                      disabled: !selectValue,
+                                      'aria-label': 'More apply options',
+                                      dropdown: {
+                                          placement: 'bottom-end',
+                                          overlay: applyActions.map((action) => (
+                                              <LemonButton
+                                                  key={action.label}
+                                                  fullWidth
+                                                  size="small"
+                                                  disabled={!selectValue}
+                                                  onClick={() => selectValue && action.onClick(selectValue)}
+                                              >
+                                                  {action.label}
+                                              </LemonButton>
+                                          )),
+                                      },
+                                  }
+                                : undefined
+                        }
                     >
                         Apply
                     </LemonButton>
@@ -274,6 +299,13 @@ export function LemonCalendarSelectInput(props: LemonCalendarSelectInputProps): 
                         props.onChange?.(value)
                         setUncontrolledVisible(false)
                     }}
+                    applyActions={props.applyActions?.map((action) => ({
+                        ...action,
+                        onClick: (date) => {
+                            action.onClick(date)
+                            setUncontrolledVisible(false)
+                        },
+                    }))}
                     onClose={() => {
                         setUncontrolledVisible(false)
                         props.onClose?.()

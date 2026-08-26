@@ -16,6 +16,7 @@ use crate::{
     api::CaptureError,
     debug_or_info,
     extractors::extract_body_with_timeout,
+    ingestion_warnings::SdkAttribution,
     payload::{extract_and_record_metadata, extract_payload_bytes, EventQuery},
     router,
     utils::extract_and_verify_token,
@@ -28,6 +29,7 @@ use crate::{
     skip_all,
     fields(method, path, token, ip, historical_migration, compression, batch_size)
 )]
+#[allow(clippy::too_many_arguments)]
 pub async fn handle_event_payload(
     state: &State<router::State>,
     InsecureClientIp(ip): &InsecureClientIp,
@@ -35,6 +37,7 @@ pub async fn handle_event_payload(
     headers: &HeaderMap,
     method: &Method,
     path: &MatchedPath,
+    wire_limit: Option<router::WireBodyLimit>,
     body: Body,
 ) -> Result<(ProcessingContext, Vec<RawEvent>), CaptureError> {
     let chatty_debug_enabled = headers.get("X-CAPTURE-DEBUG").is_some();
@@ -52,9 +55,14 @@ pub async fn handle_event_payload(
     //     - compression = hint to how "data" is encoded or compressed
 
     // Extract body with optional chunk timeout
+    // Wire limit governs the streamed body; event_payload_size_limit is the
+    // larger budget for what that body decompresses into.
+    let wire_limit = wire_limit
+        .map(|l| l.0)
+        .unwrap_or(state.event_payload_size_limit);
     let body = extract_body_with_timeout(
         body,
-        state.event_payload_size_limit,
+        wire_limit,
         state.body_chunk_read_timeout,
         state.body_read_chunk_size_kb,
         path.as_str(),
@@ -108,6 +116,10 @@ pub async fn handle_event_payload(
 
     let now = state.timesource.current_time();
 
+    // Snapshot SDK identity while the events are still typed — later stages only
+    // see serialized payloads.
+    let sdk_attribution = SdkAttribution::from_first_event(&events);
+
     let context = ProcessingContext {
         sent_at,
         token,
@@ -119,6 +131,9 @@ pub async fn handle_event_payload(
         historical_migration,
         user_agent: Some(metadata.user_agent.to_string()),
         chatty_debug_enabled,
+        capture_mode: state.capture_mode,
+        ai_max_event_bytes: state.ai_max_event_bytes,
+        sdk_attribution,
     };
     debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "processing complete");
 

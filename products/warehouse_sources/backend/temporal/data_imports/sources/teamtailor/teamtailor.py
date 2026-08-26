@@ -1,7 +1,6 @@
 import dataclasses
 from typing import Any, Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
@@ -11,13 +10,20 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     JSONResponsePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.teamtailor.settings import TEAMTAILOR_ENDPOINTS
 
 TEAMTAILOR_BASE_URL = "https://api.teamtailor.com/v1"
 # JSON:API caps `page[size]` at 30; the largest page minimises round trips.
 PAGE_SIZE = 30
-# Every request must pin an API version; this dated value is a documented, stable release.
-API_VERSION = "20240404"
+# Every request must pin an API version via the `X-Api-Version` header — opaque dated labels, never
+# parsed or ordered. Teamtailor only cuts a new dated version for backwards-incompatible changes, so
+# for the top-level list endpoints we read (auto-inferred schema) the versions differ only in this
+# header value; the resolved pin is threaded down from the source class.
+API_VERSION_20240404 = "20240404"
+API_VERSION_20240904 = "20240904"
+SUPPORTED_API_VERSIONS = (API_VERSION_20240404, API_VERSION_20240904)
+DEFAULT_API_VERSION = API_VERSION_20240904
 # Cheap endpoint used to confirm an API key is genuine. The key is account-wide, so one probe
 # validates access to every list endpoint.
 DEFAULT_PROBE_PATH = "/users"
@@ -31,18 +37,18 @@ class TeamtailorResumeConfig:
     next_url: Optional[str] = None
 
 
-def _headers(api_key: str) -> dict[str, str]:
+def _headers(api_key: str, api_version: str) -> dict[str, str]:
     return {
         "Authorization": f"Token token={api_key}",
-        "X-Api-Version": API_VERSION,
+        "X-Api-Version": api_version,
         "Accept": "application/vnd.api+json",
     }
 
 
-def _version_headers() -> dict[str, str]:
+def _version_headers(api_version: str) -> dict[str, str]:
     # Auth (the `Token token=` header) is supplied via the framework auth config so its value is
     # redacted from logs and errors; only the non-secret version/accept headers are set here.
-    return {"X-Api-Version": API_VERSION, "Accept": "application/vnd.api+json"}
+    return {"X-Api-Version": api_version, "Accept": "application/vnd.api+json"}
 
 
 def teamtailor_source(
@@ -51,6 +57,7 @@ def teamtailor_source(
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[TeamtailorResumeConfig],
+    api_version: str,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = TEAMTAILOR_ENDPOINTS[endpoint]
@@ -58,7 +65,7 @@ def teamtailor_source(
     rest_config: RESTAPIConfig = {
         "client": {
             "base_url": TEAMTAILOR_BASE_URL,
-            "headers": _version_headers(),
+            "headers": _version_headers(api_version),
             # Teamtailor's scheme is `Authorization: Token token=<key>`; carry the whole credential
             # string via api_key auth so the key is scrubbed from error messages and logged URLs.
             "auth": {
@@ -120,13 +127,13 @@ def teamtailor_source(
     )
 
 
-def check_access(api_key: str, path: str = DEFAULT_PROBE_PATH) -> tuple[int, Optional[str]]:
+def check_access(api_key: str, api_version: str, path: str = DEFAULT_PROBE_PATH) -> tuple[int, Optional[str]]:
     """Probe a single endpoint to validate the API key.
 
     Returns ``(status, message)``: ``200`` reachable, ``401``/``403`` auth failure, ``0`` for a
     connection problem, other HTTP status otherwise.
     """
-    session = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,))
+    session = make_tracked_session(headers=_headers(api_key, api_version), redact_values=(api_key,))
     try:
         response = session.get(f"{TEAMTAILOR_BASE_URL}{path}", params={"page[size]": 1}, timeout=15)
     except Exception as e:
@@ -141,8 +148,8 @@ def check_access(api_key: str, path: str = DEFAULT_PROBE_PATH) -> tuple[int, Opt
     return 200, None
 
 
-def validate_credentials(api_key: str) -> tuple[bool, str | None]:
-    status, message = check_access(api_key)
+def validate_credentials(api_key: str, api_version: str) -> tuple[bool, str | None]:
+    status, message = check_access(api_key, api_version)
     if status == 200:
         return True, None
     if status in (401, 403):

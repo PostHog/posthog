@@ -1,17 +1,25 @@
 import base64
 import dataclasses
+from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
 from dateutil import parser
-from requests import Response
+from requests import Response, Session
+from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.close.search import (
+    fetch_custom_field_selectors,
+    iter_search_rows,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.close.settings import (
     CLOSE_ENDPOINTS,
     CloseEndpointConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    DEFAULT_RETRY,
+    make_tracked_session,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
@@ -25,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     EndpointResource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 CLOSE_BASE_URL = "https://api.close.com/api/v1"
 PAGE_LIMIT = 100
@@ -33,9 +42,19 @@ PAGE_LIMIT = 100
 INITIAL_INCREMENTAL_VALUE = "1970-01-01T00:00:00+00:00"
 
 
+# The shared DEFAULT_RETRY only allows GET/HEAD/OPTIONS, so a transient failure on the
+# Advanced Filtering POST would not be retried. The search call is a read-only query, so it is
+# safe to retry alongside everything else. Derived via `.new()` so the policy stays a
+# BoundedRetry (Retry-After clamping) and every other knob tracks DEFAULT_RETRY.
+CLOSE_RETRY = DEFAULT_RETRY.new(allowed_methods=frozenset(DEFAULT_RETRY.allowed_methods or ()) | {"POST"})
+
+
 @dataclasses.dataclass
 class CloseResumeConfig:
-    next_skip: int
+    next_skip: int = 0
+    # Advanced Filtering walk (Leads/Contacts): the last cursor-field value already emitted.
+    search_anchor: Optional[str] = None
+    search_cursor_field: Optional[str] = None
 
 
 def _format_close_datetime(value: Any) -> str:
@@ -148,6 +167,85 @@ def get_resource(
     }
 
 
+def _make_search_session(api_key: str) -> Session:
+    basic_token = base64.b64encode(f"{api_key}:".encode("ascii")).decode("ascii")
+    return make_tracked_session(
+        retry=CLOSE_RETRY,
+        headers={"Authorization": f"Basic {basic_token}"},
+        redact_values=(api_key, basic_token),
+    )
+
+
+def _search_cursor_field(config: CloseEndpointConfig, is_incremental: bool, incremental_field: Optional[str]) -> str:
+    if not is_incremental:
+        # Full refresh walks creation order, which never reorders under us.
+        return "date_created"
+    advertised = {f["field"] for f in config.incremental_fields}
+    return incremental_field if incremental_field in advertised else config.incremental_fields[0]["field"]
+
+
+def close_search_source(
+    api_key: str,
+    endpoint: str,
+    resumable_source_manager: ResumableSourceManager[CloseResumeConfig],
+    logger: FilteringBoundLogger,
+    db_incremental_field_last_value: Optional[Any] = None,
+    should_use_incremental_field: bool = False,
+    incremental_field: Optional[str] = None,
+) -> SourceResponse:
+    """Read Leads or Contacts through Close's Advanced Filtering API.
+
+    Their list endpoints take no date filter, so offset pagination is the only option there and
+    Close's `_skip` cap silently truncates large tables. See search.py for the paging strategy.
+    """
+    config = CLOSE_ENDPOINTS[endpoint]
+    object_type = config.search_object_type
+    if object_type is None:
+        raise ValueError(f"Close endpoint {endpoint} is not backed by the search API")
+
+    is_incremental = should_use_incremental_field and bool(config.incremental_fields)
+    cursor_field = _search_cursor_field(config, is_incremental, incremental_field)
+
+    start_anchor: Optional[str] = None
+    if is_incremental and db_incremental_field_last_value is not None:
+        start_anchor = _format_close_datetime(db_incremental_field_last_value)
+
+    if resumable_source_manager.can_resume():
+        resume_config = resumable_source_manager.load_state()
+        # Only resume a walk that used the same cursor field; otherwise the anchor is meaningless.
+        if resume_config is not None and resume_config.search_cursor_field == cursor_field:
+            start_anchor = resume_config.search_anchor or start_anchor
+
+    def save_checkpoint(anchor: str) -> None:
+        resumable_source_manager.save_state(CloseResumeConfig(search_anchor=anchor, search_cursor_field=cursor_field))
+
+    def items() -> Iterator[list[dict[str, Any]]]:
+        session = _make_search_session(api_key)
+        fields = [*config.search_fields, *fetch_custom_field_selectors(session, CLOSE_BASE_URL, object_type, logger)]
+        yield from iter_search_rows(
+            session=session,
+            base_url=CLOSE_BASE_URL,
+            object_type=object_type,
+            fields=fields,
+            cursor_field=cursor_field,
+            start_anchor=start_anchor,
+            logger=logger,
+            on_checkpoint=save_checkpoint,
+        )
+
+    return SourceResponse(
+        name=endpoint,
+        items=items,
+        primary_keys=config.primary_keys,
+        partition_count=1,
+        partition_size=1,
+        partition_mode="datetime" if config.partition_key else None,
+        partition_format="month" if config.partition_key else None,
+        partition_keys=[config.partition_key] if config.partition_key else None,
+        sort_mode="asc",
+    )
+
+
 def close_source(
     api_key: str,
     endpoint: str,
@@ -155,9 +253,21 @@ def close_source(
     job_id: str,
     resumable_source_manager: ResumableSourceManager[CloseResumeConfig],
     db_incremental_field_last_value: Optional[Any],
+    logger: FilteringBoundLogger,
     should_use_incremental_field: bool = False,
     incremental_field: Optional[str] = None,
 ) -> SourceResponse:
+    if CLOSE_ENDPOINTS[endpoint].search_object_type is not None:
+        return close_search_source(
+            api_key=api_key,
+            endpoint=endpoint,
+            resumable_source_manager=resumable_source_manager,
+            logger=logger,
+            db_incremental_field_last_value=db_incremental_field_last_value,
+            should_use_incremental_field=should_use_incremental_field,
+            incremental_field=incremental_field,
+        )
+
     config: RESTAPIConfig = {
         "client": {
             "base_url": CLOSE_BASE_URL,

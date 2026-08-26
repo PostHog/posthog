@@ -88,7 +88,7 @@ Final job: `vr run complete --run-id <id>`
   - backend fetches baseline from GitHub
   - classifies all snapshots, detects removals
   - triggers diffs, posts GitHub Check
-  - exit code gates the pipeline (1 = changes need review)
+  - exit code gates the pipeline (1 = changes need review, 2 = command failed)
 ```
 
 The backend is the source of truth for baselines — it fetches the `.snapshots.yml` from GitHub at `complete_run` time. The CLI no longer sends baseline hashes; it only sends snapshot identifiers and content hashes.
@@ -103,7 +103,7 @@ The CLI uploads directly to S3 via presigned POST URLs — the backend never pro
 
 ### Commands
 
-**`vr submit`** — single-command flow. Scans a directory, hashes PNGs, creates a run with full manifest, uploads, and completes. Default `--purpose review` (gating, exits 1 on unapproved changes). Pass `--purpose observe` on master/non-PR runs for tracking-only (won't block, won't prompt for approval). Pass `--auto-approve` to approve everything and write the signed baseline (forces `--purpose review`).
+**`vr submit`** — single-command flow. Scans a directory, hashes PNGs, creates a run with full manifest, uploads, and completes. Default `--purpose review` (gating, exits 1 on unapproved changes). Pass `--purpose observe` on master/non-PR runs for tracking-only (no approval prompt). An observe run still exits 1 on snapshot drift, so pass `--tolerate-drift` too where a red job is not wanted. Pass `--auto-approve` to approve everything and write the signed baseline (forces `--purpose review`).
 
 **`vr verify`** — local baseline check without API. Hashes PNGs in a directory and compares against `snapshots.yml`. No backend involvement.
 
@@ -111,12 +111,18 @@ The CLI uploads directly to S3 via presigned POST URLs — the backend never pro
 
 **`vr run upload`** — per-shard: hashes PNGs in a directory, sends identifiers + hashes via `add-snapshots`, uploads missing artifacts.
 
-**`vr run complete`** — triggers completion (classification, removal detection, diffs). On `review` runs: exits 1 if unapproved changes are detected, 0 if clean or `--auto-approve` is set. On `observe` runs: always exits 0 (non-gating).
+**`vr run complete`** — triggers completion (classification, removal detection, diffs).
+Exits 1 if unapproved changes are detected, 0 if clean or `--auto-approve` is set, and 2 if the command itself failed (auth, network, timeout, backend processing).
+Pass the same `--purpose` the run was created with.
+On `--purpose observe` the command names the drifted identifiers, emits a `::warning::` annotation, and exits 1.
+The CLI has to be the one to say so: the backend reports zero unresolved for an observe run whatever drifted, so a clean run and a drifting one look identical to it.
+Add `--tolerate-drift` to report the drift and still exit 0. Use it on the default branch, where there is no merge left to stop and a red job would block the repair too.
 
 ### Run purposes
 
 - **`review`** (default) — approvable. Backend posts PR comment prompts; UI surfaces it under "needs review"; CLI gates on unapproved changes.
-- **`observe`** — tracking only. Backend rejects approval attempts; no PR comment; excluded from "needs review". The commit status is posted green (`success`, "Tracking only…") to a separate, non-gating `… (tracking)` context — never the gating `PostHog Visual Review / {run_type}` one. `purpose` is client-supplied, so greening the gating context would let an observe run bypass branch protection on a PR head SHA; the separate context keeps observe runs informational-only (like `(partial)` runs). The UI hides all approval affordances. Use on master pushes where there's no PR to approve.
+- **`observe`** — tracking only. Backend rejects approval attempts; no PR comment; excluded from "needs review". The commit status is posted green (`success`, "Tracking only…") to a separate, non-gating `… (tracking)` context — never the gating `PostHog Visual Review / {run_type}` one. `purpose` is client-supplied, so greening the gating context would let an observe run bypass branch protection on a PR head SHA; the separate context keeps observe runs informational-only (like `(partial)` runs). The UI hides all approval affordances. Use on master pushes and merge-queue branches, where there's no PR to approve.
+  The commit status never gates, but the exit code of `vr run complete` still does, and that is where a caller chooses. A merge-queue branch renders the tree about to land, so it lets drift fail the job. Master passes `--tolerate-drift` instead.
 
 ## Current state
 
@@ -129,12 +135,21 @@ Developers can also manually tolerate a snapshot from the UI.
 **Quarantine** — known-flaky identifiers can be quarantined per repo and run type.
 Quarantined snapshots are still captured and diffed but excluded from gating.
 
+**Flakiness tab** — surfaces the tolerated-hash data, which is otherwise written and never read.
+A snapshot is scored on how many alternate hashes the classifier can still match for its current baseline, so the score resets when the baseline moves.
+`unstable` means it rendered one of those variants within the last week, `settled` means it carries variants but has not rendered one recently, and `clean` means it has none and is only listed because it is quarantined.
+Open quarantines appear in the same list, with extend and lift on the row, and `needs a decision` flags one that has run out, is about to, or now covers a snapshot that stopped producing variants.
+
+Recency comes from the runs that rendered a variant, not from when the variant was first recorded.
+A snapshot can keep cycling through variants it already recorded without ever adding a new one, and that case still fails to render the same way twice.
+
 **Known gaps:**
 
 - Frontend error toast swallows structured error codes (`sha_mismatch`, `stale_run`) instead of showing tailored messages
 
 **Not yet built:**
 
+- Auto-release of a quarantine whose snapshot has gone clean (the flakiness tab flags it, a human still decides)
 - Retention / cleanup of old runs and artifacts
 - Server-side thumbnailing for the snapshot strip
 - Webhook-driven run creation (currently CLI-initiated only)

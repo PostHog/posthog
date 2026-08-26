@@ -2,6 +2,7 @@ import { MakeLogicType, actions, connect, kea, listeners, path, reducers } from 
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -9,7 +10,7 @@ import api from 'lib/api'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { urls } from 'scenes/urls'
 
-import { FileUploadFormat } from './fileUploadSource'
+import { FileUploadFormat, fileUploadSourceType } from './fileUploadSource'
 
 // Mirrors MAX_FILE_UPLOAD_SIZE_BYTES on the backend. Checked here too so an oversized file fails
 // instantly instead of after uploading 50MB+ only to be rejected.
@@ -19,6 +20,62 @@ export const FILE_UPLOAD_ACCEPT: Record<FileUploadFormat, string> = {
     csv: '.csv',
     json: '.json,.ndjson',
     parquet: '.parquet',
+}
+
+const FORMAT_LABELS: Record<FileUploadFormat, string> = {
+    csv: 'CSV',
+    json: 'JSON',
+    parquet: 'Parquet',
+}
+
+// Extensions we can confidently map to a supported format. Anything not listed (e.g. .txt) is left
+// alone so a validly-formatted file with an unusual extension isn't blocked.
+const EXTENSION_FORMATS: Record<string, FileUploadFormat> = {
+    csv: 'csv',
+    json: 'json',
+    ndjson: 'json',
+    jsonl: 'json',
+    parquet: 'parquet',
+    pqt: 'parquet',
+}
+
+const SPREADSHEET_EXTENSIONS = new Set(['xlsx', 'xls', 'xlsm', 'xlsb', 'ods', 'numbers'])
+
+/** Which step of the two-request upload failed. */
+type FileUploadStage = 'upload' | 'create_table'
+
+function captureFileUploadFailed(format: FileUploadFormat, stage: FileUploadStage, error: any): void {
+    posthog.capture('warehouse file upload failed', {
+        sourceType: fileUploadSourceType(format),
+        stage,
+        status: error?.status ?? null,
+        // Every message this endpoint returns is a fixed server-authored string, so it names the
+        // reason without carrying the filename or anything read out of the file.
+        error: error?.data?.message ?? error?.message ?? 'unknown',
+    })
+}
+
+function fileExtension(filename: string): string {
+    const match = /\.([^.]+)$/.exec(filename.toLowerCase())
+    return match ? match[1] : ''
+}
+
+// The `accept` attribute only hints the file picker; a mismatched file can still be dragged in or
+// left selected after switching format. Catch the confident cases here so the user gets clear
+// guidance instead of an opaque column-read failure after a wasted upload round-trip.
+export function fileFormatMismatchError(filename: string, format: FileUploadFormat): string | undefined {
+    const ext = fileExtension(filename)
+    if (!ext) {
+        return undefined
+    }
+    if (SPREADSHEET_EXTENSIONS.has(ext)) {
+        return "Spreadsheet files like Excel can't be uploaded directly. Export to CSV, JSON, or Parquet first, then upload that."
+    }
+    const extFormat = EXTENSION_FORMATS[ext]
+    if (extFormat && extFormat !== format) {
+        return `This looks like a ${FORMAT_LABELS[extFormat]} file, but you selected the ${FORMAT_LABELS[format]} format. Set the format to ${FORMAT_LABELS[extFormat]}, or choose a ${FORMAT_LABELS[format]} file.`
+    }
+    return undefined
 }
 
 const HOGQL_TABLE_NAME_REGEX = /^[a-zA-Z_][a-zA-Z0-9_]*$/
@@ -46,14 +103,20 @@ export function parseFileUploadFormat(value: string | undefined): FileUploadForm
     return normalized === 'csv' || normalized === 'json' || normalized === 'parquet' ? normalized : null
 }
 
-export function fileUploadFormErrors({ files, table_name }: Partial<FileUploadForm>): Record<string, unknown> {
+export function fileUploadFormErrors({
+    files,
+    table_name,
+    file_format,
+}: Partial<FileUploadForm>): Record<string, unknown> {
     const file = files?.[0]
     return {
         files: !file
             ? 'Please choose a file to upload.'
             : file.size > MAX_FILE_UPLOAD_SIZE_BYTES
               ? 'This file is larger than 50MB. For bigger files, connect the bucket they live in as a self-managed source instead.'
-              : undefined,
+              : file_format
+                ? fileFormatMismatchError(file.name, file_format)
+                : undefined,
         table_name: !table_name
             ? 'Please enter a table name.'
             : !HOGQL_TABLE_NAME_REGEX.test(table_name)
@@ -85,10 +148,12 @@ export interface fileUploadSourceLogicActions {
         args_0?:
             | {
                   force?: boolean
+                  shallow?: boolean
               }
             | undefined
     ) => {
         force?: boolean
+        shallow?: boolean
     } // databaseTableListLogic
     resetFileUpload: (values?: FileUploadForm) => {
         values?: FileUploadForm
@@ -172,6 +237,11 @@ export const fileUploadSourceLogic = kea<fileUploadSourceLogicType>([
                     lemonToast.error('This file is larger than the 50MB upload limit.')
                     return
                 }
+                const formatMismatch = fileFormatMismatchError(file.name, file_format)
+                if (formatMismatch) {
+                    lemonToast.error(formatMismatch)
+                    return
+                }
 
                 const formData = new FormData()
                 formData.append('file', file)
@@ -181,6 +251,7 @@ export const fileUploadSourceLogic = kea<fileUploadSourceLogicType>([
                 try {
                     upload = await api.dataWarehouseTables.uploadFile(formData)
                 } catch (e: any) {
+                    captureFileUploadFailed(file_format, 'upload', e)
                     lemonToast.error(e.data?.message ?? e.message ?? 'Could not upload the file.')
                     return
                 }
@@ -193,10 +264,12 @@ export const fileUploadSourceLogic = kea<fileUploadSourceLogicType>([
                         table_name,
                     })
                 } catch (e: any) {
+                    captureFileUploadFailed(file_format, 'create_table', e)
                     lemonToast.error(e.data?.message ?? e.message ?? 'Could not create the table.')
                     return
                 }
 
+                posthog.capture('source created', { sourceType: fileUploadSourceType(file_format) })
                 lemonToast.success(`Table ${table_name} created`)
                 actions.loadDatabase()
                 router.actions.replace(urls.sources())

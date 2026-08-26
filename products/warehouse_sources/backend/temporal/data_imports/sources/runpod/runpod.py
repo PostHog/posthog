@@ -15,9 +15,9 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.runpod.settings import (
     BILLING_BUCKET_SIZE,
     RUNPOD_BASE_URL,
@@ -132,9 +132,19 @@ def _row_id(*parts: Any) -> str:
 
 
 def _normalize_billing_record(record: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(record)
+    if "time" not in normalized and "startDate" in normalized:
+        # RunPod's network volume billing has been observed returning the bucket start under
+        # `startDate` rather than the `time` field documented for every other billing endpoint,
+        # so alias it here to keep the schema's declared "time" incremental field valid.
+        normalized["time"] = normalized.pop("startDate")
     return {
-        "id": _row_id(record.get("time"), record.get("podId"), record.get("endpointId"), record.get("gpuTypeId")),
-        **record,
+        **normalized,
+        # Set last so a record that happens to carry its own "id" key can never override the
+        # synthesized surrogate id merge relies on for dedup.
+        "id": _row_id(
+            normalized.get("time"), normalized.get("podId"), normalized.get("endpointId"), normalized.get("gpuTypeId")
+        ),
     }
 
 

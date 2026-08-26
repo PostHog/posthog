@@ -11,7 +11,7 @@ import type { NodeData } from './types'
 
 const NodeComponent = React.memo(function NodeComponent(props: { id: string; data: NodeData }): JSX.Element {
     const { runNode, materializeNode, setHoveredNodeId } = useActions(dataModelingLogic)
-    const { layoutDirection, highlightedNodeIds, debouncedSearchTerm, parsedSearch } = useValues(dataModelingLogic)
+    const { layoutDirection } = useValues(dataModelingLogic)
 
     const { id } = props
     const {
@@ -22,21 +22,12 @@ const NodeComponent = React.memo(function NodeComponent(props: { id: string; dat
         downstreamCount,
         isRunning,
         isTypeHighlighted,
+        isSearchMatch,
         lastJobStatus,
         lastRunAt,
         syncInterval,
         userTag,
     } = props.data
-
-    const isSearchMatch = ((): boolean | undefined => {
-        if (debouncedSearchTerm.length === 0) {
-            return undefined
-        }
-        if (parsedSearch.mode !== 'search') {
-            return highlightedNodeIds(parsedSearch.baseName, parsedSearch.mode).has(id)
-        }
-        return name.toLowerCase().includes(parsedSearch.baseName.toLowerCase())
-    })()
 
     const handleNodeClick = useCallback((): void => {
         if (type === 'endpoint') {
@@ -69,8 +60,7 @@ const NodeComponent = React.memo(function NodeComponent(props: { id: string; dat
                 direction: layoutDirection,
                 state: {
                     isRunning: isRunning ?? false,
-                    isHighlighted: (isTypeHighlighted ?? false) || isSearchMatch === true,
-                    isDimmed: isSearchMatch === false,
+                    isHighlighted: (isTypeHighlighted ?? false) || (isSearchMatch ?? false),
                 },
                 callbacks: {
                     onClick: handleNodeClick,

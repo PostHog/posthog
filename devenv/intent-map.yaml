@@ -20,7 +20,8 @@ capabilities:
 
     event_ingestion:
         description: 'Kafka-based event pipeline for event capture'
-        requires: [core_infra]
+        # The combined-mode ingestion server's AI consumer reads persons through PersonHog
+        requires: [core_infra, personhog]
         docker_profiles: []
 
     property_definitions:
@@ -129,16 +130,9 @@ capabilities:
         requires: [core_infra]
         docker_profiles: []
 
-    agent_runtime:
-        description: 'Agent platform runtime (products/agent_platform/services/agent-{ingress,runner,janitor})'
-        requires: [core_infra]
-        # SeaweedFS on :8333 — agent bundle + memory object storage (separate
-        # from the main `objectstorage` on :19000).
-        docker_profiles: [agents]
-
     ai_gateway:
-        description: 'Local Go ai-gateway (sibling ~/Development/ai-gateway) - routes agent model calls'
-        requires: [agent_runtime]
+        description: 'Local Go ai-gateway (sibling ~/Development/ai-gateway) - routes model calls'
+        requires: [core_infra]
         docker_profiles: []
 
     # Node.js capability groups - control which consumers run to reduce event loop contention
@@ -153,14 +147,14 @@ capabilities:
         docker_profiles: []
 
     nodejs_realtime_cohorts:
-        description: 'Node.js Realtime Cohorts - precalculated filters and cohort membership'
+        description: 'Node.js Realtime Cohorts - cohort membership persistence'
         requires: [event_ingestion]
         docker_profiles: []
 
     nodejs_session_replay:
         description: 'Node.js Session Replay - recording ingestion'
         requires: [event_ingestion]
-        docker_profiles: [replay]
+        docker_profiles: [replay, dynamodb]
 
     nodejs_logs:
         description: 'Node.js Logs - log ingestion'
@@ -217,6 +211,11 @@ capabilities:
         requires: [core_infra]
         docker_profiles: [dev_tools]
 
+    webhook_tester:
+        description: 'Local HTTP sink for webhook steps and destinations (localhost:2080)'
+        requires: [core_infra]
+        docker_profiles: [webhook_tester]
+
     mcp_server:
         description: 'MCP server for AI assistant integration'
         requires: [core_infra]
@@ -236,6 +235,11 @@ capabilities:
         description: 'Duckgres query server (DuckDB with Postgres wire protocol)'
         requires: [core_infra]
         docker_profiles: [duckgres]
+
+    desktop_app:
+        description: 'PostHog Desktop app (Electron) and its package watchers'
+        requires: [core_infra]
+        docker_profiles: []
 
 # Intents map to products/features developers work on
 intents:
@@ -370,6 +374,10 @@ intents:
                 agent_proxy,
             ]
 
+    tasks:
+        description: 'Tasks: agent task runs and orchestration'
+        capabilities: [event_ingestion, llm_gateway, celery_workers, celery_scheduler, temporal_workflows, agent_proxy]
+
     logs:
         description: 'Log aggregation and viewing'
         capabilities:
@@ -389,6 +397,7 @@ intents:
                 temporal_workflows,
                 nodejs_cdp_workflows,
                 cyclotron,
+                webhook_tester,
             ]
 
     tracing:
@@ -416,10 +425,6 @@ intents:
         capabilities:
             [event_ingestion, property_definitions, property_values, celery_workers, temporal_workflows, duckgres]
 
-    agents:
-        description: 'Agent platform — ingress, runner, janitor backed by the agent_runtime_queue DB, the MCP server for authoring agents through Claude, and the local ai-gateway the runner routes through'
-        capabilities: [agent_runtime, ai_gateway, mcp_server]
-
     revenue_analytics:
         description: 'Mock Stripe API with seed billing data for revenue analytics testing'
         capabilities:
@@ -429,11 +434,16 @@ intents:
         description: 'Dagster for clickhouse maintenance, system workflows'
         capabilities: [dagster_pipelines]
 
+    desktop:
+        description: 'PostHog Desktop app (Electron) with local task runs'
+        capabilities: [desktop_app, temporal_workflows, agent_proxy, llm_gateway]
+
 # Always-required processes regardless of intent
 # This is the core stack needed for any development
 always_required:
     - backend
     - frontend
+    - ngrok
     - typegen
     - docker-compose
     # Migrations (DBs created by postgres init scripts, run for everyone)

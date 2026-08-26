@@ -240,7 +240,7 @@ describe('dataNodeLogic', () => {
             nextQuery: setLatestVersionsOnQuery({
                 kind: NodeKind.EventsQuery,
                 select: ['*', 'event', 'timestamp'],
-                before: '2022-12-24T17:00:41.165000Z',
+                before: '2022-12-24T17:00:41.165000Z|01853a90-ba94-0000-8776-e8df5617c3ec',
                 limit: 100,
             }),
             response: partial({ results }),
@@ -269,7 +269,7 @@ describe('dataNodeLogic', () => {
                 nextQuery: setLatestVersionsOnQuery({
                     kind: NodeKind.EventsQuery,
                     select: ['*', 'event', 'timestamp'],
-                    before: '2022-12-24T17:00:41.165000Z',
+                    before: '2022-12-24T17:00:41.165000Z|01853a90-ba94-0000-8776-e8df5617c3ec',
                     limit: 100,
                 }),
                 response: partial({ results }),
@@ -282,7 +282,7 @@ describe('dataNodeLogic', () => {
             nextQuery: setLatestVersionsOnQuery({
                 kind: NodeKind.EventsQuery,
                 select: ['*', 'event', 'timestamp'],
-                before: '2022-12-23T17:00:41.165000Z',
+                before: '2022-12-23T17:00:41.165000Z|new',
                 limit: 100,
             }),
             response: partial({ results: [...results, ...results2] }),
@@ -375,6 +375,31 @@ describe('dataNodeLogic', () => {
             canLoadNextData: true,
             nextQuery: setLatestVersionsOnQuery({
                 kind: NodeKind.AccountsQuery,
+                limit: 100,
+                offset: 3,
+            }),
+            response: partial({ results }),
+        })
+    })
+
+    it('can load next data for AccountsTableQuery', async () => {
+        logic = dataNodeLogic({
+            key: testUniqueKey,
+            query: setLatestVersionsOnQuery({ kind: NodeKind.AccountsTableQuery, columns: [], filters: [] }),
+        })
+        const results = [{ id: 'account-1' }, { id: 'account-2' }, { id: 'account-3' }]
+        mockedQuery.mockResolvedValueOnce({ results, hasMore: true })
+        logic.mount()
+        await expectLogic(logic)
+            .toMatchValues({ responseLoading: true, canLoadNextData: false, nextQuery: null, response: null })
+            .delay(0)
+        await expectLogic(logic).toMatchValues({
+            responseLoading: false,
+            canLoadNextData: true,
+            nextQuery: setLatestVersionsOnQuery({
+                kind: NodeKind.AccountsTableQuery,
+                columns: [],
+                filters: [],
                 limit: 100,
                 offset: 3,
             }),
@@ -661,6 +686,36 @@ describe('dataNodeLogic', () => {
             undefined,
             false,
             'posthog_ai'
+        )
+    })
+
+    it('drops a non-RefreshType refresh argument', async () => {
+        // A caller that wires loadData straight to onClick passes a React MouseEvent as refresh;
+        // it must never reach performQuery, or the query request body fails to serialize.
+        const query = setLatestVersionsOnQuery({
+            kind: NodeKind.EventsQuery,
+            select: ['*', 'event', 'timestamp'],
+        })
+        mockedQuery.mockResolvedValue({ results: [] })
+
+        logic = dataNodeLogic({ key: testUniqueKey, query })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadDataSuccess'])
+        mockedQuery.mockClear()
+
+        logic.actions.loadData({ type: 'click', target: {} } as any)
+        await expectLogic(logic).toDispatchActions(['loadDataSuccess'])
+
+        expect(performQuery).toHaveBeenCalledWith(
+            query,
+            expect.anything(),
+            'blocking',
+            expect.any(String),
+            expect.any(Function),
+            undefined,
+            undefined,
+            false,
+            undefined
         )
     })
 })

@@ -6,30 +6,34 @@
 pub mod batcher;
 pub mod cascade;
 pub mod kafka;
+pub mod marker;
 pub mod merge;
 pub mod seed;
-
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use chrono::Utc;
 use common_kafka::kafka_producer::KafkaProduceError;
 use metrics::counter;
-use serde::de::{Deserializer, Error as DeError, Unexpected};
-use serde::ser::Serializer;
 use serde::{Deserialize, Serialize};
 
 use cohort_core::seed::RunId;
+// Hoisted to the shared seed contract so the seeder's marker watcher and this producer agree on the
+// wire bytes; re-exported here so processor call sites keep their `crate::producer` import path.
+pub use cohort_core::seed::ReconcileCompleteMarker;
 
 use crate::filters::reverse_index::TeamFilters;
-use crate::filters::{CohortId, TeamId};
+use crate::filters::CohortId;
 use crate::observability::metrics::OUTPUT_TRANSITIONS_UNMAPPED;
+use crate::producer::merge::Capture;
 use crate::stage1::transition::{LeafTransition, TransitionKind};
 
 pub use batcher::OutputBuffer;
 pub use cascade::{CaptureCascadeSink, CascadeSink, KafkaCascadeSink, NoopCascadeSink};
 pub use kafka::KafkaMembershipSink;
+pub use marker::{
+    CaptureReconcileMarkerSink, KafkaReconcileMarkerSink, NoopReconcileMarkerSink,
+    ReconcileMarkerSink,
+};
 pub use merge::{
     CaptureStreamEventSink, CaptureTransferSink, KafkaStreamEventSink, KafkaTransferSink,
     StreamEventSink, TransferSink,
@@ -63,84 +67,6 @@ pub struct CohortMembershipChange {
 pub enum ChangeOrigin {
     Seed,
     Reconcile,
-}
-
-const RECONCILE_COMPLETE_KIND: &str = "reconcile_complete";
-
-/// A completion certificate emitted after one partition's reconcile snapshot is durable.
-/// Field order is the wire order.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ReconcileCompleteMarker {
-    #[serde(rename = "type")]
-    kind: ReconcileCompleteKind,
-    team_id: i32,
-    cohort_id: i32,
-    partition: u16,
-    run_id: RunId,
-    /// ClickHouse `DateTime64(6)` wire format.
-    last_updated: String,
-}
-
-impl ReconcileCompleteMarker {
-    pub fn new(
-        team_id: TeamId,
-        cohort_id: CohortId,
-        partition: u16,
-        run_id: RunId,
-        last_updated: String,
-    ) -> Self {
-        Self {
-            kind: ReconcileCompleteKind,
-            team_id: team_id.0,
-            cohort_id: cohort_id.0,
-            partition,
-            run_id,
-            last_updated,
-        }
-    }
-
-    pub const fn team_id(&self) -> TeamId {
-        TeamId(self.team_id)
-    }
-
-    pub const fn cohort_id(&self) -> CohortId {
-        CohortId(self.cohort_id)
-    }
-
-    pub const fn partition(&self) -> u16 {
-        self.partition
-    }
-
-    pub const fn run_id(&self) -> RunId {
-        self.run_id
-    }
-
-    pub fn last_updated(&self) -> &str {
-        &self.last_updated
-    }
-}
-
-/// A zero-sized discriminant proven to be [`RECONCILE_COMPLETE_KIND`] during deserialization.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct ReconcileCompleteKind;
-
-impl Serialize for ReconcileCompleteKind {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(RECONCILE_COMPLETE_KIND)
-    }
-}
-
-impl<'de> Deserialize<'de> for ReconcileCompleteKind {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let value = String::deserialize(deserializer)?;
-        if value != RECONCILE_COMPLETE_KIND {
-            return Err(DeError::invalid_value(
-                Unexpected::Str(&value),
-                &"marker type \"reconcile_complete\"",
-            ));
-        }
-        Ok(Self)
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -240,19 +166,10 @@ pub trait MembershipSink: Send + Sync {
         &self,
         changes: Vec<CohortMembershipChange>,
     ) -> Vec<Result<(), KafkaProduceError>>;
-
-    async fn produce_markers(
-        &self,
-        markers: Vec<ReconcileCompleteMarker>,
-    ) -> Vec<Result<(), KafkaProduceError>>;
 }
 
 #[derive(Debug, Default, Clone)]
-pub struct CaptureSink {
-    changes: Arc<Mutex<Vec<CohortMembershipChange>>>,
-    markers: Arc<Mutex<Vec<ReconcileCompleteMarker>>>,
-    fail_remaining: Arc<AtomicUsize>,
-}
+pub struct CaptureSink(Capture<CohortMembershipChange>);
 
 impl CaptureSink {
     pub fn new() -> Self {
@@ -260,33 +177,11 @@ impl CaptureSink {
     }
 
     pub fn failing_first(n: usize) -> Self {
-        Self {
-            changes: Arc::default(),
-            markers: Arc::default(),
-            fail_remaining: Arc::new(AtomicUsize::new(n)),
-        }
+        Self(Capture::failing_first(n))
     }
 
     pub fn changes(&self) -> Vec<CohortMembershipChange> {
-        self.changes
-            .lock()
-            .expect("CaptureSink mutex poisoned")
-            .clone()
-    }
-
-    pub fn markers(&self) -> Vec<ReconcileCompleteMarker> {
-        self.markers
-            .lock()
-            .expect("CaptureSink mutex poisoned")
-            .clone()
-    }
-
-    fn should_fail(&self) -> bool {
-        self.fail_remaining
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| {
-                (n > 0).then(|| n - 1)
-            })
-            .is_ok()
+        self.0.recorded()
     }
 }
 
@@ -296,36 +191,7 @@ impl MembershipSink for CaptureSink {
         &self,
         changes: Vec<CohortMembershipChange>,
     ) -> Vec<Result<(), KafkaProduceError>> {
-        if self.should_fail() {
-            return changes
-                .into_iter()
-                .map(|_| Err(KafkaProduceError::KafkaProduceCanceled))
-                .collect();
-        }
-        let acks = (0..changes.len()).map(|_| Ok(())).collect();
-        self.changes
-            .lock()
-            .expect("CaptureSink mutex poisoned")
-            .extend(changes);
-        acks
-    }
-
-    async fn produce_markers(
-        &self,
-        markers: Vec<ReconcileCompleteMarker>,
-    ) -> Vec<Result<(), KafkaProduceError>> {
-        if self.should_fail() {
-            return markers
-                .into_iter()
-                .map(|_| Err(KafkaProduceError::KafkaProduceCanceled))
-                .collect();
-        }
-        let acks = (0..markers.len()).map(|_| Ok(())).collect();
-        self.markers
-            .lock()
-            .expect("CaptureSink mutex poisoned")
-            .extend(markers);
-        acks
+        self.0.produce(changes)
     }
 }
 
@@ -377,16 +243,6 @@ mod tests {
             condition_hash: HASH,
             kind,
         }
-    }
-
-    fn reconcile_complete_marker(partition: u16) -> ReconcileCompleteMarker {
-        ReconcileCompleteMarker::new(
-            TeamId(42),
-            CohortId(91204),
-            partition,
-            RunId(Uuid::nil()),
-            TS.to_string(),
-        )
     }
 
     #[test]
@@ -513,32 +369,6 @@ mod tests {
     }
 
     #[test]
-    fn reconcile_complete_marker_has_the_exact_wire_contract() {
-        let marker = reconcile_complete_marker(7);
-
-        assert_eq!(
-            serde_json::to_string(&marker).unwrap(),
-            r#"{"type":"reconcile_complete","team_id":42,"cohort_id":91204,"partition":7,"run_id":"00000000-0000-0000-0000-000000000000","last_updated":"2026-05-26 12:34:56.789123"}"#,
-        );
-        assert_eq!(
-            serde_json::from_str::<ReconcileCompleteMarker>(
-                &serde_json::to_string(&marker).unwrap()
-            )
-            .unwrap(),
-            marker
-        );
-    }
-
-    #[test]
-    fn reconcile_complete_marker_rejects_another_message_type() {
-        let payload = serde_json::to_string(&reconcile_complete_marker(7))
-            .unwrap()
-            .replace("reconcile_complete", "seed");
-
-        assert!(serde_json::from_str::<ReconcileCompleteMarker>(&payload).is_err());
-    }
-
-    #[test]
     fn live_path_change_stays_byte_identical_and_a_seed_tag_adds_only_the_two_keys() {
         let live = CohortMembershipChange {
             team_id: 42,
@@ -640,42 +470,5 @@ mod tests {
         let second = sink.produce(vec![change.clone()]).await;
         assert!(second.iter().all(Result::is_ok), "second flush succeeds");
         assert_eq!(sink.changes(), vec![change]);
-    }
-
-    #[tokio::test]
-    async fn capture_sink_records_markers_and_shares_failure_order_across_message_types() {
-        let sink = CaptureSink::failing_first(1);
-        let change = CohortMembershipChange {
-            team_id: 42,
-            cohort_id: 91204,
-            person_id: "p".to_string(),
-            last_updated: TS.to_string(),
-            status: MembershipStatus::Entered,
-            origin: Some(ChangeOrigin::Reconcile),
-            run_id: Some(RunId(Uuid::nil())),
-        };
-        let marker = reconcile_complete_marker(7);
-
-        let first = sink.produce(vec![change]).await;
-        assert!(first.iter().all(Result::is_err), "first flush fails");
-        assert!(sink.changes().is_empty(), "a failed flush records nothing");
-
-        let second = sink.produce_markers(vec![marker.clone()]).await;
-        assert!(second.iter().all(Result::is_ok), "second flush succeeds");
-        assert_eq!(sink.markers(), vec![marker]);
-    }
-
-    #[tokio::test]
-    async fn capture_sink_retries_a_failed_marker_without_recording_the_failed_attempt() {
-        let sink = CaptureSink::failing_first(1);
-        let marker = reconcile_complete_marker(7);
-
-        let first = sink.produce_markers(vec![marker.clone()]).await;
-        assert!(first.iter().all(Result::is_err), "first flush fails");
-        assert!(sink.markers().is_empty(), "a failed flush records nothing");
-
-        let second = sink.produce_markers(vec![marker.clone()]).await;
-        assert!(second.iter().all(Result::is_ok), "retry succeeds");
-        assert_eq!(sink.markers(), vec![marker]);
     }
 }

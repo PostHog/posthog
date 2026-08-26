@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -20,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shopify import (
     ShopifySourceConfig,
 )
@@ -31,6 +28,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.co
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.settings import ENDPOINT_CONFIGS
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify import (
     SHOPIFY_ACCESS_TOKEN_AUTH_ERROR,
+    SHOPIFY_ACCESS_TOKEN_INVALID_CLIENT_ERROR,
+    SHOPIFY_ACCESS_TOKEN_SHOP_NOT_PERMITTED_ERROR,
+    SHOPIFY_ACCESS_TOKEN_UNSUPPORTED_GRANT_ERROR,
     SHOPIFY_GRAPHQL_ACCESS_DENIED_ERROR,
     SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MATCH,
     SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MESSAGE,
@@ -69,8 +69,16 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             # 4xx from Shopify's OAuth token endpoint — invalid/revoked app credentials.
-            # Retrying cannot recover; the user must reconnect the integration.
+            # Retrying cannot recover; the user must re-enter valid credentials.
             SHOPIFY_ACCESS_TOKEN_AUTH_ERROR: SHOPIFY_ACCESS_TOKEN_AUTH_ERROR,
+            # 4xx `invalid_client` — the client ID or secret does not match a Shopify app.
+            SHOPIFY_ACCESS_TOKEN_INVALID_CLIENT_ERROR: SHOPIFY_ACCESS_TOKEN_INVALID_CLIENT_ERROR,
+            # 4xx `unsupported_grant_type` — the app can't use the client_credentials grant, so
+            # the user needs a Dev Dashboard app instead of a legacy custom app.
+            SHOPIFY_ACCESS_TOKEN_UNSUPPORTED_GRANT_ERROR: SHOPIFY_ACCESS_TOKEN_UNSUPPORTED_GRANT_ERROR,
+            # 4xx `shop_not_permitted`: the store is not in the app's Shopify organization, so
+            # minting a token fails regardless of the credentials entered.
+            SHOPIFY_ACCESS_TOKEN_SHOP_NOT_PERMITTED_ERROR: SHOPIFY_ACCESS_TOKEN_SHOP_NOT_PERMITTED_ERROR,
             # 404 from the same endpoint — no store at this subdomain. Retrying cannot
             # recover; the user must correct the store id.
             SHOPIFY_STORE_NOT_FOUND_ERROR: SHOPIFY_STORE_NOT_FOUND_ERROR,
@@ -90,13 +98,30 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
             SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MATCH: SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MESSAGE,
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # These are the messages `ShopifyRetryableError` carries once `_make_paginated_shopify_
+        # request`'s `execute` exhausts its own tenacity retries (5 attempts, exponential backoff
+        # honoring Shopify's throttle refill time — retried alongside transient `ConnectionError`/
+        # `Timeout`) and re-raises. Surviving all 5 attempts means the rate limit or upstream blip
+        # is still live, but Temporal retries the whole activity and it's self-recovering, so keep
+        # it out of error tracking as noise.
+        return {
+            "Shopify: rate limit exceeded",
+            "Shopify: internal error",
+            "Shopify: connection broken while reading response",
+        }
+
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.SHOPIFY,
             category=DataWarehouseSourceCategory.E_COMMERCE,
             iconPath="/static/services/shopify.png",
-            caption="""Enter your Shopify credentials to automatically pull your Shopify data into the PostHog Data warehouse.""",
+            caption=(
+                "Create a Shopify Dev Dashboard app, then enter its client ID and secret here to "
+                "pull your Shopify data into the PostHog Data warehouse. The docs walk through the "
+                "app setup steps."
+            ),
             docsUrl="https://posthog.com/docs/data-warehouse/sources/shopify",
             fields=cast(
                 list[FieldType],
@@ -126,7 +151,7 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
                         label="Secret",
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
-                        placeholder="shpss_...",
+                        placeholder="client-secret",
                         secret=True,
                     ),
                 ],

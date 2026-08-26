@@ -33,7 +33,6 @@ tools:
             - created_at
             - created_by
             - updated_at
-        feature_flag: logs-alerting
         response:
             include:
                 - id
@@ -48,6 +47,7 @@ tools:
                 - evaluation_periods
                 - datapoints_to_alarm
                 - cooldown_minutes
+                - schedule_restriction
                 - snooze_until
                 - next_check_at
                 - last_notified_at
@@ -83,7 +83,6 @@ tools:
                 description: Optional Slack channel name used for display.
             webhook_url:
                 description: Required when type is webhook or teams.
-        feature_flag: logs-alerting
         response:
             include:
                 - hog_function_ids
@@ -101,7 +100,6 @@ tools:
             Remove a notification destination from a log alert by passing the hog_function_ids returned from
             logs-alerts-destinations-create. Destinations are deleted as one atomic group — partial deletion fails the
             call.
-        feature_flag: logs-alerting
     logs-alerts-destroy:
         operation: logs_alerts_destroy
         enabled: true
@@ -114,7 +112,6 @@ tools:
         title: Delete log alert
         description: |
             Permanently delete a log alert configuration by ID.
-        feature_flag: logs-alerting
     logs-alerts-events-list:
         operation: logs_alerts_events_list
         enabled: true
@@ -131,7 +128,6 @@ tools:
             Use to evaluate how an existing alert has behaved (firing cadence, error rate, flap pattern) before tuning
             thresholds. Quiet no-op check rows are filtered out server-side. Optional `kind` query param narrows to a
             single event kind.
-        feature_flag: logs-alerting
         response:
             include:
                 - id
@@ -157,7 +153,6 @@ tools:
         description: >
             List log alert configurations in the current project, newest first. Returns alert name, state, threshold,
             filters, and scheduling details. Use this to review existing alerts before creating or modifying them.
-        feature_flag: logs-alerting
         response:
             include:
                 - id
@@ -167,6 +162,7 @@ tools:
                 - threshold_count
                 - threshold_operator
                 - window_minutes
+                - schedule_restriction
                 - created_at
                 - updated_at
     logs-alerts-partial-update:
@@ -181,7 +177,7 @@ tools:
         title: Update log alert
         description: >
             Update a log alert configuration by ID. Only the fields you provide are changed. Use this to adjust
-            thresholds, filters, enable/disable alerts, or snooze them.
+            thresholds, filters, quiet hours, enable/disable alerts, or snooze them.
         exclude_params:
             - id
             - state
@@ -193,7 +189,6 @@ tools:
             - created_at
             - created_by
             - updated_at
-        feature_flag: logs-alerting
         response:
             include:
                 - id
@@ -208,6 +203,7 @@ tools:
                 - evaluation_periods
                 - datapoints_to_alarm
                 - cooldown_minutes
+                - schedule_restriction
                 - snooze_until
                 - next_check_at
                 - last_notified_at
@@ -232,7 +228,6 @@ tools:
         description: >
             Get a log alert configuration by ID. Returns full details including current state, threshold settings,
             filters, and scheduling information.
-        feature_flag: logs-alerting
         response:
             include:
                 - id
@@ -247,6 +242,7 @@ tools:
                 - evaluation_periods
                 - datapoints_to_alarm
                 - cooldown_minutes
+                - schedule_restriction
                 - snooze_until
                 - next_check_at
                 - last_notified_at
@@ -270,7 +266,6 @@ tools:
             machine — count, threshold_breached, state, notification (none/fire/resolve), reason. Use to validate
             threshold + N-of-M settings before creating an alert. Read-only; no alert records are written. Aim for
             fire_count between 0 and 3 over a `-7d` lookback for a healthy threshold.
-        feature_flag: logs-alerting
         response:
             include:
                 - buckets
@@ -281,6 +276,30 @@ tools:
                 - threshold_operator
     logs-alerts-update:
         operation: logs_alerts_update
+        enabled: false
+    logs-anomalies-scan:
+        operation: logs_anomalies_scan_create
+        enabled: true
+        scopes:
+            - logs:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Scan a service's logs for volume anomalies
+        description: >
+            Run anomaly detection on demand over one service's log volume for a time window of up to 7 days. Learns
+            per-severity baselines from up to 6 weeks of history and returns spike, drop, and silence issues plus
+            per-severity learning status. Requires a serviceName (use logs-services-list or the resource attribute
+            values tool to discover services). Experimental; synchronous and read only, so prefer windows of a few hours
+            to a day. Per-bucket band evidence is omitted from the tool response to save tokens; the API endpoint
+            returns it for charts.
+        feature_flag: logs-anomalies
+        response:
+            exclude:
+                - series.*.buckets
+    logs-anomalies-series-bands-create:
+        operation: logs_anomalies_series_bands_create
         enabled: false
     logs-attribute-values-list:
         operation: logs_values_retrieve
@@ -403,7 +422,6 @@ tools:
             idempotent: true
         title: Mine log patterns
         description_file: ./prompts/logs-patterns.md
-        feature_flag: logs-patterns-view
         response:
             exclude:
                 - patterns.*.examples
@@ -422,13 +440,36 @@ tools:
             idempotent: true
         title: Diff log patterns between two windows
         description_file: ./prompts/logs-patterns-diff.md
-        feature_flag: logs-patterns-view
         response:
             exclude:
                 - entries.*.pattern.examples
                 - entries.*.pattern.sparkline
                 - entries.*.pattern.count
                 - entries.*.pattern.error_count
+    logs-retention-rules-create:
+        operation: logs_retention_rules_create
+        enabled: false
+    logs-retention-rules-destroy:
+        operation: logs_retention_rules_destroy
+        enabled: false
+    logs-retention-rules-list:
+        operation: logs_retention_rules_list
+        enabled: false
+    logs-retention-rules-partial-update:
+        operation: logs_retention_rules_partial_update
+        enabled: false
+    logs-retention-rules-reorder-create:
+        operation: logs_retention_rules_reorder_create
+        enabled: false
+    logs-retention-rules-retrieve:
+        operation: logs_retention_rules_retrieve
+        enabled: false
+    logs-retention-rules-suggest-name-create:
+        operation: logs_retention_rules_suggest_name_create
+        enabled: false
+    logs-retention-rules-update:
+        operation: logs_retention_rules_update
+        enabled: false
     logs-sampling-rules-create:
         operation: logs_sampling_rules_create
         enabled: false

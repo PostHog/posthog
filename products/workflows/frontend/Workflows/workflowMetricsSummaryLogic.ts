@@ -35,6 +35,77 @@ const CONVERSION_EVENT = '$workflows_conversion'
 // early-exited runs too, and keeps "In progress" from treating those finished runs as still live.
 const RUN_LEVEL_INSTANCE_ID = ''
 
+// Per-link click counts ride on app_metrics2 under their own metric name, with the link identity
+// packed into `instance_id` as `<action id>|<link index>|<normalized url>`. The producer is
+// buildLinkInstanceId in the plugin server's SES webhook handler (helpers/ses.ts); this separator
+// and metric name must match it. A URL can itself contain the separator, so only the first two
+// occurrences delimit fields and the remainder is the URL.
+const EMAIL_LINK_METRIC_NAME = 'email_link_clicked_by_link'
+const LINK_INSTANCE_SEPARATOR = '|'
+
+// One group per (action, link), so a workflow with many email steps clears the executor's default
+// 100-row cap easily. The request orders by total so the cap keeps the most-clicked links rather
+// than an arbitrary slice; `parseEmailLinkTotals` then sorts within each action for display.
+const EMAIL_LINK_TOTALS_LIMIT = 1000
+
+// Mirrors MAX_LINK_URL_LENGTH in the plugin server's helpers/ses.ts. A stored URL at exactly this
+// length was cut to fit the metrics key, so it is not safe to navigate to.
+const EMAIL_LINK_URL_MAX_LENGTH = 200
+
+export type EmailLinkRow = {
+    /** Position of the anchor in the email body, blank for clicks recorded without a link tag. */
+    linkIndex: string
+    url: string
+    clicks: number
+    /** The stored URL was cut to fit the metrics key, so it may not resolve to the real page. */
+    truncated: boolean
+    /** Another link in the same step resolves to this same URL, so position is what tells them apart. */
+    duplicateUrl: boolean
+}
+
+export function parseEmailLinkTotals(totalsResponse: AppMetricsTotalsResponse): Record<string, EmailLinkRow[]> {
+    const byActionId: Record<string, EmailLinkRow[]> = {}
+
+    Object.values(totalsResponse).forEach(({ total, breakdowns }) => {
+        const instanceId = breakdowns[0]
+        if (!instanceId) {
+            return
+        }
+        const separatorIndex = instanceId.indexOf(LINK_INSTANCE_SEPARATOR)
+        const indexEnd = instanceId.indexOf(LINK_INSTANCE_SEPARATOR, separatorIndex + 1)
+        if (separatorIndex === -1 || indexEnd === -1) {
+            return
+        }
+        const actionId = instanceId.slice(0, separatorIndex)
+        const url = instanceId.slice(indexEnd + 1)
+        if (!actionId || !url) {
+            return
+        }
+        byActionId[actionId] = byActionId[actionId] || []
+        byActionId[actionId].push({
+            linkIndex: instanceId.slice(separatorIndex + 1, indexEnd),
+            url,
+            clicks: total,
+            truncated: url.length >= EMAIL_LINK_URL_MAX_LENGTH,
+            duplicateUrl: false,
+        })
+    })
+
+    Object.values(byActionId).forEach((rows) => {
+        // Two anchors pointing at the same URL are counted separately by design (a header logo and a
+        // footer link, say). Without flagging them the table shows two identical-looking rows with
+        // different counts, which reads as a double-count bug.
+        const urlCounts = new Map<string, number>()
+        rows.forEach((row) => urlCounts.set(row.url, (urlCounts.get(row.url) ?? 0) + 1))
+        rows.forEach((row) => {
+            row.duplicateUrl = (urlCounts.get(row.url) ?? 0) > 1
+        })
+        // Most-clicked first so the interesting links are visible without scrolling an expanded row.
+        rows.sort((a, b) => b.clicks - a.clicks)
+    })
+    return byActionId
+}
+
 export type WorkflowSummaryMetric = 'started' | 'in_progress' | 'persons_messaged' | 'completed' | 'converted'
 export type EmailMetric =
     | 'email_sent'
@@ -45,9 +116,10 @@ export type EmailMetric =
     | 'email_bounced'
     | 'email_bounce_prevented'
     | 'email_blocked'
-    | 'email_spam'
+    | 'email_untracked'
+    | 'email_suspended'
 
-export type PushMetric = 'push_sent' | 'push_skipped' | 'push_failed'
+export type PushMetric = 'push_sent' | 'push_skipped' | 'push_failed' | 'push_opened'
 
 export type PushMetricRow = {
     id: string
@@ -55,6 +127,7 @@ export type PushMetricRow = {
     sent: number
     skipped: number
     failed: number
+    opened: number
 }
 
 export type EmailMetricRow = {
@@ -66,13 +139,24 @@ export type EmailMetricRow = {
     linkClicked: number
     bounced: number
     bouncePrevented: number
-    blocked: number
+    // Spam complaints. Stored under the email_blocked metric name for continuity with
+    // historical data (see the SES webhook handler's Complaint mapping).
+    markedAsSpam: number
+    // Sends without open/click tracking (step toggle off or no recipient consent). These can never
+    // record opens/clicks, so engagement reads against trackedSends rather than sent.
+    untracked: number
+    // Tracked sends, not tracked deliveries. `email_untracked` and `email_sent` are pushed together on
+    // the same keys at send time, so the subtraction is exact and can never go negative, whereas
+    // `delivered - untracked` mixes send-time and webhook-time counts and goes non-positive once an
+    // untracked audience starts bouncing. A true tracked-deliveries denominator would need an untracked
+    // counter emitted at delivery time in the SES webhook, keyed off `mail.tags['ses:configuration-set']`.
+    trackedSends: number
 }
 
 // Single source of truth for metric colors across the workflow metric views. Keyed by the metric's
 // display name so the same label reads the same color everywhere — in the summary tiles and in the
-// trends chart below them. Pass this to `AppMetricsTrends` as `seriesColors` and to `AppMetricSummary`
-// so tiles and charts never drift apart.
+// trends chart below them. The trends charts take this as `AppMetricsTrends` `seriesColors`; each
+// summary tile (`WorkflowMetricCard`) reads a single color for its metric by name, so they never drift.
 //
 // Only `success`/`blue`/`purple`/`warning`/`danger` exist as themed color vars; the rest (`orange`,
 // `indigo`, `red`, `primary`) resolve to white in dark mode. The whole-workflow summary mostly uses
@@ -97,8 +181,9 @@ export const METRIC_COLORS: Record<string, string> = {
     'Link clicked': getColorVar('data-color-5'),
     Bounced: getColorVar('data-color-6'),
     'Bounce prevented': getColorVar('data-color-7'),
-    Blocked: getColorVar('data-color-8'),
     'Marked as spam': getColorVar('data-color-9'),
+    Untracked: getColorVar('data-color-10'),
+    Suspended: getColorVar('data-color-11'),
     Skipped: getColorVar('data-color-2'),
     // Workflow run + batch-job metrics
     Success: getColorVar('success'),
@@ -176,13 +261,15 @@ export const WORKFLOW_EMAIL_METRICS: Record<
     },
     email_opened: {
         name: 'Opened',
-        description: 'Total number of emails opened',
+        description:
+            'Total number of emails opened. Untracked sends can never record an open, so compare opens against sent minus untracked.',
         color: METRIC_COLORS['Opened'],
         metricNames: ['email_opened'],
     },
     email_link_clicked: {
         name: 'Link clicked',
-        description: 'Total number of times links in emails were clicked',
+        description:
+            'Total number of times links in emails were clicked. Untracked sends can never record a click, so compare clicks against sent minus untracked.',
         color: METRIC_COLORS['Link clicked'],
         metricNames: ['email_link_clicked'],
     },
@@ -200,16 +287,25 @@ export const WORKFLOW_EMAIL_METRICS: Record<
         metricNames: ['email_bounce_prevented'],
     },
     email_blocked: {
-        name: 'Blocked',
-        description: 'Total number of emails that were blocked by the recipient server',
-        color: METRIC_COLORS['Blocked'],
+        name: 'Marked as spam',
+        description:
+            'Total number of emails recipients reported as spam, counted from mailbox provider feedback reports. Gmail does not send these reports, so a Gmail user marking an email as spam is not counted here, and no metric shows whether a message landed in the spam folder.',
+        color: METRIC_COLORS['Marked as spam'],
         metricNames: ['email_blocked'],
     },
-    email_spam: {
-        name: 'Marked as spam',
-        description: 'Total number of emails that were marked as spam by recipient server or recipient email client',
-        color: METRIC_COLORS['Marked as spam'],
-        metricNames: ['email_spam'],
+    email_untracked: {
+        name: 'Untracked',
+        description:
+            'Total number of emails sent without open/click tracking, because tracking was turned off on the step or the recipient has not consented. These sends can never record opens or clicks, so subtract them from sent when judging engagement.',
+        color: METRIC_COLORS['Untracked'],
+        metricNames: ['email_untracked'],
+    },
+    email_suspended: {
+        name: 'Suspended',
+        description:
+            'Total number of emails that were not sent because email sending is suspended for this project. Contact support to get sending re-enabled.',
+        color: METRIC_COLORS['Suspended'],
+        metricNames: ['email_suspended'],
     },
 }
 
@@ -241,6 +337,13 @@ export const WORKFLOW_PUSH_METRICS: Record<
         color: METRIC_COLORS['Failed'],
         metricNames: ['push_failed'],
     },
+    push_opened: {
+        name: 'Opened',
+        description:
+            'Total number of push notifications a recipient opened, captured by the mobile SDK when the user taps the notification. Requires the SDK open-tracking integration in your app.',
+        color: METRIC_COLORS['Opened'],
+        metricNames: ['push_opened'],
+    },
 }
 
 // How each drillable email metric maps onto the Invocations tab. Each SES event also writes a
@@ -256,6 +359,8 @@ export const EMAIL_METRIC_INVOCATION_FILTERS: Partial<
     // MX-validation skips log "Skipping send: …" at INFO (see HogFunctionHandler in the plugin server).
     email_bounce_prevented: { search: 'Skipping send', levels: ['INFO'] },
     email_blocked: { search: 'Complaint', levels: ['WARN', 'ERROR'] },
+    // Suspension skips log "Skipping send: email sending is suspended …" at WARN (EmailService).
+    email_suspended: { search: 'Skipping send', levels: ['WARN'] },
 }
 
 // Build the router search params that point the Invocations tab at the runs behind the given email
@@ -292,10 +397,11 @@ const EMAIL_METRICS: EmailMetric[] = [
     'email_bounced',
     'email_bounce_prevented',
     'email_blocked',
-    'email_spam',
+    'email_untracked',
+    'email_suspended',
 ]
 
-const PUSH_METRICS: PushMetric[] = ['push_sent', 'push_skipped', 'push_failed']
+const PUSH_METRICS: PushMetric[] = ['push_sent', 'push_skipped', 'push_failed', 'push_opened']
 
 export interface WorkflowMetricsSummaryLogicProps {
     logicKey: string
@@ -342,6 +448,7 @@ export interface workflowMetricsSummaryLogicValues {
             message_category_type?: 'marketing' | 'transactional' | undefined
             template_id: 'template-email'
             template_uuid?: string | undefined
+            tracking_enabled?: boolean | undefined
         }
         created_at?: number | undefined
         description: string
@@ -374,6 +481,8 @@ export interface workflowMetricsSummaryLogicValues {
         type: 'function_email'
         updated_at?: number | undefined
     } & Record<string, unknown>)[]
+    emailLinkTotalsByActionId: Record<string, EmailLinkRow[]>
+    emailLinkTotalsByActionIdLoading: boolean
     emailMetricsRows: EmailMetricRow[]
     emailTotalsByActionId: Record<string, Partial<Record<EmailMetric, number>>>
     emailTotalsByActionIdLoading: boolean
@@ -481,6 +590,21 @@ export interface workflowMetricsSummaryLogicActions {
         }
         payload?: any
     }
+    loadEmailLinkTotals: (_: any) => any
+    loadEmailLinkTotalsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadEmailLinkTotalsSuccess: (
+        emailLinkTotalsByActionId: Record<string, EmailLinkRow[]>,
+        payload?: any
+    ) => {
+        emailLinkTotalsByActionId: Record<string, EmailLinkRow[]>
+        payload?: any
+    }
     loadEmailTotals: (_: any) => any
     loadEmailTotalsFailure: (
         error: string,
@@ -549,6 +673,7 @@ export interface workflowMetricsSummaryLogicMeta {
                 message_category_type?: 'marketing' | 'transactional' | undefined
                 template_id: 'template-email'
                 template_uuid?: string | undefined
+                tracking_enabled?: boolean | undefined
             }
             created_at?: number | undefined
             description: string
@@ -647,7 +772,7 @@ export interface workflowMetricsSummaryLogicMeta {
                 dateFrom: Dayjs
                 dateTo: Dayjs
                 diffMs: number
-            }, // appMetricsLogic
+            },
             arg: string
         ) => string
         workflowSummaryTrends: (
@@ -657,7 +782,7 @@ export interface workflowMetricsSummaryLogicMeta {
             getCompletedSingleTrendSeries: (
                 name: string,
                 previousPeriod?: boolean
-            ) => AppMetricsTimeSeriesResponse | null, // appMetricsLogic
+            ) => AppMetricsTimeSeriesResponse | null,
             messagingChannels: {
                 hasEmail: boolean
                 hasPush: boolean
@@ -681,6 +806,7 @@ export interface workflowMetricsSummaryLogicMeta {
                     message_category_type?: 'marketing' | 'transactional' | undefined
                     template_id: 'template-email'
                     template_uuid?: string | undefined
+                    tracking_enabled?: boolean | undefined
                 }
                 created_at?: number | undefined
                 description: string
@@ -833,6 +959,29 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
                     await breakpoint(10)
 
                     return mapEmailMetricsToActions(totalsResponse)
+                },
+            },
+        ],
+        emailLinkTotalsByActionId: [
+            {} as Record<string, EmailLinkRow[]>,
+            {
+                loadEmailLinkTotals: async (_, breakpoint) => {
+                    await breakpoint(10)
+                    const dateRange = values.getDateRangeAbsolute()
+                    const request: AppMetricsTotalsRequest = {
+                        appSource: values.params.appSource,
+                        appSourceId: values.params.appSourceId,
+                        breakdownBy: ['instance_id'],
+                        metricName: [EMAIL_LINK_METRIC_NAME],
+                        limit: EMAIL_LINK_TOTALS_LIMIT,
+                        dateFrom: dateRange.dateFrom.toISOString(),
+                        dateTo: dateRange.dateTo.toISOString(),
+                    }
+
+                    const totalsResponse = await loadAppMetricsTotals(request, values.currentTeam?.timezone ?? 'UTC')
+                    await breakpoint(10)
+
+                    return parseEmailLinkTotals(totalsResponse)
                 },
             },
         ],
@@ -1214,6 +1363,7 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
 
     afterMount(({ actions }) => {
         actions.loadEmailTotals({})
+        actions.loadEmailLinkTotals({})
         actions.loadPushTotals({})
         actions.loadInProgressTotal({})
         actions.loadConversionStats({})
@@ -1231,6 +1381,7 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
                 dateTo: values.params.dateTo,
             })
             actions.loadEmailTotals({})
+            actions.loadEmailLinkTotals({})
             actions.loadPushTotals({})
             actions.loadConversionStats({})
         },
@@ -1308,18 +1459,22 @@ export function buildEmailMetricRows(
         const totals = emailTotalsByActionId[action.id] || {}
         const sent = totals.email_sent ?? 0
         const bounced = totals.email_bounced ?? 0
-        const blocked = totals.email_blocked ?? 0
+        const markedAsSpam = totals.email_blocked ?? 0
+        const untracked = totals.email_untracked ?? 0
         return {
             id: action.id,
             email: action.name,
-            // Fallback to calculating delivered as sent - bounced - blocked if email_delivered metric is not available, since we were not always collecting this metric
-            delivered: totals.email_delivered ?? Math.max(0, sent - bounced - blocked),
+            // Fallback to sent - bounced when email_delivered wasn't collected. Spam complaints are
+            // feedback-loop reports recipients send after delivery, so they are not subtracted here.
+            delivered: totals.email_delivered ?? Math.max(0, sent - bounced),
             sent,
             opened: totals.email_opened ?? 0,
             linkClicked: totals.email_link_clicked ?? 0,
             bounced,
             bouncePrevented: totals.email_bounce_prevented ?? 0,
-            blocked,
+            markedAsSpam,
+            untracked,
+            trackedSends: Math.max(0, sent - untracked),
         }
     })
 }
@@ -1336,6 +1491,7 @@ export function buildPushMetricRows(
             sent: totals.push_sent ?? 0,
             skipped: totals.push_skipped ?? 0,
             failed: totals.push_failed ?? 0,
+            opened: totals.push_opened ?? 0,
         }
     })
 }

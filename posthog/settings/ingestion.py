@@ -83,6 +83,15 @@ CAPTURE_V1_INTERNAL_RETRY_AFTER_CAP_SECONDS = get_from_env(
 # Chunk fan-out reuses CAPTURE_INTERNAL_MAX_WORKERS (above) for its thread pool.
 CAPTURE_INTERNAL_BATCH_CHUNK_SIZE = get_from_env("CAPTURE_INTERNAL_BATCH_CHUNK_SIZE", type_cast=int, default=200)
 
+# Inbound bounds for /report/. The endpoint is unauthenticated and expands each CSP violation in
+# the body into its own event (a reports+json bundle may also carry other Reporting API types,
+# which are accepted but ignored), so without these the generic upload limit
+# (DATA_UPLOAD_MAX_MEMORY_SIZE) is the only ceiling and one request can fan out into an unbounded
+# batch. A real browser report bundle is a handful of violations of a few KB each, so both caps sit
+# far above legitimate traffic.
+CSP_REPORT_MAX_BODY_BYTES = get_from_env("CSP_REPORT_MAX_BODY_BYTES", type_cast=int, default=256 * 1024)
+CSP_REPORT_MAX_REPORTS = get_from_env("CSP_REPORT_MAX_REPORTS", type_cast=int, default=100)
+
 # Buffered CSP capture-forward: when enabled, /report/ enqueues accepted reports to a
 # bounded in-process buffer and returns 204 immediately; a background thread batches
 # them to capture-rs. Keeps request-worker hold time independent of capture-rs latency,

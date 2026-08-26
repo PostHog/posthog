@@ -121,7 +121,13 @@ const BACKOFF_MAX_MS: Record<ScrubWaitReason, number> = {
  */
 const STUCK_AFTER_WAITED_MS = 120_000
 
-/** Full jitter, so a pod's eight in-flight images do not all re-post to a busy sidecar in lockstep. */
+/**
+ * Full jitter, so a pod's in-flight images do not all re-post to a busy sidecar in lockstep.
+ *
+ * How many that is comes from SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_CONCURRENCY, set alongside the
+ * sidecar's worker count in
+ * https://github.com/PostHog/charts/blob/main/argocd/ingestion/config/ingestion-sessionreplay-ml-image-scrub.yaml
+ */
 function backoffMs(attempt: number, reason: ScrubWaitReason, random: () => number): number {
     return Math.round(random() * Math.min(BACKOFF_MAX_MS[reason], BACKOFF_BASE_MS * 2 ** attempt))
 }

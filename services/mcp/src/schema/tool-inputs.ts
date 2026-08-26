@@ -2,8 +2,14 @@ import { z } from 'zod'
 
 // Relative (not `@/`) imports: this module is loaded by the tsx schema-generation
 // script, and both modules are pure constants/functions — no `.md` imports to choke on.
-import { PLAYBOOK_IDS, PLAYBOOK_URI_PREFIX } from '../tools/agentPlatform/playbookIds'
 import { normalizeParamAliases } from '../tools/cast-helpers'
+
+export const ChannelInstructionsBaseVersionSchema = z
+    .number()
+    .int()
+    .min(0)
+    .max(9007199254740991)
+    .describe('Version returned by channel-instructions-retrieve. Use 0 when the channel has no instructions.')
 
 export const BusinessKnowledgeUrlSourceCreateSchema = z.object({
     name: z
@@ -26,14 +32,6 @@ export const BusinessKnowledgeUrlSourceCreateSchema = z.object({
         ),
 })
 
-export const AgentResolveResourceSchema = z.object({
-    resource: z
-        .string()
-        .describe(
-            `Which builder playbook to fetch. Accepts either a bare id (one of: ${PLAYBOOK_IDS.join(', ')}) or its URI form (\`${PLAYBOOK_URI_PREFIX}<id>\`). A playbook is a markdown guide for using the agent-platform authoring tools well; it comes back with the live, scope-aware tool surface for the operation. Fetch the playbook rather than recalling tool names from memory.`
-        ),
-})
-
 export const ExternalDataJobsAfterSchema = z
     .string()
     .describe('ISO timestamp — only return jobs created after this date (e.g. "2025-01-01T00:00:00Z").')
@@ -49,7 +47,7 @@ export const ExternalDataJobsSchemasSchema = z
 export const ExternalDataSourcePayloadSchema = z
     .record(z.string(), z.unknown())
     .describe(
-        'Connection credentials for the source. Keys depend on source_type. For database sources: host, port, database, user, password, schema. For SaaS sources: api_key or OAuth fields. For source_type "Custom" (a user-defined REST API): `manifest_json` (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type declared in the manifest — `auth_token` (bearer), `auth_api_key` (api_key), or `auth_password` (http_basic); keep secrets in these auth_* keys, never inline in manifest_json. Use external-data-sources-wizard (pass source_type) to see required fields per source type. For the advanced external-data-sources-create flow, the per-table \'schemas\' array (built from external-data-sources-db-schema) also goes in here, e.g. {"host": ..., "password": ..., "schemas": [{"name": "orders", "should_sync": true, "sync_type": "incremental", "incremental_field": "updated_at", "incremental_field_type": "datetime"}]}. Do not pass unresolved {"secretRef": ...} objects — resolve secrets to real values first, or use a credential_id from data-warehouse-source-connect-link.'
+        'Connection credentials for the source. Keys depend on source_type. For database sources: host, port, database, user, password, schema. For SaaS sources: api_key or OAuth fields. For source_type "Custom" (a user-defined REST API): `manifest_json` (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type declared in the manifest — `auth_token` (bearer), `auth_api_key` (api_key), or `auth_password` (http_basic); keep secrets in these auth_* keys, never inline in manifest_json. Use external-data-sources-wizard (pass source_type) to see required fields per source type. For the advanced external-data-sources-create flow, the per-table \'schemas\' array (built from external-data-sources-db-schema) also goes in here, e.g. {"host": ..., "password": ..., "schemas": [{"name": "orders", "should_sync": true, "sync_type": "incremental", "incremental_field": "updated_at", "incremental_field_type": "datetime"}]}. That array is optional: omit it and every discovered table syncs with default settings. Do not pass unresolved {"secretRef": ...} objects — resolve secrets to real values first, or use a credential_id from data-warehouse-source-connect-link.'
     )
 
 export const ExternalDataSourceTypeSchema = z
@@ -482,7 +480,7 @@ export const PropertyDefinitionUpdateSchema = z.object({
 const PathCleaningAliasField = z
     .string()
     .describe(
-        'The human-readable replacement, e.g. "/users/<id>/profile". Use angle-bracket placeholders (<id>, <uuid>, <slug>) by convention. An empty string is valid — it deletes the matched text (e.g. to strip a "?page=N" fragment). Not a regex template — backreferences are not supported.'
+        'The replacement for the matched path, e.g. "/users/<id>/profile". Default to angle-bracket placeholders (<id>, <uuid>, <slug>) by convention. An empty string is valid: it deletes the matched text (e.g. to strip a "?page=N" fragment). The alias can also reference a regex capture group with ClickHouse replaceRegexpAll syntax ("\\1" to "\\9" for a group, "\\0" for the whole match), but a rule with capture groups is roughly 3x more expensive per row, so only use one when it collapses several near-identical rules into one.'
     )
 const PathCleaningRegexField = z
     .string()
@@ -592,7 +590,13 @@ export const ExecuteSQLSchema = z.object({
         .string()
         .optional()
         .describe(
-            'Optional id of an external data source (e.g. a Postgres, DuckDB, or MySQL direct-query connection). When set, runs the query against that source instead of the ClickHouse catalog. Use external-data-sources-list to discover available connection ids.'
+            "Optional id of a data warehouse connection (e.g. Postgres, MySQL, Snowflake, Redshift). When set, the query runs live against that source instead of the ClickHouse catalog, and may only reference that source's tables. Discover connection ids with external-data-sources-connections-list, then list a connection's tables by running `SELECT table_name FROM system.information_schema.tables` with that connectionId set."
+        ),
+    sendRawQuery: z
+        .boolean()
+        .optional()
+        .describe(
+            "Send `query` to the connection verbatim instead of compiling it from HogQL first. Use this for SQL only that connection's own engine understands, such as vendor-specific functions. Requires connectionId, and works only on a pure direct connection (access_method 'direct'), not on a synced source with live queries enabled. The connection is read-only and accepts a single statement."
         ),
 })
 
@@ -813,3 +817,41 @@ export const EmailTemplateDesignPatchSchema = z.object({
                 'otherwise the template is left unchanged. Reference blocks by id so you never resend the whole design.'
         ),
 })
+
+export const WorkflowActionEmailPatchSchema = z
+    .object({
+        id: z.string().describe('The workflow (HogFlow) id.'),
+        action_id: z.string().describe('Id of the function_email step whose email to edit.'),
+        operations: z
+            .array(EmailDesignPatchOperationSchema)
+            .min(1)
+            .optional()
+            .describe(
+                "Ordered edits applied atomically to the step's email design - the same operations as " +
+                    'workflows-patch-email-template. The result is re-rendered to HTML server-side, so the sent ' +
+                    'email always matches the patched design. Reference blocks by id (read them via workflows-get).'
+            ),
+        email_patch: z
+            .record(z.string(), z.unknown())
+            .optional()
+            .describe(
+                "Partial email fields deep-merged into the step's email (a null leaf deletes the key): subject, " +
+                    'preheader, text, to, from, replyTo, cc, bcc. The design is edited via operations, and html is ' +
+                    'always re-rendered from it.'
+            ),
+        base_updated_at: z
+            .string()
+            .optional()
+            .describe(
+                'Optimistic concurrency: the updated_at (or draft_updated_at) last loaded. If the stored workflow ' +
+                    'is newer, the patch is rejected with 409 instead of clobbering a concurrent edit.'
+            ),
+    })
+    .superRefine((data, ctx) => {
+        if (!data.operations?.length && !data.email_patch) {
+            ctx.addIssue({
+                code: 'custom',
+                message: 'Provide operations and/or email_patch.',
+            })
+        }
+    })

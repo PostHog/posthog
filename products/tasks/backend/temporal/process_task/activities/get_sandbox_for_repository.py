@@ -7,6 +7,7 @@ from django.utils import timezone
 
 from temporalio import activity
 
+from posthog.dataclasses import frozen
 from posthog.models.user_integration import ReauthorizationRequired
 from posthog.temporal.common.utils import asyncify
 
@@ -27,10 +28,21 @@ from products.tasks.backend.logic.services.sandbox import (
     SandboxConfig,
     SandboxTemplate,
     parse_sandbox_repo_mount_map,
+    workload_for_origin_product,
 )
-from products.tasks.backend.logic.services.sandbox_usage import open_sandbox_session
+from products.tasks.backend.logic.services.sandbox_usage import (
+    measure_sandbox_billed_cpu_usage,
+    measure_sandbox_cpu_usage,
+    open_sandbox_session,
+)
 from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
-from products.tasks.backend.temporal.metrics import StepTimer, increment_snapshot_restore, increment_snapshot_usage
+from products.tasks.backend.temporal.metrics import (
+    StepTimer,
+    increment_snapshot_restore,
+    increment_snapshot_usage,
+    modal_sandbox_backend_label,
+    sandbox_runtime_label,
+)
 from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 from products.tasks.backend.temporal.process_task.utils import (
@@ -41,6 +53,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_sandbox_snapshot_metadata,
     get_task_run_credential_user,
     parse_run_state,
+    run_gateway_env_vars,
 )
 
 from .get_task_processing_context import TaskProcessingContext
@@ -96,18 +109,58 @@ def _emit_provisioning_diagnostics(ctx: TaskProcessingContext, sandbox: object) 
         emit_agent_log(ctx.run_id, "debug", f"Sandbox image build logs:\n{raw_excerpt}")
 
 
+def _build_environment_variables(
+    ctx: TaskProcessingContext, task: Task, github_token: str, access_token: str
+) -> dict[str, str]:
+    environment_variables = {
+        "POSTHOG_PERSONAL_API_KEY": access_token,
+        "POSTHOG_API_URL": get_sandbox_api_url(),
+        "POSTHOG_PROJECT_ID": str(ctx.team_id),
+        "JWT_PUBLIC_KEY": get_sandbox_jwt_public_key(),
+    }
+
+    if ctx.sandbox_environment_id:
+        sandbox_environment = ctx.get_sandbox_environment()
+        if sandbox_environment and sandbox_environment.environment_variables:
+            safe_vars, skipped_keys = filter_user_sandbox_env_vars(sandbox_environment.environment_variables)
+            environment_variables.update(safe_vars)
+
+            emit_agent_log(
+                ctx.run_id,
+                "debug",
+                f"Applied {len(safe_vars)} sandbox environment variable(s) from '{sandbox_environment.name}'",
+            )
+            if skipped_keys:
+                emit_agent_log(
+                    ctx.run_id,
+                    "debug",
+                    f"Skipped reserved/blocked sandbox environment variable keys from '{sandbox_environment.name}': {', '.join(sorted(skipped_keys))}",
+                )
+
+    if github_token:
+        environment_variables["GITHUB_TOKEN"] = github_token
+        environment_variables["GH_TOKEN"] = github_token
+
+    if settings.SANDBOX_LLM_GATEWAY_URL:
+        environment_variables["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
+
+    environment_variables.update(run_gateway_env_vars(ctx, task))
+    return environment_variables
+
+
 @dataclass
 class GetSandboxForRepositoryInput:
     context: TaskProcessingContext
 
 
-@dataclass
+@frozen
 class GetSandboxForRepositoryOutput:
     sandbox_id: str
     sandbox_url: str
     connect_token: str | None
     used_snapshot: bool
     should_create_snapshot: bool
+    jwt_kid: str | None = None
     agent_server_launched: bool = False
     boot_path: str = "classic"
     image_source: str | None = None
@@ -139,7 +192,11 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
         # Repo-setup snapshots come from default-base sandboxes; restoring one would drop the custom image.
         if has_repo and github_integration_id is not None and not ctx.custom_image_name:
             assert repository is not None
-            with StepTimer("snapshot_lookup") as snapshot_lookup_timer:
+            with StepTimer(
+                "snapshot_lookup",
+                origin_product=ctx.origin_product,
+                runtime=sandbox_runtime_label(ctx.use_modal_vm_sandbox),
+            ) as snapshot_lookup_timer:
                 snapshot = SandboxSnapshot.get_latest_snapshot_with_repos(github_integration_id, [repository])
                 used_snapshot = snapshot is not None
                 snapshot_lookup_timer.set_used_snapshot(used_snapshot)
@@ -207,38 +264,7 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
                 cause=e,
             )
 
-        environment_variables = {
-            "POSTHOG_PERSONAL_API_KEY": access_token,
-            "POSTHOG_API_URL": get_sandbox_api_url(),
-            "POSTHOG_PROJECT_ID": str(ctx.team_id),
-            "JWT_PUBLIC_KEY": get_sandbox_jwt_public_key(),
-        }
-
-        sandbox_environment = None
-        if ctx.sandbox_environment_id:
-            sandbox_environment = ctx.get_sandbox_environment()
-            if sandbox_environment and sandbox_environment.environment_variables:
-                safe_vars, skipped_keys = filter_user_sandbox_env_vars(sandbox_environment.environment_variables)
-                environment_variables.update(safe_vars)
-
-                emit_agent_log(
-                    ctx.run_id,
-                    "debug",
-                    f"Applied {len(safe_vars)} sandbox environment variable(s) from '{sandbox_environment.name}'",
-                )
-                if skipped_keys:
-                    emit_agent_log(
-                        ctx.run_id,
-                        "debug",
-                        f"Skipped reserved/blocked sandbox environment variable keys from '{sandbox_environment.name}': {', '.join(sorted(skipped_keys))}",
-                    )
-
-        if github_token:
-            environment_variables["GITHUB_TOKEN"] = github_token
-            environment_variables["GH_TOKEN"] = github_token
-
-        if settings.SANDBOX_LLM_GATEWAY_URL:
-            environment_variables["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
+        environment_variables = _build_environment_variables(ctx, task, github_token, access_token)
 
         environment_variables.update(get_git_identity_env_vars(task, ctx.state))
 
@@ -290,6 +316,7 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
         config = SandboxConfig(
             name=get_sandbox_name_for_task(ctx.task_id),
             template=SandboxTemplate.VM_BASE if use_vm_sandbox else SandboxTemplate.DEFAULT_BASE,
+            workload=workload_for_origin_product(ctx.origin_product),
             custom_image_name=custom_image_name,
             vm_runtime=use_vm_sandbox,
             environment_variables=environment_variables,
@@ -307,13 +334,28 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
             "debug",
             f"Provisioning sandbox from {image_source_label} (image build may take a few minutes on first run)",
         )
-        with StepTimer("sandbox_creation", used_snapshot=used_snapshot) as sandbox_creation_timer:
+        runtime = sandbox_runtime_label(use_vm_sandbox)
+        with StepTimer(
+            "sandbox_creation",
+            used_snapshot=used_snapshot,
+            origin_product=ctx.origin_product,
+            runtime=runtime,
+            sandbox_backend=modal_sandbox_backend_label(),
+        ) as sandbox_creation_timer:
             sandbox = Sandbox.create(config)
             # The provider's TTL clock starts here — the usage ledger anchors its
             # kill deadline on this boundary, not on when the row is opened below.
             sandbox_created_at = timezone.now()
             used_snapshot = bool((resume_snapshot_ext_id or snapshot) and sandbox.config.snapshot_restored)
             sandbox_creation_timer.set_used_snapshot(used_snapshot)
+        if not sandbox.start_cpu_billing_sampler():
+            activity.logger.warning("Failed to start sandbox CPU billing sampler", extra={"sandbox_id": sandbox.id})
+        if sandbox.config.image_fallback:
+            emit_agent_log(ctx.run_id, "warn", f"Sandbox image downgraded: {sandbox.config.image_fallback}")
+        if sandbox.launch_dev_stack_bootstrap():
+            emit_agent_log(
+                ctx.run_id, "debug", "Warming the prebaked dev stack in the background (compose host aliases + dockerd)"
+            )
         snapshot_outcome = "used" if used_snapshot else "fresh" if snapshot_source == "none" else "fallback"
         metrics_snapshot_kind = snapshot_kind if snapshot_source != "none" else "none"
         increment_snapshot_usage(used_snapshot, snapshot_source=snapshot_source, snapshot_kind=metrics_snapshot_kind)
@@ -333,7 +375,12 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
                 )
             else:
                 emit_agent_log(ctx.run_id, "debug", f"Cloning {repository} into sandbox")
-            with StepTimer("repository_clone", used_snapshot=used_snapshot):
+            with StepTimer(
+                "repository_clone",
+                used_snapshot=used_snapshot,
+                origin_product=ctx.origin_product,
+                runtime=runtime,
+            ):
                 clone_result = sandbox.clone_repository(repository, github_token=github_token, shallow=shallow)
             if clone_result.exit_code != 0:
                 sandbox.destroy()
@@ -377,21 +424,33 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
 
         credentials = sandbox.get_connect_credentials()
 
-        sandbox_state = {
-            "sandbox_id": sandbox.id,
-            "sandbox_url": credentials.url,
-            SANDBOX_JWT_STATE_KID_KEY: get_primary_sandbox_jwt_kid(),
-        }
-        if credentials.token:
-            sandbox_state["sandbox_connect_token"] = credentials.token
-        TaskRun.update_state_atomic(ctx.run_id, updates=sandbox_state)
-
-        # Best-effort usage-ledger row (swallows its own failures). Only after the
-        # sandbox is fully reachable, mirroring create_sandbox_for_repository: the
-        # failure paths above destroy the sandbox, and those must not enter the ledger.
-        open_sandbox_session(
-            run_id=ctx.run_id, sandbox_id=sandbox.id, config=sandbox.config, sandbox_created_at=sandbox_created_at
-        )
+        try:
+            sandbox_state = {
+                "sandbox_id": sandbox.id,
+                "sandbox_url": credentials.url,
+                SANDBOX_JWT_STATE_KID_KEY: get_primary_sandbox_jwt_kid(),
+            }
+            if credentials.token:
+                sandbox_state["sandbox_connect_token"] = credentials.token
+            TaskRun.update_state_atomic(ctx.run_id, updates=sandbox_state)
+            cpu_usage_attribution_usec, cpu_usage_attribution_measured_at = measure_sandbox_cpu_usage(sandbox)
+            billed_cpu_usage_attribution_usec = measure_sandbox_billed_cpu_usage(sandbox)
+            open_sandbox_session(
+                run_id=ctx.run_id,
+                sandbox_id=sandbox.id,
+                config=sandbox.config,
+                sandbox_created_at=sandbox_created_at,
+                cpu_usage_attribution_usec=cpu_usage_attribution_usec,
+                billed_cpu_usage_attribution_usec=billed_cpu_usage_attribution_usec,
+                cpu_usage_attribution_measured_at=cpu_usage_attribution_measured_at,
+                required=ctx.task_runtime == "pi",
+            )
+        except Exception:
+            try:
+                sandbox.destroy()
+            finally:
+                TaskRun.clear_sandbox_connection_state_atomic(ctx.run_id, sandbox.id)
+            raise
 
         activity.logger.info(f"Created sandbox {sandbox.id} (used_snapshot={used_snapshot})")
 

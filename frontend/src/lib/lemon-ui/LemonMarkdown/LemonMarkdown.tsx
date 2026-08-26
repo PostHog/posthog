@@ -2,7 +2,7 @@ import './LemonMarkdown.scss'
 
 import clsx from 'clsx'
 import React, { memo, useMemo } from 'react'
-import ReactMarkdown from 'react-markdown'
+import ReactMarkdown, { defaultUrlTransform } from 'react-markdown'
 import remarkBreaks from 'remark-breaks'
 import remarkGfm from 'remark-gfm'
 
@@ -13,6 +13,41 @@ import { isTrustedPostHogUrl } from 'lib/utils/trustedUrl'
 
 import { Link } from '../Link'
 import remarkMentions from './mention'
+
+/**
+ * Link target that places a chart inline in prose, e.g. `[Daily signups](chart:signups-drop)`.
+ * A link rather than a bespoke token so the same markdown degrades to a readable label in the
+ * renderers that can't draw charts (Slack, the desktop inbox).
+ */
+export const CHART_REF_PREFIX = 'chart:'
+
+// Matched against the id charset the backend enforces on `chart_id` (see `ChartArtefact` in
+// artefact_schemas.py). Anything outside it is not treated as a chart reference at all, so it stays
+// subject to the ordinary URL sanitizing rather than riding the `urlTransform` exemption below.
+const CHART_REF_TARGET = new RegExp(`^${CHART_REF_PREFIX}([a-z0-9][a-z0-9_-]*)$`)
+
+/** The chart id behind a `chart:` link target, or null when `href` is an ordinary link. */
+function chartRefId(href: unknown): string | null {
+    return typeof href === 'string' ? (CHART_REF_TARGET.exec(href)?.[1] ?? null) : null
+}
+
+/** Whether a paragraph's child node is a chart reference. */
+function isChartRefNode(node: any): boolean {
+    return node?.tagName === 'a' && chartRefId(node.properties?.href) !== null
+}
+
+/** Whether a paragraph's child node carries nothing a reader sees — whitespace or a line break. */
+function isBlankNode(node: any): boolean {
+    if (node?.type === 'text') {
+        return !String(node.value ?? '').trim()
+    }
+    return node?.tagName === 'br'
+}
+
+/** The rendered counterpart of `isBlankNode`: what survives into a side-by-side chart row. */
+function isChartRowChild(child: React.ReactNode): boolean {
+    return typeof child !== 'string' && (child as React.ReactElement)?.type !== 'br'
+}
 
 interface LemonMarkdownContainerProps {
     children: React.ReactNode
@@ -47,6 +82,15 @@ export interface LemonMarkdownProps {
      * that opt in (see `LemonMarkdownWithMermaid`).
      */
     renderMermaid?: (code: string) => React.ReactNode
+    /**
+     * Optional renderer for `chart:<id>` link targets (see `CHART_REF_PREFIX`). `sourceOffset` is
+     * where the reference starts in the markdown, so a caller that resolved placement from its own
+     * parse can tell one reference to an id from another. Returning null or undefined renders the
+     * link's own label as plain text, which is the fallback for an id the caller has no chart for.
+     * Omitting this prop renders every chart target as its label — never as a link, since `chart:`
+     * is a scheme no browser can follow.
+     */
+    renderChartRef?: (chartId: string, sourceOffset?: number) => React.ReactNode
 }
 
 const HEADING_TAGS = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'] as const
@@ -85,14 +129,25 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
     wrapCode = false,
     generateHeadingIds = false,
     renderMermaid,
+    renderChartRef,
 }: LemonMarkdownProps): JSX.Element {
     const components = useMemo(
         () => ({
-            a: ({ href, children }: any): JSX.Element => (
-                <Link to={href} target="_blank" targetBlankIcon disableDocsPanel={disableDocsRedirect}>
-                    {children}
-                </Link>
-            ),
+            a: ({ href, children, node }: any): JSX.Element => {
+                const chartId = chartRefId(href)
+                if (chartId !== null) {
+                    // Falls back to its own label as plain text: for a consumer that can't draw
+                    // charts at all, and for an id with no chart behind it (a typo, one deleted since
+                    // the summary was written, a repeat of a reference already drawn). Linking it
+                    // instead would point the reader at a scheme no browser can follow.
+                    return <>{renderChartRef?.(chartId, node?.position?.start?.offset) ?? children}</>
+                }
+                return (
+                    <Link to={href} target="_blank" targetBlankIcon disableDocsPanel={disableDocsRedirect}>
+                        {children}
+                    </Link>
+                )
+            },
             code: ({ className, children, node, ...rest }: any): JSX.Element => {
                 const languageMatch = /language-(\w+)/.exec(className || '')
                 const isBlock = node?.position?.start?.line !== node?.position?.end?.line || languageMatch
@@ -119,6 +174,40 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
                 // in the code component, so just pass children through.
                 return <>{children}</>
             },
+            ...(renderChartRef
+                ? {
+                      p: ({ children, node }: any): JSX.Element => {
+                          const siblings: any[] = node?.children ?? []
+                          const chartRefs = siblings.filter(isChartRefNode)
+                          // Only a paragraph that holds nothing but references gives up its `<p>`.
+                          // One that also carries prose keeps it: those words are a paragraph, and
+                          // dropping the tag leaves them as bare text the surrounding typography and
+                          // spacing no longer reach. Its reference renders as a label instead —
+                          // `resolveChartPlacements` draws that chart after the prose for the same
+                          // reason, so the two agree on which paragraphs can hold a chart.
+                          if (!siblings.every((n) => isChartRefNode(n) || isBlankNode(n)) || chartRefs.length === 0) {
+                              return <p>{children}</p>
+                          }
+                          // Two or more of them read as "these belong together", so lay them out as a
+                          // row that wraps back to a column once the column is too narrow to give
+                          // each one a readable width.
+                          if (chartRefs.length > 1) {
+                              return (
+                                  // Top-aligned rather than stretched: charts in a row can be
+                                  // different heights, and stretching pads the shorter one with a
+                                  // block of empty card.
+                                  <div className="flex flex-wrap items-start gap-3 [&>*]:flex-1 [&>*]:basis-64 [&>*]:min-w-0">
+                                      {React.Children.toArray(children).filter(isChartRowChild)}
+                                  </div>
+                              )
+                          }
+                          // A rendered chart is block-level, and a paragraph containing one would put a
+                          // <div> inside a <p>, which the browser closes early and reparents. Drop the
+                          // <p> for those paragraphs; the chart brings its own block spacing.
+                          return <>{children}</>
+                      },
+                  }
+                : {}),
             span: ({ className, ...props }: any): JSX.Element => {
                 if (className === 'ph-mention') {
                     return <RichContentMention id={Number(props['data-mention-id'])} />
@@ -180,7 +269,28 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
                     )
                   : {}),
         }),
-        [disableDocsRedirect, disableImages, lowKeyHeadings, wrapCode, generateHeadingIds, renderMermaid]
+        [
+            disableDocsRedirect,
+            disableImages,
+            lowKeyHeadings,
+            wrapCode,
+            generateHeadingIds,
+            renderMermaid,
+            renderChartRef,
+        ]
+    )
+
+    // `chart:` is not a protocol the default URL sanitizer knows, so it strips the href before the
+    // `a` override ever sees it — and an emptied href is what `Link` turns into a focusable
+    // target-blank stub that goes nowhere. Let the scheme through whether or not this caller can
+    // draw charts, so the `a` override can recognize the reference and render its label as text.
+    // Only on `href`: the same transform runs for an image `src`, where nothing downstream reads a
+    // chart reference, so `![x](chart:y)` would carry an unsanitized scheme into a broken image.
+    const urlTransform = useMemo(
+        () =>
+            (url: string, key: string): string =>
+                key === 'href' && chartRefId(url) !== null ? url : defaultUrlTransform(url),
+        []
     )
 
     // remark-breaks: a single newline becomes a line break, so prose authored without the arcane
@@ -188,7 +298,12 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
     // line breaks the author intended.
     return (
         /* eslint-disable-next-line react/forbid-elements */
-        <ReactMarkdown components={components} remarkPlugins={[remarkGfm, remarkBreaks, remarkMentions]} skipHtml>
+        <ReactMarkdown
+            components={components}
+            remarkPlugins={[remarkGfm, remarkBreaks, remarkMentions]}
+            urlTransform={urlTransform}
+            skipHtml
+        >
             {children}
         </ReactMarkdown>
     )
@@ -203,6 +318,7 @@ function LemonMarkdownComponent({
     wrapCode = false,
     generateHeadingIds = false,
     renderMermaid,
+    renderChartRef,
     className,
 }: LemonMarkdownProps): JSX.Element {
     return (
@@ -214,6 +330,7 @@ function LemonMarkdownComponent({
                 wrapCode={wrapCode}
                 generateHeadingIds={generateHeadingIds}
                 renderMermaid={renderMermaid}
+                renderChartRef={renderChartRef}
             >
                 {children}
             </LemonMarkdownRenderer>

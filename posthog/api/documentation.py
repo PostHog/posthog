@@ -22,6 +22,7 @@ from rest_framework.exceptions import PermissionDenied
 from posthog.models.entity import MathType
 from posthog.models.property import OperatorType, PropertyType
 from posthog.permissions import APIScopePermission
+from posthog.products import is_product_module
 
 from products.feature_flags.backend.types import PropertyFilterType
 
@@ -241,7 +242,18 @@ class StringPropertyFilterSerializer(_PropertyFilterBase):
         required=True,
     )
     operator = serializers.ChoiceField(
-        choices=["exact", "is_not", "icontains", "not_icontains", "regex", "not_regex"],
+        choices=[
+            "exact",
+            "is_not",
+            "icontains",
+            "not_icontains",
+            "starts_with",
+            "not_starts_with",
+            "ends_with",
+            "not_ends_with",
+            "regex",
+            "not_regex",
+        ],
         default="exact",
         required=False,
         help_text="String comparison operator.",
@@ -339,6 +351,10 @@ class FeatureFlagFilterPropertyGenericSchemaSerializer(_FeatureFlagFilterPropert
             "is_not",
             "icontains",
             "not_icontains",
+            "starts_with",
+            "not_starts_with",
+            "ends_with",
+            "not_ends_with",
             "regex",
             "not_regex",
             "gt",
@@ -684,7 +700,7 @@ _PROJECT_ENVS_FINAL_RE = re.compile(r"^/api/projects/[^/]+/environments/")
 
 def _get_product_from_module(module: str) -> str | None:
     """Extract product folder name from module path like 'products.batch_exports.backend.api'."""
-    if module.startswith("products."):
+    if is_product_module(module):
         parts = module.split(".")
         if len(parts) >= 2:
             return parts[1]
@@ -725,13 +741,25 @@ def preprocess_exclude_path_format(endpoints, **kwargs):
     projects_suffixes: set[tuple[str, str]] = set()
 
     for path, path_regex, method, callback in endpoints:
-        if getattr(callback.cls, "param_derived_from_user_current_team", None):
+        force_include = getattr(callback.cls, "force_include_in_api_docs", False)
+
+        if getattr(callback.cls, "param_derived_from_user_current_team", None) and not force_include:
+            # Root-router viewsets don't fit the /api/projects/{team_id}/... pattern; opt in via
+            # `force_include_in_api_docs = True` to surface in type-gen and MCP scaffolding.
             continue
-        if not hasattr(callback.cls, "scope_object") or getattr(callback.cls, "hide_api_docs", False):
+        has_scope_object = hasattr(callback.cls, "scope_object")
+        # A view with no scope_object is normally excluded - the schema is built around
+        # team/org-scoped resources. include_in_api_docs is the explicit opt-in for a
+        # deliberately unscoped view (e.g. a public, unauthenticated endpoint) that still
+        # wants to appear in the docs.
+        if not has_scope_object and not getattr(callback.cls, "include_in_api_docs", False):
             continue
-        scope = callback.cls.scope_object
-        if scope == "INTERNAL" and not include_internal:
+        if getattr(callback.cls, "hide_api_docs", False):
             continue
+        if has_scope_object:
+            scope = callback.cls.scope_object
+            if scope == "INTERNAL" and not include_internal:
+                continue
 
         included.append((path, path_regex, method, callback))
         suffix = _extract_root_suffix(_PROJECTS_PREFIX_RE, path)

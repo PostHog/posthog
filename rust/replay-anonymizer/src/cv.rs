@@ -11,6 +11,7 @@ use crate::context::Ctx;
 use crate::dom::{
     scrub_full_snapshot, scrub_mutation_adds, scrub_mutation_attributes, scrub_mutation_texts,
 };
+use crate::images;
 use crate::json::{as_array_mut, key, parse_untrusted, reject_if_too_deep, string_value};
 
 /// PostHog wire format: each gzip byte stored as its U+00XX codepoint (latin-1). Per-char is
@@ -49,9 +50,14 @@ fn decompress_string(ctx: &Ctx<'_>, s: &str) -> Result<(Vec<u8>, bool)> {
     Ok((out, was_zstd))
 }
 
-/// Compress a scrubbed cv payload, patching any deferred-image tokens first — after this the bytes
-/// are opaque to the final patch pass over the block lines.
-fn compress_bytes(ctx: &Ctx<'_>, json: &[u8]) -> Result<String> {
+/// The single way scrubbed bytes may become a compressed cv payload.
+///
+/// Compression is this payload's point of no return: afterwards the bytes are opaque to every
+/// later patch pass, so a deferred-image token still present here would ship as an image no
+/// reader can ever resolve (the token marker is random per process). Everything that re-emits a
+/// cv payload — this module and the byte walk — goes through here so the patch cannot be
+/// forgotten, and the check below fails the payload closed if it ever is.
+pub(crate) fn compress_scrubbed(ctx: &Ctx<'_>, json: &[u8]) -> Result<Vec<u8>> {
     let patched;
     let json = if ctx.has_pending_images() {
         patched = ctx.patch_pending_images(json.to_vec());
@@ -59,9 +65,14 @@ fn compress_bytes(ctx: &Ctx<'_>, json: &[u8]) -> Result<String> {
     } else {
         json
     };
-    Ok(bytes_to_latin1(
-        &compression::compress_cv(json).context("compress cv payload")?,
-    ))
+    if images::contains_token(json) {
+        bail!("unresolved image token in a cv payload about to compress");
+    }
+    compression::compress_cv(json).context("compress cv payload")
+}
+
+fn compress_bytes(ctx: &Ctx<'_>, json: &[u8]) -> Result<String> {
+    Ok(bytes_to_latin1(&compress_scrubbed(ctx, json)?))
 }
 
 fn compress_value(ctx: &Ctx<'_>, value: &Value<'_>) -> Result<String> {

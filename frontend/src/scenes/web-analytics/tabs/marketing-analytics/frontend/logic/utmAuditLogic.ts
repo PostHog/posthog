@@ -11,28 +11,24 @@ import {
     VALID_NATIVE_MARKETING_SOURCES,
 } from '~/queries/schema/schema-general'
 
+import type {
+    CampaignAuditResultApi,
+    UtmAlternativeSourceApi,
+    UtmIssueApi,
+    UtmIssueKindEnumApi,
+} from 'products/marketing_analytics/frontend/generated/api.schemas'
+
 import type { CurrencyCode } from '../../../../../../queries/schema/schema-general'
 import { similarityScore } from '../components/settings/stringSimilarity'
 import { marketingAnalyticsSettingsLogic } from './marketingAnalyticsSettingsLogic'
 import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from './marketingAnalyticsTilesLogic'
 
-export interface UtmIssue {
-    field: string
-    severity: 'error' | 'warning'
-    message: string
-}
-
-export interface CampaignAuditResult {
-    campaign_name: string
-    campaign_id: string
-    source_name: string
-    spend: number
-    clicks: number
-    impressions: number
-    has_utm_events: boolean
-    event_count: number
-    issues: UtmIssue[]
-}
+// Shapes come from the audit endpoint's serializers, so they're taken from the generated types
+// rather than restated here — the issue kinds in particular must not drift from the backend enum.
+export type UtmIssueKind = UtmIssueKindEnumApi
+export type UtmAlternativeSource = UtmAlternativeSourceApi
+export type UtmIssue = UtmIssueApi
+export type CampaignAuditResult = CampaignAuditResultApi
 
 export type MatchType = 'none' | 'auto' | 'mapped'
 

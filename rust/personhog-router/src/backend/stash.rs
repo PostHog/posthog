@@ -1,31 +1,44 @@
-//! Per-partition stash queue for the leader path.
+//! Per-partition stash for the leader path.
 //!
 //! During a partition handoff, the coordinator advances the handoff state
 //! through `Freezing → Draining → Warming → Complete`. From the moment
 //! the handoff is created (in `Freezing`) and until the routing table
 //! flips at `Complete`, routers buffer (stash) incoming leader-path
 //! requests — writes and strong reads alike — for that partition here.
-//! When `Complete` arrives the stashed requests are drained in arrival
-//! order to the new owner.
+//! When `Complete` arrives the stashed requests are drained to the new
+//! owner in per-key admission order.
 //!
 //! Stashing both request kinds gives the protocol two guarantees at once:
 //! no split-brain writes, and strong reads that stay read-your-write
 //! through the handoff — a read queued behind the write it must observe
 //! (per-key FIFO) drains after it, instead of racing ahead to the old
-//! owner's frozen cache. Every request that hits the router during the
-//! handoff window is either delivered in arrival order or fails fast with
-//! `UNAVAILABLE` once its per-request deadline expires (see
-//! `RouterStashHandler`).
+//! owner's frozen cache.
+//!
+//! Internally each partition holds a [`KeyedStash`] keyed by
+//! `(team_id, person_id)` — the leader's per-person serialization
+//! boundary. Entries are seq-stamped at admission and leave the stash
+//! only through a definitive outcome (delivered, or failed in a way the
+//! client was told about); an attempt that cannot finish — the target
+//! bounced it, the drain was paused or superseded — puts its entries
+//! back at their sequence positions, so a retry can never be overtaken
+//! by newer same-key work. Draining runs through a [`DrainSession`],
+//! which owns the take → complete/put-back lifecycle and the
+//! empty-queue eviction handshake.
 
-use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::Instant;
 
 use bytes::Bytes;
 use dashmap::DashMap;
 use http::HeaderMap;
+use keyed_stash::{Entry, KeyedStash};
 use tokio::sync::{oneshot, Mutex};
 use tonic::body::BoxBody;
+
+/// The leader's per-person serialization key: `(team_id, person_id)`.
+/// Per-key ordering is preserved from admission through drain; distinct
+/// keys carry no ordering relationship and may drain in parallel.
+pub type StashKey = (i64, i64);
 
 /// Fixed per-request overhead estimate that approximates the bookkeeping
 /// cost of holding a request in the queue (struct fields, oneshot
@@ -70,27 +83,50 @@ pub struct StashedRequest {
     /// The client's request headers, forwarded verbatim (the router stamps
     /// `x-partition` at forward time).
     pub headers: HeaderMap,
-    /// `(team_id, person_id)` — the leader's per-person serialization key,
-    /// used to preserve per-key ordering during drain.
-    pub key: (i64, i64),
+    /// The leader's per-person serialization key, used to preserve
+    /// per-key ordering during drain.
+    pub key: StashKey,
     pub reply: oneshot::Sender<http::Response<BoxBody>>,
-    /// Wall-clock time the request was enqueued. Used to record stash-wait
-    /// histograms when drain forwards the request, giving operators
-    /// visibility into how long callers spent parked during a handoff.
+    /// Wall-clock time the request was enqueued. Used to enforce the
+    /// per-request drain deadline and to record stash-wait histograms,
+    /// giving operators visibility into how long callers spent parked
+    /// during a handoff.
     pub enqueued_at: Instant,
+    /// Set when a delivery attempt failed at the transport layer after
+    /// the request may already have been sent: the leader might have
+    /// applied it without us seeing the response. Re-forwarding such a
+    /// request is an at-least-once replay — covered by the redelivery
+    /// contract in `personhog-leader`'s README — and is counted so
+    /// operators can see how often it happens.
+    pub possibly_applied: bool,
 }
 
-/// Inner queue plus running byte total. Tracked together so the byte
-/// count stays consistent with the queue contents.
+impl StashedRequest {
+    /// The size this request counts against the byte bound. Callers
+    /// recording a definitive outcome pass this back to
+    /// [`DrainSession::complete`] so the bound releases exactly what
+    /// admission charged.
+    pub fn approximate_size(&self) -> usize {
+        approximate_size(&self.frame)
+    }
+}
+
+/// Inner keyed queue plus running admission totals. `messages` and
+/// `bytes` count entries from admission until a definitive outcome —
+/// including entries taken for an in-flight attempt, which still hold
+/// their memory — so the bounds reflect what the router is actually
+/// holding, not just what is queued.
 struct StashQueue {
-    requests: VecDeque<StashedRequest>,
+    queue: KeyedStash<StashKey, StashedRequest>,
+    messages: usize,
     bytes: usize,
 }
 
 impl StashQueue {
     fn new() -> Self {
         Self {
-            requests: VecDeque::new(),
+            queue: KeyedStash::new(),
+            messages: 0,
             bytes: 0,
         }
     }
@@ -99,13 +135,13 @@ impl StashQueue {
 struct PartitionStash {
     max_messages: usize,
     max_bytes: usize,
-    /// `Some(queue)` while alive; `None` once `drain` has both taken
-    /// the queue contents and evicted this entry from the dashmap —
-    /// both inside the same critical section. The `None` state therefore
-    /// doubles as a tombstone: a concurrent `begin_stash` that races
-    /// `drain` and observes `None` knows the dashmap entry is already
-    /// gone and that the next `get_or_create` will produce a fresh
-    /// entry rather than re-grab this doomed `Arc`.
+    /// `Some(queue)` while alive; `None` once a drain session has both
+    /// observed the queue fully settled and evicted this entry from the
+    /// dashmap — both inside the same critical section. The `None` state
+    /// therefore doubles as a tombstone: a concurrent `begin_stash` that
+    /// races the eviction and observes `None` knows the dashmap entry is
+    /// already gone and that the next `get_or_create` will produce a
+    /// fresh entry rather than re-grab this doomed `Arc`.
     queue: Mutex<Option<StashQueue>>,
 }
 
@@ -133,6 +169,14 @@ pub enum StashDecision {
     Rejected,
 }
 
+/// One key's front run taken for a delivery attempt: every entry queued
+/// for the key at take time, in admission order. Entries are in-attempt
+/// until each is completed or put back through the session.
+pub struct TakenKeyRun {
+    pub key: StashKey,
+    pub entries: Vec<Entry<StashedRequest>>,
+}
+
 /// Shared stash table. Cheap to clone (holds an `Arc`).
 #[derive(Clone)]
 pub struct StashTable {
@@ -150,6 +194,14 @@ impl StashTable {
         }
     }
 
+    /// Whether the partition currently has a stash entry — a live
+    /// window, or backlog a yielded drain left parked. The entry only
+    /// disappears through drain's settle-and-evict, so its existence is
+    /// exactly "the stash lifecycle for this partition is not closed".
+    pub fn has_entry(&self, partition: u32) -> bool {
+        self.inner.contains_key(&partition)
+    }
+
     fn get_or_create(&self, partition: u32) -> Arc<PartitionStash> {
         self.inner
             .entry(partition)
@@ -162,20 +214,20 @@ impl StashTable {
     ///
     /// Each iteration is a single attempt to bind to a live dashmap
     /// entry. The loop terminates because the only way to observe
-    /// `None` is to race a `drain` that evicted the entry inside its
-    /// queue lock — meaning the next `get_or_create` will create a
-    /// fresh entry rather than re-grab the doomed `Arc`. In production
-    /// the routing-table layer awaits `drain` before issuing the next
-    /// `begin_stash` for the same partition, so this loop runs at most
-    /// twice.
+    /// `None` is to race a drain session's eviction, which removes the
+    /// entry inside its queue lock — meaning the next `get_or_create`
+    /// will create a fresh entry rather than re-grab the doomed `Arc`.
+    /// In production the routing-table layer awaits the drain before
+    /// issuing the next `begin_stash` for the same partition, so this
+    /// loop runs at most twice.
     pub async fn begin_stash(&self, partition: u32) {
         while !self.try_acquire_alive_entry(partition).await {}
     }
 
     /// One attempt to bind to the live dashmap entry for `partition`.
     /// Returns `true` if we successfully observed a `Some` queue (the
-    /// entry is alive and ready for enqueues); `false` if we raced a
-    /// `drain` that left a tombstoned `None`, in which case the caller
+    /// entry is alive and ready for enqueues); `false` if we raced an
+    /// eviction that left a tombstoned `None`, in which case the caller
     /// should retry to pick up the fresh entry.
     async fn try_acquire_alive_entry(&self, partition: u32) -> bool {
         let stash = self.get_or_create(partition);
@@ -189,21 +241,27 @@ impl StashTable {
     /// the request actually parks — the steady state (no handoff in
     /// progress) returns `Forward` from the dashmap miss without copying
     /// anything.
+    ///
+    /// `possibly_applied` carries the direct path's transport-failure mark
+    /// into the parked entry: a request that bounced at the transport
+    /// layer before parking may already have reached the leader, and the
+    /// drain's eventual re-forward of it must count as a replay.
     pub async fn enqueue_or_forward(
         &self,
         partition: u32,
         method: &'static str,
         frame: &Bytes,
         headers: &HeaderMap,
-        key: (i64, i64),
+        key: StashKey,
+        possibly_applied: bool,
     ) -> StashDecision {
         let stash = match self.inner.get(&partition) {
             Some(entry) => Arc::clone(entry.value()),
             None => return StashDecision::Forward,
         };
         let mut guard = stash.queue.lock().await;
-        // `None` here means a concurrent `drain` already took this stash's
-        // queue and removed the dashmap entry. We arrived holding an Arc to
+        // `None` here means a drain session already settled this stash
+        // and removed the dashmap entry. We arrived holding an Arc to
         // the orphaned PartitionStash. Returning Forward routes via the
         // normal path; the partition is no longer stashing.
         let Some(queue) = guard.as_mut() else {
@@ -212,7 +270,7 @@ impl StashTable {
 
         let request_size = approximate_size(frame);
 
-        if queue.requests.len() >= stash.max_messages {
+        if queue.messages >= stash.max_messages {
             metrics::counter!(
                 "personhog_router_stash_rejected_total",
                 "cause" => RejectCause::MaxMessages.label()
@@ -230,89 +288,163 @@ impl StashTable {
         }
 
         let (tx, rx) = oneshot::channel();
-        queue.requests.push_back(StashedRequest {
-            method,
-            frame: frame.clone(),
-            headers: headers.clone(),
+        queue.queue.push(
             key,
-            reply: tx,
-            enqueued_at: Instant::now(),
-        });
+            StashedRequest {
+                method,
+                frame: frame.clone(),
+                headers: headers.clone(),
+                key,
+                reply: tx,
+                enqueued_at: Instant::now(),
+                possibly_applied,
+            },
+        );
+        queue.messages += 1;
         queue.bytes += request_size;
         metrics::counter!("personhog_router_stash_enqueued_total").increment(1);
+        // Occupancy gauges count a parked entry until its outcome
+        // resolves, so in-attempt entries still occupy capacity.
+        metrics::gauge!("personhog_router_stash_queued_messages").increment(1.0);
+        metrics::gauge!("personhog_router_stash_queued_bytes").increment(request_size as f64);
         StashDecision::Stashed(rx)
     }
 
-    /// Drain stashed requests for `partition` by applying `forward_batch`
-    /// to each batch the loop dequeues, in FIFO order. Loops until the
-    /// queue is empty under the lock, then evicts the dashmap entry.
+    /// Open a drain session for `partition`, or `None` when nothing is
+    /// stashed. The session pins the partition's stash so every take,
+    /// complete, and put-back lands on the same queue the entries came
+    /// from, even across the eviction handshake.
     ///
-    /// Each iteration takes the current queue contents into a local
-    /// batch under the lock and releases the lock before applying
-    /// `forward_batch`. Requests that arrive *during* a forward
-    /// iteration land on the same queue (the dashmap entry is still
-    /// present, so `enqueue_or_forward` enqueues them as usual). The
-    /// next loop iteration picks them up. The drain only exits when
-    /// it observes an empty queue under the lock — at which point no
-    /// further arrival can sneak in before the dashmap eviction in
-    /// the same critical section.
-    ///
-    /// This preserves arrival order across the cutover: any request
-    /// stashed before drain finishes is forwarded before drain
-    /// returns. Without this loop pattern, drain would take a single
-    /// snapshot, evict the dashmap entry, and let new requests bypass
-    /// the stash via the live routing path — letting them race ahead
-    /// of older requests still being replayed and corrupting per-key
-    /// ordering at the leader.
-    ///
-    /// Yielding whole batches (rather than one request at a time)
-    /// gives callers the freedom to forward in parallel within a
-    /// batch — for example, by grouping by leader-side serialization
-    /// key and fanning out across keys. Sequential within a key is
-    /// still required to preserve per-key ordering at the leader.
-    ///
-    /// Convergence is workload-dependent: under sustained
-    /// arrival-rate ≥ forward-rate the loop runs as long as load
-    /// continues. Per-request bounded latency is the caller's
-    /// responsibility (e.g. a deadline check inside `forward_batch`
-    /// that fail-fasts past-deadline requests with `UNAVAILABLE`).
-    pub async fn drain<F, Fut>(&self, partition: u32, mut forward_batch: F)
-    where
-        F: FnMut(Vec<StashedRequest>) -> Fut,
-        Fut: std::future::Future<Output = ()>,
-    {
-        let stash = match self.inner.get(&partition) {
-            Some(entry) => Arc::clone(entry.value()),
-            None => return,
+    /// The drain-lane layer serializes drains per partition, so at most
+    /// one session is active for a partition at a time; the session API
+    /// relies on that for its eviction reasoning but tolerates a racing
+    /// `begin_stash` (see [`DrainSession::finish_if_settled`]).
+    pub fn drain_session(&self, partition: u32) -> Option<DrainSession> {
+        let stash = Arc::clone(self.inner.get(&partition)?.value());
+        Some(DrainSession {
+            inner: Arc::clone(&self.inner),
+            partition,
+            stash,
+        })
+    }
+}
+
+/// The take → complete/put-back lifecycle for one partition's drain.
+///
+/// A drain repeatedly takes per-key front runs, attempts delivery, and
+/// records exactly one of two outcomes per entry:
+///
+/// * [`complete`](Self::complete) — the entry's client got a definitive
+///   answer (the forwarded response, or a terminal error). The entry is
+///   gone and its admission charge is released.
+/// * [`put_back`](Self::put_back) — the attempt was aborted before any
+///   outcome existed (the target bounced it, the drain was paused or
+///   superseded). The entries re-enter at their sequence positions,
+///   ahead of everything admitted after them.
+///
+/// When a take finds no backlog, [`finish_if_settled`](Self::finish_if_settled)
+/// closes the drain: if the queue is fully settled it tombstones the
+/// queue and evicts the dashmap entry in one critical section, so any
+/// racing `enqueue_or_forward` either pushes before the settle check
+/// (forcing the caller through another take) or observes the entry
+/// already gone and forwards live.
+///
+/// Requests that arrive *during* a session land on the same queue (the
+/// dashmap entry stays present until the settle eviction) and are picked
+/// up by a later take, preserving per-key admission order across the
+/// cutover.
+pub struct DrainSession {
+    inner: Arc<DashMap<u32, Arc<PartitionStash>>>,
+    partition: u32,
+    stash: Arc<PartitionStash>,
+}
+
+impl DrainSession {
+    /// Take the front run of up to `max_keys` keys for a delivery
+    /// attempt. Returns an empty vec when no backlog is queued. Every
+    /// returned entry is in-attempt until completed or put back;
+    /// dropping entries instead would lose their clients' replies and
+    /// permanently block the queue from settling.
+    pub async fn take_for_attempt(&self, max_keys: usize) -> Vec<TakenKeyRun> {
+        let mut guard = self.stash.queue.lock().await;
+        let Some(q) = guard.as_mut() else {
+            return Vec::new();
         };
+        let keys: Vec<StashKey> = q
+            .queue
+            .keys_with_backlog()
+            .take(max_keys)
+            .copied()
+            .collect();
+        keys.into_iter()
+            .map(|key| TakenKeyRun {
+                entries: q.queue.take_front(&key, usize::MAX),
+                key,
+            })
+            .collect()
+    }
 
-        loop {
-            let batch = {
-                let mut guard = stash.queue.lock().await;
-                let Some(q) = guard.as_mut() else {
-                    // Already drained — the dashmap entry was removed
-                    // by a concurrent caller. Nothing to do.
-                    return;
-                };
-                if q.requests.is_empty() {
-                    // Queue is empty under the lock. Atomically
-                    // tombstone the queue and evict the dashmap entry
-                    // — both inside this critical section — so any
-                    // racing `enqueue_or_forward` either pushes
-                    // before our lock acquire (forcing us through one
-                    // more loop iteration) or observes the entry
-                    // already gone afterwards.
-                    *guard = None;
-                    self.inner.remove(&partition);
-                    return;
-                }
-                let taken: Vec<StashedRequest> =
-                    std::mem::take(&mut q.requests).into_iter().collect();
-                q.bytes = 0;
-                taken
-            };
+    /// Record a definitive outcome for one in-attempt entry of `key`,
+    /// releasing `size` bytes (the entry's `approximate_size`) from the
+    /// admission bounds.
+    pub async fn complete(&self, key: StashKey, size: usize) {
+        let mut guard = self.stash.queue.lock().await;
+        // In-attempt entries block the settle eviction and this session
+        // is the only writer of outcomes, so the queue cannot have been
+        // tombstoned while an attempt was outstanding.
+        let Some(q) = guard.as_mut() else {
+            debug_assert!(false, "complete() on a tombstoned stash");
+            return;
+        };
+        q.queue.complete(&key);
+        q.messages -= 1;
+        q.bytes = q.bytes.saturating_sub(size);
+        metrics::gauge!("personhog_router_stash_queued_messages").decrement(1.0);
+        metrics::gauge!("personhog_router_stash_queued_bytes").decrement(size as f64);
+    }
 
-            forward_batch(batch).await;
+    /// Return in-attempt entries whose delivery was aborted before any
+    /// outcome existed. They re-enter at their sequence positions and
+    /// keep their admission charges; the next attempt sees them first,
+    /// in order.
+    pub async fn put_back(&self, key: StashKey, entries: Vec<Entry<StashedRequest>>) {
+        if entries.is_empty() {
+            return;
+        }
+        let mut guard = self.stash.queue.lock().await;
+        // Same reasoning as `complete`: outstanding in-attempt entries
+        // make the tombstone unreachable.
+        let Some(q) = guard.as_mut() else {
+            debug_assert!(false, "put_back() on a tombstoned stash");
+            return;
+        };
+        q.queue.put_back(&key, entries);
+    }
+
+    /// Close the session if the queue is fully settled — no queued
+    /// entries and no in-attempt entries. On success the queue is
+    /// tombstoned and the dashmap entry evicted inside the same critical
+    /// section, and `true` is returned: the partition has left the stash
+    /// path and new requests forward live. Returns `false` when an
+    /// arrival raced in since the last take; the caller should take
+    /// again.
+    ///
+    /// The eviction removes the entry only if it still holds this
+    /// session's stash, so a `begin_stash` that already replaced a
+    /// tombstoned entry with a fresh one can never have its new queue
+    /// evicted from under it.
+    pub async fn finish_if_settled(&self) -> bool {
+        let mut guard = self.stash.queue.lock().await;
+        match guard.as_ref() {
+            // Already tombstoned — a prior settle got there first.
+            None => true,
+            Some(q) if q.queue.is_empty() => {
+                *guard = None;
+                self.inner
+                    .remove_if(&self.partition, |_, v| Arc::ptr_eq(v, &self.stash));
+                true
+            }
+            Some(_) => false,
         }
     }
 }
@@ -323,30 +455,31 @@ mod tests {
     use http::HeaderValue;
     use http_body_util::{BodyExt, Empty};
 
-    /// Collect drained requests into a `Vec` via the forward-batch
-    /// closure. Mirrors the original return-VecDeque API for tests
-    /// that just want to inspect what was drained without exercising
-    /// the per-batch fan-out semantics.
-    ///
-    /// The outer closure is `move` so the Arc clone it owns is
-    /// dropped when drain returns; otherwise it would survive past
-    /// `try_unwrap` and inflate the refcount.
+    /// Drain everything with a trivial always-succeeds forwarder,
+    /// collecting the requests in delivery order. Mirrors the handler's
+    /// session loop: take, complete each entry, settle when no backlog
+    /// remains.
     async fn drain_to_vec(table: &StashTable, partition: u32) -> Vec<StashedRequest> {
-        let collected = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        let sink = std::sync::Arc::clone(&collected);
-        table
-            .drain(partition, move |batch| {
-                let sink = std::sync::Arc::clone(&sink);
-                async move {
-                    sink.lock().unwrap().extend(batch);
+        let Some(session) = table.drain_session(partition) else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        loop {
+            let taken = session.take_for_attempt(usize::MAX).await;
+            if taken.is_empty() {
+                if session.finish_if_settled().await {
+                    return out;
                 }
-            })
-            .await;
-        std::sync::Arc::try_unwrap(collected)
-            .ok()
-            .expect("drain finished — outer closure should have dropped its sink clone")
-            .into_inner()
-            .unwrap()
+                continue;
+            }
+            for run in taken {
+                for entry in run.entries {
+                    let size = entry.item.approximate_size();
+                    out.push(entry.item);
+                    session.complete(run.key, size).await;
+                }
+            }
+        }
     }
 
     /// Enqueue a minimal stashed write for `(team_id = 1, person_id)`.
@@ -358,6 +491,7 @@ mod tests {
                 &Bytes::from_static(b"x"),
                 &HeaderMap::new(),
                 (1, person_id),
+                false,
             )
             .await
     }
@@ -377,6 +511,7 @@ mod tests {
                 &Bytes::from(vec![0u8; payload]),
                 &HeaderMap::new(),
                 (1, person_id),
+                false,
             )
             .await
     }
@@ -398,23 +533,26 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn begin_then_enqueue_then_drain_preserves_fifo() {
+    async fn begin_then_enqueue_then_drain_preserves_per_key_order() {
         let table = StashTable::with_bounds(usize::MAX, usize::MAX);
         table.begin_stash(0).await;
 
-        let _rx1 = match enqueue(&table, 0, 1).await {
+        // Same key, distinguishable frames — ordering is a per-key
+        // contract, so the assertion must not depend on cross-key
+        // iteration order.
+        let _rx1 = match enqueue_sized(&table, 0, 1, 1).await {
             StashDecision::Stashed(rx) => rx,
             _ => panic!("expected Stashed"),
         };
-        let _rx2 = match enqueue(&table, 0, 2).await {
+        let _rx2 = match enqueue_sized(&table, 0, 1, 2).await {
             StashDecision::Stashed(rx) => rx,
             _ => panic!("expected Stashed"),
         };
 
         let drained = drain_to_vec(&table, 0).await;
         assert_eq!(drained.len(), 2);
-        let ids: Vec<i64> = drained.iter().map(|s| s.key.1).collect();
-        assert_eq!(ids, vec![1, 2]);
+        let frame_lens: Vec<usize> = drained.iter().map(|s| s.frame.len()).collect();
+        assert_eq!(frame_lens, vec![1, 2]);
 
         // After drain, new requests forward.
         match enqueue(&table, 0, 3).await {
@@ -423,10 +561,10 @@ mod tests {
         }
     }
 
-    /// Drain must remove the dashmap entry so subsequent steady-state
-    /// requests for that partition can short-circuit on `dashmap.get`
-    /// returning `None`, avoiding the per-request Mutex lock that
-    /// `enqueue_or_forward` would otherwise take.
+    /// A settled drain must remove the dashmap entry so subsequent
+    /// steady-state requests for that partition can short-circuit on
+    /// `dashmap.get` returning `None`, avoiding the per-request Mutex
+    /// lock that `enqueue_or_forward` would otherwise take.
     #[tokio::test]
     async fn drain_removes_dashmap_entry() {
         let table = StashTable::with_bounds(usize::MAX, usize::MAX);
@@ -438,8 +576,79 @@ mod tests {
         drain_to_vec(&table, 0).await;
         assert!(
             !table.inner.contains_key(&0),
-            "drain must remove the entry so future requests skip the lock path"
+            "settle must remove the entry so future requests skip the lock path"
         );
+    }
+
+    /// An aborted attempt puts its entries back and leaves the entry
+    /// live: whatever is parked belongs to the successor drain, and new
+    /// requests must keep stashing in the meantime. Evicting instead
+    /// would let requests bypass the stash and race ahead of the parked
+    /// backlog.
+    #[tokio::test]
+    async fn put_back_leaves_queue_live_for_successor() {
+        let table = StashTable::with_bounds(usize::MAX, usize::MAX);
+        table.begin_stash(0).await;
+        let _rx = match enqueue(&table, 0, 1).await {
+            StashDecision::Stashed(rx) => rx,
+            _ => panic!("expected Stashed"),
+        };
+
+        // An attempt starts, then aborts (pause/supersession/bounce) and
+        // puts everything back without settling.
+        let session = table.drain_session(0).expect("entry must be live");
+        let mut taken = session.take_for_attempt(usize::MAX).await;
+        assert_eq!(taken.len(), 1);
+        let run = taken.remove(0);
+        session.put_back(run.key, run.entries).await;
+        drop(session);
+        assert!(
+            table.inner.contains_key(&0),
+            "aborted drain must leave the entry live"
+        );
+
+        // Requests keep parking, and a successor drain collects everything.
+        let _rx2 = match enqueue(&table, 0, 2).await {
+            StashDecision::Stashed(rx) => rx,
+            _ => panic!("expected Stashed while entry is live"),
+        };
+        let drained = drain_to_vec(&table, 0).await;
+        assert_eq!(
+            drained.len(),
+            2,
+            "successor drain must see the full backlog"
+        );
+    }
+
+    /// In-attempt entries must block the settle eviction: the queue can
+    /// look empty (backlog fully taken) while outcomes are still
+    /// outstanding, and settling then would orphan the eventual put-back
+    /// into a tombstoned queue, dropping the clients' replies.
+    #[tokio::test]
+    async fn in_attempt_entries_block_settle() {
+        let table = StashTable::with_bounds(usize::MAX, usize::MAX);
+        table.begin_stash(0).await;
+        let _rx = match enqueue(&table, 0, 1).await {
+            StashDecision::Stashed(rx) => rx,
+            _ => panic!("expected Stashed"),
+        };
+
+        let session = table.drain_session(0).expect("entry must be live");
+        let mut taken = session.take_for_attempt(usize::MAX).await;
+        let run = taken.remove(0);
+        assert!(
+            !session.finish_if_settled().await,
+            "settle must refuse while an attempt is outstanding"
+        );
+
+        let entry = run.entries.into_iter().next().unwrap();
+        let size = entry.item.approximate_size();
+        session.complete(run.key, size).await;
+        assert!(
+            session.finish_if_settled().await,
+            "settle must succeed once every outcome is recorded"
+        );
+        assert!(!table.inner.contains_key(&0));
     }
 
     /// Back-to-back handoffs: drain → begin_stash for the same partition
@@ -522,6 +731,38 @@ mod tests {
         ));
     }
 
+    /// The admission bounds must release on definitive outcomes, not on
+    /// takes: an entry taken for an attempt still holds its memory, and
+    /// releasing at take time would let a slow drain admit unbounded
+    /// backlog behind it.
+    #[tokio::test]
+    async fn bounds_release_on_complete_not_on_take() {
+        let table = StashTable::with_bounds(1, usize::MAX);
+        table.begin_stash(0).await;
+        assert!(matches!(
+            enqueue(&table, 0, 1).await,
+            StashDecision::Stashed(_)
+        ));
+
+        let session = table.drain_session(0).expect("entry must be live");
+        let mut taken = session.take_for_attempt(usize::MAX).await;
+        let run = taken.remove(0);
+        // Taken but not completed — still counted against the bound.
+        assert!(matches!(
+            enqueue(&table, 0, 2).await,
+            StashDecision::Rejected
+        ));
+
+        let entry = run.entries.into_iter().next().unwrap();
+        let size = entry.item.approximate_size();
+        session.complete(run.key, size).await;
+        // Outcome recorded — capacity is released.
+        assert!(matches!(
+            enqueue(&table, 0, 3).await,
+            StashDecision::Stashed(_)
+        ));
+    }
+
     #[tokio::test]
     async fn partitions_are_independent() {
         let table = StashTable::with_bounds(usize::MAX, usize::MAX);
@@ -540,11 +781,11 @@ mod tests {
 
     /// Race between concurrent enqueue and drain. The `Arc<PartitionStash>`
     /// + `Option<StashQueue>` design exists so that an enqueue that has
-    /// already cloned the Arc when drain runs sees `None` after drain
-    /// takes the queue, and returns `Forward` rather than pushing into a
-    /// dead queue. With many iterations this drives the race window
-    /// repeatedly; the invariant is that every request must end up either
-    /// in the drained batch or forwarded — never lost, never duplicated.
+    /// already cloned the Arc when the settle eviction runs sees `None`,
+    /// and returns `Forward` rather than pushing into a dead queue. With
+    /// many iterations this drives the race window repeatedly; the
+    /// invariant is that every request must end up either in the drained
+    /// batch or forwarded — never lost, never duplicated.
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn enqueue_and_drain_race() {
         for iteration in 0..200 {
@@ -577,11 +818,9 @@ mod tests {
                 }
             }
 
-            // With the loop-drain, every Stashed request is forwarded
-            // through `drain` regardless of when it arrived (concurrent
-            // arrivals during forwarding are caught by the next loop
-            // iteration). The previous "stashed count == drained count"
-            // assertion still holds because no request can be lost.
+            // The session loop only settles after observing no backlog,
+            // so every Stashed request is delivered regardless of when it
+            // arrived (concurrent arrivals are caught by a later take).
             assert_eq!(
                 drained.len() + forwarded_count,
                 ENQUEUERS,
@@ -647,15 +886,15 @@ mod tests {
     }
 
     /// Regression for the structural race the `drained` tombstone closes:
-    /// a `begin_stash` that observes the post-`take` `None` queue between
-    /// `drain` releasing the queue lock and `drain` evicting the dashmap
-    /// entry must not initialize a new queue on the doomed `Arc`. With
-    /// the tombstone, `begin_stash` sees `drained=true`, drops the lock,
-    /// and retries via `get_or_create` — which produces a fresh dashmap
-    /// entry once `drain` finishes its `inner.remove`.
+    /// a `begin_stash` that observes the post-settle `None` queue between
+    /// the settle tombstoning the queue and evicting the dashmap entry
+    /// must not initialize a new queue on the doomed `Arc`. With the
+    /// tombstone, `begin_stash` sees `None`, drops the lock, and retries
+    /// via `get_or_create` — which produces a fresh dashmap entry once
+    /// the eviction finishes.
     ///
     /// The race window is microseconds; we run many iterations to
-    /// exercise it. The protocol awaits `drain` before issuing the next
+    /// exercise it. The protocol awaits the drain before issuing the next
     /// `begin_stash` for a partition today, so this race cannot trigger
     /// in production — the test guards against future callers that
     /// might break that ordering.
@@ -672,7 +911,7 @@ mod tests {
             // subsequent enqueue sees it and parks.
             let drain_table = table.clone();
             let drain_handle = tokio::spawn(async move {
-                drain_table.drain(0, |_batch| async {}).await;
+                drain_to_vec(&drain_table, 0).await;
             });
             let begin_table = table.clone();
             let begin_handle = tokio::spawn(async move { begin_table.begin_stash(0).await });
@@ -681,11 +920,11 @@ mod tests {
             begin_handle.await.unwrap();
 
             // Only meaningful to assert when begin_stash logically ran
-            // *after* drain (drain.remove evicted, begin_stash created
-            // a fresh entry). If begin_stash logically ran first
+            // *after* the settle (eviction removed the entry, begin_stash
+            // created a fresh one). If begin_stash logically ran first
             // (observed the prior `Some` queue, was idempotent), then
-            // drain legitimately drained that prior queue and a
-            // subsequent enqueue forwards via the live path — that's a
+            // the drain legitimately drained that prior queue and a
+            // subsequent enqueue forwards via the direct path — that's a
             // protocol-violation scenario, not a stash-module bug, and
             // the routing-table layer prevents it. We accept either
             // outcome here; what we *don't* accept is a non-empty
@@ -698,7 +937,7 @@ mod tests {
                 }
                 StashDecision::Forward => {
                     // Begin_stash logically ran first and was idempotent;
-                    // drain emptied the prior queue. No orphaned Arc.
+                    // the drain emptied the prior queue. No orphaned Arc.
                 }
                 StashDecision::Rejected => {
                     panic!("unexpected Rejected on iteration {iteration}");

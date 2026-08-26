@@ -22,19 +22,16 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    DEFAULT_NUMERIC_PRECISION,
+    DEFAULT_NUMERIC_SCALE,
+    BinaryColumnReporter,
+    build_pyarrow_decimal_type,
+    table_from_iterator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import (
     incremental_type_to_initial_value,
     incremental_type_to_operator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
-    DEFAULT_NUMERIC_PRECISION,
-    DEFAULT_NUMERIC_SCALE,
-    build_pyarrow_decimal_type,
-    table_from_iterator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import open_ssh_tunnel
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
@@ -59,6 +56,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     normalize_namespace,
     resolve_source_location,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mssql import MSSQLSourceConfig
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
@@ -721,7 +719,12 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
                 cursor.execute(
                     "EXEC sp_spaceused %(full_table_name)s, @updateusage = 'TRUE'", {"full_table_name": full_table_name}
                 )
-            except Exception:
+            except Exception as e:
+                # A dead connection (DB-Lib 20047) needs a fresh connection, not a retry on the
+                # same dead cursor — retrying here raises a confusing secondary InterfaceError
+                # ("Not connected to any MS SQL server") instead of the real, transient cause.
+                if isinstance(e, pymssql.Error) and _is_transient_connection_error(e):
+                    raise
                 # If @updateusage parameter fails, try the older version
                 cursor.execute("EXEC sp_spaceused %(full_table_name)s", {"full_table_name": full_table_name})
 
@@ -764,6 +767,12 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
             total_bytes = int(size_value * multiplier)
             return TableStats(table_size_bytes=total_bytes, row_count=total_rows)
         except Exception as e:
+            # A transient connection death recovers on the next sync attempt with a fresh
+            # connection (see `retry_on_transient_connection_error`); table stats are best-effort,
+            # so skip capturing this known, self-recovering error as tracked noise.
+            if isinstance(e, pymssql.Error) and _is_transient_connection_error(e):
+                logger.debug(f"fetch_table_stats: transient MSSQL connection death, returning None: {e}")
+                return None
             logger.debug(f"fetch_table_stats: Error: {e}. Returning None", exc_info=e)
             capture_exception(e)
             return None
@@ -925,6 +934,7 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
                 )
 
         def get_rows() -> Iterator[Any]:
+            binary_reporter = BinaryColumnReporter(logger)
             with self.connect(config) as streaming_connection:
                 with streaming_connection.cursor() as cursor:
                     query, args = _build_query(
@@ -952,7 +962,12 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
                         if not rows:
                             break
 
-                        yield table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
+                        yield table_from_iterator(
+                            (dict(zip(column_names, row)) for row in rows),
+                            arrow_schema,
+                            primary_keys=primary_keys,
+                            binary_reporter=binary_reporter,
+                        )
 
         return SourceResponse(
             name=location.response_name,

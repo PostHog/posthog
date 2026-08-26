@@ -3,6 +3,24 @@ from typing import Any, Optional
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
+# Vendor API versions this source implements, as opaque labels (never parsed or ordered).
+# ``v1`` is the legacy pin (the base-class `UNVERSIONED_API_VERSION`); ``v2`` adopts ChartHop's
+# v2 ``change`` resource. Only the ``changes`` endpoint's request differs between the two — every
+# other resource is served under a single path ChartHop offers, identical for both pins.
+CHARTHOP_V1 = "v1"
+CHARTHOP_V2 = "v2"
+SUPPORTED_VERSIONS = (CHARTHOP_V1, CHARTHOP_V2)
+DEFAULT_VERSION = CHARTHOP_V2
+
+
+@dataclass
+class ChartHopEndpointVersionOverride:
+    """Per-version request differences for a resource ChartHop serves under more than one API
+    version. Unset fields fall through to the endpoint's base (v1) values."""
+
+    path: Optional[str] = None
+    incremental_param: Optional[str] = None
+
 
 @dataclass
 class ChartHopEndpointConfig:
@@ -19,6 +37,8 @@ class ChartHopEndpointConfig:
     partition_key: Optional[str] = None
     """A STABLE field to partition on. Never an updated_at-style field, which would
     rewrite partitions on every sync."""
+    version_overrides: dict[str, ChartHopEndpointVersionOverride] = field(default_factory=dict)
+    """Resolved-``api_version`` → request overrides. Absent versions use the base (v1) request."""
 
 
 # Every ChartHop list endpoint paginates the same way: cursor-by-id via ``from=<last id>``
@@ -72,6 +92,15 @@ CHARTHOP_ENDPOINTS: dict[str, ChartHopEndpointConfig] = {
                 "field_type": IncrementalFieldType.Date,
             },
         ],
+        # v2 serves the change list at /v2/org/{orgId}/change and renames the start-date
+        # filter param from ``date`` to ``fromDate``; the envelope, cursor, and row fields
+        # (including the ``date`` field this partitions/increments on) are unchanged.
+        version_overrides={
+            CHARTHOP_V2: ChartHopEndpointVersionOverride(
+                path="/v2/org/{org_id}/change",
+                incremental_param="fromDate",
+            ),
+        },
     ),
     "time_off": ChartHopEndpointConfig(
         name="time_off",
@@ -84,3 +113,15 @@ ENDPOINTS = tuple(CHARTHOP_ENDPOINTS.keys())
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in CHARTHOP_ENDPOINTS.items()
 }
+
+
+def resolve_endpoint_version(config: ChartHopEndpointConfig, api_version: str) -> tuple[str, Optional[str]]:
+    """Effective ``(path template, incremental query param)`` for a resolved ``api_version`` pin.
+
+    A version without an override — including an unknown or legacy label honored verbatim by
+    ``resolve_api_version`` — falls back to the base (v1) request rather than being dropped.
+    """
+    override = config.version_overrides.get(api_version)
+    if override is None:
+        return config.path, config.incremental_param
+    return override.path or config.path, override.incremental_param or config.incremental_param

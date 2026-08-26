@@ -188,7 +188,7 @@ describe('notebookAI', () => {
                 '## Browsers in use\n\n<insight>uONk</insight>\n\nThe chart shows browser usage.'
             )
         ).toEqual(
-            '# Notebook\n\n## Browsers in use\n\n<Query hideFilters query={{"kind":"SavedInsightNode","shortId":"uONk"}} />\n\nThe chart shows browser usage.'
+            '# Notebook\n\n## Browsers in use\n\n<Query query={{"kind":"SavedInsightNode","shortId":"uONk"}} />\n\nThe chart shows browser usage.'
         )
     })
 
@@ -202,7 +202,7 @@ describe('notebookAI', () => {
                 '<Query query={{"kind":"InsightVizNode","source":{"kind":"TrendsQuery","series":[]}}} />'
             )
         ).toEqual(
-            '# Notebook\n\n<Query hideFilters query={{"kind":"InsightVizNode","source":{"kind":"TrendsQuery","series":[]}}} />'
+            '# Notebook\n\n<Query query={{"kind":"InsightVizNode","source":{"kind":"TrendsQuery","series":[]}}} />'
         )
     })
 
@@ -216,7 +216,7 @@ describe('notebookAI', () => {
                 '<Query edit={false} query={{"kind":"InsightVizNode","source":{"kind":"TrendsQuery","series":[]}}} />'
             )
         ).toEqual(
-            '# Notebook\n\n<Query hideFilters query={{"kind":"InsightVizNode","source":{"kind":"TrendsQuery","series":[]}}} />'
+            '# Notebook\n\n<Query query={{"kind":"InsightVizNode","source":{"kind":"TrendsQuery","series":[]}}} />'
         )
     })
 

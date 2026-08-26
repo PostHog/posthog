@@ -4,7 +4,18 @@ from typing import Any, Literal, Optional
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
 from products.warehouse_sources.backend.types import IncrementalField
 
-STREAMELEMENTS_BASE_URL = "https://api.streamelements.com/kappa/v2"
+# Vendor API versions. The label is the base-URL segment (kappa/<version>): v3 serves every
+# endpoint this source reads at the same paths as v2 and only adds a giveaways collection we
+# don't sync, so the version is a pure base-URL switch with identical response shapes.
+STREAMELEMENTS_V2 = "v2"
+STREAMELEMENTS_V3 = "v3"
+SUPPORTED_VERSIONS = (STREAMELEMENTS_V2, STREAMELEMENTS_V3)
+DEFAULT_VERSION = STREAMELEMENTS_V3
+
+
+def streamelements_base_url(api_version: str) -> str:
+    return f"https://api.streamelements.com/kappa/{api_version}"
+
 
 # Documented cap for tips/activities list endpoints (limit must be 1-100).
 DEFAULT_PAGE_SIZE = 100

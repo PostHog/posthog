@@ -70,6 +70,7 @@ jobs:
                         - 'bin/**'
                         # Dev tools with dedicated pytest steps below
                         - 'tools/pr-approval-agent/**'
+                        - 'products/stamphog/packages/pr-approval-agent/**'
                         - 'tools/query-performance-ai/**'
                         # Stamphog policy files validated by the pr-approval-agent suite
                         - '.stamphog/**'
@@ -88,11 +89,21 @@ jobs:
               with:
                   fetch-depth: 1
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version: 3.13.13
-                  token: ${{ github.token }}
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install uv
               id: setup-uv
@@ -126,16 +137,6 @@ jobs:
               run: |
                   ./bin/download-mmdb
 
-            - name: Check for syntax errors, import sort, and code style violations
-              shell: bash
-              run: |
-                  ruff check .
-
-            - name: Check formatting
-              shell: bash
-              run: |
-                  ruff format --check --diff .
-
             - name: Add ty Problem Matcher
               shell: bash
               run: |
@@ -164,8 +165,7 @@ jobs:
               shell: bash -e {0}
               env:
                   MYPY_NUM_WORKERS: 2
-              run: |
-                  mypy --version && mypy --cache-fine-grained .
+              run: mypy --version && mypy --cache-fine-grained .
 
             - name: Save mypy cache
               if: github.ref == 'refs/heads/master'
@@ -179,35 +179,57 @@ jobs:
               run: |
                   npm run schema:build:python && git diff --exit-code
 
-            - name: Check hogli manifest completeness
-              shell: bash
-              run: |
-                  ./bin/hogli meta:check
+            - parallel:
+                  - name: Check for syntax errors, import sort, and code style violations
+                    shell: bash
+                    run: ruff check .
 
-            - name: Run hogli framework tests
-              shell: bash
-              run: |
-                  pytest tools/hogli/tests -v --junitxml=junit-hogli.xml
+                  - name: Check formatting
+                    shell: bash
+                    run: ruff format --check --diff .
 
-            - name: Run hogli extension tests
-              shell: bash
-              run: |
-                  pytest tools/hogli-commands/hogli_commands/tests -v --junitxml=junit-hogli-commands.xml
+                  - name: Check hogli manifest completeness
+                    shell: bash
+                    run: ./bin/hogli meta:check
 
-            - name: Run owners resolver tests
-              shell: bash
-              run: |
-                  pytest tools/owners/tests -v --junitxml=junit-owners.xml
+                  - name: Run hogli framework tests
+                    shell: bash
+                    run: pytest tools/hogli/tests -v --junitxml=junit-hogli.xml
 
-            - name: Run query-performance-ai tests
-              shell: bash
-              run: |
-                  pytest tools/query-performance-ai/query_performance_ai -v --junitxml=junit-query-performance-ai.xml
+                  - name: Run hogli extension tests
+                    shell: bash
+                    run: pytest tools/hogli-commands/hogli_commands/tests -v --junitxml=junit-hogli-commands.xml
 
-            - name: Run pr-approval-agent (stamphog) tests
-              shell: bash
-              run: |
-                  pytest tools/pr-approval-agent -v --junitxml=junit-pr-approval-agent.xml
+                  - name: Run owners resolver tests
+                    shell: bash
+                    run: pytest tools/owners/tests -v --junitxml=junit-owners.xml
+
+                  - name: Run query-performance-ai tests
+                    shell: bash
+                    run: pytest tools/query-performance-ai/query_performance_ai -v --junitxml=junit-query-performance-ai.xml
+
+                  - name: Run pr-approval-agent (stamphog) tests
+                    shell: bash
+                    # Two candidate paths. The engine now lives under the stamphog product, but an
+                    # open PR that has not rebased still carries it under tools/, and this workflow
+                    # runs against that branch merged with master. The loop tests both trees when
+                    # both exist, because that merge can add a file at the old path next to the new
+                    # tree.
+                    run: |
+                        found=0
+                        for dir in products/stamphog/packages/pr-approval-agent tools/pr-approval-agent; do
+                          [ -d "$dir" ] || continue
+                          found=1
+                          pytest "$dir" -v --junitxml="junit-pr-approval-agent-$(echo "$dir" | tr / -).xml"
+                        done
+                        if [ "$found" = "0" ]; then
+                          echo "::error::pr-approval-agent engine not found at either path"
+                          exit 1
+                        fi
+
+                  - name: Run dependency detection script tests
+                    shell: bash
+                    run: pytest bin/test/test_find_python_dependencies.py -v --junitxml=junit-dependency-detection.xml
 
             - name: Upload test results
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -219,12 +241,7 @@ jobs:
                       junit-hogli-commands.xml
                       junit-owners.xml
                       junit-query-performance-ai.xml
-                      junit-pr-approval-agent.xml
-
-            - name: Run dependency detection script tests
-              shell: bash
-              run: |
-                  pytest bin/test/test_find_python_dependencies.py -v --junitxml=junit-dependency-detection.xml
+                      junit-pr-approval-agent-*.xml
 
             - name: Upload test results for dependency detection
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -265,9 +282,9 @@ jobs:
         steps:
             - name: Check Python CI status
               run: |
-                  # Fail if change detection itself failed
-                  if [[ "${{ needs.changes.result }}" == "failure" ]]; then
-                    echo "Change detection job failed."
+                  # Block cancelled too: outputs are empty then, so the exit below would report green.
+                  if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
+                    echo "Change detection did not succeed (result: ${{ needs.changes.result }})."
                     exit 1
                   fi
 

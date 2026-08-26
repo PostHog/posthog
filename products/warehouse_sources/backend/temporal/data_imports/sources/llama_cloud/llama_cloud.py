@@ -7,12 +7,12 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import (
     coerce_datetime_to_utc,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.llama_cloud.settings import (
     DEFAULT_LLAMA_CLOUD_REGION,
     LLAMA_CLOUD_ENDPOINTS,
@@ -21,6 +21,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.llama_clou
 )
 
 REQUEST_TIMEOUT_SECONDS = 60
+
+# LlamaCloud's current stable API generation (its v2 SDKs shipped January 2026). LlamaCloud versions
+# its API in the endpoint path (`/api/v1/...` vs `/api/v2/...`), not via a request header, and this
+# source already reads the v2-generation job endpoints (parse, extract, classify, batches under
+# `/api/v2`). So the framework's legacy unversioned label and this explicit label resolve to the
+# same requests — new sources are stamped "v2" while existing pins keep syncing byte-for-byte.
+LLAMA_CLOUD_API_VERSION_V2 = "v2"
 
 
 class LlamaCloudRetryableError(Exception):

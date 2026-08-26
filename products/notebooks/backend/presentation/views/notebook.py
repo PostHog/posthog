@@ -27,6 +27,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 
+from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.query import execute_hogql_query
 
@@ -44,12 +45,14 @@ from posthog.models import User
 from posthog.models.activity_logging.activity_log import Change, changes_between, load_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.utils import UUIDT
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 from posthog.utils import relative_date_parse
 
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
+)
 from products.notebooks.backend import collab_stream, markdown_collab, presence
 from products.notebooks.backend.activity_logging import log_notebook_activity
 from products.notebooks.backend.analytics import (
@@ -72,17 +75,28 @@ from products.notebooks.backend.sql_v2 import (
     is_sql_v2_enabled,
     sql_v2_page_lock_key,
 )
-from products.notebooks.backend.sql_v2_direct import enqueue_direct_run, sync_direct_run
+from products.notebooks.backend.sql_v2_direct import cancel_direct_run, enqueue_direct_run, sync_direct_run
 from products.notebooks.backend.sql_v2_references import (
     SQLV2Ref,
     SQLV2ReferenceError,
     resolve_python_node_inputs,
     resolve_sql_node_run,
 )
-from products.notebooks.backend.sql_v2_runs import finish_node_run
+from products.notebooks.backend.sql_v2_runs import expire_stale_kernel_run, finish_node_run
 from products.notebooks.backend.sql_v2_serializers import (
+    NotebookKernelConfigResponseSerializer,
+    NotebookKernelStatusResponseSerializer,
+    NotebookSQLV2InterruptResponseSerializer,
     NotebookSQLV2PageRequestSerializer,
     NotebookSQLV2RunRequestSerializer,
+    NotebookSQLV2RunResponseSerializer,
+    NotebookSQLV2RunStatusResponseSerializer,
+    NotebookSQLV2StateResponseSerializer,
+)
+from products.notebooks.backend.sql_v2_state import (
+    NotebookCellLimitExceeded,
+    build_notebook_cell_state,
+    validate_cell_count,
 )
 from products.notebooks.backend.temporal.client import start_sql_v2_run_workflow
 from products.notebooks.backend.temporal.sql_v2 import SQLV2RunInput
@@ -93,6 +107,22 @@ from ee.hogai.utils.aio import async_to_sync
 from ee.hogai.utils.asgi import SyncIterableToAsync
 
 logger = structlog.get_logger(__name__)
+
+# Raised when a cell reads a sibling whose last result lives somewhere this run can't reach.
+_CROSS_ENGINE_REF_ERROR = (
+    "'{name}' last ran on a different connection, so this cell can't read it. "
+    "Point both cells at the same connection and re-run, or inline its query here."
+)
+# Python cells read upstream results through the data plane, which only reaches PostHog.
+_CROSS_ENGINE_REF_ERROR_FOR_PYTHON = (
+    "'{name}' ran on a warehouse connection, and Python cells can only read PostHog results. "
+    "Re-run '{name}' on PostHog to use it here."
+)
+# Covers both kinds of local frame: one a Python cell bound, and one a SQL cell left behind when
+# reading a Python dataframe rerouted it to the sandbox. Neither is reachable from a warehouse.
+_LOCAL_FRAME_REF_ERROR = (
+    "You can't query the local dataframe '{name}' because this cell points to a data source other than PostHog."
+)
 
 
 def depluralize(string: str | None) -> str | None:
@@ -111,17 +141,17 @@ def classify_request_source(request: Request) -> tuple[str, dict[str, str | None
     """Classify a notebook request as a browser action (``ui``) vs a programmatic client (``mcp``/API).
 
     Session-cookie requests are the browser; anything else (personal API key, OAuth app) is a
-    programmatic client. The PostHog MCP server forwards the client identity so PostHog Desktop can be
-    told apart from a customer's own MCP client: ``mcp_consumer`` is ``posthog-code``/``posthog-cli``
-    for first-party PostHog Desktop, and ``mcp_oauth_client`` is the OAuth app name (e.g. Claude) for
-    third-party clients. Shared by the create and read events."""
+    programmatic client. ``mcp_consumer`` is the wrapping app the PostHog MCP server forwards
+    (``posthog-code``/``posthog-cli`` for first-party PostHog Desktop), which tells it apart from a
+    customer's own MCP client. The third-party OAuth app name (e.g. Claude) rides along on every
+    request-bound event as ``mcp_oauth_client_name`` via ``get_request_analytics_properties``, so it
+    isn't repeated here. Shared by the create and read events."""
     authenticator = getattr(request, "successful_authenticator", None)
     if authenticator is None or isinstance(authenticator, SessionAuthentication):
         return NotebookCreationSource.UI, {}
     return NotebookCreationSource.MCP, {
         "api_key_type": type(authenticator).__name__,
         "mcp_consumer": request.META.get("HTTP_X_POSTHOG_MCP_CONSUMER"),
-        "mcp_oauth_client": request.META.get("HTTP_X_POSTHOG_MCP_OAUTH_CLIENT_NAME"),
     }
 
 
@@ -268,7 +298,6 @@ class NotebookSerializer(NotebookMinimalSerializer):
             visibility=notebook.visibility,
             node_count=notebook_node_count(notebook.content),
             mcp_consumer=source_props.get("mcp_consumer"),
-            mcp_oauth_client=source_props.get("mcp_oauth_client"),
             api_key_type=source_props.get("api_key_type"),
         )
 
@@ -358,6 +387,12 @@ class NotebookSerializer(NotebookMinimalSerializer):
     def validate_content(self, value: Any) -> Any:
         if not isinstance(value, dict):
             return value
+        # self.instance is set on update and None on create, so a new notebook is measured
+        # against an empty document and an edit against what it currently holds.
+        try:
+            validate_cell_count(self.instance.content if self.instance else None, value)
+        except NotebookCellLimitExceeded as err:
+            raise serializers.ValidationError(str(err))
         try:
             return normalize_notebook_query_nodes(value)
         except InvalidNotebookQueryError as err:
@@ -401,9 +436,15 @@ ALLOWED_KERNEL_IDLE_TIMEOUT_SECONDS = [600, 1800, 3600, 10800, 21600, 43200]
 
 
 class NotebookKernelConfigSerializer(serializers.Serializer):
-    cpu_cores = serializers.FloatField(required=False)
-    memory_gb = serializers.FloatField(required=False)
-    idle_timeout_seconds = serializers.IntegerField(required=False)
+    cpu_cores = serializers.FloatField(
+        required=False, help_text="CPU cores for the notebook's sandbox kernel; must be a supported option."
+    )
+    memory_gb = serializers.FloatField(
+        required=False, help_text="Memory in GB for the notebook's sandbox kernel; must be a supported option."
+    )
+    idle_timeout_seconds = serializers.IntegerField(
+        required=False, help_text="Seconds of inactivity before the sandbox kernel shuts down."
+    )
 
     def validate_cpu_cores(self, value: float) -> float:
         if not any(math.isclose(value, option, rel_tol=0, abs_tol=1e-6) for option in ALLOWED_KERNEL_CPU_CORES):
@@ -530,6 +571,9 @@ def _format_hogql_response_payload(response: Any) -> dict[str, Any]:
     return response_payload
 
 
+IDENTITY_ONLY_DETAIL_ACTIONS = frozenset({"collab_presence", "collab_stream", "activity"})
+
+
 @extend_schema(
     description="The API for interacting with Notebooks. This feature is in early access and the API can have "
     "breaking changes without announcement.",
@@ -620,6 +664,24 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         if not self._has_query_access():
             raise PermissionDenied("You need query access to run SQL in a notebook.")
 
+    def _require_run_connection_access(self, run: NotebookNodeRun, user: User | None) -> None:
+        # Dispatch resolved the source for the user who ran the cell, but the run row outlives
+        # that check and these endpoints serve its rows to anyone with notebook + query access.
+        # Without re-checking, a user denied viewer on the warehouse source could read rows a
+        # colleague's run pulled from it. Notebook + query access does not imply source access.
+        if not run.connection_id:
+            return
+        if (
+            get_direct_connection_source(
+                self.team,
+                str(run.connection_id),
+                user=user,
+                require_pure_direct=run.send_raw_query,
+            )
+            is None
+        ):
+            raise PermissionDenied("You need access to this cell's data source to read its results.")
+
     def _current_user(self) -> User | None:
         return self.request.user if isinstance(self.request.user, User) else None
 
@@ -644,6 +706,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             # The list serializer omits content/text_content, but both are large columns
             # (ProseMirror JSON + full plaintext) that we'd otherwise load and JSON-decode per row.
             # search/contains filters run as WHERE-clause predicates, so they don't need the columns in Python.
+            queryset = queryset.defer("content", "text_content")
+        elif self.action in IDENTITY_ONLY_DETAIL_ACTIONS:
             queryset = queryset.defer("content", "text_content")
 
         order = self.request.GET.get("order", None)
@@ -748,7 +812,6 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 is_creator=instance.created_by_id == getattr(request.user, "id", None),
                 user_access_level=serializer.data.get("user_access_level"),
                 mcp_consumer=source_props.get("mcp_consumer"),
-                mcp_oauth_client=source_props.get("mcp_oauth_client"),
                 api_key_type=source_props.get("api_key_type"),
             )
 
@@ -790,7 +853,14 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             return Response({"detail": "Failed to restart notebook kernel."}, status=503)
         return Response({"id": str(kernel_runtime.id), "status": kernel_runtime.status})
 
-    @action(methods=["GET"], url_path="kernel/status", detail=True)
+    @extend_schema(
+        responses={200: NotebookKernelStatusResponseSerializer},
+        description=(
+            "Live-checked kernel runtime state for this notebook, its compute configuration, and the "
+            "catalog of dataframes/tables a cell can currently reference (with column schemas)."
+        ),
+    )
+    @action(methods=["GET"], url_path="kernel/status", detail=True, required_scopes=["notebook:read"])
     def kernel_status(self, request: Request, **kwargs):
         notebook = self._get_notebook_for_kernel()
         user = self._current_user()
@@ -869,7 +939,15 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             }
         )
 
-    @action(methods=["POST"], url_path="kernel/config", detail=True)
+    @extend_schema(
+        request=NotebookKernelConfigSerializer,
+        responses={200: NotebookKernelConfigResponseSerializer},
+        description=(
+            "Set the notebook's kernel compute configuration. Applies at sandbox provision time: a "
+            "currently running kernel keeps its resources until restarted."
+        ),
+    )
+    @action(methods=["POST"], url_path="kernel/config", detail=True, required_scopes=["notebook:write"])
     def kernel_config(self, request: Request, **kwargs):
         serializer = NotebookKernelConfigSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -894,6 +972,11 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 "cpu_cores": notebook.kernel_cpu_cores,
                 "memory_gb": notebook.kernel_memory_gb,
                 "idle_timeout_seconds": notebook.kernel_idle_timeout_seconds,
+                "restart_required": KernelRuntime.objects.filter(
+                    team_id=self.team_id,
+                    notebook_short_id=notebook.short_id,
+                    status__in=(KernelRuntime.Status.RUNNING, KernelRuntime.Status.STARTING),
+                ).exists(),
             }
         )
 
@@ -1008,8 +1091,63 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
         return Response(data)
 
-    # Experimental, flag-gated slice — kept out of the public OpenAPI schema (no generated FE/MCP types yet).
-    @extend_schema(exclude=True)
+    @extend_schema(
+        responses={200: NotebookSQLV2StateResponseSerializer},
+        description=(
+            "The full notebook view for agents: title, document source (markdown, or raw content for "
+            "legacy rich-text notebooks), every cell with its dependency edges and derived run status "
+            "(including staleness), and the kernel's runtime state and compute config. "
+            "Flag-gated (revamped-py-notebooks)."
+        ),
+    )
+    @action(methods=["GET"], url_path="sql_v2/state", detail=True, required_scopes=["notebook:read", "query:read"])
+    def sql_v2_state(self, request: Request, **kwargs):
+        user = self._current_user()
+        if not (settings.DEBUG or is_sql_v2_enabled(user)):
+            raise Http404()
+        notebook = self._get_notebook_for_kernel()
+        # Cell code and result metadata derive from the user's data, so the same query
+        # gate as run results applies.
+        self._require_query_access()
+
+        cells = build_notebook_cell_state(self.team_id, notebook)
+        runtime = (
+            KernelRuntime.objects.filter(
+                team_id=self.team_id,
+                notebook_short_id=notebook.short_id,
+                user=user if isinstance(user, User) else None,
+            )
+            .order_by("-last_used_at")
+            .first()
+        )
+        sandbox_config = build_notebook_sandbox_config(notebook)
+        markdown = markdown_collab.get_markdown_notebook_markdown(notebook.content)
+        payload = {
+            "notebook_id": notebook.short_id,
+            "title": notebook.title,
+            "version": notebook.version,
+            "markdown": markdown,
+            # The document rides exactly one field: markdown notebooks would duplicate
+            # their whole source if content were included too.
+            "content": notebook.content if markdown is None else None,
+            "kernel": {
+                "status": runtime.status if runtime else KernelRuntime.Status.STOPPED,
+                "cpu_cores": sandbox_config.cpu_cores,
+                "memory_gb": sandbox_config.memory_gb,
+                "idle_timeout_seconds": sandbox_config.ttl_seconds,
+            },
+            "cells": cells,
+        }
+        return Response(NotebookSQLV2StateResponseSerializer(payload).data)
+
+    @extend_schema(
+        request=NotebookSQLV2RunRequestSerializer,
+        responses={200: NotebookSQLV2RunResponseSerializer},
+        description=(
+            "Dispatch an asynchronous run of a notebook SQL or Python cell. Returns a run_id immediately; "
+            "poll the run result endpoint until the status is terminal. Flag-gated (revamped-py-notebooks)."
+        ),
+    )
     @action(methods=["POST"], url_path="sql_v2/run", detail=True, required_scopes=["notebook:write", "query:read"])
     def sql_v2_run(self, request: Request, **kwargs):
         user = self._current_user()
@@ -1021,6 +1159,25 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         serializer.is_valid(raise_exception=True)
         notebook = self._get_notebook_for_kernel()
         self._require_query_access()
+
+        node_type = serializer.validated_data["node_type"]
+        code = serializer.validated_data["code"]
+        output_name = serializer.validated_data["output_name"]
+        # Only SQL nodes carry a connection; python always runs in the kernel against PostHog.
+        connection_id = serializer.validated_data["connection_id"] if node_type != "python" else None
+        send_raw_query = bool(serializer.validated_data["send_raw_query"]) and connection_id is not None
+        if connection_id is not None and (
+            # Resolve up front so a stale or unreachable connection fails the dispatch with the
+            # shared message, rather than surfacing later as an opaque failed run.
+            get_direct_connection_source(
+                self.team,
+                str(connection_id),
+                user=user if isinstance(user, User) else None,
+                require_pure_direct=send_raw_query,
+            )
+            is None
+        ):
+            return Response({"detail": INVALID_CONNECTION_ID_ERROR}, status=400)
 
         # Resolve each referenced hogql node to its last-run query (not its live editor text),
         # so a join recomputes against the definitions that produced the results on screen.
@@ -1035,37 +1192,60 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             .filter(notebook=notebook, node_id__in=hogql_node_ids, status=NotebookNodeRun.Status.DONE)
             .order_by("node_id", "-created_at")
             .distinct("node_id")
-            .values_list("node_id", "id", "code", "node_type")
+            .values_list("node_id", "id", "code", "node_type", "connection_id", "send_raw_query")
         )
-        # A SQL node's runs can alternate between hogql and duckdb (Journey 5 rerouting), so a
-        # kind=hogql ref is only trustworthy when the node's LATEST result really is hogql —
-        # a duckdb run's code is raw, non-self-contained SQL naming kernel frames, and inlining
-        # it as a CTE would ship it to ClickHouse. Treat that node as not-run instead.
-        latest_by_node: dict[str, tuple[str, str]] = {
-            node_id: (str(run_id), code)
-            for node_id, run_id, code, run_type in latest_runs
-            if run_type == NotebookNodeRun.NodeType.HOGQL
-        }
+        # A ref is only inlinable when the upstream node's LATEST run executed the same way this
+        # one will. A SQL node's runs can alternate between hogql and duckdb (Journey 5
+        # rerouting) and between engines, and its stored code only means anything on the engine
+        # that produced it — a duckdb run's code names kernel frames, and a connection run's is
+        # that warehouse's SQL. Inlining either elsewhere would ship the wrong query.
+        latest_by_node: dict[str, tuple[str, str]] = {}
+        other_engine_nodes: set[str] = set()
+        # A SQL node rerouted to DuckDB binds its result into the kernel namespace under its
+        # dataframe name, exactly like a Python node — there is no ClickHouse query to inline,
+        # but the frame is there to read. So it becomes a local ref rather than an absent one.
+        kernel_frame_nodes: set[str] = set()
+        for other_node_id, run_id, run_code, run_type, run_connection_id, run_send_raw in latest_runs:
+            if run_type == NotebookNodeRun.NodeType.DUCKDB:
+                kernel_frame_nodes.add(other_node_id)
+                continue
+            if run_type != NotebookNodeRun.NodeType.HOGQL:
+                continue
+            if run_connection_id == connection_id and bool(run_send_raw) == send_raw_query:
+                latest_by_node[other_node_id] = (str(run_id), run_code)
+            else:
+                other_engine_nodes.add(other_node_id)
+        cross_engine_error = _CROSS_ENGINE_REF_ERROR_FOR_PYTHON if node_type == "python" else _CROSS_ENGINE_REF_ERROR
         refs: dict[str, SQLV2Ref] = {}
         for name, spec in ref_specs.items():
-            if spec["kind"] == "local":
-                refs[name] = SQLV2Ref(kind="local")
-            else:
-                latest = latest_by_node.get(spec["node_id"])
-                refs[name] = SQLV2Ref(
-                    kind="hogql",
-                    node_id=spec["node_id"],
-                    run_id=latest[0] if latest else None,
-                    last_run_code=latest[1] if latest else None,
+            if spec["kind"] == "local" or spec["node_id"] in kernel_frame_nodes:
+                # A kernel frame lives in the sandbox, which only reaches PostHog's own data — a
+                # connection run can't be rerouted there, so mark it unusable instead.
+                refs[name] = (
+                    SQLV2Ref(kind="hogql", node_id=None, unavailable_reason=_LOCAL_FRAME_REF_ERROR.format(name=name))
+                    if connection_id is not None
+                    else SQLV2Ref(kind="local")
                 )
-        node_type = serializer.validated_data["node_type"]
-        code = serializer.validated_data["code"]
-        output_name = serializer.validated_data["output_name"]
+                continue
+            latest = latest_by_node.get(spec["node_id"])
+            refs[name] = SQLV2Ref(
+                kind="hogql",
+                node_id=spec["node_id"],
+                run_id=latest[0] if latest else None,
+                last_run_code=latest[1] if latest else None,
+                unavailable_reason=(
+                    cross_engine_error.format(name=name) if spec["node_id"] in other_engine_nodes else None
+                ),
+            )
         try:
             if node_type == "python":
                 # A python node stores its code as-is; referenced frames become kernel inputs,
                 # keyed by the upstream run_id so a re-run yields a fresh (not stale) frame.
                 run_code, inputs = code, resolve_python_node_inputs(code, refs)
+            elif send_raw_query:
+                # Raw SQL is the connection's own dialect, so the HogQL parser can't read it and
+                # there is nothing to inline: it reaches the engine exactly as written.
+                run_code, inputs = code, []
             else:
                 # A SQL node pushes to ClickHouse — unless it references a local frame, which
                 # reroutes it to the sandbox's DuckDB (Journey 5).
@@ -1084,6 +1264,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             node_id=serializer.validated_data["node_id"],
             code=run_code,
             node_type=node_type,
+            connection_id=connection_id,
+            send_raw_query=send_raw_query,
             status=NotebookNodeRun.Status.RUNNING,
         )
 
@@ -1114,7 +1296,22 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
         return Response({"run_id": str(run.id)})
 
-    @extend_schema(exclude=True)
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "run_id",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.PATH,
+                description="ID of the run, as returned by the run dispatch endpoint.",
+            )
+        ],
+        responses={200: NotebookSQLV2RunStatusResponseSerializer},
+        description=(
+            "Read a run's durable state: its status, and — once done or interrupted — the result envelope "
+            "(columns, first rows, stdout/stderr, media, error). Poll until terminal. "
+            "Flag-gated (revamped-py-notebooks)."
+        ),
+    )
     @action(
         methods=["GET"],
         url_path="sql_v2/runs/(?P<run_id>[^/.]+)",
@@ -1144,7 +1341,18 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         # Direct (hogql) runs have no callback: this poll advances the row from the async
         # query status, and while the manager's result is alive it also returns the full
         # capped row set for client-side paging (`rows`, absent once expired).
+        #
+        # It runs before the access gate on purpose. This poll is the only thing that moves a
+        # direct run to a terminal state, and the only place its expiry watchdog fires, so
+        # gating first would strand the run RUNNING forever if the source was deleted or the
+        # caller lost access mid-query. Advancing the row leaks nothing — the gate below still
+        # decides whether any of it is returned.
         rows = sync_direct_run(run)
+        # The kernel lane's equivalent, and here for the same reason: the sandbox delivers its
+        # envelope once with no retry, so a lost delivery leaves a run nothing else can move.
+        # The two are mutually exclusive — each is a no-op for the other's node types.
+        expire_stale_kernel_run(run)
+        self._require_run_connection_access(run, user)
 
         # Interrupted runs keep their envelope too: the walkthrough (Journey 9) promises the
         # captured stdout/stderr arrive with the final envelope even when the user stopped it.
@@ -1185,6 +1393,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             raise Http404()
         if run is None:
             raise Http404()
+        self._require_run_connection_access(run, user)
         if run.status != NotebookNodeRun.Status.DONE:
             return Response({"detail": "Run has no result to page."}, status=400)
 
@@ -1241,7 +1450,25 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
         return Response(page)
 
-    @extend_schema(exclude=True)
+    @extend_schema(
+        request=None,
+        parameters=[
+            OpenApiParameter(
+                "run_id",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.PATH,
+                description="ID of the run, as returned by the run dispatch endpoint.",
+            )
+        ],
+        responses={
+            200: NotebookSQLV2InterruptResponseSerializer,
+            202: NotebookSQLV2InterruptResponseSerializer,
+        },
+        description=(
+            "Stop a running cell. Idempotent: interrupting an already-finished run returns its outcome "
+            "unchanged. Flag-gated (revamped-py-notebooks)."
+        ),
+    )
     @action(
         methods=["POST"],
         url_path="sql_v2/runs/(?P<run_id>[^/.]+)/interrupt",
@@ -1268,11 +1495,14 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             return Response({"status": run.status})
 
         if run.node_type == NotebookNodeRun.NodeType.HOGQL:
-            # A direct (hogql) run has no kernel to signal and no cancellation — the query
-            # runs to its bounded completion. Mark the row abandoned; the guarded update
-            # yields to a completion that already landed, and sync_direct_run's own guard
-            # can never overwrite this interrupt afterwards.
-            finish_node_run(run, NotebookNodeRun.Status.INTERRUPTED, error="Run stopped.")
+            # A direct (hogql) run has no kernel to signal, so stop it at the query manager
+            # instead. Mark the row abandoned first so the stop is durable even if the
+            # cancellation below is slow or fails; the guarded update yields to a completion
+            # that already landed, and sync_direct_run's own guard can never overwrite this
+            # interrupt afterwards. Only the caller that won the transition has a live query
+            # to stop, because a run that finished on its own has nothing left running.
+            if finish_node_run(run, NotebookNodeRun.Status.INTERRUPTED, error="Run stopped."):
+                cancel_direct_run(run)
             return Response({"status": run.status})
 
         try:
@@ -1458,6 +1688,14 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                     current_version=locked_notebook.version,
                 )
             else:
+                # Checked against the locked row rather than in the serializer, so two saves
+                # racing to add a cell cannot both read the same under-limit count and pass.
+                # This is the path the MCP cell tools write through, so it is the one an agent
+                # adding cells in a loop actually meets.
+                try:
+                    validate_cell_count(locked_notebook.content, submitted_content)
+                except NotebookCellLimitExceeded as err:
+                    raise serializers.ValidationError(str(err))
                 annotated_content = annotate_python_nodes(submitted_content)
                 diff = markdown_collab.build_markdown_update_diff(locked_notebook.content, annotated_content)
                 result = markdown_collab.submit_markdown_update(

@@ -213,6 +213,7 @@ export interface CohortFilterGroupApi {
 
 export interface CohortFiltersApi {
     properties: CohortFilterGroupApi
+    filterTestAccounts?: boolean | null
 }
 
 /**
@@ -223,6 +224,7 @@ export interface CohortFiltersApi {
  * * `leadership` - Leadership
  * * `marketing` - Marketing
  * * `sales` - Sales / Success
+ * * `student` - Student
  * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
@@ -235,6 +237,7 @@ export const RoleAtOrganizationEnumApi = {
     Leadership: 'leadership',
     Marketing: 'marketing',
     Sales: 'sales',
+    Student: 'student',
     Other: 'other',
 } as const
 
@@ -335,6 +338,16 @@ export interface CohortApi {
     readonly last_error_message: string | null
     /** @nullable */
     readonly count: number | null
+    /**
+     * Number of IDs supplied by the most recent static cohort import. Null if the cohort was never populated from a list of IDs.
+     * @nullable
+     */
+    readonly last_import_total_count: number | null
+    /**
+     * How many of the IDs in the most recent static cohort import matched no person, and so were not added to the cohort.
+     * @nullable
+     */
+    readonly last_import_unmatched_count: number | null
     is_static?: boolean
     /** Type of cohort based on filter complexity
      *
@@ -392,6 +405,16 @@ export interface PatchedCohortApi {
     readonly last_error_message?: string | null
     /** @nullable */
     readonly count?: number | null
+    /**
+     * Number of IDs supplied by the most recent static cohort import. Null if the cohort was never populated from a list of IDs.
+     * @nullable
+     */
+    readonly last_import_total_count?: number | null
+    /**
+     * How many of the IDs in the most recent static cohort import matched no person, and so were not added to the cohort.
+     * @nullable
+     */
+    readonly last_import_unmatched_count?: number | null
     is_static?: boolean
     /** Type of cohort based on filter complexity
      *
@@ -535,7 +558,7 @@ export type CohortsStaffListParams = {
 
 export type CohortsListParams = {
     /**
-     * Return a basic payload that omits the heavy `filters`, `query`, and `groups` fields. Useful for pickers that only need id/name/count.
+     * Return a basic payload that omits the `query`, `groups`, `last_error_message`, and `experiment_set` fields (`filters` is kept). Useful for pickers that only need id/name/count.
      */
     basic?: boolean
     /**

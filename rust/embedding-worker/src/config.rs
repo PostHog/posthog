@@ -52,6 +52,22 @@ pub struct Config {
     // can't stall batch processing indefinitely.
     #[envconfig(default = "10")]
     pub embedding_request_timeout_seconds: u64,
+
+    #[envconfig(from = "RECENT_IDS_STORE", default = "memory")]
+    pub recent_ids_store: String,
+
+    #[envconfig(
+        from = "RECENT_IDS_DYNAMODB_TABLE",
+        default = "embedding_worker_recently_seen"
+    )]
+    pub recent_ids_dynamodb_table: String,
+
+    // TTL starts when the worker records the document, not from its timestamp.
+    #[envconfig(from = "RECENT_IDS_TTL_SECONDS", default = "604800")]
+    pub recent_ids_ttl_seconds: i64,
+
+    #[envconfig(from = "RECENT_IDS_AWS_REGION")]
+    pub aws_region: Option<String>,
 }
 
 impl Config {

@@ -7,9 +7,10 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.snowplow.settings import (
     SNOWPLOW_ENDPOINTS,
     SnowplowEndpointConfig,
@@ -196,7 +197,7 @@ def _jobs_window_bounds(
     db_incremental_field_last_value: Any,
     resume_window_from: str | None,
     now: datetime,
-) -> tuple[datetime, datetime]:
+) -> SyncWindow[datetime]:
     """Compute the overall (from, to) range to slice for the jobs endpoints.
 
     Runs are only retained for about a week, so both first syncs and stale watermarks clamp to
@@ -212,7 +213,7 @@ def _jobs_window_bounds(
     start = max(start, floor)
     if start > now:
         start = now
-    return start, now
+    return SyncWindow(start=start, end=now)
 
 
 def _get_windowed_job_rows(
@@ -224,14 +225,14 @@ def _get_windowed_job_rows(
     db_incremental_field_last_value: Any,
 ) -> Iterator[list[dict[str, Any]]]:
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    start, end = _jobs_window_bounds(
+    window = _jobs_window_bounds(
         should_use_incremental_field,
         db_incremental_field_last_value,
         resume.window_from if resume else None,
         now=datetime.now(UTC),
     )
 
-    for window_start, window_end in _iter_windows(start, end, JOB_RUNS_WINDOW):
+    for window_start, window_end in _iter_windows(window.start, window.end, JOB_RUNS_WINDOW):
         runs = client.get(
             "/jobs/v1/runs", params={"from": _format_datetime(window_start), "to": _format_datetime(window_end)}
         )

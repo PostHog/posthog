@@ -20,7 +20,9 @@ import { URL } from 'url'
 import { getExternalRequestConfig } from '~/common/config'
 
 import { isProdEnv } from './env-utils'
+import { fetchAttribution } from './fetch-attribution'
 import { parseJSON } from './json-parse'
+import { logger } from './logger'
 
 const requestConfig = getExternalRequestConfig()
 
@@ -82,6 +84,17 @@ export class ResolutionError extends Error {
     }
 }
 
+// Logged only when a check blocks the request. The check runs inside undici's connect flow
+// where the thrown error can't carry caller context, so attribution comes from the ALS store;
+// it reflects the request that opened the connection (keep-alive reuse skips the check).
+function logBlockedUrlValidation(hostname: string, resolvedIps: string[]): void {
+    logger.warn('[SSRF] Request blocked by URL validation check', {
+        hostname,
+        resolvedIps,
+        ...fetchAttribution.getStore(),
+    })
+}
+
 function validateUrl(url: string): URL {
     // Raise if the provided URL seems unsafe, otherwise do nothing.
     let parsedUrl: URL
@@ -129,6 +142,7 @@ function validateHostnameIPLiteral(hostname: string, allowUnsafe: boolean): void
     } else {
         if (!isGlobalIPv6(parsed)) {
             unsafeRequestCounter.inc({ reason: 'internal_ip_literal' })
+            logBlockedUrlValidation(hostname, [bare])
             throw new SecureRequestError('Hostname is not allowed')
         }
         return
@@ -136,6 +150,7 @@ function validateHostnameIPLiteral(hostname: string, allowUnsafe: boolean): void
 
     if (!isGlobalIPv4(ipv4)) {
         unsafeRequestCounter.inc({ reason: 'internal_ip_literal' })
+        logBlockedUrlValidation(hostname, [bare])
         throw new SecureRequestError('Hostname is not allowed')
     }
 }
@@ -178,6 +193,7 @@ async function staticLookupAsync(hostname: string): Promise<LookupAddress[]> {
     } catch {
         throw new ResolutionError('Invalid hostname')
     }
+    const resolvedIps = addrinfo.map((a) => a.address)
     for (const addrInfo of addrinfo) {
         const parsed = ipaddr.parse(addrInfo.address)
 
@@ -192,6 +208,7 @@ async function staticLookupAsync(hostname: string): Promise<LookupAddress[]> {
             const allowUnsafe = !isProdEnv()
             if (!allowUnsafe && !isGlobalIPv6(parsed)) {
                 unsafeRequestCounter.inc({ reason: 'internal_hostname' })
+                logBlockedUrlValidation(hostname, resolvedIps)
                 throw new SecureRequestError('Hostname is not allowed')
             }
             validAddrinfo.push(addrInfo)
@@ -204,12 +221,14 @@ async function staticLookupAsync(hostname: string): Promise<LookupAddress[]> {
         // Check if the IPv4 address is global
         if (!allowUnsafe && !isGlobalIPv4(ipv4)) {
             unsafeRequestCounter.inc({ reason: 'internal_hostname' })
+            logBlockedUrlValidation(hostname, resolvedIps)
             throw new SecureRequestError('Hostname is not allowed')
         }
         validAddrinfo.push(addrInfo)
     }
     if (validAddrinfo.length === 0) {
         unsafeRequestCounter.inc({ reason: 'unable_to_resolve' })
+        logBlockedUrlValidation(hostname, resolvedIps)
         throw new ResolutionError(`Unable to resolve ${hostname}`)
     }
 
@@ -294,6 +313,30 @@ const sharedSecureH2Agent = new Agent({
 })
 const sharedInsecureAgent = new InsecureAgent()
 
+function destroyBody(body: Dispatcher.ResponseData['body']): void {
+    try {
+        body.on('error', () => {})
+        body.destroy()
+    } catch {
+        // The body already ended, or another caller destroyed it.
+    }
+}
+
+/**
+ * The prototype is null because every key comes from the remote server, and `__proto__` on a plain
+ * object literal is a setter rather than a key.
+ */
+function flattenHeaders(raw: Dispatcher.ResponseData['headers']): Record<string, string> {
+    const headers: Record<string, string> = Object.create(null)
+    for (const [key, value] of Object.entries(raw)) {
+        const singleValue = Array.isArray(value) ? value[0] : value
+        if (singleValue) {
+            headers[key] = singleValue
+        }
+    }
+    return headers
+}
+
 /**
  * Reads a response body stream and destroys it immediately after to release
  * the underlying socket and its off-heap buffers. Without explicit destruction,
@@ -305,15 +348,16 @@ async function readAndDestroyBody(body: Dispatcher.ResponseData['body']): Promis
     // After text() fully consumes the stream, destroy to release socket buffers.
     // At this point the stream is already ended so destroy is a cleanup no-op,
     // but it signals undici to release the underlying socket immediately.
-    try {
-        body.destroy()
-    } catch {
-        // Ignore destroy errors — the body is already fully consumed
-    }
+    destroyBody(body)
     return text
 }
 
-export async function _fetch(url: string, options: FetchOptions = {}, dispatcher: Dispatcher): Promise<FetchResponse> {
+export async function _fetch(
+    url: string,
+    options: FetchOptions = {},
+    dispatcher: Dispatcher,
+    defaultTimeoutMs: number = requestConfig.EXTERNAL_REQUEST_TIMEOUT_MS
+): Promise<FetchResponse> {
     let parsed: URL
     try {
         parsed = new URL(url)
@@ -325,7 +369,7 @@ export async function _fetch(url: string, options: FetchOptions = {}, dispatcher
         throw new Error('URL must have HTTP or HTTPS protocol and a valid hostname')
     }
 
-    options.timeoutMs = options.timeoutMs ?? requestConfig.EXTERNAL_REQUEST_TIMEOUT_MS
+    options.timeoutMs = options.timeoutMs ?? defaultTimeoutMs
 
     const result = await request(parsed.toString(), {
         method: options.method ?? 'GET',
@@ -336,13 +380,7 @@ export async function _fetch(url: string, options: FetchOptions = {}, dispatcher
         signal: options.timeoutMs ? AbortSignal.timeout(options.timeoutMs) : undefined,
     })
 
-    const headers: Record<string, string> = {}
-    for (const [key, value] of Object.entries(result.headers)) {
-        const singleValue = Array.isArray(value) ? value[0] : value
-        if (singleValue) {
-            headers[key] = singleValue
-        }
-    }
+    const headers = flattenHeaders(result.headers)
 
     // On first .text()/.json() call, read the full body and destroy the
     // stream immediately after. This releases undici's socket buffers
@@ -364,12 +402,7 @@ export async function _fetch(url: string, options: FetchOptions = {}, dispatcher
         dump: () => {
             if (!bodyPromise) {
                 bodyPromise = Promise.resolve('')
-                try {
-                    result.body.on('error', () => {})
-                    result.body.destroy()
-                } catch {
-                    // Ignore destroy errors
-                }
+                destroyBody(result.body)
             }
             return Promise.resolve()
         },
@@ -380,15 +413,172 @@ export async function internalFetch(url: string, options: FetchOptions = {}): Pr
     return await _fetch(url, options, sharedInsecureAgent)
 }
 
+/**
+ * Requests to a host we don't run, meaning CDP destinations and anything else pointed at a
+ * customer-supplied URL. These take the third-party response budget, which is tunable separately
+ * from the internal-service one that `internalFetch` keeps; see
+ * DEFAULT_THIRD_PARTY_REQUEST_TIMEOUT_MS.
+ */
 export async function fetch(url: string, options: FetchOptions = {}): Promise<FetchResponse> {
     const parsed = new URL(url)
     validateHostnameIPLiteral(parsed.hostname, !isProdEnv())
     inflightExternalRequests.inc()
     try {
         const dispatcher = options.allowH2 ? sharedSecureH2Agent : sharedSecureAgent
-        return await _fetch(url, options, dispatcher)
+        return await _fetch(url, options, dispatcher, requestConfig.EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS)
     } finally {
         inflightExternalRequests.dec()
+    }
+}
+
+export type StreamedFetchOptions = {
+    headers?: HeadersInit
+    timeoutMs: number
+}
+
+export type StreamedResponse = {
+    status: number
+    headers: Record<string, string>
+    headerLines: Array<{ name: string; value: string }>
+    /**
+     * Reads at most `maxBytes`, then abandons the rest. `overLimit` says the response had more, and
+     * `bytes` then contains the first `maxBytes`, so parsers with a bounded-prefix rule can use it.
+     */
+    read: (maxBytes: number, retainPrefixOnOverflow?: boolean) => Promise<{ bytes: Buffer; overLimit: boolean }>
+    discard: () => void
+}
+
+function orderedHeaderLines(raw: unknown): Array<{ name: string; value: string }> {
+    if (Array.isArray(raw)) {
+        const lines: Array<{ name: string; value: string }> = []
+        for (let index = 0; index + 1 < raw.length; index += 2) {
+            lines.push({ name: String(raw[index]).toLowerCase(), value: String(raw[index + 1]) })
+        }
+        return lines
+    }
+    if (!raw || typeof raw !== 'object') {
+        return []
+    }
+    return Object.entries(raw).flatMap(([name, value]) =>
+        (Array.isArray(value) ? value : [value]).flatMap((line) =>
+            line === undefined ? [] : [{ name: name.toLowerCase(), value: String(line) }]
+        )
+    )
+}
+
+function flattenHeaderLines(lines: Array<{ name: string; value: string }>): Record<string, string> {
+    const headers: Record<string, string> = Object.create(null)
+    for (const { name, value } of lines) {
+        headers[name] ??= value
+    }
+    return headers
+}
+
+/**
+ * Memory here follows the bytes that arrive, never the bytes a response claims.
+ *
+ * One buffer sized from `Content-Length` would halve the peak for an honest response, because the
+ * chunks and the concatenated copy exist together for a moment. It would also let an origin hold
+ * `maxBytes` for the whole request timeout, once for every request in flight, by declaring a large
+ * body and then sending almost nothing.
+ */
+async function readCappedBody(
+    body: Dispatcher.ResponseData['body'],
+    maxBytes: number,
+    retainPrefixOnOverflow: boolean
+): Promise<{ bytes: Buffer; overLimit: boolean }> {
+    const chunks: Buffer[] = []
+    let total = 0
+    let overLimit = false
+    try {
+        for await (const chunk of body) {
+            const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+            const remaining = maxBytes - total
+            if (buffer.length > remaining) {
+                if (remaining > 0) {
+                    chunks.push(buffer.subarray(0, remaining))
+                    total += remaining
+                }
+                overLimit = true
+                if (!retainPrefixOnOverflow) {
+                    chunks.length = 0
+                    total = 0
+                }
+                break
+            }
+            chunks.push(buffer)
+            total += buffer.length
+        }
+    } finally {
+        destroyBody(body)
+    }
+    return { bytes: Buffer.concat(chunks, total), overLimit }
+}
+
+/**
+ * A third-party request whose caller reads the body under a byte limit.
+ *
+ * `fetch` above gives the caller `text()`, which buffers a whole body of any size. An origin can
+ * answer a request for a small image with gigabytes. Here the caller reads the status and the
+ * headers first, then sets a byte limit or abandons the body.
+ *
+ * This does not follow redirects, as `fetch` does not, so a response cannot bounce to a host that no
+ * check has seen. A caller that follows one must call this again for the new URL.
+ *
+ * The caller must call `read` or `discard`, and only one of them. The socket stays held until then.
+ */
+export async function fetchStreamed(url: string, options: StreamedFetchOptions): Promise<StreamedResponse> {
+    const parsed = validateUrl(url)
+    validateHostnameIPLiteral(parsed.hostname, !isProdEnv())
+
+    inflightExternalRequests.inc()
+    let result: Dispatcher.ResponseData
+    try {
+        result = await request(parsed.toString(), {
+            method: 'GET',
+            headers: options.headers,
+            dispatcher: sharedSecureAgent,
+            signal: AbortSignal.timeout(options.timeoutMs),
+            responseHeaders: 'raw',
+        })
+    } catch (error) {
+        inflightExternalRequests.dec()
+        throw error
+    }
+
+    // The gauge holds until the body is done, not until the headers arrive, because the body takes
+    // nearly all the time of an image request.
+    let settled = false
+    const settle = (): boolean => {
+        if (settled) {
+            return false
+        }
+        settled = true
+        inflightExternalRequests.dec()
+        return true
+    }
+
+    const headerLines = orderedHeaderLines(result.headers)
+    const headers = flattenHeaderLines(headerLines)
+    return {
+        status: result.statusCode,
+        headers,
+        headerLines,
+        read: async (maxBytes: number, retainPrefixOnOverflow = true) => {
+            if (settled) {
+                return { bytes: Buffer.alloc(0), overLimit: false }
+            }
+            try {
+                return await readCappedBody(result.body, maxBytes, retainPrefixOnOverflow)
+            } finally {
+                settle()
+            }
+        },
+        discard: () => {
+            if (settle()) {
+                destroyBody(result.body)
+            }
+        },
     }
 }
 
@@ -409,7 +599,7 @@ export function legacyFetch(input: RequestInfo, options?: RequestInit): Promise<
 
     const requestOptions = options ?? {}
     requestOptions.dispatcher = sharedSecureAgent
-    requestOptions.signal = AbortSignal.timeout(requestConfig.EXTERNAL_REQUEST_TIMEOUT_MS)
+    requestOptions.signal = AbortSignal.timeout(requestConfig.EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS)
 
     return undiciFetch(parsed.toString(), requestOptions)
 }

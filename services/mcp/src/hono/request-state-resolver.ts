@@ -1,7 +1,7 @@
 import type { GroupType } from '@/api/client'
 import { hasScope } from '@/lib/api'
 import { MCPClientProfile } from '@/lib/client-detection'
-import { isCloudApi, isLocalApi, PRODUCT_DATA_CATALOG_FLAG } from '@/lib/constants'
+import { isCloudApi, isLocalApi, MCP_GATEWAY_FLAG, PRODUCT_DATA_CATALOG_FLAG } from '@/lib/constants'
 import { buildMCPAnalyticsGroups } from '@/lib/posthog/analytics'
 import {
     type EvaluatedFlags,
@@ -12,9 +12,11 @@ import {
 import type { RequestProperties } from '@/lib/request-properties'
 import { filterStaffOnlyTools } from '@/lib/staff-only-tools'
 import type { McpMode } from '@/lib/utils'
+import { TASKS_CONTEXT_TOOL_NAMES } from '@/tools/tasksContext'
 import { getRequiredFeatureFlags, getScopeGatedTools, type ScopeGatedTool } from '@/tools/toolDefinitions'
-import type { Context, Tool, Env, State, ZodObjectAny } from '@/tools/types'
+import type { Context, Tool, Env, ZodObjectAny } from '@/tools/types'
 
+import { McpSessionRedisStore } from './cache/McpSessionRedisStore'
 import type { RedisLike } from './cache/RedisCache'
 import {
     buildMCPRequestContext,
@@ -33,11 +35,24 @@ export interface ResolvedState {
     useSingleExec: boolean
     toolFeatureFlags: EvaluatedFlags | undefined
     apiKeyScopes: string[]
+    oauthClientId: string | undefined
     clientProfile: MCPClientProfile
     requestContext: MCPRequestContext
     sessionContext: MCPSessionContext | null
     allTools: Tool<ZodObjectAny>[]
     scopeGatedTools: ScopeGatedTool[]
+    /**
+     * Whether the caller's team may reach third-party MCP tools through `exec`.
+     * Gated on the same flag as the gateway UI — the tools are the gateway's payoff,
+     * so they roll out together. Also forced off in read-only mode: a connected
+     * server's tools can mutate and PostHog can't prove otherwise, so the catalog's
+     * read-only filter has no equivalent to apply to them.
+     *
+     * Deliberately not folded into `allTools`: `instructions.ts` looks every entry up in
+     * the static tool-definition registry (which throws on an unknown name) and renders
+     * the full roster into the instructions payload.
+     */
+    gatewayToolsEnabled: boolean
     distinctId: string
     renderUiEnabled: boolean
     // Active project/user environment prompt and group types. Rendered into the
@@ -45,6 +60,12 @@ export interface ResolvedState {
     // the model like Codex, or ignore it like Claude web/desktop) the exec command
     // reference. Resolved once here so every render path reads the same source.
     metadata: string | undefined
+    // Variant of `metadata` without the product/integration context lines, for the
+    // claude.ai exec command reference: that surface counts against the ~16 KiB
+    // connector-registry cap on the serialized inputSchema, which already sits
+    // within tens of characters of the worst-case env context. Every uncapped
+    // surface renders the full `metadata`.
+    metadataCompact: string | undefined
     groupTypes: GroupType[] | undefined
 }
 
@@ -60,6 +81,10 @@ export function resolveMode(args: { mode: McpMode | undefined; clientProfile: MC
     // x-posthog-mcp-mode header always wins over auto-detection.
     const resolved: McpMode = mode ?? (clientProfile.isToolsModeClient() ? 'tools' : 'cli')
     return { mode: resolved, useSingleExec: resolved === 'cli' }
+}
+
+export function tasksContextToolsToExclude(clientProfile: MCPClientProfile, taskId: string | undefined): string[] {
+    return clientProfile.isPostHogCodeConsumer() && taskId ? [] : [...TASKS_CONTEXT_TOOL_NAMES]
 }
 
 /**
@@ -87,16 +112,6 @@ export function switchToolsToExclude(pinned: { organizationId?: string | undefin
 
 // ─── Resolver ───
 
-const SESSION_CONTEXT_KEYS = [
-    'mcpClientName',
-    'mcpClientVersion',
-    'mcpProtocolVersion',
-    'mcpConsumer',
-    'mcpVendorClient',
-] as const
-type SessionContextKey = (typeof SESSION_CONTEXT_KEYS)[number]
-type SessionContextCache = Pick<State, SessionContextKey>
-
 export class RequestStateResolver {
     private readonly catalog: ToolCatalog
     private readonly redis: RedisLike
@@ -111,27 +126,33 @@ export class RequestStateResolver {
     async resolve(props: RequestProperties): Promise<ResolvedState> {
         const requestContext = buildMCPRequestContext(props)
         const reqCtx = new RequestContext(this.redis, this.env, props, requestContext)
-        const sessionContext = await this.resolveSessionContext(reqCtx, requestContext)
-        const clientContext = getEffectiveMCPClientContext(requestContext, sessionContext)
-
-        const context = await reqCtx.getContext()
 
         const { features, tools, organizationId, projectId, readOnly } = props
+        const contextPromise = reqCtx.getContext()
+        const pinnedSessionContextPromise = projectId ? this.resolveSessionContext(requestContext) : undefined
 
-        await this.applyPinnedContext(reqCtx, props.mcpSessionId, { organizationId, projectId })
+        await reqCtx.tokenCache.setMany({
+            ...(organizationId ? { orgId: organizationId } : {}),
+            ...(projectId ? { projectId } : {}),
+        })
 
-        // Read the active project from the token cache (the source of truth every
-        // tool resolves through) rather than the request pin, so an in-session
-        // switch-project is reflected here too instead of the resent pin value.
-        let cachedProjectId = (await reqCtx.tokenCache.get('projectId')) || projectId
+        let cachedProjectId = projectId || (await reqCtx.tokenCache.get('projectId'))
         if (!cachedProjectId) {
-            await context.stateManager.setDefaultOrganizationAndProject()
+            const contextForDefault = await contextPromise
+            await contextForDefault.stateManager.setDefaultOrganizationAndProject()
             cachedProjectId = (await reqCtx.tokenCache.get('projectId')) ?? undefined
         }
 
-        // PRODUCT_DATA_CATALOG_FLAG gates instructions content (the metric-discovery prompt
-        // section), not a tool, so the tool-definition scan can't discover it.
-        const allFlagKeys = [...new Set([...getRequiredFeatureFlags(), PRODUCT_DATA_CATALOG_FLAG])]
+        const [context, sessionContext] = await Promise.all([
+            contextPromise,
+            pinnedSessionContextPromise ?? this.resolveSessionContext(requestContext),
+        ])
+        const clientContext = getEffectiveMCPClientContext(requestContext, sessionContext)
+
+        // Neither of these gates a catalog tool, so the tool-definition scan can't discover
+        // them: PRODUCT_DATA_CATALOG_FLAG gates instructions content (the metric-discovery
+        // prompt section), MCP_GATEWAY_FLAG gates the third-party tools `exec` resolves.
+        const allFlagKeys = [...new Set([...getRequiredFeatureFlags(), PRODUCT_DATA_CATALOG_FLAG, MCP_GATEWAY_FLAG])]
 
         const flagAnalyticsContext = await reqCtx.safelyGetAnalyticsContext(context)
         const flagGroups = flagAnalyticsContext ? buildMCPAnalyticsGroups(flagAnalyticsContext) : undefined
@@ -153,6 +174,7 @@ export class RequestStateResolver {
         const toolFeatureFlags = Object.fromEntries(flagKeysForState.map((k) => [k, mergedFlags[k]]))
 
         const oauthClientName = (await reqCtx.tokenCache.get('clientName')) || undefined
+        const oauthClientId = (await reqCtx.tokenCache.get('oauthClientId')) || undefined
 
         const clientProfile = new MCPClientProfile({
             clientName: clientContext.mcpClientName,
@@ -182,7 +204,10 @@ export class RequestStateResolver {
         const availableFeatures = await context.stateManager.getAvailableFeatures()
         const isCloud = isCloudApi()
 
-        const excludeTools = switchToolsToExclude({ organizationId })
+        const excludeTools = [
+            ...switchToolsToExclude({ organizationId }),
+            ...tasksContextToolsToExclude(clientProfile, props.taskId),
+        ]
 
         const filterOptions = {
             features,
@@ -206,11 +231,12 @@ export class RequestStateResolver {
         // only exists in single-exec mode — skip the extra scan otherwise.
         const scopeGatedTools = useSingleExec ? getScopeGatedTools(apiKeyScopes, filterOptions) : []
 
-        const [groupTypes, metadata] = await Promise.all([
+        const [groupTypes, metadata, metadataCompact] = await Promise.all([
             cachedProjectId && hasScope(apiKeyScopes, 'group:read')
                 ? context.stateManager.getOrFetchGroupTypes(cachedProjectId).catch(() => undefined)
                 : undefined,
             context.stateManager.getEnvironmentPrompt(),
+            context.stateManager.getEnvironmentPrompt({ includeProductContext: false }),
         ])
 
         return {
@@ -219,111 +245,26 @@ export class RequestStateResolver {
             useSingleExec,
             toolFeatureFlags,
             apiKeyScopes,
+            oauthClientId,
             clientProfile,
             requestContext,
             sessionContext,
             allTools,
             scopeGatedTools,
+            gatewayToolsEnabled: useSingleExec && !readOnly && mergedFlags[MCP_GATEWAY_FLAG] === true,
             distinctId,
             renderUiEnabled,
             metadata,
+            metadataCompact,
             groupTypes,
         }
     }
 
-    /**
-     * Apply an explicitly pinned org/project (from the `x-posthog-organization-id`
-     * / `x-posthog-project-id` headers or the `?organization_id=` / `?project_id=`
-     * query params) to the token-scoped active context that every data and write
-     * tool resolves through `StateManager.getProjectId` / `getOrgID`.
-     *
-     * A pin sets the session's *default* active context; it is not a hard lock. A
-     * project pin deliberately keeps `switch-project` available (the cross-org
-     * navigation flow depends on it), so an agent can switch away from the pinned
-     * project mid-session. Pinning clients resend the same static header on every
-     * request, so unconditionally writing the pin back each request would revert
-     * that switch on the very next tool call, leaving reads and writes pointed at
-     * the originally pinned project while `switch-project` reported success.
-     *
-     * To avoid that, record the applied pin per MCP session and only (re)apply it
-     * the first time it is seen or when it actually changes. The pin still wins at
-     * session start, each new session re-asserts its own pin (so concurrent
-     * sessions on the same token stay isolated), but a `switch-project` made
-     * within a session survives the pin being resent on later requests.
-     *
-     * Without an MCP session id there is no cross-request continuity to protect
-     * (a single-exec CLI request stands alone and runs its switch and query in the
-     * same request, after this resolves), so apply the pin unconditionally.
-     */
-    private async applyPinnedContext(
-        reqCtx: RequestContext,
-        mcpSessionId: string | undefined,
-        pinned: { organizationId?: string | undefined; projectId?: string | undefined }
-    ): Promise<void> {
-        const { organizationId, projectId } = pinned
-        if (!organizationId && !projectId) {
-            return
-        }
-
-        if (!mcpSessionId) {
-            await reqCtx.tokenCache.setMany({
-                ...(organizationId ? { orgId: organizationId } : {}),
-                ...(projectId ? { projectId } : {}),
-            })
-            return
-        }
-
-        const [appliedOrg, appliedProject] = await Promise.all([
-            organizationId ? reqCtx.sessionCache.get('pinnedOrgId') : Promise.resolve(undefined),
-            projectId ? reqCtx.sessionCache.get('pinnedProjectId') : Promise.resolve(undefined),
-        ])
-
-        const tokenUpdates: Partial<Pick<State, 'orgId' | 'projectId'>> = {}
-        const sessionUpdates: Partial<Pick<State, 'pinnedOrgId' | 'pinnedProjectId'>> = {}
-        if (organizationId && appliedOrg !== organizationId) {
-            tokenUpdates.orgId = organizationId
-            sessionUpdates.pinnedOrgId = organizationId
-        }
-        if (projectId && appliedProject !== projectId) {
-            tokenUpdates.projectId = projectId
-            sessionUpdates.pinnedProjectId = projectId
-        }
-
-        if (Object.keys(tokenUpdates).length > 0) {
-            await reqCtx.tokenCache.setMany(tokenUpdates)
-        }
-        if (Object.keys(sessionUpdates).length > 0) {
-            await reqCtx.sessionCache.setMany(sessionUpdates)
-        }
-    }
-
-    private async resolveSessionContext(
-        reqCtx: RequestContext,
-        requestContext: MCPRequestContext
-    ): Promise<MCPSessionContext | null> {
+    private async resolveSessionContext(requestContext: MCPRequestContext): Promise<MCPSessionContext | null> {
         if (!requestContext.mcpSessionId) {
             return null
         }
-
-        const cachedEntries = await Promise.all(
-            SESSION_CONTEXT_KEYS.map(async (key) => [key, await reqCtx.sessionCache.get(key)] as const)
-        )
-        const cachedContext = Object.fromEntries(cachedEntries) as Partial<SessionContextCache>
-
-        const cacheUpdates: Partial<SessionContextCache> = {}
-        for (const key of SESSION_CONTEXT_KEYS) {
-            if (!cachedContext[key] && requestContext[key]) {
-                cacheUpdates[key] = requestContext[key]
-            }
-        }
-
-        if (Object.keys(cacheUpdates).length > 0) {
-            await reqCtx.sessionCache.setMany(cacheUpdates)
-        }
-
-        return Object.fromEntries(
-            SESSION_CONTEXT_KEYS.map((key) => [key, cachedContext[key] || requestContext[key] || undefined])
-        ) as MCPSessionContext
+        return new McpSessionRedisStore(this.redis, requestContext.mcpSessionId).resolve(requestContext)
     }
 
     private async resolveAllFlags(
@@ -335,9 +276,8 @@ export class RequestStateResolver {
             return {}
         }
         // Local dev runs against the locally-running project, where the dev-only
-        // surfaces these flags gate (e.g. the agent-platform product DB) exist.
-        // The flags only hide those surfaces on prod until GA, so enable them all
-        // locally — the analytics flag-eval client is disabled in dev anyway.
+        // surfaces these flags gate exist. The flags only hide those surfaces on
+        // prod until GA, so enable them all locally — the analytics flag-eval client is disabled in dev anyway.
         if (isLocalApi()) {
             return Object.fromEntries(flagKeys.map((key) => [key, true]))
         }

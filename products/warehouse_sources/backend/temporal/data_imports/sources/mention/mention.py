@@ -7,15 +7,26 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.mention.settings import MENTION_ENDPOINTS
 
 MENTION_HOST = "https://api.mention.net"
 MENTION_BASE_URL = f"{MENTION_HOST}/api"
-# Pinned API version, sent on every request as recommended by the Mention docs.
-API_VERSION = "1.19"
+# Vendor API versions, sent verbatim on every request via the Accept-Version header
+# (https://dev.mention.com/current/src/Changelog.html). Since 1.21 the alert resource returns an
+# empty `stats` field unless a `stats` query parameter lists the counters to include; 1.19 returns
+# them by default, so the alerts list request restores the documented counters under 1.21.
+API_VERSION_1_19 = "1.19"
+API_VERSION_1_21 = "1.21"
+SUPPORTED_API_VERSIONS = (API_VERSION_1_19, API_VERSION_1_21)
+DEFAULT_API_VERSION = API_VERSION_1_21
+# Versions that return the alert `stats` object without an explicit request for it.
+_STATS_BY_DEFAULT_VERSIONS = frozenset({API_VERSION_1_19})
+# Counters the Mention changelog documents for the 1.21 `stats` query parameter; they map to the
+# "mentions per folder and unread mention totals" the alerts schema exposes.
+ALERT_STATS_PARAM = "mention_folders.inbox.total,unread_mentions.total"
 # Mentions accept up to limit=1000; 100 keeps pages small while staying well inside the documented
 # 3600 list calls per alert per 24h quota.
 PAGE_SIZE = 100
@@ -40,18 +51,30 @@ class MentionResumeConfig:
     next_url: str | None = None
 
 
-def _headers(access_token: str) -> dict[str, str]:
+def _headers(access_token: str, api_version: str) -> dict[str, str]:
     return {
         "Authorization": f"Bearer {access_token}",
         "Accept": "application/json",
-        "Accept-Version": API_VERSION,
+        "Accept-Version": api_version,
     }
 
 
-def _list_url(path: str, limit: int | None = PAGE_SIZE) -> str:
-    if limit is None:
+def _list_url(path: str, limit: int | None = PAGE_SIZE, extra_params: dict[str, str] | None = None) -> str:
+    params: dict[str, str | int] = {}
+    if limit is not None:
+        params["limit"] = limit
+    if extra_params:
+        params.update(extra_params)
+    if not params:
         return f"{MENTION_BASE_URL}{path}"
-    return f"{MENTION_BASE_URL}{path}?{urlencode({'limit': limit})}"
+    # ``safe=","`` keeps the comma-separated ``stats`` value readable rather than percent-encoded.
+    return f"{MENTION_BASE_URL}{path}?{urlencode(params, safe=',')}"
+
+
+def _alerts_list_url(account_id: str, api_version: str) -> str:
+    # 1.21 empties the alert `stats` field unless the counters are requested explicitly.
+    extra = None if api_version in _STATS_BY_DEFAULT_VERSIONS else {"stats": ALERT_STATS_PARAM}
+    return _list_url(f"/accounts/{account_id}/alerts", extra_params=extra)
 
 
 def _more_url(payload: dict[str, Any]) -> Optional[str]:
@@ -151,13 +174,14 @@ def _alert_rows(
     logger: FilteringBoundLogger,
     resume: MentionResumeConfig | None,
     resumable_source_manager: ResumableSourceManager[MentionResumeConfig],
+    api_version: str,
 ) -> Iterator[list[dict[str, Any]]]:
     if resume and resume.next_url:
         url: Optional[str] = resume.next_url
         logger.debug(f"Mention: resuming alerts from cursor {url}")
     else:
         account_id = str(_get_account(session, logger)["id"])
-        url = _list_url(f"/accounts/{account_id}/alerts")
+        url = _alerts_list_url(account_id, api_version)
 
     while url:
         payload = _fetch_page(session, url, logger)
@@ -254,14 +278,15 @@ def get_rows(
     endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[MentionResumeConfig],
+    api_version: str,
 ) -> Iterator[list[dict[str, Any]]]:
-    session = make_tracked_session(headers=_headers(access_token), redact_values=(access_token,))
+    session = make_tracked_session(headers=_headers(access_token, api_version), redact_values=(access_token,))
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
     if endpoint == "accounts":
         yield from _account_rows(session, logger)
     elif endpoint == "alerts":
-        yield from _alert_rows(session, logger, resume, resumable_source_manager)
+        yield from _alert_rows(session, logger, resume, resumable_source_manager, api_version)
     elif endpoint == "alert_tags":
         yield from _alert_tag_rows(session, logger, resume, resumable_source_manager)
     elif endpoint == "mentions":
@@ -275,6 +300,7 @@ def mention_source(
     endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[MentionResumeConfig],
+    api_version: str,
 ) -> SourceResponse:
     config = MENTION_ENDPOINTS[endpoint]
 
@@ -285,6 +311,7 @@ def mention_source(
             endpoint=endpoint,
             logger=logger,
             resumable_source_manager=resumable_source_manager,
+            api_version=api_version,
         ),
         primary_keys=config.primary_keys,
         partition_count=1,
@@ -292,13 +319,15 @@ def mention_source(
     )
 
 
-def check_access(access_token: str, path: str = DEFAULT_PROBE_PATH) -> tuple[int, Optional[str]]:
+def check_access(
+    access_token: str, path: str = DEFAULT_PROBE_PATH, api_version: str = DEFAULT_API_VERSION
+) -> tuple[int, Optional[str]]:
     """Probe a single endpoint to validate the access token.
 
     Returns ``(status, message)``: ``200`` reachable, ``401``/``403`` auth failure, ``0`` for a
     connection problem, other HTTP status otherwise.
     """
-    session = make_tracked_session(headers=_headers(access_token), redact_values=(access_token,))
+    session = make_tracked_session(headers=_headers(access_token, api_version), redact_values=(access_token,))
     try:
         response = session.get(f"{MENTION_BASE_URL}{path}", timeout=15)
     except Exception as e:
@@ -313,8 +342,8 @@ def check_access(access_token: str, path: str = DEFAULT_PROBE_PATH) -> tuple[int
     return 200, None
 
 
-def validate_credentials(access_token: str) -> tuple[bool, str | None]:
-    status, message = check_access(access_token)
+def validate_credentials(access_token: str, api_version: str = DEFAULT_API_VERSION) -> tuple[bool, str | None]:
+    status, message = check_access(access_token, api_version=api_version)
     if status == 200:
         return True, None
     if status in (401, 403):

@@ -485,10 +485,12 @@ Note: Diffed against the upstream swagger spec (82 paths). PostHog's deployment_
 
 ## Asana — gaps
 
-Today (8): `custom_fields`, `projects`, `sections`, `tags`, `tasks`, `teams`, `users`, `workspaces`
+Today (10): `ai_studio_runs`, `ai_studio_seats`, `custom_fields`, `projects`, `sections`, `tags`, `tasks`, `teams`, `users`, `workspaces`
 
 Diffed against: <https://raw.githubusercontent.com/Asana/openapi/master/defs/asana_oas.yaml>
 
+- [x] `workspaces/{workspace_gid}/ai_studio/runs` — one row per AI Studio run (rule execution) with the credits it consumed; from the AI Studio usage API (not in the OpenAPI spec above)
+- [x] `workspaces/{workspace_gid}/ai_studio/seats` — current snapshot of who holds an AI Studio seat, at what tier and state; from the AI Studio usage API (not in the OpenAPI spec above)
 - [ ] `tasks/{task_gid}/stories` — task activity + comment stream, the only source of state-transition history (assignee/section/due-date changes) (high)
 - [ ] `projects/{project_gid}/project_memberships` — who is on which project and in what role; joins users to projects we already sync (high)
 - [ ] `goals (+ goals/{gid}/parentGoals)` — Asana's headline OKR object with progress/status, entirely absent today (high)
@@ -506,10 +508,12 @@ Note: Diffed against Asana's official OpenAPI spec (3 MB, ~120 GET paths). Also 
 
 ## Ashby — gaps
 
-Today (16): `applications`, `archive_reasons`, `candidate_tags`, `candidates`, `custom_fields`, `departments`, `interview_schedules`, `interviews`, `job_postings`, `jobs`, `locations`, `offers`, `openings`, `projects`, `sources`, `users`
+Today (18): `applications`, `archive_reasons`, `candidate_tags`, `candidates`, `custom_fields`, `departments`, `interview_schedules`, `interviews`, `job_postings`, `jobs`, `locations`, `offers`, `openings`, `projects`, `referrals`, `sequences`, `sources`, `users`
 
 Diffed against: <https://developers.ashbyhq.com/reference/introduction>
 
+- [x] `referral.list` — candidate referrals tying a referrer to an application/job, a sourcing-attribution table (medium)
+- [x] `sequence.list` — candidate enrollments in outreach sequences, with per-stage scheduling (medium)
 - [ ] `applicationFeedback.list` — interview scorecards and ratings, the core quality signal for hiring analytics (high)
 - [ ] `application.listHistory` — stage-transition history; without it you cannot compute time-in-stage or funnel conversion (high)
 - [ ] `interviewStage.list` — lookup resolving the currentInterviewStage ID carried on every synced application (high)
@@ -524,6 +528,8 @@ Diffed against: <https://developers.ashbyhq.com/reference/introduction>
 - [ ] `sourceTrackingLink.list` — resolves attribution links behind the sources table already synced (low)
 
 Note: Ashby's readme.io OpenAPI JSON is not publicly downloadable (404), so the resource list was read from the full reference navigation on the introduction page, filtering on \*.list endpoints. Other list endpoints deliberately excluded as config: communicationTemplate, emailSender, sequenceTemplate, jobBoard, jobTemplate, brand, apiKey, webhook.
+
+Excluded as not table-shaped: `notetakerTranscript.info` is a single-object getter keyed by a `notetakerTranscriptId` (not enumerable, and it returns a transient pre-signed download URL); `candidate.getRecentEmailMessages` is a per-candidate fetch with no durable row id (`recordId` is documented as non-durable) and a silent 200-message snapshot cap, so it does not map to a stable, complete table.
 
 ## Asknicely — gaps
 
@@ -724,6 +730,14 @@ Diffed against: <https://getbeamer-api.pages.dev/>
 No material gaps found.
 
 Note: Every listable collection in the Beamer v0 API is already synced: posts, post comments, post reactions, feature requests, feature request comments, feature request votes, NPS responses and analytics users. The remaining operations are counts (count posts/comments/votes/reactions/NPS), the feed URL helper, unread-post lookups, NPS prompt eligibility and email-survey sends, and mutation-only team management (invite/remove/update role) - there is no GET for team members and no categories endpoint, so Category only exists as an inline field on Post. Caveat on the doc URL: the vendor's own page (getbeamer.com/help/beamer-api-documentation) now 404s and redirects into help.userflow.com after the Userflow merger; getbeamer-api.pages.dev is the working rendered Swagger reference for api.getbeamer.com/v0 and is what I diffed against.
+
+## Beehiiv — gaps
+
+Today (15): `Authors`, `Automations`, `ComplimentaryAccess`, `ConditionSets`, `CustomFields`, `NewsletterLists`, `Podcasts`, `Polls`, `PostTemplates`, `Posts`, `Publications`, `ReferralProgramMilestones`, `Segments`, `Subscriptions`, `Tiers`
+
+Diffed against: <https://developers.beehiiv.com/api-reference>
+
+- [x] `podcasts (GET /publications/{publication_id}/podcasts)` — podcasts belonging to the publication, added here
 
 ## Bettermode — **thin**
 
@@ -8716,15 +8730,17 @@ Diffed against: <https://trigger.dev/docs/llms.txt>
 
 Note: Trigger.dev also ships a TRQL query endpoint (management/query/execute) that exposes run data as a SQL-like surface; its schema endpoint (management/query/schema) lists every queryable table and would be the cheapest way to widen coverage. Env vars and queue concurrency controls were excluded as config.
 
-## TrunkIo — adequate
+## TrunkIo — gaps
 
-Today (3): `FailingTests`, `QuarantinedTests`, `UnhealthyTests`
+Today (4): `FailingTests`, `MergeQueuePullRequests`, `QuarantinedTests`, `UnhealthyTests`
 
-Diffed against: <https://docs.trunk.io/flaky-tests/reference/api-reference.md>
+Diffed against: <https://docs.trunk.io/openapi.json> (spec-verified 2026-08-03; supersedes the 2026-07-26 prose-docs pass)
 
-No material gaps found.
+- [x] `listPullRequests` — merge queue history: state, stateChangedAt, priority, batching flags and author per submitted PR. Cursor-paginated (`cursor`/`take`, `nextCursor`) with a `since` filter on conclusion time, so it is a genuine incremental collection (high)
+- [ ] `flaky-tests/get-test-details` — column-level, not a missing table: it returns the same 20 fields as a `list-failing-tests` row, so it adds nothing to `FailingTests`. Its only value is backfilling `most_common_failures` and `failure_rate_last_7d`/`_24h` onto `UnhealthyTests` rows whose test has not failed inside the `FailingTests` window, at the cost of one call per unhealthy test (low)
+- [ ] `getQueue` — merge queue configuration (concurrency, batching, merge method, required statuses) plus a point-in-time `enqueuedPullRequests` snapshot that duplicates `listPullRequests`. Full-refresh only, so it captures the current config and never its history — it cannot answer "did merge time change when we bumped concurrency" retrospectively (low)
 
-Note: The Flaky Tests REST API has exactly five endpoints: three list endpoints (distinct failed tests in a time range, unhealthy tests, quarantined tests) - all three already exposed as FailingTests, UnhealthyTests and QuarantinedTests - plus a single test-case detail lookup and a write op (link a ticket). Trunk's other API is the Merge Queue API (docs.trunk.io/merge-queue/reference/merge), a POST-based control plane (submit/cancel/restart PR, getQueue, getSubmittedPullRequest, Prometheus metrics) that requires per-branch parameters rather than exposing listable collections, so it is not a warehouse gap for this source.
+Note: the 2026-07-26 pass recorded Merge Queue as a control plane with no listable collections. The OpenAPI spec contradicts that — `/listPullRequests` is a paginated collection with an incremental filter — hence the correction. It does need a `targetBranch` the flaky-tests endpoints don't (a queue covers one branch), which is why the table ships opt-in via a source config field. Of the remaining 21 paths: `/getMergeQueueTestingDetails` needs a `testRunId` no readable endpoint returns, so a connector cannot reach it; `/getMergeQueueMetrics` is `text/plain` Prometheus; `/status` is Trunk's own service health rather than customer data; the other 11 are writes (submit/cancel/restart PR, queue CRUD, `link-ticket-to-test-case`, alpha `create-ci-run`) or device-auth token flows.
 
 ## TVMaze — gaps
 

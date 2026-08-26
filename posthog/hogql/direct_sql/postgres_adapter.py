@@ -1,16 +1,23 @@
-from datetime import date, datetime
+from contextlib import ExitStack
 from typing import TYPE_CHECKING, TypedDict, cast
 
 import psycopg
 from opentelemetry import trace
-from psycopg.types.datetime import DateLoader
+from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResult
 from posthog.hogql.direct_sql.capability import is_direct_capable
+from posthog.hogql.direct_sql.pgwire import (
+    MANAGED_WAREHOUSE_CONNECTION_ERROR,
+    LenientDirectPostgresDateLoader,
+    postgres_error_to_message,
+    postgres_oid_to_clickhouse_type,
+)
 from posthog.hogql.direct_sql.raw_sql import ensure_single_direct_statement
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.escape_sql import escape_postgres_identifier
+from posthog.hogql.timings import HogQLTimings
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -23,44 +30,6 @@ if TYPE_CHECKING:
 
 DIRECT_POSTGRES_CONNECT_TIMEOUT_SECONDS = 15
 DIRECT_POSTGRES_DEFAULT_STATEMENT_TIMEOUT_SECONDS = 600
-
-POSTGRES_OID_TO_CLICKHOUSE_TYPE: dict[int, str] = {
-    16: "Bool",
-    20: "Int64",
-    21: "Int16",
-    23: "Int32",
-    26: "UInt32",
-    700: "Float32",
-    701: "Float64",
-    1082: "Date",
-    1114: "DateTime",
-    1184: "DateTime64(6, 'UTC')",
-    1700: "Decimal",
-    17: "String",
-    19: "String",
-    25: "String",
-    1042: "String",
-    1043: "String",
-    114: "String",
-    3802: "String",
-    2950: "UUID",
-    1083: "String",
-    1266: "String",
-    1186: "String",
-    1000: "Array(Bool)",
-    1005: "Array(Int16)",
-    1007: "Array(Int32)",
-    1016: "Array(Int64)",
-    1021: "Array(Float32)",
-    1022: "Array(Float64)",
-    1115: "Array(DateTime)",
-    1185: "Array(DateTime64(6, 'UTC'))",
-    1182: "Array(Date)",
-    1231: "Array(Decimal)",
-    1009: "Array(String)",
-    1015: "Array(String)",
-    2951: "Array(UUID)",
-}
 
 
 class PostgresConnectionKwargs(TypedDict, total=False):
@@ -75,29 +44,6 @@ class PostgresConnectionKwargs(TypedDict, total=False):
     sslcert: str
     sslkey: str
     sslrootcert: str
-
-
-def postgres_oid_to_clickhouse_type(oid: int | None) -> str:
-    if oid is None:
-        return "String"
-
-    return POSTGRES_OID_TO_CLICKHOUSE_TYPE.get(oid, "String")
-
-
-def postgres_error_to_message(error: Exception) -> str:
-    if isinstance(error, psycopg.Error):
-        diag = getattr(error, "diag", None)
-        message_primary = getattr(diag, "message_primary", None) if diag else None
-        message_detail = getattr(diag, "message_detail", None) if diag else None
-        if message_primary and message_detail:
-            return f"{message_primary} {message_detail}"
-        if message_primary:
-            return message_primary
-
-    message = str(error).strip()
-    if not message:
-        return "Postgres query failed."
-    return message.splitlines()[0]
 
 
 def is_postwh_host(host: str | None) -> bool:
@@ -131,39 +77,6 @@ def direct_postgres_session_setup_sql(
 
     quoted_schema = escape_postgres_identifier(normalized_schema)
     return f"SET search_path TO {quoted_schema}"
-
-
-def parse_lenient_direct_postgres_date(value: str) -> date:
-    trimmed = value.strip()
-
-    try:
-        return date.fromisoformat(trimmed)
-    except ValueError:
-        pass
-
-    normalized = trimmed[:-1] + "+00:00" if trimmed.endswith("Z") else trimmed
-    try:
-        return datetime.fromisoformat(normalized).date()
-    except ValueError:
-        pass
-
-    if len(trimmed) >= 10:
-        return date.fromisoformat(trimmed[:10])
-
-    raise ValueError(f"Unable to parse date value: {value!r}")
-
-
-class LenientDirectPostgresDateLoader(DateLoader):
-    """Handle non-standard DATE text values returned by DuckDB's Postgres wire."""
-
-    def load(self, data) -> date:
-        try:
-            return super().load(data)
-        except psycopg.DataError as exc:
-            try:
-                return parse_lenient_direct_postgres_date(bytes(data).decode("utf8", "replace"))
-            except ValueError:
-                raise exc from None
 
 
 def get_runtime_direct_postgres_connection_metadata(
@@ -206,27 +119,34 @@ class PostgresAdapter:
     dialect: HogQLDialect | None = "postgres"
 
     def validate_source_config(
-        self, source: "ExternalDataSource", team: "Team"
+        self, source: "ExternalDataSource", team: "Team", timings: HogQLTimings | None = None
     ) -> tuple["PostgresSource", "PostgresSourceConfig"]:
-        from products.warehouse_sources.backend.facade.source_management import PostgresSource, SourceRegistry
-        from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+        timings = timings or HogQLTimings()
+        with timings.measure("postgres_source_config"):
+            with timings.measure("postgres_source_capability"):
+                # Capability, not access_method: a synced source with the direct-query toggle on is valid too.
+                if not (is_direct_capable(source) and source.direct_engine == self.engine):
+                    raise ExposedHogQLError("Invalid direct Postgres connection.")
 
-        # Capability, not access_method: a synced source with the direct-query toggle on is valid too.
-        if not (is_direct_capable(source) and source.direct_engine == self.engine):
-            raise ExposedHogQLError("Invalid direct Postgres connection.")
+            with timings.measure("postgres_source_registry", emit_span=True):
+                from products.warehouse_sources.backend.facade.source_management import PostgresSource, SourceRegistry
+                from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
-        postgres_source = cast(PostgresSource, SourceRegistry.get_source(ExternalDataSourceType.POSTGRES))
-        config = postgres_source.parse_config(source.job_inputs or {})
+                postgres_source = cast(PostgresSource, SourceRegistry.get_source(ExternalDataSourceType.POSTGRES))
+            with timings.measure("postgres_source_parse_config"):
+                config = postgres_source.parse_config(source.job_inputs or {})
 
-        is_ssh_valid, ssh_valid_errors = postgres_source.ssh_tunnel_is_valid(config, team.pk)
-        if not is_ssh_valid:
-            raise ExposedHogQLError(ssh_valid_errors or "Invalid SSH tunnel configuration.")
+        with timings.measure("postgres_ssh_validation"):
+            is_ssh_valid, ssh_valid_errors = postgres_source.ssh_tunnel_is_valid(config, team.pk)
+            if not is_ssh_valid:
+                raise ExposedHogQLError(ssh_valid_errors or "Invalid SSH tunnel configuration.")
 
-        valid_host, host_errors = postgres_source.is_database_host_valid(
-            config.host, team.pk, using_ssh_tunnel=config.ssh_tunnel.enabled if config.ssh_tunnel else False
-        )
-        if not valid_host:
-            raise ExposedHogQLError(host_errors or "Invalid Postgres host.")
+        with timings.measure("postgres_host_validation"):
+            valid_host, host_errors = postgres_source.is_database_host_valid(
+                config.host, team.pk, using_ssh_tunnel=config.ssh_tunnel.enabled if config.ssh_tunnel else False
+            )
+            if not valid_host:
+                raise ExposedHogQLError(host_errors or "Invalid Postgres host.")
 
         return postgres_source, config
 
@@ -234,12 +154,17 @@ class PostgresAdapter:
         return ensure_single_direct_statement(sql)
 
     def execute(self, request: DirectQueryRequest) -> DirectQueryResult:
-        from products.warehouse_sources.backend.facade.source_management import _get_sslmode, source_requires_ssl
-
         source = request.source
-        postgres_source, source_config = self.validate_source_config(source, request.team)
-        source_schema = source_config.schema
-        require_ssl = source_requires_ssl(source, source_config)
+        with request.timings.measure("postgres_source_validation"):
+            with request.timings.measure("postgres_source_helpers_import"):
+                from products.warehouse_sources.backend.facade.source_management import (
+                    _get_sslmode,
+                    source_requires_ssl,
+                )
+
+            postgres_source, source_config = self.validate_source_config(source, request.team, request.timings)
+            source_schema = source_config.schema
+            require_ssl = source_requires_ssl(source, source_config)
         settings = request.settings
         statement_timeout_ms = (
             max(settings.max_execution_time or DIRECT_POSTGRES_DEFAULT_STATEMENT_TIMEOUT_SECONDS, 1) * 1000
@@ -252,7 +177,9 @@ class PostgresAdapter:
 
         try:
             with request.timings.measure("postgres_execute"):
-                with postgres_source.with_ssh_tunnel(source_config) as (host, port):
+                with ExitStack() as tunnel_stack:
+                    with request.timings.measure("postgres_tunnel_open", emit_span=True):
+                        host, port = tunnel_stack.enter_context(postgres_source.with_ssh_tunnel(source_config))
                     connection_kwargs: PostgresConnectionKwargs = {
                         "host": host,
                         "port": port,
@@ -274,35 +201,46 @@ class PostgresAdapter:
                         # but do not use certificate-based auth.
                         connection_kwargs["sslmode"] = "require"
 
-                    with psycopg.connect(**connection_kwargs) as connection:
+                    with request.timings.measure("postgres_connect", emit_span=True):
+                        try:
+                            connection_context = psycopg.connect(**connection_kwargs)
+                        except (psycopg.Error, RuntimeError, ValueError) as error:
+                            if source.is_managed_warehouse_ready:
+                                raise ExposedHogQLError(MANAGED_WAREHOUSE_CONNECTION_ERROR) from error
+                            raise
+                    with connection_context as connection:
                         runtime_connection_metadata = source.connection_metadata
                         if should_hydrate_runtime_direct_postgres_connection_metadata(
                             source_schema,
                             runtime_connection_metadata,
                         ):
-                            runtime_connection_metadata = get_runtime_direct_postgres_connection_metadata(
-                                connection,
-                                runtime_connection_metadata,
-                            )
+                            with request.timings.measure("postgres_connection_metadata"):
+                                runtime_connection_metadata = get_runtime_direct_postgres_connection_metadata(
+                                    connection,
+                                    runtime_connection_metadata,
+                                )
                         session_setup_sql = direct_postgres_session_setup_sql(
                             source_schema,
                             runtime_connection_metadata,
                             host,
                         )
                         if session_setup_sql:
-                            connection.execute(session_setup_sql)
+                            with request.timings.measure("postgres_session_setup"):
+                                connection.execute(session_setup_sql)
                         connection.adapters.register_loader("date", LenientDirectPostgresDateLoader)
                         with connection.cursor() as cursor:
-                            cursor.execute(  # nosemgrep: python.django.security.injection.sql.sql-injection-using-db-cursor-execute.sql-injection-db-cursor-execute
-                                request.sql, request.values or None
-                            )
+                            with request.timings.measure("postgres_query_execute"):
+                                cursor.execute(  # nosemgrep: python.django.security.injection.sql.sql-injection-using-db-cursor-execute.sql-injection-db-cursor-execute
+                                    request.sql, request.values or None
+                                )
                             # Statements that don't produce a result set (e.g. ATTACH, SET, other
                             # DDL/utility commands) leave cursor.description as None; calling
                             # fetchall() on them raises ProgrammingError. Treat them as a
                             # successful, empty result instead of surfacing a spurious error.
                             description = cursor.description or []
-                            results = cursor.fetchall() if description else []
-        except (psycopg.Error, ExposedHogQLError) as error:
+                            with request.timings.measure("postgres_query_fetch"):
+                                results = cursor.fetchall() if description else []
+        except (psycopg.Error, BaseSSHTunnelForwarderError, ExposedHogQLError) as error:
             span.set_attribute("error_type", error.__class__.__name__)
             if request.debug:
                 return DirectQueryResult(results=[], types=[], print_columns=[], error=postgres_error_to_message(error))

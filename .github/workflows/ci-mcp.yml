@@ -5,8 +5,8 @@ on:
         branches: [master]
     pull_request:
         # Draft PRs run build + unit tests only; the integration tests (which boot
-        # the full PostHog backend and trigger on any Python change) run when the
-        # PR is marked ready for review — that full run is the merge gate.
+        # the full PostHog backend and trigger on any non-pytest Python change) run
+        # when the PR is marked ready for review; that full run is the merge gate.
         # The `no-ci` label silences this workflow on a draft entirely (prototypes).
         # No labeled/unlabeled triggers here, so it takes effect from the next push.
         types: [opened, synchronize, reopened, ready_for_review]
@@ -20,6 +20,8 @@ permissions:
     pull-requests: read
 
 env:
+    # Manual cache-bust knob. Keep in sync with SCHEMA_CACHE_EPOCH in ci-backend.yml, which saves these caches on master pushes.
+    SCHEMA_CACHE_EPOCH: v2
     RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
 
 jobs:
@@ -32,6 +34,7 @@ jobs:
         if: >-
             github.event_name != 'pull_request'
             || github.event.pull_request.draft != true
+            || startsWith(github.head_ref, 'trunk-merge/')
             || !contains(github.event.pull_request.labels.*.name, 'no-ci')
         name: Determine need to run MCP checks
         outputs:
@@ -40,8 +43,8 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             # MCP integration tests boot the full PostHog backend (Django web server,
-            # Celery worker, migrations, demo data), so the filter mirrors the Dagster
-            # approach: trigger on any Python change across the app.
+            # Celery worker, migrations, demo data), so the filter stays broad: any
+            # non-pytest Python change across the app triggers it.
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
               if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
@@ -58,6 +61,8 @@ jobs:
                         # MCP service and per-product tool/UI-app configs
                         - 'services/mcp/**'
                         - 'products/*/mcp/**'
+                        # Bundled into the MCP server (parser recipe tools)
+                        - 'packages/llm-normalizer/**'
                         # MCP integration tests exercise the full PostHog backend
                         - 'posthog/**/*.py'
                         - 'ee/**/*.py'
@@ -106,6 +111,28 @@ jobs:
                         # CI config
                         - '.github/workflows/ci-mcp.yml'
                         - '.github/workflows/mcp-publish.yml'
+                        # The integration tests drive a running Django server over HTTP and
+                        # never import pytest modules, so exclude them. Narrow on purpose:
+                        #  - modules, not whole test/ dirs: those also hold runtime code, such
+                        #    as posthog/test/base.py, which the backend boot imports via
+                        #    setup_test_environment.
+                        #  - '*_test.py' only under products/*/backend, where it is the
+                        #    colocated-test convention. Under posthog/ that suffix names
+                        #    production code this suite runs (ClickHouse migrations, UDF
+                        #    scripts copied into ClickHouse during setup).
+                        #  - per-tree prefixes, because an exclude is tested against every file
+                        #    the filter sees, not just the include it sits next to: a bare
+                        #    '!**/conftest.py' would also veto tools/hogli/tests/conftest.py,
+                        #    which the tools/hogli/** include above covers.
+                        - '!posthog/**/test_*.py'
+                        - '!posthog/**/conftest.py'
+                        - '!ee/**/test_*.py'
+                        - '!ee/**/conftest.py'
+                        - '!common/**/test_*.py'
+                        - '!common/**/conftest.py'
+                        - '!products/*/backend/**/test_*.py'
+                        - '!products/*/backend/**/*_test.py'
+                        - '!products/*/backend/**/conftest.py'
     build:
         name: Build Package
         runs-on: ubuntu-latest
@@ -117,11 +144,21 @@ jobs:
             - name: Checkout code
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version: 3.13.13
-                  token: ${{ github.token }}
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
@@ -138,6 +175,7 @@ jobs:
               uses: ./.github/actions/pnpm-install
               with:
                   install-command: pnpm --filter=@posthog/root --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Check MCP code quality
               run: |
@@ -186,10 +224,21 @@ jobs:
             - name: Checkout code
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             - name: Install pnpm dependencies
               uses: ./.github/actions/pnpm-install
               with:
                   install-command: pnpm --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             # The workers-pool project in vitest.config.mts parses wrangler.jsonc
             # up front and needs `assets.directory` (./public/) populated and
@@ -248,12 +297,13 @@ jobs:
         name: Integration Tests (depot-ubuntu-24.04-4)
         runs-on: depot-ubuntu-24.04-4
         needs: changes
-        timeout-minutes: 30
+        # Sized for a schema-cache miss (full migrate from scratch), not just a hit.
+        timeout-minutes: 45
         # Skipped on drafts: these boot the full PostHog backend and trigger on any
-        # Python change, so they're the expensive half of this workflow. Build and
-        # unit tests still run on drafts; the `MCP Tests Pass` aggregator treats
-        # skipped as success, and the ready-for-review run is the merge gate.
-        if: needs.changes.outputs.mcp == 'true' && github.event.pull_request.draft != true
+        # non-pytest Python change, so they're the expensive half of this workflow.
+        # Build and unit tests still run on drafts; the `MCP Tests Pass` aggregator
+        # treats skipped as success, and the ready-for-review run is the merge gate.
+        if: needs.changes.outputs.mcp == 'true' && (github.event.pull_request.draft != true || startsWith(github.head_ref, 'trunk-merge/'))
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
             DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -276,7 +326,7 @@ jobs:
             DISABLE_SECURE_SSL_REDIRECT: 'True'
             CLICKHOUSE_LOGS_CLUSTER_SECURE: 'False'
             CELERY_METRICS_PORT: 8999
-            POSTHOG_FEATURE_FLAGS_FORCE_ENABLED: 'logs-alerting,dashboard-widgets,product-business-knowledge'
+            POSTHOG_FEATURE_FLAGS_FORCE_ENABLED: 'logs-alerting,dashboard-widgets,product-business-knowledge,billing-alerts'
             # Required for the feature_flags test_evaluation endpoint, which authenticates
             # historical-flag override requests to the Rust flags service. Any non-empty
             # value is fine for CI — the Rust service in the test stack accepts it.
@@ -310,11 +360,21 @@ jobs:
               shell: bash
               run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version: 3.13.13
-                  token: ${{ github.token }}
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
@@ -338,6 +398,7 @@ jobs:
               uses: ./.github/actions/pnpm-install
               with:
                   install-command: pnpm --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Set up needed files
               shell: bash
@@ -366,7 +427,7 @@ jobs:
             - name: Build Rust flags service
               working-directory: rust
               env:
-                  # Debug builds compile much faster than release (~4 min vs ~9 min).
+                  # Debug builds compile much faster than release.
                   # We disable debug assertions because the codebase contains
                   # debug_assert! checks that intentionally panic on data invariant
                   # violations, which would crash the service mid-test-run.
@@ -413,11 +474,48 @@ jobs:
                   # The fetch-depth:1000 checkout + base-ref fetch above ensure the
                   # full ancestry needed to find the divergence point is available.
                   MERGE_BASE=$(git merge-base HEAD^2 "origin/${BASE_REF}" 2>/dev/null || echo "")
-                  if [ -n "$MERGE_BASE" ]; then
-                      echo "key=posthog-schema-master-${MERGE_BASE}" >> $GITHUB_OUTPUT
-                  else
+                  if [ -z "$MERGE_BASE" ]; then
                       echo "key=" >> $GITHUB_OUTPUT
+                      echo "migrations_key=" >> $GITHUB_OUTPUT
                       echo "::notice::merge-base not found (branch too stale?) — schema cache will be skipped"
+                      exit 0
+                  fi
+                  # Routing decides which app labels reach the dump, and the prime step below
+                  # replays them from the checked-out copy, so these inputs belong in the key. A PR
+                  # that edits any of them matches no master dump, the merge-base one included:
+                  # drop both keys and let migrations run from scratch.
+                  DB_ROUTING=$(git ls-tree -r --format='%(objectname) %(path)' "$MERGE_BASE" -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)
+                  DB_ROUTING_HEAD=$(git ls-tree -r --format='%(objectname) %(path)' HEAD -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)
+                  if [ "$DB_ROUTING" != "$DB_ROUTING_HEAD" ]; then
+                      echo "key=" >> $GITHUB_OUTPUT
+                      echo "migrations_key=" >> $GITHUB_OUTPUT
+                      echo "::notice::db routing config or router differs from the merge base, so the schema cache is skipped"
+                      exit 0
+                  fi
+                  echo "key=posthog-schema-master-${MERGE_BASE}" >> $GITHUB_OUTPUT
+                  # Last-resort restore prefix: matches the newest saved dump of any
+                  # migration set, for the window where both exact keys miss. Gated on
+                  # checkout age (a day) because a re-run of an old run keeps its original
+                  # commit: a stale checkout can lack migrations the newest dump records,
+                  # and the migrate top-ups only apply forward, so they cannot repair a
+                  # dump that is newer than the code.
+                  HEAD_AGE_SECONDS=$(( $(date +%s) - $(git show -s --format=%ct HEAD) ))
+                  if [ "$HEAD_AGE_SECONDS" -lt 86400 ]; then
+                      echo "prefix_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-" >> $GITHUB_OUTPUT
+                  fi
+                  # Shared migration-set key. Must match ci-backend.yml's save-side computation byte for byte or it never hits.
+                  MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' "$MERGE_BASE" \
+                      | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
+                      | grep -vE '/(clickhouse|async_migrations)/migrations/' \
+                      | LC_ALL=C sort) || true
+                  PG_IMAGE=$(git show "${MERGE_BASE}:docker-compose.base.yml" 2>/dev/null \
+                      | grep -m1 -E '^[[:space:]]*image:[[:space:]]*postgres:' | tr -d '[:space:]')
+                  if [ -z "$MIG_FILES" ]; then
+                      echo "migrations_key=" >> $GITHUB_OUTPUT
+                      echo "::notice::no migration files matched — restore will fall back to the SHA schema key"
+                  else
+                      MIG_HASH=$(printf '%s\n%s\n%s' "$MIG_FILES" "$PG_IMAGE" "$DB_ROUTING" | sha256sum | cut -c1-40)
+                      echo "migrations_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-${MIG_HASH}" >> $GITHUB_OUTPUT
                   fi
 
             - name: Restore schema cache from master
@@ -425,7 +523,15 @@ jobs:
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
-                  key: ${{ steps.schema-key.outputs.key }}
+                  # Prefer the shared content key; fall back to the exact merge-base SHA key,
+                  # then to the newest dump of any migration set. Right after a migration
+                  # lands on master both exact keys miss until ci-backend re-dumps; the
+                  # migrate step below tops a slightly stale dump up in seconds instead of
+                  # replaying the full history.
+                  key: ${{ steps.schema-key.outputs.migrations_key || steps.schema-key.outputs.key }}
+                  restore-keys: |
+                      ${{ steps.schema-key.outputs.key }}
+                      ${{ steps.schema-key.outputs.prefix_key }}
 
             - name: Prime posthog from cached schema
               # No-op on cache miss; manage.py migrate below falls back to a full migrate.
@@ -571,7 +677,9 @@ jobs:
               # every failure is an already-quarantined flake, fails otherwise.
               continue-on-error: true
               # The junit reporter (alongside the default console one) feeds the Trunk upload below.
-              run: cd services/mcp && pnpm run test:integration -- --reporter=default --reporter=junit --outputFile.junit=junit-integration.xml
+              # No `--` before the flags: pnpm forwards it literally, and vitest then treats
+              # everything after it as positional args, silently dropping the junit reporter.
+              run: cd services/mcp && pnpm run test:integration --reporter=default --reporter=junit --outputFile.junit=junit-integration.xml
               env:
                   TEST_POSTHOG_API_BASE_URL: http://localhost:8000
                   TEST_POSTHOG_PERSONAL_API_KEY: phx_e2e_demo_api_key
@@ -580,7 +688,7 @@ jobs:
 
             # Best-effort Trunk upload (continue-on-error); the "Fail on test failure" step below is
             # the verdict, so a Trunk outage can't red a passing job. Internal PRs only (needs the
-            # secret); cli-version pinned, not 'latest' (skips the release redirect).
+            # secret).
             # TRUNK_UPLOAD_ENABLED is the master kill-switch: when it is not 'true' this gate
             # skips, so nothing uploads and no known flakes are quarantined. TRUNK_QUARANTINE_ENABLED
             # splits the two — it defaults off, so set it to 'true' to let the verdict step below mask
@@ -589,12 +697,9 @@ jobs:
               id: quarantine_gate
               continue-on-error: true
               if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
-              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              uses: ./.github/actions/trunk-quarantine-gate
               with:
                   junit-paths: services/mcp/junit-integration.xml
-                  org-slug: posthog-inc
-                  cli-version: '0.13.7'
-                  quarantine: true
                   previous-step-outcome: ${{ steps.run-integration-tests.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
 
@@ -628,7 +733,10 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         needs: [changes, unit-tests]
-        if: ${{ always() && needs.changes.outputs.mcp == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.actor, '[bot]') && github.actor != 'posthog-bot' && !contains(github.actor, 'github-actions') }}
+        # A status function is required to commit regenerated snapshots even when unit-tests
+        # failed (a snapshot mismatch fails that job). !cancelled() rather than always() so a
+        # superseded run does not push a stale snapshot commit to the branch.
+        if: ${{ !cancelled() && needs.changes.outputs.mcp == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.actor, '[bot]') && github.actor != 'posthog-bot' && !contains(github.actor, 'github-actions') }}
         permissions:
             contents: write
             pull-requests: write
@@ -699,9 +807,9 @@ jobs:
         steps:
             - name: Check all MCP jobs
               run: |
-                  # Fail if change detection itself failed
-                  if [[ "${{ needs.changes.result }}" == "failure" ]]; then
-                    echo "Change detection job failed."
+                  # Fail if change detection failed or was cancelled (outputs are empty on cancel, so the exit below would report green).
+                  if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
+                    echo "Change detection did not succeed (result: ${{ needs.changes.result }})."
                     exit 1
                   fi
 
@@ -711,23 +819,23 @@ jobs:
                     exit 0
                   fi
 
-                  if [[ "${{ needs.build.result }}" == "failure" ]]; then
-                    echo "MCP build failed."
+                  if [[ "${{ needs.build.result }}" != "success" && "${{ needs.build.result }}" != "skipped" ]]; then
+                    echo "MCP build did not succeed (result: ${{ needs.build.result }})."
                     exit 1
                   fi
 
-                  if [[ "${{ needs.unit-tests.result }}" == "failure" ]]; then
-                    echo "MCP unit tests failed."
+                  if [[ "${{ needs.unit-tests.result }}" != "success" && "${{ needs.unit-tests.result }}" != "skipped" ]]; then
+                    echo "MCP unit tests did not succeed (result: ${{ needs.unit-tests.result }})."
                     exit 1
                   fi
 
-                  if [[ "${{ needs.integration-tests.result }}" == "failure" ]]; then
-                    echo "MCP integration tests failed."
+                  if [[ "${{ needs.integration-tests.result }}" != "success" && "${{ needs.integration-tests.result }}" != "skipped" ]]; then
+                    echo "MCP integration tests did not succeed (result: ${{ needs.integration-tests.result }})."
                     exit 1
                   fi
 
-                  if [[ "${{ needs.handle-snapshots.result }}" == "failure" ]]; then
-                    echo "MCP snapshot commit job failed."
+                  if [[ "${{ needs.handle-snapshots.result }}" != "success" && "${{ needs.handle-snapshots.result }}" != "skipped" ]]; then
+                    echo "MCP snapshot commit job did not succeed (result: ${{ needs.handle-snapshots.result }})."
                     exit 1
                   fi
 

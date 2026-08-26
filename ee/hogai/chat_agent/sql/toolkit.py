@@ -20,14 +20,16 @@ def generate_sql_schema() -> dict:
                         "ActionsStackedBar",
                         "ActionsPie",
                         "TwoDimensionalHeatmap",
+                        "ScatterPlot",
                     ],
                     "description": (
                         "The visualization type for the query results. Use ActionsLineGraph or ActionsAreaGraph for "
                         "time-based data, BoldNumber for a single value, ActionsBar for categorical comparisons, "
                         "ActionsStackedBar when a breakdown column should split bars into series, "
                         "ActionsPie for part-of-a-whole proportions across a small number of categories, "
-                        "TwoDimensionalHeatmap for x/y/value grids, and ActionsTable only when rows are the intended "
-                        "output."
+                        "TwoDimensionalHeatmap for x/y/value grids, "
+                        "ScatterPlot for the relationship between two numeric measures, "
+                        "and ActionsTable only when rows are the intended output."
                     ),
                 },
                 "x_axis": {

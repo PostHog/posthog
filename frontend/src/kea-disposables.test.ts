@@ -211,4 +211,22 @@ describe('disposablesPlugin', () => {
         logic.unmount()
         expect(cleanupCalls).toBe(2)
     })
+
+    it('add() and dispose() are inert after unmount rather than throwing', () => {
+        setHidden(false)
+        ;(logic as any).cache.disposables.add(makeSetup(), 'k1')
+        // A loader or listener closes over `cache`, then reaches `cache.disposables` when it
+        // resumes. Read the manager the same way here, so nulling it on unmount fails this test.
+        const cache = (logic as any).cache
+
+        logic.unmount()
+        expect(cleanupCalls).toBe(1)
+        expect(cache.disposables.isDisposed).toBe(true)
+
+        expect(cache.disposables.dispose('k1')).toBe(false)
+
+        cache.disposables.add(makeSetup(), 'k2')
+        expect(setupCalls).toBe(1)
+        expect(cache.disposables.registry.has('k2')).toBe(false)
+    })
 })

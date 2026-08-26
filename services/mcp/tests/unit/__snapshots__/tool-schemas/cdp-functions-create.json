@@ -35,10 +35,6 @@
                     },
                     "type": "array"
                 },
-                "bytecode": {},
-                "bytecode_error": {
-                    "type": "string"
-                },
                 "data_warehouse": {
                     "items": {
                         "additionalProperties": {},
@@ -74,11 +70,10 @@
                 },
                 "source": {
                     "default": "events",
-                    "description": "* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table",
-                    "enum": ["events", "person-updates", "data-warehouse-table"],
+                    "description": "* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table\n* `data-warehouse-view` - data-warehouse-view",
+                    "enum": ["events", "person-updates", "data-warehouse-table", "data-warehouse-view"],
                     "type": "string"
-                },
-                "transpiled": {}
+                }
             },
             "type": "object"
         },
@@ -174,7 +169,7 @@
                         ]
                     },
                     "type": {
-                        "description": "* `string` - string\n* `number` - number\n* `boolean` - boolean\n* `dictionary` - dictionary\n* `choice` - choice\n* `json` - json\n* `integration` - integration\n* `integration_multi` - integration_multi\n* `integration_field` - integration_field\n* `email` - email\n* `native_email` - native_email\n* `posthog_assignee` - posthog_assignee\n* `posthog_ticket_tags` - posthog_ticket_tags\n* `posthog_business_hours` - posthog_business_hours\n* `non_failure_status_codes` - non_failure_status_codes\n* `customer_analytics_account_properties` - customer_analytics_account_properties\n* `customer_analytics_account_relationships` - customer_analytics_account_relationships",
+                        "description": "* `string` - string\n* `number` - number\n* `boolean` - boolean\n* `dictionary` - dictionary\n* `choice` - choice\n* `json` - json\n* `integration` - integration\n* `integration_multi` - integration_multi\n* `integration_field` - integration_field\n* `email` - email\n* `native_email` - native_email\n* `posthog_assignee` - posthog_assignee\n* `posthog_ticket_tags` - posthog_ticket_tags\n* `posthog_business_hours` - posthog_business_hours\n* `non_failure_status_codes` - non_failure_status_codes\n* `customer_analytics_account_properties` - customer_analytics_account_properties\n* `customer_analytics_account_relationships` - customer_analytics_account_relationships\n* `task_model` - task_model\n* `task_repository` - task_repository\n* `task_mcp_installations` - task_mcp_installations",
                         "enum": [
                             "string",
                             "number",
@@ -192,7 +187,10 @@
                             "posthog_business_hours",
                             "non_failure_status_codes",
                             "customer_analytics_account_properties",
-                            "customer_analytics_account_relationships"
+                            "customer_analytics_account_relationships",
+                            "task_model",
+                            "task_repository",
+                            "task_mcp_installations"
                         ],
                         "type": "string"
                     }
@@ -254,8 +252,13 @@
                                     },
                                     "source": {
                                         "default": "events",
-                                        "description": "* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table",
-                                        "enum": ["events", "person-updates", "data-warehouse-table"],
+                                        "description": "* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table\n* `data-warehouse-view` - data-warehouse-view",
+                                        "enum": [
+                                            "events",
+                                            "person-updates",
+                                            "data-warehouse-table",
+                                            "data-warehouse-view"
+                                        ],
                                         "type": "string"
                                     }
                                 },
@@ -336,7 +339,7 @@
                                             ]
                                         },
                                         "type": {
-                                            "description": "* `string` - string\n* `number` - number\n* `boolean` - boolean\n* `dictionary` - dictionary\n* `choice` - choice\n* `json` - json\n* `integration` - integration\n* `integration_multi` - integration_multi\n* `integration_field` - integration_field\n* `email` - email\n* `native_email` - native_email\n* `posthog_assignee` - posthog_assignee\n* `posthog_ticket_tags` - posthog_ticket_tags\n* `posthog_business_hours` - posthog_business_hours\n* `non_failure_status_codes` - non_failure_status_codes\n* `customer_analytics_account_properties` - customer_analytics_account_properties\n* `customer_analytics_account_relationships` - customer_analytics_account_relationships",
+                                            "description": "* `string` - string\n* `number` - number\n* `boolean` - boolean\n* `dictionary` - dictionary\n* `choice` - choice\n* `json` - json\n* `integration` - integration\n* `integration_multi` - integration_multi\n* `integration_field` - integration_field\n* `email` - email\n* `native_email` - native_email\n* `posthog_assignee` - posthog_assignee\n* `posthog_ticket_tags` - posthog_ticket_tags\n* `posthog_business_hours` - posthog_business_hours\n* `non_failure_status_codes` - non_failure_status_codes\n* `customer_analytics_account_properties` - customer_analytics_account_properties\n* `customer_analytics_account_relationships` - customer_analytics_account_relationships\n* `task_model` - task_model\n* `task_repository` - task_repository\n* `task_mcp_installations` - task_mcp_installations",
                                             "enum": [
                                                 "string",
                                                 "number",
@@ -354,7 +357,10 @@
                                                 "posthog_business_hours",
                                                 "non_failure_status_codes",
                                                 "customer_analytics_account_properties",
-                                                "customer_analytics_account_relationships"
+                                                "customer_analytics_account_relationships",
+                                                "task_model",
+                                                "task_repository",
+                                                "task_mcp_installations"
                                             ],
                                             "type": "string"
                                         }
@@ -382,9 +388,6 @@
             "anyOf": [
                 {
                     "properties": {
-                        "bytecode": {
-                            "description": "Compiled bytecode for the hash expression. Auto-generated."
-                        },
                         "hash": {
                             "description": "Hog expression used to compute the masking hash.",
                             "type": "string"
@@ -443,7 +446,7 @@
         "type": {
             "anyOf": [
                 {
-                    "description": "* `destination` - Destination\n* `site_destination` - Site Destination\n* `internal_destination` - Internal Destination\n* `source_webhook` - Source Webhook\n* `warehouse_source_webhook` - Warehouse Source Webhook\n* `site_app` - Site App\n* `transformation` - Transformation",
+                    "description": "* `destination` - Destination\n* `site_destination` - Site Destination\n* `internal_destination` - Internal Destination\n* `source_webhook` - Source Webhook\n* `warehouse_source_webhook` - Warehouse Source Webhook\n* `site_app` - Site App\n* `transformation` - Transformation\n* `transformation_log` - Transformation Log",
                     "enum": [
                         "destination",
                         "site_destination",
@@ -451,7 +454,8 @@
                         "source_webhook",
                         "warehouse_source_webhook",
                         "site_app",
-                        "transformation"
+                        "transformation",
+                        "transformation_log"
                     ],
                     "type": "string"
                 },

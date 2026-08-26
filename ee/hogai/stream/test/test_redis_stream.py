@@ -1,14 +1,14 @@
-import pickle
 import asyncio
 from typing import cast
 from uuid import uuid4
 
 import pytest
 from posthog.test.base import BaseTest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.test import SimpleTestCase
 
+import fakeredis
 import redis.exceptions as redis_exceptions
 from parameterized import parameterized
 
@@ -97,12 +97,11 @@ class TestRedisStream(BaseTest):
     async def test_read_stream_with_data(self):
         with patch.object(self.redis_stream, "_redis_client") as mock_client:
             # Mock serialized data
-            import pickle
 
             test_event = StreamEvent(
                 event=MessageEvent(type=AssistantEventType.MESSAGE, payload=AssistantMessage(content="test"))
             )
-            serialized_data = pickle.dumps(test_event)
+            serialized_data = test_event.model_dump_json().encode("utf-8")
             mock_client.xread = AsyncMock(return_value=[(self.stream_key, [(b"1234-0", {b"data": serialized_data})])])
 
             chunks = []
@@ -117,10 +116,9 @@ class TestRedisStream(BaseTest):
     async def test_read_stream_completion_status(self):
         with patch.object(self.redis_stream, "_redis_client") as mock_client:
             # Mock xread to return completion status
-            import pickle
 
             test_event = StreamEvent(event=StreamStatusEvent(payload=StatusPayload(status="complete")))
-            serialized_data = pickle.dumps(test_event)
+            serialized_data = test_event.model_dump_json().encode("utf-8")
             mock_client.xread = AsyncMock(return_value=[(self.stream_key, [(b"1234-0", {b"data": serialized_data})])])
 
             chunks = []
@@ -133,10 +131,8 @@ class TestRedisStream(BaseTest):
     async def test_read_stream_error_status(self):
         # Test that RedisStreamError is raised when there's an error status
         with patch.object(self.redis_stream, "_redis_client") as mock_client:
-            import pickle
-
             test_event = StreamEvent(event=StreamStatusEvent(payload=StatusPayload(status="error", error="Test error")))
-            serialized_data = pickle.dumps(test_event)
+            serialized_data = test_event.model_dump_json().encode("utf-8")
             mock_client.xread = AsyncMock(return_value=[(self.stream_key, [(b"1234-0", {b"data": serialized_data})])])
 
             with self.assertRaises(StreamError) as context:
@@ -245,12 +241,11 @@ class TestRedisStream(BaseTest):
     async def test_read_stream_no_messages_continue_polling(self):
         with patch.object(self.redis_stream, "_redis_client") as mock_client:
             # First call returns no messages, second call returns data
-            import pickle
 
             test_event = StreamEvent(
                 event=MessageEvent(type=AssistantEventType.MESSAGE, payload=AssistantMessage(content="test chunk"))
             )
-            serialized_data = pickle.dumps(test_event)
+            serialized_data = test_event.model_dump_json().encode("utf-8")
             mock_client.xread = AsyncMock(
                 side_effect=[
                     [],  # No messages
@@ -271,7 +266,6 @@ class TestRedisStream(BaseTest):
     async def test_read_stream_multiple_messages(self):
         with patch.object(self.redis_stream, "_redis_client") as mock_client:
             # Mock xread to return multiple messages
-            import pickle
 
             test_event1 = StreamEvent(
                 event=MessageEvent(type=AssistantEventType.MESSAGE, payload=AssistantMessage(content="chunk 1"))
@@ -285,9 +279,9 @@ class TestRedisStream(BaseTest):
                     (
                         self.stream_key,
                         [
-                            (b"1234-0", {b"data": pickle.dumps(test_event1)}),
-                            (b"1234-1", {b"data": pickle.dumps(test_event2)}),
-                            (b"1234-2", {b"data": pickle.dumps(complete_event)}),
+                            (b"1234-0", {b"data": test_event1.model_dump_json().encode("utf-8")}),
+                            (b"1234-1", {b"data": test_event2.model_dump_json().encode("utf-8")}),
+                            (b"1234-2", {b"data": complete_event.model_dump_json().encode("utf-8")}),
                         ],
                     )
                 ]
@@ -302,11 +296,8 @@ class TestRedisStream(BaseTest):
             self.assertEqual(chunks[1].event.type, AssistantEventType.MESSAGE)
 
     @pytest.mark.asyncio
-    async def test_read_stream_invalid_data_skipped(self):
+    async def test_read_stream_legacy_pickle_entry_skipped(self):
         with patch.object(self.redis_stream, "_redis_client") as mock_client:
-            # Mock xread to return invalid serialized data
-            import pickle
-
             valid_event = StreamEvent(
                 event=MessageEvent(type=AssistantEventType.MESSAGE, payload=AssistantMessage(content="valid chunk"))
             )
@@ -316,24 +307,44 @@ class TestRedisStream(BaseTest):
                     (
                         self.stream_key,
                         [
-                            (b"1234-0", {b"data": b"\xff\xfe"}),  # Invalid pickle data
-                            (b"1234-1", {b"data": pickle.dumps(valid_event)}),
-                            (b"1234-2", {b"data": pickle.dumps(complete_event)}),
+                            (b"1234-0", {b"data": b"\x80\x05legacy"}),  # legacy pickle entry (0x80 prefix)
+                            (b"1234-1", {b"data": valid_event.model_dump_json().encode("utf-8")}),
+                            (b"1234-2", {b"data": complete_event.model_dump_json().encode("utf-8")}),
                         ],
                     )
                 ]
             )
 
-            with self.assertRaises(Exception):  # Should raise exception on invalid data
-                chunks = []
-                async for chunk in self.redis_stream.read_stream():
-                    chunks.append(chunk)
+            chunks = []
+            async for chunk in self.redis_stream.read_stream():
+                chunks.append(chunk)
+
+            # The legacy entry is skipped; the valid message is still delivered and the completion
+            # marker ends the stream, instead of the whole read failing.
+            self.assertEqual(len(chunks), 1)
+            payload = cast(AssistantMessage, chunks[0].event.payload)
+            self.assertEqual(payload.content, "valid chunk")
+
+    async def test_read_stream_corrupt_entry_raises(self):
+        # A non-legacy entry that fails to parse is a real error, not a stale pre-migration entry,
+        # so the read fails rather than silently dropping it.
+        with patch.object(self.redis_stream, "_redis_client") as mock_client:
+            mock_client.xread = AsyncMock(
+                return_value=[(self.stream_key, [(b"1234-0", {b"data": b"{not valid json"})])]
+            )
+
+            with self.assertRaises(StreamError) as context:
+                async for _ in self.redis_stream.read_stream():
+                    pass
+
+            self.assertIn("Unexpected error reading", str(context.exception))
 
     @pytest.mark.asyncio
     async def test_write_to_stream_success(self):
         with patch.object(self.redis_stream, "_redis_client") as mock_client:
-            mock_client.xadd = AsyncMock()
-            mock_client.expire = AsyncMock()
+            pipe = MagicMock()
+            pipe.execute = AsyncMock()
+            mock_client.pipeline = MagicMock(return_value=pipe)
 
             # Create a test generator
             async def test_generator():
@@ -343,14 +354,17 @@ class TestRedisStream(BaseTest):
             await self.redis_stream.write_to_stream(test_generator())
 
             # Should call xadd 3 times: 2 data messages + 1 completion
-            self.assertEqual(mock_client.xadd.call_count, 3)
-            mock_client.expire.assert_called_once_with(self.stream_key, CONVERSATION_STREAM_TIMEOUT)
+            self.assertEqual(pipe.xadd.call_count, 3)
+            # TTL is set alongside every write, so it's refreshed once per entry
+            self.assertEqual(pipe.expire.call_count, 3)
+            pipe.expire.assert_called_with(self.stream_key, CONVERSATION_STREAM_TIMEOUT)
 
     @pytest.mark.asyncio
     async def test_write_to_stream_exception(self):
         with patch.object(self.redis_stream, "_redis_client") as mock_client:
-            mock_client.expire = AsyncMock()  # Allow expire to succeed
-            mock_client.xadd = AsyncMock(side_effect=Exception("Redis error"))
+            pipe = MagicMock()
+            pipe.execute = AsyncMock(side_effect=Exception("Redis error"))
+            mock_client.pipeline = MagicMock(return_value=pipe)
 
             async def test_generator():
                 yield (AssistantEventType.MESSAGE, AssistantMessage(content="test message"))
@@ -358,13 +372,37 @@ class TestRedisStream(BaseTest):
             with self.assertRaises(Exception):
                 await self.redis_stream.write_to_stream(test_generator())
 
-            self.assertEqual(mock_client.xadd.call_count, 2)
+            # First write flush fails; the error-status write then attempts its own flush.
+            self.assertEqual(pipe.execute.call_count, 2)
+
+    @pytest.mark.asyncio
+    async def test_write_to_stream_error_status_write_failure_preserves_original(self):
+        # When the primary write fails and the fallback error-status write also fails
+        # (e.g. Redis is unreachable), the original error must not be masked by the
+        # secondary one: we still raise StreamError chained from the real cause.
+        with patch.object(self.redis_stream, "_redis_client") as mock_client:
+            original_error = redis_exceptions.TimeoutError("connect timeout")
+            masking_error = redis_exceptions.TimeoutError("masking error from dead redis")
+            pipe = MagicMock()
+            pipe.execute = AsyncMock(side_effect=[original_error, masking_error])
+            mock_client.pipeline = MagicMock(return_value=pipe)
+
+            async def test_generator():
+                yield (AssistantEventType.MESSAGE, AssistantMessage(content="test message"))
+
+            with self.assertRaises(StreamError) as context:
+                await self.redis_stream.write_to_stream(test_generator())
+
+            self.assertIs(context.exception.__cause__, original_error)
+            # Both the data write and the fallback status write were attempted
+            self.assertEqual(pipe.execute.call_count, 2)
 
     @pytest.mark.asyncio
     async def test_write_to_stream_empty_generator(self):
         with patch.object(self.redis_stream, "_redis_client") as mock_client:
-            mock_client.xadd = AsyncMock()
-            mock_client.expire = AsyncMock()
+            pipe = MagicMock()
+            pipe.execute = AsyncMock()
+            mock_client.pipeline = MagicMock(return_value=pipe)
 
             async def empty_generator():
                 return
@@ -373,15 +411,16 @@ class TestRedisStream(BaseTest):
             await self.redis_stream.write_to_stream(empty_generator())
 
             # Should call xadd once for completion status
-            self.assertEqual(mock_client.xadd.call_count, 1)
-            mock_client.expire.assert_called_once_with(self.stream_key, CONVERSATION_STREAM_TIMEOUT)
+            self.assertEqual(pipe.xadd.call_count, 1)
+            pipe.expire.assert_called_once_with(self.stream_key, CONVERSATION_STREAM_TIMEOUT)
 
     @pytest.mark.asyncio
     async def test_serializer_integration(self):
         # Test that the serializer is properly integrated
         with patch.object(self.redis_stream, "_redis_client") as mock_client:
-            mock_client.xadd = AsyncMock()
-            mock_client.expire = AsyncMock()
+            pipe = MagicMock()
+            pipe.execute = AsyncMock()
+            mock_client.pipeline = MagicMock(return_value=pipe)
 
             # Test with a real serializer
             async def test_generator():
@@ -390,7 +429,7 @@ class TestRedisStream(BaseTest):
             await self.redis_stream.write_to_stream(test_generator())
 
             # Check that xadd was called with serialized data
-            calls = mock_client.xadd.call_args_list
+            calls = pipe.xadd.call_args_list
             self.assertEqual(len(calls), 2)  # 1 data + 1 completion
 
             # First call should be the data message
@@ -446,8 +485,9 @@ class TestRedisStream(BaseTest):
     async def test_write_to_stream_with_callback(self):
         """Test that callback is invoked after each message is written."""
         with patch.object(self.redis_stream, "_redis_client") as mock_client:
-            mock_client.xadd = AsyncMock()
-            mock_client.expire = AsyncMock()
+            pipe = MagicMock()
+            pipe.execute = AsyncMock()
+            mock_client.pipeline = MagicMock(return_value=pipe)
 
             # Track callback invocations
             callback_count = 0
@@ -467,7 +507,7 @@ class TestRedisStream(BaseTest):
             # Callback should be called for each message
             self.assertEqual(callback_count, 3)
             # xadd should be called 4 times (3 messages + 1 completion)
-            self.assertEqual(mock_client.xadd.call_count, 4)
+            self.assertEqual(pipe.xadd.call_count, 4)
 
     def test_serializer_ack_message_returns_none(self):
         """Test that ACK messages are not serialized."""
@@ -502,8 +542,9 @@ class TestRedisStream(BaseTest):
         """Test that ACK messages are not written to the stream."""
 
         with patch.object(self.redis_stream, "_redis_client") as mock_client:
-            mock_client.xadd = AsyncMock()
-            mock_client.expire = AsyncMock()
+            pipe = MagicMock()
+            pipe.execute = AsyncMock()
+            mock_client.pipeline = MagicMock(return_value=pipe)
 
             # Create a test generator with ACK message
             async def test_generator():
@@ -518,10 +559,10 @@ class TestRedisStream(BaseTest):
 
             # Check xadd calls - should only be called for non-ACK messages + completion
             # 2 regular messages + 1 completion = 3 calls
-            self.assertEqual(mock_client.xadd.call_count, 3)
+            self.assertEqual(pipe.xadd.call_count, 3)
 
             # Verify the ACK message was not written
-            calls = mock_client.xadd.call_args_list
+            calls = pipe.xadd.call_args_list
             for call in calls[:-1]:  # Exclude the completion message
                 data = call[0][1]
                 self.assertIn("data", data)
@@ -618,10 +659,9 @@ class TestGetSubagentStreamKey(BaseTest):
 
 
 class TestConversationStreamSerializerJson(SimpleTestCase):
-    # Phase 1 of the pickle->JSON migration: the reader must parse JSON entries (and still read
-    # legacy pickle) before any writer emits JSON. The inner payload union is resolved by pydantic
-    # smart mode, so each member — especially the three that share only `content: str` — is a
-    # distinct resolution case that could misresolve or drop fields on the validate-back leg.
+    # The stream payload's inner union is resolved by pydantic smart mode, so each member is a
+    # distinct resolution case. The three that share only `content: str` are the ones most likely
+    # to misresolve or drop fields when validated back from JSON.
     @parameterized.expand(
         [
             ("assistant", AssistantMessage(content="hi")),
@@ -635,7 +675,7 @@ class TestConversationStreamSerializerJson(SimpleTestCase):
         serializer = ConversationStreamSerializer()
         event = StreamEvent(event=MessageEvent(type=AssistantEventType.MESSAGE, payload=payload))
         json_bytes = event.model_dump_json().encode("utf-8")
-        assert json_bytes[:1] == b"{"  # the byte the reader branches on to pick JSON over pickle
+        assert json_bytes[:1] == b"{"  # stream entries serialize as JSON objects
 
         result = serializer.deserialize({b"data": json_bytes})
 
@@ -699,12 +739,29 @@ class TestConversationStreamSerializerJson(SimpleTestCase):
         self.assertIs(type(result.event), type(event))
         self.assertEqual(result.event, event)
 
-    def test_deserialize_still_reads_legacy_pickle(self):
+    def test_dumps_emits_json(self):
+        # the serializer emits JSON, so a stream entry is a JSON object
         serializer = ConversationStreamSerializer()
-        event = StreamEvent(event=StreamStatusEvent(payload=StatusPayload(status="complete")))
 
-        result = serializer.deserialize({b"data": pickle.dumps(event)})
+        result = serializer.dumps((AssistantEventType.MESSAGE, AssistantMessage(content="hi")))
 
-        self.assertEqual(result.event.type, "STREAM_STATUS")
-        payload = cast(StatusPayload, result.event.payload)
-        self.assertEqual(payload.status, "complete")
+        assert result is not None
+        self.assertEqual(result["data"][:1], b"{")
+
+
+class TestConversationStreamTTL(SimpleTestCase):
+    @pytest.mark.asyncio
+    async def test_write_to_stream_sets_a_ttl(self):
+        # Regression guard: EXPIRE used to run before the first XADD (a no-op on a missing key),
+        # so streams were created with no TTL and never self-expired.
+        stream = ConversationRedisStream(f"{CONVERSATION_STREAM_PREFIX}{uuid4()}")
+        stream._redis_client = fakeredis.FakeAsyncRedis()
+
+        async def gen():
+            yield (AssistantEventType.MESSAGE, AssistantMessage(content="hi"))
+
+        await stream.write_to_stream(gen())
+
+        ttl = await stream._redis_client.ttl(stream._stream_key)
+        self.assertGreater(ttl, 0)
+        self.assertLessEqual(ttl, CONVERSATION_STREAM_TIMEOUT)

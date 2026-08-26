@@ -45,7 +45,7 @@ class TestEventDefinitionAPI(APIBaseTest):
         for event_definition in cls.EXPECTED_EVENT_DEFINITIONS:
             create_event_definitions(event_definition, team_id=cls.demo_team.pk)
             capture_event(
-                event=EventData(
+                event=EventFixture(
                     event=event_definition["name"],
                     team_id=cls.demo_team.pk,
                     distinct_id="abc",
@@ -76,6 +76,18 @@ class TestEventDefinitionAPI(APIBaseTest):
         result_names = [r["name"] for r in response.json()["results"]]
         assert "installed_app" not in result_names
         assert "purchase" not in result_names
+
+    @parameterized.expand(
+        [
+            ("repeated", "names=installed_app&names=purchase&names=missing_event"),
+            ("comma_separated", "names=installed_app,purchase,missing_event"),
+        ]
+    )
+    def test_list_event_definitions_with_exact_names(self, _name, query_string):
+        response = self.client.get(f"/api/projects/@current/event_definitions/?{query_string}")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert {result["name"] for result in response.json()["results"]} == {"installed_app", "purchase"}
 
     @parameterized.expand(
         [
@@ -633,7 +645,7 @@ class TestEventDefinitionExcludeStale(APIBaseTest):
 
 
 @dataclasses.dataclass
-class EventData:
+class EventFixture:
     """
     Little utility struct for creating test event data
     """
@@ -645,7 +657,7 @@ class EventData:
     properties: dict[str, Any]
 
 
-def capture_event(event: EventData):
+def capture_event(event: EventFixture):
     """
     Creates an event, given an event dict. Currently just puts this data
     directly into clickhouse, but could be created via api to get better parity

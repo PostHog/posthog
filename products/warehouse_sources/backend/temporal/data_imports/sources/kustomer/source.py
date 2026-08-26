@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -23,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kustomer import (
     KustomerSourceConfig,
 )
@@ -45,10 +42,8 @@ class KustomerSource(ResumableSource[KustomerSourceConfig, KustomerResumeConfig]
     # for both — the "v2" docs toggle keeps these list endpoints at `/v1/`. So the
     # version is a pin recorded on the source, not a request-layer branch: every
     # version resolves to the same `/v1/<resource>` requests (see settings.py).
-    # v2 stays declared-but-dormant and the default remains v1 until a `/v2/<resource>`
-    # endpoint is confirmed to serve these resources, rather than 404.
     supported_versions = ("v1", "v2")
-    default_version = "v1"
+    default_version = "v2"
     api_docs_url = "https://developer.kustomer.com"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

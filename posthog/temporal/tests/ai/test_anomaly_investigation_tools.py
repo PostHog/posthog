@@ -4,11 +4,11 @@ from unittest.mock import MagicMock, patch
 
 from posthog.schema import BaseMathType, ChartDisplayType, EventsNode, IntervalType, TrendsFilter, TrendsQuery
 
-from posthog.caching.fetch_from_cache import InsightResult
+from posthog.caching.insight_result import InsightResult
 from posthog.temporal.ai.anomaly_investigation.tools import _run_detector_simulation
 
 from products.alerts.backend.models.alert import AlertConfiguration
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 def _trend_result(label: str, data: list[float]) -> dict[str, Any]:

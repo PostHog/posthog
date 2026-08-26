@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SortMode
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SortMode
 
 # Roark exposes no server-side timestamp filter on any list endpoint (only client-side `sortBy`
 # ordering plus an opaque `after` cursor), so every table syncs as a full refresh. Incremental sync

@@ -31,6 +31,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.clickhouse.custom_metrics import MetricsClient
 from posthog.dags.common import JobOwners
+from posthog.dataclasses import frozen
 from posthog.kafka_client.client import _KafkaProducer
 from posthog.kafka_client.topics import KAFKA_PERSON
 
@@ -1405,7 +1406,7 @@ def fetch_person_from_postgres(cursor, team_id: int, person_uuid: str) -> dict |
             is_identified,
             created_at
         FROM posthog_person
-        WHERE team_id = %s AND uuid = %s::uuid
+        WHERE team_id = %s AND uuid = %s::uuid AND is_deleted = false
         """,
         (team_id, person_uuid),
     )
@@ -1494,6 +1495,14 @@ def backup_person_with_computed_state(
     return cursor.rowcount > 0
 
 
+@frozen
+class PersonUpdateResult:
+    success: bool
+    updated_person_data: dict | None
+    backup_created: bool
+    skip_reason: str
+
+
 def update_person_with_version_check(
     cursor,
     job_id: str,
@@ -1503,7 +1512,7 @@ def update_person_with_version_check(
     dry_run: bool = False,
     backup_enabled: bool = True,
     max_retries: int = 3,
-) -> tuple[bool, dict | None, bool, str]:
+) -> PersonUpdateResult:
     """
     Update a person's properties with optimistic locking and conflict resolution.
 
@@ -1524,10 +1533,10 @@ def update_person_with_version_check(
         max_retries: Maximum retry attempts on version mismatch
 
     Returns:
-        Tuple of (success: bool, updated_person_data: dict | None, backup_created: bool, skip_reason: str)
-        updated_person_data contains the final state for Kafka publishing
-        backup_created indicates if a backup row was inserted
-        skip_reason indicates why the person was skipped (see SkipReason class)
+        PersonUpdateResult where:
+        - updated_person_data contains the final state for Kafka publishing
+        - backup_created indicates if a backup row was inserted
+        - skip_reason indicates why the person was skipped (see SkipReason class)
     """
     ch_version = person_property_diffs.person_version
 
@@ -1535,7 +1544,9 @@ def update_person_with_version_check(
         # Fetch current person state from Postgres
         person = fetch_person_from_postgres(cursor, team_id, person_uuid)
         if not person:
-            return False, None, False, SkipReason.NOT_FOUND
+            return PersonUpdateResult(
+                success=False, updated_person_data=None, backup_created=False, skip_reason=SkipReason.NOT_FOUND
+            )
 
         postgres_version = person.get("version") or 0
 
@@ -1550,7 +1561,9 @@ def update_person_with_version_check(
             ch_properties = fetch_person_properties_from_clickhouse(team_id, person_uuid, ch_version)
             if ch_properties is None:
                 # Person version doesn't exist in CH anymore, skip
-                return False, None, False, SkipReason.NOT_FOUND
+                return PersonUpdateResult(
+                    success=False, updated_person_data=None, backup_created=False, skip_reason=SkipReason.NOT_FOUND
+                )
 
             # 3-way merge: apply our changes while respecting concurrent Postgres changes
             update = reconcile_with_concurrent_changes(ch_properties, person, person_property_diffs)
@@ -1558,7 +1571,9 @@ def update_person_with_version_check(
 
         if not update:
             # No changes needed (either no diffs or all conflicts resolved to Postgres values)
-            return True, None, False, SkipReason.NO_CHANGES
+            return PersonUpdateResult(
+                success=True, updated_person_data=None, backup_created=False, skip_reason=SkipReason.NO_CHANGES
+            )
 
         # Backup before and after state for audit/rollback
         backup_created = False
@@ -1568,7 +1583,9 @@ def update_person_with_version_check(
             )
 
         if dry_run:
-            return True, None, backup_created, SkipReason.SUCCESS
+            return PersonUpdateResult(
+                success=True, updated_person_data=None, backup_created=backup_created, skip_reason=SkipReason.SUCCESS
+            )
 
         # Write with version check
         cursor.execute(
@@ -1594,9 +1611,9 @@ def update_person_with_version_check(
 
         if cursor.rowcount > 0:
             # Success - return data for Kafka publishing
-            return (
-                True,
-                {
+            return PersonUpdateResult(
+                success=True,
+                updated_person_data={
                     "id": person_uuid,
                     "team_id": team_id,
                     "properties": update["properties"],
@@ -1605,15 +1622,17 @@ def update_person_with_version_check(
                     "created_at": person.get("created_at"),
                     "version": target_version + 1,
                 },
-                backup_created,
-                SkipReason.SUCCESS,
+                backup_created=backup_created,
+                skip_reason=SkipReason.SUCCESS,
             )
 
         # Version mismatch during UPDATE - retry with fresh data
         # (loop will re-fetch person)
 
     # Exhausted retries
-    return False, None, False, SkipReason.VERSION_CONFLICT
+    return PersonUpdateResult(
+        success=False, updated_person_data=None, backup_created=False, skip_reason=SkipReason.VERSION_CONFLICT
+    )
 
 
 @dataclass
@@ -1702,7 +1721,7 @@ def process_persons_in_batches(
         batch_num += 1
 
     for i, person_diffs in enumerate(person_property_diffs):
-        success, person_data, backup_created, skip_reason = update_person_with_version_check(
+        update_result = update_person_with_version_check(
             cursor=cursor,
             job_id=job_id,
             team_id=team_id,
@@ -1712,20 +1731,22 @@ def process_persons_in_batches(
             backup_enabled=backup_enabled,
         )
 
-        if backup_created:
+        if update_result.backup_created:
             batch_has_backups = True
 
-        if not success:
+        if not update_result.success:
             total_skipped += 1
             if logger:
-                logger.warning(f"Skipped person uuid={person_diffs.person_id} team_id={team_id} reason={skip_reason}")
-        elif person_data:
-            batch_persons_to_publish.append(person_data)
+                logger.warning(
+                    f"Skipped person uuid={person_diffs.person_id} team_id={team_id} reason={update_result.skip_reason}"
+                )
+        elif update_result.updated_person_data:
+            batch_persons_to_publish.append(update_result.updated_person_data)
             total_updated += 1
             if on_person_updated:
-                on_person_updated(person_data)
+                on_person_updated(update_result.updated_person_data)
         else:
-            # No changes needed (success=True but person_data=None)
+            # No changes needed (success=True but updated_person_data=None)
             total_skipped += 1
 
         total_processed += 1

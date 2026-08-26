@@ -3,6 +3,7 @@ import {
     escapeInlineMarkdownText,
     escapeMarkdownBlockLines,
     makeEmptyParagraph,
+    NOTEBOOK_BLOCK_SEPARATOR,
     parseMarkdownNotebook,
     sanitizeNotebookLinkHref,
     serializeMarkdownNotebook,
@@ -17,6 +18,7 @@ import {
 import { getInlineText, isNotebookPropValue, toSerializablePropValue } from 'lib/components/MarkdownNotebook/utils'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { urlToResource } from 'scenes/urls'
 
 import { DocumentBlock, VisualizationBlock } from '~/queries/schema/schema-assistant-artifacts'
@@ -45,6 +47,9 @@ const MARKDOWN_NOTEBOOK_NODE_ID = 'markdown-notebook-v2'
 
 export const NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG: Partial<Record<NotebookNodeType, string>> = {
     [NotebookNodeType.Query]: 'Query',
+    [NotebookNodeType.Dashboard]: 'Dashboard',
+    [NotebookNodeType.Action]: 'Action',
+    [NotebookNodeType.Workflow]: 'Workflow',
     [NotebookNodeType.Python]: 'Python',
     [NotebookNodeType.PythonV2]: 'PythonV2',
     [NotebookNodeType.DuckSQL]: 'DuckSQL',
@@ -72,6 +77,7 @@ export const NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG: Partial<Record<NotebookNodeType
     [NotebookNodeType.TaskCreate]: 'TaskCreate',
     [NotebookNodeType.LLMTrace]: 'LLMTrace',
     [NotebookNodeType.Issues]: 'Issues',
+    [NotebookNodeType.ErrorTrackingIssue]: 'ErrorTrackingIssue',
     [NotebookNodeType.UsageMetrics]: 'UsageMetrics',
     [NotebookNodeType.ZendeskTickets]: 'ZendeskTickets',
     [NotebookNodeType.RelatedGroups]: 'RelatedGroups',
@@ -121,8 +127,37 @@ export function appendMarkdownNotebookBlock(
     blockMarkdown: string
 ): JSONContent {
     const markdown = getMarkdownNotebookMarkdown(content)
+    // An appended block is a node in its own right, so it gets the wider separator rather than
+    // folding into the card the notebook currently ends with.
     return buildMarkdownNotebookContent(
-        [markdown, blockMarkdown].filter((block) => block.trim()).join('\n\n'),
+        [markdown, blockMarkdown].filter((block) => block.trim()).join(NOTEBOOK_BLOCK_SEPARATOR),
+        getMarkdownNotebookNodeId(content)
+    )
+}
+
+/** Inserts a markdown block right after the block identified by `targetNodeId` (a component's
+ * persisted `nodeId` prop, or the parsed block id). Appends at the end when no block matches. */
+export function insertMarkdownNotebookBlockAfterNode(
+    content: JSONContent | null | undefined,
+    targetNodeId: string,
+    blockMarkdown: string
+): JSONContent {
+    if (!blockMarkdown.trim()) {
+        return buildMarkdownNotebookContent(getMarkdownNotebookMarkdown(content), getMarkdownNotebookNodeId(content))
+    }
+
+    const document = parseMarkdownNotebook(getMarkdownNotebookMarkdown(content))
+    const targetIndex = document.nodes.findIndex(
+        (node) => node.id === targetNodeId || (node.type === 'component' && node.props.nodeId === targetNodeId)
+    )
+    if (targetIndex === -1) {
+        return appendMarkdownNotebookBlock(content, blockMarkdown)
+    }
+
+    const nodes = [...document.nodes]
+    nodes.splice(targetIndex + 1, 0, ...parseMarkdownNotebook(blockMarkdown).nodes)
+    return buildMarkdownNotebookContent(
+        serializeMarkdownNotebook({ ...document, nodes }),
         getMarkdownNotebookNodeId(content)
     )
 }
@@ -140,7 +175,7 @@ export function convertDroppedRichContentNodeToMarkdownNode(
     }
 
     const props = getSerializableAttrs(attrs)
-    return makeDroppedComponentNode(tagName, tagName === 'Query' ? withDefaultHiddenFilters(props) : props)
+    return makeDroppedComponentNode(tagName, props)
 }
 
 function makeDroppedComponentNode(tagName: string, props: NotebookComponentProps): NotebookComponentBlockNode {
@@ -214,7 +249,6 @@ export function convertDroppedPostHogUrlToMarkdownNode(url: string): NotebookBlo
                 ? null
                 : makeDroppedComponentNode('Query', {
                       query: { kind: NodeKind.SavedInsightNode, shortId: resource.ref },
-                      hideFilters: true,
                   })
         case 'survey':
             return makeDroppedComponentNode('Survey', { id: resource.ref })
@@ -234,6 +268,57 @@ export function buildDroppedLinkParagraphNode(url: string): NotebookBlockNode {
         type: 'paragraph',
         children: [{ type: 'text', text: url, ...(href ? { marks: [{ type: 'link', href }] } : {}) }],
     }
+}
+
+/** A SQL cell keeps its query in `code`, but authors (the AI especially) reach for the
+ * `<Query query={…} />` prop shape instead, which leaves the editor blank and unrunnable. Read the
+ * HogQL back out of such a query so the cell shows what it was written with. Returns the props to
+ * merge over the cell's own, or null when there is nothing to recover. */
+export function getSqlV2PropsFromQueryProp(props: NotebookComponentProps): NotebookComponentProps | null {
+    if (typeof props.code === 'string' && props.code.trim()) {
+        return null
+    }
+
+    const query = toQueryPropObject(props.query)
+    if (!query) {
+        // Everything else a string prop can hold is the SQL itself.
+        return typeof props.query === 'string' && props.query.trim() && !looksLikeJsonObject(props.query)
+            ? { code: props.query }
+            : null
+    }
+
+    // Both the wrapped shapes (data table, visualization) and a bare HogQL query show up.
+    const source = (isHogQLQuery(query) ? query : query.source) as Record<string, NotebookPropValue> | undefined
+    const code = source?.kind === NodeKind.HogQLQuery && typeof source.query === 'string' ? source.query : null
+    if (!code?.trim()) {
+        return null
+    }
+
+    // A visualization query also carries the chart the author picked. The node rewrites the source
+    // from its own code on render, so keeping the whole query here costs nothing.
+    return isDataVisualizationNode(query) ? { code, vizQuery: query, outputTab: OutputTab.Visualization } : { code }
+}
+
+function looksLikeJsonObject(value: string): boolean {
+    return value.trim().startsWith('{')
+}
+
+/** A `query="{…}"` attribute parses back as a JSON string rather than an object (v1 nodes
+ * round-trip their attrs as JSON), so decode that form before reading the query. */
+function toQueryPropObject(value: NotebookPropValue | undefined): Record<string, NotebookPropValue> | null {
+    if (typeof value === 'string') {
+        if (!looksLikeJsonObject(value)) {
+            return null
+        }
+        try {
+            return toQueryPropObject(JSON.parse(value))
+        } catch {
+            return null
+        }
+    }
+    return value && typeof value === 'object' && !Array.isArray(value)
+        ? (value as Record<string, NotebookPropValue>)
+        : null
 }
 
 export function serializeMarkdownNotebookComponent(tagName: string, props: NotebookComponentProps): string {
@@ -453,7 +538,6 @@ function notebookArtifactBlockToMarkdownNodes(block: DocumentBlock): NotebookBlo
                 type: 'component',
                 tagName: 'Query',
                 props: {
-                    hideFilters: true,
                     query,
                     ...getOptionalTitleProp(block.title),
                 },
@@ -586,6 +670,15 @@ function serializeRichContentNode(
         return serializeLegacyQueryNode(node)
     }
 
+    if (nodeType === NotebookNodeType.Query && typeof node.attrs?.id === 'string' && node.attrs.id) {
+        return serializeNode({
+            id: '',
+            type: 'component',
+            tagName: 'Insight',
+            props: getSerializableAttrs(node.attrs),
+        })
+    }
+
     if (nodeType === 'ph-link') {
         return serializeLegacyLinkNode(node, options)
     }
@@ -600,7 +693,7 @@ function serializeRichContentNode(
             id: '',
             type: 'component',
             tagName: markdownTagName,
-            props: withDefaultHiddenFilters(getSerializableAttrs(node.attrs)),
+            props: getSerializableAttrs(node.attrs),
         })
     }
 
@@ -630,9 +723,9 @@ function serializeLegacyInsightNode(node: JSONContent): string {
         id: '',
         type: 'component',
         tagName: 'Query',
-        props: withDefaultHiddenFilters({
+        props: {
             query: { kind: NodeKind.SavedInsightNode, shortId: insightShortId },
-        }),
+        },
     })
 }
 
@@ -656,7 +749,7 @@ function serializeLegacyQueryNode(node: JSONContent): string {
         id: '',
         type: 'component',
         tagName: 'Query',
-        props: withDefaultHiddenFilters(props),
+        props,
     })
 }
 
@@ -997,13 +1090,6 @@ function getSerializableAttrs(attrs: Record<string, unknown> | undefined): Noteb
         }
         return props
     }, {})
-}
-
-function withDefaultHiddenFilters(props: NotebookComponentProps): NotebookComponentProps {
-    if (typeof props.hideFilters === 'boolean' || typeof props.edit === 'boolean') {
-        return props
-    }
-    return { ...props, hideFilters: true }
 }
 
 // Widget node attributes round-trip through HTML as JSON strings (NodeWrapper's jsonAttr), so a

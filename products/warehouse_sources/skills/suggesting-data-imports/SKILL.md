@@ -42,7 +42,9 @@ Also query `system.information_schema.tables` with `posthog:execute-sql` to see 
 
 ### 3. Identify the right source type
 
-If the data isn't imported yet, call `posthog:external-data-sources-wizard` to see available source types. Match the user's need to a source:
+If the data isn't imported yet, call `posthog:external-data-sources-wizard` to see available source types — when
+enumerating without `source_type`, pass `fields: ['*.name', '*.caption']` to skip the large per-source config field
+definitions. Match the user's need to a source:
 
 **Common patterns:**
 
@@ -98,7 +100,7 @@ Common join patterns:
 - `posthog:external-data-sources-list`: Check existing source connections
 - `posthog:external-data-schemas-list`: Check what tables are already imported
 - `posthog:execute-sql` over `system.information_schema.*`: See all queryable tables including views
-- `posthog:external-data-sources-wizard`: Get available source types
+- `posthog:external-data-sources-wizard`: Get available source types (pass `fields: ['*.name', '*.caption']` when enumerating)
 - `posthog:data-warehouse-source-connect-link`: Get a secure browser/OAuth link to collect credentials
 - `posthog:data-warehouse-source-setup`: One-step create (validate, discover tables, apply sync defaults, create)
 - `posthog:execute-sql`: Run queries to demonstrate what's possible

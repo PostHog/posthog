@@ -2,13 +2,13 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.vapi import VapiSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.vapi.settings import ENDPOINTS, VAPI_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.vapi.settings import (
+    ENDPOINTS,
+    VAPI_VERSION_V1,
+    VAPI_VERSION_V2,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.vapi.source import VapiSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.vapi.vapi import VapiResumeConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # Endpoints whose Vapi list action exposes a server-side timestamp filter usable with the
 # endpoint's ordering guarantees; the rest are full refresh only.
@@ -22,27 +22,16 @@ class TestVapiSource:
         self.team_id = 123
         self.config = VapiSourceConfig(api_key="key")
 
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.VAPI
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "Vapi"
-        assert config.label == "Vapi"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.iconPath == "/static/services/vapi.png"
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/vapi"
-
-        api_key_field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert api_key_field.secret is True
-        assert api_key_field.required is True
+    def test_declares_v1_and_v2_with_v2_default(self):
+        # New sources are stamped v2; v1 stays declared so existing pinned rows keep their path.
+        assert self.source.supported_versions == (VAPI_VERSION_V1, VAPI_VERSION_V2)
+        assert self.source.default_version == VAPI_VERSION_V2
 
     @parameterized.expand(
         [
             "401 Client Error: Unauthorized for url: https://api.vapi.ai/call?limit=100",
             "403 Client Error: Forbidden for url: https://api.vapi.ai/assistant?limit=100",
+            "400 Client Error: Bad Request for url: https://api.vapi.ai/v2/phone-number?limit=100&page=1&sortOrder=ASC&sortBy=createdAt",
         ]
     )
     def test_non_retryable_errors_match_auth_failures(self, observed_error):
@@ -54,6 +43,9 @@ class TestVapiSource:
             "429 Client Error: Too Many Requests for url: https://api.vapi.ai/call",
             "500 Server Error: Internal Server Error for url: https://api.vapi.ai/call",
             "HTTPSConnectionPool(host='api.vapi.ai', port=443): Read timed out.",
+            # A 400 on a different endpoint must stay retryable — only the known-bad v2
+            # phone-number path is non-retryable, not every 400 from api.vapi.ai.
+            "400 Client Error: Bad Request for url: https://api.vapi.ai/call?limit=100",
         ]
     )
     def test_non_retryable_errors_do_not_match_transient(self, other_error):
@@ -88,10 +80,6 @@ class TestVapiSource:
         documented = self.source.get_documented_tables()
         assert {table["name"] for table in documented} == set(ENDPOINTS)
 
-    def test_canonical_descriptions_cover_every_endpoint(self):
-        canonical = self.source.get_canonical_descriptions()
-        assert set(canonical) == set(VAPI_ENDPOINTS)
-
     @parameterized.expand(
         [
             (True, True, None),
@@ -110,15 +98,11 @@ class TestVapiSource:
         assert error_message == expected_message
         mock_validate.assert_called_once_with("key")
 
-    def test_get_resumable_source_manager_bound_to_resume_config(self):
-        inputs = mock.MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-        assert manager._data_class is VapiResumeConfig
-
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.vapi.source.vapi_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_vapi_source):
         inputs = mock.MagicMock()
         inputs.schema_name = "calls"
+        inputs.api_version = VAPI_VERSION_V1
         inputs.should_use_incremental_field = True
         inputs.db_incremental_field_last_value = "2026-01-01T00:00:00.000Z"
         inputs.db_incremental_field_earliest_value = "2025-01-01T00:00:00.000Z"
@@ -133,6 +117,24 @@ class TestVapiSource:
         assert kwargs["resumable_source_manager"] is manager
         assert kwargs["db_incremental_field_last_value"] == "2026-01-01T00:00:00.000Z"
         assert kwargs["db_incremental_field_earliest_value"] == "2025-01-01T00:00:00.000Z"
+
+    @parameterized.expand(
+        [
+            ("no_pin_defaults_to_v2", None, VAPI_VERSION_V2),
+            ("v1_pin_preserved", VAPI_VERSION_V1, VAPI_VERSION_V1),
+            ("v2_pin_preserved", VAPI_VERSION_V2, VAPI_VERSION_V2),
+        ]
+    )
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.vapi.source.vapi_source")
+    def test_source_for_pipeline_resolves_api_version(self, _name, pin, expected, mock_vapi_source):
+        inputs = mock.MagicMock()
+        inputs.schema_name = "phone_numbers"
+        inputs.api_version = pin
+        inputs.should_use_incremental_field = False
+
+        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+
+        assert mock_vapi_source.call_args.kwargs["api_version"] == expected
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.vapi.source.vapi_source")
     def test_source_for_pipeline_omits_cursors_when_not_incremental(self, mock_vapi_source):

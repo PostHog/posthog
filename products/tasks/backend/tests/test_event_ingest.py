@@ -81,7 +81,10 @@ class TestTaskRunEventIngest(TestCase):
         return f"/api/projects/{project_id}/tasks/{task.id}/runs/{run.id}/event_stream/"
 
     def _create_token(self, run: TaskRun | None = None) -> str:
-        return create_sandbox_event_ingest_token(run or self.task_run)
+        token_run = run or self.task_run
+        token_run.state = {**(token_run.state or {}), "sandbox_id": f"sandbox-{token_run.id}"}
+        token_run.save(update_fields=["state", "updated_at"])
+        return create_sandbox_event_ingest_token(token_run)
 
     def _call_ingest(
         self,

@@ -17,7 +17,7 @@ export const getMirascopeSteps = (ctx: OnboardingComponentsContext): StepDefinit
                         <Markdown>
                             See the complete [Python
                             example](https://github.com/PostHog/posthog-python/tree/master/examples/example-ai-mirascope)
-                            on GitHub. If you're using the PostHog SDK wrapper instead of OpenTelemetry, see the [Python
+                            on GitHub. If you use the PostHog SDK wrapper instead of OpenTelemetry, see the [Python
                             wrapper
                             example](https://github.com/PostHog/posthog-python/tree/7223c52/examples/example-ai-mirascope).
                         </Markdown>
@@ -87,16 +87,30 @@ export const getMirascopeSteps = (ctx: OnboardingComponentsContext): StepDefinit
                     <CodeBlock
                         language="python"
                         code={dedent`
-                            from mirascope.core import openai, prompt_template
+                            from mirascope import llm
 
-                            @openai.call("gpt-4o-mini")
-                            @prompt_template("Tell me a fun fact about {topic}")
-                            def fun_fact(topic: str): ...
+                            # Route OpenAI calls through chat.completions. Mirascope defaults to the
+                            # Responses API, which the OpenTelemetry instrumentation does not cover.
+                            llm.register_provider("openai:completions")
+
+                            @llm.call("openai/gpt-4o-mini")
+                            def fun_fact(topic: str) -> str:
+                                return f"Tell me a fun fact about {topic}"
 
                             response = fun_fact("hedgehogs")
-                            print(response.content)
+                            print(response.text())
                         `}
                     />
+
+                    <CalloutBox type="caution" icon="IconWarning" title="Use the completions provider">
+                        <Markdown>
+                            `opentelemetry-instrumentation-openai-v2` instruments `chat.completions` and `embeddings`
+                            only. Mirascope v2 uses the OpenAI Responses API by default, which produces no spans.
+                            `llm.register_provider("openai:completions")` switches it to `chat.completions`, so the
+                            instrumentation captures the calls. This page targets Mirascope 2.x. The `mirascope.core`
+                            API was v1 and no longer exists.
+                        </Markdown>
+                    </CalloutBox>
 
                     <Blockquote>
                         <Markdown>

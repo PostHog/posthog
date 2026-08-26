@@ -22,6 +22,7 @@ import type {
     WebOverviewQuery,
     WebStatsTableQuery,
 } from '../../../../queries/schema/schema-general'
+import type { PathsV2Query } from '../../../../queries/schema/schema-general'
 import { keyForInsightLogicProps } from '../../sharedUtils'
 import { DaysAbbreviated, HoursAbbreviated } from './utils'
 
@@ -46,6 +47,7 @@ export interface calendarHeatMapLogicValues {
         | FunnelsQuery
         | LifecycleQuery
         | PathsQuery
+        | PathsV2Query
         | RetentionQuery
         | StickinessQuery
         | TrendsQuery

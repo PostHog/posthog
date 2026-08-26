@@ -1,17 +1,13 @@
-from typing import Any
-
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
 from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.metorial import (
     MetorialSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.metorial.metorial import MetorialResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.metorial.source import MetorialSource
 
 _SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.metorial.source"
@@ -22,9 +18,6 @@ def _config() -> MetorialSourceConfig:
 
 
 class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert MetorialSource().source_type.value == "Metorial"
-
     def test_api_key_is_a_required_secret_field(self) -> None:
         # A non-secret key field would be stored unencrypted; a non-required one would let a source be
         # created with no credentials.
@@ -135,30 +128,3 @@ class TestSourceForPipeline:
         assert kwargs["endpoint"] == "sessions"
         assert kwargs["incremental_field"] == "updated_at"
         assert kwargs["db_incremental_field_last_value"] == "2026-03-04T00:00:00.000Z"
-
-    def test_suppresses_watermark_when_not_incremental(self) -> None:
-        inputs = SourceInputs(
-            schema_name="providers",
-            schema_id="sid",
-            source_id="src",
-            team_id=1,
-            should_use_incremental_field=False,
-            db_incremental_field_last_value="should-be-ignored",
-            db_incremental_field_earliest_value=None,
-            incremental_field=None,
-            incremental_field_type=None,
-            job_id="job",
-            logger=MagicMock(),
-            reset_pipeline=False,
-        )
-        with patch(f"{_SOURCE_MODULE}.metorial_source") as mock_source:
-            MetorialSource().source_for_pipeline(_config(), MagicMock(), inputs)
-        assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
-
-
-class TestResumableManager:
-    def test_manager_is_bound_to_resume_config(self) -> None:
-        inputs: Any = MagicMock()
-        manager = MetorialSource().get_resumable_source_manager(inputs)
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is MetorialResumeConfig

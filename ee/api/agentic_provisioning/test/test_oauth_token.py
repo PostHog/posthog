@@ -6,10 +6,15 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.constants import AvailableFeature
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.organization import OrganizationMembership
+from posthog.models.team.team import Team
 
-from ee.api.agentic_provisioning import AUTH_CODE_CACHE_PREFIX
-from ee.api.agentic_provisioning.test.base import TEST_PARTNER_SCOPES, ProvisioningTestBase
+from products.access_control.backend.models.access_control import AccessControl
+
+from ee.api.agentic_provisioning.constants import AUTH_CODE_CACHE_PREFIX
+from ee.api.agentic_provisioning.test.base import TEST_PARTNER_SCOPES, ProvisioningTestBase, provisioning_config
 
 TOKEN_URL = "/api/agentic/oauth/token"
 
@@ -31,10 +36,21 @@ class TestOAuthTokenExchange(ProvisioningTestBase):
         return code, verifier
 
     def _exchange_code(self, code: str, verifier: str):
-        return self._post_api(TOKEN_URL, {"grant_type": "authorization_code", "code": code, "code_verifier": verifier})
+        return self._post_api(
+            TOKEN_URL,
+            {
+                "grant_type": "authorization_code",
+                "code": code,
+                "code_verifier": verifier,
+                **self._client_credentials(),
+            },
+        )
 
     def _refresh(self, refresh_token: str):
-        return self._post_api(TOKEN_URL, {"grant_type": "refresh_token", "refresh_token": refresh_token})
+        return self._post_api(
+            TOKEN_URL,
+            {"grant_type": "refresh_token", "refresh_token": refresh_token, **self._client_credentials()},
+        )
 
     def _stamp_session_revoke(self, when=None) -> None:
         OAuthApplication.objects.filter(id=self.partner.id).update(sessions_revoked_at=when or timezone.now())
@@ -54,6 +70,31 @@ class TestOAuthTokenExchange(ProvisioningTestBase):
         assert "id" in team_entry
         assert "name" in team_entry
         assert "organization_id" in team_entry
+
+    def test_available_teams_exclude_acl_restricted_teams(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        restricted_team = Team.objects.create_with_data(
+            initiating_user=self.user, organization=self.organization, name="Restricted team"
+        )
+        AccessControl.objects.create(
+            team=restricted_team,
+            access_level="none",
+            resource="project",
+            resource_id=str(restricted_team.id),
+        )
+
+        data = self._request_bearer_token().json()
+        listed = data["account"]["available_teams"]
+
+        assert self.team.id in [team["id"] for team in listed]
+        assert restricted_team.id not in [team["id"] for team in listed]
+        assert restricted_team.name not in [team["name"] for team in listed]
 
     def test_code_is_single_use(self):
         code, verifier = self._mint_auth_code()
@@ -91,6 +132,65 @@ class TestOAuthTokenExchange(ProvisioningTestBase):
         assert res.status_code == 401
         assert res.json()["error_description"] == "code_verifier is required for PKCE"
 
+    @parameterized.expand(
+        [
+            ("missing_credentials", None),
+            ("wrong_secret", "not-the-real-secret"),
+        ]
+    )
+    def test_confidential_partner_without_valid_secret_cannot_exchange_code(self, _name, secret):
+        code, verifier = self._mint_auth_code()
+        body = {"grant_type": "authorization_code", "code": code, "code_verifier": verifier}
+        if secret is not None:
+            body.update(self._client_credentials(secret=secret))
+
+        res = self._post_api(TOKEN_URL, body)
+
+        assert res.status_code == 401
+        assert res.json()["error"] == "invalid_client"
+        # Client authentication runs before the code is consumed, so a rejected attempt must
+        # leave the caller able to retry with the right secret.
+        assert self._exchange_code(code, verifier).status_code == 200
+
+    def test_confidential_partner_without_valid_secret_cannot_refresh(self):
+        refresh_token = self._request_bearer_token().json()["refresh_token"]
+
+        res = self._post_api(
+            TOKEN_URL,
+            {
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_token,
+                **self._client_credentials(secret="not-the-real-secret"),
+            },
+        )
+
+        assert res.status_code == 401
+        assert res.json()["error"] == "invalid_client"
+        # The rejected refresh must not have revoked the caller's only token.
+        assert self._refresh(refresh_token).status_code == 200
+
+    def test_pkce_partner_exchanges_code_without_a_secret(self):
+        # PKCE partners are public clients: code_verifier is their only client authentication,
+        # so requiring a secret from confidential partners must not reach them.
+        pkce_partner = OAuthApplication.objects.create(
+            client_id="pkce-token-partner",
+            name="PKCE Token Partner",
+            client_secret="",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://partner.example.com/callback",
+            algorithm="RS256",
+            scopes=TEST_PARTNER_SCOPES,
+            is_provisioning_partner=True,
+            _provisioning_config=provisioning_config(active=True),
+        )
+        code, verifier = self._mint_auth_code(partner=pkce_partner)
+
+        res = self._post_api(TOKEN_URL, {"grant_type": "authorization_code", "code": code, "code_verifier": verifier})
+
+        assert res.status_code == 200
+        assert res.json()["access_token"].startswith("pha_")
+
     def test_pkce_mismatch_returns_400_without_consuming_code(self):
         code, verifier = self._mint_auth_code()
         res = self._exchange_code(code, "wrong_verifier_" + "a" * 32)
@@ -116,9 +216,8 @@ class TestOAuthTokenExchange(ProvisioningTestBase):
         assert res.json()["error"] == "invalid_scope"
 
     def test_omitted_request_scopes_resolve_to_app_ceiling(self):
-        partner_token = self._get_bearer_token()
         verifier, challenge = self._pkce_pair()
-        res = self._post_with_bearer(
+        res = self._post_with_client_secret(
             "/api/agentic/provisioning/account_requests",
             data={
                 "id": "req_scopeless",
@@ -126,7 +225,6 @@ class TestOAuthTokenExchange(ProvisioningTestBase):
                 "code_challenge": challenge,
                 "code_challenge_method": "S256",
             },
-            token=partner_token,
         )
         assert res.status_code == 200
         code = res.json()["oauth"]["code"]

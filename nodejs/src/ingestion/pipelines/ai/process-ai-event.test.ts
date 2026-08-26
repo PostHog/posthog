@@ -766,6 +766,58 @@ describe('processAiEvent()', () => {
 
             expect(result.properties!.$ai_request_cost_usd).toBe(0.02)
         })
+
+        // A pre-calculated cost is only worth preserving if bigDecimal can add it up,
+        // so an unusable one has to be recomputed instead of trusted. "0x10" earns its
+        // place next to "abc": Number() reads it as 16, so a check that doesn't also
+        // replace the value lets the original string reach bigDecimal.
+        it.each([
+            '$ai_input_cost_usd',
+            '$ai_output_cost_usd',
+            '$ai_request_cost_usd',
+            '$ai_web_search_cost_usd',
+            '$ai_total_cost_usd',
+        ])('recomputes costs when the pre-calculated %s is unusable', (property) => {
+            for (const value of ['abc', '0x10', '1_000', 'Infinity']) {
+                const candidate = { ...event, properties: { ...event.properties, [property]: value } }
+                candidate.properties.$ai_model = 'gpt-4'
+                candidate.properties.$ai_provider = 'openai'
+                candidate.properties.$ai_input_tokens = 100
+                candidate.properties.$ai_output_tokens = 50
+
+                const result = processAiEvent(candidate)
+
+                expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(20, 6)
+                expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(10, 6)
+                expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(30, 6)
+            }
+        })
+
+        // Valid input and output costs short-circuit to a passthrough, where the total
+        // is only recomputed when falsy, so an unusable one would otherwise be kept.
+        it.each(['abc', '0x10'])('recomputes a passthrough total of %p', (total) => {
+            event.properties!.$ai_input_cost_usd = 3
+            event.properties!.$ai_output_cost_usd = 2
+            event.properties!.$ai_total_cost_usd = total
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_total_cost_usd).toBe(5)
+            expect(result.properties!.$ai_cost_model_source).toBe(CostModelSource.Passthrough)
+        })
+
+        // A usable cost has to come out as the parsed number, not the original string,
+        // since these properties are read as floats downstream.
+        it('parses pre-calculated costs supplied as numeric strings', () => {
+            event.properties!.$ai_input_cost_usd = '3'
+            event.properties!.$ai_output_cost_usd = ' 2.5 '
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_input_cost_usd).toBe(3)
+            expect(result.properties!.$ai_output_cost_usd).toBe(2.5)
+            expect(result.properties!.$ai_total_cost_usd).toBe(5.5)
+        })
     })
 
     describe('custom token pricing', () => {
@@ -885,6 +937,81 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.0054, 6)
         })
 
+        it('extracts and prices Anthropic mixed-TTL cache writes with custom rates', () => {
+            event.properties!.$ai_provider = 'anthropic'
+            event.properties!.$ai_input_token_price = 0.000003
+            event.properties!.$ai_output_token_price = 0.000015
+            event.properties!.$ai_cache_write_token_price = 0.000004
+            event.properties!.$ai_cache_write_1h_token_price = 0.000007
+            event.properties!.$ai_input_tokens = 1000
+            event.properties!.$ai_output_tokens = 100
+            event.properties!.$ai_cache_creation_input_tokens = 300
+            event.properties!.$ai_usage = {
+                usage: {
+                    inputTokens: {
+                        total: 1300,
+                        noCache: 1000,
+                        cacheRead: 0,
+                        cacheWrite: 300,
+                    },
+                    outputTokens: { total: 100, text: 100, reasoning: 0 },
+                    raw: {
+                        cache_creation_input_tokens: 300,
+                        cache_creation: {
+                            ephemeral_5m_input_tokens: 100,
+                            ephemeral_1h_input_tokens: 200,
+                        },
+                    },
+                },
+                providerMetadata: {
+                    anthropic: {
+                        usage: {
+                            cache_creation_input_tokens: 300,
+                            cache_creation: {
+                                ephemeral_5m_input_tokens: 100,
+                                ephemeral_1h_input_tokens: 200,
+                            },
+                        },
+                    },
+                },
+            }
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_cache_creation_5m_input_tokens).toBe(100)
+            expect(result.properties!.$ai_cache_creation_1h_input_tokens).toBe(200)
+            expect(result.properties!.$ai_usage).toBeUndefined()
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.0048, 8)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.0063, 8)
+        })
+
+        it('extracts and prices Vercel Bedrock mixed-TTL cache writes', () => {
+            event.properties!.$ai_model = 'anthropic/claude-sonnet-4'
+            event.properties!.$ai_provider = 'bedrock'
+            event.properties!.$ai_input_tokens = 1000
+            event.properties!.$ai_output_tokens = 100
+            event.properties!.$ai_cache_creation_input_tokens = 300
+            const bedrockUsage = {
+                cacheDetails: [
+                    { ttl: 'T5M', inputTokens: 100 },
+                    { ttl: 'T1H', inputTokens: 200 },
+                ],
+            }
+            event.properties!.$ai_usage = {
+                providerMetadata: {
+                    amazonBedrock: { usage: bedrockUsage },
+                },
+            }
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.004575, 8)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.006075, 8)
+            expect(result.properties!.$ai_cache_creation_5m_input_tokens).toBe(100)
+            expect(result.properties!.$ai_cache_creation_1h_input_tokens).toBe(200)
+            expect(result.properties!.$ai_usage).toBeUndefined()
+        })
+
         it('falls back to multipliers when cache prices not provided', () => {
             event.properties!.$ai_provider = 'openai'
             event.properties!.$ai_input_token_price = 0.001
@@ -925,6 +1052,127 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_model_cost_used).toBe('openai/gpt-4')
             expect(result.properties!.$ai_cost_model_source).toBe(CostModelSource.OpenRouter)
             expect(result.properties!.$ai_cost_model_provider).toBe('openai')
+        })
+
+        // A price js-big-decimal can't parse has to count as unset, so the event bills
+        // at model rates rather than throwing or silently billing at a rate of zero.
+        it.each<{ description: string; inputPrice: unknown; outputPrice: unknown }>([
+            { description: 'non-numeric string input price', inputPrice: '$0.001', outputPrice: 0.002 },
+            { description: 'whitespace-only input price', inputPrice: ' ', outputPrice: 0.002 },
+            { description: 'null input price', inputPrice: null, outputPrice: 0.002 },
+            { description: 'object input price', inputPrice: { value: 0.001 }, outputPrice: 0.002 },
+            { description: 'boolean input price', inputPrice: true, outputPrice: 0.002 },
+            { description: 'non-numeric string output price', inputPrice: 0.001, outputPrice: '$0.002' },
+            { description: 'NaN output price', inputPrice: 0.001, outputPrice: Number.NaN },
+        ])('falls back to model pricing for $description', ({ inputPrice, outputPrice }) => {
+            event.properties!.$ai_input_token_price = inputPrice
+            event.properties!.$ai_output_token_price = outputPrice
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_model_cost_used).toBe('openai/gpt-4')
+            expect(result.properties!.$ai_cost_model_source).toBe(CostModelSource.OpenRouter)
+            expect(result.properties!.$ai_cost_model_provider).toBe('openai')
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(20, 6)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(10, 6)
+        })
+
+        // Every optional price OpenAI events consume is garbage at once, so dropping
+        // the coercion on any single one puts it back in front of js-big-decimal. The
+        // cache-write rates only apply to Anthropic events, covered separately below.
+        it('ignores unusable optional prices and keeps custom pricing', () => {
+            event.properties!.$ai_provider = 'openai'
+            event.properties!.$ai_input_token_price = 0.001
+            event.properties!.$ai_output_token_price = 0.002
+            event.properties!.$ai_cache_read_token_price = '$0.10'
+            event.properties!.$ai_request_price = Number.NaN
+            event.properties!.$ai_web_search_price = ' '
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_cache_read_input_tokens = 40
+            event.properties!.$ai_output_tokens = 50
+            event.properties!.$ai_request_count = 3
+            event.properties!.$ai_web_search_count = 2
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_model_cost_used).toBe('custom')
+            // Cache reads fall back to the 0.5 multiplier: 60 * 0.001 + 40 * 0.001 * 0.5.
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.08, 6)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.1, 6)
+            expect(result.properties!.$ai_request_cost_usd).toBe(0)
+            expect(result.properties!.$ai_web_search_cost_usd).toBe(0)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.18, 6)
+        })
+
+        // Only the Anthropic path consumes the cache-write rates, and only when the
+        // 5m/1h breakdown is present does it consume both of them.
+        it('ignores unusable cache write prices on an Anthropic event', () => {
+            event.properties!.$ai_model = 'claude-sonnet-4'
+            event.properties!.$ai_provider = 'anthropic'
+            event.properties!.$ai_input_token_price = 0.001
+            event.properties!.$ai_output_token_price = 0.002
+            event.properties!.$ai_cache_write_token_price = 'abc'
+            event.properties!.$ai_cache_write_1h_token_price = { value: 0.1 }
+            event.properties!.$ai_input_tokens = 1000
+            event.properties!.$ai_cache_creation_5m_input_tokens = 100
+            event.properties!.$ai_cache_creation_1h_input_tokens = 200
+            event.properties!.$ai_output_tokens = 50
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_model_cost_used).toBe('custom')
+            // Both writes fall back to prompt-rate multipliers, 1.25 for 5m and 2 for 1h:
+            // 1000 * 0.001 + 100 * 0.00125 + 200 * 0.002.
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(1.525, 6)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.1, 6)
+        })
+
+        it('treats a null cache read price as unset rather than free', () => {
+            event.properties!.$ai_provider = 'openai'
+            event.properties!.$ai_input_token_price = 0.001
+            event.properties!.$ai_output_token_price = 0.002
+            event.properties!.$ai_cache_read_token_price = null
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_cache_read_input_tokens = 40
+            event.properties!.$ai_output_tokens = 50
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.08, 6)
+        })
+
+        // A request count defaults to 1 when absent, a web search count to nothing, so
+        // an unusable value has to land on each default rather than on bigDecimal.
+        it.each<{ property: string; costProperty: string; expected: number }>([
+            { property: '$ai_request_count', costProperty: '$ai_request_cost_usd', expected: 0.01 },
+            { property: '$ai_web_search_count', costProperty: '$ai_web_search_cost_usd', expected: 0 },
+        ])('prices the event when $property is not a number', ({ property, costProperty, expected }) => {
+            event.properties!.$ai_input_token_price = 0.001
+            event.properties!.$ai_output_token_price = 0.002
+            event.properties!.$ai_request_price = 0.01
+            event.properties!.$ai_web_search_price = 0.02
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+            event.properties![property] = 'lots'
+
+            const result = processAiEvent(event)
+
+            expect(result.properties![costProperty]).toBeCloseTo(expected, 6)
+        })
+
+        it('accepts numeric-string custom prices', () => {
+            event.properties!.$ai_input_token_price = '0.001'
+            event.properties!.$ai_output_token_price = '0.002'
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.1, 6)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.1, 6)
+            expect(result.properties!.$ai_model_cost_used).toBe('custom')
         })
 
         it('works without provider when using custom pricing', () => {

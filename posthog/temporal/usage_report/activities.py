@@ -22,6 +22,7 @@ from posthog.tasks.usage_report import get_instance_metadata
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.metrics import ExecutionTimeRecorder
 from posthog.temporal.usage_report.aggregator import (
+    add_pre_sandbox_compute_patch_defaults,
     batched,
     build_manifest,
     build_org_reports,
@@ -59,7 +60,7 @@ from posthog.temporal.usage_report.types import (
     RunQueryToS3Inputs,
     RunQueryToS3Result,
 )
-from posthog.utils import get_instance_region
+from posthog.utils import DayRange, get_instance_region
 
 logger = structlog.get_logger(__name__)
 
@@ -129,6 +130,7 @@ async def aggregate_and_chunk_org_reports(inputs: AggregateInputs) -> AggregateR
             description="Aggregate per-query S3 results into org-report chunks.",
         ):
             all_data = await sync_to_async(load_all_data)(inputs.query_results)
+            add_pre_sandbox_compute_patch_defaults(all_data, inputs.query_results)
 
             @database_sync_to_async
             def aggregate_per_org() -> dict[str, Any]:
@@ -143,7 +145,7 @@ async def aggregate_and_chunk_org_reports(inputs: AggregateInputs) -> AggregateR
             org_reports = await aggregate_per_org()
 
             instance_metadata = await database_sync_to_async(get_instance_metadata)(
-                (inputs.ctx.period_start, inputs.ctx.period_end)
+                DayRange(start=inputs.ctx.period_start, end=inputs.ctx.period_end)
             )
 
             # TODO(usage-reports-v2): re-enable PostHog product-analytics

@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -20,7 +16,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.factorial.factorial import (
+    API_VERSION_2025_04_01,
+    API_VERSION_2026_04_01,
+    API_VERSION_2026_07_01,
     FactorialResumeConfig,
     factorial_source,
     validate_credentials as validate_factorial_credentials,
@@ -39,8 +39,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class FactorialSource(ResumableSource[FactorialSourceConfig, FactorialResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
-    supported_versions = ("2025-04-01",)
-    default_version = "2025-04-01"
+    supported_versions = (API_VERSION_2025_04_01, API_VERSION_2026_04_01, API_VERSION_2026_07_01)
+    default_version = API_VERSION_2026_07_01
     api_docs_url = "https://apidoc.factorialhr.com/docs/api-versioning"
 
     @property
@@ -124,7 +124,7 @@ Create an API key in your Factorial account under **Settings > API keys** (or **
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        return validate_factorial_credentials(config.api_key)
+        return validate_factorial_credentials(config.api_key, self.resolve_api_version(api_version))
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[FactorialResumeConfig]:
         return ResumableSourceManager[FactorialResumeConfig](inputs, FactorialResumeConfig)
@@ -141,4 +141,5 @@ Create an API key in your Factorial account under **Settings > API keys** (or **
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            api_version=self.resolve_api_version(inputs.api_version),
         )

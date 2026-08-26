@@ -4,7 +4,7 @@ import { LemonCard } from '@posthog/lemon-ui'
 
 import type { AiReplyFeedbackRating, ChatMessage, Ticket, TicketChannel, TicketStatus } from '../../types'
 import { MessageInput } from './MessageInput'
-import { MessageList } from './MessageList'
+import { MessageList, type TimelineExtra } from './MessageList'
 
 export interface ChatViewProps {
     messages: ChatMessage[]
@@ -33,7 +33,7 @@ export interface ChatViewProps {
     /** Whether to show delivery status on team messages */
     showDeliveryStatus?: boolean
     /** Draft content to restore (for tab persistence) */
-    draftContent?: JSONContent | null
+    draftContent?: JSONContent | string | null
     /** Called when draft content changes */
     onDraftChange?: (content: JSONContent | null) => void
     /** Whether the private note checkbox is checked */
@@ -42,8 +42,12 @@ export interface ChatViewProps {
     onPrivateChange?: (isPrivate: boolean) => void
     /** Extra actions rendered next to the send button in MessageInput */
     extraActions?: React.ReactNode
+    /** Non-message thread entries, placed by their own timestamp (e.g. team-only agent findings) */
+    threadExtras?: TimelineExtra[]
     /** Blocks sending customer-facing messages (private notes stay available) */
     replyDisabledReason?: string | JSX.Element
+    /** Blocks sending entirely, including private notes (e.g. the user lacks edit access) */
+    sendDisabledReason?: string | JSX.Element
     /** Whether draft mode is on: tints the composer green and confirms the recipient before sending */
     draftMode?: boolean
     /** Called when the draft-mode toggle changes */
@@ -57,7 +61,15 @@ export interface ChatViewProps {
     latestAiMessageId?: string | null
     feedbackByMessageId?: Record<string, AiReplyFeedbackRating>
     showAiReplyFeedback?: boolean
+    aiReplyFeedbackDisabledReason?: string
     onSubmitAiReplyFeedback?: (messageId: string, rating: AiReplyFeedbackRating, feedbackText?: string) => void
+    currentUserId?: number | null
+    /** False when the caller lacks ticket editor access (e.g. viewer-only). */
+    canEditTicket?: boolean
+    editingMessageId?: string | null
+    onEditMessage?: (message: ChatMessage) => void
+    onDeleteMessage?: (messageId: string) => void
+    onCancelEdit?: () => void
 }
 
 export function ChatView({
@@ -78,9 +90,11 @@ export function ChatView({
     draftContent,
     onDraftChange,
     isPrivate,
+    threadExtras,
     onPrivateChange,
     extraActions,
     replyDisabledReason,
+    sendDisabledReason,
     draftMode,
     onDraftModeChange,
     sendConfirmationMessage,
@@ -89,7 +103,14 @@ export function ChatView({
     latestAiMessageId,
     feedbackByMessageId,
     showAiReplyFeedback,
+    aiReplyFeedbackDisabledReason,
     onSubmitAiReplyFeedback,
+    currentUserId,
+    canEditTicket = false,
+    editingMessageId,
+    onEditMessage,
+    onDeleteMessage,
+    onCancelEdit,
 }: ChatViewProps): JSX.Element {
     const listMinHeight = minHeight ?? '400px'
     const listMaxHeight = maxHeight ?? '600px'
@@ -111,7 +132,13 @@ export function ChatView({
                 latestAiMessageId={latestAiMessageId}
                 feedbackByMessageId={feedbackByMessageId}
                 showAiReplyFeedback={showAiReplyFeedback}
+                aiReplyFeedbackDisabledReason={aiReplyFeedbackDisabledReason}
                 onSubmitAiReplyFeedback={onSubmitAiReplyFeedback}
+                extras={threadExtras}
+                currentUserId={currentUserId}
+                canEditTicket={canEditTicket}
+                onEditMessage={onEditMessage}
+                onDeleteMessage={onDeleteMessage}
             />
             <div className="border-t pt-3">
                 <MessageInput
@@ -125,11 +152,14 @@ export function ChatView({
                     onPrivateChange={onPrivateChange}
                     extraActions={extraActions}
                     replyDisabledReason={replyDisabledReason}
+                    sendDisabledReason={sendDisabledReason}
                     draftMode={draftMode}
                     onDraftModeChange={onDraftModeChange}
                     sendConfirmationMessage={sendConfirmationMessage}
                     sendAndSetStatusOptions={sendAndSetStatusOptions}
                     unsavedTicketChanges={unsavedTicketChanges}
+                    editingMessageId={editingMessageId}
+                    onCancelEdit={onCancelEdit}
                 />
             </div>
         </LemonCard>

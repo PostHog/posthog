@@ -270,6 +270,27 @@ class TestGetRows:
         assert "order_by" not in _requested_query(session, 0)
         assert session.get.call_args_list[0].kwargs["headers"]["Authorization"] == "Token token"
 
+    @pytest.mark.parametrize(
+        "endpoint, expected_path",
+        [
+            ("accounts", "/api/v3/accounts/"),
+            ("projects", "/api/v3/accounts/12345/projects/"),
+            ("environments", "/api/v3/accounts/12345/environments/"),
+            ("users", "/api/v3/accounts/12345/users/"),
+            # jobs and runs are v2-only — dbt v3 exposes neither, so the v3 default must keep
+            # reading them from v2; unifying them onto v3 would 404 every jobs/runs sync.
+            ("jobs", "/api/v2/accounts/12345/jobs/"),
+            ("runs", "/api/v2/accounts/12345/runs/"),
+        ],
+    )
+    def test_endpoint_uses_correct_dbt_api_version(self, endpoint, expected_path):
+        session = mock.MagicMock()
+        session.get.side_effect = [_page([])]
+
+        self._get_rows(session, _manager(), endpoint)
+
+        assert session.get.call_args_list[0].args[0].startswith(f"https://cloud.getdbt.com{expected_path}")
+
     def test_state_saved_after_yield_only_when_more_pages_remain(self):
         session = mock.MagicMock()
         session.get.side_effect = [

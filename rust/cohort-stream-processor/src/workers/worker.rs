@@ -303,7 +303,11 @@ async fn run_worker(
                     )
                     .await;
                 }
-                ShuffleMessage::Seed { work, offset } => {
+                ShuffleMessage::Seed {
+                    work,
+                    offset,
+                    broker_ts_ms: _,
+                } => {
                     // Worker receipt is the first point that both proves this exact seed landed and
                     // orders its ceiling before even a zero-work handler can mark it processed.
                     // The dispatcher also records the delivered batch maximum, but that post-send
@@ -1068,14 +1072,15 @@ mod tombstone_redirect_tests {
     use tempfile::TempDir;
     use tokio::sync::mpsc;
 
-    use cohort_core::seed::{BehavioralShapeHash, ReconcileTile, RunId};
+    use cohort_core::seed::{BehavioralShapeHash, ReconcileScope, ReconcileTile, RunId};
 
     use crate::consumers::seeds::SeedWork;
     use crate::filters::{CohortId, FilterCatalog, TeamFiltersBuilder};
     use crate::merge::transfer::Tombstone;
     use crate::partitions::partitioner::{partition_of, COHORT_PARTITION_COUNT};
     use crate::producer::{
-        CaptureCascadeSink, CaptureSink, CaptureStreamEventSink, CaptureTransferSink,
+        CaptureCascadeSink, CaptureReconcileMarkerSink, CaptureSink, CaptureStreamEventSink,
+        CaptureTransferSink,
     };
     use crate::stage1::person_record::PersonRecord;
     use crate::stage1::state::AppliedOffsets;
@@ -1209,15 +1214,18 @@ mod tombstone_redirect_tests {
             live_watermarks: Arc::new(crate::partitions::watermarks::LiveWatermarks::new()),
             register_transfer_enabled: false,
             reconcile: crate::workers::ReconcileDeps::default(),
+            person_seed: crate::workers::PersonSeedDeps::default(),
         })
     }
 
-    fn reconcile_deps() -> Arc<MergeWorkerDeps> {
+    fn reconcile_deps() -> (Arc<MergeWorkerDeps>, CaptureReconcileMarkerSink) {
         let mut deps = Arc::try_unwrap(merge_deps_with(CaptureStreamEventSink::new()))
             .unwrap_or_else(|_| panic!("test owns the only dependency Arc"));
         deps.reconcile.enabled = true;
         deps.reconcile.scan_page = 2;
-        Arc::new(deps)
+        let markers = CaptureReconcileMarkerSink::new();
+        deps.reconcile.marker_sink = Arc::new(markers.clone());
+        (Arc::new(deps), markers)
     }
 
     /// Deps with the `stage2_orphan_gc_enabled` kill-switch set to `stage2_orphan_gc_enabled`.
@@ -1239,6 +1247,7 @@ mod tombstone_redirect_tests {
             live_watermarks: Arc::new(crate::partitions::watermarks::LiveWatermarks::new()),
             register_transfer_enabled: false,
             reconcile: crate::workers::ReconcileDeps::default(),
+            person_seed: crate::workers::PersonSeedDeps::default(),
         })
     }
 
@@ -1265,6 +1274,7 @@ mod tombstone_redirect_tests {
             live_watermarks: Arc::new(crate::partitions::watermarks::LiveWatermarks::new()),
             register_transfer_enabled: false,
             reconcile: crate::workers::ReconcileDeps::default(),
+            person_seed: crate::workers::PersonSeedDeps::default(),
         })
     }
 
@@ -1305,7 +1315,7 @@ mod tombstone_redirect_tests {
         let tile = ReconcileTile::new(
             TeamId(TEAM),
             CohortId(1),
-            BehavioralShapeHash::parse("0123456789abcdef").unwrap(),
+            ReconcileScope::Behavioral(BehavioralShapeHash::parse("0123456789abcdef").unwrap()),
             RunId(Uuid::from_u128(1)),
         );
 
@@ -1322,6 +1332,7 @@ mod tombstone_redirect_tests {
             vec![ShuffleMessage::Seed {
                 work: Box::new(SeedWork::Reconcile(tile)),
                 offset: 5,
+                broker_ts_ms: None,
             }],
         )
         .await;
@@ -1335,14 +1346,14 @@ mod tombstone_redirect_tests {
 
         let (_dir, store) = temp_store();
         let membership = CaptureSink::new();
-        let merge = reconcile_deps();
+        let (merge, marker_sink) = reconcile_deps();
         let seed_tracker = merge.seed_tracker.clone();
         let backlog = merge.reconcile.backlog.clone();
         let events_tracker = Arc::new(OffsetTracker::new());
         let tile = ReconcileTile::new(
             TeamId(TEAM),
             CohortId(1),
-            BehavioralShapeHash::parse(FILTERS_HASH).unwrap(),
+            ReconcileScope::Behavioral(BehavioralShapeHash::parse(FILTERS_HASH).unwrap()),
             RunId(Uuid::from_u128(7)),
         );
 
@@ -1358,6 +1369,7 @@ mod tombstone_redirect_tests {
                 ShuffleMessage::Seed {
                     work: Box::new(SeedWork::Reconcile(tile)),
                     offset: 5,
+                    broker_ts_ms: None,
                 },
                 ShuffleMessage::ReconcileDrain,
             ],
@@ -1365,7 +1377,7 @@ mod tombstone_redirect_tests {
         .await;
 
         assert!(membership.changes().is_empty());
-        let markers = membership.markers();
+        let markers = marker_sink.markers();
         assert_eq!(markers.len(), 1);
         assert_eq!(markers[0].partition(), 0);
         assert_eq!(markers[0].run_id(), RunId(Uuid::from_u128(7)));

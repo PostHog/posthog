@@ -63,6 +63,7 @@ fn prepare_one<E: Event>(ev: &E, ctx: &RequestContext) -> anyhow::Result<Option<
         payload,
         headers: ev.headers(ctx),
         partition_key: ev.partition_key(ctx),
+        ordering: ev.ordering(),
     }))
 }
 
@@ -197,6 +198,7 @@ mod tests {
     use rstest::rstest;
 
     use super::*;
+    use crate::ordering::OrderingGuarantee;
     use crate::v1::sinks::types::{Destination, Outcome};
     use crate::v1::test_utils::test_context;
 
@@ -274,6 +276,10 @@ mod tests {
 
         fn partition_key(&self, _ctx: &RequestContext) -> String {
             self.partition_key.clone()
+        }
+
+        fn ordering(&self) -> OrderingGuarantee {
+            OrderingGuarantee::PerDistinctId
         }
 
         fn serialize(&self, _ctx: &RequestContext) -> anyhow::Result<bytes::Bytes> {

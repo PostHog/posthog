@@ -14,7 +14,7 @@ A group key should be a short, stable identifier — `org_1042`, a UUID, a domai
 
 ## Diagnose
 
-1. `posthog:ingestion-warnings-list` with `type: group_key_too_long`. The sample details include the (truncated) `groupKey`, its length, and the 400 limit — the value itself usually reveals what got passed.
+1. Query the warnings with `posthog:execute-sql`: `SELECT timestamp, details FROM system.ingestion_warnings WHERE type = 'group_key_too_long' AND timestamp > now() - INTERVAL 7 DAY ORDER BY timestamp DESC LIMIT 20`. The `details` JSON includes the (truncated) `groupKey`, its length, and the 400 limit — the value itself usually reveals what got passed.
 2. Grep the app for `groupIdentify` / `group(` callsites and check what feeds the key argument.
 
 ## Fix
@@ -32,7 +32,7 @@ The key is the group's permanent identity — changing it later creates a **new*
 
 ## Verify
 
-Re-run the flow, then re-query `posthog:ingestion-warnings-list` with a post-fix `since` — no new occurrences — and confirm the group appears with its properties (`posthog:execute-sql` against the groups table).
+Re-run the flow, then re-query `system.ingestion_warnings` with `posthog:execute-sql` (filter `type = 'group_key_too_long'`, `timestamp` after your fix) — no new occurrences — and confirm the group appears with its properties (`posthog:execute-sql` against the groups table).
 
 ## Related
 

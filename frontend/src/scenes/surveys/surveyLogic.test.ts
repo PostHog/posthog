@@ -1313,6 +1313,33 @@ describe('survey filters', () => {
             })
     })
 
+    it('collapses newlines in question text so the generated HogQL select stays single-line', async () => {
+        // Regression for the "Unexpected character U+00E9" crash on the Survey Results tab: a question
+        // whose text spans multiple lines used to leak past the `--` comment appended per response
+        // column, turning the trailing (often accented) text into invalid HogQL.
+        const surveyWithMultilineQuestion: Survey = {
+            ...MULTIPLE_CHOICE_SURVEY,
+            id: 'multiline-survey',
+            questions: [
+                {
+                    type: SurveyQuestionType.Open,
+                    question: 'Queremos compensar tu experiencia.\nDéjanos tu correo y te contactaremos para ayudarte.',
+                    description: '',
+                },
+            ],
+        }
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(surveyWithMultilineQuestion)
+        }).toDispatchActions(['loadSurveySuccess'])
+
+        const select = (logic.values.dataTableQuery as unknown as { source: { select: string[] } }).source.select
+        // The question text is still used as the column comment...
+        expect(select.some((col) => col.includes('Déjanos'))).toBe(true)
+        // ...but every generated column expression is single-line, so the `--` comment can't leak.
+        select.forEach((col) => expect(col).not.toMatch(/[\r\n]/))
+    })
+
     it('updates query filters when property filters change', async () => {
         // Set initial filters
         const initialFilters: AnyPropertyFilter[] = [
@@ -2257,6 +2284,96 @@ describe('processResultsForSurveyQuestions', () => {
         })
     })
 
+    describe('Translated Choices', () => {
+        it('aggregates translated responses under their base-language choice', () => {
+            const questions = [
+                {
+                    id: 'multi-q1',
+                    type: SurveyQuestionType.MultipleChoice as const,
+                    question: 'Pick many',
+                    choices: ['Analytics', 'Feature Flags'],
+                    translations: {
+                        'zh-cn': { choices: ['分析', '功能标记'] },
+                    },
+                },
+            ]
+            const rows: [string, string, number][] = [
+                ['multi-q1', 'Analytics', 2],
+                ['multi-q1', '分析', 3],
+                ['multi-q1', '功能标记', 1],
+                ['multi-q1', 'Something else', 1],
+                ['multi-q1', '__total__', 7],
+            ]
+
+            const processed = processResultsForSurveyQuestions(questions, rows)
+            const multiData = processed['multi-q1'] as ChoiceQuestionProcessedResponses
+
+            const dataMap = new Map(multiData.data.map((item) => [item.label, item]))
+            expect(dataMap.get('Analytics')).toEqual({ label: 'Analytics', value: 5, isPredefined: true })
+            expect(dataMap.get('Feature Flags')).toEqual({ label: 'Feature Flags', value: 1, isPredefined: true })
+            expect(dataMap.get('Something else')).toEqual({ label: 'Something else', value: 1, isPredefined: false })
+            // The translated label is folded into the base choice, not surfaced on its own.
+            expect(dataMap.has('分析')).toBe(false)
+        })
+
+        it('keeps base-language matching when a translation reuses another base choice', () => {
+            const questions = [
+                {
+                    id: 'single-q1',
+                    type: SurveyQuestionType.SingleChoice as const,
+                    question: 'Pick one',
+                    choices: ['Yes', 'No'],
+                    // A translator reused the English "Yes" for the second option — it must not
+                    // remap base "Yes" responses onto "No".
+                    translations: {
+                        fr: { choices: ['Oui', 'Yes'] },
+                    },
+                },
+            ]
+            const rows: [string, string, number][] = [
+                ['single-q1', 'Yes', 3],
+                ['single-q1', 'Oui', 2],
+            ]
+
+            const processed = processResultsForSurveyQuestions(questions, rows)
+            const singleData = processed['single-q1'] as ChoiceQuestionProcessedResponses
+
+            const dataMap = new Map(singleData.data.map((item) => [item.label, item]))
+            expect(dataMap.get('Yes')).toEqual({ label: 'Yes', value: 5, isPredefined: true })
+            expect(dataMap.get('No')).toEqual({ label: 'No', value: 0, isPredefined: true })
+        })
+
+        it('falls back to base-only matching when the translation array length is out of sync', () => {
+            const questions = [
+                {
+                    id: 'single-q1',
+                    type: SurveyQuestionType.SingleChoice as const,
+                    question: 'Pick one',
+                    choices: ['Yes', 'No', 'Maybe'],
+                    // A choice was removed from the base without updating the translation, so the
+                    // arrays no longer align by position. Positional mapping is unsafe here — a
+                    // translated answer must NOT be silently folded into the wrong base choice.
+                    translations: {
+                        fr: { choices: ['Oui', 'Non'] },
+                    },
+                },
+            ]
+            const rows: [string, string, number][] = [
+                ['single-q1', 'Yes', 3],
+                ['single-q1', 'Oui', 2],
+            ]
+
+            const processed = processResultsForSurveyQuestions(questions, rows)
+            const singleData = processed['single-q1'] as ChoiceQuestionProcessedResponses
+
+            const dataMap = new Map(singleData.data.map((item) => [item.label, item]))
+            // Base answers still match; the translated answer surfaces as its own "Other" row
+            // rather than being misattributed to a base choice.
+            expect(dataMap.get('Yes')).toEqual({ label: 'Yes', value: 3, isPredefined: true })
+            expect(dataMap.get('Oui')).toEqual({ label: 'Oui', value: 2, isPredefined: false })
+        })
+    })
+
     describe('Open Questions', () => {
         it('returns total count with empty data (raw data comes from open-ended query)', () => {
             const questions = [
@@ -2405,6 +2522,35 @@ describe('processOpenEndedResults', () => {
         expect(choiceData.data[0].label).toBe('Custom text')
     })
 
+    it('does not collect translated predefined choices as "Other" text', () => {
+        const questions = [
+            {
+                id: 'choice-q1',
+                type: SurveyQuestionType.SingleChoice as const,
+                question: 'Pick one',
+                choices: ['Yes', 'No', 'Other'],
+                hasOpenChoice: true,
+                translations: {
+                    'zh-cn': { choices: ['是', '否', '其他'] },
+                },
+            },
+        ]
+        const columnMap: OpenEndedColumnMap = {
+            'choice-q1': { columnIndex: 0, questionIndex: 0, type: SurveyQuestionType.SingleChoice },
+        }
+        const rows = [
+            ['是', 'user1', '2024-01-15T10:00:00Z'],
+            ['我自己的理由', 'user2', '2024-01-15T11:00:00Z'],
+        ]
+
+        const result = processOpenEndedResults(questions, columnMap, rows)
+        const choiceData = result['choice-q1'] as ChoiceQuestionProcessedResponses
+
+        // Only the genuinely free-text answer is collected; the translated "Yes" is recognised.
+        expect(choiceData.data).toHaveLength(1)
+        expect(choiceData.data[0].label).toBe('我自己的理由')
+    })
+
     it('returns empty object for null rows', () => {
         expect(processOpenEndedResults([], {}, null)).toEqual({})
     })
@@ -2537,5 +2683,58 @@ describe('mergeResponsesByQuestion', () => {
 
         const merged = mergeResponsesByQuestion({}, openEnded)
         expect(merged['open-q']).toEqual(openEnded['open-q'])
+    })
+
+    it('folds a translated predefined choice into its base choice end-to-end and keeps only free-text Other rows', () => {
+        const questions = [
+            {
+                id: 'choice-q1',
+                type: SurveyQuestionType.SingleChoice as const,
+                question: 'Pick one',
+                choices: ['Yes', 'No', 'Other'],
+                hasOpenChoice: true,
+                translations: {
+                    'zh-cn': { choices: ['是', '否', '其他'] },
+                },
+            },
+        ]
+
+        // Aggregate query result: the Chinese "是" answer folds into base "Yes".
+        const aggregateRows: [string, string, number][] = [
+            ['choice-q1', 'Yes', 2],
+            ['choice-q1', '是', 1],
+            ['choice-q1', 'No', 1],
+            ['choice-q1', '__total__', 4],
+        ]
+        const aggregate = processResultsForSurveyQuestions(questions, aggregateRows)
+
+        // Open-ended query result: same rows, used to recover raw "Other" text.
+        const columnMap: OpenEndedColumnMap = {
+            'choice-q1': { columnIndex: 0, questionIndex: 0, type: SurveyQuestionType.SingleChoice },
+        }
+        const openEndedRows = [
+            ['Yes', 'user1', '2024-01-15T10:00:00Z'],
+            ['是', 'user2', '2024-01-15T11:00:00Z'],
+            ['No', 'user3', '2024-01-15T12:00:00Z'],
+            ['My own reason', 'user4', '2024-01-15T13:00:00Z'],
+        ]
+        const openEnded = processOpenEndedResults(questions, columnMap, openEndedRows)
+
+        const merged = mergeResponsesByQuestion(aggregate, openEnded)
+        const result = merged['choice-q1'] as ChoiceQuestionProcessedResponses
+
+        const predefined = result.data.filter((d) => d.isPredefined)
+        expect(predefined).toEqual(
+            expect.arrayContaining([
+                { label: 'Yes', value: 3, isPredefined: true },
+                { label: 'No', value: 1, isPredefined: true },
+            ])
+        )
+
+        // Only the genuinely free-text answer surfaces as "Other" — the translated "Yes" pick
+        // must not leak in as its own Other row.
+        const other = result.data.filter((d) => !d.isPredefined)
+        expect(other).toHaveLength(1)
+        expect(other[0].label).toBe('My own reason')
     })
 })

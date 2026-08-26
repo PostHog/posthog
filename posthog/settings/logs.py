@@ -164,8 +164,19 @@ LOGGING: dict[str, Any] = {
             "handlers": ["console_stdout_info", "console_stderr_warning"],
             "propagate": False,
         },
+        # The web analytics warmer logs one line per shape per pass (up to the
+        # 400k selection cap) — keep the INFO burst off stderr for the same reason.
+        "products.web_analytics.dags.cache_warming": {
+            "level": "INFO",
+            "handlers": ["console_stdout_info", "console_stderr_warning"],
+            "propagate": False,
+        },
         "posthog.auth.mfa": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "posthog.security.command_exec_audit": {"level": "INFO", "handlers": ["console"], "propagate": False},
+        # The posthoganalytics SDK claims the "posthog" logger name and clamps it to WARNING
+        # at client init, so the source-registry prewarm's INFO lifecycle logs need an
+        # explicit level to be visible.
+        "posthog.warehouse_source_prewarm": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load": {
             "level": "DEBUG",
             "handlers": ["console"],

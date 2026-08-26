@@ -5,6 +5,7 @@ Note: This module uses a real Snowflake connection.
 """
 
 import os
+import uuid
 import asyncio
 import datetime as dt
 
@@ -12,8 +13,10 @@ import pytest
 
 import pyarrow as pa
 import pytest_asyncio
+import pyarrow.parquet as pq
 
 from products.batch_exports.backend.temporal.destinations.snowflake_batch_export import (
+    NamedBytesIO,
     SnowflakeClient,
     SnowflakeField,
     SnowflakeIncompatibleSchemaError,
@@ -244,3 +247,106 @@ async def test_get_table_raises_incompatible_schema_on_missing_version_key_field
 
     assert "'missing_key_one'" in str(excinfo.value)
     assert "'missing_key_two'" in str(excinfo.value)
+
+
+async def test_put_file_to_snowflake_table_stage(snowflake_client, database, schema, test_table):
+    """Test files are put into Snowflake table stage."""
+    test_table.stage_prefix = f"{str(uuid.uuid4())}/{dt.datetime.now(dt.UTC):%Y-%m-%d_%H-%M-%S}"
+
+    n_legs = pa.array([2, 2, 4, 4, 5, 100])
+    animals = pa.array(["Flamingo", "Parrot", "Dog", "Horse", "Brittle stars", "Centipede"])
+    table = pa.Table.from_arrays([n_legs, animals], names=["id", "text"])
+    file_like = NamedBytesIO(b"", name="test_file")
+    pq.write_table(table, file_like)
+
+    file_like.seek(0)
+    await snowflake_client.put_file_to_snowflake_table_stage(file_like, test_table)
+
+    result = await snowflake_client.execute_async_query(
+        f"""
+        LIST '@%"{test_table.name}"/{test_table.stage_prefix}'
+        """,
+        timeout=60.0,
+    )
+    assert result is not None, "Expected at least one file"
+
+    rows, metadata = result
+    assert len(rows) == 1, "Expected only one file"
+
+    row = rows[0]
+    row_dict = dict(zip((field.name for field in metadata), row))
+    assert row_dict["name"] == f"{test_table.stage_prefix}/test_file"
+
+
+async def test_copy_loaded_files_to_snowflake_table_only_works_on_stage_prefix(
+    snowflake_client, database, schema, test_table
+):
+    """Test copying only copies and purges files under stage prefix.
+
+    This ensures that multiple COPY queries to the same table do not PURGE or
+    COPY each other files.
+    """
+    test_table.stage_prefix = first_prefix = f"{str(uuid.uuid4())}/{dt.datetime.now(dt.UTC):%Y-%m-%d_%H-%M-%S}"
+
+    ids = [2, 2, 4, 4, 5, 100]
+    text = ["Flamingo", "Parrot", "Dog", "Horse", "Brittle stars", "Centipede"]
+    n_legs = pa.array(ids)
+    animals = pa.array(text)
+    table = pa.Table.from_arrays([n_legs, animals], names=["id", "text"])
+    file_like = NamedBytesIO(b"", name="test_file")
+    pq.write_table(table, file_like)
+
+    file_like.seek(0)
+    await snowflake_client.put_file_to_snowflake_table_stage(file_like, test_table)
+
+    # Same file, different prefix
+    file_like.seek(0)
+    test_table.stage_prefix = second_prefix = f"{str(uuid.uuid4())}/{dt.datetime.now(dt.UTC):%Y-%m-%d_%H-%M-%S}"
+    await snowflake_client.put_file_to_snowflake_table_stage(file_like, test_table)
+
+    await snowflake_client.copy_loaded_files_to_snowflake_table(test_table, timeout=30.0)
+
+    # Check data was actually copied
+    result = await snowflake_client.execute_async_query(
+        f"""
+        SELECT * FROM "{test_table.name}"
+        """,
+        timeout=60.0,
+    )
+    assert result is not None, "Expected at least one row in table was copied"
+
+    rows, metadata = result
+    data: dict[str, list[int] | list[str]] = {"id": [], "text": []}
+    for row in rows:
+        dict_row = dict(zip((field.name for field in metadata), row))
+        data["id"].append(dict_row["id"])
+        data["text"].append(dict_row["text"])
+
+    assert sorted(data["id"]) == sorted(ids)
+    assert sorted(data["text"]) == sorted(text)
+
+    # Check that first prefix file should still be there
+    result = await snowflake_client.execute_async_query(
+        f"""
+        LIST '@%"{test_table.name}"/{first_prefix}'
+        """,
+        timeout=60.0,
+    )
+    assert result is not None, "Expected at least one file"
+
+    rows, metadata = result
+    assert len(rows) == 1, "Expected only one file"
+
+    row = rows[0]
+    row_dict = dict(zip((field.name for field in metadata), row))
+    assert row_dict["name"] == f"{first_prefix}/test_file"
+
+    # Check that second prefix file should have been purged by COPY
+    result = await snowflake_client.execute_async_query(
+        f"""
+        LIST '@%"{test_table.name}"/{second_prefix}'
+        """,
+        timeout=60.0,
+    )
+    rows, metadata = result
+    assert rows == []

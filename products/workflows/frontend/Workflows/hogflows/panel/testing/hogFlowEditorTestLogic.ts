@@ -358,7 +358,11 @@ export interface hogFlowEditorTestLogicMeta {
                             }
                           | {
                                 filters: {
+                                    all_roles_unassigned?: boolean | undefined
+                                    assigned_to_user_ids?: number[] | undefined
+                                    audience_type?: 'accounts' | 'persons' | undefined
                                     properties: any[]
+                                    tag_names?: string[] | undefined
                                 }
                                 type: 'batch'
                             }
@@ -375,9 +379,23 @@ export interface hogFlowEditorTestLogicMeta {
                                 filters: {
                                     properties?: any[] | undefined
                                 }
+                                type: 'slack-message'
+                            }
+                          | {
+                                filters: {
+                                    properties?: any[] | undefined
+                                }
                                 key_property?: string | undefined
                                 table_name: string
                                 type: 'data-warehouse-table'
+                            }
+                          | {
+                                filters: {
+                                    properties?: any[] | undefined
+                                }
+                                key_property?: string | undefined
+                                table_name: string
+                                type: 'data-warehouse-view'
                             }
                           | {
                                 inputs: Record<
@@ -470,7 +488,11 @@ export interface hogFlowEditorTestLogicMeta {
                             }
                           | {
                                 filters: {
+                                    all_roles_unassigned?: boolean | undefined
+                                    assigned_to_user_ids?: number[] | undefined
+                                    audience_type?: 'accounts' | 'persons' | undefined
                                     properties: any[]
+                                    tag_names?: string[] | undefined
                                 }
                                 type: 'batch'
                             }
@@ -487,9 +509,23 @@ export interface hogFlowEditorTestLogicMeta {
                                 filters: {
                                     properties?: any[] | undefined
                                 }
+                                type: 'slack-message'
+                            }
+                          | {
+                                filters: {
+                                    properties?: any[] | undefined
+                                }
                                 key_property?: string | undefined
                                 table_name: string
                                 type: 'data-warehouse-table'
+                            }
+                          | {
+                                filters: {
+                                    properties?: any[] | undefined
+                                }
+                                key_property?: string | undefined
+                                table_name: string
+                                type: 'data-warehouse-view'
                             }
                           | {
                                 inputs: Record<

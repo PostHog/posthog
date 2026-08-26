@@ -4,45 +4,71 @@ Applies to any change under `frontend/src`. This is a **discovery + cadence** gu
 
 ## Rule 1 — Reuse before you create
 
-**Before building any UI element, search for an existing one.** PostHog already has a badge, a label, a table, a tag, a card, a modal. Hand-rolling one with raw `<div>`/`<table>` + Tailwind is the single most common agent mistake here, and it produces unbounded, off-design output.
+**Before building any UI element, search for an existing one.** PostHog already has a badge, a label, a table, a tag, a card, a modal. Hand-rolling one with raw `<div>`/`<table>` + Tailwind is the single most common agent mistake here, and it produces unbounded, off-design output. Reuse is also how the product stays on-brand: Lemon/quill components carry PostHog's tokens, density, and interaction patterns, so a scene built from them looks like PostHog without anyone having to think about it.
 
 Where to look, in order:
 
-1. `frontend/src/lib/lemon-ui/` — the main-app default (~50 `Lemon*` components). Grep here first.
-2. `@posthog/quill` (`packages/quill/`) — preferred for menus, comboboxes, autocompletes, and new charts. Read `packages/quill/packages/primitives/AGENTS.md` for component choice **before** importing.
-3. `frontend/src/lib/ui/` and `frontend/src/lib/components/` — older / app-specific shared pieces.
+1. `frontend/src/lib/lemon-ui/` — the main-app default (~50 `Lemon*` components). Grep here first, and in most cases stop here.
+2. `frontend/src/lib/ui/` and `frontend/src/lib/components/` — older / app-specific shared pieces.
+
+`@posthog/quill` is **not** for this tree. It targets MCP apps and the desktop app, it's deliberately more compact than LemonUI, and the main app isn't being migrated onto it, so quill components read as out of place here. A handful of files already import it; treat those as exceptions rather than a pattern to copy.
 
 Common reinventions and what to use instead:
 
-| You're about to build…               | Use instead                                                                               |
-| ------------------------------------ | ----------------------------------------------------------------------------------------- |
-| a `<table>`                          | `LemonTable` (`lib/lemon-ui/LemonTable`) — has sorting, pagination, loading, empty states |
-| a colored status pill / count badge  | `LemonBadge`                                                                              |
-| a small removable chip               | `LemonSnack` or `LemonTag`                                                                |
-| a form field label                   | `LemonLabel`                                                                              |
-| a dropdown / combobox / autocomplete | quill `DropdownMenu` / `Combobox` / `Autocomplete` (not a new `LemonMenu`)                |
-| a card / panel                       | `LemonCard`                                                                               |
-| a modal / confirm dialog             | `LemonModal` / `LemonDialog`                                                              |
+| You're about to build…              | Use instead                                                                               |
+| ----------------------------------- | ----------------------------------------------------------------------------------------- |
+| a `<table>`                         | `LemonTable` (`lib/lemon-ui/LemonTable`) — has sorting, pagination, loading, empty states |
+| a colored status pill / count badge | `LemonBadge`                                                                              |
+| a small removable chip              | `LemonSnack` or `LemonTag`                                                                |
+| a form field label                  | `LemonLabel`                                                                              |
+| a dropdown menu of actions          | `LemonMenu` with a `LemonButton` trigger (not a new `lib/ui/DropdownMenu`)                |
+| a select / combobox / autocomplete  | `LemonSelect`, `LemonInputSelect`                                                         |
+| a card / panel                      | `LemonCard`                                                                               |
+| a modal / confirm dialog            | `LemonModal` / `LemonDialog`                                                              |
 
-If nothing fits, say so and propose extending the existing component before adding a new one. Don't silently fork.
+If nothing fits, say so and propose extending the existing component before adding a new one. Don't silently fork. If you do end up building custom, stay on brand: system tokens and primitives only, matching the surrounding scene's density and flatness — and none of the generic AI-generated look (purple/blue gradients, glassmorphism, gradient text, icon-tile card grids, decorative motion). The full slop-tell catalog is in the `/writing-ui-components` skill.
 
-> LemonUI vs quill, and the quill spacing/composition rules, live in the root `AGENTS.md` ("Code Style → Frontend (quill …)") and `packages/quill/packages/primitives/AGENTS.md`. Follow those — don't mix quill and Lemon inside one component's internals.
+The same goes for patterns, not just components: before building a new scene or view, read 2–3 comparable ones and model yours on those that follow these rules. Precedent that violates Rule 4 or `/writing-ui-components` is legacy to route around, not license to repeat — conventions outrank precedent, and compliant precedent outranks invention.
 
-## Rule 2 — Don't handwrite API types; use the generated ones
+> LemonUI vs quill lives in the root `AGENTS.md` ("Code Style → Frontend (quill vs LemonUI)"). If you're working somewhere quill genuinely applies (an MCP app, the desktop app), `packages/quill/packages/primitives/AGENTS.md` has its component-choice and spacing rules, and the two libraries must not be mixed inside one component's internals.
+
+## Rule 2 — A product's UI goes in `products/<name>/frontend/`
+
+`frontend/src/scenes/<name>/` is not the default home for product UI, and an existing folder there is not evidence that new files belong in it — about 18 products currently have UI in both trees. App-level scenes (`settings`, `onboarding`, `billing`, `max`) do legitimately live here.
+
+Before adding a file or a directory under `scenes/`, check where that product stands:
+
+```sh
+python3 .agents/skills/placing-product-frontend-code/scripts/scene_product_split.py <scene-dir>
+```
+
+Invoke `/placing-product-frontend-code` for the decision table and for why the path matters — it drives merge-queue lane assignment, and a change anywhere under `frontend/` serializes against every other frontend PR.
+
+## Rule 3 — Don't handwrite API types; use the generated ones
 
 Django serializers are the source of truth. `hogli build:openapi` generates TypeScript types (suffix `Api`) and API functions. **Never write an `interface` that mirrors a backend serializer** — import the generated type instead.
 
 - Types: `import type { UserAuthSessionApi } from '~/generated/core/api.schemas'`
   (exemplar: `frontend/src/scenes/settings/user/loginSessionsLogic.ts`)
 - Request functions: `import { getExportsContentRetrieveUrl } from '~/generated/core/api'`
-  (exemplar: `frontend/src/scenes/inbox/components/signalCards/SessionReplaySignalCard.tsx`)
+  (exemplar: `products/signals/frontend/inbox/components/signalCards/ScannerFindingSignalCard.tsx`)
 - Generated output lives in `frontend/src/generated/core/` and `products/*/frontend/generated/`. **These files are codegen output — never edit them by hand.** Change the serializer and rerun.
 
 When touching `lib/api`, `api.get<`, `api.create<`, or any handwritten API interface, invoke the `/adopting-generated-api-types` skill first.
 
-## Rule 3 — Business logic in kea, not React hooks
+## Rule 4 — Business logic in kea, not React hooks
 
 Covered by the root `AGENTS.md` (Code Style → Frontend). The discovery hint for this tree: if a scene/component has a `*Logic.ts`, that's where actions/reducers/selectors/listeners belong. See `/writing-kea-logics` and `/using-kea-disposables`.
+
+## Rule 4 — Structure and abstraction
+
+Full doctrine + convert-on-sight catalog: the `/writing-ui-components` skill. Load it before creating, moving, splitting, or restructuring any component or frontend file, extracting a shared component, or renaming frontend symbols. The always-on core:
+
+- **One component per file**, named after its export; named exports only. Every symbol has exactly one import path — no re-export shims, no new `index.ts` barrels; moving a symbol means updating every consumer in the same PR.
+- **Extract a shared component when call sites read as content, not markup** — at three occurrences, or two in one feature with a third clearly coming. If the generic needs a boolean to switch off half its behavior for one caller, it isn't one shape: leave the duplication. Keep new generics feature-local until a second feature needs them (promote via `lib/components/`; never import across `products/*`).
+- **Interactive elements are real `<button>`/`<a>`** — that's what `LemonButton`/quill triggers render. Never `onClick` on a `<div>`/Card.
+- **Loading, empty, and error are three different screens.** Never derive "empty" from data that hasn't resolved — branch on the loading/unknown state first.
+- **Renames sweep code symbols completely; wire strings stay frozen.** Event names, property names/values, flag keys, `data-attr` values, storage keys, and URL paths are API (dashboards, rollouts, and Playwright depend on them) — pin them with a comment instead of renaming.
 
 ## Typecheck & typegen cadence (don't over-run these)
 
@@ -69,4 +95,4 @@ Adding a button/toggle/action to a scene's `ScenePanel`? It must also go in that
 - `layout/scenes/AGENTS.md` (scene action surfaces: `ScenePanel` + `SceneMenuBar` dual-write rule).
 - `packages/quill/packages/primitives/AGENTS.md` — component selection matrix.
 - `docs/published/handbook/engineering/conventions/frontend-coding.md` — frontend conventions.
-- Skills: `/adopting-generated-api-types`, `/writing-kea-logics`, `/using-kea-disposables`, `/writing-tests`.
+- Skills: `/writing-ui-components`, `/placing-product-frontend-code`, `/adopting-generated-api-types`, `/writing-kea-logics`, `/using-kea-disposables`, `/writing-tests`.

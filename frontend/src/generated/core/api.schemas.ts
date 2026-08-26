@@ -15,6 +15,7 @@
  * * `leadership` - Leadership
  * * `marketing` - Marketing
  * * `sales` - Sales / Success
+ * * `student` - Student
  * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
@@ -27,6 +28,7 @@ export const RoleAtOrganizationEnumApi = {
     Leadership: 'leadership',
     Marketing: 'marketing',
     Sales: 'sales',
+    Student: 'student',
     Other: 'other',
 } as const
 
@@ -62,10 +64,20 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
+/**
+ * Read shape for list/retrieve/create-response. `cimd_url` is nullable here for
+ * tokens issued before URL binding; the write serializers below require a value.
+ */
 export interface CIMDVerificationTokenApi {
     readonly id: string
-    /** @maxLength 40 */
-    label: string
+    /** Human-readable name to identify this token later, e.g. 'Production CIMD partner'. */
+    readonly label: string
+    /**
+     * HTTPS URL of the CIMD metadata document this token verifies at. Null on tokens issued before URL binding; those no longer verify until bound via PATCH or reissued.
+     * @maxLength 2048
+     * @nullable
+     */
+    readonly cimd_url: string | null
     /** @nullable */
     readonly mask_value: string | null
     readonly created_by: UserBasicApi
@@ -84,6 +96,23 @@ export interface PaginatedCIMDVerificationTokenListApi {
 }
 
 /**
+ * Write shape for `create`. `cimd_url` is required and non-null: only tokens
+ * issued before URL binding existed are nullable, not new ones.
+ */
+export interface CIMDVerificationTokenCreateApi {
+    /**
+     * Human-readable name to identify this token later, e.g. 'Production CIMD partner'.
+     * @maxLength 40
+     */
+    label: string
+    /**
+     * HTTPS URL of the CIMD metadata document this token will be published in. The token only verifies at this URL, so a copy hosted anywhere else is rejected. Host case, an explicit :443 and a trailing slash are normalized away; the path is case-sensitive.
+     * @maxLength 2048
+     */
+    cimd_url: string
+}
+
+/**
  * Create-response variant that includes the plaintext token.
  *
  * Only emitted from the create endpoint - storage-side we only persist the
@@ -91,8 +120,14 @@ export interface PaginatedCIMDVerificationTokenListApi {
  */
 export interface CIMDVerificationTokenWithValueApi {
     readonly id: string
-    /** @maxLength 40 */
-    label: string
+    /** Human-readable name to identify this token later, e.g. 'Production CIMD partner'. */
+    readonly label: string
+    /**
+     * HTTPS URL of the CIMD metadata document this token verifies at. Null on tokens issued before URL binding; those no longer verify until bound via PATCH or reissued.
+     * @maxLength 2048
+     * @nullable
+     */
+    readonly cimd_url: string | null
     /** @nullable */
     readonly mask_value: string | null
     readonly created_by: UserBasicApi
@@ -101,6 +136,19 @@ export interface CIMDVerificationTokenWithValueApi {
     readonly last_used_at: string | null
     /** Plaintext token, only returned on creation */
     readonly value: string
+}
+
+/**
+ * Write shape for `partial_update` (PATCH). Exposes only `cimd_url`, and only ever
+ * performs a null -> value transition: `validate` rejects any instance whose `cimd_url`
+ * is already set, so an existing binding can never be re-pointed through this endpoint.
+ */
+export interface PatchedCIMDVerificationTokenUpdateApi {
+    /**
+     * HTTPS URL of the CIMD metadata document to bind this token to. Only settable once, on a token with no existing binding; an already-bound token must be reissued instead.
+     * @maxLength 2048
+     */
+    cimd_url?: string
 }
 
 export interface OrganizationDomainApi {
@@ -115,19 +163,8 @@ export interface OrganizationDomainApi {
     jit_provisioning_enabled?: boolean
     /** @maxLength 28 */
     sso_enforcement?: string
-    /** Returns whether SAML is configured for the instance. Does not validate the user has the required license (that check is performed in other places). */
-    readonly has_saml: boolean
-    /** Returns whether SCIM is configured and enabled for this domain. */
-    readonly has_scim: boolean
     /** @nullable */
     readonly scim_base_url: string | null
-    /** Returns whether ID-JAG (XAA) is configured for this domain. */
-    readonly has_id_jag: boolean
-    /**
-     * Linked IdP configuration (SAML/SCIM/XAA) that backs this domain. Must belong to the same organization.
-     * @nullable
-     */
-    identity_provider_config?: string | null
 }
 
 export interface PaginatedOrganizationDomainListApi {
@@ -151,20 +188,33 @@ export interface PatchedOrganizationDomainApi {
     jit_provisioning_enabled?: boolean
     /** @maxLength 28 */
     sso_enforcement?: string
-    /** Returns whether SAML is configured for the instance. Does not validate the user has the required license (that check is performed in other places). */
-    readonly has_saml?: boolean
-    /** Returns whether SCIM is configured and enabled for this domain. */
-    readonly has_scim?: boolean
     /** @nullable */
     readonly scim_base_url?: string | null
-    /** Returns whether ID-JAG (XAA) is configured for this domain. */
-    readonly has_id_jag?: boolean
-    /**
-     * Linked IdP configuration (SAML/SCIM/XAA) that backs this domain. Must belong to the same organization.
-     * @nullable
-     */
-    identity_provider_config?: string | null
 }
+
+/**
+ * * `all` - All
+ * * `selected` - Selected
+ */
+export type DomainScopeEnumApi = (typeof DomainScopeEnumApi)[keyof typeof DomainScopeEnumApi]
+
+export const DomainScopeEnumApi = {
+    All: 'all',
+    Selected: 'selected',
+} as const
+
+/**
+ * * `saml` - Saml
+ * * `scim` - Scim
+ * * `xaa` - Xaa
+ */
+export type ConfigScopeEnumApi = (typeof ConfigScopeEnumApi)[keyof typeof ConfigScopeEnumApi]
+
+export const ConfigScopeEnumApi = {
+    Saml: 'saml',
+    Scim: 'scim',
+    Xaa: 'xaa',
+} as const
 
 export interface IdentityProviderConfigApi {
     readonly id: string
@@ -173,10 +223,25 @@ export interface IdentityProviderConfigApi {
      * @maxLength 255
      */
     name?: string
+    /** Domains this configuration applies to. An unset value behaves like selected domains.
+     *
+     * * `all` - All
+     * * `selected` - Selected */
+    domain_scope?: DomainScopeEnumApi | BlankEnumApi | null
+    /** Feature configured by this identity provider configuration.
+     *
+     * * `saml` - Saml
+     * * `scim` - Scim
+     * * `xaa` - Xaa */
+    config_scope?: ConfigScopeEnumApi | BlankEnumApi | null
+    /** Organization domain IDs that this identity provider configuration applies to. */
+    organization_domain_ids?: string[]
     readonly created_at: string
     readonly updated_at: string
     /** Whether SAML is fully configured on this config. */
     readonly has_saml: boolean
+    /** Stable UUID sent as SAML RelayState to route authentication responses to this IdP configuration. */
+    readonly saml_relay_state: string
     /**
      * SAML IdP entity ID (issuer).
      * @maxLength 512
@@ -240,10 +305,25 @@ export interface PatchedIdentityProviderConfigApi {
      * @maxLength 255
      */
     name?: string
+    /** Domains this configuration applies to. An unset value behaves like selected domains.
+     *
+     * * `all` - All
+     * * `selected` - Selected */
+    domain_scope?: DomainScopeEnumApi | BlankEnumApi | null
+    /** Feature configured by this identity provider configuration.
+     *
+     * * `saml` - Saml
+     * * `scim` - Scim
+     * * `xaa` - Xaa */
+    config_scope?: ConfigScopeEnumApi | BlankEnumApi | null
+    /** Organization domain IDs that this identity provider configuration applies to. */
+    organization_domain_ids?: string[]
     readonly created_at?: string
     readonly updated_at?: string
     /** Whether SAML is fully configured on this config. */
     readonly has_saml?: boolean
+    /** Stable UUID sent as SAML RelayState to route authentication responses to this IdP configuration. */
+    readonly saml_relay_state?: string
     /**
      * SAML IdP entity ID (issuer).
      * @maxLength 512
@@ -364,7 +444,7 @@ export interface OrganizationOAuthApplicationApi {
     readonly id: string
     /** @maxLength 255 */
     name?: string
-    /** @maxLength 100 */
+    /** @maxLength 2048 */
     client_id?: string
     readonly redirect_uris_list: readonly string[]
     /** True if this application has been verified by PostHog */
@@ -933,6 +1013,551 @@ export interface TeamRevenueAnalyticsConfigApi {
     filter_test_accounts?: boolean
 }
 
+export interface SourceMapApi {
+    ad_group_id?: string | null
+    ad_group_name?: string | null
+    ad_id?: string | null
+    ad_name?: string | null
+    campaign?: string | null
+    clicks?: string | null
+    cost?: string | null
+    currency?: string | null
+    date?: string | null
+    id?: string | null
+    impressions?: string | null
+    reported_conversion?: string | null
+    reported_conversion_value?: string | null
+    source?: string | null
+}
+
+/**
+ * Mapping of external data source id to that source's column mapping.
+ */
+export interface MarketingAnalyticsSourceMappingApi {
+    [key: string]: SourceMapApi
+}
+
+export type BaseMathTypeApi = (typeof BaseMathTypeApi)[keyof typeof BaseMathTypeApi]
+
+export const BaseMathTypeApi = {
+    Total: 'total',
+    Dau: 'dau',
+    WeeklyActive: 'weekly_active',
+    MonthlyActive: 'monthly_active',
+    UniqueSession: 'unique_session',
+    FirstTimeForUser: 'first_time_for_user',
+    FirstMatchingEventForUser: 'first_matching_event_for_user',
+} as const
+
+export type FunnelMathTypeApi = (typeof FunnelMathTypeApi)[keyof typeof FunnelMathTypeApi]
+
+export const FunnelMathTypeApi = {
+    Total: 'total',
+    FirstTimeForUser: 'first_time_for_user',
+    FirstTimeForUserWithFilters: 'first_time_for_user_with_filters',
+} as const
+
+export type PropertyMathTypeApi = (typeof PropertyMathTypeApi)[keyof typeof PropertyMathTypeApi]
+
+export const PropertyMathTypeApi = {
+    Avg: 'avg',
+    Sum: 'sum',
+    Min: 'min',
+    Max: 'max',
+    Median: 'median',
+    P75: 'p75',
+    P90: 'p90',
+    P95: 'p95',
+    P99: 'p99',
+} as const
+
+export type CountPerActorMathTypeApi = (typeof CountPerActorMathTypeApi)[keyof typeof CountPerActorMathTypeApi]
+
+export const CountPerActorMathTypeApi = {
+    AvgCountPerActor: 'avg_count_per_actor',
+    MinCountPerActor: 'min_count_per_actor',
+    MaxCountPerActor: 'max_count_per_actor',
+    MedianCountPerActor: 'median_count_per_actor',
+    P75CountPerActor: 'p75_count_per_actor',
+    P90CountPerActor: 'p90_count_per_actor',
+    P95CountPerActor: 'p95_count_per_actor',
+    P99CountPerActor: 'p99_count_per_actor',
+} as const
+
+export type GroupMathTypeApi = (typeof GroupMathTypeApi)[keyof typeof GroupMathTypeApi]
+
+export const GroupMathTypeApi = {
+    UniqueGroup: 'unique_group',
+    FirstTimeForGroup: 'first_time_for_group',
+    FirstMatchingEventForGroup: 'first_matching_event_for_group',
+} as const
+
+export type ExperimentMetricMathTypeApi = (typeof ExperimentMetricMathTypeApi)[keyof typeof ExperimentMetricMathTypeApi]
+
+export const ExperimentMetricMathTypeApi = {
+    Total: 'total',
+    Sum: 'sum',
+    UniqueSession: 'unique_session',
+    Min: 'min',
+    Max: 'max',
+    Avg: 'avg',
+    Dau: 'dau',
+    UniqueGroup: 'unique_group',
+    Hogql: 'hogql',
+} as const
+
+export type CalendarHeatmapMathTypeApi = (typeof CalendarHeatmapMathTypeApi)[keyof typeof CalendarHeatmapMathTypeApi]
+
+export const CalendarHeatmapMathTypeApi = {
+    Total: 'total',
+    Dau: 'dau',
+} as const
+
+export type MathGroupTypeIndexApi = (typeof MathGroupTypeIndexApi)[keyof typeof MathGroupTypeIndexApi]
+
+export const MathGroupTypeIndexApi = {
+    Number0: 0,
+    Number1: 1,
+    Number2: 2,
+    Number3: 3,
+    Number4: 4,
+} as const
+
+export type CurrencyCodeApi = (typeof CurrencyCodeApi)[keyof typeof CurrencyCodeApi]
+
+export const CurrencyCodeApi = {
+    Aed: 'AED',
+    Afn: 'AFN',
+    All: 'ALL',
+    Amd: 'AMD',
+    Ang: 'ANG',
+    Aoa: 'AOA',
+    Ars: 'ARS',
+    Aud: 'AUD',
+    Awg: 'AWG',
+    Azn: 'AZN',
+    Bam: 'BAM',
+    Bbd: 'BBD',
+    Bdt: 'BDT',
+    Bgn: 'BGN',
+    Bhd: 'BHD',
+    Bif: 'BIF',
+    Bmd: 'BMD',
+    Bnd: 'BND',
+    Bob: 'BOB',
+    Brl: 'BRL',
+    Bsd: 'BSD',
+    Btc: 'BTC',
+    Btn: 'BTN',
+    Bwp: 'BWP',
+    Byn: 'BYN',
+    Bzd: 'BZD',
+    Cad: 'CAD',
+    Cdf: 'CDF',
+    Chf: 'CHF',
+    Clp: 'CLP',
+    Cny: 'CNY',
+    Cop: 'COP',
+    Crc: 'CRC',
+    Cve: 'CVE',
+    Czk: 'CZK',
+    Djf: 'DJF',
+    Dkk: 'DKK',
+    Dop: 'DOP',
+    Dzd: 'DZD',
+    Egp: 'EGP',
+    Ern: 'ERN',
+    Etb: 'ETB',
+    Eur: 'EUR',
+    Fjd: 'FJD',
+    Gbp: 'GBP',
+    Gel: 'GEL',
+    Ghs: 'GHS',
+    Gip: 'GIP',
+    Gmd: 'GMD',
+    Gnf: 'GNF',
+    Gtq: 'GTQ',
+    Gyd: 'GYD',
+    Hkd: 'HKD',
+    Hnl: 'HNL',
+    Hrk: 'HRK',
+    Htg: 'HTG',
+    Huf: 'HUF',
+    Idr: 'IDR',
+    Ils: 'ILS',
+    Inr: 'INR',
+    Iqd: 'IQD',
+    Irr: 'IRR',
+    Isk: 'ISK',
+    Jmd: 'JMD',
+    Jod: 'JOD',
+    Jpy: 'JPY',
+    Kes: 'KES',
+    Kgs: 'KGS',
+    Khr: 'KHR',
+    Kmf: 'KMF',
+    Krw: 'KRW',
+    Kwd: 'KWD',
+    Kyd: 'KYD',
+    Kzt: 'KZT',
+    Lak: 'LAK',
+    Lbp: 'LBP',
+    Lkr: 'LKR',
+    Lrd: 'LRD',
+    Ltl: 'LTL',
+    Lvl: 'LVL',
+    Lsl: 'LSL',
+    Lyd: 'LYD',
+    Mad: 'MAD',
+    Mdl: 'MDL',
+    Mga: 'MGA',
+    Mkd: 'MKD',
+    Mmk: 'MMK',
+    Mnt: 'MNT',
+    Mop: 'MOP',
+    Mru: 'MRU',
+    Mtl: 'MTL',
+    Mur: 'MUR',
+    Mvr: 'MVR',
+    Mwk: 'MWK',
+    Mxn: 'MXN',
+    Myr: 'MYR',
+    Mzn: 'MZN',
+    Nad: 'NAD',
+    Ngn: 'NGN',
+    Nio: 'NIO',
+    Nok: 'NOK',
+    Npr: 'NPR',
+    Nzd: 'NZD',
+    Omr: 'OMR',
+    Pab: 'PAB',
+    Pen: 'PEN',
+    Pgk: 'PGK',
+    Php: 'PHP',
+    Pkr: 'PKR',
+    Pln: 'PLN',
+    Pyg: 'PYG',
+    Qar: 'QAR',
+    Ron: 'RON',
+    Rsd: 'RSD',
+    Rub: 'RUB',
+    Rwf: 'RWF',
+    Sar: 'SAR',
+    Sbd: 'SBD',
+    Scr: 'SCR',
+    Sdg: 'SDG',
+    Sek: 'SEK',
+    Sgd: 'SGD',
+    Srd: 'SRD',
+    Ssp: 'SSP',
+    Stn: 'STN',
+    Syp: 'SYP',
+    Szl: 'SZL',
+    Thb: 'THB',
+    Tjs: 'TJS',
+    Tmt: 'TMT',
+    Tnd: 'TND',
+    Top: 'TOP',
+    Try: 'TRY',
+    Ttd: 'TTD',
+    Twd: 'TWD',
+    Tzs: 'TZS',
+    Uah: 'UAH',
+    Ugx: 'UGX',
+    Usd: 'USD',
+    Uyu: 'UYU',
+    Uzs: 'UZS',
+    Ves: 'VES',
+    Vnd: 'VND',
+    Vuv: 'VUV',
+    Wst: 'WST',
+    Xaf: 'XAF',
+    Xcd: 'XCD',
+    Xof: 'XOF',
+    Xpf: 'XPF',
+    Yer: 'YER',
+    Zar: 'ZAR',
+    Zmw: 'ZMW',
+} as const
+
+export interface RevenueCurrencyPropertyConfigApi {
+    property?: string | null
+    static?: CurrencyCodeApi | null
+}
+
+export type PropertyOperatorApi = (typeof PropertyOperatorApi)[keyof typeof PropertyOperatorApi]
+
+export const PropertyOperatorApi = {
+    Exact: 'exact',
+    IsNot: 'is_not',
+    Icontains: 'icontains',
+    NotIcontains: 'not_icontains',
+    StartsWith: 'starts_with',
+    NotStartsWith: 'not_starts_with',
+    EndsWith: 'ends_with',
+    NotEndsWith: 'not_ends_with',
+    Regex: 'regex',
+    NotRegex: 'not_regex',
+    Gt: 'gt',
+    Gte: 'gte',
+    Lt: 'lt',
+    Lte: 'lte',
+    IsSet: 'is_set',
+    IsNotSet: 'is_not_set',
+    IsDateExact: 'is_date_exact',
+    IsDateBefore: 'is_date_before',
+    IsDateAfter: 'is_date_after',
+    Between: 'between',
+    NotBetween: 'not_between',
+    Min: 'min',
+    Max: 'max',
+    In: 'in',
+    NotIn: 'not_in',
+    IsCleanedPathExact: 'is_cleaned_path_exact',
+    FlagEvaluatesTo: 'flag_evaluates_to',
+    SemverEq: 'semver_eq',
+    SemverNeq: 'semver_neq',
+    SemverGt: 'semver_gt',
+    SemverGte: 'semver_gte',
+    SemverLt: 'semver_lt',
+    SemverLte: 'semver_lte',
+    SemverTilde: 'semver_tilde',
+    SemverCaret: 'semver_caret',
+    SemverWildcard: 'semver_wildcard',
+    IcontainsMulti: 'icontains_multi',
+    NotIcontainsMulti: 'not_icontains_multi',
+} as const
+
+export interface EventPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator?: PropertyOperatorApi | null
+    /** Event properties */
+    type?: 'event'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface PersonPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    /** Person properties */
+    type?: 'person'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface CohortPropertyFilterApi {
+    cohort_name?: string | null
+    key?: 'id'
+    label?: string | null
+    operator?: PropertyOperatorApi | null
+    type?: 'cohort'
+    value: number
+}
+
+export type Key10Api = (typeof Key10Api)[keyof typeof Key10Api]
+
+export const Key10Api = {
+    TagName: 'tag_name',
+    Text: 'text',
+    Href: 'href',
+    Selector: 'selector',
+} as const
+
+export interface ElementPropertyFilterApi {
+    key: Key10Api
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: 'element'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface HogQLPropertyFilterApi {
+    key: string
+    label?: string | null
+    type?: 'hogql'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface DataWarehousePropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: 'data_warehouse'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export type MarketingAnalyticsEventConversionGoalApiResponse = { [key: string]: unknown } | null
+
+export type MarketingAnalyticsEventConversionGoalApiSchemaMap = { [key: string]: string | unknown }
+
+/**
+ * A conversion goal counted from events.
+ */
+export interface MarketingAnalyticsEventConversionGoalApi {
+    conversion_goal_id: string
+    conversion_goal_name: string
+    /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC, whose denominator is this goal's conversions — its count, or its unique converters under dau math. That equals new customers only for a once-per-person moment: a repeatable event such as a monthly payment counts every time and understates cost per customer, and dedup under dau is per result row, so someone converting under two sources counts twice at channel level. Defaults to false. */
+    counts_as_customer?: boolean | null
+    /** Marks this goal as revenue-bearing: the value of a conversion is a monetary amount, not a count or an arbitrary numeric property. It gates revenue metrics such as ROAS and LTV:CAC. The amount itself comes from math_property, and its currency from math_property_revenue_currency, the same shape Revenue analytics uses for revenue events. Independent of counts_as_customer: a purchase is usually both, a trial signup neither. Defaults to false. */
+    counts_as_revenue?: boolean | null
+    custom_name?: string | null
+    /** The event or `null` for all events. */
+    event?: string | null
+    kind: 'EventsNode'
+    limit?: number | null
+    math?:
+        | BaseMathTypeApi
+        | FunnelMathTypeApi
+        | PropertyMathTypeApi
+        | CountPerActorMathTypeApi
+        | GroupMathTypeApi
+        | ExperimentMetricMathTypeApi
+        | CalendarHeatmapMathTypeApi
+        | 'hogql'
+        | null
+    math_group_type_index?: MathGroupTypeIndexApi | null
+    math_hogql?: string | null
+    math_multiplier?: number | null
+    math_property?: string | null
+    math_property_revenue_currency?: RevenueCurrencyPropertyConfigApi | null
+    math_property_type?: string | null
+    name: string
+    optionalInFunnel?: boolean | null
+    /** Columns to order by */
+    orderBy?: string[] | null
+    properties?:
+        | (
+              | EventPropertyFilterApi
+              | PersonPropertyFilterApi
+              | CohortPropertyFilterApi
+              | ElementPropertyFilterApi
+              | HogQLPropertyFilterApi
+              | DataWarehousePropertyFilterApi
+          )[]
+        | null
+    response?: MarketingAnalyticsEventConversionGoalApiResponse
+    schema_map: MarketingAnalyticsEventConversionGoalApiSchemaMap
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
+export type MarketingAnalyticsActionConversionGoalApiResponse = { [key: string]: unknown } | null
+
+export type MarketingAnalyticsActionConversionGoalApiSchemaMap = { [key: string]: string | unknown }
+
+/**
+ * A conversion goal counted from an action.
+ */
+export interface MarketingAnalyticsActionConversionGoalApi {
+    conversion_goal_id: string
+    conversion_goal_name: string
+    /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC, whose denominator is this goal's conversions — its count, or its unique converters under dau math. That equals new customers only for a once-per-person moment: a repeatable event such as a monthly payment counts every time and understates cost per customer, and dedup under dau is per result row, so someone converting under two sources counts twice at channel level. Defaults to false. */
+    counts_as_customer?: boolean | null
+    /** Marks this goal as revenue-bearing: the value of a conversion is a monetary amount, not a count or an arbitrary numeric property. It gates revenue metrics such as ROAS and LTV:CAC. The amount itself comes from math_property, and its currency from math_property_revenue_currency, the same shape Revenue analytics uses for revenue events. Independent of counts_as_customer: a purchase is usually both, a trial signup neither. Defaults to false. */
+    counts_as_revenue?: boolean | null
+    custom_name?: string | null
+    id: number
+    kind: 'ActionsNode'
+    math?:
+        | BaseMathTypeApi
+        | FunnelMathTypeApi
+        | PropertyMathTypeApi
+        | CountPerActorMathTypeApi
+        | GroupMathTypeApi
+        | ExperimentMetricMathTypeApi
+        | CalendarHeatmapMathTypeApi
+        | 'hogql'
+        | null
+    math_group_type_index?: MathGroupTypeIndexApi | null
+    math_hogql?: string | null
+    math_multiplier?: number | null
+    math_property?: string | null
+    math_property_revenue_currency?: RevenueCurrencyPropertyConfigApi | null
+    math_property_type?: string | null
+    name: string
+    optionalInFunnel?: boolean | null
+    properties?:
+        | (
+              | EventPropertyFilterApi
+              | PersonPropertyFilterApi
+              | CohortPropertyFilterApi
+              | ElementPropertyFilterApi
+              | HogQLPropertyFilterApi
+              | DataWarehousePropertyFilterApi
+          )[]
+        | null
+    response?: MarketingAnalyticsActionConversionGoalApiResponse
+    schema_map: MarketingAnalyticsActionConversionGoalApiSchemaMap
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
+export type MarketingAnalyticsWarehouseConversionGoalApiResponse = { [key: string]: unknown } | null
+
+export type MarketingAnalyticsWarehouseConversionGoalApiSchemaMap = { [key: string]: string | unknown }
+
+/**
+ * A conversion goal counted from a data warehouse table.
+ */
+export interface MarketingAnalyticsWarehouseConversionGoalApi {
+    conversion_goal_id: string
+    conversion_goal_name: string
+    /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC, whose denominator is this goal's conversions — its count, or its unique converters under dau math. That equals new customers only for a once-per-person moment: a repeatable event such as a monthly payment counts every time and understates cost per customer, and dedup under dau is per result row, so someone converting under two sources counts twice at channel level. Defaults to false. */
+    counts_as_customer?: boolean | null
+    /** Marks this goal as revenue-bearing: the value of a conversion is a monetary amount, not a count or an arbitrary numeric property. It gates revenue metrics such as ROAS and LTV:CAC. The amount itself comes from math_property, and its currency from math_property_revenue_currency, the same shape Revenue analytics uses for revenue events. Independent of counts_as_customer: a purchase is usually both, a trial signup neither. Defaults to false. */
+    counts_as_revenue?: boolean | null
+    custom_name?: string | null
+    distinct_id_field: string
+    dw_source_type?: string | null
+    id: string
+    id_field: string
+    kind: 'DataWarehouseNode'
+    math?:
+        | BaseMathTypeApi
+        | FunnelMathTypeApi
+        | PropertyMathTypeApi
+        | CountPerActorMathTypeApi
+        | GroupMathTypeApi
+        | ExperimentMetricMathTypeApi
+        | CalendarHeatmapMathTypeApi
+        | 'hogql'
+        | null
+    math_group_type_index?: MathGroupTypeIndexApi | null
+    math_hogql?: string | null
+    math_multiplier?: number | null
+    math_property?: string | null
+    math_property_revenue_currency?: RevenueCurrencyPropertyConfigApi | null
+    math_property_type?: string | null
+    name: string
+    optionalInFunnel?: boolean | null
+    properties?:
+        | (
+              | EventPropertyFilterApi
+              | PersonPropertyFilterApi
+              | CohortPropertyFilterApi
+              | ElementPropertyFilterApi
+              | HogQLPropertyFilterApi
+              | DataWarehousePropertyFilterApi
+          )[]
+        | null
+    response?: MarketingAnalyticsWarehouseConversionGoalApiResponse
+    schema_map: MarketingAnalyticsWarehouseConversionGoalApiSchemaMap
+    table_name: string
+    timestamp_field: string
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
+/**
+ * The conversion goals configured for marketing analytics, in display order.
+ */
+export type MarketingAnalyticsConversionGoalListApi = (
+    | MarketingAnalyticsEventConversionGoalApi
+    | MarketingAnalyticsActionConversionGoalApi
+    | MarketingAnalyticsWarehouseConversionGoalApi
+)[]
+
 /**
  * * `first_touch` - First Touch
  * * `last_touch` - Last Touch
@@ -950,18 +1575,63 @@ export const AttributionModeEnumApi = {
     PositionBased: 'position_based',
 } as const
 
+/**
+ * Mapping of integration type to canonical campaign name to the aliases folded into it.
+ */
+export interface MarketingAnalyticsCampaignNameMappingsApi {
+    [key: string]: { [key: string]: string[] }
+}
+
+/**
+ * Mapping of integration type to the custom UTM source values folded into it.
+ */
+export interface MarketingAnalyticsCustomSourceMappingsApi {
+    [key: string]: string[]
+}
+
+export type MatchFieldApi = (typeof MatchFieldApi)[keyof typeof MatchFieldApi]
+
+export const MatchFieldApi = {
+    CampaignName: 'campaign_name',
+    CampaignId: 'campaign_id',
+} as const
+
+export interface CampaignFieldPreferenceApi {
+    match_field: MatchFieldApi
+}
+
+/**
+ * Mapping of integration type to the campaign field used when matching campaigns.
+ */
+export interface MarketingAnalyticsCampaignFieldPreferencesApi {
+    [key: string]: CampaignFieldPreferenceApi
+}
+
 export interface TeamMarketingAnalyticsConfigApi {
-    sources_map?: unknown
-    conversion_goals?: unknown
+    /** Column mapping per external data source, keyed by source id. Tells marketing analytics which column holds campaign, source, cost, clicks and impressions for that source. */
+    sources_map?: MarketingAnalyticsSourceMappingApi
+    /** Conversion goals to attribute against, in display order. Each goal points at an event, an action or a data warehouse table, and carries a schema_map describing which fields hold the UTM parameters, the timestamp and the distinct id. Replaces the whole list on write. */
+    conversion_goals?: MarketingAnalyticsConversionGoalListApi
     /**
+     * How many days back a touchpoint can be credited for a conversion. Between 1 and 90.
      * @minimum 1
      * @maximum 90
      */
     attribution_window_days?: number
+    /** How credit is split across touchpoints when a person saw several campaigns before converting.
+     *
+     * * `first_touch` - First Touch
+     * * `last_touch` - Last Touch
+     * * `linear` - Linear
+     * * `time_decay` - Time Decay
+     * * `position_based` - Position Based */
     attribution_mode?: AttributionModeEnumApi
-    campaign_name_mappings?: unknown
-    custom_source_mappings?: unknown
-    campaign_field_preferences?: unknown
+    /** Manual campaign name aliases, keyed by integration type then by canonical campaign name, with the list of names that should be folded into it. Applied before automatic matching. */
+    campaign_name_mappings?: MarketingAnalyticsCampaignNameMappingsApi
+    /** Custom UTM source values to fold into an integration, keyed by integration type. A UTM source can only belong to one integration. */
+    custom_source_mappings?: MarketingAnalyticsCustomSourceMappingsApi
+    /** Which field to match campaigns on per integration type, campaign_name or campaign_id. Manual mappings in campaign_name_mappings still take precedence. */
+    campaign_field_preferences?: MarketingAnalyticsCampaignFieldPreferencesApi
 }
 
 export interface TeamCustomerAnalyticsConfigApi {
@@ -982,9 +1652,29 @@ export interface TeamCustomerAnalyticsConfigApi {
     account_group_type_index?: number | null
 }
 
+/**
+ * * `off` - Off
+ * * `opt_out` - Opt Out
+ * * `opt_in` - Opt In
+ */
+export type EmailTrackingConsentModeEnumApi =
+    (typeof EmailTrackingConsentModeEnumApi)[keyof typeof EmailTrackingConsentModeEnumApi]
+
+export const EmailTrackingConsentModeEnumApi = {
+    Off: 'off',
+    OptOut: 'opt_out',
+    OptIn: 'opt_in',
+} as const
+
 export interface TeamWorkflowsConfigApi {
     /** When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_*) alongside the existing workflow metrics. */
     capture_workflows_engagement_events?: boolean
+    /** Recipient-consent enforcement for open/click tracking on marketing workflow emails. 'off': no enforcement, tracking follows each email step's own setting. 'opt_out': track by default but not recipients who have opted out. 'opt_in': only track recipients who have explicitly opted in. Transactional emails are exempt from consent enforcement.
+     *
+     * * `off` - Off
+     * * `opt_out` - Opt Out
+     * * `opt_in` - Opt In */
+    email_tracking_consent_mode?: EmailTrackingConsentModeEnumApi
 }
 
 /**
@@ -1008,7 +1698,7 @@ export interface ProjectBackwardCompatApi {
     readonly id: number
     readonly organization: string
     /**
-     * Human-readable project name.
+     * Project name. Must be unique within the organization (case-insensitive). If omitted on creation, a unique default name is generated.
      * @minLength 1
      * @maxLength 200
      */
@@ -1860,7 +2550,7 @@ export interface PatchedProjectBackwardCompatApi {
     readonly id?: number
     readonly organization?: string
     /**
-     * Human-readable project name.
+     * Project name. Must be unique within the organization (case-insensitive). If omitted on creation, a unique default name is generated.
      * @minLength 1
      * @maxLength 200
      */
@@ -2721,6 +3411,138 @@ export interface SharingConfigurationApi {
     readonly user_access_level: string | null
 }
 
+/**
+ * * `image/png` - image/png
+ * * `application/pdf` - application/pdf
+ * * `text/csv` - text/csv
+ * * `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+ * * `video/webm` - video/webm
+ * * `video/mp4` - video/mp4
+ * * `image/gif` - image/gif
+ * * `application/json` - application/json
+ * * `application/x-ndjson` - application/x-ndjson
+ */
+export type ExportedAssetExportFormatEnumApi =
+    (typeof ExportedAssetExportFormatEnumApi)[keyof typeof ExportedAssetExportFormatEnumApi]
+
+export const ExportedAssetExportFormatEnumApi = {
+    ImagePng: 'image/png',
+    ApplicationPdf: 'application/pdf',
+    TextCsv: 'text/csv',
+    ApplicationVndopenxmlformatsOfficedocumentspreadsheetmlsheet:
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    VideoWebm: 'video/webm',
+    VideoMp4: 'video/mp4',
+    ImageGif: 'image/gif',
+    ApplicationJson: 'application/json',
+    ApplicationXNdjson: 'application/x-ndjson',
+} as const
+
+/**
+ * Standard ExportedAsset serializer that doesn't return content.
+ */
+export interface ExportedAssetApi {
+    readonly id: number
+    /** @nullable */
+    dashboard?: number | null
+    /** @nullable */
+    insight?: number | null
+    /** File format of the generated export.
+     *
+     * * `image/png` - image/png
+     * * `application/pdf` - application/pdf
+     * * `text/csv` - text/csv
+     * * `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+     * * `video/webm` - video/webm
+     * * `video/mp4` - video/mp4
+     * * `image/gif` - image/gif
+     * * `application/json` - application/json
+     * * `application/x-ndjson` - application/x-ndjson */
+    readonly export_format: ExportedAssetExportFormatEnumApi
+    readonly created_at: string
+    readonly has_content: boolean
+    export_context?: unknown
+    readonly filename: string
+    /** @nullable */
+    readonly expires_after: string | null
+    /** @nullable */
+    readonly exception: string | null
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
+}
+
+export interface PaginatedExportedAssetListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ExportedAssetApi[]
+}
+
+/**
+ * * `image/png` - image/png
+ * * `application/pdf` - application/pdf
+ * * `text/csv` - text/csv
+ * * `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+ * * `video/webm` - video/webm
+ * * `video/mp4` - video/mp4
+ * * `image/gif` - image/gif
+ * * `application/json` - application/json
+ */
+export type ExportedAssetCreateExportFormatEnumApi =
+    (typeof ExportedAssetCreateExportFormatEnumApi)[keyof typeof ExportedAssetCreateExportFormatEnumApi]
+
+export const ExportedAssetCreateExportFormatEnumApi = {
+    ImagePng: 'image/png',
+    ApplicationPdf: 'application/pdf',
+    TextCsv: 'text/csv',
+    ApplicationVndopenxmlformatsOfficedocumentspreadsheetmlsheet:
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    VideoWebm: 'video/webm',
+    VideoMp4: 'video/mp4',
+    ImageGif: 'image/gif',
+    ApplicationJson: 'application/json',
+} as const
+
+/**
+ * Standard ExportedAsset serializer that doesn't return content.
+ */
+export interface ExportedAssetCreateApi {
+    readonly id: number
+    /** @nullable */
+    dashboard?: number | null
+    /** @nullable */
+    insight?: number | null
+    /** File format to generate. Dataset JSONL exports use the dataset export endpoint.
+     *
+     * * `image/png` - image/png
+     * * `application/pdf` - application/pdf
+     * * `text/csv` - text/csv
+     * * `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+     * * `video/webm` - video/webm
+     * * `video/mp4` - video/mp4
+     * * `image/gif` - image/gif
+     * * `application/json` - application/json */
+    export_format: ExportedAssetCreateExportFormatEnumApi
+    readonly created_at: string
+    readonly has_content: boolean
+    export_context?: unknown
+    readonly filename: string
+    /** @nullable */
+    readonly expires_after: string | null
+    /** @nullable */
+    readonly exception: string | null
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
+}
+
 export interface FileSystemApi {
     readonly id: string
     path: string
@@ -2739,6 +3561,7 @@ export interface FileSystemApi {
     /** @nullable */
     shortcut?: boolean | null
     readonly created_at: string
+    readonly created_by: UserBasicApi | null
     /** @nullable */
     readonly last_viewed_at: string | null
     /**
@@ -2775,6 +3598,7 @@ export interface PatchedFileSystemApi {
     /** @nullable */
     shortcut?: boolean | null
     readonly created_at?: string
+    readonly created_by?: UserBasicApi | null
     /** @nullable */
     readonly last_viewed_at?: string | null
     /**
@@ -2782,116 +3606,6 @@ export interface PatchedFileSystemApi {
      * @nullable
      */
     readonly user_access_level?: string | null
-}
-
-/**
- * Payload for publishing a freeform canvas's React source via the agent.
- */
-export interface PatchedCanvasPublishApi {
-    /** The complete single-file React source for the canvas. */
-    code?: string
-    /** Short description of the change, stored on the appended version history entry. */
-    prompt?: string
-    /** Optional new display name for the canvas (rewrites the leaf segment of its path). */
-    name?: string
-    /**
-     * Optimistic-concurrency guard: the currentVersionId the publisher based its edits on (null when it read a canvas with no versions yet). When provided and the canvas has since moved past it (a concurrent publish, or a user's undo) the publish is rejected with a 409 version_conflict instead of overwriting the newer head. Omit to publish unguarded.
-     * @nullable
-     */
-    expected_current_version_id?: string | null
-}
-
-/**
- * 409 body for a guarded canvas publish based on a stale version.
- */
-export interface CanvasPublishConflictApi {
-    /** Human-readable description of the conflict and how to recover. */
-    detail: string
-    /** Always "version_conflict". */
-    code: string
-    /**
-     * The canvas's live currentVersionId at rejection time (null when the canvas has no versions).
-     * @nullable
-     */
-    current_version_id: string | null
-}
-
-export interface ContextGenerationApi {
-    /**
-     * ID of the Task currently generating this folder's CONTEXT.md, or null if none.
-     * @nullable
-     */
-    task_id: string | null
-}
-
-export interface ContextGenerationSetApi {
-    /**
-     * ID of the Task generating this folder's CONTEXT.md. Must reference a Task in the same team. Set to null to clear the association.
-     * @nullable
-     */
-    task_id: string | null
-}
-
-export interface FolderInstructionsApi {
-    /** Unique identifier for this instructions version. */
-    readonly id: string
-    /** Markdown instructions describing the contents of the folder. */
-    readonly content: string
-    /** Monotonically increasing version number, starting at 1. */
-    readonly version: number
-    /** Whether this is the current (latest) version for the folder. */
-    readonly is_latest: boolean
-    /** User who published this version. */
-    readonly created_by: UserBasicApi
-    /** When this version was published. */
-    readonly created_at: string
-    /** When this version row was last modified. */
-    readonly updated_at: string
-}
-
-export interface FolderInstructionsPublishApi {
-    /** Full markdown instructions to publish as a new version for the folder. */
-    content: string
-    /**
-     * Latest version you are editing from, for optimistic concurrency. If provided and the folder's instructions have changed since, the request fails with 409. Use 0 when no instructions exist yet.
-     * @minimum 0
-     */
-    base_version?: number
-}
-
-export interface PatchedFolderInstructionsPublishApi {
-    /** Full markdown instructions to publish as a new version for the folder. */
-    content?: string
-    /**
-     * Latest version you are editing from, for optimistic concurrency. If provided and the folder's instructions have changed since, the request fails with 409. Use 0 when no instructions exist yet.
-     * @minimum 0
-     */
-    base_version?: number
-}
-
-/**
- * Version-history entry: metadata only, with the markdown content omitted.
- */
-export interface FolderInstructionsVersionApi {
-    /** Unique identifier for this instructions version. */
-    readonly id: string
-    /** Monotonically increasing version number, starting at 1. */
-    readonly version: number
-    /** Whether this is the current (latest) version for the folder. */
-    readonly is_latest: boolean
-    /** User who published this version. */
-    readonly created_by: UserBasicApi
-    /** When this version was published. */
-    readonly created_at: string
-}
-
-export interface PaginatedFolderInstructionsVersionListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: FolderInstructionsVersionApi[]
 }
 
 export interface FileSystemShortcutApi {
@@ -2974,64 +3688,6 @@ export interface PatchedFileSystemShortcutApi {
 export interface FileSystemShortcutReorderApi {
     /** IDs of the current user's shortcuts in the desired display order. */
     ordered_ids: string[]
-}
-
-/**
- * * `image/png` - image/png
- * * `application/pdf` - application/pdf
- * * `text/csv` - text/csv
- * * `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
- * * `video/webm` - video/webm
- * * `video/mp4` - video/mp4
- * * `image/gif` - image/gif
- * * `application/json` - application/json
- */
-export type ExportFormatEnumApi = (typeof ExportFormatEnumApi)[keyof typeof ExportFormatEnumApi]
-
-export const ExportFormatEnumApi = {
-    ImagePng: 'image/png',
-    ApplicationPdf: 'application/pdf',
-    TextCsv: 'text/csv',
-    ApplicationVndopenxmlformatsOfficedocumentspreadsheetmlsheet:
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    VideoWebm: 'video/webm',
-    VideoMp4: 'video/mp4',
-    ImageGif: 'image/gif',
-    ApplicationJson: 'application/json',
-} as const
-
-/**
- * Standard ExportedAsset serializer that doesn't return content.
- */
-export interface ExportedAssetApi {
-    readonly id: number
-    /** @nullable */
-    dashboard?: number | null
-    /** @nullable */
-    insight?: number | null
-    export_format: ExportFormatEnumApi
-    readonly created_at: string
-    readonly has_content: boolean
-    export_context?: unknown
-    readonly filename: string
-    /** @nullable */
-    readonly expires_after: string | null
-    /** @nullable */
-    readonly exception: string | null
-    /**
-     * The effective access level the user has for this object
-     * @nullable
-     */
-    readonly user_access_level: string | null
-}
-
-export interface PaginatedExportedAssetListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ExportedAssetApi[]
 }
 
 /**
@@ -3229,6 +3885,42 @@ export interface BulkUpdateTagsResponseApi {
     skipped: BulkUpdateTagsErrorApi[]
 }
 
+export interface LeakedKeyReportApi {
+    /**
+     * The leaked PostHog personal API key, project secret API key, or OAuth access/refresh token to revoke.
+     * @maxLength 200
+     */
+    token: string
+}
+
+/**
+ * * `personal_api_key` - personal_api_key
+ * * `project_secret_api_key` - project_secret_api_key
+ * * `oauth_access_token` - oauth_access_token
+ * * `oauth_refresh_token` - oauth_refresh_token
+ */
+export type LeakedKeyReportResponseTypeEnumApi =
+    (typeof LeakedKeyReportResponseTypeEnumApi)[keyof typeof LeakedKeyReportResponseTypeEnumApi]
+
+export const LeakedKeyReportResponseTypeEnumApi = {
+    PersonalApiKey: 'personal_api_key',
+    ProjectSecretApiKey: 'project_secret_api_key',
+    OauthAccessToken: 'oauth_access_token',
+    OauthRefreshToken: 'oauth_refresh_token',
+} as const
+
+export interface LeakedKeyReportResponseApi {
+    /** Whether a matching PostHog key or token was found and revoked. */
+    found: boolean
+    /** The type of key that was found and revoked, or null if no match was found.
+     *
+     * * `personal_api_key` - personal_api_key
+     * * `project_secret_api_key` - project_secret_api_key
+     * * `oauth_access_token` - oauth_access_token
+     * * `oauth_refresh_token` - oauth_refresh_token */
+    type: LeakedKeyReportResponseTypeEnumApi | null
+}
+
 /**
  * * `disabled` - disabled
  * * `toolbar` - toolbar
@@ -3319,6 +4011,11 @@ export interface OrganizationApi {
     readonly customer_id: string | null
     /** @nullable */
     enforce_2fa?: boolean | null
+    /**
+     * When True, logins, signups, and invites for this organization are restricted to email addresses on its verified domains.
+     * @nullable
+     */
+    enforce_verified_domains?: boolean | null
     /** @nullable */
     members_can_invite?: boolean | null
     /**
@@ -3549,6 +4246,8 @@ export interface UserApi {
     passkeys_enabled_for_2fa?: boolean | null
     /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
     hide_mcp_hints?: boolean
+    /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. */
+    ui_configuration?: unknown
     /** @nullable */
     readonly onboarding_skipped_at: string | null
     readonly onboarding_skipped_reason: OnboardingSkippedReasonEnumApi | null
@@ -3568,7 +4267,7 @@ export interface UserApi {
     /** Real-time notification types that currently have a live dispatch site. Drives the in-app notifications settings UI. Read-only. */
     readonly active_realtime_notification_types: readonly string[]
     readonly pending_invites: readonly PendingInviteApi[]
-    /** True if the user has at least one Personal API Key or passkey and has not yet acknowledged their existing credentials. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
+    /** True if the user has at least one Personal API Key or passkey, or a third-party OAuth application that can currently act as them, and has not yet acknowledged that access. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
     readonly requires_credential_review: boolean
 }
 
@@ -3656,6 +4355,8 @@ export interface PatchedUserApi {
     passkeys_enabled_for_2fa?: boolean | null
     /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
     hide_mcp_hints?: boolean
+    /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. */
+    ui_configuration?: unknown
     /** @nullable */
     readonly onboarding_skipped_at?: string | null
     readonly onboarding_skipped_reason?: OnboardingSkippedReasonEnumApi | null
@@ -3675,8 +4376,16 @@ export interface PatchedUserApi {
     /** Real-time notification types that currently have a live dispatch site. Drives the in-app notifications settings UI. Read-only. */
     readonly active_realtime_notification_types?: readonly string[]
     readonly pending_invites?: readonly PendingInviteApi[]
-    /** True if the user has at least one Personal API Key or passkey and has not yet acknowledged their existing credentials. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
+    /** True if the user has at least one Personal API Key or passkey, or a third-party OAuth application that can currently act as them, and has not yet acknowledged that access. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
     readonly requires_credential_review?: boolean
+}
+
+export interface UserGithubLoginApi {
+    /**
+     * The user's resolved GitHub login, or null when no GitHub identity is linked.
+     * @nullable
+     */
+    github_login: string | null
 }
 
 export interface UserGitHubAccountApi {
@@ -3692,6 +4401,17 @@ export interface UserGitHubAccountApi {
     name?: string | null
 }
 
+/**
+ * * `connected` - connected
+ * * `unavailable` - unavailable
+ */
+export type InstallationStatusEnumApi = (typeof InstallationStatusEnumApi)[keyof typeof InstallationStatusEnumApi]
+
+export const InstallationStatusEnumApi = {
+    Connected: 'connected',
+    Unavailable: 'unavailable',
+} as const
+
 export interface UserGitHubIntegrationItemApi {
     /** PostHog UserIntegration row id. */
     id: string
@@ -3706,8 +4426,20 @@ export interface UserGitHubIntegrationItemApi {
     repository_selection?: string | null
     /** Installation account metadata from GitHub. */
     account?: UserGitHubAccountApi | null
+    /**
+     * The connected user's own GitHub login (distinct from the installation account).
+     * @nullable
+     */
+    github_login?: string | null
     /** True when this installation id matches a team-level GitHub integration on the active project. */
     uses_shared_installation: boolean
+    /** Whether any other PostHog project or personal connection references the same App installation. When false, disconnecting this integration also uninstalls the GitHub App from the connected account or organization. */
+    installation_shared: boolean
+    /** `unavailable` means the App was uninstalled or suspended on GitHub and PostHog can no longer mint tokens for it; `connected` otherwise.
+     *
+     * * `connected` - connected
+     * * `unavailable` - unavailable */
+    installation_status: InstallationStatusEnumApi
     /** When this integration row was created. */
     created_at: string
 }
@@ -3763,11 +4495,77 @@ export interface GitHubReposResponseApi {
     repositories: GitHubRepoApi[]
     /** Whether more repositories are available beyond this page. */
     has_more: boolean
+    /** Total number of repositories matching the search query, across all pages. */
+    total: number
 }
 
 export interface GitHubReposRefreshResponseApi {
     /** The refreshed repository cache. */
     repositories: GitHubRepoApi[]
+    /** `unavailable` when GitHub reports the App installation as uninstalled or suspended, in which case `repositories` is the last cached list rather than a fresh one.
+     *
+     * * `connected` - connected
+     * * `unavailable` - unavailable */
+    installation_status: InstallationStatusEnumApi
+}
+
+/**
+ * * `pending` - Pending
+ * * `approved` - Approved
+ * * `unidentified` - Unidentified
+ */
+export type GitHubInstallRequestItemStatusEnumApi =
+    (typeof GitHubInstallRequestItemStatusEnumApi)[keyof typeof GitHubInstallRequestItemStatusEnumApi]
+
+export const GitHubInstallRequestItemStatusEnumApi = {
+    Pending: 'pending',
+    Approved: 'approved',
+    Unidentified: 'unidentified',
+} as const
+
+export interface GitHubInstallRequestItemApi {
+    /** PostHog GitHubInstallRequest row id. */
+    id: string
+    /** GitHub login the install was requested under. Blank if it could not be resolved. */
+    github_login: string
+    /** `pending` while waiting on an org owner's approval, `approved` once the installation webhook confirms it, `unidentified` when the requesting GitHub account could not be resolved. Approval can't be detected for an unidentified request, so the user has to start the connect flow again.
+     *
+     * * `pending` - Pending
+     * * `approved` - Approved
+     * * `unidentified` - Unidentified */
+    status: GitHubInstallRequestItemStatusEnumApi
+    /**
+     * GitHub App installation id, set once the request is approved.
+     * @nullable
+     */
+    installation_id?: string | null
+    /**
+     * GitHub organization or user login the installation was approved under, once known.
+     * @nullable
+     */
+    account_login?: string | null
+    /**
+     * GitHub account type (`Organization` or `User`) the installation was approved under, once known.
+     * @nullable
+     */
+    account_type?: string | null
+    /** When the install approval was requested. */
+    requested_at: string
+    /**
+     * When an org owner approved the request.
+     * @nullable
+     */
+    resolved_at?: string | null
+}
+
+export interface GitHubInstallRequestListResponseApi {
+    /** The user's GitHub App install-approval requests, newest first. */
+    results: GitHubInstallRequestItemApi[]
+    /**
+     * Shareable GitHub App install URL with no PostHog session state, for an org owner who needs to approve the install. Null when the GitHub App is not configured on this instance.
+     * @nullable
+     */
+    install_url?: string | null
 }
 
 export interface UserGitHubPrepareCallbackRequestApi {
@@ -4017,47 +4815,6 @@ export type OrganizationsProjectsListParams = {
      * A search term.
      */
     search?: string
-}
-
-export type DesktopFileSystemListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    /**
-     * A search term.
-     */
-    search?: string
-}
-
-export type DesktopFileSystemInstructionsVersionsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    /**
-     * A search term.
-     */
-    search?: string
-}
-
-export type DesktopFileSystemShortcutListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
 }
 
 export type ExportsListParams = {

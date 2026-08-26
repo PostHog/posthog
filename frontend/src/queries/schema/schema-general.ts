@@ -9,6 +9,7 @@ import {
     AnyPersonScopeFilter,
     AnyPropertyFilter,
     BaseMathType,
+    BreakdownAttributionType,
     BreakdownKeyType,
     BreakdownType,
     CalendarHeatmapMathType,
@@ -40,6 +41,7 @@ import {
     LifecycleToggle,
     LogEntryPropertyFilter,
     MatchedRecordingEvent,
+    PathCleaningFilter,
     PathsFilterType,
     PersonPropertyFilter,
     PropertyGroupFilter,
@@ -52,7 +54,6 @@ import {
     SessionPropertyFilter,
     SessionRecordingType,
     SlackIntegrationScope,
-    SlackIntegrationScopeInReview,
     StepOrderValue,
     StickinessFilterType,
     TrendsFilterType,
@@ -61,10 +62,9 @@ import {
 import { integer, numerical_key, positive_integer } from './type-utils'
 
 export { ChartDisplayCategory }
-// Re-exported so the codegen picks them up and emits matching `StrEnum`s in posthog/schema.py.
-// The runtime consts live in `~/types` as `SLACK_INTEGRATION_SCOPES` (always-on) and
-// `SLACK_INTEGRATION_SCOPES_IN_REVIEW` (DEV-instance only until Slack approves them).
-export { SlackIntegrationScope, SlackIntegrationScopeInReview }
+// Re-exported so the codegen picks it up and emits a matching `StrEnum` in posthog/schema.py.
+// The runtime const lives in `~/types` as `SLACK_INTEGRATION_SCOPES`.
+export { SlackIntegrationScope }
 
 /**
  * PostHog Query Schema definition.
@@ -97,11 +97,13 @@ export enum NodeKind {
     GroupsQuery = 'GroupsQuery',
     FunnelsActorsQuery = 'FunnelsActorsQuery',
     FunnelCorrelationActorsQuery = 'FunnelCorrelationActorsQuery',
+    PathsV2ActorsQuery = 'PathsV2ActorsQuery',
     SessionsTimelineQuery = 'SessionsTimelineQuery',
     RecordingsQuery = 'RecordingsQuery',
     SessionAttributionExplorerQuery = 'SessionAttributionExplorerQuery',
     ErrorTrackingQuery = 'ErrorTrackingQuery',
     ErrorTrackingSimilarIssuesQuery = 'ErrorTrackingSimilarIssuesQuery',
+    ErrorTrackingFingerprintProjectionQuery = 'ErrorTrackingFingerprintProjectionQuery',
     ErrorTrackingBreakdownsQuery = 'ErrorTrackingBreakdownsQuery',
     ErrorTrackingIssueCorrelationQuery = 'ErrorTrackingIssueCorrelationQuery',
     LogsQuery = 'LogsQuery',
@@ -126,6 +128,7 @@ export enum NodeKind {
     FunnelsQuery = 'FunnelsQuery',
     RetentionQuery = 'RetentionQuery',
     PathsQuery = 'PathsQuery',
+    PathsV2Query = 'PathsV2Query',
     StickinessQuery = 'StickinessQuery',
     StickinessActorsQuery = 'StickinessActorsQuery',
     LifecycleQuery = 'LifecycleQuery',
@@ -137,6 +140,8 @@ export enum NodeKind {
     WebOverviewQuery = 'WebOverviewQuery',
     WebStatsTableQuery = 'WebStatsTableQuery',
     WebExternalClicksTableQuery = 'WebExternalClicksTableQuery',
+    WebBotsTableQuery = 'WebBotsTableQuery',
+    WebAgentAnalyticsQuery = 'WebAgentAnalyticsQuery',
     WebGoalsQuery = 'WebGoalsQuery',
     WebVitalsQuery = 'WebVitalsQuery',
     WebVitalsPathBreakdownQuery = 'WebVitalsPathBreakdownQuery',
@@ -149,6 +154,8 @@ export enum NodeKind {
     // Marketing analytics queries
     MarketingAnalyticsTableQuery = 'MarketingAnalyticsTableQuery',
     MarketingAnalyticsAggregatedQuery = 'MarketingAnalyticsAggregatedQuery',
+    MarketingAnalyticsAttributionQuery = 'MarketingAnalyticsAttributionQuery',
+    MarketingAnalyticsAttributionPathsQuery = 'MarketingAnalyticsAttributionPathsQuery',
     NonIntegratedConversionsTableQuery = 'NonIntegratedConversionsTableQuery',
 
     // Experiment queries
@@ -179,6 +186,7 @@ export enum NodeKind {
     // Customer analytics
     UsageMetricsQuery = 'UsageMetricsQuery',
     AccountsQuery = 'AccountsQuery',
+    AccountsTableQuery = 'AccountsTableQuery',
 
     // Endpoints usage queries
     EndpointsUsageOverviewQuery = 'EndpointsUsageOverviewQuery',
@@ -186,6 +194,8 @@ export enum NodeKind {
     EndpointsUsageTrendsQuery = 'EndpointsUsageTrendsQuery',
 
     // MCP analytics
+    MCPToolCallBreakdownQuery = 'MCPToolCallBreakdownQuery',
+    MCPToolCallsAndErrorsQuery = 'MCPToolCallsAndErrorsQuery',
     MCPHarnessBreakdownQuery = 'MCPHarnessBreakdownQuery',
     MCPToolTopUsersQuery = 'MCPToolTopUsersQuery',
     MCPToolFailuresQuery = 'MCPToolFailuresQuery',
@@ -196,6 +206,7 @@ export enum NodeKind {
     MCPToolQualityDailyStatsQuery = 'MCPToolQualityDailyStatsQuery',
     MCPToolCategoryCountsQuery = 'MCPToolCategoryCountsQuery',
     MCPToolCategoriesQuery = 'MCPToolCategoriesQuery',
+    MCPToolCategoryMapQuery = 'MCPToolCategoryMapQuery',
     MCPToolDescriptionsQuery = 'MCPToolDescriptionsQuery',
     MCPToolSampleIntentsQuery = 'MCPToolSampleIntentsQuery',
     MCPToolNeighborsQuery = 'MCPToolNeighborsQuery',
@@ -224,10 +235,14 @@ export type AnyDataNode =
     | HogQLAutocomplete
     | MarketingAnalyticsTableQuery
     | MarketingAnalyticsAggregatedQuery
+    | MarketingAnalyticsAttributionQuery
+    | MarketingAnalyticsAttributionPathsQuery
     | NonIntegratedConversionsTableQuery
     | WebOverviewQuery
     | WebStatsTableQuery
     | WebExternalClicksTableQuery
+    | WebBotsTableQuery
+    | WebAgentAnalyticsQuery
     | WebGoalsQuery
     | WebVitalsQuery
     | WebVitalsPathBreakdownQuery
@@ -237,6 +252,7 @@ export type AnyDataNode =
     | SessionAttributionExplorerQuery
     | ErrorTrackingQuery
     | ErrorTrackingSimilarIssuesQuery
+    | ErrorTrackingFingerprintProjectionQuery
     | ErrorTrackingBreakdownsQuery
     | ErrorTrackingIssueCorrelationQuery
     | LogsQuery
@@ -258,9 +274,12 @@ export type AnyDataNode =
     | VectorSearchQuery
     | UsageMetricsQuery
     | AccountsQuery
+    | AccountsTableQuery
     | EndpointsUsageOverviewQuery
     | EndpointsUsageTableQuery
     | EndpointsUsageTrendsQuery
+    | MCPToolCallBreakdownQuery
+    | MCPToolCallsAndErrorsQuery
     | MCPHarnessBreakdownQuery
     | MCPToolTopUsersQuery
     | MCPToolFailuresQuery
@@ -271,6 +290,7 @@ export type AnyDataNode =
     | MCPToolQualityDailyStatsQuery
     | MCPToolCategoryCountsQuery
     | MCPToolCategoriesQuery
+    | MCPToolCategoryMapQuery
     | MCPToolDescriptionsQuery
     | MCPToolSampleIntentsQuery
     | MCPToolNeighborsQuery
@@ -300,6 +320,7 @@ export type QuerySchema =
     | SessionAttributionExplorerQuery
     | ErrorTrackingQuery
     | ErrorTrackingSimilarIssuesQuery
+    | ErrorTrackingFingerprintProjectionQuery
     | ErrorTrackingBreakdownsQuery
     | ErrorTrackingIssueCorrelationQuery
     | ExperimentFunnelsQuery
@@ -312,6 +333,8 @@ export type QuerySchema =
     | WebOverviewQuery
     | WebStatsTableQuery
     | WebExternalClicksTableQuery
+    | WebBotsTableQuery
+    | WebAgentAnalyticsQuery
     | WebGoalsQuery
     | WebVitalsQuery
     | WebVitalsPathBreakdownQuery
@@ -324,6 +347,8 @@ export type QuerySchema =
     // Marketing analytics
     | MarketingAnalyticsTableQuery
     | MarketingAnalyticsAggregatedQuery
+    | MarketingAnalyticsAttributionQuery
+    | MarketingAnalyticsAttributionPathsQuery
     | NonIntegratedConversionsTableQuery
 
     // Interface nodes
@@ -337,6 +362,7 @@ export type QuerySchema =
     | FunnelsQuery
     | RetentionQuery
     | PathsQuery
+    | PathsV2Query
     | StickinessQuery
     | LifecycleQuery
     | FunnelCorrelationQuery
@@ -375,6 +401,7 @@ export type QuerySchema =
     // Customer analytics
     | UsageMetricsQuery
     | AccountsQuery
+    | AccountsTableQuery
 
     // Endpoints usage
     | EndpointsUsageOverviewQuery
@@ -382,6 +409,8 @@ export type QuerySchema =
     | EndpointsUsageTrendsQuery
 
     // MCP analytics
+    | MCPToolCallBreakdownQuery
+    | MCPToolCallsAndErrorsQuery
     | MCPHarnessBreakdownQuery
     | MCPToolTopUsersQuery
     | MCPToolFailuresQuery
@@ -392,6 +421,7 @@ export type QuerySchema =
     | MCPToolQualityDailyStatsQuery
     | MCPToolCategoryCountsQuery
     | MCPToolCategoriesQuery
+    | MCPToolCategoryMapQuery
     | MCPToolDescriptionsQuery
     | MCPToolSampleIntentsQuery
     | MCPToolNeighborsQuery
@@ -486,13 +516,19 @@ export interface HogQLQueryModifiers {
     useMaterializedViews?: boolean
     customChannelTypeRules?: CustomChannelRule[]
     useWebAnalyticsPreAggregatedTables?: boolean
+    /** Serve filters on the stored session-entry attribution properties (`$channel_type`, `$entry_utm_*`, `$entry_referring_domain`) by recomputing the value from the session's first pageview. Resolved server-side; not intended to be set by clients. */
+    webAnalyticsFirstPageviewFilters?: boolean
     formatCsvAllowDoubleQuotes?: boolean
     convertToProjectTimezone?: boolean
     /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level **/
     usePreaggregatedTableTransforms?: boolean
     usePreaggregatedIntermediateResults?: boolean
     optimizeProjections?: boolean
+    /** Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types */
+    typeAwareCastSimplification?: boolean
     pushDownPredicates?: boolean
+    /** Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap */
+    mergeFederatedAggregateJoins?: boolean
     /** If these are provided, the query will fail if these skip indexes are not used */
     forceClickhouseDataSkippingIndexes?: string[]
     inlineCohortCalculation?: 'off' | 'auto' | 'always'
@@ -572,6 +608,10 @@ export interface HogQLFilters {
     properties?: AnyPropertyFilter[]
     dateRange?: DateRange
     filterTestAccounts?: boolean
+    /** Time granularity consumed by the {filters.interval} placeholder. Set from the dashboard-level interval. */
+    interval?: IntervalType
+    /** Breakdown consumed by the {filters.breakdown(...)} placeholder. Set from the dashboard-level breakdown. */
+    breakdownFilter?: BreakdownFilter
 }
 
 export interface HogQLVariable {
@@ -588,6 +628,7 @@ export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
     connectionId?: string
     /** Run the selected connection query directly without translating it through HogQL first */
     sendRawQuery?: boolean
+    /** Extra filters applied to query via {filters} or the column-bound {filters(expr AS key, ...)} placeholder */
     filters?: HogQLFilters
     /** Variables to be substituted into the query */
     variables?: Record<string, HogQLVariable>
@@ -644,6 +685,13 @@ export type RecordingOrder = (typeof VALID_RECORDING_ORDERS)[number]
 
 export type RecordingOrderDirection = 'ASC' | 'DESC'
 
+export interface RecordingsQueryExperimentExposureFilter {
+    /** Experiment whose exposed persons' sessions to show. Must belong to the environment the query runs in. */
+    experiment_id: integer
+    /** Narrow to persons exposed to this variant. Defaults to all of the experiment's variants. */
+    variant?: string
+}
+
 export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
     kind: NodeKind.RecordingsQuery
     /**
@@ -669,6 +717,15 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
     session_recording_id?: string
     person_uuid?: string
     distinct_ids?: string[]
+    /**
+     * Only sessions of persons exposed to this experiment, each ending at or after the person's
+     * first exposure as the experiment's exposure criteria count it. Resolved server-side from the
+     * experiment, so it links sessions even when the exposure events themselves carry no session id
+     * (e.g. server-side SDKs). Composes with the query's date range like any other filter, so set
+     * date_from to the experiment's start (or earlier) to cover the full run: the default window
+     * only reaches back a few days.
+     */
+    experiment_exposure?: RecordingsQueryExperimentExposureFilter
     /**
      * @default "start_time"
      * */
@@ -774,6 +831,11 @@ export interface AutocompleteCompletionItem {
      * an icon is chosen by the editor.
      */
     kind: AutocompleteCompletionItemKind
+    /**
+     * Overrides the editor's default ordering for this item. Set when the backend can rank a
+     * suggestion, for example a function whose return type fits the comparison being written.
+     */
+    sortText?: string
 }
 
 export interface HogQLAutocompleteResponse {
@@ -806,7 +868,7 @@ export interface HogQLMetadata extends DataNode<HogQLMetadataResponse> {
     sourceQuery?: AnyDataNode
     /** Extra globals for the query */
     globals?: Record<string, any>
-    /** Extra filters applied to query via {filters} */
+    /** Extra filters applied to query via {filters} or the column-bound {filters(expr AS key, ...)} placeholder */
     filters?: HogQLFilters
     /** Variables to be subsituted into the query */
     variables?: Record<string, HogQLVariable>
@@ -1098,6 +1160,7 @@ export type DataTableNodeSourceUnion =
     | WebOverviewQuery
     | WebStatsTableQuery
     | WebExternalClicksTableQuery
+    | WebBotsTableQuery
     | WebGoalsQuery
     | WebVitalsQuery
     | WebVitalsPathBreakdownQuery
@@ -1115,6 +1178,7 @@ export type DataTableNodeSourceUnion =
     | SessionQuery
     | EndpointsUsageTableQuery
     | AccountsQuery
+    | AccountsTableQuery
 
 export type DataTableNodeSource = DataTableNodeSourceUnion
 
@@ -1132,6 +1196,7 @@ export interface DataTableNode
                     | WebOverviewQuery
                     | WebStatsTableQuery
                     | WebExternalClicksTableQuery
+                    | WebBotsTableQuery
                     | WebGoalsQuery
                     | WebVitalsQuery
                     | WebVitalsPathBreakdownQuery
@@ -1148,6 +1213,7 @@ export interface DataTableNode
                     | SessionQuery
                     | EndpointsUsageTableQuery
                     | AccountsQuery
+                    | AccountsTableQuery
                 )['response']
             >
         >,
@@ -1231,6 +1297,16 @@ export interface PieChartSettings {
     showTotal?: boolean
 }
 
+export interface ScatterChartSettings {
+    /** X-axis scale. A `logarithmic` axis can't place a non-positive value, so those points are dropped. */
+    xScale?: 'linear' | 'logarithmic'
+    /** Whether the X axis should start at zero. Off by default, because pinning either axis of two
+     *  independent measures to zero squashes the correlation into a corner. */
+    xStartAtZero?: boolean
+    /** Whether to draw a least-squares fit line through each series' points. */
+    showBestFit?: boolean
+}
+
 export interface YAxisSettings {
     label?: string
     scale?: 'linear' | 'logarithmic'
@@ -1264,8 +1340,11 @@ export interface ChartSettings {
     showNullsAsZero?: boolean
     heatmap?: HeatmapSettings
     pie?: PieChartSettings
+    scatter?: ScatterChartSettings
     /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
     resultCustomizations?: Record<string, ResultCustomizationByValue>
+    /** Chart rendering style overrides (line shape). Only applies to line and area charts. */
+    chartStyle?: ChartStyle
 }
 
 export interface ConditionalFormattingRule {
@@ -1535,6 +1614,17 @@ export type TrendsFilter = {
      * @default false */
     stackBreakdownValues?: boolean
     yAxisScaleType?: TrendsFilterLegacy['y_axis_scale_type']
+    /** Y-axis baseline. When false the axis floats to the data range instead of starting at zero.
+     *  Ignored on bar displays (bars always draw from zero), on a logarithmic scale, and while
+     *  showing percentages.
+     * @default true */
+    yAxisStartAtZero?: boolean
+    /** Pins the bottom of the y-axis; unset means automatic. Ignored in the same cases as
+     *  `yAxisStartAtZero`, while it is on, and when not below `yAxisMax`. */
+    yAxisMin?: number
+    /** Pins the top of the y-axis; unset means automatic. Ignored in the same cases as
+     *  `yAxisStartAtZero`, and when `yAxisMin` is not below it. */
+    yAxisMax?: number
     /** @default false */
     showMultipleYAxes?: TrendsFilterLegacy['show_multiple_y_axes']
     hiddenLegendIndexes?: integer[]
@@ -1558,7 +1648,10 @@ export type TrendsFilter = {
     detailedResultsAggregationType?: 'total' | 'average' | 'median'
     /** @default true */
     excludeBoxPlotOutliers?: boolean
-    /** @default false */
+    /** Ignored. Superseded by `dateRange.daysOfWeek`, which excludes the days from the query
+     * instead of only hiding their buckets. Still accepted so existing API clients keep working.
+     * @deprecated Use dateRange.daysOfWeek instead.
+     * @default false */
     hideWeekends?: boolean
     /** @default true */
     showAnnotations?: boolean
@@ -1613,6 +1706,9 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'showPercentStackView',
     'stackBreakdownValues',
     'yAxisScaleType',
+    'yAxisStartAtZero',
+    'yAxisMin',
+    'yAxisMax',
     'hiddenLegendIndexes',
     'excludeBoxPlotOutliers',
     'hideWeekends',
@@ -2012,6 +2108,191 @@ export interface PathsQuery extends InsightsQueryBase<PathsQueryResponse> {
     pathsFilter: PathsFilter
     /** Used for displaying paths in relation to funnel steps. */
     funnelPathsFilter?: FunnelPathsFilter
+}
+
+/** A step source defines which events can become path items in a paths v2 query. */
+export type PathsV2StepSource = {
+    /** Name of the event this source matches. */
+    event: string
+    /**
+     * Event property whose value labels the path item, e.g. `$pathname` for pageviews.
+     * Team path cleaning rules are applied to the value. Without a naming property,
+     * the event itself is the path item.
+     */
+    namingProperty?: string
+}
+
+/** Identity of a journey grid node: the step source's event plus the label value. */
+export type PathsV2Item = {
+    /** Event of the step source this item belongs to. */
+    event: string
+    /**
+     * Label value from the source's naming property, after path cleaning. An empty string when
+     * the property is missing on the event. Null for sources without a naming property.
+     */
+    label?: string | null
+}
+
+/** One row of a journey grid column: a path item and its unique-actor count. */
+export type PathsV2Row = {
+    item: PathsV2Item
+    /** Unique actors with a journey whose item at this step is this path item. */
+    count: number
+}
+
+/** One journey grid column: the top path items at a step, plus other-row and drop-off counts. */
+export type PathsV2Step = {
+    /** 0-based step index (column) in the journey grid. */
+    stepIndex: integer
+    /** Top path items at this step, ordered by unique-actor count descending. */
+    rows: PathsV2Row[]
+    /** Unique actors at this step whose path item is beyond the top rows. */
+    otherCount: number
+    /** Unique actors whose journey ends at this step. */
+    dropOffCount: number
+}
+
+/** A displayed transition between path items at adjacent journey grid columns. */
+export type PathsV2Edge = {
+    /** 0-based step index of the source column; the target sits at `stepIndex + 1`. */
+    stepIndex: integer
+    /** Source path item, or null for the source column's "other" row. */
+    source: PathsV2Item | null
+    /** Target path item, or null for the target column's "other" row. */
+    target: PathsV2Item | null
+    /** Unique actors with a journey that transitions from source to target between these steps. */
+    count: number
+    /**
+     * Unique actors who transition from source to target at any step of any of their whole
+     * journeys, the position-free count behind "went source → target at any step". Equals the
+     * two-step item-strict funnel's converted count. Only set in open mode on edges between two
+     * named items.
+     */
+    anyStepCount?: number
+}
+
+/**
+ * A concrete anchored chain from the anchor and the unique actors whose single sequence begins with
+ * exactly these path items. Powers the hover funnel preview over the journey grid.
+ */
+export type PathsV2Prefix = {
+    /** The chain's path items in order, starting at the anchor. */
+    items: PathsV2Item[]
+    /** Unique actors whose anchored sequence begins with exactly these items. */
+    count: number
+}
+
+export type PathsV2Results = {
+    steps: PathsV2Step[]
+    edges: PathsV2Edge[]
+    /**
+     * Concrete anchored chains with per-chain unique-actor counts, ordered by descending count. Empty
+     * in open mode; in anchored mode it carries the counts the hover funnel preview reads per chain.
+     * Only chains the grid displays in full are carried: chains through the other bucket are omitted,
+     * so the response never exposes labels the chart hides.
+     */
+    prefixes: PathsV2Prefix[]
+}
+
+export interface PathsV2QueryResponse extends AnalyticsQueryResponseBase {
+    results: PathsV2Results
+}
+
+export type CachedPathsV2QueryResponse = CachedQueryResponse<PathsV2QueryResponse>
+
+/** Whether an anchored chart is built around the journeys' start or their end. */
+export enum PathsV2AnchorType {
+    Start = 'start',
+    End = 'end',
+}
+
+/** The start or end point an anchored-mode chart is built around. */
+export type PathsV2Anchor = {
+    /**
+     * `start` runs each actor's single sequence forward from the anchor item; `end` runs it up to the
+     * anchor item. Either way the anchor is the grid's single 100% node.
+     */
+    type: PathsV2AnchorType
+    /** The path item the chart anchors on. Its event must be one of the step sources. */
+    item: PathsV2Item
+}
+
+export type PathsV2Filter = {
+    /**
+     * Step sources defining which events can become path items. Defaults to the pageviews
+     * preset: `$pageview` named by `$pathname`.
+     * @minItems 1
+     * @maxItems 20
+     */
+    stepSources?: PathsV2StepSource[]
+    /**
+     * Anchor selecting anchored mode. When set, each actor contributes exactly one sequence bounded by
+     * the conversion window, so every displayed segment equals a plain funnel. Absent selects open
+     * mode, which splits an actor's events into journeys on the inactivity gap instead.
+     */
+    anchor?: PathsV2Anchor
+    /**
+     * Anchored mode's single conversion window W, anchored at the anchor and reused verbatim as the
+     * emitted funnel's window. Bounds per unit are validated server-side against
+     * CONVERSION_WINDOW_INTERVAL_BOUNDS, the same funnel conversion window bounds as the gap.
+     * @asType integer
+     * @default 30
+     */
+    conversionWindowInterval?: number
+    /** @default minute */
+    conversionWindowIntervalUnit?: FunnelConversionWindowTimeUnit
+    /**
+     * Number of journey steps (columns) shown.
+     * @asType integer
+     * @default 5
+     * @minimum 2
+     * @maximum 20
+     */
+    maxSteps?: number
+    /**
+     * Number of path item rows per step; items beyond this go into the "other" row.
+     * @asType integer
+     * @default 3
+     * @minimum 1
+     * @maximum 10
+     */
+    maxRowsPerStep?: number
+    /**
+     * Inactivity gap that splits an actor's events into journeys. Bounds per unit are validated
+     * server-side against CONVERSION_WINDOW_INTERVAL_BOUNDS, the funnel conversion window bounds.
+     * @asType integer
+     * @default 30
+     */
+    gapInterval?: number
+    /** @default minute */
+    gapIntervalUnit?: FunnelConversionWindowTimeUnit
+    /**
+     * Merge immediate repeats of the same path item within a journey.
+     * @default true
+     */
+    collapseRepeats?: boolean
+    /**
+     * Path items dropped from the item universe: events deriving to one of these items are ignored
+     * as if their event were not a step source, on both the paths side and the "view as funnel" side.
+     * @maxItems 100
+     */
+    excludedItems?: PathsV2Item[]
+    /**
+     * Apply the team's path cleaning rules to naming property values before they become path items.
+     * @default true
+     */
+    applyTeamPathCleaning?: boolean
+    /** Path cleaning rules for this insight only, applied after the team's rules. */
+    localPathCleaningFilters?: PathCleaningFilter[]
+}
+
+export interface PathsV2Query extends Omit<
+    InsightsQueryBase<PathsV2QueryResponse>,
+    'samplingFactor' | 'aggregation_group_type_index'
+> {
+    kind: NodeKind.PathsV2Query
+    /** Properties specific to the paths v2 insight */
+    pathsV2Filter?: PathsV2Filter
 }
 
 /** `StickinessFilterType` minus everything inherited from `FilterType` and persons modal related params  */
@@ -2466,9 +2747,16 @@ export interface ActorsQuery extends DataNode<ActorsQueryResponse> {
         | FunnelCorrelationActorsQuery
         | ExperimentActorsQuery
         | StickinessActorsQuery
+        | PathsV2ActorsQuery
         | HogQLQuery
     select?: HogQLExpression[]
     search?: string
+    /**
+     * Exclude persons matching the team's "internal and test account" filters.
+     * Only person-scoped filters (person properties, cohorts) are applied. Event-scoped
+     * test account filters have no meaning in a persons query and are ignored.
+     */
+    filterTestAccounts?: boolean
     /** Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py. */
     properties?: AnyPersonScopeFilter[] | PropertyGroupFilterValue
     /** Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py. */
@@ -2530,8 +2818,275 @@ export interface AccountsQuery extends DataNode<AccountsQueryResponse> {
     allRolesUnassigned?: boolean
     /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
     filterExpression?: HogQLExpression
+    /** Include ignored accounts. Ignored accounts are hidden by default. */
+    includeIgnored?: boolean
     orderBy?: string[]
     limit?: integer
+    offset?: integer
+}
+
+export enum AccountsTableAccountField {
+    Name = 'name',
+    ExternalId = 'external_id',
+    CreatedAt = 'created_at',
+    UpdatedAt = 'updated_at',
+    ChurnedAt = 'churned_at',
+    IgnoredAt = 'ignored_at',
+    StripeCustomerId = 'stripe_customer_id',
+    HubspotDealId = 'hubspot_deal_id',
+    BillingId = 'billing_id',
+    SalesforceId = 'sfdc_id',
+    ZendeskId = 'zendesk_id',
+}
+
+export interface AccountsTableAccountFieldColumn {
+    kind: 'account_field'
+    field: AccountsTableAccountField
+}
+
+export interface AccountsTableTagsColumn {
+    kind: 'tags'
+}
+
+export interface AccountsTableNoteCountColumn {
+    kind: 'note_count'
+}
+
+export interface AccountsTableRelationshipColumn {
+    kind: 'relationship'
+    /** Team-scoped relationship definition to return for each account. */
+    definitionId: string
+}
+
+export interface AccountsTableCustomPropertyColumn {
+    kind: 'custom_property'
+    /** Team-scoped custom property definition to return for each account. */
+    definitionId: string
+}
+
+export interface AccountsTableCustomPropertyHistoryColumn {
+    kind: 'custom_property_history'
+    /** Team-scoped numeric custom property definition whose write history should be returned. */
+    definitionId: string
+    /** Number of days of history to return. The current value is included even when it is older. */
+    windowDays: 7 | 14 | 30 | 90
+}
+
+/**
+ * A typed column supported by the Postgres-backed Accounts table.
+ * @discriminator kind
+ */
+export type AccountsTableColumn =
+    | AccountsTableAccountFieldColumn
+    | AccountsTableTagsColumn
+    | AccountsTableNoteCountColumn
+    | AccountsTableRelationshipColumn
+    | AccountsTableCustomPropertyColumn
+    | AccountsTableCustomPropertyHistoryColumn
+
+/**
+ * A typed column that supports server-side sorting.
+ * @discriminator kind
+ */
+export type AccountsTableSortableColumn =
+    | AccountsTableAccountFieldColumn
+    | AccountsTableTagsColumn
+    | AccountsTableNoteCountColumn
+    | AccountsTableRelationshipColumn
+    | AccountsTableCustomPropertyColumn
+
+export enum AccountsTableSortDirection {
+    Ascending = 'asc',
+    Descending = 'desc',
+}
+
+export enum AccountsTableAggregation {
+    Sum = 'sum',
+    Average = 'avg',
+    Minimum = 'min',
+    Maximum = 'max',
+    Median = 'median',
+}
+
+export enum AccountsTableThresholdOperator {
+    GreaterThan = 'gt',
+    GreaterThanOrEqual = 'gte',
+    LessThan = 'lt',
+    LessThanOrEqual = 'lte',
+    Equal = 'exact',
+    NotEqual = 'is_not',
+}
+
+export interface AccountsTableCountMetric {
+    kind: 'count'
+}
+
+export interface AccountsTableAggregateMetric {
+    kind: 'aggregate'
+    aggregation: AccountsTableAggregation
+    column: AccountsTableCustomPropertyColumn
+    scale?: number
+}
+
+export interface AccountsTableCountThresholdMetric {
+    kind: 'count_threshold'
+    column: AccountsTableCustomPropertyColumn
+    operator: AccountsTableThresholdOperator
+    value: number
+}
+
+/**
+ * A typed aggregate evaluated against the filtered account set.
+ * @discriminator kind
+ */
+export type AccountsTableMetric =
+    | AccountsTableCountMetric
+    | AccountsTableAggregateMetric
+    | AccountsTableCountThresholdMetric
+
+export interface AccountsTableSort {
+    column: AccountsTableSortableColumn
+    direction: AccountsTableSortDirection
+}
+
+export interface AccountsTableSearchFilter {
+    kind: 'search'
+    query: string
+}
+
+export interface AccountsTableTagsFilter {
+    kind: 'tags'
+    /** Match accounts carrying any of these tag names. */
+    tagNames: string[]
+}
+
+export interface AccountsTableAssignedToFilter {
+    kind: 'assigned_to'
+    /** Match accounts where any listed user actively holds any relationship. */
+    userIds: integer[]
+}
+
+export interface AccountsTableUnassignedFilter {
+    kind: 'unassigned'
+}
+
+export interface AccountsTableAccountIdFilter {
+    kind: 'account_id'
+    accountId: string
+}
+
+export enum AccountsTableAccountFieldOperator {
+    Exact = 'exact',
+    IsNot = 'is_not',
+    Contains = 'icontains',
+    DoesNotContain = 'not_icontains',
+    IsSet = 'is_set',
+    IsNotSet = 'is_not_set',
+    DateExact = 'is_date_exact',
+    DateBefore = 'is_date_before',
+    DateAfter = 'is_date_after',
+}
+
+export interface AccountsTableAccountFieldFilter {
+    kind: 'account_field'
+    field: AccountsTableAccountField
+    operator: AccountsTableAccountFieldOperator
+    values?: string[]
+}
+
+export enum AccountsTableCustomPropertyOperator {
+    Exact = 'exact',
+    IsNot = 'is_not',
+    Contains = 'icontains',
+    DoesNotContain = 'not_icontains',
+    Regex = 'regex',
+    NotRegex = 'not_regex',
+    GreaterThan = 'gt',
+    GreaterThanOrEqual = 'gte',
+    LessThan = 'lt',
+    LessThanOrEqual = 'lte',
+    IsSet = 'is_set',
+    IsNotSet = 'is_not_set',
+    DateExact = 'is_date_exact',
+    DateBefore = 'is_date_before',
+    DateAfter = 'is_date_after',
+}
+
+export interface AccountsTableCustomPropertyFilter {
+    kind: 'custom_property'
+    definitionId: string
+    operator: AccountsTableCustomPropertyOperator
+    /** Values interpreted according to the custom property definition's display type. */
+    values?: (string | number | boolean)[]
+}
+
+/**
+ * A typed filter applied to the Postgres-backed Accounts table.
+ * @discriminator kind
+ */
+export type AccountsTableFilter =
+    | AccountsTableSearchFilter
+    | AccountsTableTagsFilter
+    | AccountsTableAssignedToFilter
+    | AccountsTableUnassignedFilter
+    | AccountsTableAccountIdFilter
+    | AccountsTableAccountFieldFilter
+    | AccountsTableCustomPropertyFilter
+
+export type AccountsTableCustomPropertyValue = string | number | boolean | null
+
+export interface AccountsTableCustomPropertyHistoryPoint {
+    /** @format date-time */
+    timestamp: string
+    value: number
+}
+
+export interface AccountsTableRow {
+    id: string
+    name: string
+    externalId?: string | null
+    /** Bare hostname the row's logo is rendered from. Null when no source resolved one. */
+    logoDomain?: string | null
+    /** Requested direct Account fields, keyed by their typed field reference. */
+    accountFields: Record<string, string | null>
+    /** Sorted tag names. Omitted when the request does not select tags. */
+    tags?: string[]
+    /** Number of linked internal notes. Omitted when the request does not select the note count. */
+    noteCount?: integer
+    /** Active assignee user IDs keyed by requested relationship definition ID. */
+    relationships: Record<string, integer[]>
+    /** Current values keyed by requested custom property definition ID. */
+    customProperties: Record<string, AccountsTableCustomPropertyValue>
+    /** Numeric write history keyed by requested custom property definition ID. */
+    customPropertyHistory: Record<string, AccountsTableCustomPropertyHistoryPoint[]>
+}
+
+export type CachedAccountsTableQueryResponse = CachedQueryResponse<AccountsTableQueryResponse>
+
+export interface AccountsTableQueryResponse extends AnalyticsQueryResponseBase {
+    kind: NodeKind.AccountsTableQuery
+    results: AccountsTableRow[]
+    hasMore: boolean
+    limit: integer
+    offset: integer
+    /** Aggregated values in the same order as the requested metrics. */
+    metricsResults?: (number | null)[]
+}
+
+export interface AccountsTableQuery extends DataNode<AccountsTableQueryResponse> {
+    kind: NodeKind.AccountsTableQuery
+    /** Include churned accounts. Churned accounts are hidden by default. */
+    includeChurned?: boolean
+    /** Include ignored accounts. Ignored accounts are hidden by default. */
+    includeIgnored?: boolean
+    /** Columns to load for each account. Account identity fields are always returned. */
+    columns: AccountsTableColumn[]
+    /** Filters are combined with AND. Values within tag and assignment filters use OR. */
+    filters?: AccountsTableFilter[]
+    /** Aggregates to evaluate against the filtered account set. A metrics query skips row loading. */
+    metrics?: AccountsTableMetric[]
+    sort?: AccountsTableSort
+    limit?: positive_integer
     offset?: integer
 }
 
@@ -2659,6 +3214,56 @@ export interface WebOverviewQueryResponse extends AnalyticsQueryResponseBase {
 }
 
 export type CachedWebOverviewQueryResponse = CachedQueryResponse<WebOverviewQueryResponse>
+
+/** One tool's call count within one interval bucket. */
+export interface MCPToolCallBreakdownItem {
+    /** Bucket start as a project-timezone wall clock ("YYYY-MM-DD HH:mm:ss"), never zone-stamped, so
+     * the client can join it against generated axis keys without reinterpreting it as an instant. */
+    bucket: string
+    tool: string
+    calls: integer
+}
+
+export interface MCPToolCallBreakdownQueryResponse extends AnalyticsQueryResponseBase {
+    results: MCPToolCallBreakdownItem[]
+}
+
+/** Interval-bucketed call counts per tool, powering the dashboard's "Tool call breakdown" chart. */
+export interface MCPToolCallBreakdownQuery extends DataNode<MCPToolCallBreakdownQueryResponse> {
+    kind: NodeKind.MCPToolCallBreakdownQuery
+    dateRange?: DateRange
+    properties?: AnyPropertyFilter[]
+    filterTestAccounts?: boolean
+    /** Bucket granularity; the frontend passes getDefaultInterval. Defaults to day. */
+    interval?: IntervalType
+}
+
+export type CachedMCPToolCallBreakdownQueryResponse = CachedQueryResponse<MCPToolCallBreakdownQueryResponse>
+
+/** One interval bucket of MCP tool-call activity, split into successful and failed calls. */
+export interface MCPToolCallsAndErrorsItem {
+    /** Bucket start as a project-timezone wall clock ("YYYY-MM-DD HH:mm:ss"), never zone-stamped, so
+     * the client can join it against generated axis keys without reinterpreting it as an instant. */
+    bucket: string
+    successes: integer
+    errors: integer
+}
+
+export interface MCPToolCallsAndErrorsQueryResponse extends AnalyticsQueryResponseBase {
+    results: MCPToolCallsAndErrorsItem[]
+}
+
+/** Interval-bucketed success/error split powering the dashboard's "Tool calls and errors" chart. */
+export interface MCPToolCallsAndErrorsQuery extends DataNode<MCPToolCallsAndErrorsQueryResponse> {
+    kind: NodeKind.MCPToolCallsAndErrorsQuery
+    dateRange?: DateRange
+    properties?: AnyPropertyFilter[]
+    filterTestAccounts?: boolean
+    /** Bucket granularity; the frontend passes getDefaultInterval. Defaults to day. */
+    interval?: IntervalType
+}
+
+export type CachedMCPToolCallsAndErrorsQueryResponse = CachedQueryResponse<MCPToolCallsAndErrorsQueryResponse>
 
 /** One row of the MCP harness (client) breakdown: a resolved customer label and its activity. */
 export interface MCPHarnessBreakdownItem {
@@ -2922,6 +3527,28 @@ export interface MCPToolCategoriesQuery extends DataNode<MCPToolCategoriesQueryR
 
 export type CachedMCPToolCategoriesQueryResponse = CachedQueryResponse<MCPToolCategoriesQueryResponse>
 
+/** One tool paired with one $mcp_tool_category it was called under. */
+export interface MCPToolCategoryMapItem {
+    tool: string
+    category: string
+}
+
+export interface MCPToolCategoryMapQueryResponse extends AnalyticsQueryResponseBase {
+    results: MCPToolCategoryMapItem[]
+}
+
+/**
+ * Which categories each tool was called under. The intent clustering snapshot is precomputed and
+ * stores tool names without categories, so this is what lets that tab scope by category. A tool
+ * recategorised mid-window appears once per category, rather than one row silently winning.
+ */
+export interface MCPToolCategoryMapQuery extends DataNode<MCPToolCategoryMapQueryResponse> {
+    kind: NodeKind.MCPToolCategoryMapQuery
+    dateRange?: DateRange
+}
+
+export type CachedMCPToolCategoryMapQueryResponse = CachedQueryResponse<MCPToolCategoryMapQueryResponse>
+
 /** One distinct description seen for a single MCP tool, with the last time it was reported. */
 export interface MCPToolDescriptionItem {
     description: string
@@ -3067,6 +3694,70 @@ export interface WebExternalClicksTableQueryResponse extends AnalyticsQueryRespo
 }
 export type CachedWebExternalClicksTableQueryResponse = CachedQueryResponse<WebExternalClicksTableQueryResponse>
 
+export enum WebBotsBreakdown {
+    Crawler = 'Crawler',
+    Path = 'Path',
+}
+
+/** Bot analytics tables: crawler activity broken down by crawler or by most-crawled path. */
+export interface WebBotsTableQuery extends WebAnalyticsQueryBase<WebBotsTableQueryResponse> {
+    kind: NodeKind.WebBotsTableQuery
+    breakdownBy: WebBotsBreakdown
+    limit?: integer
+}
+export interface WebBotsTableQueryResponse extends AnalyticsQueryResponseBase {
+    results: unknown[]
+    types?: unknown[]
+    columns?: unknown[]
+    hogql?: string
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+}
+export type CachedWebBotsTableQueryResponse = CachedQueryResponse<WebBotsTableQueryResponse>
+
+export enum WebAgentAnalyticsQueryType {
+    Overview = 'overview',
+    Issues = 'issues',
+    PageRequests = 'page_requests',
+    Transitions = 'transitions',
+    Demand = 'demand',
+    IssueVariants = 'issue_variants',
+    RequestAnatomy = 'request_anatomy',
+    JourneySummary = 'journey_summary',
+    Journeys = 'journeys',
+    JourneyDetail = 'journey_detail',
+}
+
+export enum WebAgentContentGrouping {
+    Exact = 'exact',
+    Normalized = 'normalized',
+}
+
+/** Agent traffic summaries and readiness diagnostics derived from web request events. */
+export interface WebAgentAnalyticsQuery extends WebAnalyticsQueryBase<WebAgentAnalyticsQueryResponse> {
+    kind: NodeKind.WebAgentAnalyticsQuery
+    queryType: WebAgentAnalyticsQueryType
+    includeCrawlers?: boolean
+    contentGrouping?: WebAgentContentGrouping
+    llmsTxtUrl?: string
+    limit?: integer
+    offset?: integer
+    intentKey?: string
+    /** Opaque journey identifier returned by the journeys list, used to load one journey's timeline. */
+    journeyKey?: string
+}
+export interface WebAgentAnalyticsQueryResponse extends AnalyticsQueryResponseBase {
+    results: unknown[]
+    types?: unknown[]
+    columns?: unknown[]
+    hogql?: string
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+}
+export type CachedWebAgentAnalyticsQueryResponse = CachedQueryResponse<WebAgentAnalyticsQueryResponse>
+
 export interface WebGoalsQuery extends WebAnalyticsQueryBase<WebGoalsQueryResponse> {
     kind: NodeKind.WebGoalsQuery
     limit?: integer
@@ -3171,6 +3862,9 @@ export type CachedSessionAttributionExplorerQueryResponse = CachedQueryResponse<
 /** @title ErrorTrackingOrderBy */
 export type ErrorTrackingOrderBy = 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
 
+/** @title ErrorTrackingQueryIssueSeverity */
+export type ErrorTrackingQueryIssueSeverity = 'low' | 'medium' | 'high' | 'critical'
+
 /** Client-side pending fingerprint issue state update UNIONed into the argMax subquery to hide Kafka->CH sync lag after mutations. This has to be kept in sync with the CH schema */
 export interface ErrorTrackingPendingFingerprintIssueStateUpdate {
     fingerprint: string
@@ -3178,6 +3872,7 @@ export interface ErrorTrackingPendingFingerprintIssueStateUpdate {
     issue_name: string | null
     issue_description: string | null
     issue_status: string
+    issue_severity: ErrorTrackingQueryIssueSeverity | null
     assigned_user_id: integer | null
     assigned_role_id: string | null
     /** ISO 8601 datetime string. */
@@ -3237,11 +3932,19 @@ export interface ErrorTrackingSimilarIssuesQuery extends DataNode<ErrorTrackingS
     offset?: integer
 }
 
+export interface ErrorTrackingFingerprintProjectionQuery extends DataNode<ErrorTrackingFingerprintProjectionQueryResponse> {
+    kind: NodeKind.ErrorTrackingFingerprintProjectionQuery
+    issueId: ErrorTrackingIssue['id']
+    modelName?: EmbeddingModelName
+    rendering?: string
+}
+
 export interface ErrorTrackingBreakdownsQuery extends DataNode<ErrorTrackingBreakdownsQueryResponse> {
     kind: NodeKind.ErrorTrackingBreakdownsQuery
     issueId: ErrorTrackingIssue['id']
     breakdownProperties: string[]
     dateRange?: DateRange
+    filterGroup?: PropertyGroupFilter
     filterTestAccounts?: boolean
     maxValuesPerProperty?: integer
 }
@@ -3323,6 +4026,7 @@ export interface ErrorTrackingRelationalIssue {
     description: string | null
     assignee: ErrorTrackingIssueAssignee | null
     status: ErrorTrackingIssueStatus
+    severity?: ErrorTrackingQueryIssueSeverity | null
     /**  @format date-time */
     first_seen: string
     external_issues?: ErrorTrackingExternalReference[]
@@ -3395,6 +4099,19 @@ export interface ErrorTrackingSimilarIssuesQueryResponse extends AnalyticsQueryR
     offset?: integer
 }
 export type CachedErrorTrackingSimilarIssuesQueryResponse = CachedQueryResponse<ErrorTrackingSimilarIssuesQueryResponse>
+
+export interface ErrorTrackingFingerprintProjectionPoint {
+    fingerprint: string
+    x: number
+    y: number
+}
+
+export interface ErrorTrackingFingerprintProjectionQueryResponse extends AnalyticsQueryResponseBase {
+    results: ErrorTrackingFingerprintProjectionPoint[]
+    hasMore?: boolean
+}
+export type CachedErrorTrackingFingerprintProjectionQueryResponse =
+    CachedQueryResponse<ErrorTrackingFingerprintProjectionQueryResponse>
 
 export interface ErrorTrackingBreakdownsQueryResponse extends AnalyticsQueryResponseBase {
     results: Record<string, { values: BreakdownValue[]; total_count: number }>
@@ -3485,6 +4202,9 @@ export interface LogMessage {
 /** Field to break down sparkline data by */
 export type LogsSparklineBreakdownBy = 'severity' | 'service'
 
+/** Metric the sparkline ranks breakdown values by before collapsing the tail into an "other" bucket */
+export type LogsSparklineRankBy = 'count' | 'bytes'
+
 /** @title LogsOrderBy */
 export type LogsOrderBy = 'latest' | 'earliest'
 
@@ -3517,9 +4237,17 @@ export interface LogsQuery extends DataNode<LogsQueryResponse> {
     after?: string
     /** Field to break down sparkline data by (used only by sparkline endpoint) */
     sparklineBreakdownBy?: LogsSparklineBreakdownBy
+    /**
+     * Metric used to rank breakdown values before the tail is collapsed into a single "other"
+     * bucket, so the returned row count stays bounded (used only by sparkline endpoint).
+     * Defaults to ranking by log count.
+     */
+    sparklineRankBy?: LogsSparklineRankBy
     resourceFingerprint?: string
     /** Omit the per-log `attributes` and `resource_attributes` maps from results to keep payloads compact */
     excludeAttributes?: boolean
+    /** Show logs for a given person */
+    personId?: string
     /**
      * Custom column expressions evaluated per log row. Each entry is either a source-prefixed
      * shorthand (`attributes.<key>`, `resource_attributes.<key>`, `body.<json.path>`) or a scalar
@@ -4196,6 +4924,7 @@ export type InsightQueryNode =
     | FunnelsQuery
     | RetentionQuery
     | PathsQuery
+    | PathsV2Query
     | StickinessQuery
     | LifecycleQuery
     | WebStatsTableQuery
@@ -4332,6 +5061,10 @@ export type ExperimentExposureConfig = ExperimentEventExposureConfig | ActionsNo
 export interface ExperimentExposureCriteria {
     filterTestAccounts?: boolean
     exposure_config?: ExperimentExposureConfig
+    /** Additional event (or action) an entity must emit at/after their first default exposure
+     *  event before they count as exposed; exposure time becomes this event's timestamp.
+     *  Only valid with the default exposure event, not a custom `exposure_config`. */
+    activation_config?: ExperimentExposureConfig
     multiple_variant_handling?: 'exclude' | 'first_seen'
 }
 
@@ -4482,6 +5215,10 @@ export interface ExperimentApiExposureConfig {
 export interface ExperimentApiExposureCriteria {
     filterTestAccounts?: boolean
     exposure_config?: ExperimentApiExposureConfig
+    /** Additional event (or action) an entity must emit at/after their first default exposure
+     *  event before they count as exposed; exposure time becomes this event's timestamp.
+     *  Only valid with the default exposure event, not a custom `exposure_config`. */
+    activation_config?: ExperimentApiExposureConfig
     /** How to handle entities exposed to multiple variants. 'exclude' (default) drops them from
      *  the analysis; 'first_seen' assigns them to the variant from their earliest exposure. */
     multiple_variant_handling?: 'exclude' | 'first_seen'
@@ -4561,6 +5298,10 @@ export type ExperimentFunnelMetric = ExperimentMetricBaseProperties & {
     metric_type: ExperimentMetricType.FUNNEL
     series: ExperimentFunnelMetricStep[]
     funnel_order_type?: StepOrderValue
+    /** How to attribute the breakdown value across funnel steps. @default first_touch */
+    breakdownAttributionType?: BreakdownAttributionType
+    /** When breakdownAttributionType is `step`, the 0-indexed step to attribute from. @asType integer */
+    breakdownAttributionValue?: integer
 }
 
 export const isExperimentFunnelMetric = (metric: ExperimentMetric): metric is ExperimentFunnelMetric =>
@@ -4856,6 +5597,7 @@ export type InsightFilterProperty =
     | 'funnelsFilter'
     | 'retentionFilter'
     | 'pathsFilter'
+    | 'pathsV2Filter'
     | 'stickinessFilter'
     | 'calendarHeatmapFilter'
     | 'lifecycleFilter'
@@ -4866,6 +5608,7 @@ export type InsightFilter =
     | FunnelsFilter
     | RetentionFilter
     | PathsFilter
+    | PathsV2Filter
     | StickinessFilter
     | LifecycleFilter
     | CalendarHeatmapFilter
@@ -4925,6 +5668,55 @@ export interface FunnelCorrelationActorsQuery extends InsightActorsQueryBase {
     funnelCorrelationPersonConverted?: boolean
     funnelCorrelationPersonEntity?: AnyEntityNode
     funnelCorrelationPropertyValues?: AnyPropertyFilter[]
+}
+
+/** The kind of journey grid element a PathsV2ActorsQuery drills into. */
+export enum PathsV2ElementType {
+    Node = 'node',
+    Edge = 'edge',
+    DropOff = 'dropOff',
+    Other = 'other',
+    Chain = 'chain',
+}
+
+/**
+ * Selects the journey grid element whose actors a PathsV2ActorsQuery returns. The same journeys
+ * that produced the grid produce these actor sets, so each element's modal equals its displayed
+ * number by construction.
+ */
+export type PathsV2ElementSelector = {
+    elementType: PathsV2ElementType
+    /**
+     * 0-based step index (column) of the element; for an edge, its source column. Required for
+     * node, other, dropOff, and positional edge elements.
+     */
+    stepIndex?: integer
+    /** The node card's path item. Node elements only. */
+    item?: PathsV2Item
+    /** The edge's source path item; omit for the source column's "other" row. Edge elements only. */
+    source?: PathsV2Item
+    /** The edge's target path item; omit for the target column's "other" row. Edge elements only. */
+    target?: PathsV2Item
+    /**
+     * Match the source → target transition at any step of any whole journey instead of at one step
+     * pair: the position-free set behind an edge's anyStepCount. Requires a named source and
+     * target and open mode. Edge elements only.
+     */
+    anyStep?: boolean
+    /**
+     * The chain's path items in order from the anchor. Returns the actors whose anchored sequence
+     * begins with exactly these items, the set behind a hover preview's per-chain counts. Chain
+     * elements only, anchored mode only. Bounded by the step maximum: a longer chain can never
+     * match a displayed card.
+     * @maxItems 20
+     */
+    chain?: PathsV2Item[]
+}
+
+export interface PathsV2ActorsQuery extends InsightActorsQueryBase {
+    kind: NodeKind.PathsV2ActorsQuery
+    source: PathsV2Query
+    element: PathsV2ElementSelector
 }
 
 export interface EventDefinition {
@@ -5035,6 +5827,7 @@ export interface InsightActorsQueryOptions extends Node<InsightActorsQueryOption
         | FunnelCorrelationActorsQuery
         | StickinessActorsQuery
         | ExperimentActorsQuery
+        | PathsV2ActorsQuery
 }
 
 export interface DatabaseSchemaSchema {
@@ -5076,12 +5869,24 @@ export type DatabaseSchemaTableType =
     | 'managed_view'
     | 'endpoint'
 
+export type DatabaseSchemaTableCertificationStatus = 'certified' | 'deprecated'
+
+export interface DatabaseSchemaTableCertification {
+    /** Settled data catalog trust mark: 'certified' (prefer this source) or 'deprecated' (avoid it). */
+    status: DatabaseSchemaTableCertificationStatus
+    notes?: string
+    certified_by?: string
+    certified_at?: string
+}
+
 export interface DatabaseSchemaTableCommon {
     type: DatabaseSchemaTableType
     id: string
     name: string
     fields: Record<string, DatabaseSchemaField>
     row_count?: number
+    /** Present only when the table or view carries a settled data catalog certification. */
+    certification?: DatabaseSchemaTableCertification
 }
 
 export interface DatabaseSchemaViewTable extends DatabaseSchemaTableCommon {
@@ -5167,6 +5972,10 @@ export interface DatabaseSchemaQuery extends DataNode<DatabaseSchemaQueryRespons
     kind: NodeKind.DatabaseSchemaQuery
     /** Optional direct external data source id for schema introspection */
     connectionId?: string
+    /** Only serialize these tables (keys as returned in the response, e.g. `events` or `zendesk.groups`). Omit for all tables. */
+    tables?: string[]
+    /** When false, skip serializing each table's fields (`fields` comes back empty). Defaults to true. */
+    includeFields?: boolean
 }
 
 export type DatabaseSerializedFieldType =
@@ -6278,6 +7087,184 @@ export interface MarketingAnalyticsAggregatedQuery extends Omit<
     drillDownLevel?: MarketingAnalyticsDrillDownLevel
 }
 
+/**
+ * Row dimension for the Attribution table. String values match MarketingAnalyticsDrillDownLevel for the
+ * levels they share, so both surfaces speak the same vocabulary. It's a separate enum because
+ * `ad_group`/`ad` can't be attributed to events at all (no ad identifier reaches the events table), while
+ * `referring_domain`/`landing_page` have no cost-side expression and so don't belong in the drill-down.
+ */
+export enum MarketingAnalyticsAttributionBreakdown {
+    Channel = 'channel',
+    Source = 'source',
+    Campaign = 'campaign',
+    Medium = 'medium',
+    Content = 'content',
+    Term = 'term',
+    ReferringDomain = 'referring_domain',
+    LandingPage = 'landing_page',
+}
+
+export interface MarketingAnalyticsAttributionQuery extends Omit<
+    WebAnalyticsQueryBase<MarketingAnalyticsAttributionQueryResponse>,
+    'orderBy' | 'compareFilter'
+> {
+    kind: NodeKind.MarketingAnalyticsAttributionQuery
+    /** Row dimension. Defaults to channel. */
+    breakdownBy?: MarketingAnalyticsAttributionBreakdown
+    /** conversion_goal_id of the goal to attribute. The table is meaningless without one. */
+    conversionGoalId: string
+    /**
+     * Drop direct sessions from the touchpoint set before weights are computed, so the remaining
+     * touchpoints renormalize to full credit rather than losing direct's share.
+     */
+    excludeDirectTraffic?: boolean
+    /**
+     * Drop touchpoints whose current breakdown value is empty or unknown — the "(none)" row — before
+     * weights are computed, so the remaining touchpoints renormalize to full credit.
+     */
+    excludeUnattributed?: boolean
+    /**
+     * How many days before each conversion a touchpoint can earn credit, overriding the team's
+     * configured attribution window for this query only.
+     */
+    lookbackWindowDays?: integer
+    /**
+     * Whether one person converting repeatedly counts once or every time. Null follows the goal's own
+     * math: unique-users goals count each person once, count-based goals count every conversion. Set
+     * explicitly to override. Counting every conversion makes the rate columns exceed 100%, since a
+     * person can convert more times than they visited.
+     */
+    allowMultipleConversionsPerVisitor?: boolean
+    /** Number of rows to return */
+    limit?: integer
+    /** Number of rows to skip before returning rows */
+    offset?: integer
+    /** Filter test accounts */
+    filterTestAccounts?: boolean
+}
+
+/** One attribution model's credit for one breakdown row. */
+export interface MarketingAnalyticsAttributionModelCell {
+    model: AttributionMode
+    /** Fractional for multi-touch models: each conversion's credit is split across its touchpoints. */
+    conversions: number
+    /** conversions / visitors. Null when the row has no visitors. */
+    conversionRate: number | null
+    /** Null unless the goal is revenue-bearing. */
+    conversionValue: number | null
+}
+
+export interface MarketingAnalyticsAttributionRow {
+    breakdownValue: string
+    /** Unique persons who arrived via this dimension in the date range, converters or not. */
+    visitors: integer
+    /**
+     * Conversions with at least one touchpoint on this dimension. Counted once per conversion, so a
+     * conversion influenced by several dimensions is counted in each of their rows. These
+     * deliberately sum to more than the total, unlike the per-model columns.
+     */
+    influencedConversions: integer
+    influencedValue: number | null
+    /** One cell per model, always in the order given by the response's `models`. */
+    models: MarketingAnalyticsAttributionModelCell[]
+}
+
+export interface MarketingAnalyticsAttributionQueryResponse extends AnalyticsQueryResponseBase {
+    results: MarketingAnalyticsAttributionRow[]
+    /** Model order for the column groups. */
+    models: AttributionMode[]
+    /** Whether the goal is revenue-bearing, which gates the value columns. */
+    hasValue: boolean
+    /** The team's configured attribution window, for the tooltips. */
+    attributionWindowDays: integer
+    /**
+     * Whether this result counted a repeat converter's every conversion, after resolving the query's
+     * null against the goal's math. The rate columns are a true share only when this is false, so the
+     * table reads it to label them.
+     */
+    allowsMultipleConversionsPerVisitor: boolean
+    /** Conversions with no touchpoint in the window. Reported in the footer, not in any row. */
+    unattributedConversions: integer
+    /** Total conversions in range, so the footer can say "N of M". */
+    totalConversions: integer
+    hogql?: string
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+}
+
+export type CachedMarketingAnalyticsAttributionQueryResponse =
+    CachedQueryResponse<MarketingAnalyticsAttributionQueryResponse>
+
+export interface MarketingAnalyticsAttributionPathsQuery extends Omit<
+    WebAnalyticsQueryBase<MarketingAnalyticsAttributionPathsQueryResponse>,
+    'orderBy' | 'compareFilter'
+> {
+    kind: NodeKind.MarketingAnalyticsAttributionPathsQuery
+    /** Path step dimension. Defaults to channel. */
+    breakdownBy?: MarketingAnalyticsAttributionBreakdown
+    /** conversion_goal_id of the goal whose conversions the paths lead to. */
+    conversionGoalId: string
+    /** Drop direct sessions from every path, mirroring the attribution table's option. */
+    excludeDirectTraffic?: boolean
+    /** Drop touchpoints whose breakdown value is empty or unknown — the "(none)" steps. */
+    excludeUnattributed?: boolean
+    /**
+     * How many days before each conversion a touchpoint can be part of its path, overriding the
+     * team's configured attribution window for this query only.
+     */
+    lookbackWindowDays?: integer
+    /** Whether one person converting repeatedly contributes one path or one per conversion. Null follows the goal's math. */
+    allowMultipleConversionsPerVisitor?: boolean
+    /** Only paths with at least this many touchpoints, counted before truncation. */
+    minTouchpoints?: integer
+    /** Only paths with at most this many touchpoints, counted before truncation. */
+    maxTouchpoints?: integer
+    /** Number of rows to return */
+    limit?: integer
+    /** Number of rows to skip before returning rows */
+    offset?: integer
+    /** Filter test accounts */
+    filterTestAccounts?: boolean
+}
+
+export interface MarketingAnalyticsAttributionPathRow {
+    /**
+     * Breakdown values in touch order, oldest first. Consecutive repeats are preserved — collapsing
+     * them to "×N" is a display concern. Truncated to the most recent steps when the journey is
+     * longer than the grouping cap.
+     */
+    path: string[]
+    /** Conversions whose in-window touchpoints form exactly this path. */
+    conversions: integer
+    /** Null unless the goal is revenue-bearing. */
+    conversionValue: number | null
+    /** True when at least one grouped conversion had more touchpoints than the path shows. */
+    pathTruncated: boolean
+}
+
+export interface MarketingAnalyticsAttributionPathsQueryResponse extends AnalyticsQueryResponseBase {
+    results: MarketingAnalyticsAttributionPathRow[]
+    /** All conversions in range, before the touchpoint-count filter. */
+    totalConversions: integer
+    /**
+     * Conversions with at least one in-window touchpoint. The share denominator — deliberately
+     * unfiltered by min/maxTouchpoints so shares stay comparable across filter values.
+     */
+    attributedConversions: integer
+    /** The attribution window actually used, for the tooltips. */
+    attributionWindowDays: integer
+    /** Whether the goal is revenue-bearing, which gates the value column. */
+    hasValue: boolean
+    hogql?: string
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+}
+
+export type CachedMarketingAnalyticsAttributionPathsQueryResponse =
+    CachedQueryResponse<MarketingAnalyticsAttributionPathsQueryResponse>
+
 /** Columns for non-integrated conversions table */
 export enum NonIntegratedConversionsColumnsSchemaNames {
     Source = 'Source',
@@ -6455,8 +7442,11 @@ export type ConversionGoalFilter = (EventsNode | ActionsNode | DataWarehouseNode
     /**
      * Marks this goal as customer-defining: a conversion here means the person became a customer
      * (e.g. a payment or subscription), not an intermediate step like a sign up. It gates
-     * customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted
-     * once per person via first_time_for_user) rather than every conversion. Defaults to false.
+     * customer-based metrics such as CAC, whose denominator is this goal's conversions — its
+     * count, or its unique converters under dau math. That equals new customers only for a
+     * once-per-person moment: a repeatable event such as a monthly payment counts every time and
+     * understates cost per customer, and dedup under dau is per result row, so someone converting
+     * under two sources counts twice at channel level. Defaults to false.
      */
     counts_as_customer?: boolean
     /**
@@ -6634,6 +7624,8 @@ export function getEffectiveExcludedColumns(
 export enum MarketingAnalyticsConstants {
     Goal = 'Goal',
     CostPer = 'Cost per',
+    Roas = 'ROAS',
+    Customer = 'customer',
     ConstantValuePrefix = 'const:',
 }
 
@@ -6742,6 +7734,8 @@ export interface SourceFieldSelectConfig {
     options: SourceFieldSelectConfigOption[]
     converter?: SourceFieldSelectConfigConverter
     caption?: string
+    /** Allow selecting multiple values; the field's payload value becomes string[]. */
+    multiple?: boolean
 }
 
 export interface SourceFieldSwitchGroupConfig {
@@ -7032,6 +8026,7 @@ export const externalDataSources = [
     'Ebay',
     'Commercetools',
     'LightspeedRetail',
+    'Shipmail',
     'ShipStation',
     'ConstantContact',
     'Mailgun',
@@ -7050,7 +8045,8 @@ export const externalDataSources = [
     'Pingdom',
     'Cloudflare',
     'CosmosDB',
-    'PlanetScale',
+    'PlanetScaleMySQL',
+    'PlanetScalePostgres',
     'SapHana',
     'Rippling',
     'HiBob',
@@ -7519,6 +8515,7 @@ export const externalDataSources = [
     'PeecAI',
     'Healthchecks',
     'Impact',
+    'ImpactPartner',
     'AikidoSecurity',
     'Alguna',
     'Anthropic',
@@ -7717,6 +8714,7 @@ export const externalDataSources = [
     'Campfire',
     'Crisp',
     'Kommo',
+    'GoogleMerchantCenter',
     'Axiom',
     'Plivo',
     'DataForSEO',
@@ -8106,6 +9104,70 @@ export const externalDataSources = [
     'Meltwater',
     'UserCom',
     'Latitude',
+    'Workato',
+    'SideShift',
+    'DuckLake',
+    'Starburst',
+    'Easybill',
+    'Bexio',
+    'Umami',
+    'Manychat',
+    'Kickstarter',
+    'Typesense',
+    'FirstPromoter',
+    'Zero',
+    'Inth',
+    'BCMS',
+    'Convonite',
+    'Hookdeck',
+    'Billit',
+    'Moxie',
+    'TripleWhale',
+    'Directus',
+    'Clay',
+    'TradableBits',
+    'Swan',
+    'Hyros',
+    'Odoo',
+    'Airbridge',
+    'Snovio',
+    'Raisely',
+    'WindsorAi',
+    'Wix',
+    'Sevalla',
+    'Motion',
+    'Framer',
+    'Cloudinary',
+    'Uploadcare',
+    'WHMCS',
+    'MSG91',
+    'Depot',
+    'Schematic',
+    'Dokploy',
+    'RakutenAdvertising',
+    'Zitadel',
+    'DeelFlows',
+    'Hootsuite',
+    'WisprFlow',
+    'SamCart',
+    'IronSourceAds',
+    'MicrosoftExcel',
+    'Profound',
+    'Airwallex',
+    'Polymarket',
+    'Kalshi',
+    'Capterra',
+    'GooglePostmasterTools',
+    'Growi',
+    'Clarify',
+    'DatoCMS',
+    'WPSOffice',
+    'TeraBox',
+    'SimonData',
+    'CommissionJunction',
+    'Liveblocks',
+    'NationBuilder',
+    'Tana',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -8130,8 +9192,6 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         idField: 'campaign_id',
         campaignTableName: 'campaign',
         statsTableName: 'campaign_overview_stats',
-        tableKeywords: ['campaign'] as const,
-        tableExclusions: ['stats'] as const,
         defaultSources: [
             'google',
             'adwords',
@@ -8159,8 +9219,6 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         idField: 'id',
         campaignTableName: 'campaign_groups',
         statsTableName: 'campaign_group_stats',
-        tableKeywords: ['campaign_groups'] as const,
-        tableExclusions: ['stats'] as const,
         defaultSources: ['linkedin', 'li'] as const,
         primarySource: 'linkedin',
         // LinkedIn API hierarchy: Account → CampaignGroup → Campaign → Creative.
@@ -8178,8 +9236,6 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         idField: 'id',
         campaignTableName: 'campaigns',
         statsTableName: 'campaign_stats',
-        tableKeywords: ['campaigns'] as const,
-        tableExclusions: ['stats'] as const,
         defaultSources: [
             'meta',
             'facebook',
@@ -8224,8 +9280,6 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         idField: 'campaign_id',
         campaignTableName: 'campaigns',
         statsTableName: 'campaign_report',
-        tableKeywords: ['campaigns'] as const,
-        tableExclusions: ['report'] as const,
         defaultSources: ['tiktok'] as const,
         primarySource: 'tiktok',
         adsetTableName: 'ad_groups' as const,
@@ -8239,8 +9293,6 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         idField: 'id',
         campaignTableName: 'campaigns',
         statsTableName: 'campaign_report',
-        tableKeywords: ['campaigns'] as const,
-        tableExclusions: ['report'] as const,
         defaultSources: ['reddit'] as const,
         primarySource: 'reddit',
         adsetTableName: 'ad_groups' as const,
@@ -8254,8 +9306,6 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         idField: 'id',
         campaignTableName: 'campaigns',
         statsTableName: 'campaign_performance_report',
-        tableKeywords: ['campaigns'] as const,
-        tableExclusions: ['performance'] as const,
         defaultSources: ['bing', 'microsoft', 'msads', 'bing_video'] as const,
         primarySource: 'bing',
         // At ad-group / ad level Bing's data import only ships performance *reports* —
@@ -8275,8 +9325,6 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         idField: 'id',
         campaignTableName: 'campaigns',
         statsTableName: 'campaign_stats_daily',
-        tableKeywords: ['campaigns'] as const,
-        tableExclusions: ['stats_daily'] as const,
         defaultSources: ['snapchat'] as const,
         primarySource: 'snapchat',
         adsetTableName: 'ad_squads' as const,
@@ -8296,8 +9344,6 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         idField: 'id',
         campaignTableName: 'campaigns',
         statsTableName: 'campaign_analytics',
-        tableKeywords: ['campaigns'] as const,
-        tableExclusions: ['analytics'] as const,
         defaultSources: ['pinterest'] as const,
         primarySource: 'pinterest',
         adsetTableName: 'ad_groups' as const,
@@ -8318,27 +9364,6 @@ export type BingAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['Bing
 export type SnapchatAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['SnapchatAds']['defaultSources'][number]
 export type PinterestAdsDefaultSources =
     (typeof MARKETING_INTEGRATION_CONFIGS)['PinterestAds']['defaultSources'][number]
-
-export type GoogleAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['GoogleAds']['tableKeywords'][number]
-export type LinkedinAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['LinkedinAds']['tableKeywords'][number]
-export type MetaAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['MetaAds']['tableKeywords'][number]
-export type TikTokAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['TikTokAds']['tableKeywords'][number]
-export type RedditAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['RedditAds']['tableKeywords'][number]
-export type BingAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['BingAds']['tableKeywords'][number]
-export type SnapchatAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['SnapchatAds']['tableKeywords'][number]
-export type PinterestAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['PinterestAds']['tableKeywords'][number]
-
-export type GoogleAdsTableExclusions = (typeof MARKETING_INTEGRATION_CONFIGS)['GoogleAds']['tableExclusions'][number]
-export type LinkedinAdsTableExclusions =
-    (typeof MARKETING_INTEGRATION_CONFIGS)['LinkedinAds']['tableExclusions'][number]
-export type MetaAdsTableExclusions = (typeof MARKETING_INTEGRATION_CONFIGS)['MetaAds']['tableExclusions'][number]
-export type TikTokAdsTableExclusions = (typeof MARKETING_INTEGRATION_CONFIGS)['TikTokAds']['tableExclusions'][number]
-export type RedditAdsTableExclusions = (typeof MARKETING_INTEGRATION_CONFIGS)['RedditAds']['tableExclusions'][number]
-export type BingAdsTableExclusions = (typeof MARKETING_INTEGRATION_CONFIGS)['BingAds']['tableExclusions'][number]
-export type SnapchatAdsTableExclusions =
-    (typeof MARKETING_INTEGRATION_CONFIGS)['SnapchatAds']['tableExclusions'][number]
-export type PinterestAdsTableExclusions =
-    (typeof MARKETING_INTEGRATION_CONFIGS)['PinterestAds']['tableExclusions'][number]
 
 // Conversion fields for Snapchat Ads - extracted as types so they generate as StrEnum in Python
 export type SnapchatAdsConversionFields =
@@ -8364,16 +9389,6 @@ export const MARKETING_INTEGRATION_FIELD_MAP = Object.fromEntries(
     ])
 ) as unknown as Record<NativeMarketingSource, { nameField: string; idField: string }>
 
-export const MARKETING_CAMPAIGN_TABLE_PATTERNS = Object.fromEntries(
-    VALID_NATIVE_MARKETING_SOURCES.map((source) => [
-        source,
-        {
-            keywords: [...MARKETING_INTEGRATION_CONFIGS[source].tableKeywords],
-            exclusions: [...MARKETING_INTEGRATION_CONFIGS[source].tableExclusions],
-        },
-    ])
-) as unknown as Record<NativeMarketingSource, { keywords: string[]; exclusions: string[] }>
-
 export const MARKETING_DEFAULT_SOURCE_MAPPINGS = Object.fromEntries(
     VALID_NATIVE_MARKETING_SOURCES.map((source) => [source, [...MARKETING_INTEGRATION_CONFIGS[source].defaultSources]])
 ) as unknown as Record<NativeMarketingSource, string[]>
@@ -8384,8 +9399,6 @@ export interface MarketingIntegrationConfigType {
     idField: string
     campaignTableName: string
     statsTableName: string
-    tableKeywords: string[]
-    tableExclusions: string[]
     defaultSources: string[]
     primarySource: string
 }
@@ -8607,6 +9620,69 @@ export interface UserProductListItem {
     updated_at: string
 }
 
+/** Visibility of a single customizable UI element. An absent config or an absent `visible` means the element is shown. */
+export interface UIVisibilityConfig {
+    visible?: boolean
+}
+
+/** Collapsible sections of the main navigation sidebar. Hiding a section hides everything inside it, except always-visible items like Activity. */
+export interface SidebarSectionsConfiguration {
+    /** The "Project" section (Home and the Data/Files/Tools/Starred panel triggers). Activity stays visible even when this section is hidden. */
+    project?: UIVisibilityConfig
+    /** The "Recents" section, listing recently viewed items. */
+    recents?: UIVisibilityConfig
+    /** The "My tools" section, listing the user's selected tools. */
+    my_tools?: UIVisibilityConfig
+}
+
+/** Individual items of the main navigation sidebar. Items inside a hidden section are hidden regardless of their own config. Activity and Settings are deliberately absent: they always stay visible. */
+export interface SidebarItemsConfiguration {
+    /** "Home" link in the Project section. */
+    home?: UIVisibilityConfig
+    /** "Inbox" link in the Project section. Only rendered when the inbox feature is available. */
+    inbox?: UIVisibilityConfig
+    /** "Data" panel trigger in the Project section. */
+    data?: UIVisibilityConfig
+    /** "Files" panel trigger in the Project section. */
+    files?: UIVisibilityConfig
+    /** "Tools" panel trigger in the Project section. */
+    tools?: UIVisibilityConfig
+    /** "Starred" panel trigger in the Project section. */
+    starred?: UIVisibilityConfig
+    /** "Notifications" entry in the sidebar footer. Only rendered when real-time notifications are available. */
+    notifications?: UIVisibilityConfig
+    /** "Help" entry in the sidebar footer. */
+    help?: UIVisibilityConfig
+}
+
+/** How densely the sidebar renders its rows. An absent value means "comfortable". */
+export type SidebarDensity = 'comfortable' | 'compact'
+
+/** Customization of the main navigation sidebar. Extra keys are tolerated so older servers accept configs written by newer clients. */
+export interface SidebarConfiguration {
+    sections?: SidebarSectionsConfiguration
+    items?: SidebarItemsConfiguration
+    /** Row density of the sidebar. */
+    density?: SidebarDensity
+    [key: string]: unknown
+}
+
+/**
+ * Per-user UI customization, persisted on the User model as a single JSONB blob.
+ * A null configuration and any absent key mean "default", which for visibility is "shown",
+ * so newly added UI surfaces appear for everyone until explicitly hidden.
+ * Writers must send the complete object; the server validates and replaces it wholesale.
+ */
+export interface UserUIConfiguration {
+    /**
+     * Schema version of this configuration blob, for future format migrations.
+     * @asType integer
+     */
+    version: number
+    sidebar?: SidebarConfiguration
+    [key: string]: unknown
+}
+
 // Keep this in alphabetical order if you wanna maintain Rafa's sanity
 export enum ProductKey {
     ACTIONS = 'actions',
@@ -8618,6 +9694,7 @@ export enum ProductKey {
     COMMENTS = 'comments',
     CONVERSATIONS = 'conversations',
     CUSTOMER_ANALYTICS = 'customer_analytics',
+    DATA_CATALOG = 'data_catalog',
     DATA_WAREHOUSE = 'data_warehouse',
     DATA_WAREHOUSE_SAVED_QUERY = 'data_warehouse_saved_queries',
     EARLY_ACCESS_FEATURES = 'early_access_features',
@@ -8638,6 +9715,7 @@ export enum ProductKey {
     LLM_EVALUATIONS = 'llm_evaluations',
     LLM_PROMPTS = 'llm_prompts',
     LOGS = 'logs',
+    MANAGED_WAREHOUSE = 'managed_warehouse',
     MARKETING_ANALYTICS = 'marketing_analytics',
     MAX = 'max',
     MCP_ANALYTICS = 'mcp_analytics',
@@ -8682,10 +9760,15 @@ export enum ProductIntentContext {
     SQL_EDITOR_EMPTY_STATE = 'sql editor empty state',
     DATA_WAREHOUSE_SOURCES_TABLE = 'data warehouse sources table',
 
+    // Managed Warehouse
+    MANAGED_WAREHOUSE_PROVISIONED = 'managed warehouse provisioned',
+
     // Experiments
     EXPERIMENT_CREATED = 'experiment created',
     EXPERIMENT_ANALYZED = 'experiment analyzed',
     EXPERIMENT_VIEW_RECORDINGS = 'experiment view recordings',
+    EXPERIMENT_REPLAY_VISION_SCANNER_CREATED = 'experiment replay vision scanner created',
+    EXPERIMENT_CREATE_SCANNER = 'experiment create scanner',
 
     // Feature Flags
     FEATURE_FLAG_CREATED = 'feature flag created',
@@ -8724,6 +9807,7 @@ export enum ProductIntentContext {
     METRICS_SQL_QUERY_RUN = 'metrics_sql_query_run',
     METRICS_QUERY_SAVED = 'metrics_query_saved',
     METRICS_FIRST_INGESTED = 'metrics_first_ingested',
+    METRICS_SCRAPE_AGENT_SNIPPET_COPIED = 'metrics_scrape_agent_snippet_copied',
 
     // Product Analytics
     TAXONOMIC_FILTER_EMPTY_STATE = 'taxonomic filter empty state',

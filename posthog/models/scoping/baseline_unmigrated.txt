@@ -47,8 +47,6 @@ DataWarehouseSavedQuery
 DataWarehouseSavedQueryDraft
 DataWarehouseSavedQueryFolder
 DataWarehouseTable
-Dataset
-DatasetItem
 EarlyAccessFeature
 Edge
 EmailChannel
@@ -113,6 +111,7 @@ Link
 LiveDebuggerBreakpoint
 LogsAlertConfiguration
 LogsExclusionRule
+LogsRetentionRule
 LogsView
 MCPAnalyticsSubmission
 MCPServerInstallation
@@ -146,7 +145,6 @@ SandboxEnvironment
 SavedHeatmap
 ScheduledChange
 ScoreDefinition
-SessionGroupSummary
 SessionRecording
 SessionRecordingPlaylist
 SessionRecordingViewed
@@ -157,7 +155,6 @@ SignalReportArtefact
 SignalReportTask
 SignalSourceConfig
 SignalTeamConfig
-SingleSessionSummary
 SlackThreadTaskMapping
 SourceBatch
 SourceGroupLease
@@ -171,7 +168,6 @@ Task
 TaskRun
 TeamConversationsTeamsConfig
 TeamFeatureFlagDefaultsConfig
-TeamSessionSummariesConfig
 TeamWorkflowsConfig
 Text
 Threshold

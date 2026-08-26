@@ -13,13 +13,13 @@ from posthog.utils import wait_for_parallel_celery_group
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.models.subscription import Subscription
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 logger = structlog.get_logger(__name__)
 
 UTM_TAGS_BASE = "utm_source=posthog&utm_campaign=subscription_report"
-# Keep in sync with MAX_INSIGHTS in frontend/src/lib/components/Subscriptions/insightSelectorLogic.ts
-DEFAULT_MAX_ASSET_COUNT = 6
+# Keep in sync with MAX_INSIGHTS in products/subscriptions/frontend/components/Subscriptions/insightSelectorLogic.ts.
+MAX_INSIGHTS = 10
 ASSET_GENERATION_FAILED_MESSAGE = "Failed to generate content"
 # Prometheus metrics for Temporal workers (web/worker pods)
 SUBSCRIPTION_ASSET_GENERATION_TIMER = Histogram(
@@ -34,9 +34,26 @@ def _has_asset_failed(asset: ExportedAsset) -> bool:
     return (not asset.content and not asset.content_location) or asset.exception is not None
 
 
+_OOM_MESSAGE_MARKER = "ran out of memory"
+_OOM_EXCEPTION_TYPE = "ClickHouseQueryMemoryLimitExceeded"
+
+
+def _is_oom_exception_text(exception_text: str | None) -> bool:
+    return exception_text is not None and _OOM_MESSAGE_MARKER in exception_text.lower()
+
+
+def subscription_asset_error_message(asset: ExportedAsset) -> str:
+    # Recipients of scheduled subscriptions didn't author the query, so the OOM advice is
+    # unactionable. Original text stays on asset.exception/exception_type for our own logs.
+    is_oom_exception = asset.exception_type == _OOM_EXCEPTION_TYPE or _is_oom_exception_text(asset.exception)
+    if asset.exception and not is_oom_exception:
+        return asset.exception
+    return ASSET_GENERATION_FAILED_MESSAGE
+
+
 def generate_assets(
     resource: Union[Subscription, SharingConfiguration],
-    max_asset_count: int = DEFAULT_MAX_ASSET_COUNT,
+    max_asset_count: int = MAX_INSIGHTS,
 ) -> tuple[list[Insight], list[ExportedAsset]]:
     with SUBSCRIPTION_ASSET_GENERATION_TIMER.labels(execution_path="celery").time():
         if resource.dashboard:

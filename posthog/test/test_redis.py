@@ -5,6 +5,7 @@ from unittest.mock import ANY, AsyncMock, patch
 from django.conf import settings
 from django.test.testcases import TestCase
 
+import redis
 import fakeredis
 
 from posthog.redis import TEST_clear_clients, _client_map, _loop_clients, get_async_client, get_client
@@ -101,6 +102,8 @@ class TestRedis(TestCase):
                     db=0,
                     socket_timeout=settings.REDIS_SOCKET_TIMEOUT_SECONDS,
                     socket_connect_timeout=settings.REDIS_SOCKET_CONNECT_TIMEOUT_SECONDS,
+                    retry=ANY,
+                    retry_on_error=[redis.exceptions.ConnectionError, redis.exceptions.TimeoutError],
                 )
 
     def test_sync_redis_client_passes_socket_timeouts(self):

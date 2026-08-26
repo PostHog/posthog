@@ -96,10 +96,14 @@ class ScoutFleetEntry(_Section):
     # authored/edited report), within the run-history window `_scout_fleet` scans. Null means
     # the scout has been quiet for at least that window, not that it has never emitted.
     last_emitted_at: str | None
-    # Why this scout is in the `disabled` bucket: `turned_off` (an operator set `enabled=False`)
-    # or `skill_unavailable` (left on, but its skill was deleted, superseded, or withheld, so the
+    # Why this scout is in the `disabled` bucket: `turned_off` (a human or seed posture set
+    # `enabled=False`), `auto_paused` (the system paused it — no operator chose this), or
+    # `skill_unavailable` (left on, but its skill was deleted, superseded, or withheld, so the
     # coordinator never dispatches it). Null for scouts that actually run.
     not_running_reason: str | None
+    # The cause behind an `auto_paused` entry (`no_output` / `ignored` / `repeated_failures`);
+    # null for every other entry.
+    pause_reason: str | None
 
 
 class ScoutFleet(_Section):

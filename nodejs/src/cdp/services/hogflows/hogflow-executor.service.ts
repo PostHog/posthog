@@ -2,7 +2,7 @@ import { get } from 'lodash'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
-import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
+import { HogFlow, HogFlowAction, isRowScopedTrigger } from '~/cdp/schema/hogflow'
 import { logger } from '~/common/utils/logger'
 import { UUIDT } from '~/common/utils/utils'
 
@@ -21,9 +21,11 @@ import {
 } from '../../types'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../../utils/hog-function-filtering'
 import { createInvocationResult } from '../../utils/invocation-utils'
-import { HogExecutorExecuteAsyncOptions } from '../hog-executor.service'
+import { CohortMembershipRepository } from '../cohorts/cohort-membership-repository'
+import { HogExecutorExecuteAsyncOptions } from '../hog-executor-async.service'
 import { EmailValidationService } from '../messaging/email-validation.service'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
+import { CdpUsageReporterService } from '../usage/cdp-usage-reporter.service'
 import { ActionHandler } from './actions/action.interface'
 import { ConditionalBranchHandler } from './actions/conditional_branch'
 import { DelayHandler } from './actions/delay'
@@ -84,9 +86,16 @@ export function createHogFlowInvocation(
             event: globals.event,
             actionStepCount: 0,
             variables: mergedVariables,
+            // Seeded at run start and persisted with the state, because the flow itself isn't: the
+            // job is re-loaded by functionId on every resume, so by the time a conversion lands the
+            // manager may be serving a newer version. A message step re-pins this to the version
+            // that actually sent (see HogFunctionHandler); until then this is the best answer.
+            flowVersion: hogFlow.version,
         },
         teamId: hogFlow.team_id,
-        functionId: hogFlow.id, // TODO: Include version?
+        // The version lives on `state.flowVersion` rather than here — functionId is the cyclotron
+        // lookup key and re-loads the current flow by design.
+        functionId: hogFlow.id,
         hogFlow,
         person: globals.person, // This is outside of state as we don't persist it
         groups: globals.groups, // Same as person: in-memory only (test path); real execution re-resolves on dequeue
@@ -99,37 +108,44 @@ export function createHogFlowInvocation(
 export class HogFlowExecutorService {
     private readonly actionHandlers: Record<HogFlowAction['type'], ActionHandler>
     private readonly duplicateObserver: HogFlowDuplicateObserverService | null
+    private readonly hogFlowFunctionsService: HogFlowFunctionsService
 
     constructor(
         hogFlowFunctionsService: HogFlowFunctionsService,
         recipientPreferencesService: RecipientPreferencesService,
         emailValidationService: EmailValidationService,
-        duplicateObserver?: HogFlowDuplicateObserverService
+        cohortMembershipRepository: CohortMembershipRepository,
+        duplicateObserver?: HogFlowDuplicateObserverService,
+        usageReporter?: CdpUsageReporterService
     ) {
+        this.hogFlowFunctionsService = hogFlowFunctionsService
         this.duplicateObserver = duplicateObserver ?? null
         const hogFunctionHandler = new HogFunctionHandler(
             hogFlowFunctionsService,
             recipientPreferencesService,
             emailValidationService,
-            'fetch'
+            'fetch',
+            usageReporter
         )
         const hogFunctionEmailHandler = new HogFunctionHandler(
             hogFlowFunctionsService,
             recipientPreferencesService,
             emailValidationService,
-            'email'
+            'email',
+            usageReporter
         )
         const hogFunctionPushHandler = new HogFunctionHandler(
             hogFlowFunctionsService,
             recipientPreferencesService,
             emailValidationService,
-            'push'
+            'push',
+            usageReporter
         )
 
         this.actionHandlers = {
             trigger: new TriggerHandler(),
-            conditional_branch: new ConditionalBranchHandler(),
-            wait_until_condition: new ConditionalBranchHandler(),
+            conditional_branch: new ConditionalBranchHandler(cohortMembershipRepository),
+            wait_until_condition: new ConditionalBranchHandler(cohortMembershipRepository),
             delay: new DelayHandler(),
             wait_until_time_window: new WaitUntilTimeWindowHandler(),
             random_cohort_branch: new RandomCohortBranchHandler(),
@@ -139,6 +155,11 @@ export class HogFlowExecutorService {
             function_email: hogFunctionEmailHandler,
             exit: new ExitHandler(),
         }
+    }
+
+    // Decrypted secret input values across the flow's function actions, for redacting test-run logs.
+    async getSensitiveValues(hogFlow: HogFlow): Promise<string[]> {
+        return this.hogFlowFunctionsService.getSensitiveValues(hogFlow)
     }
 
     async buildHogFlowInvocations(
@@ -163,7 +184,7 @@ export class HogFlowExecutorService {
             const trigger = hogFlow.trigger
 
             // Defensive: only the trigger types that carry `filters` make it through eligibility.
-            if (trigger.type !== 'event' && trigger.type !== 'data-warehouse-table') {
+            if (trigger.type !== 'event' && trigger.type !== 'slack-message' && !isRowScopedTrigger(trigger)) {
                 continue
             }
 
@@ -173,8 +194,16 @@ export class HogFlowExecutorService {
                 filterGlobals,
             })
 
-            // Add any generated metrics and logs to our collections
-            metrics.push(...filterResults.metrics)
+            // Add any generated metrics and logs to our collections. These are queued straight by the
+            // pipeline rather than riding an invocation result, so the workflow version is stamped here
+            // — otherwise `filtered` would be missing from the per-version series, and a trigger change
+            // that filters everyone out would look identical to no traffic at all.
+            metrics.push(
+                ...filterResults.metrics.map((metric) => ({
+                    ...metric,
+                    app_source_version: { id: hogFlow.id, version: hogFlow.version },
+                }))
+            )
             logs.push(...filterResults.logs)
 
             if (!filterResults.match) {
@@ -207,7 +236,7 @@ export class HogFlowExecutorService {
         const logs: MinimalLogEntry[] = []
         const capturedPostHogEvents: HogFunctionCapturedEvent[] = []
         const warehouseWebhookPayloads: WarehouseWebhookPayload[] = []
-        const emailAssets: MessageAssetRow[] = []
+        const messageAssets: MessageAssetRow[] = []
 
         const earlyExitResult = await this.shouldExitEarly(invocation, metrics, capturedPostHogEvents)
         if (earlyExitResult) {
@@ -245,7 +274,7 @@ export class HogFlowExecutorService {
             metrics.push(...result.metrics)
             capturedPostHogEvents.push(...result.capturedPostHogEvents)
             warehouseWebhookPayloads.push(...result.warehouseWebhookPayloads)
-            emailAssets.push(...result.emailAssets)
+            messageAssets.push(...result.messageAssets)
 
             if (this.shouldEndHogFlowExecution(result, logs)) {
                 break
@@ -256,7 +285,7 @@ export class HogFlowExecutorService {
         result.metrics = metrics
         result.capturedPostHogEvents = capturedPostHogEvents
         result.warehouseWebhookPayloads = warehouseWebhookPayloads
-        result.emailAssets = emailAssets
+        result.messageAssets = messageAssets
 
         return result
     }
@@ -279,6 +308,18 @@ export class HogFlowExecutorService {
                     level: 'info',
                     timestamp: DateTime.now(),
                     message: `Workflow is aborting due to ${actionIdForLogging(lastExecutedAction)} error handling setting being set to abort on error`,
+                })
+            } else if (result.invocation.state.currentAction?.delayUntilUnresolved) {
+                // A delay that cannot work out when to continue overrides on_error's default of carrying
+                // on: the next step would run immediately, which is the one outcome the wait exists to
+                // prevent. See delayUntilUnresolved.
+                shouldAbortAfterError = true
+                logs.push({
+                    level: 'info',
+                    timestamp: DateTime.now(),
+                    message: `Workflow is aborting because ${
+                        lastExecutedAction ? actionIdForLogging(lastExecutedAction) : lastExecutedActionId
+                    } could not work out the date to wait for`,
                 })
             }
         }
@@ -368,6 +409,7 @@ export class HogFlowExecutorService {
                     timestamp: new Date().toISOString(),
                     properties: {
                         $workflow_id: hogFlow.id,
+                        $workflow_version: hogFlow.version,
                         $workflow_conversion_type: 'property',
                     },
                 }
@@ -444,7 +486,13 @@ export class HogFlowExecutorService {
             hogExecutorOptions?: HogExecutorExecuteAsyncOptions
         }
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>> {
-        const result = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation)
+        // queuePriority is carried over explicitly: createInvocationResult resets it to
+        // 0, and the email routing downstream stashes the entry priority as the value to
+        // restore when a job leaves the email queue — a reset here would stash 0 for any
+        // run whose email action isn't the first action executed.
+        const result = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+            queuePriority: invocation.queuePriority,
+        })
         result.finished = false // Typically we are never finished unless we error or exit
 
         try {
@@ -473,9 +521,14 @@ export class HogFlowExecutorService {
                     timestamp: DateTime.now(),
                 })
             }
+            // Deliberately an allowlisted context, not the full action/invocation: an action's
+            // config.inputs can hold decrypted secrets (API keys, auth headers) that the encrypted_inputs
+            // split keeps out of storage, and dumping them here would put them straight into worker logs.
             logger.debug('🦔', `[HogFlowActionRunner] Running action ${currentAction.type}`, {
-                action: currentAction,
-                invocation,
+                hogFlowId: invocation.hogFlow.id,
+                invocationId: invocation.id,
+                actionId: currentAction.id,
+                actionType: currentAction.type,
             })
 
             const handler = this.actionHandlers[currentAction.type]
@@ -502,8 +555,9 @@ export class HogFlowExecutorService {
 
                 if (handlerResult.finished) {
                     result.finished = true
-                    // Special case for exit - we just track a success metric
-                    this.trackActionMetric(result, currentAction, 'succeeded')
+                    result.skipped = handlerResult.skipped
+                    // A non-matching trigger is filtered, while an exit is a successful finish.
+                    this.trackActionMetric(result, currentAction, handlerResult.skipped ? 'filtered' : 'succeeded')
                 }
 
                 if (handlerResult.scheduledAt) {
@@ -673,6 +727,13 @@ export class HogFlowExecutorService {
     ): void {
         try {
             const { invocation } = result
+            // A delay that could not work out when to continue must never fall through, whatever on_error
+            // says: the next step would run immediately, which is what the wait exists to prevent. Bailing
+            // here also keeps the flag readable by shouldEndHogFlowExecution, since goToNextAction would
+            // replace currentAction with a fresh entry and drop it.
+            if (invocation.state.currentAction?.delayUntilUnresolved) {
+                return
+            }
             // If current action's on_error is set to 'continue', we move to the next action instead of failing the flow
             const currentAction = ensureCurrentAction(invocation)
             if (currentAction?.on_error === 'continue') {
@@ -835,9 +896,27 @@ export class HogFlowExecutorService {
         }
 
         const storedSummary = allStoredKeys
-            .map((key) => `${key} = ${JSON.stringify(result.invocation.state.variables![key])}`)
+            .map((key) => `${key} = ${this.describeStoredVariable(action, result.invocation.state.variables![key])}`)
             .join(', ')
         this.log(result, 'debug', `Stored action result in variable(s): ${storedSummary}`)
+    }
+
+    // The create-ai-task destination's result variable is what lets a workflow author jump from a
+    // run's logs to the task it kicked off. Everything else stays plain JSON.
+    private describeStoredVariable(action: HogFlowAction, value: unknown): string {
+        const isCreateAiTaskAction =
+            action.type === 'function' && action.config.template_id === 'template-posthog-create-task'
+        if (
+            isCreateAiTaskAction &&
+            value &&
+            typeof value === 'object' &&
+            typeof (value as Record<string, unknown>).id === 'string' &&
+            (value as Record<string, unknown>).id !== ''
+        ) {
+            const runId = (value as Record<string, unknown>).run_id
+            return `[Task:${(value as Record<string, unknown>).id}|${typeof runId === 'string' ? runId : ''}]`
+        }
+        return JSON.stringify(value)
     }
 
     private logExecutionTriggerInfo(invocation: CyclotronJobInvocationHogFlow): MinimalLogEntry {

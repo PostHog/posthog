@@ -12,6 +12,7 @@ import {
     ChangeRequestsRejectCreateBody,
     ChangeRequestsRejectCreateParams,
     ChangeRequestsRetrieveParams,
+    CommentsCreateBody,
     CommentsListQueryParams,
     CommentsRetrieveParams,
     CommentsThreadRetrieveParams,
@@ -63,33 +64,33 @@ const advancedActivityLogsFilters = (): ToolBase<
     },
 })
 
-const AdvancedActivityLogsListSchema = AdvancedActivityLogsListQueryParams.extend({
-    page_size: AdvancedActivityLogsListQueryParams.shape['page_size'].default(10).optional(),
-}).extend({
-    fields: z
-        .array(
-            z.enum([
-                'id',
-                'user.id',
-                'user.first_name',
-                'user.last_name',
-                'user.email',
-                'activity',
-                'scope',
-                'item_id',
-                'detail.name',
-                'detail.short_id',
-                'detail.type',
-                'detail.changes',
-                'created_at',
-            ])
-        )
-        .min(1)
-        .optional()
-        .describe(
-            'Optional subset of response fields to return, each a dot-path from the allowlist. Omit to return all fields. Request only the fields your task needs to keep responses small.'
-        ),
-})
+const AdvancedActivityLogsListSchema = AdvancedActivityLogsListQueryParams.omit({ include_values: true, schema: true })
+    .extend({ page_size: AdvancedActivityLogsListQueryParams.shape['page_size'].default(10).optional() })
+    .extend({
+        fields: z
+            .array(
+                z.enum([
+                    'id',
+                    'user.id',
+                    'user.first_name',
+                    'user.last_name',
+                    'user.email',
+                    'activity',
+                    'scope',
+                    'item_id',
+                    'detail.name',
+                    'detail.short_id',
+                    'detail.type',
+                    'detail.changes',
+                    'created_at',
+                ])
+            )
+            .min(1)
+            .optional()
+            .describe(
+                'Optional subset of response fields to return, each a dot-path from the allowlist. Omit to return all fields. Request only the fields your task needs to keep responses small.'
+            ),
+    })
 
 const advancedActivityLogsList = (): ToolBase<
     typeof AdvancedActivityLogsListSchema,
@@ -107,10 +108,12 @@ const advancedActivityLogsList = (): ToolBase<
                 clients: params.clients,
                 detail_filters: params.detail_filters,
                 end_date: params.end_date,
+                follow: params.follow,
                 hogql_filter: params.hogql_filter,
                 ip_addresses: params.ip_addresses,
                 is_system: params.is_system,
                 item_ids: params.item_ids,
+                ordering: params.ordering,
                 page: params.page,
                 page_size: params.page_size,
                 scopes: params.scopes,
@@ -237,6 +240,7 @@ const changeRequestsApprovePrepare = (): ToolBase<
             messageTemplate:
                 "About to APPROVE change request {id}. If this reaches the required quorum, the underlying change is applied immediately. Reply 'confirm' to proceed.\n",
             codec: __runtime.codec,
+            stash: __runtime.stash,
             boundScope: { projectId: String(__scopeProjectId) },
         })
     },
@@ -256,6 +260,7 @@ const changeRequestsApproveExecute = (): ToolBase<
             purpose: 'change-requests-approve',
             codec: __runtime.codec,
             ledger: __runtime.ledger,
+            stash: __runtime.stash,
             expectedScope: { projectId: String(__scopeProjectId) },
         })
         if (!__guard.ok) {
@@ -370,6 +375,7 @@ const changeRequestsRejectPrepare = (): ToolBase<typeof ChangeRequestsRejectSche
             messageTemplate:
                 "About to REJECT change request {id}. This blocks the proposed change and notifies the requester. Reply 'confirm' to proceed.\n",
             codec: __runtime.codec,
+            stash: __runtime.stash,
             boundScope: { projectId: String(__scopeProjectId) },
         })
     },
@@ -389,6 +395,7 @@ const changeRequestsRejectExecute = (): ToolBase<
             purpose: 'change-requests-reject',
             codec: __runtime.codec,
             ledger: __runtime.ledger,
+            stash: __runtime.stash,
             expectedScope: { projectId: String(__scopeProjectId) },
         })
         if (!__guard.ok) {
@@ -466,6 +473,53 @@ const commentThread = (): ToolBase<typeof CommentThreadSchema, unknown> => ({
     },
 })
 
+const CommentsCreateSchema = CommentsCreateBody
+
+const commentsCreate = (): ToolBase<typeof CommentsCreateSchema, Schemas.Comment> => ({
+    name: 'comments-create',
+    schema: CommentsCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof CommentsCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.scope !== undefined) {
+            body['scope'] = params.scope
+        }
+        if (params.item_context !== undefined) {
+            body['item_context'] = params.item_context
+        }
+        if (params.deleted !== undefined) {
+            body['deleted'] = params.deleted
+        }
+        if (params.mentions !== undefined) {
+            body['mentions'] = params.mentions
+        }
+        if (params.slug !== undefined) {
+            body['slug'] = params.slug
+        }
+        if (params.is_task !== undefined) {
+            body['is_task'] = params.is_task
+        }
+        if (params.content !== undefined) {
+            body['content'] = params.content
+        }
+        if (params.rich_content !== undefined) {
+            body['rich_content'] = params.rich_content
+        }
+        if (params.item_id !== undefined) {
+            body['item_id'] = params.item_id
+        }
+        if (params.source_comment !== undefined) {
+            body['source_comment'] = params.source_comment
+        }
+        const result = await context.api.request<Schemas.Comment>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/comments/`,
+            body,
+        })
+        return result
+    },
+})
+
 const CommentsListSchema = CommentsListQueryParams
 
 const commentsList = (): ToolBase<typeof CommentsListSchema, Schemas.PaginatedCommentList> => ({
@@ -484,6 +538,7 @@ const commentsList = (): ToolBase<typeof CommentsListSchema, Schemas.PaginatedCo
                 scope: params.scope,
                 search: params.search,
                 source_comment: params.source_comment,
+                task_id: params.task_id,
             },
         })
         return result
@@ -523,9 +578,12 @@ const orgMembersList = (): ToolBase<typeof OrgMembersListSchema, Schemas.Paginat
             method: 'GET',
             path: `/api/organizations/${encodeURIComponent(String(orgId))}/members/`,
             query: {
+                email_domain: params.email_domain,
+                levels: params.levels,
                 limit: params.limit,
                 offset: params.offset,
                 order: params.order,
+                outside_verified_domains: params.outside_verified_domains,
                 search: params.search,
             },
         })
@@ -537,6 +595,7 @@ const OrganizationEnforce2faSchema = PartialUpdateParams.extend(
     PartialUpdateBody.omit({
         name: true,
         logo_media_id: true,
+        enforce_verified_domains: true,
         members_can_invite: true,
         members_can_create_projects: true,
         members_can_use_personal_api_keys: true,
@@ -585,6 +644,7 @@ const organizationEnforce2faPrepare = (): ToolBase<
             messageTemplate:
                 "About to set organization-wide two-factor-authentication enforcement to {enforce_2fa}. This immediately affects every member of the organization — when enabled, all members must set up 2FA before they can continue using PostHog. Reply 'confirm' to proceed.\n",
             codec: __runtime.codec,
+            stash: __runtime.stash,
         })
     },
 })
@@ -602,6 +662,7 @@ const organizationEnforce2faExecute = (): ToolBase<
             purpose: 'organization-enforce-2fa',
             codec: __runtime.codec,
             ledger: __runtime.ledger,
+            stash: __runtime.stash,
         })
         if (!__guard.ok) {
             return __guard.result as never
@@ -801,6 +862,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'comment-count': commentCount,
     'comment-get': commentGet,
     'comment-thread': commentThread,
+    'comments-create': commentsCreate,
     'comments-list': commentsList,
     'org-member-get-github-login': orgMemberGetGithubLogin,
     'org-members-list': orgMembersList,

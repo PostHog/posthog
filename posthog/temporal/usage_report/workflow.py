@@ -43,6 +43,14 @@ from posthog.temporal.usage_report.types import (
 # Cap concurrent gather queries so we don't overwhelm ClickHouse / Postgres
 # with ~40 simultaneous heavy queries.
 QUERY_CONCURRENCY = 4
+SANDBOX_COMPUTE_QUERY_PATCH_ID = "usage-report-sandbox-compute-query-2026-08"
+SANDBOX_COMPUTE_QUERY_NAME = "sandbox_compute_usage"
+
+
+def _queries_for_sandbox_compute_patch(patch_applied: bool) -> list[QuerySpec]:
+    if patch_applied:
+        return QUERIES
+    return [spec for spec in QUERIES if spec.name != SANDBOX_COMPUTE_QUERY_NAME]
 
 
 def build_context(inputs: RunUsageReportsInputs, run_id: str, now: datetime) -> WorkflowContext:
@@ -90,6 +98,7 @@ class RunUsageReportsWorkflow(PostHogWorkflow):
         status = "FAILED"
         try:
             ctx = build_context(inputs, run_id=workflow.info().run_id, now=started_at)
+            queries = _queries_for_sandbox_compute_patch(workflow.patched(SANDBOX_COMPUTE_QUERY_PATCH_ID))
             workflow.logger.info(
                 "Starting usage reports workflow",
                 extra={
@@ -98,7 +107,7 @@ class RunUsageReportsWorkflow(PostHogWorkflow):
                     "report_completeness": ctx.report_completeness,
                     "period_start": ctx.period_start.isoformat(),
                     "period_end": ctx.period_end.isoformat(),
-                    "spec_count": len(QUERIES),
+                    "spec_count": len(queries),
                 },
             )
 
@@ -113,7 +122,7 @@ class RunUsageReportsWorkflow(PostHogWorkflow):
                     return await self._run_query(ctx, spec)
 
             query_results: list[RunQueryToS3Result] = list(
-                await asyncio.gather(*(_run_with_sem(spec) for spec in QUERIES))
+                await asyncio.gather(*(_run_with_sem(spec) for spec in queries))
             )
 
             agg = await workflow.execute_activity(

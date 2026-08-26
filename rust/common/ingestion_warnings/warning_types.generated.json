@@ -56,6 +56,12 @@
       "captureProduced": true
     },
     {
+      "type": "distinct_id_truncated",
+      "category": "event",
+      "severity": "warning",
+      "captureProduced": true
+    },
+    {
       "type": "duplicate_event_uuid",
       "category": "event",
       "severity": "error",
@@ -104,10 +110,28 @@
       "captureProduced": false
     },
     {
+      "type": "high_volume_distinct_id",
+      "category": "quota",
+      "severity": "warning",
+      "captureProduced": true
+    },
+    {
       "type": "ignored_invalid_timestamp",
       "category": "event",
       "severity": "warning",
       "captureProduced": false
+    },
+    {
+      "type": "invalid_ai_event",
+      "category": "event",
+      "severity": "error",
+      "captureProduced": true
+    },
+    {
+      "type": "invalid_ai_payload",
+      "category": "event",
+      "severity": "error",
+      "captureProduced": true
     },
     {
       "type": "invalid_ai_token_property",
@@ -164,6 +188,12 @@
       "captureProduced": false
     },
     {
+      "type": "invalid_session_id",
+      "category": "replay",
+      "severity": "error",
+      "captureProduced": true
+    },
+    {
       "type": "malformed_event_properties",
       "category": "event",
       "severity": "error",
@@ -185,7 +215,7 @@
       "type": "message_size_too_large",
       "category": "size",
       "severity": "error",
-      "captureProduced": false
+      "captureProduced": true
     },
     {
       "type": "message_timestamp_diff_too_large",
@@ -209,6 +239,24 @@
       "type": "missing_event_uuid",
       "category": "event",
       "severity": "error",
+      "captureProduced": true
+    },
+    {
+      "type": "missing_session_id",
+      "category": "replay",
+      "severity": "error",
+      "captureProduced": true
+    },
+    {
+      "type": "missing_snapshot_data",
+      "category": "replay",
+      "severity": "error",
+      "captureProduced": true
+    },
+    {
+      "type": "no_ai_spans_ingested",
+      "category": "event",
+      "severity": "warning",
       "captureProduced": true
     },
     {

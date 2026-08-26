@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { defaultConfig } from '~/common/config/config'
+import { PERSON_COLUMNS } from '~/common/persons/repositories/postgres-person-repository'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { UUIDT } from '~/common/utils/utils'
 
@@ -45,7 +46,6 @@ BEGIN
             'posthog_featureflaghashkeyoverride',
             'posthog_cohortpeople',
             'posthog_persondistinctid',
-            'posthog_personlessdistinctid',
             'posthog_person',
             'posthog_personoverridemapping',
             'posthog_personoverride',
@@ -75,7 +75,6 @@ BEGIN
     DELETE FROM posthog_personoverride CASCADE;
     DELETE FROM posthog_personoverridemapping CASCADE;
     DELETE FROM posthog_persondistinctid CASCADE;
-    DELETE FROM posthog_personlessdistinctid CASCADE;
     DELETE FROM posthog_person CASCADE;
 
     -- Handle any other tables that might exist in the persons database
@@ -93,7 +92,6 @@ BEGIN
             'posthog_personoverride',
             'posthog_personoverridemapping',
             'posthog_persondistinctid',
-            'posthog_personlessdistinctid',
             'posthog_person'
         )
     ) LOOP
@@ -145,7 +143,7 @@ function getPostgresUseForTable(table: string): PostgresUse {
 
     // Persons-related tables
     const personsTablesRegex =
-        /^posthog_(person|persondistinctid|personlessdistinctid|personoverridemapping|personoverride|pendingpersonoverride|flatpersonoverride|featureflaghashkeyoverride|cohortpeople|group|grouptypemapping)$/
+        /^posthog_(person|persondistinctid|personoverridemapping|personoverride|pendingpersonoverride|flatpersonoverride|featureflaghashkeyoverride|cohortpeople|group|grouptypemapping)$/
     if (personsTablesRegex.test(table)) {
         return PostgresUse.PERSONS_WRITE
     }
@@ -415,6 +413,39 @@ export const createTeam = async (
     return id
 }
 
+export async function createTestTeamFixture(
+    postgres: PostgresRouter,
+    teamSettings?: Record<string, any>
+): Promise<{ organizationId: string; team: Team; userId: number }> {
+    const organizationId = await createOrganization(postgres)
+    const teamId = await createTeam(postgres, organizationId, undefined, teamSettings)
+    const team = await getTeam(postgres, teamId)
+
+    if (!team) {
+        throw new Error(`Test team ${teamId} was not created`)
+    }
+
+    const userId = await createUser(postgres, new UUIDT().toString())
+    await createOrganizationMembership(postgres, organizationId, userId)
+
+    return { organizationId, team, userId }
+}
+
+export async function getTeamMemberUserId(postgres: PostgresRouter, teamId: Team['id']): Promise<number | null> {
+    const { rows } = await postgres.query<{ user_id: number }>(
+        PostgresUse.COMMON_READ,
+        `SELECT organizationmembership.user_id
+         FROM posthog_organizationmembership AS organizationmembership
+         JOIN posthog_team AS team ON team.organization_id = organizationmembership.organization_id
+         WHERE team.id = $1
+         ORDER BY organizationmembership.joined_at
+         LIMIT 1`,
+        [teamId],
+        'getTeamMemberUserId'
+    )
+    return rows[0]?.user_id ?? null
+}
+
 export const createAction = async (
     pg: PostgresRouter,
     teamId: number,
@@ -447,6 +478,9 @@ export const createAction = async (
 export const createUser = async (pg: PostgresRouter, distinctId: string) => {
     const uuid = new UUIDT().toString()
     const user = await insertRow(pg, 'posthog_user', {
+        // Tests also insert fixed user IDs, which do not advance Postgres's sequence.
+        // Use a collision-resistant test ID rather than the stale sequence value.
+        id: Math.round(Math.random() * 1000000000),
         uuid: uuid,
         password: 'gibberish',
         first_name: 'PluginTest',
@@ -475,7 +509,9 @@ export const createOrganizationMembership = async (pg: PostgresRouter, organizat
 }
 
 export async function fetchPostgresPersons(postgres: PostgresRouter, teamId: number) {
-    const query = `SELECT * FROM posthog_person WHERE team_id = ${teamId} ORDER BY id`
+    // Live persons only, matching production reads: in tombstone mode a merged-away
+    // source keeps its row with is_deleted = true.
+    const query = `SELECT ${PERSON_COLUMNS} FROM posthog_person WHERE team_id = ${teamId} AND is_deleted = false ORDER BY id`
     return (await postgres.query(PostgresUse.PERSONS_READ, query, undefined, 'persons')).rows.map(
         // NOTE: we map to update some values here to maintain
         // compatibility with `hub.fetchPersons`.

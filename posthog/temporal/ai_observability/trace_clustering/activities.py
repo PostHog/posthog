@@ -6,7 +6,9 @@ This module contains the 3 activities that make up the clustering pipeline:
 3. emit_cluster_events_activity - emit results to ClickHouse
 """
 
+import random
 import asyncio
+from datetime import timedelta
 from typing import Literal, cast
 
 from django.utils.dateparse import parse_datetime
@@ -14,7 +16,9 @@ from django.utils.dateparse import parse_datetime
 import numpy as np
 import structlog
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models.team import Team
 from posthog.temporal.ai_observability.team_discovery import get_min_traces_override
 from posthog.temporal.ai_observability.trace_clustering import constants
@@ -286,7 +290,26 @@ async def perform_clustering_compute_activity(inputs: ClusteringActivityInputs) 
     Embeddings (~3-4 MB) are not passed to subsequent activities.
     """
     async with Heartbeater():
-        return await asyncio.to_thread(_perform_clustering_compute, inputs)
+        try:
+            return await asyncio.to_thread(_perform_clustering_compute, inputs)
+        except ClickHouseAtCapacity as e:
+            # The shared ClickHouse pool is saturated. Retrying immediately would only add load,
+            # so back off with jitter to give the pool room to recover before the next attempt.
+            backoff = random.uniform(
+                constants.CLICKHOUSE_AT_CAPACITY_BACKOFF_MIN.total_seconds(),
+                constants.CLICKHOUSE_AT_CAPACITY_BACKOFF_MAX.total_seconds(),
+            )
+            logger.warning(
+                "clustering_compute_clickhouse_at_capacity",
+                team_id=inputs.team_id,
+                analysis_level=inputs.analysis_level,
+                backoff_seconds=round(backoff, 1),
+            )
+            raise ApplicationError(
+                "ClickHouse at capacity while fetching embeddings for clustering",
+                type="ClickHouseAtCapacity",
+                next_retry_delay=timedelta(seconds=backoff),
+            ) from e
 
 
 def _generate_cluster_labels(inputs: GenerateLabelsActivityInputs) -> GenerateLabelsActivityOutputs:
@@ -312,6 +335,10 @@ def _generate_cluster_labels(inputs: GenerateLabelsActivityInputs) -> GenerateLa
         window_end=window_end,
         batch_run_ids=inputs.batch_run_ids,
         analysis_level=inputs.analysis_level,
+        trace_id=inputs.trace_id,
+        session_id=inputs.session_id,
+        clustering_run_id=inputs.clustering_run_id,
+        clustering_job_id=inputs.clustering_job_id,
     )
 
     return GenerateLabelsActivityOutputs(cluster_labels=cluster_labels)

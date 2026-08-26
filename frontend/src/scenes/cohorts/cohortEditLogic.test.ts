@@ -171,6 +171,26 @@ describe('cohortEditLogic', () => {
         })
     })
 
+    describe('calculation polling', () => {
+        it('refreshes import counts when calculation finishes', async () => {
+            await initCohortLogic({ id: 1 })
+
+            await expectLogic(logic, () => {
+                logic.actions.checkIfFinishedCalculating({
+                    ...mockCohort,
+                    is_calculating: false,
+                    last_import_total_count: 5,
+                    last_import_unmatched_count: 3,
+                })
+            }).toMatchValues({
+                cohort: partial({
+                    last_import_total_count: 5,
+                    last_import_unmatched_count: 3,
+                }),
+            })
+        })
+    })
+
     it('delete cohort', async () => {
         await initCohortLogic({ id: 1 })
         await expectLogic(logic, async () => {
@@ -1302,6 +1322,34 @@ describe('cohortEditLogic', () => {
             // Without resetting activeTab, the user would land on a blank screen for new cohorts:
             // overview is hidden via `display:none` while history requires a saved cohort to render.
             expect(logic.values.activeTab).toBe('overview')
+        })
+    })
+
+    describe('filter out test accounts', () => {
+        it('setFilterTestAccounts toggles the flag in filters', async () => {
+            await initCohortLogic({ id: 'new' })
+            await expectLogic(logic, () => {
+                logic.actions.setFilterTestAccounts(true)
+            }).toMatchValues({
+                cohort: partial({ filters: partial({ filterTestAccounts: true }) }),
+            })
+        })
+
+        it('setOuterGroupsType preserves the filterTestAccounts flag', async () => {
+            // Regression guard: setOuterGroupsType used to rebuild `filters` from scratch, dropping
+            // sibling keys like filterTestAccounts.
+            await initCohortLogic({ id: 'new' })
+            await expectLogic(logic, () => {
+                logic.actions.setFilterTestAccounts(true)
+                logic.actions.setOuterGroupsType(FilterLogicalOperator.And)
+            }).toMatchValues({
+                cohort: partial({
+                    filters: partial({
+                        filterTestAccounts: true,
+                        properties: partial({ type: FilterLogicalOperator.And }),
+                    }),
+                }),
+            })
         })
     })
 })

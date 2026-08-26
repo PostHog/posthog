@@ -19,6 +19,10 @@ export const PropertyGroupOperatorApi = {
  * * `is_not` - is_not
  * * `icontains` - icontains
  * * `not_icontains` - not_icontains
+ * * `starts_with` - starts_with
+ * * `not_starts_with` - not_starts_with
+ * * `ends_with` - ends_with
+ * * `not_ends_with` - not_ends_with
  * * `regex` - regex
  * * `not_regex` - not_regex
  * * `gt` - gt
@@ -40,6 +44,10 @@ export const PropertyItemOperatorEnumApi = {
     IsNot: 'is_not',
     Icontains: 'icontains',
     NotIcontains: 'not_icontains',
+    StartsWith: 'starts_with',
+    NotStartsWith: 'not_starts_with',
+    EndsWith: 'ends_with',
+    NotEndsWith: 'not_ends_with',
     Regex: 'regex',
     NotRegex: 'not_regex',
     Gt: 'gt',
@@ -234,8 +242,8 @@ export interface PatchedPersonRecordApi {
 }
 
 export interface PersonDeletePropertyRequestApi {
-    /** The property key to remove from this person. */
-    $unset: string
+    /** A property key, or a list of property keys, to remove from this person. */
+    $unset: string | string[]
 }
 
 export interface MessageAssetApi {
@@ -249,19 +257,19 @@ export interface MessageAssetApi {
     function_name: string
     /** The batch run this email belongs to, for batch-triggered workflows. Empty for event-triggered runs. */
     parent_run_id: string
-    /** Asset kind. Currently always 'email'. */
+    /** Message channel this asset was sent on: 'email' or 'push'. The per-person endpoints return one channel each. */
     kind: string
     /** The recipient's distinct_id. */
     distinct_id: string
     /** The recipient's person UUID, if resolved. */
     person_id: string
-    /** The recipient email address. */
+    /** Who the message went to: the email address for 'email', or the recipient's distinct ID for 'push'. */
     recipient: string
-    /** The email subject line. */
+    /** The email subject line, or the push notification title. */
     subject: string
-    /** Delivery status at capture time. Currently always 'sent'. */
+    /** Delivery status at capture time. Currently always 'sent' - only delivered messages are captured. */
     status: string
-    /** When the email was sent. */
+    /** When the message was sent. */
     sent_at: string
 }
 
@@ -399,6 +407,10 @@ export interface PersonPropertiesAtTimeResponseApi {
 
 export type PersonsListParams = {
     /**
+     * Names the ClickHouse query this request runs. Send the same id to `DELETE /api/projects/:project_id/query/:client_query_id/` to stop a search that is still running. Up to 128 characters.
+     */
+    client_query_id?: string
+    /**
      * Filter list by distinct id.
      */
     distinct_id?: string
@@ -502,13 +514,13 @@ export type PersonsEmailsListParams = {
     before?: string
     format?: PersonsEmailsListFormat
     /**
-     * Maximum number of emails to return (1-500, default 50).
+     * Maximum number of assets to return (1-500, default 50).
      * @minimum 1
      * @maximum 500
      */
     limit?: number
     /**
-     * Number of emails to skip, for pagination.
+     * Number of assets to skip, for pagination.
      * @minimum 0
      */
     offset?: number
@@ -529,6 +541,39 @@ export type PersonsPropertiesTimelineRetrieveFormat =
     (typeof PersonsPropertiesTimelineRetrieveFormat)[keyof typeof PersonsPropertiesTimelineRetrieveFormat]
 
 export const PersonsPropertiesTimelineRetrieveFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type PersonsPushNotificationsListParams = {
+    /**
+     * Start of the time range, matched on sent time. Relative ('-30d', '-24h') or ISO 8601. Defaults to -30d (the retention window) — bounds the ClickHouse partition scan.
+     * @minLength 1
+     */
+    after?: string
+    /**
+     * End of the time range, matched on sent time. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string
+    format?: PersonsPushNotificationsListFormat
+    /**
+     * Maximum number of assets to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Number of assets to skip, for pagination.
+     * @minimum 0
+     */
+    offset?: number
+}
+
+export type PersonsPushNotificationsListFormat =
+    (typeof PersonsPushNotificationsListFormat)[keyof typeof PersonsPushNotificationsListFormat]
+
+export const PersonsPushNotificationsListFormat = {
     Csv: 'csv',
     Json: 'json',
 } as const

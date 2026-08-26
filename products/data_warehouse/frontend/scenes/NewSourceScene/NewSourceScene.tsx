@@ -1,4 +1,5 @@
 import { MakeLogicType, BindLogic, connect, kea, path, selectors, useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { IconCopy, IconQuestion } from '@posthog/icons'
@@ -14,11 +15,13 @@ import {
 } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -225,8 +228,9 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
         isSelfManagedSource,
         source,
         sourceConnectionDetails,
+        isWebhookFieldInputsSubmitting,
     } = useValues(sourceWizardLogic)
-    const { onBack, onSubmit, setInitialConnector, setSourceConnectionDetailsValue, updateSource } =
+    const { onBack, onSubmit, onClear, setInitialConnector, setSourceConnectionDetailsValue, updateSource } =
         useActions(sourceWizardLogic)
     const selectedAccessMethod = getEffectiveAccessMethod(
         currentStep,
@@ -267,7 +271,7 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
 
         const nextButton = (disabledReason?: string | false): JSX.Element => (
             <LemonButton
-                loading={isLoading || manualLinkIsLoading}
+                loading={isLoading || manualLinkIsLoading || isWebhookFieldInputsSubmitting}
                 disabledReason={
                     disabledReason || (!canGoNext && (nextButtonDisabledReason || 'Finish this step to continue'))
                 }
@@ -311,6 +315,7 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
         onBack,
         isLoading,
         manualLinkIsLoading,
+        isWebhookFieldInputsSubmitting,
         canGoNext,
         nextButtonDisabledReason,
         nextButtonText,
@@ -373,7 +378,7 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
                 ) : currentStep === 5 ? (
                     <ProgressStep />
                 ) : (
-                    <div>Something went wrong...</div>
+                    <UnknownWizardStepFallback currentStep={currentStep} onRestart={onClear} />
                 )}
 
                 {footer()}
@@ -510,6 +515,26 @@ function FirstStep({ allowedSources }: NewSourcesWizardProps): JSX.Element {
     return <SourceCatalog allowedSources={allowedSources} />
 }
 
+// Firewall allowlisting only applies to self-hosted databases PostHog dials out to, so the hint is
+// scoped to that category rather than shown for OAuth/API connectors.
+function DatabaseFirewallHint(): JSX.Element | null {
+    const { preflight } = useValues(preflightLogic)
+    const egressIps = preflight?.public_egress_ip_addresses
+
+    if (!egressIps?.length) {
+        return null
+    }
+
+    return (
+        <LemonBanner type="info">
+            <p className="mb-2">
+                If your database is behind a firewall, add PostHog's IP addresses to the allowlist so it can connect:
+            </p>
+            <CodeSnippet thing="IP addresses">{egressIps.join(' \n')}</CodeSnippet>
+        </LemonBanner>
+    )
+}
+
 function SecondStep({ sourceWizardLogicProps }: { sourceWizardLogicProps?: SourceWizardLogicProps }): JSX.Element {
     const { selectedConnector, source, sourceConnectionDetails } = useValues(sourceWizardLogic)
     const selectedAccessMethod = getEffectiveAccessMethod(
@@ -550,6 +575,8 @@ function SecondStep({ sourceWizardLogicProps }: { sourceWizardLogicProps?: Sourc
                     </Link>
                 )}
             </div>
+
+            {selectedConnector.category === 'Databases' && <DatabaseFirewallHint />}
 
             <LemonDivider />
 
@@ -612,7 +639,8 @@ function WebhookSetupStep({
 }: {
     sourceWizardLogicProps?: SourceWizardLogicProps
 }): JSX.Element {
-    const { webhookResult, webhookCreating, selectedConnector, databaseSchema } = useValues(sourceWizardLogic)
+    const { webhookResult, webhookCreating, selectedConnector, databaseSchema, isWebhookFieldInputsSubmitting } =
+        useValues(sourceWizardLogic)
     const { createWebhook } = useActions(sourceWizardLogic)
 
     const webhookTables = databaseSchema
@@ -626,6 +654,7 @@ function WebhookSetupStep({
             webhookTables={webhookTables}
             webhookResult={webhookResult}
             webhookCreating={webhookCreating}
+            webhookFieldsSubmitting={isWebhookFieldInputsSubmitting}
             onCreateWebhook={createWebhook}
             formLogic={sourceWizardLogicProps ? sourceWizardLogic(sourceWizardLogicProps) : sourceWizardLogic}
             formKey="webhookFieldInputs"
@@ -635,4 +664,23 @@ function WebhookSetupStep({
 
 function ProgressStep(): JSX.Element {
     return <SyncProgressStep />
+}
+
+function UnknownWizardStepFallback({
+    currentStep,
+    onRestart,
+}: {
+    currentStep: number
+    onRestart: () => void
+}): JSX.Element {
+    useEffect(() => {
+        posthog.captureException(new Error(`Data warehouse source wizard reached an unexpected step: ${currentStep}`))
+        // oxlint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
+
+    return (
+        <LemonBanner type="error" action={{ children: 'Start over', onClick: onRestart }}>
+            This source setup ran into an unexpected step. Start over to try again.
+        </LemonBanner>
+    )
 }

@@ -1,11 +1,14 @@
-import { MakeLogicType, actions, connect, kea, listeners, path, props, reducers } from 'kea'
+import { MakeLogicType, actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiError, RateLimitError } from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { uuid } from 'lib/utils/dom'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { ModelOption } from '../modelPickerLogic'
 import { llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
@@ -69,6 +72,17 @@ export function appendToolCallChunk(state: AggregatedToolCall[], toolCall: ToolC
         arguments: updated[lastIndex].arguments + (toolCall.function?.arguments || ''),
     }
     return updated
+}
+
+/** Neutralize markdown syntax in a value we did not author.
+ *
+ * A result card renders its text with `LemonMarkdown`, images included, so a model id taken from
+ * an ingested `$ai_model` property would otherwise turn `![x](https://…)` into a live request off
+ * an analyst's browser. CommonMark treats a backslash before any ASCII punctuation as a literal,
+ * so escaping the whole punctuation range covers link, image, and emphasis syntax at once.
+ */
+export function escapeMarkdownInline(value: string): string {
+    return value.replace(/[!-/:-@[-`{-~]/g, '\\$&')
 }
 
 export function describeError(err: unknown, fallbackMessage: string): { message: string; status?: number } {
@@ -161,6 +175,7 @@ export interface llmPlaygroundRunLogicValues {
     providerKeys: LLMProviderKey[] // llmProviderKeysLogic
     comparisonItems: ComparisonItem[]
     rateLimitedUntil: number | null
+    runAccessDeniedReason: string | null
     submitting: boolean
     subscriptionRequired: boolean
 }
@@ -264,6 +279,16 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
         ],
     }),
 
+    selectors({
+        // Resource-level only, so this comes from the server-rendered app context rather than the API.
+        // A selector keeps it readable from the scene and overridable in tests.
+        runAccessDeniedReason: [
+            () => [],
+            (): string | null =>
+                getAccessControlDisabledReason(AccessControlResourceType.LlmPlayground, AccessControlLevel.Editor),
+        ],
+    }),
+
     listeners(({ actions, values }) => ({
         abortRun: () => {
             posthog.capture('llma playground prompt aborted')
@@ -279,6 +304,14 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
         },
 
         submitPrompt: async (_: unknown, breakpoint: () => void) => {
+            // Guarding here rather than only on the Run button, because both message textareas
+            // submit on Cmd+Enter and bypass the button entirely.
+            if (values.runAccessDeniedReason) {
+                lemonToast.error(values.runAccessDeniedReason)
+                actions.finishSubmitPrompt()
+                return
+            }
+
             const runnablePrompts = values.promptConfigs
                 .map((prompt: PromptConfig, index: number) => ({
                     prompt,
@@ -356,8 +389,14 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                             (m) => m.id === prompt.model
                         )
                         if (!selectedModel?.provider) {
-                            lemonToast.error('Selected model not found in available models')
-                            responseText = '**Error:** Selected model not available.'
+                            // Reachable without the model ever being picked here: opening a trace in
+                            // the playground, or loading a saved prompt, can carry a model the current
+                            // key set no longer offers. Name it so the user knows what to change.
+                            const describeMissingModel = (model: string): string =>
+                                `Model '${model}' is not one of your available models. Pick a different model and try again.`
+                            // The toast renders as text, the result card renders as markdown.
+                            lemonToast.error(describeMissingModel(prompt.model))
+                            responseText = `**Error:** ${describeMissingModel(escapeMarkdownInline(prompt.model))}`
                             responseHasError = true
                             upsertLiveItem()
                             return

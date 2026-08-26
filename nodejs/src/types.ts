@@ -145,10 +145,7 @@ export interface PluginServerCapabilities {
     cdpCyclotronWorkerBatchResolve?: boolean
     cdpCyclotronWorker?: boolean
     cdpCyclotronWorkerHogFlow?: boolean
-    cdpCyclotronWorkerHogFlowLegacyPg?: boolean
     cdpCyclotronWorkerEmail?: boolean
-    cdpCyclotronWorkerEmailLegacyPg?: boolean
-    cdpPrecalculatedFilters?: boolean
     cdpCohortMembership?: boolean
     cdpApi?: boolean
     appManagementSingleton?: boolean
@@ -157,7 +154,6 @@ export interface PluginServerCapabilities {
     cdpRerunWorker?: boolean
     cdpHogflowScheduler?: boolean
     cdpHogflowSubscriptionMatcher?: boolean
-    emailReputationEvaluator?: boolean
     recordingApi?: boolean
     ingestionV2Testing?: boolean
 }
@@ -382,7 +378,12 @@ export interface ProcessedEvent {
     project_id: ProjectId
     distinct_id: string
     elements_chain: string
-    created_at: null
+    /**
+     * Stamped once when create-event assembles the event, so every table this
+     * event is written to agrees on it. Serializing twice would otherwise read
+     * the wall clock twice and stamp two different values.
+     */
+    created_at: DateTime
     captured_at: Date | null
     person_id: string
     person_properties: Record<string, unknown>
@@ -631,6 +632,10 @@ export enum PropertyOperator {
     IsNot = 'is_not',
     IContains = 'icontains',
     NotIContains = 'not_icontains',
+    StartsWith = 'starts_with',
+    NotStartsWith = 'not_starts_with',
+    EndsWith = 'ends_with',
+    NotEndsWith = 'not_ends_with',
     Regex = 'regex',
     NotRegex = 'not_regex',
     GreaterThan = 'gt',

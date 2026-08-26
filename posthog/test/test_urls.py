@@ -2,7 +2,8 @@ import uuid
 
 from posthog.test.base import APIBaseTest
 
-from django.test import SimpleTestCase, override_settings
+from django.test import RequestFactory, SimpleTestCase, override_settings
+from django.urls import resolve
 
 from parameterized import parameterized
 from rest_framework import status
@@ -198,3 +199,54 @@ class TestRegionHostFromCurrentInstance(SimpleTestCase):
     )
     def test_region_host_from_current_instance(self, _name, cookie_value, expected):
         self.assertEqual(region_host_from_current_instance(cookie_value), expected)
+
+
+class TestLegacyDuckgresAdminUrls(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "changelist_with_query",
+                "/admin/posthog/duckgresserver/?q=warehouse&page=2",
+                "/admin/managed_warehouse/duckgresserver/?q=warehouse&page=2",
+            ),
+            ("add", "/admin/posthog/duckgresserver/add/", "/admin/managed_warehouse/duckgresserver/add/"),
+            (
+                "change",
+                "/admin/posthog/duckgresserver/server-id/change/",
+                "/admin/managed_warehouse/duckgresserver/server-id/change/",
+            ),
+            (
+                "delete",
+                "/admin/posthog/duckgresserver/server-id/delete/",
+                "/admin/managed_warehouse/duckgresserver/server-id/delete/",
+            ),
+            (
+                "history",
+                "/admin/posthog/duckgresserver/server-id/history/",
+                "/admin/managed_warehouse/duckgresserver/server-id/history/",
+            ),
+            (
+                "provision",
+                "/admin/posthog/duckgresserver/provision/",
+                "/admin/managed_warehouse/duckgresserver/provision/",
+            ),
+            (
+                "enable_backfill",
+                "/admin/posthog/duckgresserver/server-id/enable-backfill/?source=bookmark",
+                "/admin/managed_warehouse/duckgresserver/server-id/enable-backfill/?source=bookmark",
+            ),
+            (
+                "deprovision",
+                "/admin/posthog/duckgresserver/server-id/deprovision/",
+                "/admin/managed_warehouse/duckgresserver/server-id/deprovision/",
+            ),
+        ]
+    )
+    def test_redirects_to_managed_warehouse_admin(self, _name: str, request_path: str, expected_location: str) -> None:
+        request = RequestFactory().get(request_path)
+        match = resolve(request.path)
+
+        response = match.func(request, *match.args, **match.kwargs)
+
+        assert response.status_code == 302
+        assert response["Location"] == expected_location

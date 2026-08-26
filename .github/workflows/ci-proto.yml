@@ -41,6 +41,11 @@ jobs:
                         - 'proto/**'
                         - 'posthog/personhog_client/proto/generated/**'
                         - 'bin/generate_personhog_proto.sh'
+                        - 'nodejs/src/common/generated/personhog/**'
+                        - 'nodejs/src/common/generated/ingestion-worker/**'
+                        - 'nodejs/buf.gen.yaml'
+                        - 'nodejs/buf.gen.ingestion-worker.yaml'
+                        - 'nodejs/package.json'
                         - '.github/workflows/ci-proto.yml'
 
     lint:
@@ -97,10 +102,20 @@ jobs:
               with:
                   clean: false
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version: '3.13.13'
-                  token: ${{ github.token }}
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install codegen tools
               run: pip install grpcio-tools protoletariat ruff
@@ -110,6 +125,8 @@ jobs:
 
             - name: Check for diff
               run: |
+                  # Intent-to-add so brand-new generated files show up in git diff
+                  git add -N posthog/personhog_client/proto/generated/
                   if ! git diff --exit-code posthog/personhog_client/proto/generated/; then
                     echo ""
                     echo "ERROR: Generated Python proto stubs are out of date."
@@ -118,8 +135,48 @@ jobs:
                   fi
                   echo "Generated Python proto stubs are up to date."
 
+    node-codegen:
+        name: Check Node proto stubs are up to date (depot-ubuntu-22.04-4)
+        needs: changes
+        if: needs.changes.outputs.proto == 'true'
+        runs-on: depot-ubuntu-22.04-4
+        timeout-minutes: 10
+
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  clean: false
+
+            - name: Install buf
+              uses: bufbuild/buf-action@fd21066df7214747548607aaa45548ba2b9bc1ff # v1.4.0
+              with:
+                  setup_only: true
+                  version: '1.50.0'
+
+            - name: Install pnpm and dependencies
+              uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm --filter=@posthog/nodejs... install --frozen-lockfile
+
+            - name: Regenerate Node proto stubs
+              run: |
+                  pnpm --dir nodejs run generate:personhog-proto
+                  pnpm --dir nodejs run generate:ingestion-worker-proto
+
+            - name: Check for diff
+              run: |
+                  # Intent-to-add so brand-new generated files show up in git diff
+                  git add -N nodejs/src/common/generated/personhog/ nodejs/src/common/generated/ingestion-worker/
+                  if ! git diff --exit-code nodejs/src/common/generated/personhog/ nodejs/src/common/generated/ingestion-worker/; then
+                    echo ""
+                    echo "ERROR: Generated Node proto stubs are out of date."
+                    echo "Run 'pnpm run generate:personhog-proto' and 'pnpm run generate:ingestion-worker-proto' in nodejs/ and commit the result."
+                    exit 1
+                  fi
+                  echo "Generated Node proto stubs are up to date."
+
     proto_checks:
-        needs: [changes, lint, breaking, python-codegen]
+        needs: [changes, lint, breaking, python-codegen, node-codegen]
         name: Proto Checks Pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
@@ -127,8 +184,9 @@ jobs:
         steps:
             - name: Check all proto jobs
               run: |
-                  if [[ "${{ needs.changes.result }}" == "failure" ]]; then
-                    echo "Change detection job failed."
+                  # Fail if change detection failed or was cancelled (outputs are empty on cancel, so the exit below would report green).
+                  if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
+                    echo "Change detection did not succeed (result: ${{ needs.changes.result }})."
                     exit 1
                   fi
 
@@ -149,6 +207,11 @@ jobs:
 
                   if [[ "${{ needs.python-codegen.result }}" != "success" && "${{ needs.python-codegen.result }}" != "skipped" ]]; then
                     echo "Python proto codegen staleness check failed."
+                    exit 1
+                  fi
+
+                  if [[ "${{ needs.node-codegen.result }}" != "success" && "${{ needs.node-codegen.result }}" != "skipped" ]]; then
+                    echo "Node proto codegen staleness check failed."
                     exit 1
                   fi
 

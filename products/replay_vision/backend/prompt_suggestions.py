@@ -2,13 +2,12 @@
 
 Mirrors the frontend "Improve scanner prompt" message: the current prompt plus the rated sessions
 (thumbs down with feedback to fix, thumbs up to keep passing), handed to Gemini for a structured
-rewrite. Suggestions are persisted so the Quality tab can show the current one and its history.
+rewrite. Suggestions are persisted so the calibration tab can show the current one and its history.
 """
 
 import json
 import time
 import uuid
-import asyncio
 import hashlib
 import datetime as dt
 from typing import Any
@@ -21,7 +20,6 @@ from django.utils import timezone
 
 import structlog
 import posthoganalytics
-from asgiref.sync import async_to_sync
 from google.genai import types
 from google.genai.types import GenerateContentConfig
 from posthoganalytics.ai.gemini import (
@@ -29,10 +27,7 @@ from posthoganalytics.ai.gemini import (
     genai,
 )
 
-from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.rbac.user_access_control import UserAccessControl
-from posthog.session_recordings.models.session_recording import SessionRecording
 
 from products.replay_vision.backend.feedback_themes import refresh_feedback_themes_if_stale, theme_lines
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
@@ -54,24 +49,24 @@ _MAX_RATED_SESSIONS = 20
 _MAX_REASONING_CHARS = 280
 _MAX_DISMISSED_EXAMPLES = 3
 _MAX_DISMISSED_PROMPT_CHARS = 600
+# `feedback` is an unbounded TextField, so one pasted log dump would otherwise balloon every future
+# briefing for that scanner (and the per-session tool payload).
+_MAX_BRIEFING_FEEDBACK_CHARS = 600
+_MAX_TOOL_FEEDBACK_CHARS = 2000
 _MAX_TOOL_ROUNDS = 6
-_MAX_SUMMARIES_PER_RUN = 2
 _MAX_TOOL_REASONING_CHARS = 4000
-# Wall-clock budgets for the agentic loop: once spent, no new tool rounds start (the final structured
-# turn still runs). The inline API path stays close to the old single-call bound; the background
-# refresh gets room for cold summaries while finishing well inside its Temporal activity timeout.
+# Wall-clock budgets for the agentic loop: once spent, no new tool rounds start, though the in-flight
+# round and the final structured turn each still run under _MODEL_CALL_TIMEOUT_MS. The inline path is
+# sized against a user waiting on an HTTP request; the background refresh trades that for more rounds,
+# since nobody is waiting. See REFRESH_PROMPT_SUGGESTION_TIMEOUT (temporal/constants.py) for the cap it
+# has to sit under.
 _AGENT_BUDGET_INLINE_S = 60.0
 _AGENT_BUDGET_BACKGROUND_S = 180.0
-# Never start a cold summary with less than this much budget left; the wait is bounded by the remainder.
-_COLD_SUMMARY_MIN_BUDGET_S = 60.0
 
 _AGENT_SYSTEM_ADDENDUM = """
 Before answering you may call tools to gather context: pull a rated session's full output, reasoning
-and feedback; list rated sessions beyond the sample; or fetch a session's summary (what actually
-happened in the recording). Prioritize investigating thumbs-down sessions and any session where the
-feedback and the scanner output seem to disagree — the summary tells you what really happened.
-
-Summaries are expensive: request them only where they change your rewrite. When you have enough
+and feedback, or list rated sessions beyond the sample. Prioritize investigating thumbs-down sessions
+and any session where the feedback and the scanner output seem to disagree. When you have enough
 context, answer.
 """
 
@@ -122,7 +117,17 @@ def _describe_reasoning(observation: ReplayObservation) -> str:
     reasoning = output.get("reasoning")
     if not isinstance(reasoning, str) or not reasoning:
         return ""
-    return reasoning[:_MAX_REASONING_CHARS] + ("…" if len(reasoning) > _MAX_REASONING_CHARS else "")
+    return _clip(reasoning, _MAX_REASONING_CHARS)
+
+
+def _defuse_fence(text: str) -> str:
+    """A rewrite containing \"\"\" would close its own fence early and have the remainder read as briefing
+    instructions."""
+    return text.replace('"""', "'''")
+
+
+def _clip(text: str, limit: int) -> str:
+    return text[:limit] + "…" if len(text) > limit else text
 
 
 def _label(observation: ReplayObservation) -> ReplayObservationLabel:
@@ -134,7 +139,8 @@ def _example_line(observation: ReplayObservation) -> str:
     label = _label(observation)
     parts = [f"- Session {observation.session_id}. Scanner output: {_describe_outcome(observation)}"]
     if label.feedback:
-        parts.append(f"{'What it should be' if not label.is_correct else 'Note'}: {label.feedback}")
+        feedback = _clip(label.feedback, _MAX_BRIEFING_FEEDBACK_CHARS)
+        parts.append(f"{'What it should be' if not label.is_correct else 'Note'}: {feedback}")
     reasoning = _describe_reasoning(observation)
     if reasoning:
         parts.append(f"Its reasoning: {reasoning}")
@@ -188,10 +194,8 @@ def _dismissed_lines(scanner: ReplayScanner) -> list[str]:
         "Previously rejected rewrites (the team dismissed these; do not propose them again or close variations):",
     ]
     for suggestion in dismissed:
-        prompt = suggestion.suggested_prompt
-        if len(prompt) > _MAX_DISMISSED_PROMPT_CHARS:
-            prompt = prompt[:_MAX_DISMISSED_PROMPT_CHARS] + "…"
-        lines.append(f'- """{prompt}"""')
+        prompt = _clip(suggestion.suggested_prompt, _MAX_DISMISSED_PROMPT_CHARS)
+        lines.append(f'- """{_defuse_fence(prompt)}"""')
     return lines
 
 
@@ -206,7 +210,7 @@ def _build_user_content(
         "",
         "Current prompt:",
         '"""',
-        str(base_config.get("prompt", "")),
+        _defuse_fence(str(base_config.get("prompt", ""))),
         '"""',
     ]
     if wrong:
@@ -269,7 +273,11 @@ def _generate(
             config=config,
             posthog_distinct_id=distinct_id,
             posthog_trace_id=str(uuid.uuid4()),
-            posthog_properties={"ai_product": "replay_vision", "feature": "suggest_scanner_prompt"},
+            posthog_properties={
+                "ai_product": "replay_vision",
+                "feature": "suggest_scanner_prompt",
+                "team_id": team_id,
+            },
             posthog_groups={"project": str(team_id)},
         )
     except Exception as e:
@@ -311,41 +319,15 @@ def _agent_tools() -> types.Tool:
                     },
                 ),
             ),
-            types.FunctionDeclaration(
-                name="get_session_summary",
-                description=(
-                    "A narrative summary of what actually happened in the session recording — ground truth to "
-                    "check a rating or feedback against. Expensive; budgeted per run."
-                ),
-                parameters=types.Schema(
-                    type=types.Type.OBJECT,
-                    properties={
-                        "session_id": types.Schema(type=types.Type.STRING, description="The session id."),
-                    },
-                    required=["session_id"],
-                ),
-            ),
         ]
     )
 
 
-class _AgentToolState:
-    def __init__(
-        self, scanner: ReplayScanner, summary_user: User | None, allow_cold_summaries: bool, deadline: float
-    ) -> None:
-        self.scanner = scanner
-        self.summary_user = summary_user
-        self.allow_cold_summaries = allow_cold_summaries
-        self.deadline = deadline
-        self.cold_summaries_used = 0
-        self.summary_cache: dict[str, str] = {}
-
-
-def _rated_observation_for_session(state: _AgentToolState, session_id: str) -> ReplayObservation | None:
+def _rated_observation_for_session(scanner: ReplayScanner, session_id: str) -> ReplayObservation | None:
     return (
         ReplayObservation.objects.filter(
-            team_id=state.scanner.team_id,
-            scanner_id=state.scanner.id,
+            team_id=scanner.team_id,
+            scanner_id=scanner.id,
             session_id=session_id,
             status=ObservationStatus.SUCCEEDED,
             label__isnull=False,
@@ -355,8 +337,8 @@ def _rated_observation_for_session(state: _AgentToolState, session_id: str) -> R
     )
 
 
-def _tool_get_rated_observation(state: _AgentToolState, session_id: str) -> dict[str, Any]:
-    observation = _rated_observation_for_session(state, session_id)
+def _tool_get_rated_observation(scanner: ReplayScanner, session_id: str) -> dict[str, Any]:
+    observation = _rated_observation_for_session(scanner, session_id)
     if observation is None:
         return {"error": "no rated observation for that session id on this scanner"}
     label = _label(observation)
@@ -369,15 +351,15 @@ def _tool_get_rated_observation(state: _AgentToolState, session_id: str) -> dict
         "output": _describe_outcome(observation),
         "reasoning": reasoning[:_MAX_TOOL_REASONING_CHARS],
         "rating": "thumbs_up" if label.is_correct else "thumbs_down",
-        "feedback": label.feedback,
+        "feedback": _clip(label.feedback, _MAX_TOOL_FEEDBACK_CHARS),
         "prompt_version": snapshot.get("scanner_version"),
     }
 
 
-def _tool_list_rated_sessions(state: _AgentToolState, offset: int) -> dict[str, Any]:
+def _tool_list_rated_sessions(scanner: ReplayScanner, offset: int) -> dict[str, Any]:
     base = ReplayObservation.objects.filter(
-        team_id=state.scanner.team_id,
-        scanner_id=state.scanner.id,
+        team_id=scanner.team_id,
+        scanner_id=scanner.id,
         status=ObservationStatus.SUCCEEDED,
         label__isnull=False,
     )
@@ -398,93 +380,16 @@ def _tool_list_rated_sessions(state: _AgentToolState, offset: int) -> dict[str, 
     }
 
 
-def _run_cold_summary(state: _AgentToolState, session_id: str, user: User, *, timeout_s: float) -> dict[str, Any]:
-    """Run the summarization workflow for an unsummarized session, waiting at most the remaining run budget."""
-    from posthog.temporal.session_replay.session_summary.workflow import (  # noqa: PLC0415 (heavy temporal dep, only loaded on the cold path)
-        execute_summarize_session,
-    )
-
-    # Count before executing so a failing cold run still spends budget.
-    state.cold_summaries_used += 1
-    team = Team.objects.get(pk=state.scanner.team_id)
-
-    async def _bounded() -> dict[str, Any]:
-        return await asyncio.wait_for(
-            execute_summarize_session(
-                session_id=session_id,
-                user=user,
-                team=team,
-                custom_tags={"ai_product": "replay_vision", "feature": "suggest_scanner_prompt"},
-            ),
-            timeout=timeout_s,
-        )
-
-    return async_to_sync(_bounded)()
-
-
-def _summary_access_error(state: _AgentToolState, session_id: str) -> dict[str, Any] | None:
-    """Mirror the session-summary API's recording gate: no summaries for deleted recordings, and reads
-    require viewer access on the recording as `summary_user` (the requester inline, the scanner's
-    creator in the background refresh)."""
-    team = Team.objects.get(pk=state.scanner.team_id)
-    recording = SessionRecording.get_or_build(session_id=session_id, team=team)
-    if recording.deleted:
-        return {"error": "the recording for this session was deleted; decide with the context you have"}
-    if state.summary_user is None or not UserAccessControl(state.summary_user, team).check_access_level_for_object(
-        recording, required_level="viewer"
-    ):
-        return {"error": "this session's recording is not accessible; decide with the context you have"}
-    return None
-
-
-def _tool_get_session_summary(state: _AgentToolState, session_id: str) -> dict[str, Any]:
-    if session_id in state.summary_cache:
-        return {"session_id": session_id, "summary": state.summary_cache[session_id]}
-    if _rated_observation_for_session(state, session_id) is None:
-        return {"error": "no rated observation for that session id on this scanner"}
-    denied = _summary_access_error(state, session_id)
-    if denied is not None:
-        return denied
-    # Deferred: heavy modules stay off the API import path. Summaries go through core helpers,
-    # since replay_vision must not import products.replay internals.
-    from posthog.temporal.session_replay.session_summary.state import (
-        get_ready_summaries_from_db,  # noqa: PLC0415 (heavy temporal dep, see above)
-    )
-
-    from ee.hogai.session_summaries.session.stringify import (
-        SingleSessionSummaryStringifier,  # noqa: PLC0415 (heavy ee dep, see above)
-    )
-
-    cached = get_ready_summaries_from_db([session_id], team_id=state.scanner.team_id, extra_summary_context=None)
-    summary_json = cached[0].summary if cached else None
-    if summary_json is None:
-        # Only cold generation is budgeted; cached summaries above are cheap reads.
-        summary_user = state.summary_user if state.allow_cold_summaries else None
-        if summary_user is None:
-            return {"error": "no summary exists for this session yet and generating one is unavailable here"}
-        if state.cold_summaries_used >= _MAX_SUMMARIES_PER_RUN:
-            return {"error": "summary budget for this run is exhausted; decide with the context you have"}
-        remaining = state.deadline - time.monotonic()
-        if remaining < _COLD_SUMMARY_MIN_BUDGET_S:
-            return {"error": "not enough time left in this run to generate a summary; decide with the context you have"}
-        summary_json = _run_cold_summary(state, session_id, summary_user, timeout_s=remaining)
-    text = SingleSessionSummaryStringifier(summary_json).stringify_session()
-    state.summary_cache[session_id] = text
-    return {"session_id": session_id, "summary": text}
-
-
-def _dispatch_agent_tool(state: _AgentToolState, call: types.FunctionCall) -> dict[str, Any]:
+def _dispatch_agent_tool(scanner: ReplayScanner, call: types.FunctionCall) -> dict[str, Any]:
     name = call.name
     args = dict(call.args or {})
     try:
         if name == "get_rated_observation":
-            return _tool_get_rated_observation(state, str(args.get("session_id", "")))
+            return _tool_get_rated_observation(scanner, str(args.get("session_id", "")))
         if name == "list_rated_sessions":
-            return _tool_list_rated_sessions(state, int(args.get("offset", 0) or 0))
-        if name == "get_session_summary":
-            return _tool_get_session_summary(state, str(args.get("session_id", "")))
+            return _tool_list_rated_sessions(scanner, int(args.get("offset", 0) or 0))
     except Exception:
-        logger.exception("replay_vision.prompt_agent.tool_failed", tool=name, scanner_id=str(state.scanner.id))
+        logger.exception("replay_vision.prompt_agent.tool_failed", tool=name, scanner_id=str(scanner.id))
         return {"error": "tool failed; decide with the context you have"}
     return {"error": f"unknown tool: {name}"}
 
@@ -503,7 +408,11 @@ def _model_call(
         config=config,
         posthog_distinct_id=distinct_id,
         posthog_trace_id=str(uuid.uuid4()),
-        posthog_properties={"ai_product": "replay_vision", "feature": "suggest_scanner_prompt_agentic"},
+        posthog_properties={
+            "ai_product": "replay_vision",
+            "feature": "suggest_scanner_prompt_agentic",
+            "team_id": team_id,
+        },
         posthog_groups={"project": str(team_id)},
     )
 
@@ -512,19 +421,15 @@ def _generate_agentic(
     *,
     scanner: ReplayScanner,
     user_content: str,
-    user: User | None,
-    allow_cold_summaries: bool,
+    budget_s: float,
     distinct_id: str,
     system_prompt: str,
     output_schema: dict[str, Any],
 ) -> dict[str, Any]:
-    """Tool-loop generation: the model may inspect rated sessions (and their summaries) before rewriting,
-    then a final tool-free turn forces the structured answer, mirroring the scanner's own tool loop."""
+    """Tool-loop generation: the model may inspect rated sessions before rewriting, then a final tool-free
+    turn forces the structured answer, mirroring the scanner's own tool loop."""
     client = _gemini_client()
-    budget_s = _AGENT_BUDGET_BACKGROUND_S if allow_cold_summaries else _AGENT_BUDGET_INLINE_S
     deadline = time.monotonic() + budget_s
-    # Summary tools act as the requester (the scanner's creator on the automatic path); attribution stays `user`.
-    state = _AgentToolState(scanner, user or scanner.created_by, allow_cold_summaries, deadline)
     agent_system_prompt = system_prompt + _AGENT_SYSTEM_ADDENDUM
     tool_config = GenerateContentConfig(
         system_instruction=agent_system_prompt,
@@ -541,7 +446,9 @@ def _generate_agentic(
         for call in response.function_calls:
             convo.append(
                 types.Part(
-                    function_response=types.FunctionResponse(name=call.name, response=_dispatch_agent_tool(state, call))
+                    function_response=types.FunctionResponse(
+                        name=call.name, response=_dispatch_agent_tool(scanner, call)
+                    )
                 )
             )
         response = _model_call(client, convo, tool_config, team_id=scanner.team_id, distinct_id=distinct_id)
@@ -554,7 +461,7 @@ def _generate_agentic(
         convo.append(last_content)
         final_parts.extend(
             types.Part(
-                function_response=types.FunctionResponse(name=call.name, response=_dispatch_agent_tool(state, call))
+                function_response=types.FunctionResponse(name=call.name, response=_dispatch_agent_tool(scanner, call))
             )
             for call in response.function_calls or []
         )
@@ -576,14 +483,16 @@ def _generate_agentic(
 
 
 def generate_prompt_suggestion(
-    scanner: ReplayScanner, user: User | None = None, *, allow_cold_summaries: bool = False
+    scanner: ReplayScanner, user: User | None = None, *, background: bool = False
 ) -> ReplayScannerPromptSuggestion:
     """Generate and persist a fresh suggestion; earlier pending ones become history.
 
-    `user` is set for explicit (re)generate requests and null for the automatic daily refresh.
-    The agentic path lets the model inspect rated sessions (and, budget permitting, their summaries)
-    before rewriting; on any agent failure we fall back to the single-shot generation so a suggestion
-    still lands. A rewrite matching the current prompt lands as `no_change`: the scanner looks good.
+    `user` is set for explicit (re)generate requests and null for the automatic daily refresh, which
+    passes `background` to buy the agent a longer wall-clock budget: nobody is waiting on a response, so
+    it can afford more tool rounds than a request a person is holding open.
+    The agentic path lets the model inspect rated sessions before rewriting; on any agent failure we
+    fall back to the single-shot generation so a suggestion still lands. A rewrite matching the current
+    prompt lands as `no_change`: the scanner looks good.
     """
     observations = _labeled_observations(scanner)
     if not observations:
@@ -591,7 +500,7 @@ def generate_prompt_suggestion(
     base_config = dict(scanner.scanner_config or {})
     distinct_id = str(user.uuid) if user else f"replay-vision-scanner-{scanner.id}"
     try:
-        # Fresh themes feed the briefing below and the Quality tab's chips; stale ones beat none.
+        # Fresh themes feed the briefing below and the calibration tab's chips; stale ones beat none.
         refresh_feedback_themes_if_stale(scanner, distinct_id=distinct_id)
     except Exception:
         logger.exception("replay_vision.feedback_themes.refresh_failed", scanner_id=str(scanner.id))
@@ -601,8 +510,7 @@ def generate_prompt_suggestion(
         llm_output = _generate_agentic(
             scanner=scanner,
             user_content=user_content,
-            user=user,
-            allow_cold_summaries=allow_cold_summaries,
+            budget_s=_AGENT_BUDGET_BACKGROUND_S if background else _AGENT_BUDGET_INLINE_S,
             distinct_id=distinct_id,
             system_prompt=proposer.system_prompt(),
             output_schema=proposer.output_schema(),
@@ -675,8 +583,8 @@ def refresh_prompt_suggestion_if_stale(scanner: ReplayScanner) -> str:
         if timezone.now() - latest.created_at < PROMPT_SUGGESTION_MIN_AGE:
             return "refreshed_recently"
     try:
-        # user=None keeps automatic suggestions unattributed; cold summaries run as the scanner's creator.
-        generate_prompt_suggestion(scanner, allow_cold_summaries=True)
+        # user=None keeps automatic suggestions unattributed.
+        generate_prompt_suggestion(scanner, background=True)
     except PromptSuggestionError as e:
         if str(e) == "no rated observations":
             return "no_ratings"

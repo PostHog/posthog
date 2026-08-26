@@ -97,6 +97,12 @@ Most low-value tests are one of these — recognize them and extend an existing 
 - **Redundant coverage**: a new test that's a variation of an existing one is a `@parameterized` case (Python) or a `test.each` row (Jest), not a new test function.
 - **Coverage-chasing**: an uncovered line is information, not a defect — don't add a test just to move the number.
 
+Then answer a second question: **why can't this be a case in the test that already covers the nearest behavior?**
+Earning the coverage doesn't earn a new test function.
+Default to extending the existing test with a parameterized case, and write a standalone one only when you can say why extending doesn't work: different setup, a different unit, or nothing relevant exists.
+Extend to remove duplication, not to save setup time, since a parameterized case still runs `setUp` for itself.
+Fold in variations of the same behavior, and don't attach unrelated assertions to a test that already passes.
+
 #### Weight tests down the pyramid
 
 Each rung is roughly an order of magnitude slower and flakier than the one below:
@@ -132,6 +138,41 @@ A good test should:
 - Integration tests should ensure that the feature works in the running system
 - They give greater confidence (because you avoid the mistake of just testing a mock) but they're slower
 - They are generally less brittle in response to changes because they test at a higher level than developer tests (e.g. they test a Django API not a class used inside it)
+
+#### Temporary migration tests
+
+A dedicated data migration test protects the rollout. Remove the test after the migration has run in every supported environment, the rollback window has closed, and no supported upgrade still relies on the old data state.
+
+Delete an expired migration test instead of marking it skipped. Keep the migration file. Fresh-schema CI continues to check that the migration chain applies.
+
+Keep tests for migration tooling, migration safety checks, reusable backfill systems, and backfills that people can still run.
+
+### Dataclasses
+
+Prefer a small dataclass over a tuple when returning or passing multiple values: always when two or more elements share a type (callers can silently swap them, e.g. `(start, end)` timestamps or `(username, password)` credentials), and when there are roughly 3+ elements, where positional access hurts readability.
+
+Use the house-default decorator:
+
+```python
+from posthog.dataclasses import frozen
+
+
+@frozen
+class BillingPeriod:
+    start: datetime
+    end: datetime
+```
+
+`@frozen` applies `frozen=True` (immutable, hashable), `kw_only=True` (keyword-only construction, so same-typed fields can't be transposed), and `slots=True` (less memory, typo-safe attribute access).
+Every flag is overridable per class: `@frozen(slots=False)` when a class needs `functools.cached_property`, or an explicit `@dataclass(frozen=False, ...)` for a deliberately mutable builder.
+
+Consume results with dot notation (`result.field`).
+Don't unpack them back into positional locals (`a, b = result.a, result.b`), which recreates the swap hazard the dataclass exists to prevent.
+
+Name dataclasses after the domain concept (`ClickHouseCredentials`, `BillingPeriod`), never `*Info`/`*Data`/`*Tuple`; use a `*Result` suffix only when the function's outcome genuinely is the concept.
+Mark secret fields with `field(repr=False)` so they stay out of logs and tracebacks.
+
+Enforcement: a new bare `@dataclass` without an explicit `frozen=` choice fails the ratchet in `posthog/test/repo_invariants/test_dataclass_defaults.py` (existing uses are grandfathered in its baseline) and is flagged inline by the `prefer-frozen-dataclasses` semgrep rule.
 
 ### Querying ClickHouse
 

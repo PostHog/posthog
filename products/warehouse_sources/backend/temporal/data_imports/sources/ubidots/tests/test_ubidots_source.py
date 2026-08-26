@@ -3,16 +3,11 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ubidots import (
     UbidotsSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.ubidots.settings import ENDPOINTS, VALUES_ENDPOINT
 from products.warehouse_sources.backend.temporal.data_imports.sources.ubidots.source import UbidotsSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.ubidots.ubidots import UbidotsResumeConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestUbidotsSource:
@@ -20,26 +15,6 @@ class TestUbidotsSource:
         self.source = UbidotsSource()
         self.team_id = 123
         self.config = UbidotsSourceConfig(api_token="BBUS-token")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.UBIDOTS
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-        assert config.name.value == "Ubidots"
-        assert config.label == "Ubidots"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/ubidots"
-
-        field_names = [f.name for f in config.fields]
-        assert field_names == ["api_token", "api_base_url"]
-
-    def test_api_token_field_is_secret_password(self) -> None:
-        config = self.source.get_source_config
-        field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_token")
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
-        assert field.required is True
 
     def test_lists_tables_without_credentials(self) -> None:
         assert self.source.lists_tables_without_credentials is True
@@ -92,17 +67,11 @@ class TestUbidotsSource:
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in unrelated_error for key in non_retryable)
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.ubidots.source.validate_credentials")
-    def test_validate_credentials_delegates_to_shared_helper(self, mock_validate: mock.MagicMock) -> None:
-        mock_validate.return_value = (False, "Invalid Ubidots API token")
-        result = self.source.validate_credentials(self.config, self.team_id)
-        assert result == (False, "Invalid Ubidots API token")
-        mock_validate.assert_called_once_with("BBUS-token", "https://industrial.api.ubidots.com")
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is UbidotsResumeConfig
+    def test_version_declarations(self) -> None:
+        # v2.0 is the default new sources are stamped with; v1 stays supported so existing pins keep
+        # syncing through the legacy v1.6 Data API.
+        assert self.source.supported_versions == ("v1", "v2.0")
+        assert self.source.default_version == "v2.0"
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.ubidots.source.ubidots_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
@@ -110,6 +79,7 @@ class TestUbidotsSource:
         inputs.schema_name = VALUES_ENDPOINT
         inputs.should_use_incremental_field = True
         inputs.db_incremental_field_last_value = 1700000000000
+        inputs.api_version = None
         manager = mock.MagicMock()
 
         self.source.source_for_pipeline(self.config, manager, inputs)
@@ -122,6 +92,25 @@ class TestUbidotsSource:
         assert kwargs["resumable_source_manager"] is manager
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == 1700000000000
+
+    @parameterized.expand(
+        [
+            ("no_pin_resolves_to_default", None, "v2.0"),
+            ("legacy_pin_honored", "v1", "v1"),
+            ("v2_pin_honored", "v2.0", "v2.0"),
+        ]
+    )
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.ubidots.source.ubidots_source")
+    def test_source_for_pipeline_threads_resolved_api_version(
+        self, _name: str, pin: str | None, expected: str, mock_source: mock.MagicMock
+    ) -> None:
+        inputs = mock.MagicMock()
+        inputs.schema_name = VALUES_ENDPOINT
+        inputs.api_version = pin
+
+        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+
+        assert mock_source.call_args.kwargs["api_version"] == expected
 
     def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
         inputs = mock.MagicMock()

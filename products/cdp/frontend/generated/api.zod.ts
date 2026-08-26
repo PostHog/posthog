@@ -39,15 +39,16 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
                     'warehouse_source_webhook',
                     'site_app',
                     'transformation',
+                    'transformation_log',
                 ])
                 .describe(
-                    '\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation'
+                    '\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.\n\n\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation'
+            'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation, or transformation_log.\n\n\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log'
         ),
     name: zod.string().max(hogFunctionsCreateBodyNameMax).nullish().describe('Display name for the function.'),
     description: zod.string().optional().describe('Human-readable description of what this function does.'),
@@ -79,9 +80,12 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
                         'non_failure_status_codes',
                         'customer_analytics_account_properties',
                         'customer_analytics_account_relationships',
+                        'task_model',
+                        'task_repository',
+                        'task_mcp_installations',
                     ])
                     .describe(
-                        '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_multi` - integration_multi\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes\n\* `customer_analytics_account_properties` - customer_analytics_account_properties\n\* `customer_analytics_account_relationships` - customer_analytics_account_relationships'
+                        '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_multi` - integration_multi\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes\n\* `customer_analytics_account_properties` - customer_analytics_account_properties\n\* `customer_analytics_account_relationships` - customer_analytics_account_relationships\n\* `task_model` - task_model\n\* `task_repository` - task_repository\n\* `task_mcp_installations` - task_mcp_installations'
                     ),
                 key: zod.string(),
                 label: zod.string().optional(),
@@ -118,9 +122,9 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
     filters: zod
         .object({
             source: zod
-                .enum(['events', 'person-updates', 'data-warehouse-table'])
+                .enum(['events', 'person-updates', 'data-warehouse-table', 'data-warehouse-view'])
                 .describe(
-                    '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
+                    '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
                 )
                 .default(hogFunctionsCreateBodyFiltersOneSourceDefault),
             actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
@@ -179,9 +183,12 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
                                     'non_failure_status_codes',
                                     'customer_analytics_account_properties',
                                     'customer_analytics_account_relationships',
+                                    'task_model',
+                                    'task_repository',
+                                    'task_mcp_installations',
                                 ])
                                 .describe(
-                                    '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_multi` - integration_multi\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes\n\* `customer_analytics_account_properties` - customer_analytics_account_properties\n\* `customer_analytics_account_relationships` - customer_analytics_account_relationships'
+                                    '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_multi` - integration_multi\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes\n\* `customer_analytics_account_properties` - customer_analytics_account_properties\n\* `customer_analytics_account_relationships` - customer_analytics_account_relationships\n\* `task_model` - task_model\n\* `task_repository` - task_repository\n\* `task_mcp_installations` - task_mcp_installations'
                                 ),
                             key: zod.string(),
                             label: zod.string().optional(),
@@ -225,9 +232,9 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
                 filters: zod
                     .object({
                         source: zod
-                            .enum(['events', 'person-updates', 'data-warehouse-table'])
+                            .enum(['events', 'person-updates', 'data-warehouse-table', 'data-warehouse-view'])
                             .describe(
-                                '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
+                                '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
                             )
                             .default(hogFunctionsCreateBodyMappingsItemFiltersSourceDefault),
                         actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
@@ -257,6 +264,12 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe('Execution priority for transformations. Lower values run first.'),
     _create_in_folder: zod.string().optional(),
+    base_updated_at: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe(
+            'Optimistic concurrency: the updated_at (or draft_updated_at when editing a staged draft) you last read. If the stored side is newer, the write fails with 409 instead of overwriting the concurrent edit. Omit to overwrite unconditionally.'
+        ),
 })
 
 export const hogFunctionsUpdateBodyNameMax = 400
@@ -289,15 +302,16 @@ export const HogFunctionsUpdateBody = /* @__PURE__ */ zod.object({
                     'warehouse_source_webhook',
                     'site_app',
                     'transformation',
+                    'transformation_log',
                 ])
                 .describe(
-                    '\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation'
+                    '\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.\n\n\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation'
+            'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation, or transformation_log.\n\n\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log'
         ),
     name: zod.string().max(hogFunctionsUpdateBodyNameMax).nullish().describe('Display name for the function.'),
     description: zod.string().optional().describe('Human-readable description of what this function does.'),
@@ -329,9 +343,12 @@ export const HogFunctionsUpdateBody = /* @__PURE__ */ zod.object({
                         'non_failure_status_codes',
                         'customer_analytics_account_properties',
                         'customer_analytics_account_relationships',
+                        'task_model',
+                        'task_repository',
+                        'task_mcp_installations',
                     ])
                     .describe(
-                        '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_multi` - integration_multi\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes\n\* `customer_analytics_account_properties` - customer_analytics_account_properties\n\* `customer_analytics_account_relationships` - customer_analytics_account_relationships'
+                        '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_multi` - integration_multi\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes\n\* `customer_analytics_account_properties` - customer_analytics_account_properties\n\* `customer_analytics_account_relationships` - customer_analytics_account_relationships\n\* `task_model` - task_model\n\* `task_repository` - task_repository\n\* `task_mcp_installations` - task_mcp_installations'
                     ),
                 key: zod.string(),
                 label: zod.string().optional(),
@@ -368,9 +385,9 @@ export const HogFunctionsUpdateBody = /* @__PURE__ */ zod.object({
     filters: zod
         .object({
             source: zod
-                .enum(['events', 'person-updates', 'data-warehouse-table'])
+                .enum(['events', 'person-updates', 'data-warehouse-table', 'data-warehouse-view'])
                 .describe(
-                    '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
+                    '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
                 )
                 .default(hogFunctionsUpdateBodyFiltersOneSourceDefault),
             actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
@@ -429,9 +446,12 @@ export const HogFunctionsUpdateBody = /* @__PURE__ */ zod.object({
                                     'non_failure_status_codes',
                                     'customer_analytics_account_properties',
                                     'customer_analytics_account_relationships',
+                                    'task_model',
+                                    'task_repository',
+                                    'task_mcp_installations',
                                 ])
                                 .describe(
-                                    '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_multi` - integration_multi\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes\n\* `customer_analytics_account_properties` - customer_analytics_account_properties\n\* `customer_analytics_account_relationships` - customer_analytics_account_relationships'
+                                    '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_multi` - integration_multi\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes\n\* `customer_analytics_account_properties` - customer_analytics_account_properties\n\* `customer_analytics_account_relationships` - customer_analytics_account_relationships\n\* `task_model` - task_model\n\* `task_repository` - task_repository\n\* `task_mcp_installations` - task_mcp_installations'
                                 ),
                             key: zod.string(),
                             label: zod.string().optional(),
@@ -475,9 +495,9 @@ export const HogFunctionsUpdateBody = /* @__PURE__ */ zod.object({
                 filters: zod
                     .object({
                         source: zod
-                            .enum(['events', 'person-updates', 'data-warehouse-table'])
+                            .enum(['events', 'person-updates', 'data-warehouse-table', 'data-warehouse-view'])
                             .describe(
-                                '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
+                                '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
                             )
                             .default(hogFunctionsUpdateBodyMappingsItemFiltersSourceDefault),
                         actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
@@ -507,6 +527,12 @@ export const HogFunctionsUpdateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe('Execution priority for transformations. Lower values run first.'),
     _create_in_folder: zod.string().optional(),
+    base_updated_at: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe(
+            'Optimistic concurrency: the updated_at (or draft_updated_at when editing a staged draft) you last read. If the stored side is newer, the write fails with 409 instead of overwriting the concurrent edit. Omit to overwrite unconditionally.'
+        ),
 })
 
 export const hogFunctionsPartialUpdateBodyNameMax = 400
@@ -539,15 +565,16 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     'warehouse_source_webhook',
                     'site_app',
                     'transformation',
+                    'transformation_log',
                 ])
                 .describe(
-                    '\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation'
+                    '\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.\n\n\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation'
+            'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation, or transformation_log.\n\n\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log'
         ),
     name: zod.string().max(hogFunctionsPartialUpdateBodyNameMax).nullish().describe('Display name for the function.'),
     description: zod.string().optional().describe('Human-readable description of what this function does.'),
@@ -579,9 +606,12 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
                         'non_failure_status_codes',
                         'customer_analytics_account_properties',
                         'customer_analytics_account_relationships',
+                        'task_model',
+                        'task_repository',
+                        'task_mcp_installations',
                     ])
                     .describe(
-                        '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_multi` - integration_multi\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes\n\* `customer_analytics_account_properties` - customer_analytics_account_properties\n\* `customer_analytics_account_relationships` - customer_analytics_account_relationships'
+                        '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_multi` - integration_multi\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes\n\* `customer_analytics_account_properties` - customer_analytics_account_properties\n\* `customer_analytics_account_relationships` - customer_analytics_account_relationships\n\* `task_model` - task_model\n\* `task_repository` - task_repository\n\* `task_mcp_installations` - task_mcp_installations'
                     ),
                 key: zod.string(),
                 label: zod.string().optional(),
@@ -618,9 +648,9 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
     filters: zod
         .object({
             source: zod
-                .enum(['events', 'person-updates', 'data-warehouse-table'])
+                .enum(['events', 'person-updates', 'data-warehouse-table', 'data-warehouse-view'])
                 .describe(
-                    '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
+                    '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
                 )
                 .default(hogFunctionsPartialUpdateBodyFiltersOneSourceDefault),
             actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
@@ -679,9 +709,12 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                     'non_failure_status_codes',
                                     'customer_analytics_account_properties',
                                     'customer_analytics_account_relationships',
+                                    'task_model',
+                                    'task_repository',
+                                    'task_mcp_installations',
                                 ])
                                 .describe(
-                                    '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_multi` - integration_multi\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes\n\* `customer_analytics_account_properties` - customer_analytics_account_properties\n\* `customer_analytics_account_relationships` - customer_analytics_account_relationships'
+                                    '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_multi` - integration_multi\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes\n\* `customer_analytics_account_properties` - customer_analytics_account_properties\n\* `customer_analytics_account_relationships` - customer_analytics_account_relationships\n\* `task_model` - task_model\n\* `task_repository` - task_repository\n\* `task_mcp_installations` - task_mcp_installations'
                                 ),
                             key: zod.string(),
                             label: zod.string().optional(),
@@ -725,9 +758,9 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
                 filters: zod
                     .object({
                         source: zod
-                            .enum(['events', 'person-updates', 'data-warehouse-table'])
+                            .enum(['events', 'person-updates', 'data-warehouse-table', 'data-warehouse-view'])
                             .describe(
-                                '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
+                                '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
                             )
                             .default(hogFunctionsPartialUpdateBodyMappingsItemFiltersSourceDefault),
                         actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
@@ -757,6 +790,12 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe('Execution priority for transformations. Lower values run first.'),
     _create_in_folder: zod.string().optional(),
+    base_updated_at: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe(
+            'Optimistic concurrency: the updated_at (or draft_updated_at when editing a staged draft) you last read. If the stored side is newer, the write fails with 409 instead of overwriting the concurrent edit. Omit to overwrite unconditionally.'
+        ),
 })
 
 export const hogFunctionsEnableBackfillsCreateBodyNameMax = 400
@@ -789,15 +828,16 @@ export const HogFunctionsEnableBackfillsCreateBody = /* @__PURE__ */ zod.object(
                     'warehouse_source_webhook',
                     'site_app',
                     'transformation',
+                    'transformation_log',
                 ])
                 .describe(
-                    '\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation'
+                    '\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.\n\n\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation'
+            'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation, or transformation_log.\n\n\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log'
         ),
     name: zod
         .string()
@@ -833,9 +873,12 @@ export const HogFunctionsEnableBackfillsCreateBody = /* @__PURE__ */ zod.object(
                         'non_failure_status_codes',
                         'customer_analytics_account_properties',
                         'customer_analytics_account_relationships',
+                        'task_model',
+                        'task_repository',
+                        'task_mcp_installations',
                     ])
                     .describe(
-                        '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_multi` - integration_multi\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes\n\* `customer_analytics_account_properties` - customer_analytics_account_properties\n\* `customer_analytics_account_relationships` - customer_analytics_account_relationships'
+                        '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_multi` - integration_multi\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes\n\* `customer_analytics_account_properties` - customer_analytics_account_properties\n\* `customer_analytics_account_relationships` - customer_analytics_account_relationships\n\* `task_model` - task_model\n\* `task_repository` - task_repository\n\* `task_mcp_installations` - task_mcp_installations'
                     ),
                 key: zod.string(),
                 label: zod.string().optional(),
@@ -872,9 +915,9 @@ export const HogFunctionsEnableBackfillsCreateBody = /* @__PURE__ */ zod.object(
     filters: zod
         .object({
             source: zod
-                .enum(['events', 'person-updates', 'data-warehouse-table'])
+                .enum(['events', 'person-updates', 'data-warehouse-table', 'data-warehouse-view'])
                 .describe(
-                    '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
+                    '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
                 )
                 .default(hogFunctionsEnableBackfillsCreateBodyFiltersOneSourceDefault),
             actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
@@ -933,9 +976,12 @@ export const HogFunctionsEnableBackfillsCreateBody = /* @__PURE__ */ zod.object(
                                     'non_failure_status_codes',
                                     'customer_analytics_account_properties',
                                     'customer_analytics_account_relationships',
+                                    'task_model',
+                                    'task_repository',
+                                    'task_mcp_installations',
                                 ])
                                 .describe(
-                                    '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_multi` - integration_multi\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes\n\* `customer_analytics_account_properties` - customer_analytics_account_properties\n\* `customer_analytics_account_relationships` - customer_analytics_account_relationships'
+                                    '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_multi` - integration_multi\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes\n\* `customer_analytics_account_properties` - customer_analytics_account_properties\n\* `customer_analytics_account_relationships` - customer_analytics_account_relationships\n\* `task_model` - task_model\n\* `task_repository` - task_repository\n\* `task_mcp_installations` - task_mcp_installations'
                                 ),
                             key: zod.string(),
                             label: zod.string().optional(),
@@ -985,9 +1031,9 @@ export const HogFunctionsEnableBackfillsCreateBody = /* @__PURE__ */ zod.object(
                 filters: zod
                     .object({
                         source: zod
-                            .enum(['events', 'person-updates', 'data-warehouse-table'])
+                            .enum(['events', 'person-updates', 'data-warehouse-table', 'data-warehouse-view'])
                             .describe(
-                                '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
+                                '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
                             )
                             .default(hogFunctionsEnableBackfillsCreateBodyMappingsItemFiltersSourceDefault),
                         actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
@@ -1017,6 +1063,12 @@ export const HogFunctionsEnableBackfillsCreateBody = /* @__PURE__ */ zod.object(
         .nullish()
         .describe('Execution priority for transformations. Lower values run first.'),
     _create_in_folder: zod.string().optional(),
+    base_updated_at: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe(
+            'Optimistic concurrency: the updated_at (or draft_updated_at when editing a staged draft) you last read. If the stored side is newer, the write fails with 409 instead of overwriting the concurrent edit. Omit to overwrite unconditionally.'
+        ),
 })
 
 export const hogFunctionsInvocationsCreateBodyConfigurationOneNameMax = 400
@@ -1053,6 +1105,7 @@ export const hogFunctionsInvocationsCreateBodyConfigurationOneTemplateIdMax = 40
 export const hogFunctionsInvocationsCreateBodyConfigurationOneExecutionOrderMin = 0
 export const hogFunctionsInvocationsCreateBodyConfigurationOneExecutionOrderMax = 32767
 
+export const hogFunctionsInvocationsCreateBodyUseDraftDefault = false
 export const hogFunctionsInvocationsCreateBodyMockAsyncFunctionsDefault = true
 
 export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
@@ -1070,15 +1123,16 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                             'warehouse_source_webhook',
                             'site_app',
                             'transformation',
+                            'transformation_log',
                         ])
                         .describe(
-                            '\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation'
+                            '\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log'
                         ),
                     zod.null(),
                 ])
                 .optional()
                 .describe(
-                    'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.\n\n\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation'
+                    'Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation, or transformation_log.\n\n\* `destination` - Destination\n\* `site_destination` - Site Destination\n\* `internal_destination` - Internal Destination\n\* `source_webhook` - Source Webhook\n\* `warehouse_source_webhook` - Warehouse Source Webhook\n\* `site_app` - Site App\n\* `transformation` - Transformation\n\* `transformation_log` - Transformation Log'
                 ),
             name: zod
                 .string()
@@ -1116,10 +1170,11 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                 'leadership',
                                 'marketing',
                                 'sales',
+                                'student',
                                 'other',
                             ])
                             .describe(
-                                '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `other` - Other'
+                                '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `student` - Student\n\* `other` - Other'
                             ),
                         zod.enum(['']),
                         zod.null(),
@@ -1157,9 +1212,12 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                 'non_failure_status_codes',
                                 'customer_analytics_account_properties',
                                 'customer_analytics_account_relationships',
+                                'task_model',
+                                'task_repository',
+                                'task_mcp_installations',
                             ])
                             .describe(
-                                '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_multi` - integration_multi\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes\n\* `customer_analytics_account_properties` - customer_analytics_account_properties\n\* `customer_analytics_account_relationships` - customer_analytics_account_relationships'
+                                '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_multi` - integration_multi\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes\n\* `customer_analytics_account_properties` - customer_analytics_account_properties\n\* `customer_analytics_account_relationships` - customer_analytics_account_relationships\n\* `task_model` - task_model\n\* `task_repository` - task_repository\n\* `task_mcp_installations` - task_mcp_installations'
                             ),
                         key: zod.string(),
                         label: zod.string().optional(),
@@ -1205,9 +1263,9 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
             filters: zod
                 .object({
                     source: zod
-                        .enum(['events', 'person-updates', 'data-warehouse-table'])
+                        .enum(['events', 'person-updates', 'data-warehouse-table', 'data-warehouse-view'])
                         .describe(
-                            '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
+                            '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
                         )
                         .default(hogFunctionsInvocationsCreateBodyConfigurationOneFiltersOneSourceDefault),
                     actions: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
@@ -1266,9 +1324,12 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                             'non_failure_status_codes',
                                             'customer_analytics_account_properties',
                                             'customer_analytics_account_relationships',
+                                            'task_model',
+                                            'task_repository',
+                                            'task_mcp_installations',
                                         ])
                                         .describe(
-                                            '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_multi` - integration_multi\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes\n\* `customer_analytics_account_properties` - customer_analytics_account_properties\n\* `customer_analytics_account_relationships` - customer_analytics_account_relationships'
+                                            '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_multi` - integration_multi\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes\n\* `customer_analytics_account_properties` - customer_analytics_account_properties\n\* `customer_analytics_account_relationships` - customer_analytics_account_relationships\n\* `task_model` - task_model\n\* `task_repository` - task_repository\n\* `task_mcp_installations` - task_mcp_installations'
                                         ),
                                     key: zod.string(),
                                     label: zod.string().optional(),
@@ -1318,9 +1379,9 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                         filters: zod
                             .object({
                                 source: zod
-                                    .enum(['events', 'person-updates', 'data-warehouse-table'])
+                                    .enum(['events', 'person-updates', 'data-warehouse-table', 'data-warehouse-view'])
                                     .describe(
-                                        '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table'
+                                        '\* `events` - events\n\* `person-updates` - person-updates\n\* `data-warehouse-table` - data-warehouse-table\n\* `data-warehouse-view` - data-warehouse-view'
                                     )
                                     .default(
                                         hogFunctionsInvocationsCreateBodyConfigurationOneMappingsItemFiltersSourceDefault
@@ -1429,8 +1490,33 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     'How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`.'
                 ),
+            version: zod
+                .number()
+                .describe('Incremented every time the live config changes. See the revisions endpoint.'),
+            draft: zod
+                .unknown()
+                .describe(
+                    'Config staged for review but not live yet: a full snapshot of hog, inputs_schema, inputs, filters, mappings and masking. Null when nothing is staged. Publish or discard it to clear.'
+                ),
+            draft_updated_at: zod.iso
+                .datetime({ offset: true })
+                .nullable()
+                .describe('When config was last staged for review, or null when nothing is staged.'),
+            base_updated_at: zod.iso
+                .datetime({ offset: true })
+                .optional()
+                .describe(
+                    'Optimistic concurrency: the updated_at (or draft_updated_at when editing a staged draft) you last read. If the stored side is newer, the write fails with 409 instead of overwriting the concurrent edit. Omit to overwrite unconditionally.'
+                ),
         })
-        .describe('Full function configuration to test.'),
+        .optional()
+        .describe('Full function configuration to test. Omit when use_draft is true.'),
+    use_draft: zod
+        .boolean()
+        .default(hogFunctionsInvocationsCreateBodyUseDraftDefault)
+        .describe(
+            "Test the function's staged draft instead of passing a configuration. Staged secret inputs are used; secrets the draft doesn't change fall back to the live values. 400 when nothing is staged."
+        ),
     globals: zod
         .record(zod.string(), zod.unknown())
         .optional()
@@ -1444,6 +1530,23 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
         .default(hogFunctionsInvocationsCreateBodyMockAsyncFunctionsDefault)
         .describe('When true (default), async functions like fetch() are simulated.'),
     invocation_id: zod.string().nullish().describe('Optional invocation ID for correlation.'),
+})
+
+export const hogFunctionsPublishCreateBodyConfirmDefault = false
+
+export const HogFunctionsPublishCreateBody = /* @__PURE__ */ zod.object({
+    confirm: zod
+        .boolean()
+        .default(hogFunctionsPublishCreateBodyConfirmDefault)
+        .describe(
+            'False (default) previews the publish: returns which config fields would change without changing anything. True applies the staged draft to the live function.'
+        ),
+    confirm_token: zod
+        .string()
+        .optional()
+        .describe(
+            'From the preview response, and required when confirm=true on an enabled function. Expires after 15 minutes, and any edit to the draft or the live config invalidates it (409), so you always publish the exact draft you previewed.'
+        ),
 })
 
 /**
@@ -1461,11 +1564,14 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
  * transformations during ingestion, `site_*` transpiled to client-side
  * JS). A re-enqueued invocation of one of those would never drain and
  * wedges the partition, so a rerun of a non-rerunnable type is rejected
- * with a 400 here.
+ * with a 400 here. A disabled function is rejected the same way: the
+ * worker skips its invocations, so the rerun could never execute.
  *
  * Because rerun replays historical event/person/group data, it requires
  * `person:read` and `group:read` on top of `hog_function:write`.
  */
+export const hogFunctionsRerunCreateBodyFilterOneErrorMessageContainsMax = 200
+
 export const hogFunctionsRerunCreateBodyFilterOneMaxAttemptsMax = 255
 
 export const hogFunctionsRerunCreateBodyFilterOneMaxCountMax = 10000
@@ -1485,8 +1591,10 @@ export const HogFunctionsRerunCreateBody = /* @__PURE__ */ zod
                 status: zod
                     .array(
                         zod
-                            .enum(['running', 'succeeded', 'failed'])
-                            .describe('\* `running` - running\n\* `succeeded` - succeeded\n\* `failed` - failed')
+                            .enum(['running', 'succeeded', 'failed', 'canceled'])
+                            .describe(
+                                '\* `running` - running\n\* `succeeded` - succeeded\n\* `failed` - failed\n\* `canceled` - canceled'
+                            )
                     )
                     .optional()
                     .describe("Restrict to invocations whose latest status is one of these. Defaults to ['failed']."),
@@ -1495,6 +1603,13 @@ export const HogFunctionsRerunCreateBody = /* @__PURE__ */ zod
                     .optional()
                     .describe(
                         "Restrict to invocations whose error_kind matches one of these (e.g. 'http_5xx', 'timeout')."
+                    ),
+                error_message_contains: zod
+                    .string()
+                    .max(hogFunctionsRerunCreateBodyFilterOneErrorMessageContainsMax)
+                    .optional()
+                    .describe(
+                        "Restrict to invocations whose error_message contains this substring (case-insensitive). Use to isolate one failure mode when error_kind is too coarse (most app-level errors share the 'hog_error' kind)."
                     ),
                 max_attempts: zod
                     .number()
@@ -1522,6 +1637,17 @@ export const HogFunctionsRerunCreateBody = /* @__PURE__ */ zod
             ),
     })
     .describe('Rerun invocations of a hog function or hog flow from their stored payloads.')
+
+export const hogFunctionsRevisionsRestoreCreateBodyOverwriteDefault = false
+
+export const HogFunctionsRevisionsRestoreCreateBody = /* @__PURE__ */ zod.object({
+    overwrite: zod
+        .boolean()
+        .default(hogFunctionsRevisionsRestoreCreateBodyOverwriteDefault)
+        .describe(
+            "Replace the open staged draft with this revision's config. Without it, restoring while a draft is open returns 409."
+        ),
+})
 
 /**
  * Update the execution order of multiple HogFunctions.

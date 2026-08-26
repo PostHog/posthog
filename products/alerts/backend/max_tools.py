@@ -20,12 +20,13 @@ from posthog.event_usage import EventSource
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.scopes import APIScopeObject
 
+from products.access_control.backend.facade.user_access_control import AccessControlLevel
 from products.alerts.backend.evaluation.validation import THRESHOLD_BOUNDS_REQUIRED_MESSAGE
+from products.alerts.backend.insight_alert_state_machine import apply_disable, apply_enable, apply_threshold_change
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 from ee.hogai.artifacts.types import ModelArtifactResult
 from ee.hogai.tool import MaxTool
@@ -361,9 +362,14 @@ class UpsertAlertTool(MaxTool):
                 alert.config = {**(alert.config or {}), "series_index": action.series_index}
                 update_fields.append("config")
 
+            enabled_changed = action.enabled is not None and action.enabled != alert.enabled
             if action.enabled is not None:
-                alert.enabled = action.enabled
-                update_fields.append("enabled")
+                if enabled_changed and action.enabled:
+                    update_fields.extend(apply_enable(alert))
+                elif enabled_changed:
+                    update_fields.extend(apply_disable(alert))
+                else:
+                    update_fields.append("enabled")
 
             if action.skip_weekend is not None:
                 alert.skip_weekend = action.skip_weekend
@@ -384,7 +390,10 @@ class UpsertAlertTool(MaxTool):
             if not update_fields and not has_threshold_changes:
                 return "No changes provided. Specify at least one field to update.", {"error": "no_changes"}
 
-            update_fields.extend(alert.mark_for_recheck(reset_state=conditions_or_threshold_changed))
+            if conditions_or_threshold_changed:
+                update_fields.extend(apply_threshold_change(alert))
+            alert.next_check_at = None
+            update_fields.append("next_check_at")
             await sync_to_async(alert.save)(update_fields=update_fields)
             await sync_to_async(alert.report_updated)(self._user, {"source": EventSource.POSTHOG_AI})
 

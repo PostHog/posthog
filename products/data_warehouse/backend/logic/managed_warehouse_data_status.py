@@ -1,15 +1,24 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal, TypedDict
+from typing import TYPE_CHECKING, Literal, TypedDict
 
 from django.utils import timezone
 
-from posthog.ducklake.models import DuckgresServerTeam, DuckgresSinkSchemaState
-
 from products.data_warehouse.backend.logic.backfill_status import historical_backfill_months
 from products.data_warehouse.backend.models import ManagedWarehouseBackfillPartition
-from products.warehouse_sources.backend.facade.models import ExternalDataSchema
+from products.managed_warehouse.backend.facade import source_jobs
+from products.managed_warehouse.backend.facade.contracts import (
+    ManagedWarehouseSourceJobRecord,
+    ManagedWarehouseSourceJobStatus,
+    ManagedWarehouseSourceJobWorkflow,
+    ManagedWarehouseTeamMembership,
+)
+from products.managed_warehouse.backend.facade.team_state import team_backfill_membership
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
+
+if TYPE_CHECKING:
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 ReadinessState = Literal[
     "not_configured",
@@ -20,16 +29,14 @@ ReadinessState = Literal[
     "sync_paused",
 ]
 
-PERSISTENT_BACKFILL_FAILURES = 3
-# sync_paused ranks below every active-work or failure state (those are still worth surfacing even
-# on a paused schema's source) but above up_to_date: a source with some schemas paused shouldn't
-# read as fully "up to date" when part of it isn't being kept current at all.
+# A paused schema is intentional configuration, so active and healthy schemas determine a source's
+# rollup first. A source still reports sync_paused when every visible schema is paused.
 READINESS_PRIORITY: tuple[ReadinessState, ...] = (
     "needs_attention",
     "backfilling",
     "waiting",
-    "sync_paused",
     "up_to_date",
+    "sync_paused",
 )
 
 
@@ -51,13 +58,10 @@ class SourceTableStatus(TypedDict):
     table_name: str
     readiness_state: ReadinessState
     detail: str
-    # Whether the one-time historical copy into the warehouse has completed (sink state PRIMED).
-    # Independent of readiness_state, which also folds in live-catchup and failure signals.
-    backfilled: bool
-    completed_chunks: int
-    total_chunks: int | None
-    # When the sink last applied a live imported batch to the warehouse — an event
-    # timestamp stamped by the sink at apply time, not a derived liveness signal.
+    workflow_type: ManagedWarehouseSourceJobWorkflow | None
+    workflow_status: ManagedWarehouseSourceJobStatus | None
+    workflow_started_at: datetime | None
+    applied: bool
     last_applied_at: datetime | None
     last_synced_at: datetime | None
 
@@ -69,7 +73,7 @@ class SourceSummary(TypedDict):
     readiness_state: ReadinessState
     detail: str
     total_schemas: int
-    backfilled_schemas: int
+    applied_schemas: int
     last_applied_at: datetime | None
     last_synced_at: datetime | None
 
@@ -88,7 +92,7 @@ class ManagedWarehouseDataStatus(TypedDict):
     generated_at: datetime
 
 
-def _event_historical_partition_count(backfill: DuckgresServerTeam) -> int | None:
+def _event_historical_partition_count(backfill: ManagedWarehouseTeamMembership) -> int | None:
     if backfill.earliest_event_date is None:
         return None
 
@@ -99,7 +103,7 @@ def _event_historical_partition_count(backfill: DuckgresServerTeam) -> int | Non
 def dataset_status(
     *,
     dataset: Literal["events", "persons"],
-    backfill: DuckgresServerTeam | None,
+    backfill: ManagedWarehouseTeamMembership | None,
     partitions: list[ManagedWarehouseBackfillPartition],
 ) -> DatasetStatus:
     if backfill is None or not backfill.backfill_enabled:
@@ -180,100 +184,97 @@ def dataset_status(
     }
 
 
-def source_table_readiness(state: DuckgresSinkSchemaState) -> tuple[ReadinessState, str]:
-    """Readiness derived purely from events the sink jobs recorded at the time of the work.
+def source_table_readiness(state: ManagedWarehouseSourceJobRecord | None) -> tuple[ReadinessState, str]:
+    if state is None:
+        return "waiting", "Waiting for a copy or register workflow to run."
 
-    There is deliberately no liveness inference here (no pending counts, no staleness
-    windows): the backfill lifecycle fields are written by the planner/backfill jobs, and
-    the last live apply is stamped by the sink at apply time — the UI reports what ran
-    and when, nothing more.
-    """
-    if (
-        state.state == DuckgresSinkSchemaState.State.NEEDS_RESYNC
-        or state.consecutive_failures >= PERSISTENT_BACKFILL_FAILURES
-    ):
-        return "needs_attention", "This table needs a fresh warehouse copy before imports can continue."
-    if state.state == DuckgresSinkSchemaState.State.PENDING_BACKFILL:
-        return "waiting", "Waiting to copy existing rows into the warehouse."
-    if state.state == DuckgresSinkSchemaState.State.BACKFILLING:
-        if state.chunk_count:
-            return "backfilling", f"Copied {state.chunks_applied} of {state.chunk_count} backfill chunks."
-        return "backfilling", "Existing rows are being copied into the warehouse."
-    return "up_to_date", "New imports are applied to the warehouse as they arrive."
+    workflow_name = state.workflow_type.value
+    if state.status == ManagedWarehouseSourceJobStatus.FAILED:
+        return "needs_attention", f"The latest {workflow_name} workflow failed. Retry the source sync."
+    if state.status == ManagedWarehouseSourceJobStatus.RUNNING:
+        return "backfilling", f"The {workflow_name} workflow is applying the latest source import."
+    if state.status == ManagedWarehouseSourceJobStatus.COMPLETED:
+        return "up_to_date", "The latest source import was applied."
+    if state.status == ManagedWarehouseSourceJobStatus.STALE:
+        return "waiting", "A newer source import replaced this register workflow."
+    return "waiting", f"The {workflow_name} workflow did not apply this source import."
 
 
-def _schema_table_statuses(team_id: int, *, source_id: str | None = None) -> list[SourceTableStatus]:
+def _schema_table_statuses(
+    team_id: int, *, user_access_control: UserAccessControl, source_id: str | None = None
+) -> list[SourceTableStatus]:
     """Per-schema readiness, optionally scoped to one source.
 
     Shared by the top-level rollup (all sources, for the Overview tab's summary card) and the
     per-source detail lookup (one source's schemas, for the drill-down modal) so the readiness
     computation and the visibility rules never drift between the two views.
     """
-    states = list(DuckgresSinkSchemaState.objects.filter(team_id=team_id).order_by("schema_id"))
-    if not states:
-        return []
-
-    # should_sync is deliberately not filtered here: a schema with sync paused still has real,
-    # queryable data in the warehouse (or a genuine backfill-in-progress state), and hiding it
-    # entirely reads as "nothing here" rather than "this one isn't actively syncing right now".
-    # Only schemas/sources that no longer exist (soft-deleted) are excluded.
-    schema_filter: dict[str, object] = {
+    source_filter: dict[str, object] = {
         "team_id": team_id,
-        "id__in": [state.schema_id for state in states],
         "deleted": False,
-        "source__deleted": False,
+        "access_method": ExternalDataSource.AccessMethod.WAREHOUSE,
     }
     if source_id is not None:
-        schema_filter["source_id"] = source_id
+        source_filter["id"] = source_id
+    sources = user_access_control.filter_queryset_by_access_level(ExternalDataSource.objects.filter(**source_filter))
 
-    schema_by_id = {
-        str(schema.id): schema for schema in ExternalDataSchema.objects.filter(**schema_filter).select_related("source")
+    schema_filter: dict[str, object] = {
+        "team_id": team_id,
+        "deleted": False,
+        "source__in": sources,
     }
-    visible_states = [state for state in states if str(state.schema_id) in schema_by_id]
+
+    schemas = list(ExternalDataSchema.objects.filter(**schema_filter).select_related("source"))
+    latest_jobs_by_schema = {
+        state.schema_id: state
+        for state in source_jobs.list_latest_source_jobs(team_id=team_id, schema_ids=[schema.id for schema in schemas])
+    }
 
     tables: list[SourceTableStatus] = []
-    for state in visible_states:
-        schema_id = str(state.schema_id)
-        schema = schema_by_id[schema_id]
+    for schema in schemas:
+        state = latest_jobs_by_schema.get(schema.id)
         if schema.should_sync:
             readiness_state, detail = source_table_readiness(state)
         else:
-            # Paused wins over whatever the sink state says: a stale failure streak from before
-            # the pause isn't actionable while nothing is actively importing for this table.
             readiness_state, detail = (
                 "sync_paused",
                 "Sync is paused for this table. Data already in the warehouse is unaffected.",
             )
         tables.append(
             {
-                "schema_id": schema_id,
+                "schema_id": str(schema.id),
                 "source_id": str(schema.source_id),
                 "source_name": schema.source.prefix or schema.source.source_type,
                 "source_type": schema.source.source_type,
                 "table_name": schema.name,
                 "readiness_state": readiness_state,
                 "detail": detail,
-                "backfilled": state.state == DuckgresSinkSchemaState.State.PRIMED,
-                "completed_chunks": state.chunks_applied,
-                "total_chunks": state.chunk_count,
-                "last_applied_at": state.queue_last_applied_at,
+                "workflow_type": state.workflow_type if state else None,
+                "workflow_status": state.status if state else None,
+                "workflow_started_at": state.started_at if state else None,
+                "applied": state is not None and state.last_completed_at is not None,
+                "last_applied_at": state.last_completed_at if state else None,
                 "last_synced_at": schema.last_synced_at,
             }
         )
     return tables
 
 
-def get_source_schema_statuses(team_id: int, source_id: str) -> list[SourceTableStatus]:
+def get_source_schema_statuses(
+    team_id: int, source_id: str, *, user_access_control: UserAccessControl
+) -> list[SourceTableStatus]:
     """Per-schema detail for one imported source — backs the Overview tab's drill-down modal."""
-    return sort_source_tables(_schema_table_statuses(team_id, source_id=source_id))
+    return sort_source_tables(
+        _schema_table_statuses(team_id, user_access_control=user_access_control, source_id=source_id)
+    )
 
 
 _SOURCE_SUMMARY_DETAILS: dict[ReadinessState, str] = {
     "needs_attention": "One or more schemas need attention.",
-    "backfilling": "Historical rows are being copied for one or more schemas.",
+    "backfilling": "A copy or register workflow is running for one or more schemas.",
     "waiting": "One or more schemas are waiting to start.",
     "sync_paused": "Sync is paused for one or more schemas.",
-    "up_to_date": "New imports are applied to the warehouse as they arrive.",
+    "up_to_date": "The latest source imports were applied to the warehouse.",
     "not_configured": "No schemas are configured for this source.",
 }
 
@@ -298,7 +299,7 @@ def _rollup_sources(tables: list[SourceTableStatus]) -> list[SourceSummary]:
                 "readiness_state": readiness_state,
                 "detail": _SOURCE_SUMMARY_DETAILS[readiness_state],
                 "total_schemas": len(rows),
-                "backfilled_schemas": sum(1 for row in rows if row["backfilled"]),
+                "applied_schemas": sum(1 for row in rows if row["applied"]),
                 "last_applied_at": last_applied_at,
                 "last_synced_at": last_synced_at,
             }
@@ -332,8 +333,8 @@ def sort_source_tables(tables: list[SourceTableStatus]) -> list[SourceTableStatu
     )
 
 
-def _sources_status(team_id: int) -> SourcesStatus:
-    tables = _schema_table_statuses(team_id)
+def _sources_status(team_id: int, *, user_access_control: UserAccessControl) -> SourcesStatus:
+    tables = _schema_table_statuses(team_id, user_access_control=user_access_control)
     if not tables:
         return {
             "readiness_state": "not_configured",
@@ -345,7 +346,7 @@ def _sources_status(team_id: int) -> SourcesStatus:
     readiness_state = _roll_up_state([source["readiness_state"] for source in sources])
     details: dict[ReadinessState, str] = {
         "needs_attention": "One or more imported sources need attention.",
-        "backfilling": "Existing rows are being copied for one or more imported sources.",
+        "backfilling": "A copy or register workflow is running for one or more imported sources.",
         "waiting": "One or more imported sources are waiting to start.",
         "sync_paused": "Sync is paused for one or more imported sources.",
         "up_to_date": "All imported sources are up to date.",
@@ -361,8 +362,12 @@ def _roll_up_state(states: list[ReadinessState]) -> ReadinessState:
     return "not_configured"
 
 
-def get_managed_warehouse_data_status(team_id: int) -> ManagedWarehouseDataStatus:
-    backfill = DuckgresServerTeam.objects.filter(team_id=team_id).first()
+def get_managed_warehouse_data_status(
+    team_id: int, *, user_access_control: UserAccessControl
+) -> ManagedWarehouseDataStatus:
+    # A status read degrades to None (reported not_configured) when the control plane
+    # can't answer; it must never 500.
+    backfill = team_backfill_membership(team_id)
     partitions = list(
         ManagedWarehouseBackfillPartition.objects.for_team(team_id)
         .filter(environment_id=team_id)
@@ -378,7 +383,7 @@ def get_managed_warehouse_data_status(team_id: int) -> ManagedWarehouseDataStatu
         backfill=backfill,
         partitions=[row for row in partitions if row.dataset == ManagedWarehouseBackfillPartition.Dataset.PERSONS],
     )
-    sources = _sources_status(team_id)
+    sources = _sources_status(team_id, user_access_control=user_access_control)
     return {
         "overall_readiness_state": _roll_up_state(
             [events["readiness_state"], persons["readiness_state"], sources["readiness_state"]]

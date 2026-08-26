@@ -280,6 +280,29 @@ class TestValidateCredentials:
         assert valid is False
         assert msg == expected_msg
 
+    @pytest.mark.parametrize(
+        "project",
+        [
+            "https://gitlab.com/mygroup/",  # pasted URL
+            "mygroup",  # bare group, no project and not a numeric id
+            "some-dashboard",  # bare name
+        ],
+    )
+    def test_malformed_project_gets_format_guidance(self, project):
+        # Guards the pre-request format check: without it these URL-encode into a nonsense path,
+        # 404, and get the misleading "not found or not accessible" message.
+        valid, msg = validate_credentials("https://gitlab.com", "tok", project)
+        assert valid is False
+        assert "group/project" in (msg or "")
+
+    def test_numeric_project_id_is_not_rejected_as_malformed(self):
+        # A bare numeric id is a valid GitLab project reference, so it must reach the API rather
+        # than trip the format check for bare names.
+        with self._patch_session(_response(status_code=200)) as patched:
+            valid, _ = validate_credentials("https://gitlab.com", "tok", "114682853")
+            assert valid is True
+            patched.return_value.get.assert_called_once()
+
     def test_request_exception_returns_failure(self):
         import requests
 

@@ -39,6 +39,11 @@
                     min-width: 0;
                 }
 
+                // ...but a row with a sibling entry point keeps the two buttons adjacent
+                .property-filter-row--with-suffix .TaxonomicPropertyFilter {
+                    flex: 0 0 auto;
+                }
+
                 // Propagate min-width:0 through the filter chain
                 .ActionFilterRow,
                 .ActionFilterRow-filters,
@@ -93,6 +98,7 @@
     min-height: 0;
 
     .NotebookNode &,
+    .MarkdownNotebook__real-node &,
     .InsightCard &,
     .ExportedInsight &,
     .WebAnalyticsDashboard & {
@@ -184,6 +190,7 @@
     }
 
     .NotebookNode &,
+    .MarkdownNotebook__real-node &,
     .InsightCard &,
     .ExportedInsight &,
     .WebAnalyticsDashboard & {
@@ -282,7 +289,8 @@
     &--type-trends {
         min-height: var(--insight-viz-min-height);
 
-        .NotebookNode & {
+        .NotebookNode &,
+        .MarkdownNotebook__real-node & {
             min-height: 0;
         }
 

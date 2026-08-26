@@ -26,7 +26,7 @@ from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.scoping import team_scope
-from posthog.sync import database_sync_to_async
+from posthog.sync import database_sync_to_async_pool
 
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window_end
 from products.experiments.backend.hogql_queries.error_handling import (
@@ -35,7 +35,7 @@ from products.experiments.backend.hogql_queries.error_handling import (
 )
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
-from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
+from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method, sanitize_non_finite
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
@@ -146,7 +146,7 @@ def discover_experiment_metrics(experiment: Experiment) -> list[ExperimentMetric
     return metrics_to_recalculate
 
 
-@database_sync_to_async
+@database_sync_to_async_pool
 def _discover_experiment_metrics_sync(recalculation_id: str) -> list[ExperimentMetricToRecalculate]:
     close_old_connections()
 
@@ -173,7 +173,7 @@ def _discover_experiment_metrics_sync(recalculation_id: str) -> list[ExperimentM
 # ---------------------------------------------------------------------------
 
 
-@database_sync_to_async
+@database_sync_to_async_pool
 def _update_recalculation_progress_sync(update: RecalculationProgressUpdate) -> str | None:
     close_old_connections()
 
@@ -192,14 +192,18 @@ def _update_recalculation_progress_sync(update: RecalculationProgressUpdate) -> 
         # Temporal retry of this activity can't move query_to forward (which would orphan any rows persisted by
         # calc activities still in flight from the prior attempt).
         if update.mark_started:
-            # query_to is the run's data-window end, not bare "now": for a stopped experiment
-            # experiment_window_end resolves it to end_date (a fixed value), so repeated recalcs reuse the
-            # same (fingerprint, query_to)-keyed result row instead of appending a redundant post-end
-            # timeseries point on every run. A running experiment still advances with now.
             experiment = Experiment.objects.get(id=state.experiment_id)
             proposed_query_to = experiment_window_end(experiment, timezone.now())
+
             won = (
-                ExperimentMetricsRecalculation.objects.filter(id=update.recalculation_id, query_to__isnull=True).update(
+                ExperimentMetricsRecalculation.objects.filter(
+                    id=update.recalculation_id,
+                    query_to__isnull=True,
+                    status__in=[
+                        ExperimentMetricsRecalculation.Status.PENDING,
+                        ExperimentMetricsRecalculation.Status.IN_PROGRESS,
+                    ],
+                ).update(
                     query_to=proposed_query_to,
                     started_at=timezone.now(),
                     status=update.status or ExperimentMetricsRecalculation.Status.IN_PROGRESS,
@@ -208,13 +212,32 @@ def _update_recalculation_progress_sync(update: RecalculationProgressUpdate) -> 
                 )
                 == 1
             )
+
             if won:
                 return proposed_query_to.isoformat()
-            existing_query_to = (
+
+            existing = (
                 ExperimentMetricsRecalculation.objects.filter(id=update.recalculation_id)
-                .values_list("query_to", flat=True)
+                .values_list("query_to", "status")
                 .first()
             )
+
+            if existing is None:
+                logger.warning("mark_started_rejected_row_missing", recalculation_id=update.recalculation_id)
+                return None
+
+            existing_query_to, existing_status = existing
+            if existing_status not in (
+                ExperimentMetricsRecalculation.Status.PENDING,
+                ExperimentMetricsRecalculation.Status.IN_PROGRESS,
+            ):
+                logger.warning(
+                    "mark_started_rejected_run_terminal",
+                    recalculation_id=update.recalculation_id,
+                    status=existing_status,
+                )
+                return None
+
             return existing_query_to.isoformat() if existing_query_to is not None else None
 
         # Finish: same first-write-wins guard so a retried mark_completed activity doesn't re-stamp the
@@ -502,7 +525,7 @@ def _capture_experiment_metric_event(
 # ---------------------------------------------------------------------------
 
 
-@database_sync_to_async
+@database_sync_to_async_pool
 def _calculate_experiment_metric_for_recalculation_sync(
     experiment_id: int,
     metric_uuid: str,
@@ -576,6 +599,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
             get_experiment_stats_method(experiment),
             experiment.exposure_criteria,
             only_count_matured_users=experiment.only_count_matured_users,
+            excluded_variants=experiment.excluded_variants,
         )
         recalc_fp = compute_recalc_fingerprint(config_fp)
 
@@ -625,7 +649,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 client_query_id=client_query_id,
             )
             result = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
-            result_dict = result.model_dump(mode="json")
+            result_dict = sanitize_non_finite(result.model_dump(mode="json"))
 
             _store_result(
                 experiment_id=experiment_id,
@@ -725,13 +749,30 @@ def _calculate_experiment_metric_for_recalculation_sync(
             else:
                 # Exact, not estimated: this branch sets the delay explicitly via next_retry_delay.
                 error_type = classify_experiment_query_error(e)
+                safe_message = _safe_retry_message(e, error_type)
                 _record_retry(
                     recalculation_id,
                     metric_uuid,
                     attempt,
                     error_type,
-                    _safe_retry_message(e, error_type),
+                    safe_message,
                     CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS,
+                )
+                _capture_experiment_metric_event(
+                    experiment,
+                    metric_uuid,
+                    metric_type,
+                    metric_dict,
+                    "experiment metric retry",
+                    {
+                        "duration_ms": round((time.perf_counter() - calc_started_at) * 1000),
+                        "error_type": error_type,
+                        "error_message": safe_message,
+                        "attempt": attempt,
+                        "max_attempts": MAX_METRIC_ATTEMPTS,
+                        "next_retry_delay_seconds": CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS,
+                    },
+                    trigger=state.trigger,
                 )
             raise ApplicationError(
                 message,
@@ -787,13 +828,31 @@ def _calculate_experiment_metric_for_recalculation_sync(
             if is_final_attempt or is_permanent:
                 _clear_retry(recalculation_id, metric_uuid)
             else:
+                retry_delay_seconds = _estimated_retry_delay_seconds(attempt)
+                safe_message = _safe_retry_message(e, error_type)
                 _record_retry(
                     recalculation_id,
                     metric_uuid,
                     attempt,
                     error_type,
-                    _safe_retry_message(e, error_type),
-                    _estimated_retry_delay_seconds(attempt),
+                    safe_message,
+                    retry_delay_seconds,
+                )
+                _capture_experiment_metric_event(
+                    experiment,
+                    metric_uuid,
+                    metric_type,
+                    metric_dict,
+                    "experiment metric retry",
+                    {
+                        "duration_ms": round((time.perf_counter() - calc_started_at) * 1000),
+                        "error_type": error_type,
+                        "error_message": safe_message,
+                        "attempt": attempt,
+                        "max_attempts": MAX_METRIC_ATTEMPTS,
+                        "next_retry_delay_seconds": retry_delay_seconds,
+                    },
+                    trigger=state.trigger,
                 )
             if is_permanent:
                 raise ApplicationError(message, type=error_type, non_retryable=True) from e

@@ -48,6 +48,10 @@
         "name": {
             "description": "The name of an issue.",
             "label": "Issue name"
+        },
+        "severity": {
+            "description": "The severity level assigned to an issue.",
+            "label": "Issue severity"
         }
     },
     "event_metadata": {
@@ -151,6 +155,38 @@
             "label": "AI billable (LLM)",
             "system": true
         },
+        "$ai_blob_bytes": {
+            "description": "Total decoded size in bytes of the large binary payloads in this call.",
+            "examples": [
+                245760
+            ],
+            "label": "AI binary payload size (LLM)",
+            "type": "Numeric"
+        },
+        "$ai_blob_count": {
+            "description": "Number of large binary payloads (images, audio, documents, or other base64 content) in this call.",
+            "examples": [
+                2
+            ],
+            "label": "AI binary payload count (LLM)",
+            "type": "Numeric"
+        },
+        "$ai_cache_creation_1h_input_tokens": {
+            "description": "The number of tokens created in the 1-hour prompt cache (Anthropic only).",
+            "examples": [
+                23
+            ],
+            "label": "AI 1-hour cache creation input tokens (LLM)",
+            "type": "Numeric"
+        },
+        "$ai_cache_creation_5m_input_tokens": {
+            "description": "The number of tokens created in the 5-minute prompt cache (Anthropic only).",
+            "examples": [
+                23
+            ],
+            "label": "AI 5-minute cache creation input tokens (LLM)",
+            "type": "Numeric"
+        },
         "$ai_cache_creation_input_tokens": {
             "description": "The number of tokens created in the cache for the input prompt (anthropic only).",
             "examples": [
@@ -187,6 +223,14 @@
                 true
             ],
             "label": "AI cache reporting exclusive (LLM)"
+        },
+        "$ai_cache_write_1h_token_price": {
+            "description": "The price per token written to the 1-hour prompt cache. Set this to override PostHog's cost calculation for 1-hour cache writes.",
+            "examples": [
+                6e-06
+            ],
+            "label": "AI 1-hour cache write token price (LLM)",
+            "type": "Numeric"
         },
         "$ai_cache_write_token_price": {
             "description": "The price per token written to the prompt cache.",
@@ -834,10 +878,11 @@
             "label": "AI Target ID (LLM)"
         },
         "$ai_target_type": {
-            "description": "ID space of $ai_target_id. `generation_uuid` resolves against `events.uuid`; `trace_id` resolves against the `$ai_trace_id` property.",
+            "description": "ID space of $ai_target_id. `generation_uuid` resolves against `events.uuid`, `trace_id` resolves against the `$ai_trace_id` property, and `session_id` resolves against the `$ai_session_id` property.",
             "examples": [
                 "generation_uuid",
-                "trace_id"
+                "trace_id",
+                "session_id"
             ],
             "label": "AI Target Type (LLM)"
         },
@@ -1468,31 +1513,9 @@
             ],
             "label": "Event type"
         },
-        "$exception_DOMException_code": {
-            "description": "If a DOMException was thrown, it also has a DOMException code.",
-            "label": "DOMException code"
-        },
         "$exception_capture_enabled_server_side": {
             "description": "Whether exception autocapture was enabled in remote config.",
             "label": "Exception capture enabled server side"
-        },
-        "$exception_capture_endpoint": {
-            "description": "Endpoint used by posthog-js exception autocapture.",
-            "examples": [
-                "/e/"
-            ],
-            "label": "Exception capture endpoint"
-        },
-        "$exception_capture_endpoint_suffix": {
-            "description": "Endpoint used by posthog-js exception autocapture.",
-            "examples": [
-                "/e/"
-            ],
-            "label": "Exception capture endpoint suffix"
-        },
-        "$exception_colno": {
-            "description": "Which column of the line in the exception source that caused the exception.",
-            "label": "Exception source column number"
         },
         "$exception_fingerprint": {
             "description": "A fingerprint used to group issues, can be set clientside.",
@@ -1502,6 +1525,11 @@
             "description": "The structured fingerprint pieces used to group issues, captured per exception in a chain. Each entry records the type, id, and contributing pieces.",
             "label": "Exception fingerprint record"
         },
+        "$exception_fingerprint_version": {
+            "description": "The version of the fingerprinting algorithm used to group the exception.",
+            "label": "Exception fingerprint version",
+            "system": true
+        },
         "$exception_functions": {
             "description": "A function contained in the exception.",
             "label": "Exception function"
@@ -1509,10 +1537,6 @@
         "$exception_handled": {
             "description": "Whether this was a handled or unhandled exception.",
             "label": "Exception was handled"
-        },
-        "$exception_is_synthetic": {
-            "description": "Whether this was detected as a synthetic exception.",
-            "label": "Exception is synthetic"
         },
         "$exception_issue_id": {
             "description": "The id of the issue the fingerprint was associated with at ingest time.",
@@ -1525,49 +1549,33 @@
             ],
             "label": "Exception level"
         },
-        "$exception_lineno": {
-            "description": "Which line in the exception source that caused the exception.",
-            "label": "Exception source line number"
-        },
         "$exception_list": {
             "description": "List of one or more associated exceptions.",
             "label": "Exception list",
             "system": true
         },
-        "$exception_message": {
-            "description": "The message detected on the error.",
-            "label": "Exception message"
-        },
-        "$exception_personURL": {
-            "description": "The PostHog person that experienced the exception.",
-            "label": "Exception person URL"
-        },
-        "$exception_proposed_fingerprint": {
-            "description": "The fingerprint used to group issues. Auto generated unless provided clientside.",
-            "label": "Exception proposed fingerprint"
-        },
-        "$exception_releases": {
-            "description": "The releases in which this exception has been observed.",
-            "label": "Exception releases",
+        "$exception_release": {
+            "description": "The release associated with this exception event.",
+            "label": "Exception release",
             "type": "String"
         },
         "$exception_source": {
-            "description": "The source of the exception.",
+            "description": "The SDK integration or runtime hook that captured the exception.",
             "examples": [
-                "JS file"
+                "panic",
+                "rails",
+                "php_exception_handler"
             ],
-            "label": "Exception source"
+            "label": "Exception capture source"
         },
         "$exception_sources": {
             "description": "A source file included in the exception.",
             "label": "Exception source"
         },
-        "$exception_type": {
-            "description": "Exception categorized into types.",
-            "examples": [
-                "Error"
-            ],
-            "label": "Exception type"
+        "$exception_steps": {
+            "description": "Application-defined steps captured before the exception to provide context about the actions leading up to it.",
+            "label": "Exception steps",
+            "system": true
         },
         "$exception_types": {
             "description": "The type of the exception.",
@@ -2083,6 +2091,32 @@
             ],
             "label": "Locale"
         },
+        "$mcp_auth_failure_reason": {
+            "description": "Why an MCP request was refused, on $mcp_auth_failed: insufficient_scope (the credential is valid but the API denied the call), inactive_oauth_token, invalid_api_key, or unknown. insufficient_scope also carries $mcp_missing_scope when the API named a scope.",
+            "examples": [
+                "insufficient_scope",
+                "invalid_api_key",
+                "inactive_oauth_token"
+            ],
+            "label": "MCP auth failure reason"
+        },
+        "$mcp_auth_method": {
+            "description": "Which credential the MCP request authenticated with, derived from the bearer token's prefix: oauth, personal_api_key, id_jag, none, or unknown. Stamped on every event by PostHog's own MCP server. Use it to tell an OAuth connector apart from an API-key connection \u2014 for example when a user works around a broken OAuth flow by switching to a personal API key.",
+            "examples": [
+                "oauth",
+                "personal_api_key"
+            ],
+            "label": "MCP auth method"
+        },
+        "$mcp_auth_status": {
+            "description": "HTTP status returned to the client when an MCP request was refused (401 for a rejected credential, 403 for a denied scope). Distinct from $mcp_error_status, which is the upstream status of a failed tool call. Only set on $mcp_auth_failed.",
+            "examples": [
+                401,
+                403
+            ],
+            "label": "MCP auth status",
+            "type": "Numeric"
+        },
         "$mcp_client_name": {
             "description": "The MCP client that initiated the connection. Common values are coding agents (Claude Code, Codex) and chat clients (Claude desktop, Claude on web).",
             "examples": [
@@ -2105,7 +2139,7 @@
             "label": "MCP client version"
         },
         "$mcp_consumer": {
-            "description": "The upstream surface that initiated the MCP request, supplied via the `x-posthog-mcp-consumer` header. 'posthog-code' means the request came through PostHog Desktop; 'slack' means it was triggered from Slack.",
+            "description": "The upstream surface that initiated the MCP request, supplied via the `x-posthog-mcp-consumer` header. 'posthog-code' is the catch-all every sandbox agent sends, so it covers Signals runs as well as PostHog Desktop; break down by `source` to separate them. 'slack' means it was triggered from Slack.",
             "examples": [
                 "posthog-code",
                 "slack"
@@ -2124,6 +2158,24 @@
             ],
             "label": "MCP duration (ms)",
             "type": "Numeric"
+        },
+        "$mcp_error_code": {
+            "description": "Machine-readable code for the leaf failure mode of an errored MCP tool call: the API's validation error code, or the exec dispatcher's rejection reason. Carries error codes only, never caller-supplied values. Only set when $mcp_is_error is true.",
+            "examples": [
+                "invalid",
+                "required",
+                "unknown_tool",
+                "invalid_json"
+            ],
+            "label": "MCP error code"
+        },
+        "$mcp_error_field": {
+            "description": "Field path the PostHog API's validation error pointed at, with array indexes normalized to N so one failure mode groups to one value. Only set for validation failures.",
+            "examples": [
+                "actions__N__inputs__email",
+                "query"
+            ],
+            "label": "MCP error field"
         },
         "$mcp_error_message": {
             "description": "Short, sanitized summary of why a failed MCP tool call errored: a validation code and field, or an HTTP status and path. Never includes caller-supplied input, query text, or upstream response bodies. Truncated to 2048 characters. Only set when $mcp_is_error is true.",
@@ -2200,6 +2252,14 @@
                 "feature-flag-get-all"
             ],
             "label": "MCP listed tool names"
+        },
+        "$mcp_missing_scope": {
+            "description": "The API scope the PostHog API said was missing when it refused an MCP request. Only set on $mcp_auth_failed with reason insufficient_scope, and only when the API named a specific scope.",
+            "examples": [
+                "insight:read",
+                "query:read"
+            ],
+            "label": "MCP missing scope"
         },
         "$mcp_mode": {
             "description": "Which tool-registration mode the MCP server ran in for this request. 'cli' is single-exec mode (the v2 wrapper that exposes one dispatcher tool taking a `call <tool> ...` command); 'tools' exposes every tool individually.",
@@ -3326,22 +3386,6 @@
             "description": "The location of a Touch event on the Y axis",
             "label": "Touch Y"
         },
-        "$transformations_failed": {
-            "description": "The transformations that failed to run on this event during ingestion.",
-            "ignored_in_assistant": true,
-            "label": "Transformations failed",
-            "type": "String"
-        },
-        "$transformations_skipped": {
-            "description": "Array of transformations skipped during ingestion.",
-            "label": "Transformations skipped",
-            "used_for_debug": true
-        },
-        "$transformations_succeeded": {
-            "description": "Array of transformations that succeeded during ingestion.",
-            "label": "Transformations succeeded",
-            "used_for_debug": true
-        },
         "$update_person_last_seen_at": {
             "description": "When set to false, the event will not update the person's last_seen_at timestamp",
             "label": "Update last seen at",
@@ -3709,6 +3753,17 @@
             "description": "Snapchat Click ID",
             "label": "sccid"
         },
+        "source": {
+            "description": "Which PostHog surface the work came from. The surface values are 'web' (the app in a browser), 'posthog_ai' (Max), 'desktop' (the PostHog Desktop app), 'mobile' (the PostHog mobile app), 'slack' (the Slack app), 'mcp' (a third-party agent over MCP), 'cli', and 'api' (a direct API call). On API events, PostHog's own surfaces report themselves, so 'mcp' measures other people's agents. The $mcp_* events are stamped by the MCP server instead, which cannot read the OAuth grant that identifies the Desktop app, so a Desktop request can still show as 'mcp' on those. 'posthog_code' covers the headless coding agents: the cloud agent and the local agent. 'self_driving' is Signals: scouts, report implementations, and scout chat. 'wizard' is the setup agent and 'terraform' is the Terraform provider. Four values are machines rather than surfaces: 'cache_warming', 'alert', 'export', and 'subscription'. Two unrelated properties share this name, so filter to a specific event before breaking down by it. The app also uses 'source' for which control fired an event, with values like 'menu', 'keyboard-shortcut', and 'card_drag_handle'. Some backend paths use it for something else again: 'static' on $http_log, 'blob_v2', 'blob', 'listing' and 'realtime' on the session replay snapshot events, 'mcpcat' on the legacy MCP events, and 'template' or 'custom' on 'mcp_store server installed'. Two surface values also collide with older control names: on 'switched site mode', 'desktop' means the device-mode control rather than the app, and on the AI report events, 'slack' means the delivery channel.",
+            "examples": [
+                "web",
+                "posthog_ai",
+                "mcp",
+                "desktop",
+                "api"
+            ],
+            "label": "Source"
+        },
         "token": {
             "description": "Token used for authentication.",
             "examples": [
@@ -3863,6 +3918,10 @@
             "description": "Fires when a message is sent in a support conversation.",
             "label": "Conversation message sent"
         },
+        "$conversation_private_message_sent": {
+            "description": "Fires when a team member sends a private note in a support conversation.",
+            "label": "Conversation private message sent"
+        },
         "$conversation_ticket_assigned": {
             "description": "Fires when a support conversation ticket is assigned to an actor.",
             "label": "Conversation ticket assigned"
@@ -3922,7 +3981,7 @@
         "$exception": {
             "description": "An unexpected error or unhandled exception in your application.",
             "label": "Exception",
-            "primary_property": "$exception_type"
+            "primary_property": "$exception_types"
         },
         "$feature_enrollment_update": {
             "description": "When a user enrolls with a feature.",
@@ -3957,6 +4016,11 @@
             "description": "A user has been identified with properties.",
             "description_llm": "Identifies an anonymous user. The event shows how many users used an account, so do not use it for active users metrics because a user may skip identification.",
             "label": "Identify"
+        },
+        "$mcp_auth_failed": {
+            "description": "Fires when an MCP request is refused before a session is established, because the credential was rejected or lacked a required scope. Emitted by PostHog's own MCP server rather than the SDK, so it is absent for customer-instrumented servers. Carries `$mcp_auth_failure_reason`, `$mcp_auth_method`, and the client identity, so connectors stuck re-authorizing are visible instead of appearing as an absence of traffic. Not a tool-call failure: it never sets `$mcp_is_error`.",
+            "label": "MCP auth failed",
+            "primary_property": "$mcp_auth_failure_reason"
         },
         "$mcp_custom": {
             "description": "A custom MCP analytics event emitted by a server through the SDK's custom-event API. Properties depend on what the caller passed.",
@@ -4192,6 +4256,32 @@
         }
     },
     "mcp_properties": {
+        "$mcp_auth_failure_reason": {
+            "description": "Why an MCP request was refused, on $mcp_auth_failed: insufficient_scope (the credential is valid but the API denied the call), inactive_oauth_token, invalid_api_key, or unknown. insufficient_scope also carries $mcp_missing_scope when the API named a scope.",
+            "examples": [
+                "insufficient_scope",
+                "invalid_api_key",
+                "inactive_oauth_token"
+            ],
+            "label": "MCP auth failure reason"
+        },
+        "$mcp_auth_method": {
+            "description": "Which credential the MCP request authenticated with, derived from the bearer token's prefix: oauth, personal_api_key, id_jag, none, or unknown. Stamped on every event by PostHog's own MCP server. Use it to tell an OAuth connector apart from an API-key connection \u2014 for example when a user works around a broken OAuth flow by switching to a personal API key.",
+            "examples": [
+                "oauth",
+                "personal_api_key"
+            ],
+            "label": "MCP auth method"
+        },
+        "$mcp_auth_status": {
+            "description": "HTTP status returned to the client when an MCP request was refused (401 for a rejected credential, 403 for a denied scope). Distinct from $mcp_error_status, which is the upstream status of a failed tool call. Only set on $mcp_auth_failed.",
+            "examples": [
+                401,
+                403
+            ],
+            "label": "MCP auth status",
+            "type": "Numeric"
+        },
         "$mcp_client_name": {
             "description": "The MCP client that initiated the connection. Common values are coding agents (Claude Code, Codex) and chat clients (Claude desktop, Claude on web).",
             "examples": [
@@ -4214,7 +4304,7 @@
             "label": "MCP client version"
         },
         "$mcp_consumer": {
-            "description": "The upstream surface that initiated the MCP request, supplied via the `x-posthog-mcp-consumer` header. 'posthog-code' means the request came through PostHog Desktop; 'slack' means it was triggered from Slack.",
+            "description": "The upstream surface that initiated the MCP request, supplied via the `x-posthog-mcp-consumer` header. 'posthog-code' is the catch-all every sandbox agent sends, so it covers Signals runs as well as PostHog Desktop; break down by `source` to separate them. 'slack' means it was triggered from Slack.",
             "examples": [
                 "posthog-code",
                 "slack"
@@ -4233,6 +4323,24 @@
             ],
             "label": "MCP duration (ms)",
             "type": "Numeric"
+        },
+        "$mcp_error_code": {
+            "description": "Machine-readable code for the leaf failure mode of an errored MCP tool call: the API's validation error code, or the exec dispatcher's rejection reason. Carries error codes only, never caller-supplied values. Only set when $mcp_is_error is true.",
+            "examples": [
+                "invalid",
+                "required",
+                "unknown_tool",
+                "invalid_json"
+            ],
+            "label": "MCP error code"
+        },
+        "$mcp_error_field": {
+            "description": "Field path the PostHog API's validation error pointed at, with array indexes normalized to N so one failure mode groups to one value. Only set for validation failures.",
+            "examples": [
+                "actions__N__inputs__email",
+                "query"
+            ],
+            "label": "MCP error field"
         },
         "$mcp_error_message": {
             "description": "Short, sanitized summary of why a failed MCP tool call errored: a validation code and field, or an HTTP status and path. Never includes caller-supplied input, query text, or upstream response bodies. Truncated to 2048 characters. Only set when $mcp_is_error is true.",
@@ -4309,6 +4417,14 @@
                 "feature-flag-get-all"
             ],
             "label": "MCP listed tool names"
+        },
+        "$mcp_missing_scope": {
+            "description": "The API scope the PostHog API said was missing when it refused an MCP request. Only set on $mcp_auth_failed with reason insufficient_scope, and only when the API named a specific scope.",
+            "examples": [
+                "insight:read",
+                "query:read"
+            ],
+            "label": "MCP missing scope"
         },
         "$mcp_mode": {
             "description": "Which tool-registration mode the MCP server ran in for this request. 'cli' is single-exec mode (the v2 wrapper that exposes one dispatcher tool taking a `call <tool> ...` command); 'tools' exposes every tool individually.",
@@ -4546,6 +4662,38 @@
             "label": "AI billable (LLM)",
             "system": true
         },
+        "$ai_blob_bytes": {
+            "description": "Total decoded size in bytes of the large binary payloads in this call.",
+            "examples": [
+                245760
+            ],
+            "label": "AI binary payload size (LLM)",
+            "type": "Numeric"
+        },
+        "$ai_blob_count": {
+            "description": "Number of large binary payloads (images, audio, documents, or other base64 content) in this call.",
+            "examples": [
+                2
+            ],
+            "label": "AI binary payload count (LLM)",
+            "type": "Numeric"
+        },
+        "$ai_cache_creation_1h_input_tokens": {
+            "description": "The number of tokens created in the 1-hour prompt cache (Anthropic only).",
+            "examples": [
+                23
+            ],
+            "label": "AI 1-hour cache creation input tokens (LLM)",
+            "type": "Numeric"
+        },
+        "$ai_cache_creation_5m_input_tokens": {
+            "description": "The number of tokens created in the 5-minute prompt cache (Anthropic only).",
+            "examples": [
+                23
+            ],
+            "label": "AI 5-minute cache creation input tokens (LLM)",
+            "type": "Numeric"
+        },
         "$ai_cache_creation_input_tokens": {
             "description": "The number of tokens created in the cache for the input prompt (anthropic only).",
             "examples": [
@@ -4582,6 +4730,14 @@
                 true
             ],
             "label": "AI cache reporting exclusive (LLM)"
+        },
+        "$ai_cache_write_1h_token_price": {
+            "description": "The price per token written to the 1-hour prompt cache. Set this to override PostHog's cost calculation for 1-hour cache writes.",
+            "examples": [
+                6e-06
+            ],
+            "label": "AI 1-hour cache write token price (LLM)",
+            "type": "Numeric"
         },
         "$ai_cache_write_token_price": {
             "description": "The price per token written to the prompt cache.",
@@ -5229,10 +5385,11 @@
             "label": "AI Target ID (LLM)"
         },
         "$ai_target_type": {
-            "description": "ID space of $ai_target_id. `generation_uuid` resolves against `events.uuid`; `trace_id` resolves against the `$ai_trace_id` property.",
+            "description": "ID space of $ai_target_id. `generation_uuid` resolves against `events.uuid`, `trace_id` resolves against the `$ai_trace_id` property, and `session_id` resolves against the `$ai_session_id` property.",
             "examples": [
                 "generation_uuid",
-                "trace_id"
+                "trace_id",
+                "session_id"
             ],
             "label": "AI Target Type (LLM)"
         },
@@ -5863,31 +6020,9 @@
             ],
             "label": "Event type"
         },
-        "$exception_DOMException_code": {
-            "description": "If a DOMException was thrown, it also has a DOMException code.",
-            "label": "DOMException code"
-        },
         "$exception_capture_enabled_server_side": {
             "description": "Whether exception autocapture was enabled in remote config.",
             "label": "Exception capture enabled server side"
-        },
-        "$exception_capture_endpoint": {
-            "description": "Endpoint used by posthog-js exception autocapture.",
-            "examples": [
-                "/e/"
-            ],
-            "label": "Exception capture endpoint"
-        },
-        "$exception_capture_endpoint_suffix": {
-            "description": "Endpoint used by posthog-js exception autocapture.",
-            "examples": [
-                "/e/"
-            ],
-            "label": "Exception capture endpoint suffix"
-        },
-        "$exception_colno": {
-            "description": "Which column of the line in the exception source that caused the exception.",
-            "label": "Exception source column number"
         },
         "$exception_fingerprint": {
             "description": "A fingerprint used to group issues, can be set clientside.",
@@ -5897,6 +6032,11 @@
             "description": "The structured fingerprint pieces used to group issues, captured per exception in a chain. Each entry records the type, id, and contributing pieces.",
             "label": "Exception fingerprint record"
         },
+        "$exception_fingerprint_version": {
+            "description": "The version of the fingerprinting algorithm used to group the exception.",
+            "label": "Exception fingerprint version",
+            "system": true
+        },
         "$exception_functions": {
             "description": "A function contained in the exception.",
             "label": "Exception function"
@@ -5904,10 +6044,6 @@
         "$exception_handled": {
             "description": "Whether this was a handled or unhandled exception.",
             "label": "Exception was handled"
-        },
-        "$exception_is_synthetic": {
-            "description": "Whether this was detected as a synthetic exception.",
-            "label": "Exception is synthetic"
         },
         "$exception_issue_id": {
             "description": "The id of the issue the fingerprint was associated with at ingest time.",
@@ -5920,49 +6056,33 @@
             ],
             "label": "Exception level"
         },
-        "$exception_lineno": {
-            "description": "Which line in the exception source that caused the exception.",
-            "label": "Exception source line number"
-        },
         "$exception_list": {
             "description": "List of one or more associated exceptions.",
             "label": "Exception list",
             "system": true
         },
-        "$exception_message": {
-            "description": "The message detected on the error.",
-            "label": "Exception message"
-        },
-        "$exception_personURL": {
-            "description": "The PostHog person that experienced the exception.",
-            "label": "Exception person URL"
-        },
-        "$exception_proposed_fingerprint": {
-            "description": "The fingerprint used to group issues. Auto generated unless provided clientside.",
-            "label": "Exception proposed fingerprint"
-        },
-        "$exception_releases": {
-            "description": "The releases in which this exception has been observed.",
-            "label": "Exception releases",
+        "$exception_release": {
+            "description": "The release associated with this exception event.",
+            "label": "Exception release",
             "type": "String"
         },
         "$exception_source": {
-            "description": "The source of the exception.",
+            "description": "The SDK integration or runtime hook that captured the exception.",
             "examples": [
-                "JS file"
+                "panic",
+                "rails",
+                "php_exception_handler"
             ],
-            "label": "Exception source"
+            "label": "Exception capture source"
         },
         "$exception_sources": {
             "description": "A source file included in the exception.",
             "label": "Exception source"
         },
-        "$exception_type": {
-            "description": "Exception categorized into types.",
-            "examples": [
-                "Error"
-            ],
-            "label": "Exception type"
+        "$exception_steps": {
+            "description": "Application-defined steps captured before the exception to provide context about the actions leading up to it.",
+            "label": "Exception steps",
+            "system": true
         },
         "$exception_types": {
             "description": "The type of the exception.",
@@ -6895,6 +7015,32 @@
             ],
             "label": "Locale"
         },
+        "$mcp_auth_failure_reason": {
+            "description": "Why an MCP request was refused, on $mcp_auth_failed: insufficient_scope (the credential is valid but the API denied the call), inactive_oauth_token, invalid_api_key, or unknown. insufficient_scope also carries $mcp_missing_scope when the API named a scope.",
+            "examples": [
+                "insufficient_scope",
+                "invalid_api_key",
+                "inactive_oauth_token"
+            ],
+            "label": "MCP auth failure reason"
+        },
+        "$mcp_auth_method": {
+            "description": "Which credential the MCP request authenticated with, derived from the bearer token's prefix: oauth, personal_api_key, id_jag, none, or unknown. Stamped on every event by PostHog's own MCP server. Use it to tell an OAuth connector apart from an API-key connection \u2014 for example when a user works around a broken OAuth flow by switching to a personal API key.",
+            "examples": [
+                "oauth",
+                "personal_api_key"
+            ],
+            "label": "MCP auth method"
+        },
+        "$mcp_auth_status": {
+            "description": "HTTP status returned to the client when an MCP request was refused (401 for a rejected credential, 403 for a denied scope). Distinct from $mcp_error_status, which is the upstream status of a failed tool call. Only set on $mcp_auth_failed.",
+            "examples": [
+                401,
+                403
+            ],
+            "label": "MCP auth status",
+            "type": "Numeric"
+        },
         "$mcp_client_name": {
             "description": "The MCP client that initiated the connection. Common values are coding agents (Claude Code, Codex) and chat clients (Claude desktop, Claude on web).",
             "examples": [
@@ -6917,7 +7063,7 @@
             "label": "MCP client version"
         },
         "$mcp_consumer": {
-            "description": "The upstream surface that initiated the MCP request, supplied via the `x-posthog-mcp-consumer` header. 'posthog-code' means the request came through PostHog Desktop; 'slack' means it was triggered from Slack.",
+            "description": "The upstream surface that initiated the MCP request, supplied via the `x-posthog-mcp-consumer` header. 'posthog-code' is the catch-all every sandbox agent sends, so it covers Signals runs as well as PostHog Desktop; break down by `source` to separate them. 'slack' means it was triggered from Slack.",
             "examples": [
                 "posthog-code",
                 "slack"
@@ -6936,6 +7082,24 @@
             ],
             "label": "MCP duration (ms)",
             "type": "Numeric"
+        },
+        "$mcp_error_code": {
+            "description": "Machine-readable code for the leaf failure mode of an errored MCP tool call: the API's validation error code, or the exec dispatcher's rejection reason. Carries error codes only, never caller-supplied values. Only set when $mcp_is_error is true.",
+            "examples": [
+                "invalid",
+                "required",
+                "unknown_tool",
+                "invalid_json"
+            ],
+            "label": "MCP error code"
+        },
+        "$mcp_error_field": {
+            "description": "Field path the PostHog API's validation error pointed at, with array indexes normalized to N so one failure mode groups to one value. Only set for validation failures.",
+            "examples": [
+                "actions__N__inputs__email",
+                "query"
+            ],
+            "label": "MCP error field"
         },
         "$mcp_error_message": {
             "description": "Short, sanitized summary of why a failed MCP tool call errored: a validation code and field, or an HTTP status and path. Never includes caller-supplied input, query text, or upstream response bodies. Truncated to 2048 characters. Only set when $mcp_is_error is true.",
@@ -7012,6 +7176,14 @@
                 "feature-flag-get-all"
             ],
             "label": "MCP listed tool names"
+        },
+        "$mcp_missing_scope": {
+            "description": "The API scope the PostHog API said was missing when it refused an MCP request. Only set on $mcp_auth_failed with reason insufficient_scope, and only when the API named a specific scope.",
+            "examples": [
+                "insight:read",
+                "query:read"
+            ],
+            "label": "MCP missing scope"
         },
         "$mcp_mode": {
             "description": "Which tool-registration mode the MCP server ran in for this request. 'cli' is single-exec mode (the v2 wrapper that exposes one dispatcher tool taking a `call <tool> ...` command); 'tools' exposes every tool individually.",
@@ -8144,22 +8316,6 @@
             "description": "The location of a Touch event on the Y axis",
             "label": "Touch Y"
         },
-        "$transformations_failed": {
-            "description": "The transformations that failed to run on this event during ingestion.",
-            "ignored_in_assistant": true,
-            "label": "Transformations failed",
-            "type": "String"
-        },
-        "$transformations_skipped": {
-            "description": "Array of transformations skipped during ingestion.",
-            "label": "Transformations skipped",
-            "used_for_debug": true
-        },
-        "$transformations_succeeded": {
-            "description": "Array of transformations that succeeded during ingestion.",
-            "label": "Transformations succeeded",
-            "used_for_debug": true
-        },
         "$update_person_last_seen_at": {
             "description": "When set to false, the event will not update the person's last_seen_at timestamp",
             "label": "Update last seen at",
@@ -8515,6 +8671,17 @@
         "sccid": {
             "description": "Snapchat Click ID Data from the last time this user was seen.",
             "label": "Latest sccid"
+        },
+        "source": {
+            "description": "Which PostHog surface the work came from. The surface values are 'web' (the app in a browser), 'posthog_ai' (Max), 'desktop' (the PostHog Desktop app), 'mobile' (the PostHog mobile app), 'slack' (the Slack app), 'mcp' (a third-party agent over MCP), 'cli', and 'api' (a direct API call). On API events, PostHog's own surfaces report themselves, so 'mcp' measures other people's agents. The $mcp_* events are stamped by the MCP server instead, which cannot read the OAuth grant that identifies the Desktop app, so a Desktop request can still show as 'mcp' on those. 'posthog_code' covers the headless coding agents: the cloud agent and the local agent. 'self_driving' is Signals: scouts, report implementations, and scout chat. 'wizard' is the setup agent and 'terraform' is the Terraform provider. Four values are machines rather than surfaces: 'cache_warming', 'alert', 'export', and 'subscription'. Two unrelated properties share this name, so filter to a specific event before breaking down by it. The app also uses 'source' for which control fired an event, with values like 'menu', 'keyboard-shortcut', and 'card_drag_handle'. Some backend paths use it for something else again: 'static' on $http_log, 'blob_v2', 'blob', 'listing' and 'realtime' on the session replay snapshot events, 'mcpcat' on the legacy MCP events, and 'template' or 'custom' on 'mcp_store server installed'. Two surface values also collide with older control names: on 'switched site mode', 'desktop' means the device-mode control rather than the app, and on the AI report events, 'slack' means the delivery channel.",
+            "examples": [
+                "web",
+                "posthog_ai",
+                "mcp",
+                "desktop",
+                "api"
+            ],
+            "label": "Source"
         },
         "token": {
             "description": "Token used for authentication.",

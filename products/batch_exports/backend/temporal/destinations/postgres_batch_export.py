@@ -18,7 +18,7 @@ import pyarrow as pa
 from psycopg import sql
 from psycopg.errors import SerializationFailure
 from structlog.contextvars import bind_contextvars
-from temporalio import activity, workflow
+from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.models.integration import (
@@ -41,10 +41,10 @@ from products.batch_exports.backend.service import (
     PostgresBatchExportInputs,
 )
 from products.batch_exports.backend.temporal.batch_exports import (
-    OverBillingLimitError,
     StartBatchExportRunInputs,
     default_fields,
     get_data_interval,
+    is_over_billing_limit_error,
     start_batch_export_run,
 )
 from products.batch_exports.backend.temporal.destinations.utils import get_query_timeout
@@ -53,7 +53,7 @@ from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_
 from products.batch_exports.backend.temporal.pipeline.producer import Producer
 from products.batch_exports.backend.temporal.pipeline.transformer import CSVStreamTransformer
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
-from products.batch_exports.backend.temporal.spmc import RecordBatchQueue, wait_for_schema_or_producer
+from products.batch_exports.backend.temporal.queue import RecordBatchQueue, wait_for_schema_or_producer
 from products.batch_exports.backend.temporal.utils import (
     JsonType,
     handle_non_retryable_errors,
@@ -130,6 +130,9 @@ NON_RETRYABLE_ERROR_TYPES = (
     # Raised when a PostgreSQL stored procedure or function fails.
     # We don't (at the moment) create or run any ourselves, so it must be something set up by the user.
     "SqlRoutineException",
+    # The inputs are missing required connection details (e.g. credentials or host).
+    # This usually means the backing integration is misconfigured or absent, so retrying won't help.
+    "PostgreSQLMissingRequiredInputsError",
 )
 
 
@@ -156,6 +159,16 @@ class PostgreSQLTransactionError(Exception):
         super().__init__(f"A transaction failed to complete after {max_attempts} attempts: {err_msg}")
 
 
+class PostgreSQLMissingRequiredInputsError(Exception):
+    """Raised when the export is missing required connection inputs (credentials or host/port).
+
+    This usually means the backing integration is misconfigured or absent, so retrying won't recover it.
+    """
+
+    def __init__(self, err_msg: str):
+        super().__init__(f"The export is missing required connection inputs: {err_msg}")
+
+
 class _PostgreSQLClientInputsProtocol(typing.Protocol):
     def credentials(self) -> Credentials: ...
 
@@ -164,7 +177,7 @@ class _PostgreSQLClientInputsProtocol(typing.Protocol):
     def tls(self) -> TLS: ...
 
 
-@dataclasses.dataclass(kw_only=True)
+@dataclasses.dataclass(frozen=False, kw_only=True)
 class PostgresInsertInputs(BatchExportInsertInputs):
     """Inputs for Postgres."""
 
@@ -174,7 +187,7 @@ class PostgresInsertInputs(BatchExportInsertInputs):
     host: str | None = None
     port: int | None = None
     user: str | None = None
-    password: str | None = None
+    password: str | None = dataclasses.field(default=None, repr=False)
     has_self_signed_cert: bool | None = None
     integration_id: int | None = None
 
@@ -792,6 +805,7 @@ def _get_table_fields(
             ("ip", "VARCHAR(200)"),
             ("site_url", "VARCHAR(200)"),
             ("timestamp", "TIMESTAMP WITH TIME ZONE"),
+            ("person_properties", "JSONB"),
         ]
     else:
         return get_postgres_fields_from_record_schema(
@@ -933,7 +947,12 @@ async def insert_into_postgres_activity_from_stage(inputs: PostgresInsertInputs)
         )[:63]
 
         client_inputs = await _get_postgresql_integration(inputs) or inputs
-        pg_client = PostgreSQLClient.from_inputs(client_inputs, database=inputs.database)
+        try:
+            pg_client = PostgreSQLClient.from_inputs(client_inputs, database=inputs.database)
+        except ValueError as err:
+            # Missing credentials/host usually means a misconfigured or absent integration, which retrying
+            # can't recover. Surface it as a non-retryable error so the export fails fast instead of breaching SLA.
+            raise PostgreSQLMissingRequiredInputsError(str(err)) from err
 
         async with pg_client.connect() as pg_client:
             table_exists = False
@@ -1061,16 +1080,14 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
         """Workflow implementation to export data to Postgres."""
         is_backfill = inputs.get_is_backfill()
         is_earliest_backfill = inputs.get_is_earliest_backfill()
-        data_interval_start, data_interval_end = get_data_interval(
-            inputs.interval, inputs.data_interval_end, inputs.timezone
-        )
+        data_interval = get_data_interval(inputs.interval, inputs.data_interval_end, inputs.timezone)
         should_backfill_from_beginning = is_backfill and is_earliest_backfill
 
         start_batch_export_run_inputs = StartBatchExportRunInputs(
             team_id=inputs.team_id,
             batch_export_id=inputs.batch_export_id,
-            data_interval_start=data_interval_start.isoformat() if not should_backfill_from_beginning else None,
-            data_interval_end=data_interval_end.isoformat(),
+            data_interval_start=data_interval.start.isoformat() if not should_backfill_from_beginning else None,
+            data_interval_end=data_interval.end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             backfill_id=inputs.backfill_details.backfill_id if inputs.backfill_details else None,
@@ -1087,8 +1104,10 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
                     non_retryable_error_types=["NotNullViolation", "IntegrityError", "OverBillingLimitError"],
                 ),
             )
-        except OverBillingLimitError:
-            return
+        except exceptions.ActivityError as e:
+            if is_over_billing_limit_error(e):
+                return
+            raise
 
         insert_inputs = PostgresInsertInputs(
             team_id=inputs.team_id,
@@ -1100,8 +1119,8 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
             schema=inputs.schema,
             table_name=inputs.table_name,
             has_self_signed_cert=inputs.has_self_signed_cert,
-            data_interval_start=data_interval_start.isoformat() if not should_backfill_from_beginning else None,
-            data_interval_end=data_interval_end.isoformat(),
+            data_interval_start=data_interval.start.isoformat() if not should_backfill_from_beginning else None,
+            data_interval_end=data_interval.end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             run_id=run_id,

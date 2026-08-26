@@ -137,6 +137,9 @@ Rules:
 - The root owns the data/hover behavior and feeds the parts via context — a part used outside `<Metric>` throws. Pass `value` for a number-only tile; pass `data`+`labels`+`theme` for a sparkline.
 - `MetricDelta` renders a `Badge`; `goodDirection` (default `up`) decides success vs destructive. It carries its own `TooltipProvider`, so `changeTooltip` needs no app-root setup. resize via `className` (the metric insight passes its own larger-pill classes and puts it inline next to the headline via `MetricHeader`; there is no `changeInline` or size prop, compose and style at the call site).
 - Reproduces `MetricCard`'s behavior (`restingSubtitle`, `hoverChangeFromPreviousPoint`, `changeTooltip`, `positiveColor`/`negativeColor` for user-configured pill colors); omit the color props to keep the semantic `Badge` variants.
+- `series` draws a multi-series sparkline (one line per series, the charts' `Series[]` shape) instead of the single `data` line. It's purely visual — the headline, hover and change pill still read `data`, so pass the numbers the tile should read (e.g. the per-index totals) as `data` alongside it; the types reject `series` without `data`. The single-line conveniences (`color`, `sparklineDashedFromIndex`) don't apply — set them per series.
+- `sparklineTooltip` is a render prop passed straight to the sparkline (off by default, since hover already scrubs the headline) — supply `(ctx) => <DefaultTooltip {...ctx} />` to also show a hover tooltip, e.g. the per-series breakdown behind a multi-series total.
+- Things `Metric` deliberately doesn't have props for — compose them yourself around it: a clickable tile (put the handler on the wrapping `Card`), a footer (a sibling node after `MetricSparkline`), an info icon next to the title (a `Tooltip` inside `MetricTitle`), and a loading state (render `Skeleton`s instead of the `Metric`).
 
 ## Maintenance
 

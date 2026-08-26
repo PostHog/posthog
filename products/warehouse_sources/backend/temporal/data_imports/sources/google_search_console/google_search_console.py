@@ -18,14 +18,17 @@ from google.oauth2.credentials import Credentials as OAuthCredentials
 from posthog.models.integration import Integration
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_adapter
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googlesearchconsole import (
     GoogleSearchConsoleSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.settings import (
+    DEFAULT_SEARCH_TYPE,
+    PROPERTY_SCHEMAS,
     SEARCH_ANALYTICS_SCHEMAS,
+    split_schema_name,
 )
 
 logger = structlog.get_logger(__name__)
@@ -60,6 +63,7 @@ ROW_LIMIT = 25000
 
 HISTORY_DAYS = 16 * 30  # Google retains ~16 months of Search Analytics data
 FRESHNESS_LAG_DAYS = 3  # GSC publishes data with a 2-3 day lag
+DEFAULT_DATA_STATE = "final"  # complete data only; the hourly table overrides this
 
 # Search Analytics is rate-limited at 1,200 QPM per site and per user, plus a
 # per-second (QPS) burst cap. Paginating day-by-day across ~16 months of history
@@ -234,6 +238,12 @@ def list_sites(session: AuthorizedSession) -> list[dict[str, Any]]:
     return response.json().get("siteEntry", [])
 
 
+def list_sitemaps(session: AuthorizedSession, site_url: str) -> list[dict[str, Any]]:
+    response = session.get(f"{GSC_API_BASE}/sites/{quote(site_url, safe='')}/sitemaps")
+    response.raise_for_status()
+    return response.json().get("sitemap", [])
+
+
 def _is_quota_error(response: requests.Response) -> bool:
     """Whether a failed response is a transient rate-limit/quota error worth retrying.
 
@@ -310,6 +320,8 @@ def _query_search_analytics(
     dimensions: list[str],
     start_row: int,
     row_limit: int = ROW_LIMIT,
+    data_state: str = DEFAULT_DATA_STATE,
+    search_type: str = DEFAULT_SEARCH_TYPE,
 ) -> list[dict[str, Any]]:
     body = {
         "startDate": start_date,
@@ -317,7 +329,10 @@ def _query_search_analytics(
         "dimensions": dimensions,
         "rowLimit": row_limit,
         "startRow": start_row,
-        "dataState": "final",
+        "dataState": data_state,
+        # Sent even for "web". That's Google's own default, so existing web tables are
+        # unaffected, and the request stays explicit about which surface it reads.
+        "type": search_type,
     }
     url = f"{GSC_API_BASE}/sites/{quote(site_url, safe='')}/searchAnalytics/query"
 
@@ -325,17 +340,18 @@ def _query_search_analytics(
         _throttle(site_url)
         try:
             response = session.post(url, json=body)
-        except requests.ConnectionError:
-            # A dropped connection (RemoteDisconnected / connection reset) is raised before any
-            # response, so the quota/5xx handling below never sees it, and the tracked adapter's
-            # retry skips it because searchAnalytics.query is a POST. It's transient, so retry
-            # inline like a 5xx; once the inline budget is spent, let it bubble so Temporal
-            # retries the activity (resuming from the last saved date).
+        except (requests.ConnectionError, requests.Timeout):
+            # A dropped connection (RemoteDisconnected / connection reset) or a read timeout is
+            # raised before any response, so the quota/5xx handling below never sees it, and the
+            # tracked adapter's retry skips it because searchAnalytics.query is a POST. `Timeout`
+            # covers `ReadTimeout`, which isn't a `ConnectionError` subclass. Both are transient,
+            # so retry inline like a 5xx; once the inline budget is spent, let it bubble so
+            # Temporal retries the activity (resuming from the last saved date).
             if attempt == QUOTA_MAX_RETRIES:
                 raise
             wait = QUOTA_BACKOFF_BASE_SECONDS * (2**attempt)
             logger.warning(
-                "GSC request connection error, backing off",
+                "GSC request connection/timeout error, backing off",
                 site_url=site_url,
                 attempt=attempt,
                 wait_seconds=wait,
@@ -406,9 +422,35 @@ def _query_search_analytics(
     raise GoogleSearchConsoleQuotaExceededError(f"Search Analytics quota for '{site_url}' exhausted")
 
 
-def _row_to_dict(row: dict[str, Any], dimensions: list[str], iter_date: dt.date | None = None) -> dict[str, Any]:
+def _parse_api_datetime(value: Any) -> dt.datetime | None:
+    """Parse an RFC 3339 timestamp from the API, returning None for anything unparseable."""
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        return dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _as_int(value: Any) -> int:
+    """Coerce an API counter to int. Google serializes int64 fields as JSON strings."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _row_to_dict(
+    row: dict[str, Any],
+    dimensions: list[str],
+    iter_date: dt.date | None = None,
+    search_type: str = DEFAULT_SEARCH_TYPE,
+) -> dict[str, Any]:
     keys = row["keys"]
     out: dict[str, Any] = {dim: keys[i] if i < len(keys) else None for i, dim in enumerate(dimensions)}
+    if "hour" in out:
+        # The `hour` dimension comes back as an ISO-8601 offset date-time in Pacific time.
+        out["hour"] = _parse_api_datetime(out["hour"])
     if "date" in out and out["date"] is not None:
         out["date"] = dt.date.fromisoformat(out["date"])
     elif "date" not in out and iter_date is not None:
@@ -417,10 +459,17 @@ def _row_to_dict(row: dict[str, Any], dimensions: list[str], iter_date: dt.date 
         # partition in the warehouse. The iterator already calls one day at a time, so
         # any row returned belongs to that day — inject it explicitly here.
         out["date"] = iter_date
-    out["clicks"] = row.get("clicks", 0)
-    out["impressions"] = row.get("impressions", 0)
-    out["ctr"] = row.get("ctr", 0.0)
-    out["position"] = row.get("position", 0.0)
+    # Pin each metric to its numeric type. Google serializes an exact-zero `ctr`/`position` as a
+    # JSON integer (`0`, not `0.0`), so a day where every row has zero clicks yields an all-int
+    # column that the pipeline stores as int64. A later day's fractional rate then arrives as
+    # double and can't cast into that int64 column, failing the sync until a full reset. Coercing
+    # the rates to float (and the counts to int) keeps the stored Delta type stable across days.
+    out["clicks"] = int(row.get("clicks", 0))
+    out["impressions"] = int(row.get("impressions", 0))
+    out["ctr"] = float(row.get("ctr", 0.0))
+    out["position"] = float(row.get("position", 0.0))
+    # Constant per table, but carried on the row so the per-type tables can be unioned.
+    out["search_type"] = search_type
     return out
 
 
@@ -428,17 +477,19 @@ def _today() -> dt.date:
     return dt.date.today()
 
 
-def _initial_start_date(today: dt.date) -> dt.date:
-    return today - dt.timedelta(days=HISTORY_DAYS)
+def _initial_start_date(today: dt.date, history_days: int = HISTORY_DAYS) -> dt.date:
+    return today - dt.timedelta(days=history_days)
 
 
 def _resolve_window(
     today: dt.date,
     db_incremental_field_last_value: Any,
+    history_days: int = HISTORY_DAYS,
+    end_lag_days: int = FRESHNESS_LAG_DAYS,
 ) -> tuple[dt.date, dt.date]:
-    end_date = today - dt.timedelta(days=FRESHNESS_LAG_DAYS)
+    end_date = today - dt.timedelta(days=end_lag_days)
     if db_incremental_field_last_value is None:
-        return _initial_start_date(today), end_date
+        return _initial_start_date(today, history_days), end_date
 
     if isinstance(db_incremental_field_last_value, dt.datetime):
         last = db_incremental_field_last_value.date()
@@ -447,7 +498,7 @@ def _resolve_window(
     else:
         last = dt.date.fromisoformat(str(db_incremental_field_last_value)[:10])
 
-    start = max(last, _initial_start_date(today))
+    start = max(last, _initial_start_date(today, history_days))
     return start, end_date
 
 
@@ -460,6 +511,76 @@ def _iter_dates(start: dt.date, end: dt.date) -> collections.abc.Iterator[dt.dat
         current += dt.timedelta(days=1)
 
 
+def _site_to_dict(site: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "siteUrl": site.get("siteUrl"),
+        "permissionLevel": site.get("permissionLevel"),
+    }
+
+
+def _sitemap_to_dict(sitemap: dict[str, Any]) -> dict[str, Any]:
+    # Booleans and counters are omitted by Google when they're false/zero. Filling them in
+    # keeps the stored Delta column types stable across syncs, the same reason `_row_to_dict`
+    # pins its metric types.
+    return {
+        "path": sitemap.get("path"),
+        "type": sitemap.get("type"),
+        "lastSubmitted": _parse_api_datetime(sitemap.get("lastSubmitted")),
+        "lastDownloaded": _parse_api_datetime(sitemap.get("lastDownloaded")),
+        "errors": _as_int(sitemap.get("errors", 0)),
+        "warnings": _as_int(sitemap.get("warnings", 0)),
+        "isPending": bool(sitemap.get("isPending", False)),
+        "isSitemapsIndex": bool(sitemap.get("isSitemapsIndex", False)),
+    }
+
+
+def _sitemap_content_rows(sitemap: dict[str, Any]) -> list[dict[str, Any]]:
+    # `indexed` is on the API response but marked deprecated ("do not use"), so it is not synced.
+    return [
+        {
+            "path": sitemap.get("path"),
+            "type": content.get("type"),
+            "submitted": _as_int(content.get("submitted", 0)),
+        }
+        for content in sitemap.get("contents", [])
+    ]
+
+
+def _property_rows(
+    config: GoogleSearchConsoleSourceConfig,
+    resource_name: str,
+    team_id: int,
+) -> collections.abc.Iterator[list[dict[str, Any]]]:
+    session = google_search_console_session(config.google_search_console_integration_id, team_id)
+
+    if resource_name == "sites":
+        rows = [_site_to_dict(site) for site in list_sites(session)]
+    else:
+        sitemaps = list_sitemaps(session, normalize_site_url(config.site_url))
+        if resource_name == "sitemaps":
+            rows = [_sitemap_to_dict(sitemap) for sitemap in sitemaps]
+        else:
+            rows = [row for sitemap in sitemaps for row in _sitemap_content_rows(sitemap)]
+
+    if rows:
+        yield rows
+
+
+def _property_source(
+    config: GoogleSearchConsoleSourceConfig,
+    resource_name: str,
+    team_id: int,
+) -> SourceResponse:
+    return SourceResponse(
+        name=NamingConvention.normalize_identifier(resource_name),
+        items=lambda: _property_rows(config, resource_name, team_id),
+        primary_keys=list(PROPERTY_SCHEMAS[resource_name]["primary_key"]),
+        # A snapshot of the current state, with no timestamp to order or partition on.
+        # Google documents no ordering for either list endpoint, so no sort mode is declared.
+        sort_mode=None,
+    )
+
+
 def google_search_console_source(
     config: GoogleSearchConsoleSourceConfig,
     resource_name: str,
@@ -468,12 +589,23 @@ def google_search_console_source(
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
 ) -> SourceResponse:
-    if resource_name not in SEARCH_ANALYTICS_SCHEMAS:
+    if resource_name in PROPERTY_SCHEMAS:
+        return _property_source(config, resource_name, team_id)
+
+    base_name, search_type = split_schema_name(resource_name)
+    if base_name not in SEARCH_ANALYTICS_SCHEMAS:
         raise ValueError(f"Unknown Google Search Console schema: {resource_name}")
 
-    schema = SEARCH_ANALYTICS_SCHEMAS[resource_name]
+    schema = SEARCH_ANALYTICS_SCHEMAS[base_name]
+    if search_type != DEFAULT_SEARCH_TYPE and schema.get("web_only"):
+        raise ValueError(f"Google Search Console schema {base_name} is only available for web search")
+
     dimensions = schema["dimensions"]
     primary_keys = list(schema["primary_key"])
+    data_state = schema.get("data_state", DEFAULT_DATA_STATE)
+    history_days = schema.get("history_days", HISTORY_DAYS)
+    end_lag_days = schema.get("end_lag_days", FRESHNESS_LAG_DAYS)
+    ignore_watermark = schema.get("ignore_incremental_watermark", False)
 
     # Match the canonicalization done at validation time so a property that validated (e.g. a
     # percent-encoded or trailing-slash-less entry) resolves to the same string Google expects.
@@ -485,7 +617,9 @@ def google_search_console_source(
         today = _today()
         start_date, end_date = _resolve_window(
             today,
-            db_incremental_field_last_value if should_use_incremental_field else None,
+            db_incremental_field_last_value if (should_use_incremental_field and not ignore_watermark) else None,
+            history_days=history_days,
+            end_lag_days=end_lag_days,
         )
 
         resume_date: str | None = None
@@ -514,11 +648,13 @@ def google_search_console_source(
                     end_date=iso,
                     dimensions=dimensions,
                     start_row=start_row,
+                    data_state=data_state,
+                    search_type=search_type,
                 )
                 if not rows:
                     break
 
-                yield [_row_to_dict(row, dimensions, iter_date=current) for row in rows]
+                yield [_row_to_dict(row, dimensions, iter_date=current, search_type=search_type) for row in rows]
 
                 next_start_row = start_row + len(rows)
                 if len(rows) < ROW_LIMIT:

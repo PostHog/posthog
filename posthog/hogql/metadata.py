@@ -73,6 +73,11 @@ def get_hogql_metadata(
             database=database,
             modifiers=query_modifiers,
             enable_select_queries=True,
+            # A resolved direct-connection source prints with its engine dialect (below), so the
+            # context must be marked direct — otherwise the ClickHouse printer's direct-table guard
+            # fires and metadata/autocomplete reports a false "can only be queried through its direct
+            # connection" error for a query that actually runs fine.
+            is_direct_query=source is not None,
             debug=query.debug or False,
             globals=query.globals,
         )
@@ -128,10 +133,13 @@ def get_hogql_metadata(
             # cpp-json (ANTLR) and rust-py word EOF differently; collapse both into a single human-readable string.
             if "mismatched input '<EOF>' expecting" in error or "unexpected token in expression: Eof" in error:
                 error = "Unexpected end of query"
-            if e.end and e.start and e.end < e.start:
-                response.errors.append(HogQLNotice(message=error, start=e.end, end=e.start))
-            else:
-                response.errors.append(HogQLNotice(message=error, start=e.start, end=e.end))
+            start, end = e.start, e.end
+            if start is not None and end is not None and end < start:
+                start, end = end, start
+            # A notice without a span marks the whole query, so a fix carried alongside one would
+            # replace everything the user typed instead of the token the suggestion stands in for.
+            fix = e.fix if start is not None and end is not None else None
+            response.errors.append(HogQLNotice(message=error, start=start, end=end, fix=fix))
         elif (
             settings.DEBUG
         ):  # We don't want to accidentally expose too much data via errors, so expose only when debug is enabled

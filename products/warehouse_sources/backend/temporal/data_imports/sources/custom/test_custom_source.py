@@ -411,6 +411,24 @@ class TestCustomSourceAssembleManifest(SimpleTestCase):
         manifest = source._assemble_manifest(config)
         assert manifest["client"]["base_url"] == "https://api.example.com"
 
+    def test_accepts_already_parsed_manifest_object(self):
+        # The create/validate API can hand us the manifest as an already-parsed object rather than a
+        # JSON string; that used to reach json.loads(dict) and raise an uncaught TypeError.
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=_minimal_manifest())  # type: ignore[arg-type]
+        manifest = source._assemble_manifest(config)
+        assert manifest["client"]["base_url"] == "https://api.example.com"
+
+    def test_does_not_mutate_manifest_object_when_injecting_secrets(self):
+        # A dict manifest is deep-copied before secret injection so credentials never leak back into
+        # the caller's (persisted, redacted) config.
+        stored = _minimal_manifest()
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=stored, auth_token="ya29.secret")  # type: ignore[arg-type]
+        assembled = source._assemble_manifest(config)
+        assert assembled["client"]["auth"]["token"] == "ya29.secret"
+        assert "token" not in stored["client"]["auth"]
+
     @parameterized.expand(
         [
             ("bearer", {"type": "bearer"}, {"auth_token": "ya29.secret"}, "token", "ya29.secret"),
@@ -1546,6 +1564,16 @@ class TestManifestRequestHosts(SimpleTestCase):
     def test_unparseable_returns_empty(self, _name, raw):
         assert manifest_request_hosts(raw) == frozenset()
 
+    def test_parsed_object_manifest_reports_hosts(self):
+        # _assemble_manifest accepts a dict manifest, so the re-entry gate must extract hosts from a
+        # dict too — otherwise an update PATCHing a dict manifest that retargets a new host slips past
+        # the gate as "no hosts" and the stored credential is sent to the new host without re-entry.
+        manifest = {
+            "client": {"base_url": "https://api.example.com"},
+            "resources": [{"name": "r", "endpoint": {"path": "https://attacker.example.net/data"}}],
+        }
+        assert manifest_request_hosts(manifest) == frozenset({"api.example.com", "attacker.example.net"})
+
     def test_oauth2_token_url_host_is_tracked(self):
         # The token endpoint receives the stored client_secret, so its host must be in the
         # re-entry set — otherwise an editor who can't read the secret could repoint token_url
@@ -1753,6 +1781,25 @@ class TestCustomSourceNonRetryableErrors(SimpleTestCase):
         non_retryable = CustomSource().get_non_retryable_errors()
         assert any(key in str(ctx.exception) for key in non_retryable)
 
+    def test_http_407_proxy_auth_is_classified_non_retryable(self):
+        # A proxy that refuses the request (the egress proxy blocking a disallowed address, or an
+        # upstream proxy needing credentials) returns 407 deterministically, so retrying can't fix
+        # it. Build the real requests HTTPError raise_for_status() produces, so this breaks if the
+        # matched substring drifts. Route through the classifier's message so a regression that
+        # leaves it None (raw driver text) is caught too. The URL is a placeholder.
+        response = Response()
+        response.status_code = 407
+        response.reason = "Proxy Authentication Required"
+        response.url = "https://api.example.com/data"
+        with self.assertRaises(requests.exceptions.HTTPError) as ctx:
+            response.raise_for_status()
+
+        non_retryable = CustomSource().get_non_retryable_errors()
+        matches = [friendly for key, friendly in non_retryable.items() if key in str(ctx.exception)]
+        assert matches
+        assert matches[0] is not None
+        assert "proxy" in matches[0].lower()
+
     def test_non_json_response_message_is_classified_non_retryable(self):
         # The REST client raises RESTClientNonRetryableError when a configured endpoint
         # returns non-JSON (an HTML/plain-text error page) on a 2xx. Build the real error the
@@ -1762,6 +1809,26 @@ class TestCustomSourceNonRetryableErrors(SimpleTestCase):
 
         non_retryable = CustomSource().get_non_retryable_errors()
         assert any(key in str(error) for key in non_retryable)
+
+    def test_dns_resolution_failure_message_is_classified_non_retryable(self):
+        # `_is_host_safe` raises this exact message when a manifest's base_url doesn't
+        # resolve via DNS — a permanent, deterministic failure until the manifest is
+        # edited. Build the real message `validate_manifest_urls` raises (prefix +
+        # `_is_host_safe`'s wording) so this breaks if either side's wording drifts
+        # from the classifier's key.
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source._is_host_safe",
+            return_value=(
+                False,
+                "Couldn't resolve the host 'api.example.com'. Check that it's spelled correctly and reachable from the public internet.",
+            ),
+        ):
+            ok, err = validate_manifest_urls(_minimal_manifest(), team_id=999)
+
+        assert not ok
+        assert err is not None
+        non_retryable = CustomSource().get_non_retryable_errors()
+        assert any(key in err for key in non_retryable)
 
     @parameterized.expand(["invalid_client", "invalid_grant"])
     def test_oauth2_permanent_errors_are_classified_non_retryable(self, error_code):
@@ -2957,3 +3024,16 @@ class TestCustomSourceOAuth2NonRetryableClassification(SimpleTestCase):
         assert not ctx.exception.is_permanent
         assert OAUTH2_PERMANENT_ERROR_MARKER not in str(ctx.exception)
         assert not _classify_non_retryable(ctx.exception), str(ctx.exception)
+
+
+class TestCustomSourceHttpNonRetryableClassification(SimpleTestCase):
+    def test_404_is_non_retryable_with_a_url_free_message(self):
+        # A 404 on a manifest-configured URL is deterministic, so it must be classified
+        # non-retryable to stop the loop, and its message must not echo the customer's hostname.
+        # Classification is a substring match on str(error), so the exception type doesn't matter;
+        # a plain Exception carries the realistic message without requests' typed constructor.
+        error = Exception("404 Client Error: Not Found for url: https://host.example.com/export")
+        non_retryable = CustomSource().get_non_retryable_errors()
+        assert _classify_non_retryable(error)
+        matched = [message for key, message in non_retryable.items() if key in str(error)]
+        assert matched and all(message is not None and "://" not in message for message in matched)

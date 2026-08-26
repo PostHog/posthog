@@ -122,11 +122,11 @@ class TestAnthropicConversationCompactionManager(BaseTest):
     @parameterized.expand(
         [
             # (num_human_messages, token_count, should_compact)
-            [1, 90000, False],  # Only 1 human message, under limit
-            [2, 90000, False],  # Only 2 human messages, under limit
-            [3, 80000, False],  # 3 human messages but under token limit
-            [3, 110000, True],  # 3 human messages and over token limit
-            [5, 110000, True],  # Many messages over limit
+            [1, 390000, False],  # Only 1 human message, under limit
+            [2, 390000, False],  # Only 2 human messages, under limit
+            [3, 380000, False],  # 3 human messages but under token limit
+            [3, 410000, True],  # 3 human messages and over token limit
+            [5, 410000, True],  # Many messages over limit
         ]
     )
     async def test_should_compact_conversation(self, num_human_messages, token_count, should_compact):
@@ -163,23 +163,23 @@ class TestAnthropicConversationCompactionManager(BaseTest):
         # With 2 human messages, should use estimation and not call _get_token_count
         result = await self.window_manager.should_compact_conversation(mock_model, messages, tools=tools)
 
-        # Total should be well under 100k limit
+        # Total should be well under the window limit
         self.assertFalse(result)
 
     async def test_should_compact_conversation_with_tools_over_limit(self):
         """Test that tools push estimation over limit with 2 or fewer human messages"""
+        # Together these sit just under CONVERSATION_WINDOW_SIZE, so only the tool schemas can tip
+        # the estimate over it.
         messages: list[BaseMessage] = [
-            LangchainHumanMessage(content="A" * 200000),  # ~50k tokens
-            LangchainAIMessage(content="B" * 200000),  # ~50k tokens
+            LangchainHumanMessage(content="A" * 780000),  # ~195k tokens
+            LangchainAIMessage(content="B" * 780000),  # ~195k tokens
         ]
 
-        # Create large tool schemas to push over 100k limit
         tools = [{"type": "function", "function": {"name": f"tool_{i}", "description": "X" * 1000}} for i in range(100)]
 
         mock_model = MagicMock()
         result = await self.window_manager.should_compact_conversation(mock_model, messages, tools=tools)
 
-        # Should be over the 100k limit
         self.assertTrue(result)
 
     def test_get_estimated_assistant_message_tokens_human_message(self):

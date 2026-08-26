@@ -14,15 +14,21 @@ import { Params } from 'scenes/sceneTypes'
 
 import { BillingPeriod, BillingProductV2AddonType, BillingProductV2Type, BillingTierType, BillingType } from '~/types'
 
-import { USAGE_TYPES } from './constants'
+import { SPEND_TYPES, USAGE_TYPES } from './constants'
 import type { BillingFilters, BillingSeriesForCsv, BillingUsageInteractionProps, BuildBillingCsvOptions } from './types'
 import { BillingGaugeItemKind, BillingGaugeItemType } from './types'
 
 export const isProductVariantPrimary = (productType: string): boolean =>
-    ['session_replay', 'realtime_destinations', 'data_warehouse', 'workflows_emails'].includes(productType)
+    ['session_replay', 'realtime_destinations', 'data_warehouse', 'workflows_emails', 'logs'].includes(productType)
 
 export const isProductVariantSecondary = (productType: string): boolean =>
-    ['mobile_replay', 'batch_exports', 'data_warehouse_historical', 'workflows_destinations'].includes(productType)
+    [
+        'mobile_replay',
+        'batch_exports',
+        'data_warehouse_historical',
+        'workflows_destinations',
+        'logs_retention_30d',
+    ].includes(productType)
 
 export const calculateFreeTier = (product: BillingProductV2Type | BillingProductV2AddonType): number => {
     // If subscribed and has tiers, check if the first tier is free
@@ -89,6 +95,14 @@ export const summarizeUsage = (usage: number | null): string => {
         return ''
     }
     return compactNumber(usage)
+}
+
+export const isUsageAtOrOverLimit = (percentageUsage: number | null | undefined): boolean => {
+    return (percentageUsage ?? 0) >= 1
+}
+
+export const isUsageApproachingLimit = (percentageUsage: number | null | undefined, threshold: number): boolean => {
+    return (percentageUsage ?? 0) > threshold && !isUsageAtOrOverLimit(percentageUsage)
 }
 
 /**
@@ -444,6 +458,49 @@ export function canAccessBilling(membershipLevel: number | null | undefined, own
 }
 
 /**
+ * Whether the member-level read grant for usage and spend is in effect.
+ *
+ * The grant requires usage-spend-dashboards as well, because the tabbed dashboards are the only
+ * member-facing usage/spend surface. Honoring the grant without them would leave Usage and Spend
+ * reachable by URL while the account menu and settings sidebar hide Billing entirely. Admins reach
+ * usage and spend either way, so the second flag only ever narrows members.
+ */
+export function isMemberUsageSpendReadAccessEnabled(featureFlags: FeatureFlagsSet): boolean {
+    return (
+        !!featureFlags[FEATURE_FLAGS.MEMBER_BILLING_USAGE_SPEND_READ_ACCESS] &&
+        !!featureFlags[FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]
+    )
+}
+
+/**
+ * Returns the minimum membership level required for read-only access to the billing usage/spend tabs.
+ * The member-billing-usage-spend-read-access feature flag lowers it to Member, but owner-only-billing takes precedence.
+ */
+export function getMinimumUsageSpendReadAccessLevel(
+    memberUsageSpendReadAccess: boolean,
+    ownerOnlyBilling: boolean
+): OrganizationMembershipLevel {
+    if (ownerOnlyBilling) {
+        return OrganizationMembershipLevel.Owner
+    }
+    return memberUsageSpendReadAccess ? OrganizationMembershipLevel.Member : OrganizationMembershipLevel.Admin
+}
+
+/**
+ * Determines if the user can view the read-only billing usage/spend tabs based on their org membership level.
+ */
+export function canViewUsageAndSpend(
+    membershipLevel: number | null | undefined,
+    memberUsageSpendReadAccess: boolean,
+    ownerOnlyBilling: boolean
+): boolean {
+    if (!membershipLevel) {
+        return false
+    }
+    return membershipLevel >= getMinimumUsageSpendReadAccessLevel(memberUsageSpendReadAccess, ownerOnlyBilling)
+}
+
+/**
  * Synchronizes URL search parameters with billing filter state.
  * Returns the appropriate router action format for kea-router.
  * Only updates the URL if parameters have actually changed.
@@ -483,7 +540,8 @@ export function buildTrackingProperties(
         dateTo: string
         excludeEmptySeries: boolean
         teamOptions: { key: string; label: string }[]
-    }
+    },
+    usageTypesTotal: number = USAGE_TYPES.length
 ): BillingUsageInteractionProps {
     return {
         action,
@@ -492,7 +550,7 @@ export function buildTrackingProperties(
         date_to: values.dateTo,
         exclude_empty: values.excludeEmptySeries,
         usage_types_count: values.filters.usage_types?.length || 0,
-        usage_types_total: USAGE_TYPES.length,
+        usage_types_total: usageTypesTotal,
         teams_count: values.filters.team_ids?.length || 0,
         teams_total: values.teamOptions.length,
         has_team_breakdown: (values.filters.breakdowns || []).includes('team'),
@@ -500,11 +558,21 @@ export function buildTrackingProperties(
     }
 }
 
-// The Replay vision entry stays hidden until the replay-vision flag rolls out with the pricing launch
-export const getUsageTypeOptions = (featureFlags: FeatureFlagsSet): { key: string; label: string }[] =>
-    USAGE_TYPES.filter(
-        (opt) => opt.value !== 'replay_vision_credits_used_in_period' || featureFlags[FEATURE_FLAGS.REPLAY_VISION]
-    ).map((opt) => ({ key: opt.value, label: opt.label }))
+export const buildSpendTrackingProperties = (
+    action: BillingUsageInteractionProps['action'],
+    values: Parameters<typeof buildTrackingProperties>[1]
+): BillingUsageInteractionProps => buildTrackingProperties(action, values, getSpendTypeOptions().length)
+
+export const getUsageTypeOptions = (): { key: string; label: string }[] =>
+    USAGE_TYPES.map((opt) => ({ key: opt.value, label: opt.label }))
+
+export const getSpendTypeOptions = (): { key: string; label: string }[] =>
+    SPEND_TYPES.map((opt) => ({ key: opt.value, label: opt.label }))
+
+const SPEND_TYPE_VALUES = new Set<string>(SPEND_TYPES.map((option) => option.value))
+
+export const filterSpendUsageTypes = (usageTypes: string[] | undefined): string[] =>
+    usageTypes?.filter((usageType) => SPEND_TYPE_VALUES.has(usageType)) ?? []
 
 export const isAddonVisible = (
     product: BillingProductV2Type,
@@ -630,7 +698,7 @@ export function formatProductNames(names: string[]): string {
 }
 
 /**
- * Get the consequence message for a product when it exceeds its usage limit
+ * Get the consequence message for a product when it reaches its usage limit
  */
 export function getUsageLimitConsequence(productName: string): string {
     if (productName === 'Data warehouse') {
@@ -642,13 +710,16 @@ export function getUsageLimitConsequence(productName: string): string {
     if (productName === 'PostHog AI') {
         return 'PostHog AI will be unavailable'
     }
+    if (productName === 'Inbox') {
+        return 'Inbox agents will be paused'
+    }
     return 'data loss may occur'
 }
 
 /**
- * Build a consolidated message for products that have exceeded their usage limits
+ * Build a consolidated message for products that have reached their usage limits
  */
-export function buildUsageLimitExceededMessage(
+export function buildUsageLimitReachedMessage(
     products: Array<{ name: string; subscribed: boolean | null }>,
     hasBillingAccess: boolean = true,
     minimumBillingAccessLevel: OrganizationMembershipLevel = OrganizationMembershipLevel.Admin
@@ -680,8 +751,8 @@ export function buildUsageLimitExceededMessage(
     }
 
     return {
-        title: products.length === 1 ? 'Usage limit exceeded' : 'Usage limits exceeded',
-        message: `You have exceeded the usage limit for ${productListText}. Please ${actionText} or ${consequenceText}.`,
+        title: products.length === 1 ? 'Usage limit reached' : 'Usage limits reached',
+        message: `You have reached the usage limit for ${productListText}. Please ${actionText} or ${consequenceText}.`,
     }
 }
 

@@ -8,7 +8,6 @@ import { LemonButton, Link, Spinner } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useInterval } from 'lib/hooks/useInterval'
 import goImage from 'scenes/onboarding/shared/logos/go.svg'
 import javaImage from 'scenes/onboarding/shared/logos/java.svg'
@@ -70,7 +69,6 @@ const NoLogsPrompt = ({ className }: { className?: string }): JSX.Element | null
     const { hasLogs } = useValues(logsIngestionLogic)
     const { loadTeamHasLogs } = useActions(logsIngestionLogic)
     const openLogsSettings = useOpenLogsSettingsPanel()
-    const hasLogsSettings = useFeatureFlag('LOGS_SETTINGS')
 
     useEffect(() => {
         posthog.capture('logs setup prompt viewed')
@@ -136,14 +134,12 @@ const NoLogsPrompt = ({ className }: { className?: string }): JSX.Element | null
                             </LemonButton>
                         ))}
                     </div>
-                    {hasLogsSettings && (
-                        <p className="text-sm text-secondary m-0">
-                            Already using <code>posthog-js</code>?{' '}
-                            <LemonButton type="tertiary" size="xsmall" icon={<IconGear />} onClick={openLogsSettings}>
-                                Enable console log capture
-                            </LemonButton>
-                        </p>
-                    )}
+                    <p className="text-sm text-secondary m-0">
+                        Already using <code>posthog-js</code>?{' '}
+                        <LemonButton type="tertiary" size="xsmall" icon={<IconGear />} onClick={openLogsSettings}>
+                            Enable console log capture
+                        </LemonButton>
+                    </p>
                     <div className="flex items-center gap-4">
                         <div className="flex items-center gap-2 px-3 py-1.5 border border-accent rounded">
                             <div className="relative flex items-center justify-center">
@@ -154,7 +150,12 @@ const NoLogsPrompt = ({ className }: { className?: string }): JSX.Element | null
                         </div>
                         <span className="text-sm text-secondary">
                             Missing an integration?{' '}
-                            <button id="logs-feedback-button" className="text-link font-semibold cursor-pointer">
+                            <button
+                                id="logs-missing-integration-button"
+                                type="button"
+                                className="text-link font-semibold cursor-pointer"
+                                onClick={() => posthog.capture('logs missing integration clicked')}
+                            >
                                 Let us know
                             </button>
                         </span>

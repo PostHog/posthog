@@ -16,10 +16,10 @@ export const manifest: ProductManifest = {
         },
     },
     routes: {
-        '/code_review': ['CodeReview', 'codeReview'],
+        '/code-review': ['CodeReview', 'codeReview'],
     },
     urls: {
-        codeReview: (): string => '/code_review',
+        codeReview: (): string => '/code-review',
     },
     treeItemsProducts: [
         {

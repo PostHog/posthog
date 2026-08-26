@@ -159,9 +159,10 @@ export const editToolsLogic = kea<editToolsLogicType>([
                 } catch (error) {
                     console.error('Failed to save tool changes:', error)
                     lemonToast.error('Failed to save some changes. Try again?')
+                    // Only refetch to undo the failed save. Refetching on success would race a
+                    // later save, reverting it on screen; the placeholder fields are never read.
+                    actions.loadCustomProducts()
                 }
-                // Refresh with real server data to replace optimistic placeholders
-                actions.loadCustomProducts()
             }
         },
     })),

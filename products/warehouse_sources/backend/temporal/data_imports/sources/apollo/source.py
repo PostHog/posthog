@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.apollo.apollo import (
     ApolloResumeConfig,
     apollo_source,
@@ -32,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.apollo import ApolloSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -109,7 +106,10 @@ You can create an API key in Apollo under Settings > Integrations > API. API acc
         if validate_apollo_credentials(config.api_key):
             return True, None
 
-        return False, "Invalid Apollo API key"
+        return False, (
+            "Apollo rejected this API key. Create a key in Apollo under Settings > Integrations > API. "
+            "API access requires a paid Apollo plan."
+        )
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[ApolloResumeConfig]:
         return ResumableSourceManager[ApolloResumeConfig](inputs, ApolloResumeConfig)

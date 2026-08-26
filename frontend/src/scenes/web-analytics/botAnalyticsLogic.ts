@@ -9,6 +9,7 @@ import {
     NodeKind,
     TrendsFilter,
     WebAnalyticsPropertyFilter,
+    WebBotsBreakdown,
     WebAnalyticsPropertyFilters,
 } from '~/queries/schema/schema-general'
 import {
@@ -314,25 +315,11 @@ export const botAnalyticsLogic = kea<botAnalyticsLogicType>([
                             full: true,
                             kind: NodeKind.DataTableNode,
                             source: {
-                                kind: NodeKind.HogQLQuery,
-                                query: `SELECT
-    \`$virt_bot_name\` AS "Crawler",
-    \`$virt_traffic_category\` AS "Category",
-    count() AS "Requests",
-    max(timestamp) AS "Last seen"
-FROM events
-WHERE \`$virt_is_bot\` = true
-    AND \`$virt_bot_name\` != ''
-    AND event IN (${BOT_ANALYTICS_EVENTS.map((e) => `'${e}'`).join(', ')})
-    AND {filters}
-GROUP BY "Crawler", "Category"
-ORDER BY "Requests" DESC
-LIMIT 50`,
-                                filters: {
-                                    dateRange,
-                                    properties: botFilters,
-                                    filterTestAccounts,
-                                },
+                                kind: NodeKind.WebBotsTableQuery,
+                                breakdownBy: WebBotsBreakdown.Crawler,
+                                dateRange,
+                                properties: botFilters,
+                                filterTestAccounts,
                                 tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                             },
                             showActions: false,
@@ -353,26 +340,11 @@ LIMIT 50`,
                             full: true,
                             kind: NodeKind.DataTableNode,
                             source: {
-                                kind: NodeKind.HogQLQuery,
-                                query: `SELECT
-    properties.$pathname AS "Path",
-    count(DISTINCT \`$virt_bot_name\`) AS "Crawlers",
-    count() AS "Requests",
-    max(timestamp) AS "Last seen"
-FROM events
-WHERE \`$virt_is_bot\` = true
-    AND \`$virt_bot_name\` != ''
-    AND event IN (${BOT_ANALYTICS_EVENTS.map((e) => `'${e}'`).join(', ')})
-    AND properties.$pathname IS NOT NULL
-    AND {filters}
-GROUP BY "Path"
-ORDER BY "Requests" DESC
-LIMIT 50`,
-                                filters: {
-                                    dateRange,
-                                    properties: botFilters,
-                                    filterTestAccounts,
-                                },
+                                kind: NodeKind.WebBotsTableQuery,
+                                breakdownBy: WebBotsBreakdown.Path,
+                                dateRange,
+                                properties: botFilters,
+                                filterTestAccounts,
                                 tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                             },
                             showActions: false,

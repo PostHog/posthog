@@ -16,17 +16,20 @@ never dropped when its run row is missing. ClickHouse fills the unmatched run si
 defaults (empty repo/sha, ``pr_number`` 0), not NULL — HogQL doesn't set ``join_use_nulls`` — so a
 missing run reads as empty attribution rather than a real repo.
 
-Commit attribution comes from the run's ``head_commit`` Nullable-JSON column, which the shared
-``workflow_runs`` builder deliberately does not surface (other embedders — cost, health, PR list —
-don't need it, and the builder stays lean). Rather than widen the shared builder, this module reads
-the commit fields through its own minimal projection over the raw runs table and LEFT JOINs it on
-``run_id`` — the ``head_commit`` JSON is ``ifNull``-unwrapped before ``JSONExtractString``
-because a Nullable column can't feed the extractor.
+The commit's author and message come from the run's ``head_commit`` Nullable-JSON column, which the
+shared ``workflow_runs`` builder deliberately does not surface (only this view needs the strings,
+and every other embedder — cost, health, PR list — pays for the width). Rather than widen the shared
+builder, this module reads those fields through its own minimal projection over the raw runs table
+and LEFT JOINs it on ``run_id`` — the ``head_commit`` JSON is ``ifNull``-unwrapped before
+``JSONExtractString`` because a Nullable column can't feed the extractor.
 
 Two PR keys, by design: ``pr_number`` is the runs builder's association-derived number (0 when the
-run has no ``pull_requests`` association — pushes to master, fork PRs), and ``commit_pr_number`` is
-parsed from the squash-merge message's ``(#NNNN)`` suffix. The latter is how a master push run gets
-PR attribution at all, since its ``pull_requests`` association is empty (SPEC §6).
+run has no own-repo ``pull_requests`` association — pushes to master, fork PRs), and
+``commit_pr_number`` resolves the merged PR that produced the head commit. The latter is how a
+master push run gets PR attribution at all, since its association is empty (SPEC §6). Both come
+straight off the runs builder, which defines each key once for every consumer. On a merge-queue
+gate run ``pr_number`` is the PR the queue was landing rather than an association, and
+``is_merge_queue`` is what tells the two apart.
 
 ``created_at_raw`` is the unparsed jobs ``created_at`` string riding alongside the parsed
 ``created_at``. Consumers windowing this view pair their precise ``created_at`` bound with a coarse
@@ -41,9 +44,15 @@ Nothing here is registered as a global HogQL view; it is provisioned per-team as
 
 from typing import TYPE_CHECKING
 
-from posthog.hogql.database.models import DateTimeDatabaseField, FieldOrTable, IntegerDatabaseField, StringDatabaseField
+from posthog.hogql.database.models import (
+    BooleanDatabaseField,
+    DateTimeDatabaseField,
+    FieldOrTable,
+    IntegerDatabaseField,
+    StringDatabaseField,
+)
 
-from products.engineering_analytics.backend.logic.sources import resolve_job_cost_source_pairs
+from products.engineering_analytics.backend.logic.sources import resolve_job_source_tables
 from products.engineering_analytics.backend.logic.views import workflow_jobs, workflow_runs
 
 if TYPE_CHECKING:
@@ -78,6 +87,7 @@ FIELDS: dict[str, FieldOrTable] = {
     "commit_author_email": StringDatabaseField(name="commit_author_email", nullable=True),
     "commit_message": StringDatabaseField(name="commit_message", nullable=True),
     "commit_pr_number": IntegerDatabaseField(name="commit_pr_number", nullable=True),
+    "is_merge_queue": BooleanDatabaseField(name="is_merge_queue"),
 }
 
 
@@ -102,71 +112,49 @@ def _head_commit_query(runs_table: str) -> str:
     """
 
 
-def build_query(*, jobs_table: str, runs_table: str) -> str:
+def build_query(*, jobs_table: str, runs_table: str, pull_requests_table: str | None = None) -> str:
     """The per-job-attempt history SELECT for one GitHub source: curated jobs LEFT JOIN curated runs,
     plus the run's commit attribution.
 
-    Two layers so ``commit_pr_number`` can be derived from ``commit_message``: the inner join layer
-    projects the raw columns (including ``commit_message`` from the head-commit projection), and the
-    outer layer extracts the squash-merge PR number off that projected column — a same-SELECT alias
-    can't feed another expression, so the extraction lives one level up.
+    ``pull_requests_table`` is what lets the runs builder resolve ``commit_pr_number`` through the
+    merged PR's ``merge_commit_sha`` instead of the head commit's message. It is optional because
+    this view qualifies on jobs + runs alone (see ``resolve_job_source_tables``), so a repo can
+    reach it without a PR snapshot; without one, attribution falls back to the message suffix.
     """
     jobs = workflow_jobs.build_query(jobs_table)
-    runs = workflow_runs.build_query(runs_table)
+    runs = workflow_runs.build_query(runs_table, pull_requests_table=pull_requests_table)
     head_commits = _head_commit_query(runs_table)
 
     return f"""
         SELECT
-            repo_owner,
-            repo_name,
-            workflow_name,
-            job_name,
-            run_id,
-            run_attempt,
-            head_branch,
-            head_sha,
-            status,
-            conclusion,
-            created_at,
-            created_at_raw,
-            started_at,
-            completed_at,
-            duration_seconds,
-            pr_number,
-            commit_author_name,
-            commit_author_email,
-            commit_message,
-            -- Anchored to a line end ((?m) — the squash title): an unanchored match would take the
-            -- FIRST (#N) in the message, misattributing reverts ('Revert "x (#A)" (#B)') to the
-            -- reverted PR instead of the reverting one.
-            accurateCastOrNull(regexpExtract(commit_message, '(?m)[(]#([0-9]+)[)]$'), 'Int64') AS commit_pr_number
-        FROM (
-            SELECT
-                r.repo_owner AS repo_owner,
-                r.repo_name AS repo_name,
-                j.workflow_name AS workflow_name,
-                j.name AS job_name,
-                j.run_id AS run_id,
-                j.run_attempt AS run_attempt,
-                j.head_branch AS head_branch,
-                r.head_sha AS head_sha,
-                j.status AS status,
-                j.conclusion AS conclusion,
-                j.created_at AS created_at,
-                j.created_at_raw AS created_at_raw,
-                j.started_at AS started_at,
-                j.completed_at AS completed_at,
-                j.duration_seconds AS duration_seconds,
-                -- The runs builder emits 0 for a run with no PR association; keep that semantic (a
-                -- LEFT-JOIN miss also reads 0 — type default). commit_pr_number is the push-run fallback.
-                r.pr_number AS pr_number,
-                hc.commit_author_name AS commit_author_name,
-                hc.commit_author_email AS commit_author_email,
-                hc.commit_message AS commit_message
-            FROM ({jobs}) AS j
-            LEFT JOIN ({runs}) AS r ON j.run_id = r.id
-            LEFT JOIN ({head_commits}) AS hc ON j.run_id = hc.run_id
-        )
+            r.repo_owner AS repo_owner,
+            r.repo_name AS repo_name,
+            j.workflow_name AS workflow_name,
+            j.name AS job_name,
+            j.run_id AS run_id,
+            j.run_attempt AS run_attempt,
+            j.head_branch AS head_branch,
+            r.head_sha AS head_sha,
+            j.status AS status,
+            j.conclusion AS conclusion,
+            j.created_at AS created_at,
+            j.created_at_raw AS created_at_raw,
+            j.started_at AS started_at,
+            j.completed_at AS completed_at,
+            j.duration_seconds AS duration_seconds,
+            -- The runs builder emits 0 for a run with no PR association; keep that semantic (a
+            -- LEFT-JOIN miss also reads 0 — type default). commit_pr_number is the push-run fallback.
+            r.pr_number AS pr_number,
+            hc.commit_author_name AS commit_author_name,
+            hc.commit_author_email AS commit_author_email,
+            hc.commit_message AS commit_message,
+            r.commit_pr_number AS commit_pr_number,
+            -- The run ran on a merge-queue gate branch, so pr_number above is the PR it was landing
+            -- rather than an association. Without this the two populations are indistinguishable.
+            r.is_merge_queue AS is_merge_queue
+        FROM ({jobs}) AS j
+        LEFT JOIN ({runs}) AS r ON j.run_id = r.id
+        LEFT JOIN ({head_commits}) AS hc ON j.run_id = hc.run_id
     """
 
 
@@ -174,10 +162,17 @@ def build_team_view(team: "Team") -> str | None:
     """The full view body for a team: every GitHub source with both runs and jobs synced, unioned.
 
     None when the team has no qualifying source (no view is created). Gated on the same
-    ``resolve_job_cost_source_pairs`` condition as ``job_costs`` so the exposed views stay coherent.
+    ``resolve_job_source_tables`` condition as ``job_costs`` so the exposed views stay coherent.
     """
-    pairs = resolve_job_cost_source_pairs(team)
-    if not pairs:
+    sources = resolve_job_source_tables(team)
+    if not sources:
         return None
-    selects = [build_query(jobs_table=jobs_table, runs_table=runs_table) for jobs_table, runs_table in pairs]
+    selects = [
+        build_query(
+            jobs_table=source.workflow_jobs,
+            runs_table=source.workflow_runs,
+            pull_requests_table=source.pull_requests,
+        )
+        for source in sources
+    ]
     return "\nUNION ALL\n".join(selects)

@@ -1,4 +1,3 @@
-import json
 import uuid
 from datetime import UTC, datetime
 from typing import cast
@@ -8,10 +7,6 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
-
-from temporalio import activity
-from temporalio.testing import WorkflowEnvironment
-from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.models import Team
@@ -31,15 +26,14 @@ from products.error_tracking.backend.temporal.fingerprint_embedding_result.activ
     _query_closest_fingerprints,
     _report_closest_fingerprint_metrics,
     _target_embedding_from_inputs,
-    merge_similar_fingerprints_activity,
 )
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.types import (
     FingerprintEmbeddingMergeResult,
     FingerprintEmbeddingResultInputs,
     SimilarFingerprintDistance,
 )
-from products.error_tracking.backend.temporal.fingerprint_embedding_result.workflow import (
-    ErrorTrackingFingerprintEmbeddingResultWorkflow,
+from products.error_tracking.backend.temporal.lifecycle.issue_created.activities import (
+    merge_issue_created_fingerprint_activity,
 )
 
 
@@ -52,36 +46,6 @@ def _inputs() -> FingerprintEmbeddingResultInputs:
         model_name="text-embedding-3-large-3072",
         embedding=[0.1, 0.2, 0.3],
     )
-
-
-async def _run_workflow_with_mock_activity(
-    inputs: FingerprintEmbeddingResultInputs,
-    activity_result: FingerprintEmbeddingMergeResult,
-) -> tuple[FingerprintEmbeddingMergeResult, FingerprintEmbeddingResultInputs]:
-    captured: dict[str, FingerprintEmbeddingResultInputs] = {}
-
-    @activity.defn(name="merge_similar_fingerprints_activity")
-    async def mock_activity(activity_inputs: FingerprintEmbeddingResultInputs) -> FingerprintEmbeddingMergeResult:
-        captured["inputs"] = activity_inputs
-        return activity_result
-
-    task_queue = str(uuid.uuid4())
-    async with await WorkflowEnvironment.start_time_skipping() as env:
-        async with Worker(
-            env.client,
-            task_queue=task_queue,
-            workflows=[ErrorTrackingFingerprintEmbeddingResultWorkflow],
-            activities=[mock_activity],
-            workflow_runner=UnsandboxedWorkflowRunner(),
-        ):
-            result = await env.client.execute_workflow(
-                ErrorTrackingFingerprintEmbeddingResultWorkflow.run,
-                inputs,
-                id=str(uuid.uuid4()),
-                task_queue=task_queue,
-            )
-
-    return result, captured["inputs"]
 
 
 class TestFingerprintEmbeddingResultActivity:
@@ -152,13 +116,11 @@ class TestFingerprintEmbeddingResultActivity:
             SimilarFingerprintDistance(fingerprint="fingerprint-3", distance=0.03),
         ]
         capture = MagicMock()
-        capture_context = MagicMock()
-        capture_context.__enter__.return_value = capture
 
         with (
             patch(
-                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.ph_scoped_capture",
-                return_value=capture_context,
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.ph_background_capture",
+                return_value=capture,
             ),
             patch(
                 "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.groups",
@@ -201,7 +163,7 @@ class TestFingerprintEmbeddingResultActivity:
                 "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities._report_closest_fingerprint_metrics"
             ),
         ):
-            result = merge_similar_fingerprints_activity(_inputs())
+            result = merge_issue_created_fingerprint_activity(_inputs())
 
         assert result.merged_count == 0
         assert result.query_duration_ms is not None
@@ -217,7 +179,7 @@ class TestFingerprintEmbeddingResultActivity:
                 "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities._capture_activity_exception"
             ) as capture_exception,
         ):
-            result = merge_similar_fingerprints_activity(_inputs())
+            result = merge_issue_created_fingerprint_activity(_inputs())
 
         assert result == FingerprintEmbeddingMergeResult()
         capture_exception.assert_not_called()
@@ -274,8 +236,6 @@ class TestFingerprintEmbeddingResultActivity:
             source_fingerprint,
         ]
         capture = MagicMock()
-        capture_context = MagicMock()
-        capture_context.__enter__.return_value = capture
 
         with (
             override_settings(ERROR_TRACKING_AUTO_MERGE_ENABLED=True),
@@ -284,8 +244,8 @@ class TestFingerprintEmbeddingResultActivity:
                 return_value=fingerprint_query,
             ) as filter_fingerprints,
             patch(
-                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.ph_scoped_capture",
-                return_value=capture_context,
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.ph_background_capture",
+                return_value=capture,
             ),
             patch(
                 "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.groups",
@@ -329,9 +289,6 @@ class TestFingerprintEmbeddingResultActivity:
             same_issue_fingerprint,
             target_fingerprint,
         ]
-        capture_context = MagicMock()
-        capture_context.__enter__.return_value = MagicMock()
-
         with (
             override_settings(ERROR_TRACKING_AUTO_MERGE_ENABLED=True),
             patch(
@@ -339,8 +296,8 @@ class TestFingerprintEmbeddingResultActivity:
                 return_value=fingerprint_query,
             ),
             patch(
-                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.ph_scoped_capture",
-                return_value=capture_context,
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.ph_background_capture",
+                return_value=MagicMock(),
             ),
         ):
             result = _merge_fingerprint_into_closest_issue(
@@ -470,14 +427,11 @@ class TestMergeFingerprintCrossTeamIsolation(BaseTest):
         other_source_issue = self._create_issue(other_team, "fp-source")
         other_target_issue = self._create_issue(other_team, "fp-target")
 
-        capture_context = MagicMock()
-        capture_context.__enter__.return_value = MagicMock()
-
         with (
             override_settings(ERROR_TRACKING_AUTO_MERGE_ENABLED=True),
             patch(
-                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.ph_scoped_capture",
-                return_value=capture_context,
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.ph_background_capture",
+                return_value=MagicMock(),
             ),
         ):
             merged_count = _merge_fingerprint_into_closest_issue(
@@ -500,58 +454,3 @@ class TestMergeFingerprintCrossTeamIsolation(BaseTest):
         other_fingerprint = ErrorTrackingIssueFingerprintV2.objects.get(team=other_team, fingerprint="fp-source")
         assert other_fingerprint.issue_id == other_source_issue.id
         assert other_fingerprint.version == 0
-
-
-class TestFingerprintEmbeddingResultWorkflow:
-    def test_parse_inputs_requires_payload(self) -> None:
-        with pytest.raises(ValueError, match="requires exactly one input"):
-            ErrorTrackingFingerprintEmbeddingResultWorkflow.parse_inputs([])
-
-    def test_parse_inputs_rejects_multiple_payloads(self) -> None:
-        with pytest.raises(ValueError, match="requires exactly one input"):
-            ErrorTrackingFingerprintEmbeddingResultWorkflow.parse_inputs(["{}", "{}"])
-
-    def test_parse_inputs(self) -> None:
-        inputs = ErrorTrackingFingerprintEmbeddingResultWorkflow.parse_inputs(
-            [
-                json.dumps(
-                    {
-                        "team_id": 1,
-                        "fingerprint": "test-fingerprint",
-                        "rendering": "type_message_and_stack",
-                        "timestamp": "2026-06-08T00:00:00Z",
-                        "embedding": [0.1, 0.2, 0.3],
-                        "model_name": "text-embedding-3-large-3072",
-                    }
-                )
-            ]
-        )
-
-        assert inputs == _inputs()
-
-    def test_workflow_id_for_is_stable_and_bounded(self) -> None:
-        workflow_id = ErrorTrackingFingerprintEmbeddingResultWorkflow.workflow_id_for(
-            team_id=1,
-            fingerprint="test-fingerprint",
-            rendering="type_message_and_stack",
-            timestamp="2026-06-08T00:00:00Z",
-        )
-
-        assert workflow_id == ErrorTrackingFingerprintEmbeddingResultWorkflow.workflow_id_for(
-            team_id=1,
-            fingerprint="test-fingerprint",
-            rendering="type_message_and_stack",
-            timestamp="2026-06-08T00:00:00Z",
-        )
-        assert workflow_id.startswith("error-tracking-fingerprint-embedding-result-1-")
-        assert len(workflow_id) < 100
-
-    @pytest.mark.asyncio
-    async def test_workflow_calls_merge_activity(self) -> None:
-        inputs = _inputs()
-        expected = FingerprintEmbeddingMergeResult(merged_count=2)
-
-        result, activity_inputs = await _run_workflow_with_mock_activity(inputs, expected)
-
-        assert result == expected
-        assert activity_inputs == inputs

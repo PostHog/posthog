@@ -8,9 +8,10 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.confluent_cloud.settings import (
     CONFLUENT_CLOUD_BASE_URL,
     CONFLUENT_CLOUD_ENDPOINTS,
@@ -211,7 +212,7 @@ def _sync_range(
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
     now: datetime,
-) -> tuple[datetime, datetime]:
+) -> SyncWindow[datetime]:
     retention_floor = now - timedelta(days=DEFAULT_LOOKBACK_DAYS)
     start = retention_floor
     if should_use_incremental_field:
@@ -220,7 +221,7 @@ def _sync_range(
             # Cap a future-dated watermark at now, then re-pull a trailing overlap because recent
             # buckets get restated; merge dedupes on the primary key. Never reach past retention.
             start = max(min(watermark, now) - INCREMENTAL_OVERLAP, retention_floor)
-    return start, now
+    return SyncWindow(start=start, end=now)
 
 
 def _iter_metrics_rows(
@@ -241,13 +242,13 @@ def _iter_metrics_rows(
             "Add the resource IDs in the source settings, or disable this table."
         )
 
-    start, end = _sync_range(should_use_incremental_field, db_incremental_field_last_value, datetime.now(UTC))
+    window = _sync_range(should_use_incremental_field, db_incremental_field_last_value, datetime.now(UTC))
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume is not None and resume.window_start:
         resumed_start = _coerce_datetime(resume.window_start)
-        if resumed_start is not None and start <= resumed_start < end:
-            start = resumed_start
+        if resumed_start is not None and window.start <= resumed_start < window.end:
+            window = SyncWindow(start=resumed_start, end=window.end)
             logger.debug(f"Confluent Cloud: resuming {endpoint} from window start {resume.window_start}")
 
     metric_names = _get_metric_names(session, config.resource_type, logger)
@@ -255,9 +256,9 @@ def _iter_metrics_rows(
         logger.warning(f"Confluent Cloud: no metrics found for resource type {config.resource_type}")
         return
 
-    window_start = start
-    while window_start < end:
-        window_end = min(window_start + QUERY_WINDOW, end)
+    window_start = window.start
+    while window_start < window.end:
+        window_end = min(window_start + QUERY_WINDOW, window.end)
         interval = f"{_format_timestamp(window_start)}/{_format_timestamp(window_end)}"
 
         for metric in metric_names:
@@ -269,7 +270,7 @@ def _iter_metrics_rows(
         # Checkpoint AFTER the window's rows are yielded (and only while more windows remain), so a
         # crash re-yields the current window rather than skipping it — merge dedupes on the primary
         # key.
-        if window_start < end:
+        if window_start < window.end:
             resumable_source_manager.save_state(
                 ConfluentCloudResumeConfig(window_start=_format_timestamp(window_start))
             )

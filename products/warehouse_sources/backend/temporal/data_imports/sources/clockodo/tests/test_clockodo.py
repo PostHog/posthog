@@ -2,6 +2,7 @@ import json
 from datetime import UTC, datetime
 from typing import Any
 
+import pytest
 from freezegun import freeze_time
 from unittest import mock
 
@@ -15,6 +16,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clockodo.c
     _format_z,
     clockodo_source,
     validate_credentials,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.clockodo.settings import (
+    CLOCKODO_API_VERSION_V2,
+    CLOCKODO_API_VERSION_V3,
+    CLOCKODO_ENDPOINTS_V2,
+    CLOCKODO_SUPPORTED_VERSIONS,
+    ENDPOINTS,
+    endpoints_for_version,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
 
@@ -51,8 +60,8 @@ def _make_manager(resume_state: ClockodoResumeConfig | None = None) -> mock.Magi
     return manager
 
 
-def _wire(session: mock.MagicMock, responses: list[Response]) -> tuple[list[dict[str, Any]], list[Any]]:
-    """Wire a mock session; capture each request's params and auth AT SEND TIME.
+def _wire(session: mock.MagicMock, responses: list[Response]) -> tuple[list[dict[str, Any]], list[Any], list[str]]:
+    """Wire a mock session; capture each request's params, auth, and URL AT SEND TIME.
 
     ``request.params`` is a single dict mutated in place across pages, so inspecting it after the
     run shows only the final state — snapshot a copy when each request is prepared instead.
@@ -60,22 +69,24 @@ def _wire(session: mock.MagicMock, responses: list[Response]) -> tuple[list[dict
     session.headers = {}
     param_snapshots: list[dict[str, Any]] = []
     auth_snapshots: list[Any] = []
+    url_snapshots: list[str] = []
 
     def _prepare(request: Any) -> mock.MagicMock:
         param_snapshots.append(dict(request.params or {}))
         auth_snapshots.append(request.auth)
+        url_snapshots.append(request.url)
         return mock.MagicMock()
 
     session.prepare_request.side_effect = _prepare
     session.send.side_effect = responses
-    return param_snapshots, auth_snapshots
+    return param_snapshots, auth_snapshots, url_snapshots
 
 
 def _rows(source_response) -> list[dict[str, Any]]:
     return [row for page in source_response.items() for row in page]
 
 
-def _source(endpoint: str, manager: mock.MagicMock):
+def _source(endpoint: str, manager: mock.MagicMock, api_version: str = CLOCKODO_API_VERSION_V2):
     return clockodo_source(
         api_user="me@example.com",
         api_key="key123",
@@ -83,6 +94,7 @@ def _source(endpoint: str, manager: mock.MagicMock):
         team_id=1,
         job_id="j",
         resumable_source_manager=manager,
+        api_version=api_version,
     )
 
 
@@ -100,7 +112,7 @@ class TestFormatZ:
 class TestEndpointParams:
     @freeze_time("2026-06-29T12:00:00Z")
     def test_entries_requires_time_window(self) -> None:
-        params = _endpoint_params("entries")
+        params = _endpoint_params("entries", CLOCKODO_ENDPOINTS_V2["entries"])
         # Listing entries without a time range is rejected by the API.
         assert params["time_since"] == "2000-01-01T00:00:00Z"
         # time_until is pushed a year past now to also capture planned (future) entries.
@@ -108,7 +120,7 @@ class TestEndpointParams:
 
     @parameterized.expand([("customers",), ("projects",), ("services",), ("users",)])
     def test_non_entries_have_no_time_window(self, endpoint: str) -> None:
-        params = _endpoint_params(endpoint)
+        params = _endpoint_params(endpoint, CLOCKODO_ENDPOINTS_V2[endpoint])
         assert "time_since" not in params
         assert "time_until" not in params
 
@@ -117,7 +129,7 @@ class TestHeadersAndAuth:
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_identification_headers_and_api_key_auth(self, MockSession) -> None:
         session = MockSession.return_value
-        _params, auths = _wire(session, [_response([{"id": 1}], count_pages=1)])
+        _params, auths, _urls = _wire(session, [_response([{"id": 1}], count_pages=1)])
 
         _rows(_source("customers", _make_manager()))
 
@@ -136,7 +148,7 @@ class TestPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_paginated_walks_all_pages_and_saves_state(self, MockSession) -> None:
         session = MockSession.return_value
-        params, _auths = _wire(
+        params, _auths, _urls = _wire(
             session,
             [
                 _response([{"id": 1}, {"id": 2}], count_pages=2),
@@ -187,7 +199,7 @@ class TestPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_page(self, MockSession) -> None:
         session = MockSession.return_value
-        params, _auths = _wire(session, [_response([{"id": 3}], count_pages=2)])
+        params, _auths, _urls = _wire(session, [_response([{"id": 3}], count_pages=2)])
 
         manager = _make_manager(ClockodoResumeConfig(next_page=2))
         rows = _rows(_source("customers", manager))
@@ -199,7 +211,7 @@ class TestPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_non_paginated_single_fetch(self, MockSession) -> None:
         session = MockSession.return_value
-        params, _auths = _wire(session, [_response([{"id": 1}, {"id": 2}], data_key="services")])
+        params, _auths, _urls = _wire(session, [_response([{"id": 1}, {"id": 2}], data_key="services")])
 
         manager = _make_manager()
         rows = _rows(_source("services", manager))
@@ -214,7 +226,7 @@ class TestPagination:
     @freeze_time("2026-06-29T12:00:00Z")
     def test_entries_sends_time_window(self, MockSession) -> None:
         session = MockSession.return_value
-        params, _auths = _wire(session, [_response([{"id": 1}], data_key="entries", count_pages=1)])
+        params, _auths, _urls = _wire(session, [_response([{"id": 1}], data_key="entries", count_pages=1)])
 
         _rows(_source("entries", _make_manager()))
 
@@ -249,23 +261,87 @@ class TestClockodoSourceResponse:
         assert response.primary_keys == ["id"]
 
 
+class TestVersionDispatch:
+    @parameterized.expand(
+        [
+            # v2 serves each resource under its own key; the successors return rows under "data".
+            (CLOCKODO_API_VERSION_V2, "customers", "customers", "/api/v2/customers"),
+            (CLOCKODO_API_VERSION_V3, "customers", "data", "/api/v3/customers"),
+            (CLOCKODO_API_VERSION_V3, "projects", "data", "/api/v4/projects"),
+            (CLOCKODO_API_VERSION_V3, "lumpsum_services", "data", "/api/v4/lumpSumServices"),
+            (CLOCKODO_API_VERSION_V3, "teams", "data", "/api/v3/teams"),
+            # surcharges is not decommissioned, so it stays on the v2 path under either pin.
+            (CLOCKODO_API_VERSION_V3, "surcharges", "surcharges", "/api/v2/surcharges"),
+        ]
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_pin_routes_to_versioned_path_and_envelope(
+        self, api_version: str, endpoint: str, data_key: str, expected_path: str, MockSession
+    ) -> None:
+        session = MockSession.return_value
+        _params, _auths, urls = _wire(session, [_response([{"id": 1}], data_key=data_key, count_pages=1)])
+
+        rows = _rows(_source(endpoint, _make_manager(), api_version=api_version))
+
+        # Wrong path hits a decommissioned endpoint; wrong envelope key yields zero rows.
+        assert [r["id"] for r in rows] == [1]
+        assert expected_path in urls[0]
+
+    def test_every_supported_version_covers_all_tables(self) -> None:
+        # clockodo_source indexes the version map by table name, so a table missing from any
+        # version map would KeyError mid-sync instead of routing to a path.
+        for version in CLOCKODO_SUPPORTED_VERSIONS:
+            assert set(endpoints_for_version(version)) == set(ENDPOINTS)
+
+    def test_unknown_version_raises(self) -> None:
+        with pytest.raises(ValueError):
+            endpoints_for_version("v99")
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_v3_paginates_a_resource_v2_served_in_one_page(self, MockSession) -> None:
+        # v2/users returns the whole collection in one response; v3/users paginates, so a
+        # single-page fetch would silently drop every user past the first page.
+        session = MockSession.return_value
+        params, _auths, _urls = _wire(
+            session,
+            [
+                _response([{"id": 1}], data_key="data", count_pages=2),
+                _response([{"id": 2}], data_key="data", count_pages=2),
+            ],
+        )
+
+        rows = _rows(_source("users", _make_manager(), api_version=CLOCKODO_API_VERSION_V3))
+
+        assert [r["id"] for r in rows] == [1, 2]
+        assert params[0]["page"] == 1
+        assert params[1]["page"] == 2
+
+
 class TestValidateCredentials:
     @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
     @mock.patch(CLOCKODO_SESSION_PATCH)
     def test_validate_credentials_status_mapping(self, _name: str, status: int, expected: bool, mock_session) -> None:
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=status)
-        assert validate_credentials("u", "k") is expected
+        assert validate_credentials("u", "k", CLOCKODO_API_VERSION_V3) is expected
 
     @mock.patch(CLOCKODO_SESSION_PATCH)
     def test_validate_credentials_swallows_transport_errors(self, mock_session) -> None:
         mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("u", "k") is False
+        assert validate_credentials("u", "k", CLOCKODO_API_VERSION_V3) is False
 
+    @parameterized.expand(
+        [
+            (CLOCKODO_API_VERSION_V2, "https://my.clockodo.com/api/v2/users"),
+            # A new source defaults to v3; probing v2/users would fail once it is decommissioned.
+            (CLOCKODO_API_VERSION_V3, "https://my.clockodo.com/api/v3/users"),
+        ]
+    )
     @mock.patch(CLOCKODO_SESSION_PATCH)
-    def test_probe_sends_credentials(self, mock_session) -> None:
+    def test_probe_targets_version_users_path(self, api_version: str, expected_url: str, mock_session) -> None:
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        validate_credentials("me@example.com", "key123")
-        _args, kwargs = mock_session.return_value.get.call_args
+        validate_credentials("me@example.com", "key123", api_version)
+        args, kwargs = mock_session.return_value.get.call_args
+        assert args[0] == expected_url
         headers = kwargs["headers"]
         assert headers["X-ClockodoApiUser"] == "me@example.com"
         assert headers["X-ClockodoApiKey"] == "key123"

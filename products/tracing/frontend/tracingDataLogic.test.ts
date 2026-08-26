@@ -9,7 +9,7 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { AggregatedSpanRow } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
-import { tracingDataLogic } from './tracingDataLogic'
+import { NEW_QUERY_STARTED_ERROR_MESSAGE, UNMOUNTING_ERROR_MESSAGE, tracingDataLogic } from './tracingDataLogic'
 import { tracingFiltersLogic } from './tracingFiltersLogic'
 import type { Span } from './types'
 
@@ -319,6 +319,76 @@ describe('tracingDataLogic', () => {
         })
     })
 
+    describe('loading state across superseded queries', () => {
+        let toastSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            silenceKeaLoadersErrors()
+            toastSpy = jest.spyOn(lemonToast, 'error').mockReturnValue(undefined as any)
+        })
+
+        afterEach(() => {
+            toastSpy.mockRestore()
+        })
+
+        it.each([
+            {
+                name: 'spans',
+                apiMethod: 'listSpans' as const,
+                start: (l: typeof logic) => l.actions.fetchSpans(),
+                fail: (l: typeof logic, error: string) => l.actions.fetchSpansFailure(error),
+                loadingValue: (l: typeof logic) => l.values.spansLoading,
+            },
+            {
+                name: 'aggregation',
+                apiMethod: 'aggregate' as const,
+                start: (l: typeof logic) => l.actions.fetchAggregation(),
+                fail: (l: typeof logic, error: string) => l.actions.fetchAggregationFailure(error),
+                loadingValue: (l: typeof logic) => l.values.aggregationLoading,
+            },
+        ])(
+            'keeps $name loading on a superseded query but clears it on a real failure',
+            ({ apiMethod, start, fail, loadingValue }) => {
+                // Newer query in flight forever, so loading stays owned by it.
+                const apiSpy = jest.spyOn(api.tracing, apiMethod).mockReturnValue(new Promise(() => {}) as any)
+                logic = mountWithSpans([])
+                start(logic)
+                expect(loadingValue(logic)).toBe(true)
+
+                // The previous request's abort must NOT drop the flag mid-flight.
+                fail(logic, NEW_QUERY_STARTED_ERROR_MESSAGE)
+                expect(loadingValue(logic)).toBe(true)
+
+                // A genuine failure still resets it.
+                fail(logic, 'boom')
+                expect(loadingValue(logic)).toBe(false)
+                apiSpy.mockRestore()
+            }
+        )
+    })
+
+    describe('cancelled requests', () => {
+        // A superseded query and a scene teardown both abort whatever is in flight. Neither is a
+        // fault the user can act on, so neither may reach them as a toast or land in error
+        // telemetry as a failed tracing query.
+        it.each([NEW_QUERY_STARTED_ERROR_MESSAGE, UNMOUNTING_ERROR_MESSAGE])(
+            'does not report "%s" as a query failure',
+            (reason) => {
+                silenceKeaLoadersErrors()
+                const toastSpy = jest.spyOn(lemonToast, 'error').mockReturnValue(undefined as any)
+                const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+                logic = mountWithSpans([])
+
+                logic.actions.fetchSpansFailure(reason)
+
+                expect(toastSpy).not.toHaveBeenCalled()
+                expect(captureSpy).not.toHaveBeenCalledWith('tracing query failed', expect.anything())
+                toastSpy.mockRestore()
+                captureSpy.mockRestore()
+            }
+        )
+    })
+
     describe('keyed instances', () => {
         it('re-runs the query when its filters change, with no URL involvement', async () => {
             // The embed-critical wiring: filter changes must re-query inside the keyed stack.
@@ -374,6 +444,35 @@ describe('tracingDataLogic', () => {
                 isolatedData.unmount()
                 isolatedFilters.unmount()
             }
+        })
+    })
+
+    describe('deferred filter refresh', () => {
+        // The trace drawer's attribute buttons call addFilter, which sets skipQuery so the list
+        // doesn't reload behind the open drawer. Losing that gate means every attribute click
+        // would trigger a background re-query the user can't see.
+        it('does not run the query when addFilter defers it', async () => {
+            logic = mountWithSpans()
+            const listSpansSpy = jest.spyOn(api.tracing, 'listSpans').mockResolvedValue({ results: [], hasMore: false })
+
+            await expectLogic(logic, () => {
+                tracingFiltersLogic().actions.addFilter('http.method', 'GET')
+            }).toNotHaveDispatchedActions(['handleFilterChange', 'runQuery'])
+            expect(listSpansSpy).not.toHaveBeenCalled()
+
+            listSpansSpy.mockRestore()
+        })
+
+        it('runs the query once refreshDeferredFilters fires', async () => {
+            logic = mountWithSpans()
+            const listSpansSpy = jest.spyOn(api.tracing, 'listSpans').mockResolvedValue({ results: [], hasMore: false })
+
+            await expectLogic(logic, () => {
+                tracingFiltersLogic().actions.refreshDeferredFilters()
+            }).toDispatchActions(['handleFilterChange', 'runQuery', 'fetchSpansSuccess'])
+            expect(listSpansSpy).toHaveBeenCalled()
+
+            listSpansSpy.mockRestore()
         })
     })
 })

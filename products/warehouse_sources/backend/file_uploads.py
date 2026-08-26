@@ -33,6 +33,15 @@ FILE_FORMAT_TO_TABLE_FORMAT: dict[str, str] = {
     FORMAT_PARQUET: "Parquet",
 }
 
+# Per-format guidance shown when column detection fails on create. Each hint names the exact shape
+# the matching read format above expects, since that's what silently trips uploads up: CSV needs a
+# header row, and JSON is read one object per line rather than as a single array.
+FILE_FORMAT_READ_HINTS: dict[str, str] = {
+    FORMAT_CSV: "Make sure it's a comma-separated CSV with a header row and the same number of columns in every row.",
+    FORMAT_JSON: "Make sure it's newline-delimited JSON, with one object per line rather than a single array.",
+    FORMAT_PARQUET: "Make sure it's a valid Parquet file.",
+}
+
 # Cap on uploads streamed through the web pod. Larger datasets belong on a self-managed S3/GCS
 # source, where PostHog reads the customer's bucket directly instead of hosting the bytes.
 MAX_UPLOAD_SIZE_BYTES = 50 * 1024 * 1024

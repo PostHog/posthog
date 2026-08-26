@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use axum::extract::DefaultBodyLimit;
 use axum::http::Method;
+use axum::Extension;
 use axum::{
     routing::{get, post},
     Router,
@@ -14,7 +15,6 @@ use tower::limit::ConcurrencyLimitLayer;
 use tower_http::cors::{AllowHeaders, AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
 
-use crate::ai_s3::BlobStorage;
 use crate::event_restrictions::EventRestrictionService;
 use crate::global_rate_limiter::GlobalRateLimiter;
 use crate::otel;
@@ -27,14 +27,26 @@ use limiters::overflow::OverflowLimiter;
 use limiters::redis::RedisLimiter;
 use limiters::token_dropper::TokenDropper;
 
-use crate::config::{AiRouting, CaptureMode};
+use crate::config::CaptureMode;
 use crate::metrics_middleware::track_metrics;
-use crate::prometheus::setup_metrics_recorder;
 use crate::quota_limiters::CaptureQuotaLimiter;
+use metrics_exporter_prometheus::PrometheusHandle;
 
-const EVENT_BODY_SIZE: usize = 2 * 1024 * 1024; // 2MB
-pub const BATCH_BODY_SIZE: usize = 20 * 1024 * 1024; // 20MB, up from the default 2MB used for normal event payloads
-const RECORDING_BODY_SIZE: usize = 25 * 1024 * 1024; // 25MB, up from the default 2MB used for normal event payloads
+/// Wire-body ceiling for every v0 analytics route. One handler serves `/e`,
+/// `/batch`, `/capture`, `/track` and `/engage`, and a batch is accepted on any
+/// of them, so the cap is a property of the pipeline rather than of the path.
+pub const BATCH_BODY_SIZE: usize = 20 * 1024 * 1024; // 20MB
+
+const RECORDING_BODY_SIZE: usize = 25 * 1024 * 1024; // 25MB
+
+/// A route group's wire-body ceiling, carried as a request extension.
+///
+/// `DefaultBodyLimit` only inserts an extension that `Bytes`-style extractors
+/// read. Handlers that stream take `Body`, which never reads it, so they would
+/// otherwise fall back to the much larger decompressed budget. Both layers are
+/// applied from the same constant so one number governs the route either way.
+#[derive(Debug, Clone, Copy)]
+pub struct WireBodyLimit(pub usize);
 
 #[derive(Clone)]
 pub struct State {
@@ -54,7 +66,9 @@ pub struct State {
     pub is_mirror_deploy: bool,
     pub verbose_sample_percent: f32,
     pub ai_max_sum_of_parts_bytes: usize,
-    pub ai_blob_storage: Option<Arc<dyn BlobStorage>>,
+    /// Largest AI-lane event this deployment accepts (`AI_MAX_EVENT_BYTES`).
+    /// `0` disables the ceiling.
+    pub ai_max_event_bytes: u64,
     pub body_chunk_read_timeout: Option<Duration>,
     pub body_read_chunk_size_kb: usize,
     pub capture_v1_max_compressed_body_bytes: usize,
@@ -82,6 +96,11 @@ pub struct State {
     /// `OVERFLOW_ENABLED` and the AI overflow valve are set; `None` leaves
     /// the AI lane subject to restriction-driven `force_overflow` only.
     pub ai_events_overflow_limiter: Option<Arc<OverflowLimiter>>,
+    /// AI-lane per-token byte budget; `None` when disabled. A second instance
+    /// of the same global rate limiter the `token:distinct_id` field holds,
+    /// charged an event's serialized size rather than `1`. Drops over-budget
+    /// events, unlike the overflow limiter's reroute.
+    pub ai_byte_rate_limiter: Option<Arc<GlobalRateLimiter>>,
     /// Redis-backed replay overflow limiter for session recording sessions.
     /// When present, the recordings pipeline calls `is_limited(session_id)`
     /// and stamps `ProcessedEventMetadata::overflow_reason = ReplayLimited` so
@@ -91,14 +110,6 @@ pub struct State {
     /// V1 sink router for the new capture analytics pipeline.
     /// When present, the v1 analytics handler publishes events through this.
     pub v1_sink_router: Option<Arc<crate::v1::sinks::Router>>,
-    /// Routing policy for diverting `$ai_*` events to the dedicated AI topic
-    /// (`CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`), derived from `CAPTURE_ANALYTICS_AI_EVENTS_MODE` and
-    /// `CAPTURE_ANALYTICS_AI_EVENTS_ALLOWLIST_TOKENS`. `Primary` keeps everything on the
-    /// analytics main topic; the other modes divert per batch token, in both
-    /// the v0 pipeline (via `DataType::AiEvents`, mapped to the topic in the
-    /// kafka sink) and the v1 pipeline (via `Destination::AiEvents`, mapped
-    /// via the `topic_ai` injected into each sink config at setup).
-    pub ai_routing: AiRouting,
     /// Whether the AI overflow valve is armed (`CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC` is
     /// set). Gates overflow stamping for the AI lane in both pipelines: when
     /// false, AI events never overflow (pre-overflow behavior).
@@ -111,6 +122,10 @@ pub struct State {
     /// `overflow_limiter` / `event_restriction_service`. Never awaited and
     /// never allowed to fail a request.
     pub ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
+    /// Deployment capture mode. Threaded into the analytics processing paths
+    /// (legacy and v1) so mode-specific policy — Import skips the global rate
+    /// limiter and drops non-historical batches — lives with the pipeline.
+    pub capture_mode: CaptureMode,
 }
 
 #[derive(Clone, Copy)]
@@ -160,9 +175,8 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     quota_limiter: CaptureQuotaLimiter,
     token_dropper: TokenDropper,
     event_restriction_service: Option<EventRestrictionService>,
-    metrics: bool,
+    recorder_handle: Option<PrometheusHandle>,
     capture_mode: CaptureMode,
-    deploy_role: String,
     concurrency_limit: Option<usize>,
     event_payload_size_limit: usize,
     enable_historical_rerouting: bool,
@@ -170,18 +184,18 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     is_mirror_deploy: bool,
     verbose_sample_percent: f32,
     ai_max_sum_of_parts_bytes: usize,
-    ai_blob_storage: Option<Arc<dyn BlobStorage>>,
+    ai_max_event_bytes: u64,
     body_chunk_read_timeout_ms: Option<u64>,
     body_read_chunk_size_kb: usize,
     capture_v1_max_compressed_body_bytes: usize,
     capture_v1_max_decompressed_body_bytes: usize,
     overflow_limiter: Option<Arc<OverflowLimiter>>,
     ai_events_overflow_limiter: Option<Arc<OverflowLimiter>>,
+    ai_byte_rate_limiter: Option<Arc<GlobalRateLimiter>>,
     replay_overflow_limiter: Option<Arc<RedisLimiter>>,
     v1_sink_router: Option<Arc<crate::v1::sinks::Router>>,
     capture_v1_scatter_gather_min_batch: usize,
     ai_gateway_signing_secret: Option<String>,
-    ai_routing: AiRouting,
     ai_events_overflow_enabled: bool,
     ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
 ) -> Router {
@@ -201,20 +215,21 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         is_mirror_deploy,
         verbose_sample_percent,
         ai_max_sum_of_parts_bytes,
-        ai_blob_storage,
+        ai_max_event_bytes,
         body_chunk_read_timeout: body_chunk_read_timeout_ms.map(Duration::from_millis),
         body_read_chunk_size_kb,
         capture_v1_max_compressed_body_bytes,
         capture_v1_max_decompressed_body_bytes,
         overflow_limiter,
         ai_events_overflow_limiter,
+        ai_byte_rate_limiter,
         replay_overflow_limiter,
         v1_sink_router,
         capture_v1_scatter_gather_min_batch,
         ai_gateway_signing_secret,
-        ai_routing,
         ai_events_overflow_enabled,
         ingestion_warning_emitter,
+        capture_mode,
     };
 
     // Very permissive CORS policy, as old SDK versions
@@ -238,7 +253,8 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
                 .get(test_endpoint::test_black_hole)
                 .options(v0_endpoint::options),
         )
-        .layer(DefaultBodyLimit::max(BATCH_BODY_SIZE));
+        .layer(DefaultBodyLimit::max(BATCH_BODY_SIZE))
+        .layer(Extension(WireBodyLimit(BATCH_BODY_SIZE)));
 
     let batch_router = Router::new()
         .route(
@@ -253,8 +269,16 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
                 .get(v0_endpoint::event)
                 .options(v0_endpoint::options),
         )
-        // `$ai_*` events: same batch handler, dedicated path so the ingress can route
-        // them to the capture-ai deployment and keep AI/analytics workloads isolated.
+        .layer(DefaultBodyLimit::max(BATCH_BODY_SIZE))
+        .layer(Extension(WireBodyLimit(BATCH_BODY_SIZE)));
+
+    // AI events: the same batch handler as `/batch`, on a dedicated path so the
+    // ingress can route them to the capture-ai deployment and keep AI and
+    // analytics workloads isolated. Its own router rather than a member of
+    // `batch_router` so capture-ai can serve this path without also serving the
+    // analytics batch and event routes, and rather than a member of `ai_router`
+    // so it keeps the batch body limit instead of the larger multipart one.
+    let ai_batch_router = Router::new()
         .route(
             "/i/v0/ai/batch",
             post(v0_endpoint::event)
@@ -267,7 +291,8 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
                 .get(v0_endpoint::event)
                 .options(v0_endpoint::options),
         )
-        .layer(DefaultBodyLimit::max(BATCH_BODY_SIZE)); // Have to use this, rather than RequestBodyLimitLayer, because we use `Bytes` in the handler (this limit applies specifically to Bytes body types)
+        .layer(DefaultBodyLimit::max(BATCH_BODY_SIZE))
+        .layer(Extension(WireBodyLimit(BATCH_BODY_SIZE)));
 
     let event_router = Router::new()
         .route(
@@ -330,7 +355,8 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
                 .get(v0_endpoint::event)
                 .options(v0_endpoint::options),
         )
-        .layer(DefaultBodyLimit::max(EVENT_BODY_SIZE));
+        .layer(DefaultBodyLimit::max(BATCH_BODY_SIZE))
+        .layer(Extension(WireBodyLimit(BATCH_BODY_SIZE)));
 
     let status_router = Router::new()
         .route("/", get(index))
@@ -362,7 +388,8 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
                 .get(v0_endpoint::recording)
                 .options(v0_endpoint::options),
         )
-        .layer(DefaultBodyLimit::max(RECORDING_BODY_SIZE));
+        .layer(DefaultBodyLimit::max(RECORDING_BODY_SIZE))
+        .layer(Extension(WireBodyLimit(RECORDING_BODY_SIZE)));
 
     // AI endpoint body limit is 110% of max sum of parts to account for multipart overhead
     let ai_body_limit = (state.ai_max_sum_of_parts_bytes as f64 * 1.1) as usize;
@@ -389,13 +416,36 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         )
         .layer(DefaultBodyLimit::max(otel::OTEL_BODY_SIZE));
 
+    // Each deployment registers its own ingress and nothing else. The AI paths
+    // (`/i/v0/ai*`) belong to capture-ai and the analytics paths to
+    // capture-analytics; the ingress has always routed them that way, so a
+    // deployment serving the other set is surface no traffic reaches and no
+    // restriction slice covers. `Pipeline::for_capture_mode` loads exactly the
+    // pipelines each set can produce to, so the two must stay in step.
+    //
+    // `$ai_*` events still reach capture-analytics — on `/batch`, from SDKs that
+    // send everything to one endpoint. Those divert to the AI lane by event
+    // name; that is unrelated to which paths are registered here.
     let mut router = match capture_mode {
-        CaptureMode::Events | CaptureMode::Ai => Router::new()
+        CaptureMode::Events => Router::new()
             .merge(batch_router)
             .merge(event_router)
-            .merge(test_router)
+            .merge(test_router),
+        CaptureMode::Ai => Router::new()
+            .merge(ai_batch_router)
             .merge(ai_router)
             .merge(otel_router),
+        // Import is an analytics deployment restricted to backfills, so it
+        // serves the analytics paths. It must never register ai_router or
+        // otel_router for a second reason on top of the split above: those
+        // handlers build their own ProcessingContext with
+        // `historical_migration: false`, so they sidestep both Import gates
+        // (historical-only drop and GRL bypass) and would return a false 200
+        // for events this deployment silently discards.
+        CaptureMode::Import => Router::new()
+            .merge(batch_router)
+            .merge(event_router)
+            .merge(test_router),
         CaptureMode::Recordings => Router::new().merge(recordings_router),
     };
 
@@ -419,9 +469,18 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     // Merged after every legacy layer above: the v1 router owns its full
     // middleware stack (CORS, limits) and applies the same per-route
     // concurrency cap to its own routes.
-    if matches!(capture_mode, CaptureMode::Events | CaptureMode::Ai)
-        && state.v1_sink_router.is_some()
-    {
+    //
+    // Matched exhaustively, like the legacy route gating above: a new capture
+    // mode must declare whether it serves the v1 analytics endpoint instead of
+    // silently defaulting to "no v1 routes" and 404ing its traffic.
+    let serves_v1_analytics = match capture_mode {
+        CaptureMode::Events | CaptureMode::Import => true,
+        // `/i/v1/analytics/events` is an analytics endpoint: it accepts any
+        // event name and its traffic is governed by analytics restrictions,
+        // which capture-ai no longer loads.
+        CaptureMode::Ai | CaptureMode::Recordings => false,
+    };
+    if serves_v1_analytics && state.v1_sink_router.is_some() {
         router = router.merge(crate::v1::router::router(crate::v1::router::RouterConfig {
             concurrency_limit,
             max_compressed_body_bytes: state.capture_v1_max_compressed_body_bytes,
@@ -433,11 +492,10 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         .layer(axum::middleware::from_fn(track_metrics))
         .with_state(state);
 
-    // Don't install metrics unless asked to
-    // Installing a global recorder when capture is used as a library (during tests etc)
-    // does not work well.
-    if metrics {
-        let recorder_handle = setup_metrics_recorder(deploy_role, capture_mode.as_tag());
+    // The caller installs the recorder, before anything can emit; here we only
+    // expose its output. `None` for tests and library use, which have no
+    // recorder of their own.
+    if let Some(recorder_handle) = recorder_handle {
         router.route("/metrics", get(move || ready(recorder_handle.render())))
     } else {
         router

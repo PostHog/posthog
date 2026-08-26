@@ -136,6 +136,15 @@ class UndecryptedConfigError(ValueError):
     """
 
 
+class ConfigValueError(ValueError):
+    """Raised when a config field's value can't be converted to its declared type.
+
+    A converter (e.g. ``int``) failing on user-supplied input would otherwise crash with an
+    opaque, value-leaking builtin error such as ``invalid literal for int() with base 10: 'lakjsd'``.
+    We name the field but never its value, so nothing a user typed reaches logs or error tracking.
+    """
+
+
 def _convert_value(
     convert: typing.Callable[[typing.Any], typing.Any], value: typing.Any, field_name: str
 ) -> typing.Any:
@@ -143,7 +152,10 @@ def _convert_value(
         raise UndecryptedConfigError(
             f"Config field '{field_name}' is still encrypted; the stored credentials could not be decrypted"
         )
-    return convert(value)
+    try:
+        return convert(value)
+    except (ValueError, TypeError) as e:
+        raise ConfigValueError(f"Config field '{field_name}' has a value that could not be parsed") from e
 
 
 @dataclasses.dataclass
@@ -209,6 +221,21 @@ def validate_config(
                         is_valid, nested_errors = validate_config(config_type, d, field_prefixes)
                         if not is_valid:
                             errors.extend(nested_errors)
+
+        elif field_meta and field_meta.converter != _noop_convert:
+            # Scalar field with a converter: presence is checked above, but a value that can't be
+            # converted to the declared type (e.g. `port: "lakjsd"`) would otherwise slip through and
+            # crash later in `to_config`. Run the converter now so it surfaces as a validation error.
+            if field_flat_key in d:
+                field_key = field_flat_key
+            elif field_nested_key in d:
+                field_key = field_nested_key
+            else:
+                field_key = field.name
+            try:
+                _convert_value(field_meta.converter, d[field_key], field.name)
+            except (ValueError, TypeError):
+                errors.append(f"Field '{field.name}' has an invalid value")
 
     return len(errors) == 0, errors
 
@@ -329,7 +356,23 @@ def to_config(
             else:
                 inputs[field.name] = _convert_value(convert, value, field.name)
 
-    return config_cls(**inputs)
+    try:
+        return config_cls(**inputs)
+    except TypeError as e:
+        # Stored job inputs that don't supply a required (no-default) field make
+        # `config_cls(**inputs)` raise the opaque builtin
+        # `TypeError: X.__init__() missing 1 required positional argument: 'y'`, which is
+        # impossible to triage from error tracking. Re-raise naming the missing field(s) — only
+        # the field names, never their values, so no secret leaks. Kept a TypeError so the
+        # union-config recursion above still catches it and tries the remaining arms.
+        missing = [
+            f.name
+            for f in fields
+            if f.default is dataclasses.MISSING and f.default_factory is dataclasses.MISSING and f.name not in inputs
+        ]
+        if not missing:
+            raise
+        raise TypeError(f"Cannot build '{config_cls.__name__}': missing required field(s) {missing}") from e
 
 
 def _resolve_field_type(field: dataclasses.Field[typing.Any], module_path: str) -> type:
@@ -696,7 +739,7 @@ def str_to_optional_list(s: str | list[typing.Any] | None) -> list[str] | None:
         return None
     if isinstance(s, list):
         values = [str(item).strip() for item in s]
-    else:
+    elif isinstance(s, str):
         stripped = s.strip()
         if stripped == "":
             return None
@@ -711,6 +754,11 @@ def str_to_optional_list(s: str | list[typing.Any] | None) -> list[str] | None:
                 values = [stripped]
         else:
             values = [item.strip() for item in stripped.split(",")]
+    else:
+        # A non-str/list value (e.g. a dict submitted for a multi-select field) has no list
+        # interpretation. Raise so `_convert_value` surfaces it as a clean validation error
+        # instead of an unhandled `AttributeError` from calling `.strip()` on it.
+        raise TypeError(f"expected a string, list, or None, got {type(s).__name__}")
     values = [value for value in values if value]
     return values or None
 

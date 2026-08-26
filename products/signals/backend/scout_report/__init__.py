@@ -6,7 +6,10 @@ pipeline. This package is the sanctioned write service the harness tools (Phase 
 code never touches `SignalReport` or the embeddings pipeline directly.
 """
 
+from products.signals.backend.report_charts import MAX_REPORT_CHARTS
+from products.signals.backend.report_prompts import MAX_SUGGESTED_PROMPTS
 from products.signals.backend.scout_report.persistence import (
+    INFERRED_REPOSITORY_REASON,
     MAX_REPORT_SIGNALS,
     InvalidScoutReportError,
     PersistedScoutReport,
@@ -17,13 +20,19 @@ from products.signals.backend.scout_report.persistence import (
     get_scout_report_title,
     record_report_edit,
     record_scout_run_task_artefact,
+    set_report_charts,
+    set_report_suggested_prompts,
+    set_scout_report_inferred_repository,
     set_scout_report_reviewers,
     soft_delete_scout_signal,
     update_scout_report,
 )
 
 __all__ = [
+    "INFERRED_REPOSITORY_REASON",
+    "MAX_REPORT_CHARTS",
     "MAX_REPORT_SIGNALS",
+    "MAX_SUGGESTED_PROMPTS",
     "InvalidScoutReportError",
     "PersistedScoutReport",
     "ScoutReportSignal",
@@ -33,6 +42,9 @@ __all__ = [
     "get_scout_report_title",
     "record_report_edit",
     "record_scout_run_task_artefact",
+    "set_report_charts",
+    "set_report_suggested_prompts",
+    "set_scout_report_inferred_repository",
     "set_scout_report_reviewers",
     "soft_delete_scout_signal",
     "update_scout_report",

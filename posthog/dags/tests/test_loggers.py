@@ -21,6 +21,7 @@ LOCATION_MODULES = [
     "posthog_ai",
     "revenue_analytics",
     "shared",
+    "signals",
     "web_analytics",
 ]
 
@@ -65,6 +66,15 @@ def test_engine_event_records_are_dropped_but_messages_pass():
     log = _build(name="dagster-test-filter")
     assert not log.filter(_record(dagster_event=object()))
     assert log.filter(_record(dagster_event=None))
+
+
+def test_importing_the_package_does_not_silence_existing_loggers():
+    probe = logging.getLogger("posthog.dags.tests.import_probe")
+    probe.disabled = False
+
+    importlib.reload(importlib.import_module("posthog.dags"))
+
+    assert probe.disabled is False
 
 
 def test_locations_export_single_shared_logger_instance():

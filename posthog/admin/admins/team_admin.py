@@ -5,7 +5,7 @@ import uuid
 import asyncio
 import hashlib
 import dataclasses
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any
 from urllib import parse
@@ -21,6 +21,7 @@ from django.shortcuts import redirect, render
 from django.template.loader import render_to_string
 from django.urls import NoReverseMatch, path, reverse
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from django.utils.html import escapejs, format_html, format_html_join
 from django.utils.safestring import mark_safe
 
@@ -39,6 +40,7 @@ from posthog.models import Team
 from posthog.models.activity_logging.activity_log import ActivityContextBase, ActivityLog, Detail, log_activity
 from posthog.models.group_type_mapping import invalidate_group_types_cache
 from posthog.models.remote_config import RemoteConfig
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import DEPRECATED_ATTRS
 from posthog.personhog_client.client import get_personhog_client
 from posthog.personhog_client.converters import proto_group_type_mapping_to_dict
@@ -48,6 +50,7 @@ from posthog.personhog_client.proto import (
     UpdateGroupTypeMappingRequest,
 )
 from posthog.storage.gateway_credential_cache import validate_overspend_allowance_usd
+from posthog.tasks.email import send_email_sending_suspended, send_email_sending_unsuspended
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.search_attributes import POSTHOG_TEAM_ID_KEY
 from posthog.temporal.session_replay.delete_recordings.object_storage import store_session_id_chunks
@@ -59,14 +62,37 @@ from posthog.temporal.session_replay.delete_recordings.types import (
     RecordingsWithTeamInput,
 )
 
+from products.notifications.backend.facade.api import (
+    NotificationData,
+    NotificationType,
+    Priority,
+    TargetType,
+    create_notification,
+)
+from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
+
 logger = get_logger()
 
 # Upper bound on a single admin AI gateway top-up, to catch fat-fingered amounts.
 MAX_CREDIT_USD = Decimal("1000000")
 
 
+def _format_group_type_created_at(value: datetime | None) -> str:
+    """Millisecond precision, matching the RPC, so the overview and the edit form agree.
+
+    The edit form prefills from this, so dropping the sub-second part here would make an
+    untouched save rewrite created_at.
+    """
+    return value.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] if value else ""
+
+
 @dataclasses.dataclass(frozen=True)
 class ReplayActivityContext(ActivityContextBase):
+    reason: str
+
+
+@dataclasses.dataclass(frozen=True)
+class EmailSendingSuspensionActivityContext(ActivityContextBase):
     reason: str
 
 
@@ -153,6 +179,8 @@ class TeamAdmin(admin.ModelAdmin):
         "ai_gateway_credit_history",
         "policy_cache_blob",
         "group_type_mappings_display",
+        "email_sending_suspension_state",
+        "email_sending_suspension_actions",
     ]
 
     exclude = DEPRECATED_ATTRS
@@ -303,6 +331,22 @@ class TeamAdmin(admin.ModelAdmin):
                 ),
             },
         ),
+        (
+            "Workflow email sending",
+            {
+                "classes": ["collapse"],
+                "fields": [
+                    "email_sending_suspension_state",
+                    "email_sending_suspension_actions",
+                ],
+                "description": mark_safe(
+                    "Kill switch for all workflow email from this team, used when its sender reputation "
+                    "(hard bounce / spam complaint rates) endangers shared SES deliverability. Suspending "
+                    "notifies the team by email and in-app; the CDP email worker picks the flag up within "
+                    "a few minutes."
+                ),
+            },
+        ),
     ]
 
     def organization_link(self, team: Team):
@@ -357,6 +401,7 @@ class TeamAdmin(admin.ModelAdmin):
                     **m,
                     "detail_dashboard_id": detail_dashboard_id,
                     "detail_dashboard_url": detail_dashboard_url,
+                    "created_at_display": _format_group_type_created_at(m.get("created_at")),
                     "edit_url": reverse(
                         "admin:posthog_team_edit_group_type_mapping",
                         args=[team.pk, m["group_type_index"]],
@@ -418,6 +463,8 @@ class TeamAdmin(admin.ModelAdmin):
             messages.error(request, f"Group type mapping with index {group_type_index} not found for this team.")
             return redirect(team_url)
 
+        existing_created_at = mapping_dict.get("created_at")
+
         if request.method == "GET":
             default_columns = mapping_dict.get("default_columns")
             default_columns_json = json.dumps(default_columns) if default_columns else ""
@@ -426,6 +473,7 @@ class TeamAdmin(admin.ModelAdmin):
                 "team": team,
                 "mapping": mapping_dict,
                 "default_columns_json": default_columns_json,
+                "created_at_display": _format_group_type_created_at(existing_created_at),
                 "title": f"Edit group type mapping - {team.name} - index {group_type_index}",
             }
             return render(request, "admin/posthog/team/group_type_mapping_edit.html", context)
@@ -449,6 +497,19 @@ class TeamAdmin(admin.ModelAdmin):
                     reverse("admin:posthog_team_edit_group_type_mapping", args=[object_id, group_type_index])
                 )
 
+        created_at_raw = request.POST.get("created_at", "").strip()
+        created_at_millis: int | None = None
+        if created_at_raw:
+            parsed_created_at = parse_datetime(created_at_raw)
+            if parsed_created_at is None:
+                messages.error(request, "Created at must be a valid datetime, e.g. 2026-01-15 10:30:00.")
+                return redirect(
+                    reverse("admin:posthog_team_edit_group_type_mapping", args=[object_id, group_type_index])
+                )
+            if parsed_created_at.tzinfo is None:
+                parsed_created_at = parsed_created_at.replace(tzinfo=UTC)
+            created_at_millis = int(parsed_created_at.timestamp() * 1000)
+
         update_mask = ["name_singular", "name_plural"]
         update_kwargs: dict[str, Any] = {
             "project_id": team.project_id,
@@ -460,6 +521,13 @@ class TeamAdmin(admin.ModelAdmin):
             update_mask.append("default_columns")
             if parsed_default_columns is not None:
                 update_kwargs["default_columns"] = json.dumps(parsed_default_columns).encode()
+        # The form prefills created_at, so an untouched field matches what is stored and is left
+        # alone; a cleared field sends the mask path with no value, which nulls the column.
+        existing_millis = int(existing_created_at.timestamp() * 1000) if existing_created_at else None
+        if created_at_millis != existing_millis:
+            update_mask.append("created_at")
+            if created_at_millis is not None:
+                update_kwargs["created_at"] = created_at_millis
         update_kwargs["update_mask"] = update_mask
 
         try:
@@ -645,6 +713,210 @@ class TeamAdmin(admin.ModelAdmin):
             )
         self._refresh_ai_gateway_policy_cache(team)
         return redirect(reverse("admin:posthog_team_change", args=[object_id]))
+
+    def _log_email_suspension_activity(self, request, team: Team, activity: str, reason: str) -> None:
+        log_activity(
+            organization_id=team.organization_id,
+            team_id=team.id,
+            user=request.user,
+            was_impersonated=is_impersonated(request),
+            item_id=team.pk,
+            scope="Team",
+            activity=activity,
+            detail=Detail(
+                name=team.name,
+                type="admin_email_sending_suspension",
+                context=EmailSendingSuspensionActivityContext(reason=reason),
+            ),
+        )
+
+    def _notify_email_suspension_changed(self, team: Team, suspended: bool, reason: str) -> None:
+        create_notification(
+            NotificationData(
+                team_id=team.id,
+                notification_type=NotificationType.EMAIL_REPUTATION,
+                priority=Priority.CRITICAL if suspended else Priority.NORMAL,
+                title=(
+                    "Email sending has been suspended for this project"
+                    if suspended
+                    else "Email sending has been re-enabled for this project"
+                ),
+                body=(
+                    f"Reason: {reason}. Check the Reputation tab and contact support to get sending re-enabled."
+                    if suspended
+                    else "Your workflows can deliver email again. Keep bounce and complaint rates low to stay enabled."
+                ),
+                target_type=TargetType.TEAM,
+                target_id=str(team.id),
+                source_url="/workflows/reputation",
+            )
+        )
+
+    def suspend_email_sending_view(self, request, object_id):
+        team = Team.objects.get(pk=object_id)
+        if not self.has_change_permission(request, team):
+            raise PermissionDenied
+
+        suspend_url = reverse("admin:posthog_team_suspend_email_sending", args=[object_id])
+        team_url = reverse("admin:posthog_team_change", args=[object_id])
+
+        if request.method == "GET":
+            context = {
+                **self.admin_site.each_context(request),
+                "team": team,
+                "title": f"Suspend email sending - {team.name}",
+            }
+            return render(request, "admin/posthog/team/suspend_email_sending_form.html", context)
+
+        if request.method != "POST":
+            return HttpResponseNotAllowed(["POST"])
+
+        reason = request.POST.get("reason", "").strip()
+        if not reason:
+            messages.error(request, "Reason is required")
+            return redirect(suspend_url)
+
+        # Row-lock the config while checking + flipping so two concurrent submits (retried POST,
+        # two open admin tabs) can't both pass the idempotency check and both dispatch the
+        # customer email + notification. Side effects stay outside the atomic block.
+        get_or_create_team_extension(team, TeamWorkflowsConfig)
+        with transaction.atomic():
+            config = TeamWorkflowsConfig.objects.select_for_update().get(team_id=team.pk)
+            if config.email_sending_suspended_at is not None:
+                already_suspended_at = config.email_sending_suspended_at
+                suspended_at = None
+            else:
+                already_suspended_at = None
+                suspended_at = timezone.now()
+                config.email_sending_suspended_at = suspended_at
+                config.email_sending_suspension_reason = reason
+                config.save(update_fields=["email_sending_suspended_at", "email_sending_suspension_reason"])
+
+        if already_suspended_at is not None:
+            self.message_user(
+                request,
+                f"Email sending for team '{team.name}' was already suspended "
+                f"(since {already_suspended_at.isoformat()}).",
+                level=messages.INFO,
+            )
+            return redirect(team_url)
+
+        assert suspended_at is not None
+        logger.info(
+            "admin_suspend_email_sending",
+            team_id=team.id,
+            reason=reason,
+            triggered_by=request.user.email,
+        )
+        self._log_email_suspension_activity(request, team, "email_sending_suspended", reason)
+        # Best-effort side effects: the state flip has already committed, and the idempotency
+        # guard would silently skip a retry. Log the failure and let the admin know rather than
+        # 500-ing on a broker/DB hiccup and stranding the state without a customer notification.
+        try:
+            send_email_sending_suspended.delay(team_id=team.id, reason=reason, suspended_at=suspended_at.isoformat())
+            self._notify_email_suspension_changed(team, suspended=True, reason=reason)
+        except Exception:
+            logger.exception("admin_suspend_email_sending_notify_failed", team_id=team.id)
+            self.message_user(
+                request,
+                f"Suspended team '{team.name}', but sending the customer email/notification failed. "
+                "Check logs and follow up manually.",
+                level=messages.ERROR,
+            )
+            return redirect(team_url)
+        self.message_user(
+            request,
+            f"Suspended workflow email sending for team '{team.name}'. "
+            "Workers pick this up within a few minutes; the team has been notified.",
+            level=messages.WARNING,
+        )
+        return redirect(team_url)
+
+    def unsuspend_email_sending_view(self, request, object_id):
+        if request.method != "POST":
+            return HttpResponseNotAllowed(["POST"])
+
+        team = Team.objects.get(pk=object_id)
+        if not self.has_change_permission(request, team):
+            raise PermissionDenied
+
+        team_url = reverse("admin:posthog_team_change", args=[object_id])
+        # Symmetric to suspend: lock the row, re-check, flip inside the transaction so racing
+        # submits can't both fire the re-enable side effects.
+        with transaction.atomic():
+            config = TeamWorkflowsConfig.objects.select_for_update().filter(team_id=team.pk).first()
+            if not config or config.email_sending_suspended_at is None:
+                was_suspended = False
+                unsuspended_at = None
+            else:
+                was_suspended = True
+                unsuspended_at = timezone.now()
+                config.email_sending_suspended_at = None
+                config.email_sending_suspension_reason = ""
+                config.save(update_fields=["email_sending_suspended_at", "email_sending_suspension_reason"])
+
+        if not was_suspended:
+            self.message_user(request, f"Email sending for team '{team.name}' is not suspended.", level=messages.INFO)
+            return redirect(team_url)
+
+        assert unsuspended_at is not None
+        logger.info(
+            "admin_unsuspend_email_sending",
+            team_id=team.id,
+            triggered_by=request.user.email,
+        )
+        self._log_email_suspension_activity(request, team, "email_sending_unsuspended", "")
+        try:
+            send_email_sending_unsuspended.delay(team_id=team.id, unsuspended_at=unsuspended_at.isoformat())
+            self._notify_email_suspension_changed(team, suspended=False, reason="")
+        except Exception:
+            logger.exception("admin_unsuspend_email_sending_notify_failed", team_id=team.id)
+            self.message_user(
+                request,
+                f"Re-enabled sending for team '{team.name}', but the customer email/notification failed. "
+                "Check logs and follow up manually.",
+                level=messages.ERROR,
+            )
+            return redirect(team_url)
+        self.message_user(
+            request,
+            f"Re-enabled workflow email sending for team '{team.name}'. The team has been notified.",
+            level=messages.SUCCESS,
+        )
+        return redirect(team_url)
+
+    @admin.display(description="Email sending state")
+    def email_sending_suspension_state(self, team: Team):
+        if not team.pk:
+            return "-"
+        config = TeamWorkflowsConfig.objects.filter(team_id=team.pk).first()
+        if config and config.email_sending_suspended_at:
+            return format_html(
+                '<span style="color:red"><strong>Suspended</strong></span> at {} — {}',
+                config.email_sending_suspended_at.isoformat(),
+                config.email_sending_suspension_reason or "no reason recorded",
+            )
+        return format_html("<em>Sending enabled</em>")
+
+    @admin.display(description="Email sending actions")
+    def email_sending_suspension_actions(self, team: Team):
+        if not team.pk:
+            return "-"
+        config = TeamWorkflowsConfig.objects.filter(team_id=team.pk).first()
+        is_suspended = bool(config and config.email_sending_suspended_at)
+        # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, renders trusted template)
+        return mark_safe(
+            render_to_string(
+                "admin/posthog/team/email_sending_suspension_actions.html",
+                {
+                    "team": team,
+                    "suspend_url": reverse("admin:posthog_team_suspend_email_sending", args=[team.pk]),
+                    "unsuspend_url": reverse("admin:posthog_team_unsuspend_email_sending", args=[team.pk]),
+                    "team_name_escaped": escapejs(team.name),
+                    "is_suspended": is_suspended,
+                },
+            )
+        )
 
     def add_ai_gateway_credit_view(self, request, object_id):
         team = Team.objects.get(pk=object_id)
@@ -948,6 +1220,16 @@ class TeamAdmin(admin.ModelAdmin):
                 "<path:object_id>/ai-gateway-wallet/",
                 self.admin_site.admin_view(self.ai_gateway_wallet_view),
                 name="posthog_team_ai_gateway_wallet",
+            ),
+            path(
+                "<path:object_id>/suspend-email-sending/",
+                self.admin_site.admin_view(self.suspend_email_sending_view),
+                name="posthog_team_suspend_email_sending",
+            ),
+            path(
+                "<path:object_id>/unsuspend-email-sending/",
+                self.admin_site.admin_view(self.unsuspend_email_sending_view),
+                name="posthog_team_unsuspend_email_sending",
             ),
         ]
         return custom_urls + urls

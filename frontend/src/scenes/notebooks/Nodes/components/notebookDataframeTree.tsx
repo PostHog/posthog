@@ -119,12 +119,10 @@ const entryNode = (entry: DataframeEntry, index: number): TreeDataItem => ({
         id: `${frameId(index)}:col:${columnIndex}`,
         name: columnName,
         type: 'node' as const,
-        // The shape QueryDatabase's renderItem expects for a column: monospaced name plus a
-        // muted type suffix, so a dataframe's columns read like a table's. Only the rendering
-        // is shared — its click handler needs `table`/`columnName`, which a kernel frame has no
-        // equivalent of, so selection is disabled rather than left as a click that does nothing.
-        record: { type: 'column', field: { name: columnName, type: columnType } },
-        disableSelect: true,
+        // The shape QueryDatabase expects for a column: monospaced name plus a muted type
+        // suffix, and `columnName` for the click that inserts it at the cursor. A dataframe is
+        // referenceable by name from SQL, so its columns insert exactly like a table's.
+        record: { type: 'column', columnName, field: { name: columnName, type: columnType } },
     })),
 })
 

@@ -72,7 +72,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday."
+            "description": "Days of week for daily or weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday."
         },
         "count": {
             "anyOf": [
@@ -99,7 +99,7 @@
             "description": "Dashboard ID to subscribe to (mutually exclusive with insight on create)."
         },
         "dashboard_export_insights": {
-            "description": "List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6.",
+            "description": "List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 10.",
             "items": {
                 "type": "number"
             },

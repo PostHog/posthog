@@ -73,6 +73,7 @@ class PostHogConfig(AppConfig):
             "environment": os.getenv("OTEL_SERVICE_ENVIRONMENT"),
         }
         posthoganalytics._use_ai_lane = True  # ty: ignore[invalid-assignment]
+        posthoganalytics._enable_multimodal_capture = True  # ty: ignore[invalid-assignment]
 
         # Config for the SDK's `client.metrics` API. The pinned SDK version predates
         # the metrics API and ignores this attr; once posthoganalytics is bumped to

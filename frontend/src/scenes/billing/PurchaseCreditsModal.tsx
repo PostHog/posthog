@@ -236,7 +236,7 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                         <Link
                             onClick={() => {
                                 showPurchaseCreditsModal(false)
-                                openSupportForm({ kind: 'support', target_area: 'billing' })
+                                openSupportForm({ kind: 'support', billing_issue: true })
                             }}
                         >
                             Get support

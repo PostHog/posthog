@@ -5,13 +5,26 @@ import datetime as dt
 from typing import NotRequired, TypedDict
 
 from posthog.test.base import BaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import (
+    MagicMock,
+    call as mock_call,
+    patch,
+)
 
 from django.test import SimpleTestCase
 from django.utils import timezone
 
+from clickhouse_driver.errors import NetworkError, SocketTimeoutError
 from parameterized import parameterized
 
+from posthog.hogql import ast
+
+from posthog.exceptions import (
+    ClickHouseAtCapacity,
+    ClickHouseClusterMemoryLimitExceeded,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQueryTimeOut,
+)
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     MAX_REPORT_SECTIONS,
     Citation,
@@ -19,24 +32,30 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     ReportSection,
 )
 from posthog.temporal.ai_observability.eval_reports.report_agent.tools import (
+    _SESSION_TRACES_SQL,
     _UUID_RE,
     _ch_ts,
+    _execute_ch_query_with_retry,
+    _is_retriable_ch_error,
     _widened_ts_window,
     add_citation,
     add_section,
     get_eval_report_tools,
     get_report_run,
+    get_session_detail,
     get_summary_metrics,
     get_trace_detail,
     list_all_eval_results,
     list_recent_report_runs,
     sample_eval_results,
+    sample_session_details,
     sample_trace_details,
     set_title,
 )
 
 _VALID_GEN_ID = "12345678-1234-1234-1234-123456789abc"
 _VALID_TRACE_ID = "abcdefab-cdef-abcd-efab-cdefabcdefab"
+_VALID_SESSION_ID = "fedcbafe-dcba-fedc-bafe-dcbafedcbafe"
 
 # LangChain @tool returns StructuredTool which has .func, but mypy types it as BaseTool
 _set_title_fn = set_title.func  # type: ignore[attr-defined]
@@ -49,11 +68,20 @@ _list_all_eval_results_fn = list_all_eval_results.func  # type: ignore[attr-defi
 _sample_eval_results_fn = sample_eval_results.func  # type: ignore[attr-defined]
 _sample_trace_details_fn = sample_trace_details.func  # type: ignore[attr-defined]
 _get_trace_detail_fn = get_trace_detail.func  # type: ignore[attr-defined]
+_sample_session_details_fn = sample_session_details.func  # type: ignore[attr-defined]
+_get_session_detail_fn = get_session_detail.func  # type: ignore[attr-defined]
+
+
+def _per_query_memory_limit_error() -> ClickHouseQueryMemoryLimitExceeded:
+    error = ClickHouseQueryMemoryLimitExceeded()
+    error.is_per_query_limit = True
+    return error
 
 
 class _ReportToolState(TypedDict):
     report: EvalReportContent
     trace_id_allowlist: list[str]
+    session_id_allowlist: list[str]
     evaluation_target: NotRequired[str]
     team_id: NotRequired[int]
     evaluation_id: NotRequired[str]
@@ -63,23 +91,32 @@ class _ReportToolState(TypedDict):
 
 
 def _state_with_empty_report(*, evaluation_target: str | None = None) -> _ReportToolState:
-    state: _ReportToolState = {"report": EvalReportContent(), "trace_id_allowlist": []}
+    state: _ReportToolState = {
+        "report": EvalReportContent(),
+        "trace_id_allowlist": [],
+        "session_id_allowlist": [],
+    }
     if evaluation_target is not None:
         state["evaluation_target"] = evaluation_target
     return state
 
 
-def _trace_report_tool_state() -> _ReportToolState:
+def _aggregate_report_tool_state(evaluation_target: str = "trace") -> _ReportToolState:
     return {
         "report": EvalReportContent(),
         "trace_id_allowlist": [],
-        "evaluation_target": "trace",
+        "session_id_allowlist": [],
+        "evaluation_target": evaluation_target,
         "team_id": 7,
         "evaluation_id": "eval-id",
         "output_type": "boolean",
         "period_start": "2026-04-08T14:00:00+00:00",
         "period_end": "2026-04-08T15:00:00+00:00",
     }
+
+
+def _trace_report_tool_state() -> _ReportToolState:
+    return _aggregate_report_tool_state("trace")
 
 
 class TestChTs(SimpleTestCase):
@@ -110,21 +147,21 @@ class TestWidenedTsWindow(SimpleTestCase):
             "period_start": "2026-04-08T14:00:00+00:00",
             "period_end": "2026-04-08T15:00:00+00:00",
         }
-        ts_start, ts_end = _widened_ts_window(state)
-        self.assertEqual(ts_start, dt.datetime(2026, 4, 1, 14, 0, tzinfo=dt.UTC))
-        self.assertEqual(ts_end, dt.datetime(2026, 4, 9, 15, 0, tzinfo=dt.UTC))
+        window = _widened_ts_window(state)
+        self.assertEqual(window.ts_start, dt.datetime(2026, 4, 1, 14, 0, tzinfo=dt.UTC))
+        self.assertEqual(window.ts_end, dt.datetime(2026, 4, 9, 15, 0, tzinfo=dt.UTC))
 
     def test_falls_back_to_sentinels_on_missing_keys(self):
-        ts_start, ts_end = _widened_ts_window({})
+        window = _widened_ts_window({})
         # Wide sentinel bounds so a bad state doesn't prevent partition pruning
-        self.assertEqual(ts_start.year, 2020)
-        self.assertEqual(ts_end.year, 2099)
+        self.assertEqual(window.ts_start.year, 2020)
+        self.assertEqual(window.ts_end.year, 2099)
 
     def test_falls_back_on_malformed_timestamps(self):
         state = {"period_start": "not-a-timestamp", "period_end": "also-bad"}
-        ts_start, ts_end = _widened_ts_window(state)
-        self.assertEqual(ts_start.year, 2020)
-        self.assertEqual(ts_end.year, 2099)
+        window = _widened_ts_window(state)
+        self.assertEqual(window.ts_start.year, 2020)
+        self.assertEqual(window.ts_end.year, 2099)
 
 
 class TestSummaryMetrics(SimpleTestCase):
@@ -207,12 +244,12 @@ class TestSummaryMetrics(SimpleTestCase):
 
 
 class TestTargetAwareEvalResults(SimpleTestCase):
-    def _state(self, evaluation_target: str) -> dict:
+    def _state(self, evaluation_target: str, output_type: str = "boolean") -> dict:
         return {
             "team_id": 1,
             "evaluation_id": "eval-id",
             "evaluation_target": evaluation_target,
-            "output_type": "boolean",
+            "output_type": output_type,
             "period_start": "2026-04-08T14:00:00+00:00",
             "period_end": "2026-04-08T15:00:00+00:00",
             "trace_id_allowlist": [],
@@ -260,6 +297,36 @@ class TestTargetAwareEvalResults(SimpleTestCase):
         query = mock_execute_hogql.call_args_list[1].args[1]
         self.assertIn("properties.$ai_target_id", query)
         self.assertIn("properties.$ai_target_event_id", query)
+
+    @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._execute_hogql")
+    def test_sentiment_list_omits_classifier_reasoning(self, mock_execute_hogql):
+        mock_execute_hogql.side_effect = [
+            [[1]],
+            [[_VALID_GEN_ID, "negative", None, 0.91, "identical classifier reasoning"]],
+        ]
+
+        result = _list_all_eval_results_fn(state=self._state("generation", "sentiment"))
+
+        self.assertIn(f"negative (0.91) | {_VALID_GEN_ID}", result)
+        self.assertNotIn("classifier reasoning", result)
+
+    @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._execute_hogql")
+    def test_sentiment_sample_orders_by_score_and_omits_reasoning(self, mock_execute_hogql):
+        mock_execute_hogql.return_value = [[_VALID_GEN_ID, "negative", "identical classifier reasoning", None, 0.91]]
+
+        result = json.loads(
+            _sample_eval_results_fn(
+                state=self._state("generation", "sentiment"),
+                outcome="negative",
+                order_by="score",
+            )
+        )
+
+        self.assertEqual(
+            result,
+            [{"generation_id": _VALID_GEN_ID, "outcome": "negative", "score": 0.91}],
+        )
+        self.assertIn("ORDER BY score DESC, timestamp DESC", mock_execute_hogql.call_args.args[1])
 
 
 class TestTraceDetailTools(SimpleTestCase):
@@ -347,15 +414,114 @@ class TestTraceDetailTools(SimpleTestCase):
         mock_fetch.assert_not_called()
         mock_execute_hogql.assert_not_called()
 
-    def test_target_specific_tool_sets_do_not_expose_irrelevant_detail_tools(self):
-        generation_tools = {tool.name for tool in get_eval_report_tools("generation")}
-        trace_tools = {tool.name for tool in get_eval_report_tools("trace")}
+    def test_target_and_output_specific_tool_sets_do_not_expose_irrelevant_tools(self):
+        generation_tools = {tool.name for tool in get_eval_report_tools("generation", "boolean")}
+        trace_tools = {tool.name for tool in get_eval_report_tools("trace", "boolean")}
+        session_tools = {tool.name for tool in get_eval_report_tools("session", "boolean")}
+        sentiment_tools = {tool.name for tool in get_eval_report_tools("generation", "sentiment")}
 
         self.assertIn("sample_generation_details", generation_tools)
         self.assertNotIn("sample_trace_details", generation_tools)
         self.assertIn("sample_trace_details", trace_tools)
         self.assertIn("get_trace_detail", trace_tools)
         self.assertNotIn("sample_generation_details", trace_tools)
+        self.assertIn("sample_session_details", session_tools)
+        self.assertIn("get_session_detail", session_tools)
+        # A session is read through its traces, so the trace deep-dive comes along.
+        self.assertIn("get_trace_detail", session_tools)
+        self.assertNotIn("sample_generation_details", session_tools)
+        self.assertNotIn("sample_session_details", trace_tools)
+        self.assertIn("get_top_outcome_reasons", generation_tools)
+        self.assertNotIn("get_top_outcome_reasons", sentiment_tools)
+
+
+class TestSessionTracesQueryFallback(SimpleTestCase):
+    def test_placeholder_names_survive_the_events_table_rewrite(self) -> None:
+        """The rewriter descends into placeholders, so a placeholder named after an ai_events
+        column is rewritten into a column reference and substitution then fails — which only
+        shows up on the events fallback, the path every other session test mocks out."""
+        from posthog.hogql.parser import parse_select
+        from posthog.hogql.visitor import TraversingVisitor
+
+        from posthog.hogql_queries.ai.ai_column_rewriter import rewrite_query_for_events_table
+
+        names: list[str] = []
+
+        class _CollectPlaceholders(TraversingVisitor):
+            def visit_placeholder(self, node: ast.Placeholder) -> None:
+                assert isinstance(node.expr, ast.Field)
+                names.append(".".join(str(part) for part in node.expr.chain))
+
+        _CollectPlaceholders().visit(rewrite_query_for_events_table(parse_select(_SESSION_TRACES_SQL)))
+
+        self.assertEqual(sorted(names), ["limit", "target_session_id", "ts_end", "ts_start"])
+
+
+class TestSessionDetailTools(SimpleTestCase):
+    def _state(self) -> _ReportToolState:
+        return _aggregate_report_tool_state("session")
+
+    def _allowlisted_state(
+        self, mock_execute_hogql: MagicMock, session_id: str = _VALID_SESSION_ID
+    ) -> _ReportToolState:
+        state = self._state()
+        mock_execute_hogql.return_value = [[session_id, True, "matched", True, None]]
+        _sample_eval_results_fn(state=state)
+        mock_execute_hogql.reset_mock()
+        return state
+
+    @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._execute_hogql")
+    def test_evaluation_results_fill_the_session_allowlist_not_the_trace_one(
+        self, mock_execute_hogql: MagicMock
+    ) -> None:
+        state = self._allowlisted_state(mock_execute_hogql, "customer/session:42")
+
+        self.assertEqual(state["session_id_allowlist"], ["customer/session:42"])
+        self.assertEqual(state["trace_id_allowlist"], [])
+
+    @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._execute_hogql_via_ai_events")
+    def test_detail_rejects_session_no_evaluation_query_returned(self, mock_ai_events: MagicMock) -> None:
+        result = json.loads(_get_session_detail_fn(state=self._state(), session_id=_VALID_SESSION_ID))
+
+        self.assertIn("not available", result["error"])
+        mock_ai_events.assert_not_called()
+
+    @patch("posthog.models.Team.objects.get")
+    @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._execute_hogql_via_ai_events")
+    @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._execute_hogql")
+    def test_detail_maps_traces_and_unlocks_them_for_the_trace_tools(
+        self, mock_execute_hogql: MagicMock, mock_ai_events: MagicMock, _mock_get_team: MagicMock
+    ) -> None:
+        state = self._allowlisted_state(mock_execute_hogql)
+        started = dt.datetime(2026, 4, 8, 14, 0, tzinfo=dt.UTC)
+        mock_ai_events.return_value = [
+            ["trace-a", 12, 4, started, started],
+            ["trace-b", 3, 1, started, started],
+        ]
+
+        result = json.loads(_get_session_detail_fn(state=state, session_id=_VALID_SESSION_ID))
+
+        self.assertEqual([trace["trace_id"] for trace in result["traces"]], ["trace-a", "trace-b"])
+        self.assertEqual(result["trace_count"], 2)
+        self.assertEqual(result["event_count"], 15)
+        self.assertNotIn("truncated", result)
+        # Without this the agent could map a session and then be refused every trace inside it.
+        self.assertEqual(state["trace_id_allowlist"], ["trace-a", "trace-b"])
+
+    @patch("posthog.models.Team.objects.get")
+    @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._execute_hogql_via_ai_events")
+    @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._execute_hogql")
+    def test_sample_bounds_the_trace_list_and_says_so(
+        self, mock_execute_hogql: MagicMock, mock_ai_events: MagicMock, _mock_get_team: MagicMock
+    ) -> None:
+        state = self._allowlisted_state(mock_execute_hogql)
+        started = dt.datetime(2026, 4, 8, 14, 0, tzinfo=dt.UTC)
+        mock_ai_events.return_value = [[f"trace-{index}", 1, 1, started, started] for index in range(20)]
+
+        result = json.loads(_sample_session_details_fn(state=state, session_ids=[_VALID_SESSION_ID]))
+
+        self.assertEqual(len(result[0]["traces"]), 10)
+        self.assertIn("first 10 traces", result[0]["truncated"])
 
 
 class TestUuidRegex(SimpleTestCase):
@@ -451,6 +617,39 @@ class TestAddSection(SimpleTestCase):
         _add_section_fn(state=state, title="Third", content="c")
         titles = [s.title for s in state["report"].sections]
         self.assertEqual(titles, ["First", "Second", "Third"])
+
+    def test_rejects_section_backticking_an_uncited_uuid(self):
+        # A run_id from list_recent_report_runs is a canonical UUID but not citable,
+        # so backticking it would ship a dead identifier. The guard blocks it in-loop.
+        state = _state_with_empty_report()
+        run_id = "0195f0a1-2b3c-7d4e-8f90-1a2b3c4d5e6f"
+        result = _add_section_fn(state=state, title="Summary", content=f"Steady since run `{run_id}`.")
+        self.assertIn("Error", result)
+        self.assertIn(run_id, result)
+        self.assertEqual(state["report"].sections, [])
+
+    def test_allows_section_when_backticked_uuid_is_cited(self):
+        state = _state_with_empty_report()
+        state["report"].citations.append(Citation(generation_id=_VALID_GEN_ID, trace_id=_VALID_TRACE_ID))
+        result = _add_section_fn(state=state, title="Summary", content=f"See `{_VALID_GEN_ID}` for the regression.")
+        self.assertNotIn("Error", result)
+        self.assertEqual(len(state["report"].sections), 1)
+
+    @parameterized.expand(
+        [
+            ("different_casing", f"`{_VALID_GEN_ID.upper()}`"),
+            ("surrounding_spaces", f"` {_VALID_GEN_ID} `"),
+            ("multiple_backticks", f"``{_VALID_GEN_ID}``"),
+        ]
+    )
+    def test_rejects_cited_uuid_when_format_will_not_link(self, _name: str, formatted_id: str) -> None:
+        state = _state_with_empty_report()
+        state["report"].citations.append(Citation(generation_id=_VALID_GEN_ID, trace_id=_VALID_TRACE_ID))
+
+        result = _add_section_fn(state=state, title="Summary", content=f"See {formatted_id} for the regression.")
+
+        self.assertIn("Error", result)
+        self.assertEqual(state["report"].sections, [])
 
 
 class TestAddCitation(SimpleTestCase):
@@ -576,6 +775,72 @@ class TestAddCitation(SimpleTestCase):
         self.assertEqual(len(state["report"].citations), 2)
         self.assertEqual(state["report"].citations[0].reason, "first")
         self.assertEqual(state["report"].citations[1].reason, "second")
+
+
+class TestSessionCitations(SimpleTestCase):
+    def _allowlisted_state(self) -> _ReportToolState:
+        state = _aggregate_report_tool_state("session")
+        state["session_id_allowlist"].append(_VALID_SESSION_ID)
+        state["trace_id_allowlist"].append("trace-in-session")
+        return state
+
+    def test_cites_the_session_alone(self):
+        state = self._allowlisted_state()
+
+        result = _add_citation_fn(state=state, session_id=_VALID_SESSION_ID, reason="abandoned midway")
+
+        self.assertNotIn("Error", result)
+        self.assertEqual(
+            state["report"].citations[0],
+            Citation(session_id=_VALID_SESSION_ID, reason="abandoned midway"),
+        )
+
+    def test_cites_a_trace_inside_the_session_for_extra_precision(self):
+        state = self._allowlisted_state()
+
+        result = _add_citation_fn(
+            state=state, session_id=_VALID_SESSION_ID, trace_id="trace-in-session", reason="the failing turn"
+        )
+
+        self.assertNotIn("Error", result)
+        self.assertEqual(state["report"].citations[0].trace_id, "trace-in-session")
+        # The report is about the session, so that is what the text refers to and links to.
+        self.assertEqual(state["report"].citations[0].cited_id(), _VALID_SESSION_ID)
+
+    @parameterized.expand(
+        [
+            # Each of these would put an ID in the report that the agent never verified, or one
+            # from a different ID space than the report's own — a broken or wrong link either way.
+            ("session never returned by a query", {"session_id": "fabricated-session"}),
+            ("trace from outside the mapped session", {"session_id": _VALID_SESSION_ID, "trace_id": "other-trace"}),
+            ("no session at all", {"trace_id": "trace-in-session"}),
+            ("a generation ID on a session report", {"session_id": _VALID_SESSION_ID, "generation_id": _VALID_GEN_ID}),
+            ("a control character in the session ID", {"session_id": "session\nid"}),
+        ]
+    )
+    def test_refuses_citation(self, _name, kwargs):
+        state = self._allowlisted_state()
+
+        result = _add_citation_fn(state=state, reason="r", **kwargs)
+
+        self.assertIn("Error", result)
+        self.assertEqual(state["report"].citations, [])
+
+    @parameterized.expand([("generation",), ("trace",)])
+    def test_other_targets_refuse_a_session_id(self, evaluation_target):
+        state = _state_with_empty_report(evaluation_target=evaluation_target)
+        state["trace_id_allowlist"].append(_VALID_TRACE_ID)
+
+        result = _add_citation_fn(
+            state=state,
+            generation_id=_VALID_GEN_ID if evaluation_target == "generation" else "",
+            trace_id=_VALID_TRACE_ID,
+            session_id=_VALID_SESSION_ID,
+            reason="r",
+        )
+
+        self.assertIn("Error", result)
+        self.assertEqual(state["report"].citations, [])
 
 
 class TestListAndGetReportRun(BaseTest):
@@ -724,6 +989,27 @@ class TestListAndGetReportRun(BaseTest):
         self.assertEqual(entry["result_rates"], {"pass": 75.0, "fail": 25.0, "na": 0.0})
         self.assertEqual(entry["total_runs"], 8)
 
+    def test_metrics_unavailable_runs_are_not_agent_history(self):
+        now = timezone.now()
+        unavailable_run = self.EvaluationReportRun.objects.create(
+            report=self.report,
+            content={
+                "title": "Metrics temporarily unavailable",
+                "sections": [],
+                "generation_status": "metrics_unavailable",
+                "metrics": None,
+            },
+            metadata={},
+            period_start=now - dt.timedelta(hours=2),
+            period_end=now - dt.timedelta(hours=1),
+        )
+
+        listed_run_ids = {run["run_id"] for run in json.loads(_list_recent_report_runs_fn(state=self.state))}
+        fetched = json.loads(_get_report_run_fn(state=self.state, run_id=str(unavailable_run.id)))
+
+        self.assertNotIn(str(unavailable_run.id), listed_run_ids)
+        self.assertIn("error", fetched)
+
     def test_get_rejects_non_uuid(self):
         result = json.loads(_get_report_run_fn(state=self.state, run_id="not-a-uuid"))
         self.assertIn("error", result)
@@ -763,6 +1049,80 @@ class TestListAndGetReportRun(BaseTest):
         # Agent state is scoped to self.evaluation — other_run must not be visible
         result = json.loads(_get_report_run_fn(state=self.state, run_id=str(other_run.id)))
         self.assertIn("error", result)
+
+
+class TestExecuteChQueryWithRetry(SimpleTestCase):
+    @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools.time.sleep")
+    @patch(
+        "posthog.temporal.ai_observability.eval_reports.report_agent.tools.random.uniform",
+        side_effect=lambda _minimum, maximum: maximum,
+    )
+    def test_retries_with_exponential_backoff_then_succeeds(
+        self, mock_uniform: MagicMock, mock_sleep: MagicMock
+    ) -> None:
+        attempts = {"n": 0}
+
+        def run_query() -> str:
+            attempts["n"] += 1
+            if attempts["n"] < 4:
+                raise ClickHouseAtCapacity()
+            return "ok"
+
+        result = _execute_ch_query_with_retry(run_query, query_type="Test")
+
+        self.assertEqual(result, "ok")
+        self.assertEqual(attempts["n"], 4)
+        self.assertEqual(
+            mock_uniform.call_args_list,
+            [mock_call(4.0, 8.0), mock_call(8.0, 16.0), mock_call(16.0, 32.0)],
+        )
+        self.assertEqual(mock_sleep.call_args_list, [mock_call(8.0), mock_call(16.0), mock_call(32.0)])
+
+    @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools.time.sleep")
+    def test_reraises_after_exhausting_retries(self, mock_sleep: MagicMock) -> None:
+        attempts = {"n": 0}
+
+        def run_query() -> str:
+            attempts["n"] += 1
+            raise ClickHouseAtCapacity()
+
+        with self.assertRaises(ClickHouseAtCapacity):
+            _execute_ch_query_with_retry(run_query, query_type="Test", base_delay=0.0)
+
+        self.assertEqual(attempts["n"], 4)
+        self.assertEqual(mock_sleep.call_count, 3)
+
+    @parameterized.expand(
+        [
+            ("network", NetworkError()),
+            ("socket_timeout", SocketTimeoutError()),
+            ("cluster_memory_pressure", ClickHouseClusterMemoryLimitExceeded()),
+        ]
+    )
+    @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools.time.sleep")
+    def test_retries_additional_transient_errors(self, _name: str, error: Exception, mock_sleep: MagicMock) -> None:
+        attempts = {"n": 0}
+
+        def run_query() -> str:
+            attempts["n"] += 1
+            if attempts["n"] == 1:
+                raise error
+            return "ok"
+
+        result = _execute_ch_query_with_retry(run_query, query_type="Test", max_retries=1, base_delay=0.0)
+
+        self.assertEqual(result, "ok")
+        mock_sleep.assert_called_once_with(0.0)
+
+    @parameterized.expand(
+        [
+            ("query_timeout", ClickHouseQueryTimeOut()),
+            ("per_query_memory_limit", _per_query_memory_limit_error()),
+            ("application_error", ValueError("bug")),
+        ]
+    )
+    def test_does_not_retry_non_transient_error(self, _name: str, error: Exception) -> None:
+        self.assertFalse(_is_retriable_ch_error(error))
 
 
 class TestToolsCoordinate(SimpleTestCase):

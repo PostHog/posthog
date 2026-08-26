@@ -5,18 +5,20 @@ from typing import Any, Optional, cast
 
 from posthog.temporal.common.utils import make_sync_retryable_with_exponential_backoff
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.settings import (
     BASE_URL,
     TIKTOK_ADS_CONFIG,
     EndpointType,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.utils import (
+    TIKTOK_RETRY_RESPONSE_ACTIONS,
     TikTokAdsAPIError,
     TikTokAdsAuth,
     TikTokAdsPaginator,
@@ -85,6 +87,7 @@ def get_tiktok_resource(
     }
 
     endpoint["params"] = params
+    endpoint["response_actions"] = TIKTOK_RETRY_RESPONSE_ACTIONS
     resource["endpoint"] = endpoint
 
     if should_use_incremental_field and config.incremental_fields:
@@ -136,6 +139,9 @@ def _iter_chunk(
         "client": {
             "base_url": BASE_URL,
             "auth": TikTokAdsAuth(access_token),
+            # The QPS ceiling is per app, so every concurrent schema competes for the same budget.
+            # A few extra attempts (backoff caps at 60s) ride out that contention.
+            "max_retries": 8,
         },
         "resource_defaults": {
             "write_disposition": "replace",
@@ -146,10 +152,9 @@ def _iter_chunk(
     # NOTE: ``rest_api_resource`` returns a lazy iterable; actual HTTP
     # requests happen when the caller consumes it in ``process_resources``.
     # The retry below therefore only guards the (fast, rare-to-fail)
-    # resource-construction step — mid-pagination TikTok errors propagate
-    # out and are not retried here. Per-request retries would need to live
-    # inside the paginator or rest_client. Kept as-is to preserve existing
-    # behaviour.
+    # resource-construction step. Mid-pagination retries live one level down,
+    # in the rest client: ``TIKTOK_RETRY_RESPONSE_ACTIONS`` classifies TikTok's
+    # HTTP-200 error envelope so a transient code reissues the request there.
     resource = make_sync_retryable_with_exponential_backoff(
         lambda: rest_api_resource(
             chunk_config,
@@ -170,17 +175,17 @@ def _iter_chunk(
     return resource
 
 
-def _get_chunk_dates(chunk_resource: dict[str, Any]) -> tuple[Optional[str], Optional[str]]:
-    """Extract the chunk's ``(start_date, end_date)`` params, or ``(None, None)``."""
+def _get_chunk_dates(chunk_resource: dict[str, Any]) -> SyncWindow[Optional[str]]:
+    """Extract the chunk's ``start_date``/``end_date`` params (``None`` when absent)."""
     endpoint_cfg = chunk_resource.get("endpoint")
     if not isinstance(endpoint_cfg, dict):
-        return None, None
+        return SyncWindow(start=None, end=None)
     params = endpoint_cfg.get("params")
     if not isinstance(params, dict):
-        return None, None
+        return SyncWindow(start=None, end=None)
     start = params.get("start_date")
     end = params.get("end_date")
-    return (start if isinstance(start, str) else None, end if isinstance(end, str) else None)
+    return SyncWindow(start=start if isinstance(start, str) else None, end=end if isinstance(end, str) else None)
 
 
 def _resolve_resume_chunk_index(loaded: TikTokAdsResumeConfig, chunk_resources: list[dict[str, Any]]) -> Optional[int]:
@@ -198,8 +203,8 @@ def _resolve_resume_chunk_index(loaded: TikTokAdsResumeConfig, chunk_resources: 
         return None
 
     for idx, chunk in enumerate(chunk_resources):
-        start, end = _get_chunk_dates(chunk)
-        if start == loaded.chunk_start_date and end == loaded.chunk_end_date:
+        window = _get_chunk_dates(chunk)
+        if window.start == loaded.chunk_start_date and window.end == loaded.chunk_end_date:
             return idx
     return None
 
@@ -245,10 +250,10 @@ def tiktok_ads_source(
             if resumed_chunk_index is not None and chunk_index == resumed_chunk_index:
                 initial_paginator_state = {"page": resumed_page}
 
-            chunk_start, chunk_end = _get_chunk_dates(chunk_resource)
+            chunk_window = _get_chunk_dates(chunk_resource)
 
             def make_save_checkpoint(
-                idx: int, start: Optional[str], end: Optional[str]
+                idx: int, *, window: SyncWindow[Optional[str]]
             ) -> Callable[[Optional[dict[str, Any]]], None]:
                 def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
                     # The paginator only emits state while there are pages
@@ -259,8 +264,8 @@ def tiktok_ads_source(
                             TikTokAdsResumeConfig(
                                 page=int(state["page"]),
                                 chunk_index=idx,
-                                chunk_start_date=start,
-                                chunk_end_date=end,
+                                chunk_start_date=window.start,
+                                chunk_end_date=window.end,
                             )
                         )
 
@@ -273,7 +278,7 @@ def tiktok_ads_source(
                 job_id,
                 db_incremental_field_last_value,
                 initial_paginator_state,
-                make_save_checkpoint(chunk_index, chunk_start, chunk_end),
+                make_save_checkpoint(chunk_index, window=chunk_window),
             )
 
             flat = TikTokReportResource.process_resources([resource])

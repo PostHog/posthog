@@ -8,7 +8,8 @@ import requests
 import structlog
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -19,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import Endpoint
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.metabase.settings import (
     METABASE_ENDPOINTS,
     MetabaseEndpointConfig,
@@ -55,14 +57,14 @@ class MetabaseAuthError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@frozen
 class MetabaseAuth:
     # "api_key" sends a static X-API-Key header; "session" mints a short-lived token via
     # POST /api/session and sends it as X-Metabase-Session (for instances older than v0.47).
     method: str
-    api_key: Optional[str] = None
+    api_key: Optional[str] = dataclasses.field(default=None, repr=False)
     username: Optional[str] = None
-    password: Optional[str] = None
+    password: Optional[str] = dataclasses.field(default=None, repr=False)
 
 
 def normalize_host(host: str) -> str:

@@ -10,7 +10,7 @@ import {
     IconDownload,
     IconPencil,
     IconPlus,
-    IconTrash,
+    IconUpload,
     IconX,
 } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSelect, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
@@ -20,10 +20,12 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
 import { NotFound } from 'lib/components/NotFound'
 import { dayjs } from 'lib/dayjs'
 import { IconLink } from 'lib/lemon-ui/icons'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonMarkdownWithMermaid } from 'lib/lemon-ui/LemonMarkdown/LemonMarkdownWithMermaid'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { lazyWithRetry } from 'lib/utils/retryImport'
@@ -43,7 +45,9 @@ import type { SkillFormFileValues } from './llmSkillLogic'
 import { SkillLogicProps, SkillMode, isSkill, llmSkillLogic } from './llmSkillLogic'
 import { SKILL_NAME_MAX_LENGTH, SKILL_DESCRIPTION_MAX_LENGTH } from './skillConstants'
 import { skillFileLogic } from './skillFileLogic'
-import { openArchiveSkillDialog } from './skillSceneComponents'
+import { collectFilesFromDrop } from './skillFileUpload'
+import { SkillOwners } from './SkillOwners'
+import { SkillPublishReviewModal, openArchiveSkillDialog } from './skillSceneComponents'
 
 const MonacoDiffEditor = lazyWithRetry(() => import('lib/components/MonacoDiffEditor'))
 
@@ -53,7 +57,8 @@ export const scene: SceneExport<SkillLogicProps> = {
     productKey: ProductKey.AI_OBSERVABILITY,
     paramsToProps: ({ params: { name }, searchParams }) => ({
         skillName: name && name !== 'new' ? name : 'new',
-        mode: searchParams?.edit === 'true' ? SkillMode.Edit : SkillMode.View,
+        // kea-router JSON-decodes query values, so ?edit=true arrives as boolean true
+        mode: String(searchParams?.edit) === 'true' ? SkillMode.Edit : SkillMode.View,
         selectedVersion: searchParams?.version ? Number(searchParams.version) || null : null,
     }),
 }
@@ -74,11 +79,21 @@ export function LLMSkillScene(): JSX.Element {
         canLoadMoreVersions,
         fileContentsLoading,
         downloadingZip,
+        isSkillFormDirty,
+        nextVersion,
     } = useValues(llmSkillLogic)
     const { searchParams } = useValues(router)
 
-    const { submitSkillForm, deleteSkill, setMode, setSkillFormValues, loadMoreVersions, downloadSkill } =
-        useActions(llmSkillLogic)
+    const {
+        submitSkillForm,
+        requestPublish,
+        deleteSkill,
+        setMode,
+        setSkillFormValues,
+        loadMoreVersions,
+        downloadSkill,
+        cancelEditing,
+    } = useActions(llmSkillLogic)
 
     if (isSkillMissing) {
         return <NotFound object="skill" />
@@ -94,7 +109,7 @@ export function LLMSkillScene(): JSX.Element {
         )
     }
 
-    // A direct link with `?edit=true` shouldn't grant edit access the Edit/Use-as-latest buttons
+    // A direct link with `?edit=true` shouldn't grant edit access the New version button
     // wouldn't otherwise give — fall back to the read-only view when the user can't actually publish.
     const canEditSkill = userHasAccess(AccessControlResourceType.LlmSkill, AccessControlLevel.Editor)
     const content =
@@ -106,48 +121,6 @@ export function LLMSkillScene(): JSX.Element {
                     isLoading={skillLoading}
                     actions={
                         <>
-                            {isSkill(skill) && skill.is_latest ? (
-                                <AccessControlAction
-                                    resourceType={AccessControlResourceType.LlmSkill}
-                                    minAccessLevel={AccessControlLevel.Editor}
-                                >
-                                    <LemonButton
-                                        type="primary"
-                                        icon={<IconPencil />}
-                                        onClick={() => setMode(SkillMode.Edit)}
-                                        size="small"
-                                        data-attr="llma-skill-edit-button"
-                                    >
-                                        Edit latest
-                                    </LemonButton>
-                                </AccessControlAction>
-                            ) : (
-                                <AccessControlAction
-                                    resourceType={AccessControlResourceType.LlmSkill}
-                                    minAccessLevel={AccessControlLevel.Editor}
-                                >
-                                    <LemonButton
-                                        type="primary"
-                                        onClick={() => {
-                                            if (isSkill(skill)) {
-                                                setSkillFormValues({
-                                                    name: skill.name,
-                                                    description: skill.description,
-                                                    body: skill.body,
-                                                    license: skill.license || '',
-                                                    compatibility: skill.compatibility || '',
-                                                })
-                                                setMode(SkillMode.Edit)
-                                            }
-                                        }}
-                                        size="small"
-                                        data-attr="llma-skill-use-as-latest-button"
-                                    >
-                                        Use as latest
-                                    </LemonButton>
-                                </AccessControlAction>
-                            )}
-
                             {isSkill(skill) && (
                                 <LemonButton
                                     type="secondary"
@@ -167,16 +140,50 @@ export function LLMSkillScene(): JSX.Element {
                                 minAccessLevel={AccessControlLevel.Editor}
                             >
                                 <LemonButton
-                                    type="secondary"
-                                    status="danger"
-                                    icon={<IconTrash />}
-                                    onClick={() => openArchiveSkillDialog(deleteSkill)}
+                                    type="primary"
+                                    icon={<IconPencil />}
+                                    onClick={() => {
+                                        if (isSkill(skill)) {
+                                            setSkillFormValues({
+                                                name: skill.name,
+                                                description: skill.description,
+                                                body: skill.body,
+                                                license: skill.license || '',
+                                                compatibility: skill.compatibility || '',
+                                            })
+                                            setMode(SkillMode.Edit)
+                                        }
+                                    }}
                                     size="small"
-                                    data-attr="llma-skill-delete-button"
+                                    tooltip={
+                                        isHistoricalVersion
+                                            ? 'Start a new version from this historical version'
+                                            : undefined
+                                    }
+                                    data-attr="llma-skill-new-version-button"
                                 >
-                                    Archive
+                                    New version
                                 </LemonButton>
                             </AccessControlAction>
+
+                            <More
+                                size="small"
+                                overlay={
+                                    <AccessControlAction
+                                        resourceType={AccessControlResourceType.LlmSkill}
+                                        minAccessLevel={AccessControlLevel.Editor}
+                                    >
+                                        <LemonButton
+                                            status="danger"
+                                            onClick={() => openArchiveSkillDialog(deleteSkill)}
+                                            data-attr="llma-skill-delete-button"
+                                            fullWidth
+                                        >
+                                            Archive
+                                        </LemonButton>
+                                    </AccessControlAction>
+                                }
+                            />
                         </>
                     }
                 />
@@ -210,14 +217,8 @@ export function LLMSkillScene(): JSX.Element {
                             <>
                                 <LemonButton
                                     type="secondary"
-                                    onClick={() => {
-                                        if (isNewSkill) {
-                                            router.actions.push(urls.skills())
-                                        } else {
-                                            setMode(SkillMode.View)
-                                        }
-                                    }}
-                                    disabledReason={isSkillFormSubmitting ? 'Saving...' : undefined}
+                                    onClick={() => cancelEditing()}
+                                    disabledReason={isSkillFormSubmitting ? 'Saving…' : undefined}
                                     size="small"
                                     data-attr="llma-skill-cancel-button"
                                 >
@@ -230,32 +231,23 @@ export function LLMSkillScene(): JSX.Element {
                                 >
                                     <LemonButton
                                         type="primary"
-                                        onClick={submitSkillForm}
+                                        onClick={isNewSkill ? submitSkillForm : requestPublish}
                                         loading={isSkillFormSubmitting}
+                                        disabledReason={
+                                            !isNewSkill && !isHistoricalVersion && !isSkillFormDirty
+                                                ? 'No changes to publish'
+                                                : undefined
+                                        }
                                         size="small"
                                         data-attr={isNewSkill ? 'skill-create-button' : 'skill-save-button'}
                                     >
-                                        {isNewSkill ? 'Create skill' : 'Publish version'}
+                                        {isNewSkill
+                                            ? 'Create skill'
+                                            : nextVersion
+                                              ? `Publish v${nextVersion}`
+                                              : 'Publish version'}
                                     </LemonButton>
                                 </AccessControlAction>
-
-                                {!isNewSkill && (
-                                    <AccessControlAction
-                                        resourceType={AccessControlResourceType.LlmSkill}
-                                        minAccessLevel={AccessControlLevel.Editor}
-                                    >
-                                        <LemonButton
-                                            type="secondary"
-                                            status="danger"
-                                            icon={<IconTrash />}
-                                            onClick={() => openArchiveSkillDialog(deleteSkill)}
-                                            size="small"
-                                            data-attr="llma-skill-delete-button"
-                                        >
-                                            Archive
-                                        </LemonButton>
-                                    </AccessControlAction>
-                                )}
                             </>
                         }
                     />
@@ -264,8 +256,10 @@ export function LLMSkillScene(): JSX.Element {
                         <div className="min-w-0 flex-1">
                             <SkillEditForm
                                 isHistoricalVersion={isHistoricalVersion}
+                                selectedVersion={isSkill(skill) ? skill.version : null}
                                 fileContentsLoading={fileContentsLoading}
                             />
+                            <SkillPublishReviewModal />
                         </div>
 
                         {!isNewSkill && (
@@ -277,6 +271,7 @@ export function LLMSkillScene(): JSX.Element {
                                 canLoadMoreVersions={canLoadMoreVersions}
                                 loadMoreVersions={loadMoreVersions}
                                 searchParams={searchParams ?? {}}
+                                readOnly
                             />
                         )}
                     </div>
@@ -330,6 +325,11 @@ function SkillViewDetails(): JSX.Element {
                         Historical
                     </LemonTag>
                 )}
+                {skill.version_description ? (
+                    <span className="text-secondary text-sm italic" data-attr="llma-skill-version-description">
+                        “{skill.version_description}”
+                    </span>
+                ) : null}
                 <span className="text-secondary text-sm">
                     This skill has {skill.version_count} published version{skill.version_count === 1 ? '' : 's'}.
                 </span>
@@ -344,6 +344,8 @@ function SkillViewDetails(): JSX.Element {
                 <label className="text-xs font-semibold uppercase text-secondary">Description</label>
                 <p className="text-sm">{skill.description}</p>
             </div>
+
+            <SkillOwners />
 
             <div>
                 <label className="text-xs font-semibold uppercase text-secondary">Frontmatter</label>
@@ -685,13 +687,53 @@ const COMMON_CONTENT_TYPES = [
 
 function SkillEditForm({
     isHistoricalVersion,
+    selectedVersion,
     fileContentsLoading,
 }: {
     isHistoricalVersion: boolean
+    selectedVersion: number | null
     fileContentsLoading: boolean
 }): JSX.Element {
-    const { isNewSkill, skillForm } = useValues(llmSkillLogic)
-    const { setSkillFormValues } = useActions(llmSkillLogic)
+    const { isNewSkill, skillForm, publishConflict } = useValues(llmSkillLogic)
+    const { setSkillFormValues, addUploadedFiles } = useActions(llmSkillLogic)
+    const uploadInputRef = useRef<HTMLInputElement | null>(null)
+    // Depth counter instead of a boolean: dragenter/dragleave also fire for child elements,
+    // so a plain boolean would flicker off while moving across the section.
+    const dragDepthRef = useRef(0)
+    const [dropActive, setDropActive] = useState(false)
+
+    const onDragEnter = (e: React.DragEvent): void => {
+        e.preventDefault()
+        dragDepthRef.current += 1
+        setDropActive(true)
+    }
+
+    const onDragOver = (e: React.DragEvent): void => {
+        e.preventDefault()
+    }
+
+    const onDragLeave = (e: React.DragEvent): void => {
+        e.preventDefault()
+        dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
+        if (dragDepthRef.current === 0) {
+            setDropActive(false)
+        }
+    }
+
+    const onDrop = (e: React.DragEvent): void => {
+        e.preventDefault()
+        dragDepthRef.current = 0
+        setDropActive(false)
+        void collectFilesFromDrop(e.dataTransfer)
+            .then((files) => {
+                if (files.length > 0) {
+                    addUploadedFiles(files)
+                }
+            })
+            .catch(() => {
+                lemonToast.error('Couldn\'t read the dropped files. Try the "Upload files" button instead.')
+            })
+    }
 
     const addFile = (): void => {
         setSkillFormValues({
@@ -712,12 +754,21 @@ function SkillEditForm({
 
     return (
         <div className="mt-4 max-w-3xl space-y-4">
-            {isHistoricalVersion && (
-                <div className="rounded border border-warning bg-warning-highlight p-3 text-sm">
-                    You are publishing a new latest version from a historical version. The original version will remain
-                    unchanged.
-                </div>
-            )}
+            {publishConflict ? (
+                <LemonBanner type="warning" data-attr="llma-skill-publish-conflict-banner">
+                    {publishConflict.latestVersion
+                        ? `v${publishConflict.latestVersion} was published while you were editing.`
+                        : 'This skill changed while you were editing.'}{' '}
+                    Your edits below are preserved. Review them before publishing again.
+                </LemonBanner>
+            ) : null}
+
+            {isHistoricalVersion && selectedVersion ? (
+                <LemonBanner type="info">
+                    You are publishing a new latest version from historical version v{selectedVersion}. The original
+                    version will remain unchanged.
+                </LemonBanner>
+            ) : null}
 
             <LemonField
                 name="name"
@@ -781,8 +832,14 @@ function SkillEditForm({
                 />
             </LemonField>
 
-            <div>
-                <div className="mb-2 flex items-center justify-between">
+            <div
+                onDragEnter={onDragEnter}
+                onDragOver={onDragOver}
+                onDragLeave={onDragLeave}
+                onDrop={onDrop}
+                className={dropActive ? 'rounded outline-2 outline-dashed outline-accent outline-offset-4' : undefined}
+            >
+                <div className="mb-2 flex items-center justify-between gap-2">
                     <div>
                         <label className="text-sm font-semibold">Bundled files</label>
                         <p className="text-xs text-secondary">
@@ -790,15 +847,39 @@ function SkillEditForm({
                             the skill body.
                         </p>
                     </div>
-                    <LemonButton
-                        type="secondary"
-                        icon={<IconPlus />}
-                        size="small"
-                        onClick={addFile}
-                        data-attr="llma-skill-add-file-button"
-                    >
-                        Add file
-                    </LemonButton>
+                    <div className="flex shrink-0 items-center gap-2">
+                        <input
+                            ref={uploadInputRef}
+                            type="file"
+                            multiple
+                            className="hidden"
+                            onChange={(e) => {
+                                const files = Array.from(e.target.files ?? [])
+                                if (files.length > 0) {
+                                    addUploadedFiles(files.map((file) => ({ path: file.name, file })))
+                                }
+                                e.target.value = ''
+                            }}
+                        />
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconUpload />}
+                            size="small"
+                            onClick={() => uploadInputRef.current?.click()}
+                            data-attr="llma-skill-upload-files-button"
+                        >
+                            Upload files
+                        </LemonButton>
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconPlus />}
+                            size="small"
+                            onClick={addFile}
+                            data-attr="llma-skill-add-file-button"
+                        >
+                            Add file
+                        </LemonButton>
+                    </div>
                 </div>
 
                 {fileContentsLoading ? (
@@ -809,7 +890,8 @@ function SkillEditForm({
                     </div>
                 ) : skillForm.files.length === 0 ? (
                     <div className="rounded border border-dashed p-4 text-center text-sm text-secondary">
-                        No bundled files. Click "Add file" to include scripts or references.
+                        No bundled files. Upload files, drag and drop files or folders here, or click "Add file" to
+                        write one from scratch.
                     </div>
                 ) : (
                     <div className="space-y-3">
@@ -916,6 +998,7 @@ function SkillVersionSidebar({
     canLoadMoreVersions,
     loadMoreVersions,
     searchParams,
+    readOnly = false,
 }: {
     skillName: string
     skill: { id: string; version: number; version_count: number } | null
@@ -924,6 +1007,7 @@ function SkillVersionSidebar({
     canLoadMoreVersions: boolean
     loadMoreVersions: () => void
     searchParams: Record<string, any>
+    readOnly?: boolean
 }): JSX.Element {
     const { compareVersion } = useValues(llmSkillLogic)
     const { setCompareVersion } = useActions(llmSkillLogic)
@@ -944,7 +1028,7 @@ function SkillVersionSidebar({
                     {versions.map((versionSkill) => {
                         const selected = skill?.id === versionSkill.id
                         const isCompareTarget = compareVersion === versionSkill.version
-                        const canCompare = skill?.version !== versionSkill.version
+                        const canCompare = !readOnly && skill?.version !== versionSkill.version
                         const cleanedParams = { ...searchParams }
                         delete cleanedParams.edit
                         const versionUrl = combineUrl(urls.skill(skillName), {
@@ -952,19 +1036,8 @@ function SkillVersionSidebar({
                             version: versionSkill.is_latest ? undefined : versionSkill.version,
                         }).url
 
-                        return (
-                            <Link
-                                key={versionSkill.id}
-                                to={versionUrl}
-                                className={`block rounded border p-3 no-underline ${
-                                    selected
-                                        ? 'border-primary bg-primary-highlight'
-                                        : isCompareTarget
-                                          ? 'border-warning bg-warning-highlight'
-                                          : 'border-primary/10 hover:bg-fill-secondary'
-                                }`}
-                                data-attr={`llma-skill-version-link-${versionSkill.version}`}
-                            >
+                        const cardContent = (
+                            <>
                                 <div className="mb-1 flex items-center justify-between">
                                     <div className="flex items-center gap-2">
                                         <span className="font-mono text-sm">v{versionSkill.version}</span>
@@ -998,12 +1071,48 @@ function SkillVersionSidebar({
                                         />
                                     )}
                                 </div>
+                                {versionSkill.version_description ? (
+                                    <div className="mb-1 line-clamp-2 text-xs" title={versionSkill.version_description}>
+                                        {versionSkill.version_description}
+                                    </div>
+                                ) : null}
                                 <div className="text-xs text-secondary">
                                     {dayjs(versionSkill.created_at).format('MMM D, YYYY h:mm A')}
                                 </div>
                                 {versionSkill.created_by?.email ? (
                                     <div className="mt-1 text-xs text-secondary">{versionSkill.created_by.email}</div>
                                 ) : null}
+                            </>
+                        )
+
+                        const cardClassName = `block rounded border p-3 no-underline ${
+                            selected
+                                ? 'border-primary bg-primary-highlight'
+                                : isCompareTarget
+                                  ? 'border-warning bg-warning-highlight'
+                                  : readOnly
+                                    ? 'border-primary/10 opacity-75'
+                                    : 'border-primary/10 hover:bg-fill-secondary'
+                        }`
+
+                        // The selected version is not a link: navigating to the version already
+                        // shown would only trigger a pointless reload.
+                        if (readOnly || selected) {
+                            return (
+                                <div key={versionSkill.id} className={cardClassName}>
+                                    {cardContent}
+                                </div>
+                            )
+                        }
+
+                        return (
+                            <Link
+                                key={versionSkill.id}
+                                to={versionUrl}
+                                className={cardClassName}
+                                data-attr={`llma-skill-version-link-${versionSkill.version}`}
+                            >
+                                {cardContent}
                             </Link>
                         )
                     })}

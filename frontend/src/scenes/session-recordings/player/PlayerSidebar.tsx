@@ -7,10 +7,14 @@ import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, splitKebabCase } from 'lib/utils/strings'
 
 import { SessionRecordingSidebarStacking, SessionRecordingSidebarTab } from '~/types'
+
+import { visionSurfaceShown } from 'products/replay_vision/frontend/utils/visionSurface'
 
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
@@ -25,7 +29,8 @@ export function PlayerSidebar(): JSX.Element {
     const { sidebarOpen, preferredSidebarStacking, isVerticallyStacked } = useValues(playerSettingsLogic)
     const { setSidebarOpen, setPreferredSidebarStacking } = useActions(playerSettingsLogic)
     const { getIntegrationsByKind } = useValues(integrationsLogic)
-    const { sessionPlayerMetaData } = useValues(sessionRecordingPlayerLogic)
+    const { sessionPlayerMetaData, logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const logicKey = `player-sidebar-${isVerticallyStacked ? 'vertical' : 'horizontal'}`
 
@@ -46,6 +51,15 @@ export function PlayerSidebar(): JSX.Element {
         SessionRecordingSidebarTab.INSPECTOR,
         SessionRecordingSidebarTab.NETWORK_WATERFALL,
     ]
+
+    if (visionSurfaceShown(logicProps)) {
+        sidebarTabs.push(SessionRecordingSidebarTab.OBSERVATIONS)
+    }
+
+    // Show the person's other recordings once we know who they are
+    if (featureFlags[FEATURE_FLAGS.REPLAY_PLAYER_PERSON_SESSIONS_TAB] && sessionPlayerMetaData?.person) {
+        sidebarTabs.push(SessionRecordingSidebarTab.SESSIONS)
+    }
 
     // Show linked issues tab if there are integrations or existing references
     const sessionReplayIntegrations = getIntegrationsByKind(['linear', 'github', 'gitlab', 'jira'])
@@ -89,9 +103,10 @@ export function PlayerSidebar(): JSX.Element {
                                 key: tabId,
                                 label: capitalizeFirstLetter(splitKebabCase(tabId)),
                             }))}
-                            barClassName="!mb-0"
+                            // The root scrolls, not the bar, so the scrollbar cannot collide with the bar's bottom-anchored underline
+                            barClassName="!mb-0 w-max min-w-full !overflow-x-visible"
                             size="small"
-                            className="overflow-x-auto hide-scrollbar"
+                            className="overflow-x-auto overflow-y-clip"
                         />
                         <div className="flex flex-1 border-b shrink-0" />
                         <div className="flex gap-1 border-b end">

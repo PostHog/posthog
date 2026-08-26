@@ -20,8 +20,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.teamtailor
     TEAMTAILOR_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.teamtailor.teamtailor import (
-    API_VERSION,
+    API_VERSION_20240404,
+    API_VERSION_20240904,
+    DEFAULT_API_VERSION,
     PAGE_SIZE,
+    SUPPORTED_API_VERSIONS,
     TeamtailorResumeConfig,
     check_access,
     teamtailor_source,
@@ -74,8 +77,10 @@ def _wire(mock_make_session: MagicMock, responses: list[Any]) -> tuple[requests.
     return session, sent
 
 
-def _rows(endpoint: str, manager: MagicMock) -> list[dict[str, Any]]:
-    response = teamtailor_source("tt-key", endpoint, team_id=1, job_id="j", resumable_source_manager=manager)
+def _rows(endpoint: str, manager: MagicMock, api_version: str = DEFAULT_API_VERSION) -> list[dict[str, Any]]:
+    response = teamtailor_source(
+        "tt-key", endpoint, team_id=1, job_id="j", resumable_source_manager=manager, api_version=api_version
+    )
     return [row for page in cast("Iterable[Any]", response.items()) for row in page]
 
 
@@ -175,20 +180,25 @@ class TestErrorHandling:
 
 
 class TestAuthHeaders:
-    def test_headers_carry_token_and_api_version(self) -> None:
-        headers = teamtailor._headers("tt-key")
+    @parameterized.expand([(v,) for v in SUPPORTED_API_VERSIONS])
+    def test_headers_carry_token_and_requested_api_version(self, api_version: str) -> None:
+        headers = teamtailor._headers("tt-key", api_version)
         assert headers["Authorization"] == "Token token=tt-key"
-        assert headers["X-Api-Version"] == API_VERSION
+        assert headers["X-Api-Version"] == api_version
         assert headers["Accept"] == "application/vnd.api+json"
 
-    def test_version_headers_carry_no_secret(self) -> None:
+    @parameterized.expand([(v,) for v in SUPPORTED_API_VERSIONS])
+    def test_version_headers_carry_no_secret(self, api_version: str) -> None:
         # The API key travels via the framework auth config, not these static headers.
-        headers = teamtailor._version_headers()
+        headers = teamtailor._version_headers(api_version)
         assert "Authorization" not in headers
-        assert headers["X-Api-Version"] == API_VERSION
+        assert headers["X-Api-Version"] == api_version
 
+    @parameterized.expand([("legacy", API_VERSION_20240404), ("current", API_VERSION_20240904)])
     @patch(CLIENT_SESSION_PATCH)
-    def test_token_auth_header_is_sent(self, mock_make_session: MagicMock) -> None:
+    def test_requested_api_version_reaches_the_wire(
+        self, _name: str, api_version: str, mock_make_session: MagicMock
+    ) -> None:
         session, _ = _wire(mock_make_session, [_page([{"id": "1"}], next_url=None)])
         captured: dict[str, str] = {}
 
@@ -200,10 +210,10 @@ class TestAuthHeaders:
             return prepared
 
         cast(Any, session).prepare_request = mock.MagicMock(side_effect=_prepare)
-        _rows("candidates", _make_manager())
+        _rows("candidates", _make_manager(), api_version=api_version)
 
         assert captured["Authorization"] == "Token token=tt-key"
-        assert captured["X-Api-Version"] == API_VERSION
+        assert captured["X-Api-Version"] == api_version
 
 
 class TestCheckAccess:
@@ -238,12 +248,12 @@ class TestCheckAccess:
         response.status_code = status
         response.ok = ok
         self._configure_session(mock_make_session, response)
-        assert check_access("tt-key") == (expected_status, expected_message)
+        assert check_access("tt-key", DEFAULT_API_VERSION) == (expected_status, expected_message)
 
     @mock.patch.object(teamtailor, "make_tracked_session")
     def test_connection_error_maps_to_zero(self, mock_make_session: MagicMock) -> None:
         self._configure_session(mock_make_session, requests.ConnectionError("boom"))
-        status, message = check_access("tt-key")
+        status, message = check_access("tt-key", DEFAULT_API_VERSION)
         assert status == 0
         assert message is not None and "boom" in message
 
@@ -268,14 +278,19 @@ class TestCheckAccess:
         response.status_code = status
         response.ok = status < 400
         self._configure_session(mock_make_session, response)
-        assert validate_credentials("tt-key") == (expected_valid, expected_message)
+        assert validate_credentials("tt-key", DEFAULT_API_VERSION) == (expected_valid, expected_message)
 
 
 class TestTeamtailorSourceResponse:
     @parameterized.expand([(e,) for e in ENDPOINTS])
     def test_source_response_shape(self, endpoint: str) -> None:
         response = teamtailor_source(
-            "tt-key", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager()
+            "tt-key",
+            endpoint,
+            team_id=1,
+            job_id="j",
+            resumable_source_manager=_make_manager(),
+            api_version=DEFAULT_API_VERSION,
         )
         assert response.name == endpoint
         assert response.primary_keys == ["id"]

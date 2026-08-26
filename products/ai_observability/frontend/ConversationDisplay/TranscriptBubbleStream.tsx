@@ -255,6 +255,8 @@ export function TranscriptBubbleStream({
                         key={i}
                         type={item.message.role === 'user' ? 'human' : 'ai'}
                         wrapperClassName="max-w-[75%]"
+                        // Same user-message fill the Trace page uses, so the two sides don't blend together
+                        boxClassName={item.message.role === 'user' ? 'bg-fill-tertiary' : undefined}
                     >
                         {item.text && (
                             <LemonMarkdown className="whitespace-pre-wrap break-words">{item.text}</LemonMarkdown>

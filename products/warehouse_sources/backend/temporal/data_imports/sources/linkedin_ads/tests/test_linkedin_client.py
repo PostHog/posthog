@@ -9,9 +9,12 @@ from linkedin_api.common.errors import ResponseFormattingError
 from structlog.testing import capture_logs
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.client import (
+    INDEX_PAGE_SIZE,
+    MAX_INDEX_PAGES,
     LinkedinAdsClient,
     LinkedinAdsDailyRateLimitError,
     LinkedinAdsPivot,
+    LinkedinAdsResource,
     LinkedinAdsRetryableError,
 )
 
@@ -25,13 +28,11 @@ class TestLinkedinAdsClient:
         self.account_id = "12345"
 
     def test_init_with_empty_token_raises_error(self):
-        """Test client initialization with empty token raises ValueError."""
         with pytest.raises(ValueError, match="Access token required"):
             LinkedinAdsClient("")
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.client.RestliClient")
     def test_get_accounts_success(self, mock_restli_client):
-        """Test successful accounts retrieval."""
         mock_response = mock.MagicMock()
         mock_response.status_code = 200
         mock_response.elements = [{"id": "123", "name": "Test Account"}]
@@ -45,7 +46,7 @@ class TestLinkedinAdsClient:
         assert result == [{"id": "123", "name": "Test Account"}]
         mock_client_instance.finder.assert_called_once()
 
-    @pytest.mark.parametrize("api_version", ["202508", "202606"])
+    @pytest.mark.parametrize("api_version", ["202508", "202606", "202607", "202608"])
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.client.RestliClient")
     def test_request_sends_configured_api_version(self, mock_restli_client, api_version):
         """The configured version must reach the Restli `version_string`, else every request hits
@@ -84,7 +85,6 @@ class TestLinkedinAdsClient:
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.client.RestliClient")
     def test_get_accounts_api_error(self, mock_restli_client):
-        """Test accounts retrieval with API error."""
         mock_response = mock.MagicMock()
         mock_response.status_code = 401
         mock_response.response.text = "Unauthorized"
@@ -99,7 +99,6 @@ class TestLinkedinAdsClient:
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.client.RestliClient")
     def test_get_campaigns_pagination(self, mock_restli_client):
-        """Test successful campaigns retrieval with pagination."""
         # First page response
         mock_response1 = mock.MagicMock()
         mock_response1.status_code = 200
@@ -346,7 +345,6 @@ class TestLinkedinAdsClient:
         }
 
     def test_format_date_range(self):
-        """Test date range formatting for LinkedIn API."""
         client = LinkedinAdsClient(self.access_token)
         result = client._format_date_range("2024-01-15", "2024-02-20")
 
@@ -559,6 +557,114 @@ class TestLinkedinAdsClient:
     def test_retryable_error_is_exported(self):
         assert issubclass(LinkedinAdsRetryableError, Exception)
         assert issubclass(LinkedinAdsDailyRateLimitError, Exception)
+
+    @pytest.mark.parametrize(
+        "resource,expected_pivot",
+        [
+            (LinkedinAdsResource.CampaignStats, "CAMPAIGN"),
+            (LinkedinAdsResource.CampaignGroupStats, "CAMPAIGN_GROUP"),
+            (LinkedinAdsResource.CreativeStats, "CREATIVE"),
+            (LinkedinAdsResource.MemberCompanyStats, "MEMBER_COMPANY"),
+            (LinkedinAdsResource.MemberCompanySizeStats, "MEMBER_COMPANY_SIZE"),
+            (LinkedinAdsResource.MemberCountryStats, "MEMBER_COUNTRY_V2"),
+            (LinkedinAdsResource.MemberIndustryStats, "MEMBER_INDUSTRY"),
+            (LinkedinAdsResource.MemberJobTitleStats, "MEMBER_JOB_TITLE"),
+            (LinkedinAdsResource.MemberSeniorityStats, "MEMBER_SENIORITY"),
+        ],
+    )
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.client.RestliClient")
+    def test_analytics_resource_requests_its_own_pivot(self, mock_restli_client, resource, expected_pivot):
+        mock_response = mock.MagicMock()
+        mock_response.status_code = 200
+        mock_response.elements = []
+
+        mock_client_instance = mock_restli_client.return_value
+        mock_client_instance.finder.return_value = mock_response
+
+        client = LinkedinAdsClient(self.access_token)
+        list(
+            client.get_data_by_resource(
+                resource=resource,
+                account_id=self.account_id,
+                date_start="2024-01-01",
+                date_end="2024-01-02",
+            )
+        )
+
+        assert mock_client_instance.finder.call_args[1]["query_params"]["pivot"] == expected_pivot
+
+    @pytest.mark.parametrize(
+        "resource",
+        [
+            LinkedinAdsResource.MemberCompanyStats,
+            LinkedinAdsResource.MemberCompanySizeStats,
+            LinkedinAdsResource.MemberCountryStats,
+            LinkedinAdsResource.MemberIndustryStats,
+            LinkedinAdsResource.MemberJobTitleStats,
+            LinkedinAdsResource.MemberSeniorityStats,
+        ],
+    )
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.client.RestliClient")
+    def test_demographic_pivots_do_not_request_conversion_value(self, mock_restli_client, resource):
+        mock_response = mock.MagicMock()
+        mock_response.status_code = 200
+        mock_response.elements = []
+
+        mock_client_instance = mock_restli_client.return_value
+        mock_client_instance.finder.return_value = mock_response
+
+        client = LinkedinAdsClient(self.access_token)
+        list(
+            client.get_data_by_resource(
+                resource=resource,
+                account_id=self.account_id,
+                date_start="2024-01-01",
+                date_end="2024-01-02",
+            )
+        )
+
+        requested_fields = mock_client_instance.finder.call_args[1]["query_params"]["fields"].split(",")
+        assert "conversionValueInLocalCurrency" not in requested_fields
+        assert "pivotValues" in requested_fields
+
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.client.RestliClient")
+    def test_get_conversions_walks_index_pages_until_short_page(self, mock_restli_client):
+        full_page = [{"id": index} for index in range(INDEX_PAGE_SIZE)]
+        last_page = [{"id": 9001}]
+
+        first_response = mock.MagicMock(status_code=200, elements=full_page)
+        second_response = mock.MagicMock(status_code=200, elements=last_page)
+
+        mock_client_instance = mock_restli_client.return_value
+        mock_client_instance.finder.side_effect = [first_response, second_response]
+
+        client = LinkedinAdsClient(self.access_token)
+        pages = list(client.get_conversions(self.account_id))
+
+        assert [elements for elements, _ in pages] == [full_page, last_page]
+        assert all(next_page_token is None for _, next_page_token in pages)
+
+        first_params = mock_client_instance.finder.call_args_list[0][1]["query_params"]
+        second_params = mock_client_instance.finder.call_args_list[1][1]["query_params"]
+        assert first_params["account"] == f"urn:li:sponsoredAccount:{self.account_id}"
+        assert (first_params["start"], first_params["count"]) == (0, INDEX_PAGE_SIZE)
+        assert second_params["start"] == INDEX_PAGE_SIZE
+        assert mock_client_instance.finder.call_args_list[0][1]["finder_name"] == "account"
+
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.client.RestliClient")
+    def test_get_conversions_stops_when_finder_ignores_offset(self, mock_restli_client):
+        mock_response = mock.MagicMock(status_code=200, elements=[{"id": index} for index in range(INDEX_PAGE_SIZE)])
+
+        mock_client_instance = mock_restli_client.return_value
+        mock_client_instance.finder.return_value = mock_response
+
+        client = LinkedinAdsClient(self.access_token)
+
+        with capture_logs() as logs:
+            pages = list(client.get_conversions(self.account_id))
+
+        assert len(pages) == MAX_INDEX_PAGES
+        assert any(entry["event"] == "linkedin_ads.index_pagination_cap_reached" for entry in logs)
 
 
 def _status_response(status_code: int, text: str) -> mock.MagicMock:

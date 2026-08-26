@@ -18,18 +18,11 @@ export const getAnthropicSteps = (ctx: OnboardingComponentsContext): StepDefinit
                             See the complete
                             [Node.js](https://github.com/PostHog/posthog-js/tree/main/examples/example-ai-anthropic) and
                             [Python](https://github.com/PostHog/posthog-python/tree/master/examples/example-ai-anthropic)
-                            examples on GitHub. If you're using the PostHog SDK wrapper instead of OpenTelemetry, see
-                            the [Node.js
-                            wrapper](https://github.com/PostHog/posthog-js/tree/e08ff1be/examples/example-ai-anthropic)
-                            and [Python
-                            wrapper](https://github.com/PostHog/posthog-python/tree/7223c52/examples/example-ai-anthropic)
-                            examples.
+                            examples on GitHub.
                         </Markdown>
                     </CalloutBox>
 
-                    <Markdown>
-                        Install the OpenTelemetry SDK, the Anthropic instrumentation, and the Anthropic SDK.
-                    </Markdown>
+                    <Markdown>Install the PostHog SDK and the Anthropic SDK.</Markdown>
 
                     <CodeBlock
                         blocks={[
@@ -37,14 +30,14 @@ export const getAnthropicSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                 language: 'bash',
                                 file: 'Python',
                                 code: dedent`
-                                    pip install anthropic opentelemetry-sdk "posthog[otel]" opentelemetry-instrumentation-anthropic
+                                    pip install posthog anthropic
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'Node',
                                 code: dedent`
-                                    npm install @anthropic-ai/sdk @posthog/ai @opentelemetry/sdk-node @opentelemetry/resources @traceloop/instrumentation-anthropic
+                                    npm install @posthog/ai posthog-node @anthropic-ai/sdk
                                 `,
                             },
                         ]}
@@ -53,13 +46,14 @@ export const getAnthropicSteps = (ctx: OnboardingComponentsContext): StepDefinit
             ),
         },
         {
-            title: 'Set up OpenTelemetry tracing',
+            title: 'Configure PostHog',
             badge: 'required',
             content: (
                 <>
                     <Markdown>
-                        Configure OpenTelemetry to auto-instrument Anthropic SDK calls and export traces to PostHog.
-                        PostHog converts `gen_ai.*` spans into `$ai_generation` events automatically.
+                        {dedent`
+                            Create a PostHog client, then swap in PostHog's Anthropic wrapper.
+                        `}
                     </Markdown>
 
                     <CodeBlock
@@ -68,54 +62,31 @@ export const getAnthropicSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                 language: 'python',
                                 file: 'Python',
                                 code: dedent`
-                                    from opentelemetry import trace
-                                    from opentelemetry.sdk.trace import TracerProvider
-                                    from opentelemetry.sdk.resources import Resource, SERVICE_NAME
-                                    from posthog.ai.otel import PostHogSpanProcessor
-                                    from opentelemetry.instrumentation.anthropic import AnthropicInstrumentor
+                                    from posthog import Posthog
+                                    from posthog.ai.anthropic import Anthropic
+                                    import time, uuid
 
-                                    resource = Resource(attributes={
-                                        SERVICE_NAME: "my-app",
-                                        "posthog.distinct_id": "user_123", # optional: identifies the user in PostHog
-                                        "foo": "bar", # custom properties are passed through
-                                    })
+                                    posthog = Posthog("<ph_project_token>", host="<ph_client_api_host>")
 
-                                    provider = TracerProvider(resource=resource)
-                                    provider.add_span_processor(
-                                        PostHogSpanProcessor(
-                                            api_key="<ph_project_token>",
-                                            host="<ph_client_api_host>",
-                                        )
+                                    client = Anthropic(
+                                        api_key="sk-ant-api...",
+                                        posthog_client=posthog,
                                     )
-                                    trace.set_tracer_provider(provider)
-
-                                    AnthropicInstrumentor().instrument()
                                 `,
                             },
                             {
                                 language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
-                                    import { NodeSDK } from '@opentelemetry/sdk-node'
-                                    import { resourceFromAttributes } from '@opentelemetry/resources'
-                                    import { PostHogSpanProcessor } from '@posthog/ai/otel'
-                                    import { AnthropicInstrumentation } from '@traceloop/instrumentation-anthropic'
+                                    import { Anthropic } from '@posthog/ai/anthropic'
+                                    import { PostHog } from 'posthog-node'
 
-                                    const sdk = new NodeSDK({
-                                      resource: resourceFromAttributes({
-                                        'service.name': 'my-app',
-                                        'posthog.distinct_id': 'user_123', // optional: identifies the user in PostHog
-                                        foo: 'bar', // custom properties are passed through
-                                      }),
-                                      spanProcessors: [
-                                        new PostHogSpanProcessor({
-                                          apiKey: '<ph_project_token>',
-                                          host: '<ph_client_api_host>',
-                                        }),
-                                      ],
-                                      instrumentations: [new AnthropicInstrumentation()],
+                                    const posthog = new PostHog('<ph_project_token>', { host: '<ph_client_api_host>' })
+
+                                    const client = new Anthropic({
+                                      apiKey: 'sk-ant-api...',
+                                      posthog,
                                     })
-                                    sdk.start()
                                 `,
                             },
                         ]}
@@ -129,8 +100,10 @@ export const getAnthropicSteps = (ctx: OnboardingComponentsContext): StepDefinit
             content: (
                 <>
                     <Markdown>
-                        Now, when you use the Anthropic SDK to call LLMs, PostHog automatically captures
-                        `$ai_generation` events via the OpenTelemetry instrumentation.
+                        {dedent`
+                            When you use the wrapped client to call Anthropic, PostHog automatically captures an
+                            \`$ai_generation\` event.
+                        `}
                     </Markdown>
 
                     <CodeBlock
@@ -139,36 +112,38 @@ export const getAnthropicSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                 language: 'python',
                                 file: 'Python',
                                 code: dedent`
-                                    import anthropic
-
-                                    client = anthropic.Anthropic(api_key="sk-ant-api...")
+                                    trace_id = str(uuid.uuid4())
 
                                     response = client.messages.create(
-                                        model="claude-sonnet-4-20250514",
+                                        model="claude-sonnet-4-5",
                                         max_tokens=1024,
-                                        messages=[
-                                            {"role": "user", "content": "Tell me a fun fact about hedgehogs"}
-                                        ],
+                                        messages=[{"role": "user", "content": "What's the weather in Paris?"}],
+                                        tools=tools,
+                                        posthog_distinct_id="user_123",
+                                        posthog_trace_id=trace_id,
+                                        posthog_properties={
+                                            "$ai_session_id": "conversation-abc",
+                                        },
                                     )
-
-                                    print(response.content[0].text)
                                 `,
                             },
                             {
                                 language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
-                                    import Anthropic from '@anthropic-ai/sdk'
-
-                                    const client = new Anthropic({ apiKey: 'sk-ant-api...' })
+                                    const traceId = crypto.randomUUID()
 
                                     const response = await client.messages.create({
-                                      model: 'claude-sonnet-4-20250514',
+                                      model: 'claude-sonnet-4-5',
                                       max_tokens: 1024,
-                                      messages: [{ role: 'user', content: 'Tell me a fun fact about hedgehogs' }],
+                                      messages: [{ role: 'user', content: "What's the weather in Paris?" }],
+                                      tools,
+                                      posthogDistinctId: 'user_123',
+                                      posthogTraceId: traceId,
+                                      posthogProperties: {
+                                        $ai_session_id: 'conversation-abc',
+                                      },
                                     })
-
-                                    console.log(response.content[0].text)
                                 `,
                             },
                         ]}
@@ -176,15 +151,8 @@ export const getAnthropicSteps = (ctx: OnboardingComponentsContext): StepDefinit
 
                     <Blockquote>
                         <Markdown>
-                            **Note:** This also works with the `AsyncAnthropic` client as well as `AnthropicBedrock`,
-                            `AnthropicVertex`, and the async versions of those.
-                        </Markdown>
-                    </Blockquote>
-
-                    <Blockquote>
-                        <Markdown>
-                            **Note:** If you want to capture LLM events anonymously, omit the `posthog.distinct_id`
-                            resource attribute. See our docs on [anonymous vs identified
+                            **Note:** If you want to capture LLM events anonymously, omit `posthog_distinct_id` from the
+                            call. See our docs on [anonymous vs identified
                             events](https://posthog.com/docs/data/anonymous-vs-identified-events) to learn more.
                         </Markdown>
                     </Blockquote>
@@ -196,6 +164,84 @@ export const getAnthropicSteps = (ctx: OnboardingComponentsContext): StepDefinit
                     </Markdown>
 
                     {NotableGenerationProperties && <NotableGenerationProperties />}
+                </>
+            ),
+        },
+        {
+            title: 'Capture tool calls as spans',
+            badge: 'optional',
+            content: (
+                <>
+                    <Markdown>
+                        {dedent`
+                            For standard responses, the posthog client captures it as a generation. For all tool
+                            calls, you must manually capture them as \`$ai_span\` events.
+                        `}
+                    </Markdown>
+
+                    <CodeBlock
+                        blocks={[
+                            {
+                                language: 'python',
+                                file: 'Python',
+                                code: dedent`
+                                    for block in response.content:
+                                        if block.type != "tool_use":
+                                            continue
+
+                                        start = time.time()
+                                        result = run_tool(block.name, block.input)
+
+                                        posthog.capture(
+                                            distinct_id="user_123",
+                                            event="$ai_span",
+                                            properties={
+                                                "$ai_trace_id": trace_id,
+                                                "$ai_session_id": "conversation-abc",
+                                                "$ai_span_id": str(uuid.uuid4()),
+                                                "$ai_span_name": block.name,
+                                                "$ai_input_state": block.input,
+                                                "$ai_output_state": result,
+                                                "$ai_latency": time.time() - start,
+                                            },
+                                        )
+                                `,
+                            },
+                            {
+                                language: 'typescript',
+                                file: 'Node',
+                                code: dedent`
+                                    for (const block of response.content) {
+                                      if (block.type !== 'tool_use') continue
+
+                                      const start = Date.now()
+                                      const result = await runTool(block.name, block.input)
+
+                                      posthog.capture({
+                                        distinctId: 'user_123',
+                                        event: '$ai_span',
+                                        properties: {
+                                          $ai_trace_id: traceId,
+                                          $ai_session_id: 'conversation-abc',
+                                          $ai_span_id: crypto.randomUUID(),
+                                          $ai_span_name: block.name,
+                                          $ai_input_state: block.input,
+                                          $ai_output_state: result,
+                                          $ai_latency: (Date.now() - start) / 1000,
+                                        },
+                                      })
+                                    }
+                                `,
+                            },
+                        ]}
+                    />
+
+                    <Markdown>
+                        {dedent`
+                            See [spans](https://posthog.com/docs/ai-observability/spans) for the full list of span
+                            properties.
+                        `}
+                    </Markdown>
                 </>
             ),
         },

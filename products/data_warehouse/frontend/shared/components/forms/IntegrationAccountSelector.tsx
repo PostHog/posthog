@@ -2,15 +2,53 @@ import { useActions, useValues } from 'kea'
 import { FormContext } from 'kea-forms'
 import { useContext, useEffect, useMemo, useRef } from 'react'
 
-import { LemonInput, LemonInputSelect, LemonTag } from '@posthog/lemon-ui'
+import { LemonInput, LemonInputSelect, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 
+import api from 'lib/api'
 import { integrationAccountsLogic } from 'lib/integrations/integrationAccountsLogic'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { getIntegrationNameFromKind } from 'lib/integrations/utils'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import type { LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+
+import type { SourceFieldConfig } from '~/queries/schema/schema-general'
 
 import { InputSuggestion, InputWithSuggestionsDropdown } from './InputWithSuggestionsDropdown'
+
+export interface OauthBranchLocation {
+    /** Name of the select field one of whose options nests the OAuth integration field. */
+    selectField: string
+    /** The option value whose fields include the OAuth integration field. */
+    optionValue: string
+    /** The select's default selection, in effect before the user touches the field. */
+    defaultValue?: string
+}
+
+/** Locate the auth-method select branch that carries `integrationField` (e.g. GitHub's
+ *  `github_integration_id` inside the `auth_method` select). Returns undefined when the OAuth
+ *  field is top-level, meaning OAuth is the only auth path. */
+export function findOauthBranch(
+    fields: SourceFieldConfig[],
+    integrationField: string
+): OauthBranchLocation | undefined {
+    for (const field of fields) {
+        if (field.type !== 'select') {
+            continue
+        }
+        for (const option of field.options) {
+            if (option.fields?.some((sub) => sub.type === 'oauth' && sub.name === integrationField)) {
+                return {
+                    selectField: field.name,
+                    optionValue: option.value,
+                    defaultValue: field.defaultValue ?? undefined,
+                }
+            }
+        }
+    }
+    return undefined
+}
 
 export interface IntegrationAccountSelectorProps {
     fieldName: string
@@ -29,6 +67,10 @@ export interface IntegrationAccountSelectorProps {
     /** Legacy single-value payload field that seeds the multi picker when it's still empty
      *  (e.g. GitHub sources saved before multi-repo support store `repository`). */
     legacySingleField?: string
+    /** Where the OAuth integration field sits when it's nested under an auth-method select.
+     *  Lets the picker tell "OAuth chosen but not connected" (prompt to connect) apart from
+     *  a non-OAuth branch like a PAT (free entry is legitimate there). */
+    oauthBranch?: OauthBranchLocation
 }
 
 /** Coerce a form value into the multi picker's string[] shape: undefined/'' -> [],
@@ -95,7 +137,32 @@ function IntegrationAccountSelectorInner({
         )
     }, [integrationId, integrations, integrationsLoading, props.integrationKind])
 
+    const branchState = useFormFieldValue(formLogic, formKey, props.oauthBranch?.selectField) as
+        | Record<string, unknown>
+        | undefined
+    const oauthBranchActive =
+        !props.oauthBranch ||
+        (branchState?.['selection'] ?? props.oauthBranch.defaultValue) === props.oauthBranch.optionValue
+
     if (props.multiple) {
+        if (oauthBranchActive && !integrationIsValid) {
+            if (integrationsLoading) {
+                return <LemonSkeleton className="h-10" />
+            }
+            // The OAuth branch is selected but no working integration backs it: free entry
+            // would only defer the failure to schema discovery, so point at the connect
+            // control instead.
+            return (
+                <MultiAccountFieldInner
+                    fieldName={props.fieldName}
+                    fieldLabel={props.fieldLabel}
+                    caption={props.caption}
+                    options={[]}
+                    disabled
+                    hint={`Connect a ${getIntegrationNameFromKind(props.integrationKind)} account above to choose ${props.fieldLabel.toLowerCase()}.`}
+                />
+            )
+        }
         return (
             <MultiAccountField
                 {...props}
@@ -113,6 +180,24 @@ function IntegrationAccountSelectorInner({
 
 function captionHelp(caption?: string): JSX.Element | undefined {
     return caption ? <LemonMarkdown className="text-xs">{caption}</LemonMarkdown> : undefined
+}
+
+/** Re-run OAuth for the connected integration in place, so a failed account load is recoverable
+ *  without hunting for the disconnect/reconnect action elsewhere on the page. */
+function ReconnectLink({ integrationKind }: { integrationKind: string }): JSX.Element {
+    const { reportIntegrationConnectClicked } = useActions(eventUsageLogic)
+
+    return (
+        <Link
+            disableClientSideRouting
+            to={api.integrations.authorizeUrl({ kind: integrationKind, next: window.location.pathname })}
+            onClick={() =>
+                reportIntegrationConnectClicked(integrationKind, integrationKind, 'warehouse_source_reconnect')
+            }
+        >
+            Reconnect
+        </Link>
+    )
 }
 
 function AccountTextField({
@@ -292,6 +377,8 @@ function MultiAccountFieldInner({
     loading,
     onInputChange,
     error,
+    disabled,
+    hint,
 }: {
     fieldName: string
     fieldLabel: string
@@ -301,6 +388,8 @@ function MultiAccountFieldInner({
     loading?: boolean
     onInputChange?: (value: string) => void
     error?: string
+    disabled?: boolean
+    hint?: string
 }): JSX.Element {
     return (
         <LemonField name={fieldName} label={fieldLabel} help={captionHelp(caption)}>
@@ -321,7 +410,9 @@ function MultiAccountFieldInner({
                             options={options}
                             loading={loading}
                             onInputChange={onInputChange}
+                            disabled={disabled}
                         />
+                        {hint && <p className="m-0 text-xs text-secondary">{hint}</p>}
                         {error && <p className="m-0 text-xs text-warning">{error}</p>}
                         {malformed.length > 0 && (
                             <p className="m-0 text-xs text-warning">
@@ -338,6 +429,7 @@ function MultiAccountFieldInner({
 
 function IntegrationAccountFieldWithDropdown({
     integrationId,
+    integrationKind,
     sourceType,
     fieldName,
     fieldLabel,
@@ -398,11 +490,15 @@ function IntegrationAccountFieldWithDropdown({
                             emptyMessage="No accounts accessible by this integration."
                             loadingMessage="Loading accounts…"
                         />
-                        {accountsError && <p className="m-0 text-xs text-warning">{accountsError}</p>}
+                        {accountsError && (
+                            <p className="m-0 text-xs text-warning">
+                                {accountsError} <ReconnectLink integrationKind={integrationKind} />
+                            </p>
+                        )}
                         {accountsLoaded && !accountsLoading && !accountsError && accounts.length === 0 && (
                             <p className="m-0 text-xs text-warning">
-                                No accounts are accessible for this connection. Check that the connected account has the
-                                right permissions, then reconnect the integration.
+                                No accounts to show. If you know the {fieldLabel}, enter it above and save. You can also{' '}
+                                <ReconnectLink integrationKind={integrationKind} /> to grant access to more accounts.
                             </p>
                         )}
                         {savedValueMissing && (

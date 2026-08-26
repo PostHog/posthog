@@ -14,6 +14,7 @@ import {
     IconComment,
     IconCopy,
     IconDownload,
+    IconFilter,
     IconMessage,
     IconPlay,
     IconPlus,
@@ -63,8 +64,10 @@ import { AccessControlLevel, AccessControlResourceType, SidePanelTab } from '~/t
 
 import type { BranchPRMatchApi } from 'products/engineering_analytics/frontend/generated/api.schemas'
 
+import { PersonData, getFilterIdentifier, getTracesUrlWithPersonFilter } from './aiObservabilityColumnRenderers'
 import { EnrichedTraceTreeNode, findNodeForEvent, aiObservabilityTraceDataLogic } from './aiObservabilityTraceDataLogic'
 import { DisplayOption, TraceViewMode, aiObservabilityTraceLogic } from './aiObservabilityTraceLogic'
+import { AttachedFeedbackPills } from './components/AttachedFeedbackPills'
 import { ClustersTabContent } from './components/ClustersTabContent'
 import { CostBreakdownTooltip } from './components/CostBreakdownTooltip'
 import { EvalResultBadges } from './components/EvalResultBadges'
@@ -514,8 +517,8 @@ function TraceSceneWrapper(): JSX.Element {
                         <div className="flex items-start justify-between">
                             <TraceMetadata
                                 trace={trace}
-                                metricEvents={metricEvents as LLMTraceEvent[]}
-                                feedbackEvents={feedbackEvents as LLMTraceEvent[]}
+                                metricEvents={metricEvents}
+                                feedbackEvents={feedbackEvents}
                                 billedTotalUsd={billedTotalUsd}
                                 billedCredits={billedCredits}
                                 markupUsd={markupUsd}
@@ -600,6 +603,34 @@ function Chip({
                 {children}
             </LemonTag>
         </Tooltip>
+    )
+}
+
+// Not built on top of Chip: the email needs its own popover click target, separate
+// from the filter button, so the whole tag can't share one tooltip trigger.
+function PersonChip({ person }: { person: PersonData }): JSX.Element {
+    const { push } = useActions(router)
+    const filterIdentifier = getFilterIdentifier(person)
+
+    return (
+        <LemonTag size="small" className="bg-surface-primary">
+            <span className="sr-only">Person</span>
+            <PersonDisplay withIcon="sm" person={person} />
+            {filterIdentifier && (
+                <LemonButton
+                    size="xsmall"
+                    icon={<IconFilter />}
+                    // A string tooltip also becomes the accessible name of this icon-only button
+                    tooltip={`View traces for ${filterIdentifier.value}`}
+                    noPadding
+                    className="ml-0.5"
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        push(getTracesUrlWithPersonFilter(filterIdentifier))
+                    }}
+                />
+            )}
+        </LemonTag>
     )
 }
 
@@ -1071,9 +1102,7 @@ function TraceMetadata({
 
     return (
         <header className="flex gap-1.5 flex-wrap">
-            <Chip title="Person">
-                <PersonDisplay withIcon="sm" person={personData} />
-            </Chip>
+            <PersonChip person={personData} />
             {trace.aiSessionId && (
                 <Chip title="AI Session ID - Click to view session details">
                     <Link to={getSessionUrl(trace.aiSessionId)} subtle>
@@ -1252,6 +1281,7 @@ const TreeNode = React.memo(function TraceNode({
     const latency = node.displayLatency
     const usage = node.displayUsage
     const item = node.event
+    const attachedFeedback = 'attachedFeedback' in node ? node.attachedFeedback : []
 
     const traceLogic = useMountedLogic(aiObservabilityTraceLogic)
     const { eventTypeExpanded } = useValues(traceLogic)
@@ -1283,6 +1313,11 @@ const TreeNode = React.memo(function TraceNode({
                 {usage}
                 {usage != null && totalCost != null && <span>{' / '}</span>}
                 {totalCost != null && formatLLMCost(totalCost)}
+            </span>
+        ),
+        attachedFeedback.length > 0 && (
+            <span key="attached-feedback" onClick={(e) => e.stopPropagation()}>
+                <AttachedFeedbackPills events={attachedFeedback} />
             </span>
         ),
     ]

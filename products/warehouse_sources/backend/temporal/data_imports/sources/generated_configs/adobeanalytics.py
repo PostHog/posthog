@@ -6,4 +6,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class AdobeAnalyticsSourceConfig(config.Config):
-    pass
+    client_id: str
+    client_secret: str
+    report_suite_id: str
+    global_company_id: str | None = None
+    report_dimension: str | None = None
+    report_metrics: str | None = None
+    start_date: str | None = None

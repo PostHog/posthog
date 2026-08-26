@@ -7,9 +7,9 @@
  * `products/**\/*.ts(x)` rule (correctly — product frontend doesn't always live
  * under `frontend/`; see products/games, products/data_warehouse,
  * products/ai_observability/shared). That broad rule also matches product dirs
- * that are their own Node services (e.g. products/agent_platform/services) — they
- * have their own CI (ci-agents.yml), no stories, and nothing in the bundle, so a
- * PR touching only them should skip frontend/storybook CI.
+ * that are their own Node services — they have their own CI, no stories, and
+ * nothing in the bundle, so a PR touching only them should skip
+ * frontend/storybook CI.
  *
  * Those Node dirs are exactly the product paths that declare nested pnpm
  * workspaces in pnpm-workspace.yaml — `products/<...>/*` entries deeper than the
@@ -23,8 +23,8 @@
  * `!` pattern vetoes and a filter with no positive includes matches any
  * non-excluded file:
  *   outside_node_product_workspaces:
- *     - '!products/agent_platform/packages/**'
- *     - '!products/agent_platform/services/**'
+ *     - '!products/<product>/packages/**'
+ *     - '!products/<product>/services/**'
  */
 
 const fs = require('fs')

@@ -34,10 +34,10 @@ from django.utils import timezone
 
 from rest_framework.request import Request
 
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.models import Team, User
-from posthog.rbac.user_access_control import UserAccessControl
+from posthog.permissions import get_authenticator_scoped_team_ids
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.signals.backend.models import SignalReport, SignalScoutNote, SignalScoutRun
 from products.signals.backend.scout_harness.tools.notes import leave_note
 from products.skills.backend.models.skills import LLMSkill
@@ -168,31 +168,52 @@ def _may_steer_scouts(request: Request, canonical_team: Team) -> bool:
     `llm_skill` editor level that authoring a scout's skill body requires). Synthetic service
     principals (project secret API keys) have no RBAC identity, so they never steer scouts.
 
-    Deliberately not enforced: the `llm_skill:write` / `signal_scout:write` API key scopes the notes
-    endpoint also demands. An agent dismissing a report holds `task:write`, and its dismissal text
-    already reaches run context verbatim through the `dismissal_note` field on the reports API that
-    every scout is told to read before emitting, so requiring those scopes would drop the feedback
-    without closing a path that is open anyway. The RBAC and team-scope legs are what stop a member
-    an admin restricted from skill editing, and a token confined to one environment.
+    Deliberately not enforced for a dismissal: the `llm_skill:write` / `signal_scout:write` API key
+    scopes the notes endpoint also demands. An agent dismissing a report holds `task:write`, and its
+    dismissal text already reaches run context verbatim through the `dismissal_note` field on the
+    reports API that every scout is told to read before emitting, so requiring those scopes would drop
+    the feedback without closing a path that is open anyway. The RBAC and team-scope legs are what stop
+    a member an admin restricted from skill editing, and a token confined to one environment. That
+    reasoning is specific to dismissals: `discussion_notes` carries text with no second path to a
+    scout, so it demands the scopes on top of this gate.
     """
     user = request.user
     if not isinstance(user, User):
         return False
 
-    # A team-scoped token authorized against the URL team, which may be a child environment; the
-    # row it would write belongs to the parent.
-    authenticator = request.successful_authenticator
-    scoped_teams = None
-    if isinstance(authenticator, OAuthAccessTokenAuthentication):
-        scoped_teams = authenticator.access_token.scoped_teams
-    elif isinstance(authenticator, PersonalAPIKeyAuthentication):
-        scoped_teams = authenticator.personal_api_key.scoped_teams
-    if scoped_teams and canonical_team.id not in scoped_teams:
-        return False
+    return principal_may_steer_scouts(
+        user=user,
+        scoped_team_ids=get_authenticator_scoped_team_ids(request.successful_authenticator),
+        canonical_team=canonical_team,
+    )
 
+
+def principal_may_steer_scouts(*, user: User, scoped_team_ids: Sequence[int] | None, canonical_team: Team) -> bool:
+    """The request-free core of `_may_steer_scouts`, for callers whose trigger isn't a Signals view.
+
+    `scoped_team_ids` is the token's `scoped_teams` (None for session auth): a team-scoped token is
+    authorized against the URL team, which may be a child environment, while the row it would write
+    belongs to the parent.
+    """
+    if scoped_team_ids and canonical_team.id not in scoped_team_ids:
+        return False
+    return user_can_steer_scouts(user, canonical_team)
+
+
+def user_can_steer_scouts(user: User, canonical_team: Team) -> bool:
+    """The user leg of the notes-write gate: access to the canonical project + `llm_skill` editor."""
     if not canonical_team.all_users_with_access().filter(pk=user.pk).exists():
         return False
     return UserAccessControl(user=user, team=canonical_team).check_access_level_for_resource("llm_skill", "editor")
+
+
+def resolve_report_scout_skill(team_id: int, report_id: str) -> str:
+    """The scout skill a report's derived note should target, "" meaning the whole fleet.
+
+    Thin single-report wrapper over `_target_skill_names` (the same emit-time authorship resolution
+    the dismissal path uses), shared with `discussion_notes`.
+    """
+    return _target_skill_names(team_id, [report_id]).get(report_id, "")
 
 
 def _describe(reports: Sequence[SignalReport]) -> list[tuple[SignalReport, str]]:

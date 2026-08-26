@@ -49,6 +49,20 @@ export const StreamlitAppsActivateVersionCreateBody = /* @__PURE__ */ zod.object
 })
 
 /**
+ * @summary Create an app version from source code
+ */
+export const streamlitAppsCreateVersionFromSourceCreateBodySourceMax = 1048576
+
+export const StreamlitAppsCreateVersionFromSourceCreateBody = /* @__PURE__ */ zod.object({
+    source: zod
+        .string()
+        .max(streamlitAppsCreateVersionFromSourceCreateBodySourceMax)
+        .describe(
+            "Full Python source for the Streamlit app's root app.py file, as free text (max 1 MB). Becomes a new version and is set as the active version."
+        ),
+})
+
+/**
  * @summary Upload a new app version
  */
 export const StreamlitAppsUploadVersionCreateBody = /* @__PURE__ */ zod.object({

@@ -15,6 +15,7 @@ import {
     APIScope,
     API_SCOPES,
     SCOPES_IMPLYING_FEATURE_FLAG_WRITE,
+    scopeMatchesSearch,
     scopesArrayToObject,
     scopesObjectToArray,
 } from 'lib/scopes'
@@ -421,11 +422,6 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                     scopes = scopes.filter((scope) => scope.key !== 'llm_gateway')
                 }
 
-                // Hide agents scope unless the agent platform flag is enabled (hidden until GA)
-                if (!featureFlags[FEATURE_FLAGS.AGENT_PLATFORM]) {
-                    scopes = scopes.filter((scope) => scope.key !== 'agents')
-                }
-
                 // Hide engineering analytics scope unless the product's rollout flag is enabled
                 if (!featureFlags[FEATURE_FLAGS.ENGINEERING_ANALYTICS]) {
                     scopes = scopes.filter((scope) => scope.key !== 'engineering_analytics')
@@ -445,25 +441,8 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
         ],
         filteredScopes: [
             (s) => [s.searchTerm, s.allowedScopes],
-            (searchTerm: string, allowedScopes: APIScope[]): APIScope[] => {
-                const scopes = allowedScopes
-
-                if (!searchTerm.trim()) {
-                    return scopes
-                }
-                const lowerSearch = searchTerm.toLowerCase().trim()
-                return scopes.filter((scope) => {
-                    // Search in key (e.g., "feature_flag")
-                    if (scope.key.toLowerCase().includes(lowerSearch)) {
-                        return true
-                    }
-                    // Search in objectPlural (e.g., "feature flags")
-                    if (scope.objectPlural.toLowerCase().includes(lowerSearch)) {
-                        return true
-                    }
-                    return false
-                })
-            },
+            (searchTerm: string, allowedScopes: APIScope[]): APIScope[] =>
+                allowedScopes.filter((scope) => scopeMatchesSearch(scope, searchTerm)),
         ],
         formScopeRadioValues: [
             (s) => [s.editingKey],

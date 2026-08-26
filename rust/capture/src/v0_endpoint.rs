@@ -1,7 +1,7 @@
 use axum::body::Body;
 use axum::extract::{MatchedPath, Query, State};
 use axum::http::{HeaderMap, Method};
-use axum::{debug_handler, Json};
+use axum::{debug_handler, Extension, Json};
 use axum_client_ip::InsecureClientIp;
 use tracing::{instrument, Span};
 
@@ -15,6 +15,7 @@ use crate::{
 
 #[instrument(skip(state, body, meta), fields(params_compression))]
 #[debug_handler]
+#[allow(clippy::too_many_arguments)]
 pub async fn event(
     state: State<router::State>,
     ip: InsecureClientIp,
@@ -22,6 +23,7 @@ pub async fn event(
     headers: HeaderMap,
     method: Method,
     path: MatchedPath,
+    wire_limit: Option<Extension<router::WireBodyLimit>>,
     body: Body,
 ) -> Result<CaptureResponse, CaptureError> {
     let mut params: EventQuery = meta.0;
@@ -34,7 +36,18 @@ pub async fn event(
         );
     }
 
-    match handle_event_payload(&state, &ip, &mut params, &headers, &method, &path, body).await {
+    match handle_event_payload(
+        &state,
+        &ip,
+        &mut params,
+        &headers,
+        &method,
+        &path,
+        wire_limit.map(|Extension(l)| l),
+        body,
+    )
+    .await
+    {
         Err(CaptureError::BillingLimit) => {
             // Short term: return OK here to avoid clients retrying over and over
             // Long term: v1 endpoints will return richer errors, sync w/SDK behavior
@@ -68,9 +81,10 @@ pub async fn event(
                 state.global_rate_limiter_token_distinctid.clone(),
                 state.overflow_limiter.clone(),
                 state.ai_events_overflow_limiter.clone(),
-                &state.ai_routing,
+                state.ingestion_warning_emitter.clone(),
                 events,
                 &context,
+                state.ai_byte_rate_limiter.clone(),
             )
             .await
             {
@@ -106,6 +120,7 @@ pub async fn event(
     )
 )]
 #[debug_handler]
+#[allow(clippy::too_many_arguments)]
 pub async fn recording(
     state: State<router::State>,
     ip: InsecureClientIp,
@@ -113,11 +128,23 @@ pub async fn recording(
     headers: HeaderMap,
     method: Method,
     path: MatchedPath,
+    wire_limit: Option<Extension<router::WireBodyLimit>>,
     body: Body,
 ) -> Result<CaptureResponse, CaptureError> {
     let mut params: EventQuery = meta.0;
 
-    match handle_recording_payload(&state, &ip, &mut params, &headers, &method, &path, body).await {
+    match handle_recording_payload(
+        &state,
+        &ip,
+        &mut params,
+        &headers,
+        &method,
+        &path,
+        wire_limit.map(|Extension(l)| l),
+        body,
+    )
+    .await
+    {
         Err(CaptureError::BillingLimit) => Ok(CaptureResponse {
             status: CaptureResponseCode::Ok,
             quota_limited: Some(vec!["recordings".to_string()]),
@@ -132,6 +159,7 @@ pub async fn recording(
                 state.sink.clone(),
                 state.event_restriction_service.clone(),
                 state.replay_overflow_limiter.clone(),
+                state.ingestion_warning_emitter.clone(),
                 events,
                 &context,
             )

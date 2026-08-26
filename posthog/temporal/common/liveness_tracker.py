@@ -2,8 +2,6 @@ import time
 import threading
 from typing import Any
 
-from django.conf import settings
-
 from temporalio.worker import (
     ActivityInboundInterceptor,
     ExecuteActivityInput,
@@ -12,6 +10,8 @@ from temporalio.worker import (
     WorkflowInboundInterceptor,
     WorkflowInterceptorClassInput,
 )
+
+from posthog.temporal.common.interceptor import ALL_TASK_QUEUES
 
 
 class LivenessTracker:
@@ -121,7 +121,14 @@ class _LivenessWorkflowInterceptor(WorkflowInboundInterceptor):
 class LivenessInterceptor(Interceptor):
     """Interceptor that tracks worker liveness for health checks."""
 
-    task_queue = (settings.DATA_WAREHOUSE_TASK_QUEUE, settings.MAX_AI_TASK_QUEUE, settings.TASKS_TASK_QUEUE)
+    # Every queue, deliberately. This interceptor is what feeds the tracker behind `/healthz`, and
+    # the health server is already opt-in per deployment (`TEMPORAL_HEALTH_PORT` +
+    # `TEMPORAL_HEALTH_MAX_IDLE_SECONDS`). An allowlist here is a second, invisible opt-in that has
+    # to be kept in sync with chart values in another repo, and when the two disagree the tracker is
+    # never fed: `idle_seconds` silently becomes process uptime, so the liveness probe reaps every
+    # replica at `max_idle_seconds` however busy it is. `start_temporal_worker` refuses to start a
+    # health server on a queue this interceptor does not cover.
+    task_queue = ALL_TASK_QUEUES
 
     def intercept_activity(self, next: ActivityInboundInterceptor) -> ActivityInboundInterceptor:
         return _LivenessActivityInboundInterceptor(super().intercept_activity(next))

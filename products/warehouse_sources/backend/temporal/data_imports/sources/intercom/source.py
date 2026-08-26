@@ -8,10 +8,6 @@ from posthog.schema import (
     SourceFieldOauthConfig,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -19,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import OAuthMixin
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.intercom import (
     IntercomSourceConfig,
 )
@@ -36,8 +33,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class IntercomSource(SimpleSource[IntercomSourceConfig], OAuthMixin):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
-    supported_versions = ("2.13", "2.15")
-    default_version = "2.15"
+    supported_versions = ("2.13", "2.15", "2.16")
+    default_version = "2.16"
     api_docs_url = "https://developers.intercom.com/docs/references/rest-api"
 
     @property
@@ -70,7 +67,17 @@ class IntercomSource(SimpleSource[IntercomSourceConfig], OAuthMixin):
         # then 404s (see `_is_scroll_expired`). `companies` is full-refresh, so a fresh
         # Temporal attempt opens a new scroll and restarts cleanly — transient and
         # self-recovering, not a real bug.
-        return {"Not Found for url: https://api.intercom.io/companies/scroll"}
+        #
+        # Opening a fresh scroll can also 400 with `scroll_exists` when another scroll is
+        # still open for the workspace (see `_is_scroll_exists`). `_open_companies_scroll`
+        # already backs off and retries that inline, but a lock held longer than the retry
+        # budget exhausts it and the raw error propagates — a fresh Temporal attempt opens
+        # cleanly once the stale scroll has expired, so this is the same self-recovering
+        # case as the 404 above, just surfaced later.
+        return {
+            "Not Found for url: https://api.intercom.io/companies/scroll",
+            "Bad Request for url: https://api.intercom.io/companies/scroll",
+        }
 
     @property
     def get_source_config(self) -> SourceConfig:

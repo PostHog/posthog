@@ -120,6 +120,7 @@ export const SubscriptionApiByweekdayItem = {
  * * `leadership` - Leadership
  * * `marketing` - Marketing
  * * `sales` - Sales / Success
+ * * `student` - Student
  * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
@@ -132,6 +133,7 @@ export const RoleAtOrganizationEnumApi = {
     Leadership: 'leadership',
     Marketing: 'marketing',
     Sales: 'sales',
+    Student: 'student',
     Other: 'other',
 } as const
 
@@ -192,7 +194,7 @@ export interface SubscriptionApi {
     readonly insight_short_id: string | null
     /** @nullable */
     readonly resource_name: string | null
-    /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6. */
+    /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 10. */
     dashboard_export_insights?: number[]
     /**
      * Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters.
@@ -222,7 +224,7 @@ export interface SubscriptionApi {
      */
     interval: number
     /**
-     * Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
+     * Days of week for daily or weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
      * @nullable
      */
     byweekday?: SubscriptionApiByweekdayItem[] | null
@@ -340,7 +342,7 @@ export interface PatchedSubscriptionApi {
     readonly insight_short_id?: string | null
     /** @nullable */
     readonly resource_name?: string | null
-    /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6. */
+    /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 10. */
     dashboard_export_insights?: number[]
     /**
      * Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters.
@@ -370,7 +372,7 @@ export interface PatchedSubscriptionApi {
      */
     interval?: number
     /**
-     * Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
+     * Days of week for daily or weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
      * @nullable
      */
     byweekday?: PatchedSubscriptionApiByweekdayItem[] | null
@@ -467,6 +469,15 @@ export interface AIReportQueryDiagnosticApi {
     human_readable_error?: string | null
 }
 
+export interface AIReportChartApi {
+    /** Id of the rendered PNG export backing this chart. */
+    export_asset_id: number
+    /** Chart caption, taken from the plan step it illustrates. */
+    title: string
+    /** Index of the plan step this chart came from. */
+    step_index: number
+}
+
 export interface SubscriptionDeliveryApi {
     /** Primary key for this delivery row. */
     readonly id: string
@@ -476,7 +487,7 @@ export interface SubscriptionDeliveryApi {
     readonly temporal_workflow_id: string
     /** Dedupes activity retries for the same logical run. */
     readonly idempotency_key: string
-    /** Why the run started (e.g. scheduled, manual, target_change). */
+    /** Why the run started (e.g. scheduled, manual, subscription update). */
     readonly trigger_type: string
     /**
      * Planned send time when applicable.
@@ -530,6 +541,11 @@ export interface SubscriptionDeliveryApi {
      * @nullable
      */
     readonly ai_report_diagnostics: readonly AIReportQueryDiagnosticApi[] | null
+    /**
+     * Charts rendered for this report, in the order they were delivered. Empty when the report had no charts. Null for non-AI deliveries and for deliveries recorded before charts existed.
+     * @nullable
+     */
+    readonly ai_report_charts: readonly AIReportChartApi[] | null
     /**
      * The subscription's prompt as it was when this report was generated. Null for older deliveries and non-AI deliveries.
      * @nullable

@@ -1,0 +1,30 @@
+version: 2
+
+# Tests + docs for marts. Every mart ships with tests: they are dbt's equivalent
+# of the aliasing/validation the PostHog view path enforces automatically.
+models:
+    - name: fct_daily_active_users
+      description: One row per day with the count of distinct active persons.
+      columns:
+          - name: day
+            description: Calendar day (UTC).
+            data_tests:
+                - unique
+                - not_null
+          - name: active_users
+            description: Distinct persons with at least one event that day.
+            data_tests:
+                - not_null
+
+# Dimension example — assert one row per entity and referential integrity from facts:
+#  - name: dim_customer
+#    columns:
+#      - name: customer_id
+#        data_tests: [unique, not_null]
+#  - name: fct_mrr
+#    columns:
+#      - name: customer_id
+#        data_tests:
+#          - relationships:
+#              to: ref('dim_customer')
+#              field: customer_id

@@ -1,9 +1,19 @@
+from datetime import timedelta
+
 from posthog.test.base import APIBaseTest
+from unittest import mock
 
 from parameterized import parameterized
 from rest_framework import status
 
+from products.data_modeling.backend.logic.schedule_reconcile import DagScheduleTeardown
 from products.data_modeling.backend.models import DAG, Node, NodeType
+
+VIEW = "products.data_modeling.backend.presentation.views.dag"
+
+
+def _teardown(*, ok: bool) -> DagScheduleTeardown:
+    return DagScheduleTeardown(ok=ok, deleted=())
 
 
 class TestDAGViewSet(APIBaseTest):
@@ -54,10 +64,21 @@ class TestDAGViewSet(APIBaseTest):
     def test_delete_dag(self):
         dag = DAG.objects.create(team=self.team, name="my_dag")
 
-        response = self.client.delete(f"/api/environments/{self.team.id}/data_modeling_dags/{dag.id}/")
+        with mock.patch(f"{VIEW}.delete_dag_schedules", return_value=_teardown(ok=True)) as teardown:
+            response = self.client.delete(f"/api/environments/{self.team.id}/data_modeling_dags/{dag.id}/")
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(DAG.objects.filter(team=self.team, id=dag.id).exists())
+        teardown.assert_called_once_with(str(dag.id))
+
+    def test_dag_survives_a_failed_schedule_teardown(self):
+        dag = DAG.objects.create(team=self.team, name="my_dag")
+
+        with mock.patch(f"{VIEW}.delete_dag_schedules", return_value=_teardown(ok=False)):
+            response = self.client.delete(f"/api/environments/{self.team.id}/data_modeling_dags/{dag.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertTrue(DAG.objects.filter(team=self.team, id=dag.id).exists())
 
     def test_cannot_delete_default_dag(self):
         dag = DAG.get_or_create_default(self.team)
@@ -175,6 +196,77 @@ class TestDAGViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         dag.refresh_from_db()
         self.assertEqual(dag.name, "my_dag")
+
+    @parameterized.expand([("tiered", True), ("not_tiered", False)])
+    def test_frequency_managed_by_nodes_tracks_tiered_schedules_flag(self, _name, enabled):
+        DAG.objects.create(team=self.team, name="my_dag")
+        DAG.objects.create(team=self.team, name="another_dag")
+
+        with mock.patch(
+            "products.data_modeling.backend.presentation.views.dag.tiered_schedules_enabled",
+            return_value=enabled,
+        ) as mock_flag:
+            response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_dags/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([d["frequency_managed_by_nodes"] for d in response.json()["results"]], [enabled, enabled])
+        # The flag is team-scoped, so it must be resolved once per request, not per DAG row.
+        mock_flag.assert_called_once()
+
+    def test_cannot_set_sync_frequency_on_tiered_team(self):
+        dag = DAG.objects.create(team=self.team, name="my_dag")
+        interval_before = dag.sync_frequency_interval
+
+        with mock.patch(
+            "products.data_modeling.backend.presentation.views.dag.tiered_schedules_enabled",
+            return_value=True,
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/data_modeling_dags/{dag.id}/",
+                {"sync_frequency": "15min"},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("managed per model", response.json()["detail"])
+        dag.refresh_from_db()
+        self.assertEqual(dag.sync_frequency_interval, interval_before)
+
+    def test_can_still_rename_dag_on_tiered_team(self):
+        dag = DAG.objects.create(team=self.team, name="my_dag")
+
+        with mock.patch(
+            "products.data_modeling.backend.presentation.views.dag.tiered_schedules_enabled",
+            return_value=True,
+        ):
+            # The frontend spreads the whole DAG into the PATCH, echoing the current
+            # sync_frequency back unchanged — that echo must not trip the tiered rejection.
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/data_modeling_dags/{dag.id}/",
+                {"name": "renamed", "description": "still editable", "sync_frequency": "24hour"},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        dag.refresh_from_db()
+        self.assertEqual(dag.name, "renamed")
+        self.assertEqual(dag.description, "still editable")
+        self.assertEqual(dag.sync_frequency_interval, timedelta(days=1))
+
+    def test_can_set_sync_frequency_on_non_tiered_team(self):
+        dag = DAG.objects.create(team=self.team, name="my_dag")
+
+        with mock.patch(
+            "products.data_modeling.backend.presentation.views.dag.tiered_schedules_enabled",
+            return_value=False,
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/data_modeling_dags/{dag.id}/",
+                {"sync_frequency": "15min"},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["sync_frequency"], "15min")
+        dag.refresh_from_db()
+        self.assertIsNotNone(dag.sync_frequency_interval)
 
     def test_node_count_reflects_nodes(self):
         dag = DAG.objects.create(team=self.team, name="my_dag")

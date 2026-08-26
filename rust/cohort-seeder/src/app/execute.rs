@@ -15,13 +15,14 @@ use tracing::{info, warn};
 use crate::clickhouse::scanner::ChunkScanner;
 use crate::domain::{
     ChunkLease, ChunkSpec, ClaimedChunk, EnqueuedChunk, HaltReason, Halted, PinnedRun,
-    ProducedChunk, ScannedChunk,
+    ProducedChunk, ScannedChunk, StreamedChunk,
 };
 use crate::kafka::pacing::TilePacer;
 use crate::kafka::producer::SeedTileProducer;
-use crate::observability::metrics::{CHUNKS_CONFIRMED, CHUNKS_FAILED};
+use crate::observability::metrics::{CHUNKS_CONFIRMED, CHUNKS_FAILED, TILES_PRODUCED};
 use crate::store::chunks::{ChunkStoreError, PgChunkStore};
 use crate::store::lease::LeaseHandle;
+use crate::store::runs::RunKind;
 use crate::store::RenderedError;
 
 use super::deliver::{self, ProduceError};
@@ -81,7 +82,10 @@ pub(super) async fn execute_chunk(
     };
     // PostMark: drain the remaining delivery acks and fold the high-water marks.
     let produced = match deliver::await_deliveries(enqueued, inflight, &lease_cancel).await {
-        Ok(produced) => produced,
+        Ok(produced) => {
+            counter!(TILES_PRODUCED).increment(produced.tiles_produced());
+            produced
+        }
         Err(halt) => return resolve_halt(&store, halt, &shutdown).await,
     };
     // PostMark: the terminal confirm — on failure the row is `produced`, so it is failed for retry.
@@ -99,13 +103,13 @@ pub(super) async fn execute_chunk(
 /// Whether a halt struck before or after the store marked the chunk `produced` — the discriminator
 /// the recovery matrix turns on. Each chunk state names its stage as a `const` via [`ChunkState`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum FailureStage {
+pub(super) enum FailureStage {
     PreMark,
     PostMark,
 }
 
 /// The pipeline states seen by recovery: their [`FailureStage`] and their lease-bearing spec.
-trait ChunkState {
+pub(super) trait ChunkState {
     const STAGE: FailureStage;
     fn spec(&self) -> ChunkSpec;
 }
@@ -118,6 +122,15 @@ impl ChunkState for ClaimedChunk {
 }
 
 impl ChunkState for ScannedChunk {
+    const STAGE: FailureStage = FailureStage::PreMark;
+    fn spec(&self) -> ChunkSpec {
+        self.spec()
+    }
+}
+
+/// Pre-mark like [`ScannedChunk`]: a pre-mark unclaim with already-enqueued seeds keeps the same
+/// at-least-once semantics — the consumer's LWW/idempotent apply absorbs the re-scan.
+impl ChunkState for StreamedChunk {
     const STAGE: FailureStage = FailureStage::PreMark;
     fn spec(&self) -> ChunkSpec {
         self.spec()
@@ -159,7 +172,7 @@ impl FailureDisposition {
 
 /// Apply the recovery matrix to a halted state: render the operator detail, decide the disposition
 /// from the state's stage and the shutdown flag, and drive the fencing store write.
-async fn resolve_halt<S: ChunkState, E: std::error::Error>(
+pub(super) async fn resolve_halt<S: ChunkState, E: std::error::Error>(
     store: &PgChunkStore,
     halt: Halted<S, E>,
     shutdown: &CancellationToken,
@@ -191,9 +204,7 @@ async fn resolve_halt<S: ChunkState, E: std::error::Error>(
 
 /// Re-wrap the store's mark error as the produce error the recovery path renders, preserving the
 /// persisted `marking the chunk produced failed: …` text while the store stays store-typed.
-fn mark_produced_halt(
-    halt: Halted<ScannedChunk, ChunkStoreError>,
-) -> Halted<ScannedChunk, ProduceError> {
+pub(super) fn mark_produced_halt<S>(halt: Halted<S, ChunkStoreError>) -> Halted<S, ProduceError> {
     let Halted { state, reason } = halt;
     let reason = match reason {
         HaltReason::Failed(error) => HaltReason::Failed(ProduceError::MarkProduced(error)),
@@ -229,17 +240,20 @@ pub(super) enum ChunkOutcome {
     },
 }
 
-pub(super) fn record_task_result(result: Result<ChunkOutcome, tokio::task::JoinError>) {
+pub(super) fn record_task_result(
+    result: Result<ChunkOutcome, tokio::task::JoinError>,
+    kind: RunKind,
+) {
     match result {
         Ok(ChunkOutcome::Confirmed {
             lease,
             tiles_produced,
         }) => {
-            counter!(CHUNKS_CONFIRMED).increment(1);
+            counter!(CHUNKS_CONFIRMED, "kind" => kind.as_str()).increment(1);
             info!(?lease, tiles_produced, "chunk confirmed");
         }
         Ok(ChunkOutcome::Failed { lease, detail }) => {
-            counter!(CHUNKS_FAILED).increment(1);
+            counter!(CHUNKS_FAILED, "kind" => kind.as_str()).increment(1);
             warn!(?lease, error = %detail, "chunk failed and was released for retry");
         }
         Ok(ChunkOutcome::Unclaimed { lease }) => {
@@ -250,11 +264,11 @@ pub(super) fn record_task_result(result: Result<ChunkOutcome, tokio::task::JoinE
             detail,
             recovery,
         }) => {
-            counter!(CHUNKS_FAILED).increment(1);
+            counter!(CHUNKS_FAILED, "kind" => kind.as_str()).increment(1);
             warn!(?lease, error = %detail, recovery_error = %recovery, "chunk recovery update did not apply");
         }
         Err(error) => {
-            counter!(CHUNKS_FAILED).increment(1);
+            counter!(CHUNKS_FAILED, "kind" => kind.as_str()).increment(1);
             warn!(error = %error, "chunk task failed unexpectedly");
         }
     }
@@ -263,6 +277,18 @@ pub(super) fn record_task_result(result: Result<ChunkOutcome, tokio::task::JoinE
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Which stage a state declares is the other half of the matrix, and the half the matrix test
+    /// cannot see: flipping [`StreamedChunk`] to `PostMark` would fail every person chunk caught by
+    /// a shutdown instead of unclaiming it, with the matrix test still green.
+    #[test]
+    fn chunk_states_declare_their_recovery_stage() {
+        assert_eq!(<ClaimedChunk as ChunkState>::STAGE, FailureStage::PreMark);
+        assert_eq!(<ScannedChunk as ChunkState>::STAGE, FailureStage::PreMark);
+        assert_eq!(<StreamedChunk as ChunkState>::STAGE, FailureStage::PreMark);
+        assert_eq!(<EnqueuedChunk as ChunkState>::STAGE, FailureStage::PostMark);
+        assert_eq!(<ProducedChunk as ChunkState>::STAGE, FailureStage::PostMark);
+    }
 
     #[test]
     fn failure_disposition_encodes_the_recovery_matrix() {

@@ -56,6 +56,80 @@ describe('issueFiltersLogic', () => {
         quickFiltersSection.unmount()
     })
 
+    it('debounces issue search and stays synchronized with the committed query', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.setSearchInput('timeout')
+        })
+            .toDispatchActions(['setSearchInput', 'setSearchQuery'])
+            .toFinishAllListeners()
+            .toMatchValues({ searchInput: 'timeout', searchQuery: 'timeout' })
+
+        logic.actions.setSearchQuery('from-url')
+        expect(logic.values.searchInput).toBe('from-url')
+    })
+
+    describe('addPropertyFilter', () => {
+        test.each([
+            {
+                name: 'an exact value',
+                value: 'Chrome',
+                operator: PropertyOperator.Exact,
+                expectedValue: ['Chrome'],
+            },
+            {
+                name: 'a missing value',
+                value: null,
+                operator: PropertyOperator.IsNotSet,
+                expectedValue: undefined,
+            },
+        ])('appends $name without replacing existing filters', async ({ value, operator, expectedValue }) => {
+            const existingFilter: EventPropertyFilter = {
+                type: PropertyFilterType.Event,
+                key: '$os',
+                operator: PropertyOperator.Exact,
+                value: ['Linux'],
+            }
+            logic.actions.setFilterGroup({
+                type: FilterLogicalOperator.And,
+                values: [{ type: FilterLogicalOperator.And, values: [existingFilter] }],
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.addPropertyFilter('$browser', value, operator)
+            })
+                .toDispatchActions(['addPropertyFilter', 'setFilterGroup'])
+                .toFinishAllListeners()
+
+            const innerGroup = logic.values.filterGroup.values[0] as UniversalFiltersGroup
+            expect(innerGroup.values).toEqual([
+                existingFilter,
+                {
+                    type: PropertyFilterType.Event,
+                    key: '$browser',
+                    operator,
+                    ...(expectedValue === undefined ? {} : { value: expectedValue }),
+                },
+            ])
+        })
+
+        it('does not add an identical filter twice', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.addPropertyFilter('$browser', 'Chrome')
+                logic.actions.addPropertyFilter('$browser', 'Chrome')
+            }).toFinishAllListeners()
+
+            const innerGroup = logic.values.filterGroup.values[0] as UniversalFiltersGroup
+            expect(innerGroup.values).toEqual([
+                {
+                    type: PropertyFilterType.Event,
+                    key: '$browser',
+                    operator: PropertyOperator.Exact,
+                    value: ['Chrome'],
+                },
+            ])
+        })
+    })
+
     describe('mergedFilterGroup', () => {
         const propA: EventPropertyFilter = {
             type: PropertyFilterType.Event,

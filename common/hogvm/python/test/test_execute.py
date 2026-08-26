@@ -3,6 +3,7 @@ from collections.abc import Callable
 from typing import Any, Optional, cast
 
 import pytest
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -15,6 +16,7 @@ from common.hogvm.python.operation import (
     HOGQL_BYTECODE_VERSION as VERSION,
     Operation as op,
 )
+from common.hogvm.python.stl import sleep
 from common.hogvm.python.utils import HogVMException, UncaughtHogVMException
 
 
@@ -703,6 +705,30 @@ class TestBytecodeExecute:
     def test_bytecode_length_null_raises_hogvm_exception(self):
         with pytest.raises(HogVMException, match="Can not call length on null"):
             self._run_program("return length(null);")
+
+    @parameterized.expand(
+        [
+            ("arg_over_budget_clamped_to_budget", 600.0, 0.5, 0.5),
+            ("arg_under_budget_left_as_is", 0.1, 5.0, 0.1),
+            ("negative_arg_clamped_to_zero", -5.0, 5.0, 0.0),
+        ]
+    )
+    def test_sleep_bounds_duration_to_remaining_timeout(self, _name, arg, budget, expected):
+        with patch("common.hogvm.python.stl.time.sleep") as mock_sleep:
+            sleep([arg], None, None, budget)
+        mock_sleep.assert_called_once_with(expected)
+
+    @parameterized.expand(
+        [
+            ("direct_call", "sleep(0)"),  # CALL_GLOBAL dispatch
+            ("expression_call", "(sleep)(0)"),  # CALL_LOCAL closure dispatch
+        ]
+    )
+    def test_disallowed_functions_rejected_at_dispatch(self, _name, expr):
+        bytecode = create_bytecode(parse_expr(expr)).bytecode
+        execute_bytecode(bytecode, {})  # allowed by default (sleeps 0s)
+        with pytest.raises(HogVMException, match="Function sleep is not allowed here"):
+            execute_bytecode(bytecode, {}, disallowed_functions=frozenset({"sleep"}))
 
     def test_random_float(self):
         for _ in range(50):

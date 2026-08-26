@@ -1,7 +1,7 @@
 import datetime
 import dataclasses
 from abc import ABC, abstractmethod
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, Any, Generic, Optional, TypeVar, Union, cast
 
 import structlog
@@ -24,17 +24,17 @@ from posthog.schema import (
     SourceFieldSwitchGroupConfig,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    ResumableData,
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.config import Config
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
+    ResumableData,
+    SourceInputs,
+    SourceResponse,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import get_config_for_source
 from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalField
 
@@ -96,6 +96,17 @@ SourceCredentialsValidationResult = tuple[bool, str | None]
 # Label used by sources whose vendor has no meaningful API versioning. Version strings are
 # opaque vendor labels (Stripe date versions, semver, names) — never parsed or ordered.
 UNVERSIONED_API_VERSION = "v1"
+
+
+def error_message_matches(error_msg: str, patterns: Iterable[str]) -> bool:
+    """Case-insensitive match of `error_msg` against `get_non_retryable_errors`/`get_retryable_errors` patterns.
+
+    Vendors don't reliably return the reason phrase casing `requests.raise_for_status()`
+    assumes (e.g. Eventbrite sends "UNAUTHORIZED" where the library-generated wording is
+    "Unauthorized"), so an exact-case substring check can silently fail to match.
+    """
+    error_msg_lower = error_msg.lower()
+    return any(pattern.lower() in error_msg_lower for pattern in patterns)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -164,6 +175,11 @@ class _BaseSource(ABC, Generic[ConfigType]):
     # in-product deprecation warning; no per-source UI work.
     deprecated_versions: tuple[VersionDeprecation, ...] = ()
 
+    # How far back a first sync reaches, for a source that bounds one. A source that sets this
+    # reads `SourceInputs.history_start` instead of resolving a constant against the day it runs.
+    # See `sources/common/history_window.py`.
+    history_lookback: datetime.timedelta | None = None
+
     @property
     @abstractmethod
     def source_type(self) -> ExternalDataSourceType:
@@ -211,6 +227,18 @@ class _BaseSource(ABC, Generic[ConfigType]):
 
         return set()
 
+    def get_required_parent_schemas(self, schema_name: str) -> list[str]:
+        """Sibling schemas `schema_name` reads from the warehouse instead of re-fetching.
+
+        Non-empty only for fan-out children that read their parent from the warehouse
+        (`DependentEndpointConfig.parent_source == "warehouse"`). Nothing requires these to
+        be enabled: `import_data_activity_sync` checks them per run and falls back to the
+        parent API when they aren't usable. Sources built on the shared REST fan-out wire
+        this to `required_parents_from_endpoint_configs`.
+        """
+
+        return []
+
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         """Curated, documentation-sourced descriptions for this source's well-known tables/endpoints.
 
@@ -222,6 +250,17 @@ class _BaseSource(ABC, Generic[ConfigType]):
         """
 
         return {}
+
+    def get_canonical_descriptions_for_table_prefix(self, table_prefix: str) -> CanonicalDescriptions:
+        """Curated descriptions adapted to one connected source's physical table names.
+
+        `get_canonical_descriptions` is keyed by source type, so a description that names a physical
+        table is written for a source connected without a table prefix, while `build_table_name`
+        prepends whatever prefix that source was given. Sources whose descriptions embed table names
+        override this to rebuild them for `table_prefix`; almost none do, so the default ignores it.
+        """
+
+        return self.get_canonical_descriptions()
 
     def get_schemas(
         self,
@@ -452,6 +491,20 @@ class WebhookSource(_BaseSource[ConfigType], Generic[ConfigType]):
         webhook payload versions often key off it).
         """
         raise NotImplementedError()
+
+    def webhook_creation_blocked_reason(self, config: ConfigType, team_id: int) -> str | None:
+        """Why this connection can never create the provider-side webhook, or ``None``.
+
+        Some connections are known ahead of time to lack the grant `create_webhook` needs — an
+        OAuth app installation can only hold permissions the app itself requests, so no amount of
+        reconnecting will earn it. Returning a reason lets the UI offer the manual setup steps
+        instead of a button whose only outcome is a permission error.
+
+        ``None`` means "not known to be blocked", not "will succeed": it is the answer for every
+        credential whose grants can't be introspected (API keys, tokens), so a real denial still
+        surfaces from `create_webhook`.
+        """
+        return None
 
     def get_desired_webhook_events(self, config: ConfigType, eligible_schema_names: list[str]) -> list[str] | None:
         """Events the webhook should subscribe to. ``None`` when the source has no

@@ -7,7 +7,6 @@ from datetime import timedelta
 import pytest
 from posthog.test.base import APIBaseTest
 
-from django.apps import apps
 from django.test import override_settings
 from django.urls import include, path
 from django.utils import timezone
@@ -27,6 +26,7 @@ from posthog.models.project import Project
 from posthog.models.scoping import get_current_team_id
 from posthog.models.team.team import Team
 from posthog.permissions import APIScopePermission
+from posthog.products import product_app_names
 
 from products.annotations.backend.api.annotation import AnnotationSerializer
 from products.annotations.backend.models.annotation import Annotation
@@ -354,10 +354,8 @@ def test_router_registry_get_unknown_name_lists_known():
 
 def _discover_product_route_modules():
     modules = []
-    for app_config in apps.get_app_configs():
-        if not app_config.name.startswith("products."):
-            continue
-        module_name = f"{app_config.name}.routes"
+    for app_name in product_app_names():
+        module_name = f"{app_name}.routes"
         if importlib.util.find_spec(module_name) is None:
             continue
         modules.append(importlib.import_module(module_name))

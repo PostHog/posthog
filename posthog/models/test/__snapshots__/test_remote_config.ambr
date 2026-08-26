@@ -26,6 +26,10 @@
       'captureConsoleLogs': False,
     }),
     'productTours': False,
+    'push': dict({
+      'appIds': list([
+      ]),
+    }),
     'sessionRecording': dict({
       'canvasFps': None,
       'canvasQuality': None,
@@ -62,6 +66,5 @@
       'gzip-js',
     ]),
     'surveys': False,
-    'token': 'phc_12345',
   })
 # ---

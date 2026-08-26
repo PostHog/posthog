@@ -25,8 +25,7 @@ export function LineStylePicker(): JSX.Element {
                     chartStyle: { ...chartStyle, curve: value as 'smooth' | 'linear' },
                 })
             }
-            // Unset curve falls through to the app default, which is smooth under the style-refresh
-            // flag (the only context this picker renders in).
+            // Unset curve falls through to the app default, which is smooth.
             value={chartStyle?.curve || 'smooth'}
             options={[
                 { value: 'smooth', label: 'Smooth' },

@@ -117,6 +117,10 @@ class BrokenTestState(StrEnum):
 
     - ``breaking_master``: has failed on the default branch and that job's latest completed run
       is still red — trunk is broken by this right now.
+    - ``blocking_merge_queue``: failed on a merge-queue gate branch and never on the default
+      branch — it stopped a merge on a commit that had already passed the PR's own CI, which is
+      the semantic-conflict class a merge queue exists to catch. Trunk is still green, so this
+      ranks below ``breaking_master``, but it is holding up landings right now.
     - ``novel_burst``: first seen within the last day and already spreading across several PR
       branches, not on the default branch yet — a new failure catching on.
     - ``potentially_resolved``: hit the default branch but that job's latest run is green again —
@@ -127,6 +131,7 @@ class BrokenTestState(StrEnum):
     """
 
     BREAKING_MASTER = "breaking_master"
+    BLOCKING_MERGE_QUEUE = "blocking_merge_queue"
     NOVEL_BURST = "novel_burst"
     POTENTIALLY_RESOLVED = "potentially_resolved"
     FLAKY = "flaky"
@@ -135,6 +140,8 @@ class BrokenTestState(StrEnum):
 
 class PRLifecycleEventKind(StrEnum):
     OPENED = "opened"
+    READY_FOR_REVIEW = "ready_for_review"
+    CONVERTED_TO_DRAFT = "converted_to_draft"
     CI_STARTED = "ci_started"
     CI_FINISHED = "ci_finished"
     MERGED = "merged"
@@ -145,6 +152,17 @@ class QuarantineMode(StrEnum):
     # "run": the test still executes but cannot fail the suite. "skip": not run at all.
     RUN = "run"
     SKIP = "skip"
+
+
+class CITestRunner(StrEnum):
+    PYTEST = "pytest"
+    JEST = "jest"
+
+
+class QuarantineRunner(StrEnum):
+    PYTEST = "pytest"
+    JEST = "jest"
+    PLAYWRIGHT = "playwright"
 
 
 class QuarantineLifecycle(StrEnum):
@@ -243,6 +261,21 @@ class PullRequest:
 
 
 @dataclass(frozen=True)
+class MergedPullRequest:
+    """A merged pull request reduced to its branch-tip head SHA — the discovery seam for ReviewHog
+    telemetry ("which PRs merged recently, and the commit at each branch tip"). ``head_sha`` is the
+    run / branch-tip SHA (``head.sha``), never the ephemeral ``refs/pull/N/merge`` commit (SPEC §7).
+    ``merged_at`` and ``head_sha`` are non-null and non-empty by construction: the read keeps only
+    PRs that actually merged and whose snapshot carries a branch-tip SHA (a malformed row without
+    one is excluded, not surfaced as an empty SHA no consumer could use).
+    """
+
+    number: int
+    head_sha: str
+    merged_at: datetime
+
+
+@dataclass(frozen=True)
 class WorkflowRun:
     id: int
     workflow_name: str
@@ -284,6 +317,11 @@ class WorkflowRunDetail:
     run_attempt: int
     # Attributed pull request number, or 0 when unattributed.
     pr_number: int
+    # The PR whose merge produced this run's head commit: the merged PR whose merge commit is this
+    # head SHA, falling back to the commit subject's `(#NNNN)` suffix. None when neither resolves.
+    # This is the only PR attribution a default-branch push has, since its `pull_requests`
+    # association is empty by then, so consumers read `pr_number` first and fall back to this (SPEC §6).
+    commit_pr_number: int | None
 
 
 @dataclass(frozen=True)
@@ -518,8 +556,8 @@ class CIFailureLogs:
 # The one caveat that governs every flaky figure, defined once here (the canonical-types home)
 # so the API/MCP description and any other consumer-facing copy read from it instead of drifting.
 FLAKY_TEST_SIGNAL_CAVEAT = (
-    "Counts are absolute, never rates: CI emits a span for every failure but only for passes slow "
-    "enough to clear the emitter's duration threshold, so there is no execution denominator. "
+    "Counts are absolute, never rates: CI emits every failure but omits ordinary passing spans, "
+    "so there is no execution denominator. "
     "'suspected_regression' means no recovery was recorded in this data, not that the test never flakes."
 )
 
@@ -529,14 +567,14 @@ class FlakyTestClassification(StrEnum):
     CONFIRMED_FLAKE = "confirmed_flake"
     # Only failures recorded, which is absence of proof, not proof of a regression.
     SUSPECTED_REGRESSION = "suspected_regression"
-    # Failing while masked as xfail.
+    # A tolerated failure recorded while the test is masked by quarantine.
     QUARANTINED = "quarantined"
 
     @classmethod
     def from_run_evidence(
         cls, *, quarantined_failed_run_count: int, same_commit_recovery_run_count: int
     ) -> "FlakyTestClassification":
-        # Quarantine wins over a recovery proof: an xfail is already masked, so surface that first.
+        # Quarantine wins over a recovery proof: it is already masked, so surface that first.
         if quarantined_failed_run_count > 0:
             return cls.QUARANTINED
         if same_commit_recovery_run_count > 0:
@@ -549,16 +587,16 @@ class FlakyTestItem:
     """One test in the active test-health queue, aggregated from the per-test CI spans in the Traces store.
 
     Ranked by blast radius: what a failing test costs, not how often it flakes. This queue only
-    sees Backend CI. Evidence is counted per CI run, never per span or run attempt: one run fans a
-    test across matrix legs and re-run attempts re-test the same commit, so only the run grain
-    counts one failure once. See ``FLAKY_TEST_SIGNAL_CAVEAT`` for why every figure is an absolute
-    count.
+    sees the main pytest and Jest CI suites. Evidence is counted per CI run, never per span or run
+    attempt: one run fans a test across matrix legs and re-run attempts re-test the same commit, so
+    only the run grain counts one failure once. See ``FLAKY_TEST_SIGNAL_CAVEAT`` for why every figure
+    is an absolute count.
     """
 
-    # Reconstructed pytest nodeid (the span name), e.g. 'posthog/api/test/test_x/TestX::test_y'.
+    runner: CITestRunner
+    # Stable test identity (the span name), runner-specific and not necessarily runnable.
     nodeid: str
-    # Runnable pytest selector ('posthog/api/test/test_x.py::TestX::test_y'). Exact when the CI
-    # reporter stamped it; reconstructed from the nodeid (file/class boundary guessed) for older spans.
+    # Runnable selector. Exact when the CI reporter stamped it; best-effort for older pytest spans.
     selector: str
     classification: FlakyTestClassification
     # Runs where one commit both failed and passed the test: a later run attempt going green, or an
@@ -578,7 +616,7 @@ class FlakyTestList:
     """The active test-health queue for a window: tests with a live failure signal, ranked by blast
     radius (trunk first, then PRs, then runs), capped at ``limit`` with an explicit truncation flag
     (same shape as ``PullRequestList``). A test qualifies on any same-commit recovery, any
-    default-branch failure, failures on at least ``min_failed_prs`` distinct PRs, or an xfail.
+    default-branch failure, failures on at least ``min_failed_prs`` distinct PRs, or a quarantined failure.
     """
 
     items: list[FlakyTestItem]
@@ -611,10 +649,10 @@ class TeamCIHealthItem:
     failed_run_count_prior: int
     same_commit_recovery_run_count: int
     same_commit_recovery_run_count_prior: int
-    # Runs where an owned test failed while quarantined (xfail): already masked, still failing.
+    # Runs where an owned test recorded a tolerated failure while quarantined: already masked, still failing.
     quarantined_failed_run_count: int
     quarantined_failed_run_count_prior: int
-    # Most recent failure, recovery, or xfail run across the team's owned tests, either window.
+    # Most recent failure, recovery, or quarantined-failure run across the team's owned tests, either window.
     last_seen_at: datetime
 
 
@@ -634,9 +672,10 @@ class TeamCIHealthList:
 class TeamTestSignal:
     """One owned test's flaky signal across the current window and its equal-length prior
     window, the pair behind a before-vs-after slope reading. Signal = failed + error +
-    pass-on-retry spans (xfail excluded: already-quarantined noise).
+    pass-on-retry spans (quarantined failures excluded: already-masked noise).
     """
 
+    runner: CITestRunner
     nodeid: str
     selector: str
     signal_count: int
@@ -730,6 +769,10 @@ class PullRequestListItem:
     merged_at: datetime | None
     # merged_at - created_at; coarse (fuses draft + ready-for-review time). None until merged.
     open_to_merge_seconds: int | None
+    # merged_at minus the LAST observed ready_for_review transition, falling back to created_at
+    # for a merged PR verifiably never drafted. None when unmerged, re-drafted, or not observed
+    # (the PR's life isn't fully inside the synced issue-event window); never "never drafted".
+    ready_to_merge_seconds: int | None
     labels: list[str]
     ci: CIStatusRollup
     # CI triggers attributed to this PR: distinct head SHAs across its workflow runs (a run
@@ -857,6 +900,7 @@ class QuarantineRequest:
     # serializers' 'action' enums in the OpenAPI spec and churns their generated types.
     operation: QuarantineRequestAction
     selector: str
+    runner: QuarantineRunner | None = None
     repo: str | None = None
     reason: str = ""
     owner: str = ""
@@ -952,18 +996,18 @@ class CostPerMergeBucket:
 
 @dataclass(frozen=True)
 class TimeToGreenBucket:
-    """One time bucket of the repo's median time-to-green: the p50 wall-clock duration of *successful*
-    CI runs attributed to pull requests (default-branch runs excluded), started in this bucket. Cancelled
-    and failed runs end early and would bias the percentile low, so they are excluded — the same
-    success-only population the workflow-health percentiles use. ``p50_seconds`` is None for a bucket with
-    no successful PR run (a gap, not instant CI); the UI carries the last known value forward rather than
-    dipping the trend to zero.
+    """One time bucket of the repo's median time-to-green: p50 wall clock from a PR push round's
+    first run start until every workflow on that head SHA first completed benign (merge-queue gates
+    and partially-attributed fork rounds excluded). A flake re-run stretches the wall to its
+    recovery; a re-fire after green does not, though a workflow first firing late on the SHA (as
+    marking a draft ready does) stretches it by the wait that preceded it. ``p50_seconds`` is None
+    for a bucket with no fully green round (a gap, not instant CI); the UI carries the last known
+    value forward.
     """
 
-    # Bucket start, aligned to the granularity (top of hour / midnight / Monday).
+    # Bucket start, aligned to the granularity (top of hour / midnight / Monday). Keyed on round start.
     bucket_start: datetime
-    # Median wall-clock seconds of successful PR-attributed CI runs started in this bucket. None when the
-    # bucket had no successful PR run.
+    # Median seconds from round start to all-green. None when the bucket had no fully green round.
     p50_seconds: float | None
 
 
@@ -995,6 +1039,20 @@ class OpenToMergeBucket:
 
 
 @dataclass(frozen=True)
+class ReadyToMergeBucket:
+    """One time bucket of the repo's median cycle time: p50 of per-PR ``ready_to_merge_seconds``
+    (SPEC §6) over PRs merged in this bucket, bots and drafts excluded. ``p50_seconds`` is None
+    for a bucket with no observed value (a gap, not instant merges); the UI carries the last known
+    value forward.
+    """
+
+    # Bucket start, aligned to the granularity (top of hour / midnight / Monday). Keyed on merge time.
+    bucket_start: datetime
+    # Median per-PR ready_to_merge_seconds over PRs merged in this bucket. None when no observed value.
+    p50_seconds: float | None
+
+
+@dataclass(frozen=True)
 class RepoOverview:
     """Repo-level headline aggregates for the landing page, each with its previous-window twin
     so the UI renders honest deltas. The previous window has the same length as the current one
@@ -1017,10 +1075,61 @@ class RepoOverview:
     # Coarse by design: merged_at - created_at (draft + ready time fused), median over PRs merged in the window.
     median_open_to_merge_seconds: float | None
     median_open_to_merge_seconds_prev: float | None
+    # The precise companion (SPEC §6): median per-PR ready_to_merge_seconds over merged PRs with an
+    # observed value. None means "not observed" (issue events unsynced or out of window), never zero.
+    median_ready_to_merge_seconds: float | None
+    median_ready_to_merge_seconds_prev: float | None
     billable_minutes: float | None
     billable_minutes_prev: float | None
     estimated_cost_usd: float | None
     estimated_cost_usd_prev: float | None
+    # estimated_cost_usd / merged_pr_count (all authors). None without cost data or merges.
+    cost_per_merge_usd: float | None
+    cost_per_merge_usd_prev: float | None
+    # The slice of billable_minutes spent on merge-queue batch branches, broken out so queue-settings
+    # changes show up as their own delta instead of hiding inside the total.
+    merge_queue_billable_minutes: float | None
+    merge_queue_billable_minutes_prev: float | None
+    # Merge-queue landing stats, over merged PRs with at least one corroborated gate run
+    # (logic/merge_queue.py). All authors, bots included: these measure the queue's mechanics,
+    # not author behavior.
+    merge_queue_merged_pr_count: int
+    merge_queue_merged_pr_count_prev: int
+    # Median seconds from a PR's first observed gate run starting to its merge, named for what is
+    # measured: pending time before gate testing starts is not observable in the GitHub source.
+    merge_queue_median_first_gate_to_merge_seconds: float | None
+    merge_queue_median_first_gate_to_merge_seconds_prev: float | None
+    merge_queue_p90_first_gate_to_merge_seconds: float | None
+    merge_queue_p90_first_gate_to_merge_seconds_prev: float | None
+    merge_queue_p95_first_gate_to_merge_seconds: float | None
+    merge_queue_p95_first_gate_to_merge_seconds_prev: float | None
+    merge_queue_p99_first_gate_to_merge_seconds: float | None
+    merge_queue_p99_first_gate_to_merge_seconds_prev: float | None
+    # Mean distinct gate attempts per queue-landed merge (distinct gate branches, bisection collapsed).
+    merge_queue_avg_attempts_per_merge: float | None
+    merge_queue_avg_attempts_per_merge_prev: float | None
+    # Fraction (0-1) of queue-landed merges that needed more than one gate attempt.
+    merge_queue_multi_attempt_merge_share: float | None
+    merge_queue_multi_attempt_merge_share_prev: float | None
+    # Fraction (0-1) of queue-landed merges with at least one failed gate run before merging: a
+    # CI-outcome proxy, not the queue's own eviction record.
+    merge_queue_failed_gate_merge_share: float | None
+    merge_queue_failed_gate_merge_share_prev: float | None
+    # Trunk-recorded outcomes, present only when the team's TrunkIo warehouse source has the opt-in
+    # merge-queue endpoint synced; without it consumers fall back to the failed-gate proxy above.
+    # Windowed on each entry's last state change, since Trunk keeps no state history.
+    merge_queue_trunk_available: bool
+    # Fraction (0-1) of concluded queue entries (merged, failed, or cancelled) that ended failed or
+    # cancelled, from the queue's own records.
+    merge_queue_failed_or_cancelled_share: float | None
+    merge_queue_failed_or_cancelled_share_prev: float | None
+    # Queue entries flagged skip-the-line (prioritized past the queue order), whatever state they reached.
+    merge_queue_skip_the_line_count: int | None
+    merge_queue_skip_the_line_count_prev: int | None
+    # Median wall clock for a push round to settle fully green over the window: the window-level
+    # twin of time_to_green_series, same population and exclusions. None when no fully green rounds.
+    median_time_to_green_seconds: float | None
+    median_time_to_green_seconds_prev: float | None
     jobs_available: bool
     # 'master' or 'main', picked by observed run volume in the current window.
     default_branch: str
@@ -1029,8 +1138,8 @@ class RepoOverview:
     cost_series: list[CostPerMergeBucket]
     # Bucket width of `cost_series`, chosen to fit the window: 'hour', 'day', or 'week'.
     cost_series_granularity: str
-    # Time-to-green trend: median CI duration of successful PR-attributed runs per bucket, oldest first,
-    # bucketed by `time_to_green_series_granularity`. Empty buckets carry None (no successful PR run).
+    # Time-to-green trend: median wall clock for a PR push round to settle fully green, per bucket,
+    # oldest first, bucketed by `time_to_green_series_granularity`. Empty buckets carry None.
     time_to_green_series: list[TimeToGreenBucket]
     # Bucket width of `time_to_green_series`, chosen to fit the window: 'hour', 'day', or 'week'.
     time_to_green_series_granularity: str
@@ -1044,6 +1153,11 @@ class RepoOverview:
     open_to_merge_series: list[OpenToMergeBucket]
     # Bucket width of `open_to_merge_series`, chosen to fit the window: 'hour', 'day', or 'week'.
     open_to_merge_series_granularity: str
+    # Cycle-time trend: median per-PR ready_to_merge_seconds per bucket (bots/drafts excluded),
+    # oldest first. Empty when the issue-events table isn't synced; fall back to open_to_merge_series.
+    ready_to_merge_series: list[ReadyToMergeBucket]
+    # Bucket width of `ready_to_merge_series`, chosen to fit the window: 'hour', 'day', or 'week'.
+    ready_to_merge_series_granularity: str
 
 
 @dataclass(frozen=True)

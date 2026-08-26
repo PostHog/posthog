@@ -2,7 +2,7 @@ import json
 import types
 import typing
 import datetime as dt
-from dataclasses import Field, asdict, dataclass, fields
+from dataclasses import Field, asdict, dataclass, field, fields
 from uuid import UUID
 
 from django.conf import settings
@@ -137,7 +137,8 @@ class BatchExportField(typing.TypedDict):
 
 class BatchExportSchema(typing.TypedDict):
     fields: list[BatchExportField]
-    values: dict[str, str]
+    # HogQL binds these at any type; narrowing breaks Temporal input decoding.
+    values: dict[str, typing.Any]
 
 
 @dataclass
@@ -158,6 +159,7 @@ class BatchExportModel:
     name: str
     schema: BatchExportSchema | None
     filters: list[dict[str, str | list[str] | None]] | None = None
+    hogql_query: str | None = None
 
 
 @dataclass
@@ -254,7 +256,7 @@ class BaseBatchExportInputs:
         return self.is_earliest_backfill
 
 
-@dataclass(kw_only=True)
+@dataclass(frozen=False, kw_only=True)
 class S3BatchExportInputs(BaseBatchExportInputs):
     """Inputs for S3 export workflow.
 
@@ -288,7 +290,7 @@ class S3BatchExportInputs(BaseBatchExportInputs):
     region: str
     prefix: str
     aws_access_key_id: str | None = None
-    aws_secret_access_key: str | None = None
+    aws_secret_access_key: str | None = field(default=None, repr=False)
     compression: str | None = None
     file_format: str = "JSONLines"
     max_file_size_mb: int | None = None
@@ -298,7 +300,7 @@ class S3BatchExportInputs(BaseBatchExportInputs):
     use_virtual_style_addressing: bool = False
 
 
-@dataclass(kw_only=True)
+@dataclass(frozen=False, kw_only=True)
 class S3FamilyBaseInputs(BaseBatchExportInputs):
     """Shared fields for every S3-family destination.
 
@@ -311,7 +313,7 @@ class S3FamilyBaseInputs(BaseBatchExportInputs):
     region: str
     prefix: str
     aws_access_key_id: str | None = None
-    aws_secret_access_key: str | None = None
+    aws_secret_access_key: str | None = field(default=None, repr=False)
     compression: str | None = None
     file_format: str = "JSONLines"
     max_file_size_mb: int | None = None
@@ -360,7 +362,7 @@ class FileDownloadBatchExportInputs(BaseBatchExportInputs):
     expires_in_seconds: int = 3600
 
 
-@dataclass(kw_only=True)
+@dataclass(frozen=False, kw_only=True)
 class SnowflakeBatchExportInputs(BaseBatchExportInputs):
     """Inputs for Snowflake export workflow.
 
@@ -376,13 +378,13 @@ class SnowflakeBatchExportInputs(BaseBatchExportInputs):
     user: str | None = None
     table_name: str = "events"
     authentication_type: str = "password"
-    password: str | None = None
-    private_key: str | None = None
-    private_key_passphrase: str | None = None
+    password: str | None = field(default=None, repr=False)
+    private_key: str | None = field(default=None, repr=False)
+    private_key_passphrase: str | None = field(default=None, repr=False)
     role: str | None = None
 
 
-@dataclass(kw_only=True)
+@dataclass(frozen=False, kw_only=True)
 class PostgresBatchExportInputs(BaseBatchExportInputs):
     """Inputs for Postgres export workflow."""
 
@@ -393,18 +395,26 @@ class PostgresBatchExportInputs(BaseBatchExportInputs):
     user: str | None = None
     host: str | None = None
     port: int | None = 5432
-    password: str | None = None
+    password: str | None = field(default=None, repr=False)
     has_self_signed_cert: bool = False
 
 
 IAMRole = str
 
 
-@dataclass
+@dataclass(frozen=False)
 class AWSCredentials:
     aws_access_key_id: str
-    aws_secret_access_key: str
-    aws_session_token: str | None = None
+    aws_secret_access_key: str = field(repr=False)
+    aws_session_token: str | None = field(default=None, repr=False)
+    expiration: dt.datetime | None = field(default=None)
+
+    @property
+    def expiry_time(self) -> str | None:
+        """ISO-8601 expiration time for temporary credentials, if available."""
+        if self.expiration is None:
+            return None
+        return self.expiration.isoformat()
 
 
 @dataclass
@@ -420,12 +430,12 @@ class RedshiftCopyInputs:
     bucket_credentials: AWSCredentials
 
 
-@dataclass(kw_only=True)
+@dataclass(frozen=False, kw_only=True)
 class RedshiftBatchExportInputs(BaseBatchExportInputs):
     """Inputs for Redshift export workflow."""
 
     user: str
-    password: str
+    password: str = field(repr=False)
     host: str
     database: str
     schema: str = "public"
@@ -471,14 +481,14 @@ class RedshiftBatchExportInputs(BaseBatchExportInputs):
             )
 
 
-@dataclass(kw_only=True)
+@dataclass(frozen=False, kw_only=True)
 class BigQueryBatchExportInputs(BaseBatchExportInputs):
     """Inputs for BigQuery export workflow."""
 
     dataset_id: str
     table_id: str = "events"
     project_id: str | None = None
-    private_key: str | None = None
+    private_key: str | None = field(default=None, repr=False)
     private_key_id: str | None = None
     token_uri: str | None = None
     client_email: str | None = None
@@ -1030,7 +1040,7 @@ def update_batch_export_run(
         run_id: The id of the BatchExportRun to update.
     """
     # nosemgrep: idor-lookup-without-team (internal service, team_id passed as parameter)
-    model = BatchExportRun.objects.filter(id=run_id)
+    model = BatchExportRun.objects.select_related("batch_export", "batch_export__destination").filter(id=run_id)
     update_at = dt.datetime.now(dt.UTC)
 
     updated = model.update(

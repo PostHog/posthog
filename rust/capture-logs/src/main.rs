@@ -3,8 +3,10 @@ use std::time::Duration;
 
 use axum::{extract::DefaultBodyLimit, http::Method, routing::get, routing::post, Router};
 use capture::metrics_middleware::track_metrics;
+use capture_logs::authorizer::Authorizer;
 use capture_logs::config::Config;
 use capture_logs::endpoints::datadog;
+use capture_logs::endpoints::prometheus;
 use capture_logs::kafka::KafkaSink;
 use capture_logs::middleware::translate_compression_query_param;
 use capture_logs::service::Service;
@@ -117,20 +119,15 @@ async fn main() {
         .expect("could not bind management port");
 
     let token_dropper = TokenDropper::new(&config.drop_events_by_token.unwrap_or_default());
-    let token_dropper_arc = Arc::new(token_dropper);
-    let logs_service = match Service::new(
-        kafka_sink,
-        token_dropper_arc,
-        config.max_request_body_size_bytes,
-    )
-    .await
-    {
-        Ok(service) => service,
-        Err(e) => {
-            error!("Failed to initialize log service: {}", e);
-            panic!("Could not start log capture service: {e}");
-        }
-    };
+    let authorizer = Authorizer::new(Arc::new(token_dropper));
+    let logs_service =
+        match Service::new(kafka_sink, authorizer, config.max_request_body_size_bytes).await {
+            Ok(service) => service,
+            Err(e) => {
+                error!("Failed to initialize log service: {}", e);
+                panic!("Could not start log capture service: {e}");
+            }
+        };
     let http_bind = format!("{}:{}", config.host, config.port);
     info!("Listening on {}", http_bind);
     let http_listener = tokio::net::TcpListener::bind(http_bind)
@@ -184,12 +181,30 @@ async fn main() {
             "/i/v1/logs/datadog/:token/api/v2/logs",
             post(datadog::export_datadog_logs_http).options(options_handler),
         )
-        .with_state(logs_service)
+        .with_state(logs_service.clone())
         .layer(DefaultBodyLimit::max(config.max_request_body_size_bytes))
         .layer(axum::middleware::from_fn(track_metrics))
         .layer(RequestDecompressionLayer::new())
-        .layer(axum::middleware::from_fn(translate_compression_query_param))
-        .layer(cors);
+        .layer(axum::middleware::from_fn(translate_compression_query_param));
+
+    // Prometheus remote-write sends `Content-Encoding: snappy`, which
+    // RequestDecompressionLayer rejects with 415 before the handler runs. This
+    // route is deliberately kept off that layer (and the gzip query-param
+    // shim); the handler snappy-decodes the body itself.
+    let prometheus_router = Router::new()
+        .route(
+            "/i/v1/prometheus/write",
+            post(prometheus::export_prometheus_remote_write_http).options(options_handler),
+        )
+        .route(
+            "/i/v1/prometheus/write/:token",
+            post(prometheus::export_prometheus_remote_write_http).options(options_handler),
+        )
+        .with_state(logs_service)
+        .layer(DefaultBodyLimit::max(config.max_request_body_size_bytes))
+        .layer(axum::middleware::from_fn(track_metrics));
+
+    let http_router = http_router.merge(prometheus_router).layer(cors);
 
     let http_server = tokio::spawn(async move {
         if let Err(e) = axum::serve(

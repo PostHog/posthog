@@ -180,7 +180,10 @@ describe('ci-alerts-devex', () => {
             assert.match(body, /Backend CI/)
             assert.match(body, /5 failed runs in a row/)
             // per-workflow link → engineering analytics workflow detail, scoped to master
-            assert.match(body, /engineering-analytics\/repos\/PostHog\/posthog\/actions\/workflows\/Backend%20CI\?q=master/)
+            assert.match(
+                body,
+                /https:\/\/us\.posthog\.com\/project\/2\/engineering-analytics\/repos\/PostHog\/posthog\/actions\/workflows\/Backend%20CI\?q=master/
+            )
             assert.equal(anchor.metadata.event_type, 'master_ci_incident')
             assert.equal(anchor.metadata.event_payload.status, 'active')
             assert.deepEqual(

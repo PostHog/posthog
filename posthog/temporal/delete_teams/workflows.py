@@ -13,10 +13,10 @@ from posthog.temporal.delete_teams.activities import (
     delete_loop_trigger_schedules_activity,
     delete_misc_small_tables_activity,
     delete_organization_record_activity,
-    delete_personless_distinct_ids_activity,
     delete_project_record_activity,
     delete_team_persons_activity,
     delete_team_records_activity,
+    deprovision_managed_warehouse_activity,
     enqueue_clickhouse_deletion_activity,
     queue_recording_deletions_activity,
     send_organization_deleted_email_activity,
@@ -61,7 +61,6 @@ EMAIL_HEARTBEAT_TIMEOUT = dt.timedelta(seconds=30)
 # Bulky Postgres phases, run in dependency-safe order (each its own retryable activity).
 BULKY_POSTGRES_ACTIVITIES = (
     delete_misc_small_tables_activity,
-    delete_personless_distinct_ids_activity,
     delete_cohort_members_activity,
     delete_groups_activity,
     delete_team_persons_activity,
@@ -121,13 +120,21 @@ class DeleteTeamsDataWorkflow(PostHogWorkflow):
             heartbeat_timeout=LIGHT_HEARTBEAT_TIMEOUT,
             retry_policy=SIDE_EFFECT_RETRY_POLICY,
         )
-        await temporalio.workflow.execute_activity(
-            delete_data_modeling_schedules_activity,
-            team_inputs,
-            start_to_close_timeout=LIGHT_ACTIVITY_TIMEOUT,
-            heartbeat_timeout=LIGHT_HEARTBEAT_TIMEOUT,
-            retry_policy=SIDE_EFFECT_RETRY_POLICY,
-        )
+        # Best-effort, like the loop schedules below: a schedule we fail to delete is a nuisance the
+        # orphan sweeps clean up later, and never a reason to leave a team's data in place.
+        try:
+            await temporalio.workflow.execute_activity(
+                delete_data_modeling_schedules_activity,
+                team_inputs,
+                start_to_close_timeout=LIGHT_ACTIVITY_TIMEOUT,
+                heartbeat_timeout=LIGHT_HEARTBEAT_TIMEOUT,
+                retry_policy=SIDE_EFFECT_RETRY_POLICY,
+            )
+        except temporalio.exceptions.ActivityError:
+            temporalio.workflow.logger.warning(
+                "delete_data_modeling_schedules_activity failed; continuing team deletion without it",
+                exc_info=True,
+            )
         # Gated with `patched` so in-flight deletions from before this deploy don't fail replay on a
         # new command. Best-effort: a loop-schedule teardown failure must never wedge team deletion,
         # the schedules it misses are a nuisance, not a blocker (reconciliation/one-off GC catch up).
@@ -212,6 +219,27 @@ class DeleteOrganizationWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: DeleteOrganizationWorkflowInputs) -> None:
+        # Deprovision the org's managed warehouse (duckgres) first: the org-record cascade
+        # below destroys the DuckgresServer pointer, and without this the warehouse would
+        # survive the org fully alive — external writers keep ingesting, storage keeps being
+        # metered, and its credentials stay valid. Gated with `patched` so in-flight deletions
+        # from before this deploy don't fail replay on a new command. The rest of the deletion
+        # is CONDITIONAL on duckgres accepting the deprovision: proceeding past a failure
+        # would drop the only pointer to a live warehouse and foreclose any later automatic
+        # cleanup, so the activity retries indefinitely with capped backoff (like the bulky
+        # delete phases) — a persistent control-plane outage stalls this workflow visibly
+        # (ops-alertable) and the deletion completes once duckgres is reachable again.
+        # Orgs without a warehouse and already-torn-down warehouses succeed immediately
+        # inside the activity.
+        if temporalio.workflow.patched("deprovision-managed-warehouse"):
+            await temporalio.workflow.execute_activity(
+                deprovision_managed_warehouse_activity,
+                OrganizationRecordInputs(organization_id=inputs.organization_id, user_id=inputs.user_id),
+                start_to_close_timeout=LIGHT_ACTIVITY_TIMEOUT,
+                heartbeat_timeout=LIGHT_HEARTBEAT_TIMEOUT,
+                retry_policy=DELETE_RETRY_POLICY,
+            )
+
         if inputs.team_ids:
             await _delete_teams_data_child(
                 DeleteTeamsDataWorkflowInputs(team_ids=inputs.team_ids, user_id=inputs.user_id),

@@ -20,8 +20,8 @@ class TestSlackWorkspaceClaimsView(TestCase):
     """The receiver-side endpoint that the other region calls to ask "do you claim this workspace?".
 
     Authenticated with the same HMAC scheme Slack uses, against the Slack app signing secret that
-    both regions already share. The signed body covers `slack_team_id + kinds`, so a captured
-    signature cannot be replayed against a different workspace.
+    both regions already share. The signature covers every request filter, so a captured request
+    cannot be replayed against a different workspace or project.
     """
 
     def setUp(self):
@@ -32,13 +32,13 @@ class TestSlackWorkspaceClaimsView(TestCase):
 
     def _post(self, payload: dict, signing_secret: str | None = None) -> Any:
         body = json.dumps(payload).encode()
-        signature, ts = sign_slack_request(body, signing_secret or self.signing_secret)
+        signed = sign_slack_request(body, signing_secret or self.signing_secret)
         return self.client.post(
             "/slack/workspace/claims/",
             data=body,
             content_type="application/json",
-            HTTP_X_SLACK_SIGNATURE=signature,
-            HTTP_X_SLACK_REQUEST_TIMESTAMP=ts,
+            HTTP_X_SLACK_SIGNATURE=signed.signature,
+            HTTP_X_SLACK_REQUEST_TIMESTAMP=signed.timestamp,
         )
 
     def test_method_not_allowed(self):

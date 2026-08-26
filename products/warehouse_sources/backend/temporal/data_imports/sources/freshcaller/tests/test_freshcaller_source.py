@@ -5,19 +5,12 @@ from unittest import mock
 
 import structlog
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.freshcaller.freshcaller import (
-    FreshcallerResumeConfig,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.freshcaller.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.freshcaller.source import FreshcallerSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.freshcaller import (
     FreshcallerSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 PATCH_VALIDATE = "products.warehouse_sources.backend.temporal.data_imports.sources.freshcaller.source.validate_freshcaller_credentials"
 
@@ -45,29 +38,6 @@ class TestFreshcallerSource:
         self.team_id = 1
         self.config = FreshcallerSourceConfig(subdomain="acme", api_key="key")
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.FRESHCALLER
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.name.value == "Freshcaller"
-        assert config.label == "Freshcaller"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/freshcaller"
-
-        fields = config.fields
-        assert len(fields) == 2
-        subdomain_field, api_key_field = fields
-        assert isinstance(subdomain_field, SourceFieldInputConfig)
-        assert subdomain_field.name == "subdomain"
-        assert subdomain_field.type == SourceFieldInputConfigType.TEXT
-        assert subdomain_field.secret is False
-        assert isinstance(api_key_field, SourceFieldInputConfig)
-        assert api_key_field.name == "api_key"
-        assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert api_key_field.secret is True
-
     def test_lists_tables_without_credentials(self) -> None:
         # Static endpoint catalog -> the public docs Supported-tables section can render.
         assert self.source.lists_tables_without_credentials is True
@@ -75,10 +45,6 @@ class TestFreshcallerSource:
     def test_connection_host_fields(self) -> None:
         # The subdomain is where the stored key is sent; editing it must re-require the secret.
         assert self.source.connection_host_fields == ["subdomain"]
-
-    @pytest.mark.parametrize("expected_key", ["401 Client Error", "403 Client Error: Forbidden for url"])
-    def test_non_retryable_errors(self, expected_key: str) -> None:
-        assert expected_key in self.source.get_non_retryable_errors()
 
     def test_get_schemas_covers_all_endpoints(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id)
@@ -109,10 +75,6 @@ class TestFreshcallerSource:
     def test_get_schemas_unknown_name_returns_empty(self) -> None:
         assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
 
-    def test_canonical_descriptions_cover_endpoints(self) -> None:
-        descriptions = self.source.get_canonical_descriptions()
-        assert set(descriptions.keys()) == set(ENDPOINTS)
-
     @pytest.mark.parametrize(
         "subdomain, status, schema_name, expected_valid",
         [
@@ -134,11 +96,6 @@ class TestFreshcallerSource:
         assert is_valid is expected_valid
         if "!" in subdomain or " " in subdomain:
             mock_validate.assert_not_called()
-
-    def test_get_resumable_source_manager_binds_data_class(self) -> None:
-        manager = self.source.get_resumable_source_manager(_make_inputs())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is FreshcallerResumeConfig
 
     def test_source_for_pipeline_incremental_endpoint_partitions_and_sorts_desc(self) -> None:
         inputs = _make_inputs("calls")

@@ -10,12 +10,8 @@ from posthog.schema import (
     SourceFieldInputConfig,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.uppromote.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.uppromote.source import UpPromoteSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.uppromote.uppromote import UpPromoteResumeConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.uppromote.source"
 
@@ -43,9 +39,6 @@ class TestUpPromoteSource:
     def setup_method(self) -> None:
         self.source = UpPromoteSource()
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.UPPROMOTE
-
     def test_source_config_is_released_with_api_key_field(self) -> None:
         config = self.source.get_source_config
         assert config.name == SchemaExternalDataSourceType.UP_PROMOTE
@@ -63,14 +56,6 @@ class TestUpPromoteSource:
 
         webhook_fields = {f.name: f for f in config.webhookFields or []}
         assert set(webhook_fields.keys()) == {"signing_secret"}
-
-    def test_get_schemas_covers_every_endpoint(self) -> None:
-        schemas = self.source.get_schemas(MagicMock(), team_id=1)
-        assert [s.name for s in schemas] == list(ENDPOINTS)
-
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(MagicMock(), team_id=1, names=["affiliates", "referrals"])
-        assert [s.name for s in schemas] == ["affiliates", "referrals"]
 
     @parameterized.expand(
         [
@@ -104,11 +89,6 @@ class TestUpPromoteSource:
         mock_validate.assert_called_once_with("key-1")
         assert result is valid
         assert message == error
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(_make_inputs())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is UpPromoteResumeConfig
 
     def test_source_for_pipeline_plumbs_incremental_arguments(self) -> None:
         inputs = _make_inputs(
@@ -192,9 +172,3 @@ class TestUpPromoteSource:
         assert api_key == "key-1"
         assert webhook_url == "https://hooks.posthog.com/x"
         assert len(events) == 7
-
-    def test_non_retryable_errors_cover_auth_failures(self) -> None:
-        errors = self.source.get_non_retryable_errors()
-        assert any("401" in key for key in errors)
-        assert any("403" in key for key in errors)
-        assert all("aff-api.uppromote.com" in key for key in errors)

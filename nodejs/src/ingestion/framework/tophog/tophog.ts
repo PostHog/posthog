@@ -1,6 +1,7 @@
 import { TOPHOG_OUTPUT, TophogOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { logger } from '~/common/utils/logger'
+import { Component, Started } from '~/ingestion/common/scopes/component'
 
 import { AverageMetricTracker, MaxMetricTracker, SummingMetricTracker, Tracker } from './metric-tracker'
 
@@ -134,5 +135,24 @@ export class TopHog {
         yield* this.summingTrackers.values()
         yield* this.maxTrackers.values()
         yield* this.averageTrackers.values()
+    }
+}
+
+/**
+ * Lifecycle component for a consumer's TopHog registry: starts the flush loop
+ * with the scope, drains and stops it on teardown.
+ *
+ * TopHog is deliberately per-consumer, not process-shared: an instance bakes
+ * in the pipeline/lane labels its rows are stamped with and flushes through
+ * that consumer's outputs, and one server process can run several consumers
+ * off the same shared services scope.
+ */
+export class TopHogComponent implements Component<TopHog> {
+    constructor(private readonly config: TopHogRequiredConfig & Partial<TopHogOptionalConfig>) {}
+
+    start(): Promise<Started<TopHog>> {
+        const topHog = new TopHog(this.config)
+        topHog.start()
+        return Promise.resolve({ value: topHog, stop: () => topHog.stop() })
     }
 }

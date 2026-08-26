@@ -23,6 +23,46 @@ use tower::{Layer, Service};
 /// Header name for client identification in gRPC metadata.
 const CLIENT_NAME_HEADER: &str = "x-client-name";
 
+/// Metadata key marking a FAILED_PRECONDITION as a definitive semantic
+/// refusal rather than a routing-race rejection. The router bounces and
+/// retries bare FAILED_PRECONDITION (handoff fences, ownership races,
+/// person fences — conditions that clear in watch or healer time) and
+/// surfaces exhaustion as retriable UNAVAILABLE; a response carrying this
+/// key is a final answer about the request itself and must pass through
+/// to the caller unchanged, or a fail-closed refusal degrades into an
+/// infinite retry loop. The value is a short reason slug for
+/// observability.
+pub const SEMANTIC_REFUSAL_METADATA_KEY: &str = "x-semantic-refusal";
+
+/// Build a semantic refusal. The reason is a short slug used as a metric
+/// label.
+pub fn semantic_refusal(message: impl Into<String>, reason: &'static str) -> tonic::Status {
+    let mut status = tonic::Status::failed_precondition(message.into());
+    if let Ok(value) = reason.parse() {
+        status
+            .metadata_mut()
+            .insert(SEMANTIC_REFUSAL_METADATA_KEY, value);
+    }
+    status
+}
+
+/// Whether a status is a definitive semantic refusal rather than a
+/// transient failure a retry can outlive.
+pub fn is_semantic_refusal(status: &tonic::Status) -> bool {
+    status.code() == tonic::Code::FailedPrecondition
+        && status
+            .metadata()
+            .contains_key(SEMANTIC_REFUSAL_METADATA_KEY)
+}
+
+/// The refusal's reason slug, when present.
+pub fn semantic_refusal_reason(status: &tonic::Status) -> Option<&str> {
+    status
+        .metadata()
+        .get(SEMANTIC_REFUSAL_METADATA_KEY)
+        .and_then(|v| v.to_str().ok())
+}
+
 /// Header name for caller-tag attribution in gRPC metadata.
 /// Identifies the code path / feature area within a service that
 /// triggered the request (e.g., "api/feature-flags", "celery/cohort-calculation").
@@ -63,6 +103,44 @@ pub fn current_method_name() -> Arc<str> {
     METHOD_NAME
         .try_with(|m| m.clone())
         .unwrap_or_else(|_| Arc::from("unknown"))
+}
+
+/// Label for a failure carrying no gRPC status at all — a client-side
+/// error (a serialization failure, say) rather than anything a server
+/// said. Part of the same label vocabulary as [`code_as_str`], and
+/// deliberately distinct from its `unknown`, which is a real code a
+/// server can return.
+pub const NON_STATUS: &str = "non_status";
+
+/// Stable snake_case name for a gRPC status code, for use as a metric
+/// label. Codes are a fixed vocabulary, which is what makes them safe to
+/// label with; status *messages* never are. Shared so every service
+/// labels the same failure the same way — a dashboard comparing a
+/// client's view of an error against the router's should not have to
+/// translate between two spellings. Callers that classify errors which
+/// may carry no status at all complete the vocabulary with
+/// [`NON_STATUS`].
+pub fn code_as_str(code: tonic::Code) -> &'static str {
+    use tonic::Code;
+    match code {
+        Code::Ok => "ok",
+        Code::Cancelled => "cancelled",
+        Code::Unknown => "unknown",
+        Code::InvalidArgument => "invalid_argument",
+        Code::DeadlineExceeded => "deadline_exceeded",
+        Code::NotFound => "not_found",
+        Code::AlreadyExists => "already_exists",
+        Code::PermissionDenied => "permission_denied",
+        Code::ResourceExhausted => "resource_exhausted",
+        Code::FailedPrecondition => "failed_precondition",
+        Code::Aborted => "aborted",
+        Code::OutOfRange => "out_of_range",
+        Code::Unimplemented => "unimplemented",
+        Code::Internal => "internal",
+        Code::Unavailable => "unavailable",
+        Code::DataLoss => "data_loss",
+        Code::Unauthenticated => "unauthenticated",
+    }
 }
 
 const MAX_HEADER_TAG_LEN: usize = 128;

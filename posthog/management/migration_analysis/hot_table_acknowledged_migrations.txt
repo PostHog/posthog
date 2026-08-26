@@ -18,3 +18,6 @@
 # posthog.1234_team_some_genuinely_core_field
 posthog.1244_team_event_retention_months
 posthog.1262_organization_members_can_see_org_members
+posthog.1272_user_ui_configuration
+posthog.1284_organization_enforce_verified_domains
+posthog.1304_organization_has_active_subscription

@@ -3,17 +3,10 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
-    DesktopFileSystemCanvasPartialUpdateBody,
-    DesktopFileSystemCanvasPartialUpdateParams,
-    DesktopFileSystemCreateBody,
-    DesktopFileSystemInstructionsPartialUpdateBody,
-    DesktopFileSystemInstructionsPartialUpdateParams,
-    DesktopFileSystemInstructionsRetrieveParams,
-    DesktopFileSystemListQueryParams,
-    DesktopFileSystemRetrieveParams,
     OrganizationsProjectsPartialUpdateBody,
     OrganizationsProjectsPartialUpdateParams,
     OrganizationsProjectsRetrieveParams,
+    ProductEnablementCreateBody,
     UsersPartialUpdateBody,
     UsersPartialUpdateParams,
     UsersRetrieveParams,
@@ -22,181 +15,21 @@ import { castStringToInt } from '@/tools/cast-helpers'
 import { omitResponseFields, pickResponseFields } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const DesktopFileSystemCanvasPartialUpdateSchema = DesktopFileSystemCanvasPartialUpdateParams.omit({ project_id: true })
-    .extend(DesktopFileSystemCanvasPartialUpdateBody.shape)
-    .extend({
-        id: DesktopFileSystemCanvasPartialUpdateParams.shape['id'].describe(
-            'ID of the canvas (desktop "dashboard" item) whose code to publish.'
-        ),
-        code: DesktopFileSystemCanvasPartialUpdateBody.shape['code']
-            .unwrap()
-            .describe('The complete single-file React source for the canvas. Replaces the current code wholesale.'),
-        name: DesktopFileSystemCanvasPartialUpdateBody.shape['name'].describe(
-            'Optional new display name for the canvas. When set, renames the canvas (the leaf of its path) in place. Omit to leave the name unchanged.'
-        ),
-    })
+const ProductsEnableSchema = ProductEnablementCreateBody
 
-const desktopFileSystemCanvasPartialUpdate = (): ToolBase<
-    typeof DesktopFileSystemCanvasPartialUpdateSchema,
-    Schemas.FileSystem
-> => ({
-    name: 'desktop-file-system-canvas-partial-update',
-    schema: DesktopFileSystemCanvasPartialUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof DesktopFileSystemCanvasPartialUpdateSchema>) => {
+const productsEnable = (): ToolBase<typeof ProductsEnableSchema, Schemas.ProductEnablementResult> => ({
+    name: 'products-enable',
+    schema: ProductsEnableSchema,
+    handler: async (context: Context, params: z.infer<typeof ProductsEnableSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.code !== undefined) {
-            body['code'] = params.code
+        if (params.products !== undefined) {
+            body['products'] = params.products
         }
-        if (params.prompt !== undefined) {
-            body['prompt'] = params.prompt
-        }
-        if (params.name !== undefined) {
-            body['name'] = params.name
-        }
-        if (params.expected_current_version_id !== undefined) {
-            body['expected_current_version_id'] = params.expected_current_version_id
-        }
-        const result = await context.api.request<Schemas.FileSystem>({
-            method: 'PATCH',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/desktop_file_system/${encodeURIComponent(String(params.id))}/canvas/`,
-            body,
-        })
-        return result
-    },
-})
-
-const DesktopFileSystemCreateSchema = DesktopFileSystemCreateBody.extend({
-    path: DesktopFileSystemCreateBody.shape['path'].describe(
-        'Slash-delimited location of the channel, e.g. "Marketing/Q1 Campaigns". Intermediate folders are created automatically.'
-    ),
-    type: DesktopFileSystemCreateBody.shape['type'].describe('Use "folder" to create a channel.'),
-})
-
-const desktopFileSystemCreate = (): ToolBase<typeof DesktopFileSystemCreateSchema, Schemas.FileSystem> => ({
-    name: 'desktop-file-system-create',
-    schema: DesktopFileSystemCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof DesktopFileSystemCreateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.path !== undefined) {
-            body['path'] = params.path
-        }
-        if (params.type !== undefined) {
-            body['type'] = params.type
-        }
-        if (params.ref !== undefined) {
-            body['ref'] = params.ref
-        }
-        if (params.href !== undefined) {
-            body['href'] = params.href
-        }
-        if (params.meta !== undefined) {
-            body['meta'] = params.meta
-        }
-        if (params.shortcut !== undefined) {
-            body['shortcut'] = params.shortcut
-        }
-        const result = await context.api.request<Schemas.FileSystem>({
+        const result = await context.api.request<Schemas.ProductEnablementResult>({
             method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/desktop_file_system/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/product_enablement/`,
             body,
-        })
-        return result
-    },
-})
-
-const DesktopFileSystemInstructionsPartialUpdateSchema = DesktopFileSystemInstructionsPartialUpdateParams.omit({
-    project_id: true,
-})
-    .extend(DesktopFileSystemInstructionsPartialUpdateBody.shape)
-    .extend({
-        id: DesktopFileSystemInstructionsPartialUpdateParams.shape['id'].describe(
-            'ID of the channel (desktop folder) whose instructions to update.'
-        ),
-        content: DesktopFileSystemInstructionsPartialUpdateBody.shape['content'].describe(
-            "Full markdown instructions to publish. Pass an empty string to erase the channel's instructions while keeping the instruction set."
-        ),
-    })
-
-const desktopFileSystemInstructionsPartialUpdate = (): ToolBase<
-    typeof DesktopFileSystemInstructionsPartialUpdateSchema,
-    Schemas.FolderInstructions
-> => ({
-    name: 'desktop-file-system-instructions-partial-update',
-    schema: DesktopFileSystemInstructionsPartialUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof DesktopFileSystemInstructionsPartialUpdateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.content !== undefined) {
-            body['content'] = params.content
-        }
-        if (params.base_version !== undefined) {
-            body['base_version'] = params.base_version
-        }
-        const result = await context.api.request<Schemas.FolderInstructions>({
-            method: 'PATCH',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/desktop_file_system/${encodeURIComponent(String(params.id))}/instructions/`,
-            body,
-        })
-        return result
-    },
-})
-
-const DesktopFileSystemInstructionsRetrieveSchema = DesktopFileSystemInstructionsRetrieveParams.omit({
-    project_id: true,
-}).extend({
-    id: DesktopFileSystemInstructionsRetrieveParams.shape['id'].describe(
-        'ID of the channel (desktop folder) whose instructions to fetch.'
-    ),
-})
-
-const desktopFileSystemInstructionsRetrieve = (): ToolBase<
-    typeof DesktopFileSystemInstructionsRetrieveSchema,
-    Schemas.FolderInstructions
-> => ({
-    name: 'desktop-file-system-instructions-retrieve',
-    schema: DesktopFileSystemInstructionsRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof DesktopFileSystemInstructionsRetrieveSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.FolderInstructions>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/desktop_file_system/${encodeURIComponent(String(params.id))}/instructions/`,
-        })
-        return result
-    },
-})
-
-const DesktopFileSystemListSchema = DesktopFileSystemListQueryParams
-
-const desktopFileSystemList = (): ToolBase<typeof DesktopFileSystemListSchema, Schemas.PaginatedFileSystemList> => ({
-    name: 'desktop-file-system-list',
-    schema: DesktopFileSystemListSchema,
-    handler: async (context: Context, params: z.infer<typeof DesktopFileSystemListSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedFileSystemList>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/desktop_file_system/`,
-            query: {
-                limit: params.limit,
-                offset: params.offset,
-                search: params.search,
-            },
-        })
-        return result
-    },
-})
-
-const DesktopFileSystemRetrieveSchema = DesktopFileSystemRetrieveParams.omit({ project_id: true })
-
-const desktopFileSystemRetrieve = (): ToolBase<typeof DesktopFileSystemRetrieveSchema, Schemas.FileSystem> => ({
-    name: 'desktop-file-system-retrieve',
-    schema: DesktopFileSystemRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof DesktopFileSystemRetrieveSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.FileSystem>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/desktop_file_system/${encodeURIComponent(String(params.id))}/`,
         })
         return result
     },
@@ -586,6 +419,9 @@ const userSettingsUpdate = (): ToolBase<typeof UserSettingsUpdateSchema, Schemas
         if (params.hide_mcp_hints !== undefined) {
             body['hide_mcp_hints'] = params.hide_mcp_hints
         }
+        if (params.ui_configuration !== undefined) {
+            body['ui_configuration'] = params.ui_configuration
+        }
         const result = await context.api.request<Schemas.User>({
             method: 'PATCH',
             path: `/api/users/${encodeURIComponent(String(params.uuid))}/`,
@@ -596,12 +432,7 @@ const userSettingsUpdate = (): ToolBase<typeof UserSettingsUpdateSchema, Schemas
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'desktop-file-system-canvas-partial-update': desktopFileSystemCanvasPartialUpdate,
-    'desktop-file-system-create': desktopFileSystemCreate,
-    'desktop-file-system-instructions-partial-update': desktopFileSystemInstructionsPartialUpdate,
-    'desktop-file-system-instructions-retrieve': desktopFileSystemInstructionsRetrieve,
-    'desktop-file-system-list': desktopFileSystemList,
-    'desktop-file-system-retrieve': desktopFileSystemRetrieve,
+    'products-enable': productsEnable,
     'project-get': projectGet,
     'project-settings-update': projectSettingsUpdate,
     'user-get': userGet,

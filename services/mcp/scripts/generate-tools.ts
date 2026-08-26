@@ -623,6 +623,13 @@ function composeToolSchema(
                 // mapping is tracked in renamedFields for body-building.
                 const alias = renameMap.get(name)
                 const fieldKey = alias ?? name
+                // A body field that shares a path param's name (e.g. PATCH /metrics/{name}/
+                // with a writable `name`) collapses into one input, because the body part is
+                // merged over the path part. Renaming it separates the two, but only if the
+                // body copy is dropped here — otherwise it still overwrites the path param.
+                if (alias && pathParamNames.includes(name)) {
+                    bodyOmitFields.add(name)
+                }
                 bodyFieldNames.push(fieldKey)
                 if (bodyVariantSpecific.has(name)) {
                     variantSpecificBodyFieldNames.add(fieldKey)
@@ -776,7 +783,12 @@ function composeToolSchema(
         const bodyImport = `${pascal}Body`
         for (const [original, alias] of renameMap) {
             renamedFields[alias] = original
-            schemaExpr += `\n    .omit({ '${original}': true })`
+            // When the original is also a path param, the body copy was already dropped above
+            // and the surviving key addresses the resource, so omitting it here would leave the
+            // handler with no value for the URL.
+            if (!pathParamNames.includes(original)) {
+                schemaExpr += `\n    .omit({ '${original}': true })`
+            }
             schemaExpr += `\n    .extend({ ${alias}: ${bodyImport}.shape['${original}'] })`
         }
     }
@@ -945,6 +957,11 @@ function buildEnrichment(config: ToolConfig, category: CategoryConfig, resultVar
             : notedExpression
     }
 
+    // Joiner between url_prefix and the enrich_url prefix: append `/` for path-segment enrichments,
+    // but not when the template continues with a query string (e.g. '?tab=alerts&alert_id={id}')
+    // or fragment (e.g. '#runs').
+    const joinerFor = (prefix: string): string => (/^[?#]/.test(prefix) ? '' : '/')
+
     if (config.list && config.enrich_url) {
         const { prefix, field, suffix, source } = parseEnrichUrl(config.enrich_url)
         // For list endpoints, 'params.x' is not meaningful (items come from the response
@@ -954,10 +971,11 @@ function buildEnrichment(config: ToolConfig, category: CategoryConfig, resultVar
                 `enrich_url '{params.${field}}' is not supported on list tools — list items are enriched from the response array`
             )
         }
+        const joiner = joinerFor(prefix)
         const enriched = [
             `await withPostHogUrl(context, {`,
             `            ...${resultVar},`,
-            `            results: await Promise.all((${resultVar}.results ?? []).map((item) => withPostHogUrl(context, item, \`${baseUrl}/${prefix}\${item.${field}}${suffix}\`))),`,
+            `            results: await Promise.all((${resultVar}.results ?? []).map((item) => withPostHogUrl(context, item, \`${baseUrl}${joiner}${prefix}\${item.${field}}${suffix}\`))),`,
             `        }, '${baseUrl}')`,
         ].join('\n')
         return `        return ${wrapped(enriched)}\n`
@@ -970,8 +988,9 @@ function buildEnrichment(config: ToolConfig, category: CategoryConfig, resultVar
     if (config.enrich_url) {
         const { prefix, field, suffix, source } = parseEnrichUrl(config.enrich_url)
         const sourceExpr = source === 'params' ? `params.${field}` : `${resultVar}.${field}`
+        const joiner = joinerFor(prefix)
 
-        return `        return ${wrapped(`await withPostHogUrl(context, ${resultVar}, \`${baseUrl}/${prefix}\${${sourceExpr}}${suffix}\`)`)}\n`
+        return `        return ${wrapped(`await withPostHogUrl(context, ${resultVar}, \`${baseUrl}${joiner}${prefix}\${${sourceExpr}}${suffix}\`)`)}\n`
     }
 
     return `        return ${wrapped(resultVar)}\n`
@@ -1412,6 +1431,7 @@ ${scopeResolveBlock}${prepareFallbackBlock}        return await prepareConfirmed
             actionLabel: ${JSON.stringify(actionLabel)},
             messageTemplate: ${JSON.stringify(messageTemplate)},
             codec: __runtime.codec,
+            stash: __runtime.stash,
 ${prepareScopeField}        })
 `
 
@@ -1424,6 +1444,7 @@ ${scopeResolveBlock}        const __guard = await executeConfirmedAction<z.infer
             purpose: ${JSON.stringify(toolName)},
             codec: __runtime.codec,
             ledger: __runtime.ledger,
+            stash: __runtime.stash,
 ${executeScopeField}        })
         if (!__guard.ok) {
             return __guard.result as never
@@ -1789,6 +1810,12 @@ function generateCategoryFile(
                 const configParts = [`name: '${name}'`, `schema: ${schemaVarName}`, `kind: '${kind}'`]
                 if (wrapperConfig.ui_resource_uri) {
                     configParts.push(`uiResourceUri: '${wrapperConfig.ui_resource_uri}'`)
+                }
+                // Unlike the definitions-file branch, only an explicit `use_optimized_output` emits a
+                // format here — absent keeps the factory default, so pre-existing product wrappers
+                // don't silently change encoding.
+                if (wrapperConfig.use_optimized_output !== undefined) {
+                    configParts.push(`outputFormat: '${wrapperConfig.use_optimized_output ? 'optimized' : 'json'}'`)
                 }
                 if (wrapperConfig.url_prefix) {
                     configParts.push(`urlPrefix: '${wrapperConfig.url_prefix}'`)

@@ -30,10 +30,15 @@ Each cluster event contains:
 
 - `$ai_clustering_run_id` — unique run identifier (format: `<team_id>_<level>_<YYYYMMDD>_<HHMMSS>[_<job_id>]`)
 - `$ai_clustering_level` — `"trace"`, `"generation"`, or `"evaluation"`
-- `$ai_window_start` / `$ai_window_end` — time window analyzed
+- `$ai_window_start` / `$ai_window_end` — time window of the data that was analyzed
 - `$ai_total_items_analyzed` — number of traces, generations, or evaluations processed
 - `$ai_clusters` — JSON array of cluster objects
 - `$ai_clustering_params` — algorithm parameters used
+
+The analyzed window closes when a run starts, and the cluster event lands once the run finishes.
+So the cluster event's own `timestamp` is always **after** `$ai_window_end`, by anything from seconds to hours.
+Use the window only to bound the traces, generations, and evaluations that were analyzed.
+To find the cluster event itself, filter on `$ai_clustering_run_id` with a plain recent-time bound.
 
 ### Cluster object shape (inside `$ai_clusters`)
 
@@ -115,12 +120,15 @@ SELECT
     timestamp
 FROM events
 WHERE event IN ('$ai_trace_clusters', '$ai_generation_clusters', '$ai_evaluation_clusters')
-    AND timestamp >= parseDateTimeBestEffort('<window_start>')
-    AND timestamp <= parseDateTimeBestEffort('<window_end>')
+    AND timestamp >= now() - INTERVAL 14 DAY
     AND toString(properties.$ai_clustering_run_id) = '<run_id>'
 ORDER BY timestamp DESC
 LIMIT 1
 ```
+
+Keep the lookback bound wide enough to cover the `timestamp` Step 1 reported for the run.
+Never bound this query with `$ai_window_start` / `$ai_window_end`.
+The cluster event is emitted after the window closes, so those bounds return zero rows.
 
 The `clusters` field is a JSON array. Parse it to see cluster titles, sizes, descriptions, optional `metrics`, and each cluster's `traces` map.
 
@@ -275,6 +283,7 @@ Always surface these links so the user can verify visually in the PostHog UI.
 ## Tips
 
 - Always set a time range in SQL queries — cluster events without time bounds are slow
+- Bound a search for a cluster event by when it was emitted, not by the window it analyzed — a run's `$ai_window_end` is earlier than the event's own `timestamp`
 - Start with run listing to orient, then drill into specific clusters
 - Cluster titles and descriptions are AI-generated summaries — verify by inspecting traces
 - The noise cluster (`cluster_id: -1`) contains outliers that didn't fit any pattern

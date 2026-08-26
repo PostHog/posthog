@@ -1,44 +1,19 @@
-# Enforces the invariant that ALL writes to an alert configuration's `state` and
-# `consecutive_failures` go through the product's alert state machine module.
-#
-# The decision logic is shared across products in common/alerting/state_machine.py;
-# each product owns one module that is the single legal mutator of its alert model:
-#   - products/logs/backend/alert_state_machine.py (apply_outcome)
-#
-# There are dedicated helpers for every legal control-plane transition
-# (apply_user_reset, apply_enable, apply_disable, apply_snooze, apply_unsnooze,
-# apply_threshold_change), and the check-driven path goes through evaluate_alert_check.
-#
-# If you need a new transition, add a helper in common/alerting/state_machine.py (or
-# the product's state machine module) rather than bypassing this rule — the point is
-# to keep the legal-transitions table readable in one place.
-#
-# When a new product adopts the shared machine, add its backend to paths.include and
-# its state machine module + tests to paths.exclude below.
+# Products decide whether an alert is triggered. Shared lifecycle code owns state
+# transitions, notification decisions, snoozing, and enable/disable behavior.
 rules:
-    - id: alert-state-direct-mutation
+    - id: logs-alert-state-direct-mutation
       patterns:
           - pattern-either:
                 - pattern: $ALERT.state = $VALUE
                 - pattern: $ALERT.consecutive_failures = $VALUE
+                - pattern: $ALERT.enabled = $VALUE
+                - pattern: $QUERY.update(..., state=$VALUE, ...)
+                - pattern: $QUERY.update(..., consecutive_failures=$VALUE, ...)
+                - pattern: $QUERY.update(..., enabled=$VALUE, ...)
       message: |
-          Direct mutation of an alert configuration's .state / .consecutive_failures
-          bypasses the product's alert state machine module, which is the single
-          source of truth for alert state transitions.
-
-          Route state changes through the state machine instead, e.g. for logs:
-
-              from products.logs.backend.alert_state_machine import (
-                  apply_outcome, apply_user_reset, apply_disable, ...
-              )
-
-              outcome = apply_user_reset(alert.to_snapshot())
-              update_fields = apply_outcome(alert, outcome)
-              alert.save(update_fields=update_fields)
-
-          If you need a new transition type, add a helper in
-          common/alerting/state_machine.py (e.g. apply_<your_action>) and a
-          ControlPlaneOutcome return — do not mutate these fields directly.
+          Direct mutation of a logs alert's lifecycle fields bypasses its state
+          machine adapter. Route the change through
+          products.logs.backend.alert_state_machine.
       languages: [python]
       severity: ERROR
       metadata:
@@ -48,9 +23,66 @@ rules:
       paths:
           include:
               - '/products/logs/backend/**/*.py'
+              - '/.semgrep/rules/security/tests/logs-alert-state-must-go-through-state-machine.py'
           exclude:
-              # The state machine itself — apply_outcome is the one legal mutator.
               - '/products/logs/backend/alert_state_machine.py'
-              # Test files — fixtures and parametrized snapshots set state directly.
               - '/products/logs/backend/test/**'
               - '/products/logs/backend/**/test_*.py'
+
+    - id: billing-alert-state-direct-mutation
+      patterns:
+          - pattern-either:
+                - pattern: $ALERT.state = $VALUE
+                - pattern: $ALERT.consecutive_failures = $VALUE
+                - pattern: $ALERT.enabled = $VALUE
+                - pattern: $QUERY.update(..., state=$VALUE, ...)
+                - pattern: $QUERY.update(..., consecutive_failures=$VALUE, ...)
+                - pattern: $QUERY.update(..., enabled=$VALUE, ...)
+      message: |
+          Direct mutation of a billing alert's lifecycle fields bypasses its state
+          machine adapter. Route the change through
+          products.billing_alerts.backend.logic.state_machine.
+      languages: [python]
+      severity: ERROR
+      metadata:
+          category: correctness
+          subcategory: audit
+          confidence: HIGH
+      paths:
+          include:
+              - '/products/billing_alerts/backend/**/*.py'
+          exclude:
+              - '/products/billing_alerts/backend/logic/state_machine.py'
+              - '/products/billing_alerts/backend/test/**'
+              - '/products/billing_alerts/backend/**/test_*.py'
+
+    - id: insight-alert-state-direct-mutation
+      patterns:
+          - pattern-either:
+                - pattern: $ALERT.state = $VALUE
+                - pattern: $ALERT.enabled = $VALUE
+                - pattern: $QUERY.update(..., state=$VALUE, ...)
+                - pattern: $QUERY.update(..., enabled=$VALUE, ...)
+      message: |
+          Direct mutation of an insight alert's lifecycle fields bypasses its state
+          machine adapter. Route the change through
+          products.alerts.backend.insight_alert_state_machine.
+      languages: [python]
+      severity: ERROR
+      metadata:
+          category: correctness
+          subcategory: audit
+          confidence: HIGH
+      paths:
+          include:
+              - '/products/alerts/backend/api/alert.py'
+              - '/products/alerts/backend/facade/api.py'
+              - '/products/alerts/backend/max_tools.py'
+              - '/products/alerts/backend/models/alert.py'
+              - '/posthog/tasks/alerts/**/*.py'
+              - '/posthog/temporal/alerts/**/*.py'
+              - '/.semgrep/rules/security/tests/insight-alert-state-must-go-through-state-machine.py'
+          exclude:
+              - '/products/alerts/backend/api/test/**'
+              - '/products/alerts/backend/**/test_*.py'
+              - '/posthog/tasks/alerts/test/**'

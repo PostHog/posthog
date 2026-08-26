@@ -8,6 +8,13 @@ import structlog
 from litellm import model_cost_map_url
 from litellm.litellm_core_utils.get_model_cost_map import get_model_cost_map
 
+from llm_gateway.baseten import (
+    BASETEN_DEEPSEEK_METRIC_MODEL,
+    BASETEN_DEEPSEEK_MODEL,
+    BASETEN_GLM53_METRIC_MODEL,
+    BASETEN_GLM53_MODEL,
+    BASETEN_METRIC_MODEL,
+)
 from llm_gateway.rate_limiting.model_cost_overrides import apply_model_cost_overrides
 
 logger = structlog.get_logger(__name__)
@@ -20,22 +27,29 @@ CACHE_TTL_SECONDS = 300
 # CF entries: alias to litellm's native `cloudflare/@cf/...` price where it carries one (CF's actual
 # resold rate). For models litellm only prices under the vendor's own key, alias to that direct rate
 # as a proxy — not CF's resold rate, and may drift if CF adds markup or flat-rate billing.
-COST_ALIASES: dict[str, str] = {
-    "openai/@cf/moonshotai/kimi-k2.6": "moonshot/kimi-k2.6",
-    "openai/@cf/zai-org/glm-5.2": "cloudflare/@cf/zai-org/glm-5.2",
-    # Modal serves the same GLM checkpoint (MODAL_MODEL_MAP); billed at the CF rate until trued
+COST_ALIASES: dict[str, tuple[str, str]] = {
+    "openai/@cf/moonshotai/kimi-k2.6": ("moonshot/kimi-k2.6", "openai"),
+    "openai/@cf/zai-org/glm-5.2": ("cloudflare/@cf/zai-org/glm-5.2", "openai"),
+    # Modal serves the same GLM checkpoint; billed at the CF rate until trued
     # up against Modal's GPU-time invoices.
-    "openai/zai-org/GLM-5.2-FP8": "cloudflare/@cf/zai-org/glm-5.2",
+    "openai/zai-org/GLM-5.2-FP8": ("cloudflare/@cf/zai-org/glm-5.2", "openai"),
+    "openai/zai-org/GLM-5.2": (BASETEN_METRIC_MODEL, "openai"),
+    f"openai/{BASETEN_DEEPSEEK_MODEL}": (BASETEN_DEEPSEEK_METRIC_MODEL, "openai"),
+    f"openai/{BASETEN_GLM53_MODEL}": (BASETEN_GLM53_METRIC_MODEL, "openai"),
+    "openai/moonshotai/kimi-k3": ("moonshotai/kimi-k3", "openai"),
 }
 
-# For aliased models, litellm's reported (provider, model) labels don't match what the user asked
-# for. Map the litellm-view model key → the user-facing (provider, model) pair to emit in metrics.
-# Separate from COST_ALIASES: cost lookups key on litellm.model_cost, metric labels on user intent.
+# Map LiteLLM's provider and model labels to stable telemetry identifiers. This stays separate from
+# COST_ALIASES because cost lookups and telemetry have different canonical names.
 ALIAS_METRIC_LABELS: dict[str, tuple[str, str]] = {
     "openai/@cf/moonshotai/kimi-k2.6": ("cloudflare", "@cf/moonshotai/kimi-k2.6"),
     "openai/@cf/zai-org/glm-5.2": ("cloudflare", "@cf/zai-org/glm-5.2"),
     # Same public model id as the CF entry so dashboards slice one model across both backends.
     "openai/zai-org/GLM-5.2-FP8": ("modal", "@cf/zai-org/glm-5.2"),
+    "openai/zai-org/GLM-5.2": ("baseten", BASETEN_METRIC_MODEL),
+    f"openai/{BASETEN_DEEPSEEK_MODEL}": ("baseten", BASETEN_DEEPSEEK_METRIC_MODEL),
+    f"openai/{BASETEN_GLM53_MODEL}": ("baseten", BASETEN_GLM53_METRIC_MODEL),
+    "openai/moonshotai/kimi-k3": ("modal", "moonshotai/kimi-k3"),
 }
 
 
@@ -51,12 +65,11 @@ def normalize_metric_labels(litellm_model: str, litellm_provider: str) -> tuple[
 
 def apply_cost_aliases(model_cost: dict[str, Any]) -> None:
     """Add alias keys for non-canonical provider routings. Prefer `set_litellm_model_cost`."""
-    for alias, canonical in COST_ALIASES.items():
+    for alias, (canonical, provider) in COST_ALIASES.items():
         if alias in model_cost:
             continue
         if canonical in model_cost:
-            # Shallow copy so a future in-place mutation under one key doesn't bleed into the other.
-            model_cost[alias] = dict(model_cost[canonical])
+            model_cost[alias] = {**model_cost[canonical], "litellm_provider": provider}
         else:
             logger.warning("cost_alias_canonical_missing", alias=alias, canonical=canonical)
 

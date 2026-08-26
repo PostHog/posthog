@@ -2,7 +2,10 @@ from typing import cast
 
 from posthog.test.base import BaseTest
 
+from parameterized import parameterized
+
 from posthog.hogql import ast
+from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import to_printed_hogql
@@ -15,6 +18,24 @@ class TestParser(BaseTest):
     def test_find_placeholders(self):
         expr = parse_expr("{foo} and {bar.bah}")
         self.assertEqual(sorted(find_placeholders(expr).placeholder_fields), sorted([["foo"], ["bar", "bah"]]))
+
+    def test_find_placeholders_bound_filters_call(self):
+        # {filters(...)} must count as filters usage; classifying it as a generic expression
+        # placeholder would send it to the Hog VM, which has no `filters` function
+        expr = parse_expr("{filters(a AS timestamp, b AS 'plan')} and {foo} and {1 + 2}")
+        finder = find_placeholders(expr)
+        self.assertTrue(finder.has_filters)
+        self.assertEqual(finder.placeholder_fields, [["foo"]])
+        self.assertEqual(len(finder.placeholder_expressions), 1)
+
+    def test_find_placeholders_dotted_filters_calls(self):
+        # The dotted call forms must count as filters usage too; the Hog VM has no `filters` global.
+        # A dotted call on anything else stays an expression placeholder.
+        expr = parse_expr("{filters.interval('week')} and {filters.breakdown(a AS 'plan')} and {other.call(1)}")
+        finder = find_placeholders(expr)
+        self.assertTrue(finder.has_filters)
+        self.assertEqual(finder.placeholder_fields, [])
+        self.assertEqual(len(finder.placeholder_expressions), 1)
 
     def test_replace_placeholders_simple(self):
         expr = clear_locations(parse_expr("{foo}"))
@@ -202,3 +223,21 @@ class TestBytecodePlaceholders(BaseTest):
         finder = find_placeholders(expr)
         self.assertTrue(len(finder.placeholder_expressions) > 0)
         self.assertEqual(finder.placeholder_fields, [])
+
+    @parameterized.expand(
+        [
+            ("sleep_direct", "{sleep(600)}", "sleep"),
+            ("run_direct", "{run('SELECT 1')}", "run"),
+            ("nested_in_another_call", "{concat(sleep(600))}", "sleep"),
+            # Indirect invocations bypass the static name check but must still be rejected at VM
+            # dispatch, otherwise the blocking function runs on the request thread.
+            ("sleep_expression_call", "{(sleep)(600)}", "sleep"),
+            ("run_expression_call", "{(run)('SELECT 1')}", "run"),
+            ("sleep_bound_to_local", "{(() -> {let f := sleep; return f(600)})()}", "sleep"),
+        ]
+    )
+    def test_replace_placeholders_rejects_blocking_functions(self, _name, query, fn_name):
+        expr = parse_expr(query)
+        with self.assertRaises((QueryError, HogVMException)) as context:
+            replace_placeholders(expr, {})
+        self.assertIn(fn_name, str(context.exception))

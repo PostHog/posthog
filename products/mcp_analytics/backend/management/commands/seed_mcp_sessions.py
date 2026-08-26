@@ -407,6 +407,7 @@ class Command(BaseCommand):
                 # Pair some failures with an $exception event so the tool detail
                 # "Failures" table (which reads $exception events) has data.
                 if is_error and rng.random() < EXCEPTION_PAIR_PROBABILITY:
+                    exception_message = rng.choice(EXCEPTION_MESSAGES)
                     create_event(
                         event_uuid=uuid.uuid4(),
                         event="$exception",
@@ -420,7 +421,15 @@ class Command(BaseCommand):
                             "$session_id": session_id,
                             "$mcp_tool_name": tool_name,
                             "$mcp_client_name": client_name,
-                            "$exception_message": rng.choice(EXCEPTION_MESSAGES),
+                            "$exception_types": ["MCPToolError"],
+                            "$exception_values": [exception_message],
+                            "$exception_list": [
+                                {
+                                    "type": "MCPToolError",
+                                    "value": exception_message,
+                                    "mechanism": {"handled": True},
+                                }
+                            ],
                         },
                     )
                     total_events += 1

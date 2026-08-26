@@ -7,10 +7,11 @@ from pydantic import BaseModel, Field
 
 from posthog.schema import AssistantTool
 
-from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.scopes import APIScopeObject
 from posthog.sync import database_sync_to_async
 
+from products.access_control.backend.facade.user_access_control import AccessControlLevel
+from products.skills.backend.api.skill_serializers import RESERVED_SKILL_NAMES
 from products.skills.backend.api.skill_services import (
     LLMSkillDuplicateNameConflictError,
     LLMSkillEditError,
@@ -110,7 +111,8 @@ UPDATE_SKILL_DESCRIPTION = """Publish a new version of an existing skill. Any fi
 # Other writable fields
 - `description`, `license`, `compatibility`, `allowed_tools`, `metadata`.
 - `file_edits`: per-file find/replace patches. Each entry targets one existing file by `path` with its own `edits`
-  list. Files not mentioned are carried forward unchanged. Cannot add, remove, or rename files."""
+  list. Files not mentioned are carried forward unchanged. Cannot add, remove, or rename files.
+- `version_description`: a short note on what changed and why — it is shown in the skill's version history."""
 
 
 ARCHIVE_SKILL_DESCRIPTION = """Archive every active version of a skill by name. This hides the skill from default lists and cannot be
@@ -193,6 +195,10 @@ class UpdateSkillArgs(BaseModel):
             "Per-file find/replace edits. Each entry: {path, edits: [{old, new}, ...]}. "
             "Files not mentioned are carried forward unchanged. Cannot add, remove, or rename files."
         ),
+    )
+    version_description: str | None = Field(
+        default=None,
+        description="Optional note (max 400 chars) on what changed and why. Shown in the skill's version history.",
     )
 
 
@@ -383,6 +389,11 @@ class CreateLLMSkillTool(MaxTool):
         metadata: dict[str, Any] | None = None,
         files: list[dict[str, str]] | None = None,
     ) -> tuple[str, None]:
+        # The tool calls create_skill directly, which skips the serializer's name validation, so a
+        # reserved name would persist a skill whose /skills/<name> page is taken by a tab route.
+        if name.lower() in RESERVED_SKILL_NAMES:
+            raise MaxToolFatalError(f"'{name}' is a reserved name and cannot be used for a skill.")
+
         try:
             skill = await database_sync_to_async(create_skill)(
                 self._team,
@@ -429,6 +440,7 @@ class UpdateLLMSkillTool(MaxTool):
         allowed_tools: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
         file_edits: list[dict[str, Any]] | None = None,
+        version_description: str | None = None,
     ) -> tuple[str, None]:
         if body is not None and edits is not None:
             raise MaxToolFatalError("Pass either `body` or `edits`, not both.")
@@ -448,6 +460,7 @@ class UpdateLLMSkillTool(MaxTool):
                 files=None,
                 file_edits=file_edits,
                 base_version=base_version,
+                version_description=(version_description or "").strip() or None,
             )
         except (
             LLMSkillNotFoundError,

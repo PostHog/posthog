@@ -30,7 +30,11 @@ from products.replay_vision.backend.models.vision_action import (
     VisionActionRun,
     VisionActionRunStatus,
 )
-from products.replay_vision.backend.observation_formatting import describe_output
+from products.replay_vision.backend.observation_formatting import (
+    EVENT_ID_CITATION_RE,
+    SEARCH_SNIPPET_LIMIT,
+    describe_output,
+)
 from products.replay_vision.backend.scanner_access import readable_scanner_ids
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.vision_actions.synthesis import (
@@ -76,7 +80,14 @@ def _evaluate(inputs: EvaluateAlertInputs) -> EvaluateAlertResult:
     # Idempotency: a retry after the message was already persisted must re-report FIRED, not re-evaluate
     # against a window that may have shifted.
     if run.synthesized_markdown:
-        return EvaluateAlertResult(status=AlertStatus.FIRED, observation_count=run.observation_count)
+        # `_persist_recovered` writes a message too, so the `recovered` marker is what tells the two
+        # apart. Without it a retried recovery re-reports FIRED and delivers the notification the
+        # RECOVERED branch exists to suppress.
+        recovered = bool((run.output or {}).get("recovered"))
+        return EvaluateAlertResult(
+            status=AlertStatus.RECOVERED if recovered else AlertStatus.FIRED,
+            observation_count=run.observation_count,
+        )
 
     selection: dict[str, Any] = action.selection or {}
     requested_scanner_ids = selection.get("scanner_ids") or ([str(action.scanner_id)] if action.scanner_id else [])
@@ -367,15 +378,35 @@ def _alert_markdown(
             f"{matched_count} {noun} matched in this window.",
         ]
 
+    include_reasoning = bool(alert_config.get("include_reasoning"))
     examples: list[str] = []
     for position, (_, scanner_result, created_at) in enumerate(rows[:EXAMPLE_LINES], start=1):
         output = scanner_result.get("model_output") if isinstance(scanner_result, dict) else None
         if not isinstance(output, dict):
             continue
         descriptor = describe_output(output)
-        if descriptor:
-            examples.append(f"- ({created_at:%Y-%m-%d}) {descriptor} [obs {position}]")
+        reasoning = _reasoning_snippet(output) if include_reasoning else None
+        # A line needs at least one of the two to be worth emitting. When both are present the
+        # reasoning follows the descriptor; the `[obs N]` marker always trails so the citation
+        # resolves the same way whether or not reasoning was requested.
+        parts = [p for p in (descriptor, reasoning) if p]
+        if parts:
+            examples.append(f"- ({created_at:%Y-%m-%d}) {' — '.join(parts)} [obs {position}]")
     if examples:
         lines.extend(["", "Most recent matches:", *examples])
 
     return "\n".join(lines)
+
+
+def _reasoning_snippet(output: dict[str, Any]) -> str | None:
+    """The scanner's free-text reasoning for one observation, collapsed to a single line and length-capped.
+
+    Recording-derived untrusted text, so it gets the same treatment as the summarizer feed: event-id
+    citations stripped and whitespace collapsed to one line, keeping it from forging extra list items or
+    header lines. `strip_external_links_markdown` runs over the whole message afterwards, defanging any
+    link/image markdown this carries. Falls back to `summary` for scanner types that emit that instead."""
+    text = output.get("reasoning") or output.get("summary")
+    if not isinstance(text, str) or not text.strip():
+        return None
+    clean = re.sub(r"\s+", " ", EVENT_ID_CITATION_RE.sub("", text)).strip()[:SEARCH_SNIPPET_LIMIT]
+    return clean or None

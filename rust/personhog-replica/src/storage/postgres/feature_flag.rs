@@ -71,8 +71,8 @@ impl FeatureFlagStorage for PostgresStorage {
                 FROM posthog_persondistinctid p
                 LEFT JOIN posthog_featureflaghashkeyoverride existing
                     ON existing.person_id = p.person_id AND existing.team_id = p.team_id
-                WHERE p.team_id = $1 AND p.distinct_id = ANY($2)
-                    AND EXISTS (SELECT 1 FROM posthog_person WHERE id = p.person_id AND team_id = p.team_id)
+                WHERE p.team_id = $1 AND p.distinct_id = ANY($2) AND p.is_deleted = false
+                    AND EXISTS (SELECT 1 FROM posthog_person WHERE id = p.person_id AND team_id = p.team_id AND is_deleted = false)
                 "#,
                 team_id as i32,
                 distinct_ids
@@ -89,7 +89,7 @@ impl FeatureFlagStorage for PostgresStorage {
                 FROM posthog_persondistinctid ppd
                 LEFT JOIN posthog_featureflaghashkeyoverride fhko
                     ON fhko.person_id = ppd.person_id AND fhko.team_id = ppd.team_id
-                WHERE ppd.team_id = $1 AND ppd.distinct_id = ANY($2)
+                WHERE ppd.team_id = $1 AND ppd.distinct_id = ANY($2) AND ppd.is_deleted = false
                 "#,
                 team_id as i32,
                 distinct_ids
@@ -174,8 +174,8 @@ impl FeatureFlagStorage for PostgresStorage {
             SELECT $1, p.person_id, f.flag_key, $2
             FROM posthog_persondistinctid p
             CROSS JOIN UNNEST($4::text[]) AS f(flag_key)
-            WHERE p.team_id = $1 AND p.distinct_id = ANY($3)
-              AND EXISTS (SELECT 1 FROM posthog_person WHERE id = p.person_id AND team_id = p.team_id)
+            WHERE p.team_id = $1 AND p.distinct_id = ANY($3) AND p.is_deleted = false
+              AND EXISTS (SELECT 1 FROM posthog_person WHERE id = p.person_id AND team_id = p.team_id AND is_deleted = false)
             ON CONFLICT DO NOTHING
             "#,
             team_id as i32,

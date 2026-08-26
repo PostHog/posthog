@@ -43,7 +43,6 @@ from posthog.hogql.transforms.type_aware_simplification import (
     simplify_argmax_over_non_nullable,
     simplify_redundant_type_operations,
 )
-from posthog.hogql.transforms.uuid_timestamp_bounds import apply_uuid_v7_timestamp_bounds
 from posthog.hogql.visitor import clone_expr
 from posthog.hogql.workload import WorkloadCollector
 
@@ -66,8 +65,13 @@ def to_printed_hogql(
     modifiers: "HogQLQueryModifiers | None" = None,
     *,
     bypass_warehouse_access_control: bool = False,
+    database: Database | None = None,
 ) -> str:
-    """Prints the HogQL query without mutating the node"""
+    """Prints the HogQL query without mutating the node.
+
+    Pass `database` to reuse an already-built schema instead of building a new one — building the
+    full database is the dominant cost of printing on teams with many warehouse tables.
+    """
     return prepare_and_print_ast(
         clone_expr(query),
         dialect="hogql",
@@ -76,6 +80,7 @@ def to_printed_hogql(
             enable_select_queries=True,
             modifiers=create_default_modifiers_for_team(team, modifiers),
             bypass_warehouse_access_control=bypass_warehouse_access_control,
+            database=database,
         ),
         pretty=True,
     )[0]
@@ -198,15 +203,11 @@ def prepare_ast_for_printing(
                 resolver_factory=resolver_factory,
             )
 
-    if context.enable_type_aware_cast_simplification:
+    # Modifier drives the production rollout (per-team override / staged default); the context flag
+    # remains as the direct opt-in for tests and internal callers.
+    if context.enable_type_aware_cast_simplification or context.modifiers.typeAwareCastSimplification:
         with context.timings.measure("type_aware_cast_simplification"):
             node = simplify_redundant_type_operations(node, context, dialect)
-
-    # ClickHouse only: must run before predicate pushdown so the bound lands in its
-    # pre-filtering subquery, and the HogQL dialect must echo the user's query unchanged.
-    if dialect == "clickhouse":
-        with context.timings.measure("uuid_v7_timestamp_bounds"):
-            node = apply_uuid_v7_timestamp_bounds(node)
 
     # Detect workload from resolved table types and store on context
     with context.timings.measure("workload_detection"):
@@ -262,6 +263,17 @@ def prepare_ast_for_printing(
 
         with context.timings.measure("resolve_lazy_tables"):
             resolve_lazy_tables(node, dialect, stack, context, resolver_factory=resolver_factory)
+
+        # Sibling aggregating LEFT JOINs over federated Postgres tables execute their scans
+        # sequentially; merging them into one UNION ALL join overlaps the per-scan latency.
+        if context.modifiers is not None and context.modifiers.mergeFederatedAggregateJoins:
+            with context.timings.measure("merge_federated_aggregate_joins"):
+                # Deferred: same module-level cycle as clickhouse_property_resolution below.
+                from posthog.hogql.transforms.federated_join_merge import (
+                    merge_federated_aggregate_joins,  # noqa: PLC0415
+                )
+
+                node = merge_federated_aggregate_joins(node, context, dialect, stack, resolver_factory=resolver_factory)
 
         with context.timings.measure("swap_properties"):
             node = PropertySwapper(

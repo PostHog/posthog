@@ -1,4 +1,3 @@
-import json
 from typing import Any
 
 from django.db import models, transaction
@@ -8,19 +7,11 @@ from django.dispatch import receiver
 from django.utils import timezone
 
 from posthog.exceptions_capture import capture_exception
+from posthog.llm_prompt import normalize_prompt_to_string
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import UUIDModel
 
 from products.ai_observability.backend.markdown_outline import get_markdown_outline
-
-
-def normalize_prompt_to_string(value: Any) -> str:
-    if isinstance(value, str):
-        return value
-    try:
-        return json.dumps(value, ensure_ascii=False)
-    except Exception:
-        return ""
 
 
 def get_prompt_outline(value: Any) -> list[dict[str, Any]]:
@@ -54,6 +45,10 @@ class LLMPrompt(UUIDModel):
 
     # The prompt content as JSON (currently a string, may expand to array of objects)
     prompt = models.JSONField()
+
+    # Schemaless JSON object with model parameters or any agent configuration (e.g. model,
+    # temperature, tools). Versioned with the prompt: immutable per row, changed via publish.
+    config = models.JSONField(null=True, blank=True)
 
     version = models.PositiveIntegerField(default=1)
     is_latest = models.BooleanField(default=True)

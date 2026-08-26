@@ -95,9 +95,9 @@ function WorkflowActionsSummary({ workflow }: { workflow: HogFlow }): JSX.Elemen
 export function WorkflowsTable(): JSX.Element {
     const logic = workflowsLogic()
     const {
-        filteredWorkflows,
         workflowsLoading,
         workflows,
+        pagination,
         hasLoadedWorkflows,
         filters,
         selectedArchivedWorkflowIds,
@@ -112,9 +112,7 @@ export function WorkflowsTable(): JSX.Element {
         restoreWorkflow,
         deleteWorkflow,
         deleteSelectedWorkflows,
-        setSearchTerm,
-        setCreatedBy,
-        setStatusFilter,
+        setFilters,
         toggleArchivedWorkflowSelection,
         selectAllArchivedWorkflows,
         clearArchivedWorkflowSelection,
@@ -145,7 +143,7 @@ export function WorkflowsTable(): JSX.Element {
                               checked={allArchivedSelected ? true : selectedArchivedCount > 0 ? 'indeterminate' : false}
                               onChange={(checked: boolean) =>
                                   checked
-                                      ? selectAllArchivedWorkflows(filteredWorkflows.map((w) => w.id))
+                                      ? selectAllArchivedWorkflows(workflows.results.map((w) => w.id))
                                       : clearArchivedWorkflowSelection()
                               }
                           />
@@ -330,7 +328,14 @@ export function WorkflowsTable(): JSX.Element {
     ]
 
     const showProductIntroduction =
-        hasLoadedWorkflows && !workflowsLoading && workflows.length === 0 && !filters.search && !filters.createdBy
+        hasLoadedWorkflows &&
+        !workflowsLoading &&
+        workflows.results.length === 0 &&
+        !filters.search &&
+        !filters.createdBy &&
+        filters.status === 'all' &&
+        // An empty page is not an empty project, so never offer onboarding while paging
+        filters.page === 1
 
     return (
         <div className="workflows-section" data-attr="workflows-table" data-loading={workflowsLoading}>
@@ -354,7 +359,7 @@ export function WorkflowsTable(): JSX.Element {
                         <LemonInput
                             type="search"
                             placeholder="Search for workflows"
-                            onChange={setSearchTerm}
+                            onChange={(search) => setFilters({ search })}
                             value={filters.search}
                         />
                         <div className="flex items-center gap-2">
@@ -364,7 +369,7 @@ export function WorkflowsTable(): JSX.Element {
                             <LemonSelect
                                 dropdownMatchSelectWidth={false}
                                 size="small"
-                                onChange={(value) => setStatusFilter(value as WorkflowStatusFilter)}
+                                onChange={(value) => setFilters({ status: value as WorkflowStatusFilter })}
                                 options={[
                                     { label: 'All', value: 'all' },
                                     { label: 'Active', value: 'active' },
@@ -378,7 +383,7 @@ export function WorkflowsTable(): JSX.Element {
                             </span>
                             <MemberSelect
                                 value={filters.createdBy}
-                                onChange={(user) => setCreatedBy(user?.uuid || null)}
+                                onChange={(user) => setFilters({ createdBy: user?.uuid || null })}
                             />
                         </div>
                     </div>
@@ -400,12 +405,12 @@ export function WorkflowsTable(): JSX.Element {
                     )}
 
                     <LemonTable
-                        dataSource={filteredWorkflows}
+                        dataSource={workflows.results}
                         loading={workflowsLoading}
                         rowKey="id"
                         columns={columns}
                         defaultSorting={{ columnKey: 'updatedAt', order: 1 }}
-                        pagination={{ pageSize: 30 }}
+                        pagination={pagination}
                         nouns={['workflow', 'workflows']}
                         emptyState="No workflows matching filters"
                     />

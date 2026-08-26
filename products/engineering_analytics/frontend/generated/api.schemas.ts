@@ -27,6 +27,7 @@ export interface WorkflowCostApi {
 
 /**
  * * `breaking_master` - BREAKING_MASTER
+ * * `blocking_merge_queue` - BLOCKING_MERGE_QUEUE
  * * `novel_burst` - NOVEL_BURST
  * * `potentially_resolved` - POTENTIALLY_RESOLVED
  * * `flaky` - FLAKY
@@ -36,6 +37,7 @@ export type BrokenTestRowStateEnumApi = (typeof BrokenTestRowStateEnumApi)[keyof
 
 export const BrokenTestRowStateEnumApi = {
     BreakingMaster: 'breaking_master',
+    BlockingMergeQueue: 'blocking_merge_queue',
     NovelBurst: 'novel_burst',
     PotentiallyResolved: 'potentially_resolved',
     Flaky: 'flaky',
@@ -53,9 +55,10 @@ export interface BrokenTestRowApi {
     job_name: string
     /** 'owner/name' repository the failure belongs to. */
     repo: string
-    /** The classifier's verdict on how this failure is behaving right now: 'breaking_master' (failing on trunk, latest trunk run still red), 'novel_burst' (new within a day and spreading across branches, not on trunk yet), 'potentially_resolved' (hit trunk but trunk is green again), 'flaky' (sporadic across branches over more than a day), or 'pr_only' (confined to one branch — one PR's own problem).
+    /** The classifier's verdict on how this failure is behaving right now: 'breaking_master' (failing on trunk, latest trunk run still red), 'blocking_merge_queue' (stopped a merge on a commit that already passed the PR's own CI, trunk still green), 'novel_burst' (new within a day and spreading across branches, not on trunk yet), 'potentially_resolved' (hit trunk but trunk is green again), 'flaky' (sporadic across branches over more than a day), or 'pr_only' (confined to one branch — one PR's own problem).
      *
      * * `breaking_master` - BREAKING_MASTER
+     * * `blocking_merge_queue` - BLOCKING_MERGE_QUEUE
      * * `novel_burst` - NOVEL_BURST
      * * `potentially_resolved` - POTENTIALLY_RESOLVED
      * * `flaky` - FLAKY
@@ -199,6 +202,17 @@ export interface CurrentBranchHealthApi {
 }
 
 /**
+ * * `pytest` - PYTEST
+ * * `jest` - JEST
+ */
+export type CITestRunnerEnumApi = (typeof CITestRunnerEnumApi)[keyof typeof CITestRunnerEnumApi]
+
+export const CITestRunnerEnumApi = {
+    Pytest: 'pytest',
+    Jest: 'jest',
+} as const
+
+/**
  * * `confirmed_flake` - CONFIRMED_FLAKE
  * * `suspected_regression` - SUSPECTED_REGRESSION
  * * `quarantined` - QUARANTINED
@@ -213,11 +227,16 @@ export const FlakyTestItemClassificationEnumApi = {
 } as const
 
 export interface FlakyTestItemApi {
-    /** Reconstructed pytest nodeid (the CI span name), e.g. 'posthog/api/test/test_event/TestEvents::test_x'. A stable grouping key, not a runnable selector — use `selector` to run or quarantine the test. */
+    /** Test runner that emitted this signal: 'pytest' or 'jest'.
+     *
+     * * `pytest` - PYTEST
+     * * `jest` - JEST */
+    runner: CITestRunnerEnumApi
+    /** Runner-specific stable test identity (the CI span name). This is a grouping key, not necessarily runnable; use `selector` to run or quarantine the test. */
     nodeid: string
-    /** Runnable pytest selector, e.g. 'posthog/api/test/test_event.py::TestEvents::test_x'. Exact when the CI reporter emitted it; otherwise reconstructed from the nodeid, where the file/class boundary is a best-effort guess. */
+    /** Runnable pytest or Jest selector. Exact when the CI reporter emitted it; older pytest spans use a best-effort reconstruction from the nodeid. */
     selector: string
-    /** confirmed_flake: one commit both failed and passed the test (a re-run attempt went green, or an in-job retry recovered it), so it is provably nondeterministic. quarantined: it fails while masked as xfail. suspected_regression: only failures were recorded, which is absence of proof, not proof that it is a real break.
+    /** confirmed_flake: one commit both failed and passed the test (a re-run attempt went green, or an in-job retry recovered it), so it is provably nondeterministic. quarantined: a tolerated failure was recorded while it was masked. suspected_regression: only failures were recorded, which is absence of proof, not proof that it is a real break.
      *
      * * `confirmed_flake` - CONFIRMED_FLAKE
      * * `suspected_regression` - SUSPECTED_REGRESSION
@@ -231,9 +250,9 @@ export interface FlakyTestItemApi {
     failed_pr_count: number
     /** Failed runs on the default branch (master/main approximation): the 'matters right now' signal that a test is breaking the trunk, not just PR branches. */
     master_failed_run_count: number
-    /** Runs where the test failed while quarantined (xfail): already masked in CI, still failing. */
+    /** Runs where the test recorded a tolerated failure while quarantined: already masked in CI, still failing. */
     quarantined_failed_run_count: number
-    /** Most recent failure, recovery, or xfail run for this test in the window. */
+    /** Most recent failure, recovery, or quarantined-failure run for this test in the window. */
     last_signal_at: string
 }
 
@@ -420,6 +439,8 @@ export interface PullRequestApi {
 
 /**
  * * `opened` - OPENED
+ * * `ready_for_review` - READY_FOR_REVIEW
+ * * `converted_to_draft` - CONVERTED_TO_DRAFT
  * * `ci_started` - CI_STARTED
  * * `ci_finished` - CI_FINISHED
  * * `merged` - MERGED
@@ -429,6 +450,8 @@ export type PRLifecycleEventKindEnumApi = (typeof PRLifecycleEventKindEnumApi)[k
 
 export const PRLifecycleEventKindEnumApi = {
     Opened: 'opened',
+    ReadyForReview: 'ready_for_review',
+    ConvertedToDraft: 'converted_to_draft',
     CiStarted: 'ci_started',
     CiFinished: 'ci_finished',
     Merged: 'merged',
@@ -436,9 +459,11 @@ export const PRLifecycleEventKindEnumApi = {
 } as const
 
 export interface PRLifecycleEventApi {
-    /** Event kind: opened, ci_started, ci_finished, merged, or closed.
+    /** Event kind: opened, ready_for_review, converted_to_draft, ci_started, ci_finished, merged, or closed.
      *
      * * `opened` - OPENED
+     * * `ready_for_review` - READY_FOR_REVIEW
+     * * `converted_to_draft` - CONVERTED_TO_DRAFT
      * * `ci_started` - CI_STARTED
      * * `ci_finished` - CI_FINISHED
      * * `merged` - MERGED
@@ -447,7 +472,7 @@ export interface PRLifecycleEventApi {
     /** When the event occurred. */
     at: string
     /**
-     * Optional detail, e.g. workflow name and conclusion for CI events.
+     * Optional detail: workflow name and conclusion for CI events, the acting user's login for draft/ready transitions.
      * @nullable
      */
     detail?: string | null
@@ -519,8 +544,13 @@ export interface WorkflowRunDetailApi {
     duration_seconds: number | null
     /** Re-run attempt number; 1 for the first attempt. */
     run_attempt: number
-    /** Attributed pull request number, or 0 when unattributed. */
+    /** Pull request this run ran for, from the run's own-repo PR association; 0 when unattributed (a default-branch push, or a fork PR). */
     pr_number: number
+    /**
+     * Pull request whose merge produced this run's head commit, resolved through the merged pull request's merge commit and falling back to the commit subject's '(#NNNN)' suffix. Null when neither resolves. The only PR attribution a default-branch push has: read pr_number first and fall back to this.
+     * @nullable
+     */
+    commit_pr_number: number | null
 }
 
 export interface CIStatusRollupApi {
@@ -585,6 +615,11 @@ export interface PullRequestListItemApi {
      * @nullable
      */
     open_to_merge_seconds: number | null
+    /**
+     * True ready-to-merge cycle time in seconds: merged_at minus the last observed ready_for_review transition (only the last draft/ready switch counts), or minus created_at for a merged PR verifiably never drafted. Null when unmerged or not observed (the PR's life isn't fully inside the synced issue-event window) - null never means zero.
+     * @nullable
+     */
+    ready_to_merge_seconds: number | null
     /** GitHub label names on the pull request. */
     labels: string[]
     /** CI triggers attributed to this PR: distinct head SHAs across its workflow runs. Fork-PR runs are unattributed. */
@@ -721,6 +756,20 @@ export const OperationEnumApi = {
     Remove: 'remove',
 } as const
 
+/**
+ * * `pytest` - PYTEST
+ * * `jest` - JEST
+ * * `playwright` - PLAYWRIGHT
+ */
+export type QuarantineRequestRunnerEnumApi =
+    (typeof QuarantineRequestRunnerEnumApi)[keyof typeof QuarantineRequestRunnerEnumApi]
+
+export const QuarantineRequestRunnerEnumApi = {
+    Pytest: 'pytest',
+    Jest: 'jest',
+    Playwright: 'playwright',
+} as const
+
 export interface QuarantineRequestApi {
     /** What to do: 'quarantine' (add or replace an entry and file a tracking issue), 'extend' (re-stamp an existing entry's expiry, reusing its issue), or 'remove' (delete the entry). All three open a pull request.
      *
@@ -730,6 +779,12 @@ export interface QuarantineRequestApi {
     operation: OperationEnumApi
     /** Test selector to act on: an exact test id, a file, a directory, a class prefix, or 'product:<dashed-name>'. */
     selector: string
+    /** Test runner the selector targets: 'pytest', 'jest', or 'playwright'. Existing entries and Jest file extensions are inferred for older clients that omit it; other selectors default to 'pytest'.
+     *
+     * * `pytest` - PYTEST
+     * * `jest` - JEST
+     * * `playwright` - PLAYWRIGHT */
+    runner?: QuarantineRequestRunnerEnumApi | null
     /**
      * Optional 'owner/name' repository override; defaults to the team's most active repo.
      * @nullable
@@ -783,7 +838,7 @@ export interface TimeToGreenBucketApi {
     /** Bucket start, aligned to time_to_green_series_granularity (top of hour, midnight, or Monday). */
     bucket_start: string
     /**
-     * Median wall-clock seconds of successful PR-attributed CI runs started in this bucket. Null when the bucket had no successful PR run (a gap, not instant CI).
+     * Median wall-clock seconds from a PR push round's first run start until every workflow on that head SHA first completed benign, over rounds started in this bucket (merge-queue gates and partially-attributed fork rounds excluded). Null when the bucket had no fully green round (a gap, not instant CI).
      * @nullable
      */
     p50_seconds: number | null
@@ -809,15 +864,27 @@ export interface OpenToMergeBucketApi {
     p50_seconds: number | null
 }
 
+export interface ReadyToMergeBucketApi {
+    /** Bucket start, aligned to ready_to_merge_series_granularity (top of hour, midnight, or Monday). */
+    bucket_start: string
+    /**
+     * Median per-PR ready_to_merge_seconds (merged_at minus the last observed ready-for-review transition) over PRs merged in this bucket, bots and drafts excluded. Null when nothing merged with an observed value (a gap, never zero).
+     * @nullable
+     */
+    p50_seconds: number | null
+}
+
 export interface RepoOverviewApi {
     /** CI cost per merged PR across the window, oldest first, zero-filled, bucketed by cost_series_granularity. Empty when the job-level source isn't synced or include_series=false. */
     cost_series: CostPerMergeBucketApi[]
-    /** Median time-to-green (p50 successful PR-attributed CI run duration) per bucket across the window, oldest first, bucketed by time_to_green_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
+    /** Median time-to-green (p50 wall clock for a PR push round to settle fully green) per bucket across the window, oldest first, bucketed by time_to_green_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
     time_to_green_series: TimeToGreenBucketApi[]
     /** CI pass rate (completed runs that succeeded, all branches) per bucket across the window, oldest first, bucketed by success_rate_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
     success_rate_series: PassRateBucketApi[]
     /** Median time-to-merge (p50 open_to_merge_seconds, bots/drafts excluded) per bucket across the window, oldest first, bucketed by open_to_merge_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
     open_to_merge_series: OpenToMergeBucketApi[]
+    /** Median cycle time (p50 per-PR ready_to_merge_seconds, bots/drafts excluded) per bucket across the window, oldest first, bucketed by ready_to_merge_series_granularity. Empty buckets carry null; the whole series is empty when the issue-events table isn't synced or include_series=false, so fall back to open_to_merge_series. */
+    ready_to_merge_series: ReadyToMergeBucketApi[]
     /** Workflow runs started in the window, all branches and workflows. */
     run_count: number
     /** Same count over the equal-length window immediately before date_from — the delta baseline. */
@@ -851,6 +918,16 @@ export interface RepoOverviewApi {
      */
     median_open_to_merge_seconds_prev: number | null
     /**
+     * Median per-PR ready_to_merge_seconds (the true cycle time: merged_at minus the last observed ready-for-review transition) over PRs merged in the window, bots and drafts excluded. Null when the issue-events table isn't synced or no merged PR has an observed value; fall back to median_open_to_merge_seconds and label it open-to-merge.
+     * @nullable
+     */
+    median_ready_to_merge_seconds: number | null
+    /**
+     * The same median over the previous window. Null when not observed.
+     * @nullable
+     */
+    median_ready_to_merge_seconds_prev: number | null
+    /**
      * Billable (self-hosted) job minutes in the window; null when the job-level source isn't synced.
      * @nullable
      */
@@ -870,6 +947,132 @@ export interface RepoOverviewApi {
      * @nullable
      */
     estimated_cost_usd_prev: number | null
+    /**
+     * estimated_cost_usd divided by merged_pr_count — the window's CI cost per merged PR. Null when the job-level source isn't synced or nothing merged.
+     * @nullable
+     */
+    cost_per_merge_usd: number | null
+    /**
+     * The same ratio over the previous window. Null when the job-level source isn't synced or nothing merged.
+     * @nullable
+     */
+    cost_per_merge_usd_prev: number | null
+    /**
+     * Slice of billable_minutes spent on merge-queue batch branches (trunk-merge/**); null when the job-level source isn't synced.
+     * @nullable
+     */
+    merge_queue_billable_minutes: number | null
+    /**
+     * Merge-queue billable minutes over the previous window; null when the job-level source isn't synced.
+     * @nullable
+     */
+    merge_queue_billable_minutes_prev: number | null
+    /** PRs merged in the window with at least one corroborated merge-queue gate run — the population behind every merge_queue_* landing stat. All authors, bots included. */
+    merge_queue_merged_pr_count: number
+    /** Queue-landed merges over the previous window. */
+    merge_queue_merged_pr_count_prev: number
+    /**
+     * Median seconds from a PR's first observed merge-queue gate run starting to the PR merging. Pending time before gate testing starts is not included. Null when no queue-landed merges.
+     * @nullable
+     */
+    merge_queue_median_first_gate_to_merge_seconds: number | null
+    /**
+     * The same median over the previous window. Null when no queue-landed merges.
+     * @nullable
+     */
+    merge_queue_median_first_gate_to_merge_seconds_prev: number | null
+    /**
+     * p90 of the same first-gate-run-to-merge measure — the tail, where queue pain concentrates. Null when no queue-landed merges.
+     * @nullable
+     */
+    merge_queue_p90_first_gate_to_merge_seconds: number | null
+    /**
+     * The same p90 over the previous window. Null when no queue-landed merges.
+     * @nullable
+     */
+    merge_queue_p90_first_gate_to_merge_seconds_prev: number | null
+    /**
+     * p95 of the same first-gate-run-to-merge measure. Null when no queue-landed merges.
+     * @nullable
+     */
+    merge_queue_p95_first_gate_to_merge_seconds: number | null
+    /**
+     * The same p95 over the previous window. Null when no queue-landed merges.
+     * @nullable
+     */
+    merge_queue_p95_first_gate_to_merge_seconds_prev: number | null
+    /**
+     * p99 of the same first-gate-run-to-merge measure. Null when no queue-landed merges.
+     * @nullable
+     */
+    merge_queue_p99_first_gate_to_merge_seconds: number | null
+    /**
+     * The same p99 over the previous window. Null when no queue-landed merges.
+     * @nullable
+     */
+    merge_queue_p99_first_gate_to_merge_seconds_prev: number | null
+    /**
+     * Mean distinct gate attempts (distinct gate branches, flake-bisection branches collapsed) per queue-landed merge. Null when no queue-landed merges.
+     * @nullable
+     */
+    merge_queue_avg_attempts_per_merge: number | null
+    /**
+     * The same mean over the previous window. Null when no queue-landed merges.
+     * @nullable
+     */
+    merge_queue_avg_attempts_per_merge_prev: number | null
+    /**
+     * Fraction (0-1) of queue-landed merges that needed more than one gate attempt. Null when no queue-landed merges.
+     * @nullable
+     */
+    merge_queue_multi_attempt_merge_share: number | null
+    /**
+     * The same fraction over the previous window. Null when no queue-landed merges.
+     * @nullable
+     */
+    merge_queue_multi_attempt_merge_share_prev: number | null
+    /**
+     * Fraction (0-1) of queue-landed merges with at least one failed gate run before merging. Derived from CI run conclusions, not the queue's own eviction records. Null when no queue-landed merges.
+     * @nullable
+     */
+    merge_queue_failed_gate_merge_share: number | null
+    /**
+     * The same fraction over the previous window. Null when no queue-landed merges.
+     * @nullable
+     */
+    merge_queue_failed_gate_merge_share_prev: number | null
+    /** Whether the team's TrunkIo warehouse source has the opt-in merge-queue endpoint synced and readable by the requesting user. When false, every merge_queue_failed_or_cancelled_* and merge_queue_skip_the_line_* field is null; fall back to merge_queue_failed_gate_merge_share. */
+    merge_queue_trunk_available: boolean
+    /**
+     * Fraction (0-1) of concluded queue entries (merged, failed, or cancelled) that ended failed or cancelled, from the queue's own records. Windowed on each entry's last state change. Null when the Trunk source isn't synced or nothing concluded.
+     * @nullable
+     */
+    merge_queue_failed_or_cancelled_share: number | null
+    /**
+     * The same fraction over the previous window. Null when the Trunk source isn't synced or nothing concluded.
+     * @nullable
+     */
+    merge_queue_failed_or_cancelled_share_prev: number | null
+    /**
+     * Queue entries flagged skip-the-line (prioritized past the queue order) in the window, whatever state they reached. Null when the Trunk source isn't synced.
+     * @nullable
+     */
+    merge_queue_skip_the_line_count: number | null
+    /**
+     * Skip-the-line entries over the previous window. Null when the Trunk source isn't synced.
+     * @nullable
+     */
+    merge_queue_skip_the_line_count_prev: number | null
+    /**
+     * Median wall clock for a PR push round to settle fully green over the window — the window-level twin of time_to_green_series, same population and exclusions. Null when no fully green rounds.
+     * @nullable
+     */
+    median_time_to_green_seconds: number | null
+    /**
+     * The same median over the previous window. Null when no fully green rounds.
+     * @nullable
+     */
+    median_time_to_green_seconds_prev: number | null
     /** Whether the job-level source is synced (cost and queue figures exist). */
     jobs_available: boolean
     /** 'master' or 'main', picked by observed run volume in the window. */
@@ -882,6 +1085,8 @@ export interface RepoOverviewApi {
     success_rate_series_granularity: string
     /** Bucket width of the open_to_merge_series trend: 'hour', 'day', or 'week'. */
     open_to_merge_series_granularity: string
+    /** Bucket width of the ready_to_merge_series trend: 'hour', 'day', or 'week'. */
+    ready_to_merge_series_granularity: string
 }
 
 export interface WorkflowRunActivityPointApi {
@@ -956,15 +1161,20 @@ export interface GitHubSourceApi {
 }
 
 export interface TeamTestSignalApi {
-    /** Reconstructed pytest nodeid (the CI span name), a stable grouping key. */
+    /** Test runner that emitted this signal: 'pytest' or 'jest'.
+     *
+     * * `pytest` - PYTEST
+     * * `jest` - JEST */
+    runner: CITestRunnerEnumApi
+    /** Runner-specific test identity (the CI span name), a stable grouping key. */
     nodeid: string
-    /** Runnable pytest selector; exact when the CI reporter emitted it. */
+    /** Runnable pytest or Jest selector; exact for newly emitted spans. */
     selector: string
-    /** Runs in the current window where the test failed, errored, or a retry recovered it (xfail excluded). */
+    /** Runs in the current window where the test failed, errored, or a retry recovered it (quarantined failures excluded). */
     signal_count: number
     /** Same count over the equal-length window before date_from. */
     signal_count_prior: number
-    /** Most recent failure, recovery, or xfail run for this test, either window. */
+    /** Most recent failure, recovery, or quarantined-failure run for this test, either window. */
     last_seen_at: string
 }
 
@@ -996,11 +1206,11 @@ export interface TeamCIHealthItemApi {
     same_commit_recovery_run_count: number
     /** Same count over the prior window. */
     same_commit_recovery_run_count_prior: number
-    /** Runs where an owned test failed while quarantined (xfail): masked in CI, still failing. */
+    /** Runs where an owned test recorded a tolerated failure while quarantined: masked in CI, still failing. */
     quarantined_failed_run_count: number
     /** Same count over the prior window. */
     quarantined_failed_run_count_prior: number
-    /** Most recent failure, recovery, or xfail run across the team's owned tests, either window. */
+    /** Most recent failure, recovery, or quarantined-failure run across the team's owned tests, either window. */
     last_seen_at: string
 }
 
@@ -1268,10 +1478,22 @@ export type EngineeringAnalyticsFlakyTestsParams = {
      */
     repo?: string
     /**
+     * Optional test runner to return: 'pytest' or 'jest'.
+     */
+    runner?: EngineeringAnalyticsFlakyTestsRunner
+    /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string
 }
+
+export type EngineeringAnalyticsFlakyTestsRunner =
+    (typeof EngineeringAnalyticsFlakyTestsRunner)[keyof typeof EngineeringAnalyticsFlakyTestsRunner]
+
+export const EngineeringAnalyticsFlakyTestsRunner = {
+    Jest: 'jest',
+    Pytest: 'pytest',
+} as const
 
 export type EngineeringAnalyticsJobAggregatesParams = {
     /**

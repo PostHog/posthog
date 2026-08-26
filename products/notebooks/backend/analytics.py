@@ -50,7 +50,6 @@ def capture_notebook_created(
     created_by_id: int | None = None,
     request: "Request | None" = None,
     mcp_consumer: str | None = None,
-    mcp_oauth_client: str | None = None,
     api_key_type: str | None = None,
     conversation_id: str | None = None,
     topic: str | None = None,
@@ -66,7 +65,6 @@ def capture_notebook_created(
         "creation_source": creation_source,
         **_optional_props(
             mcp_consumer=mcp_consumer,
-            mcp_oauth_client=mcp_oauth_client,
             api_key_type=api_key_type,
             conversation_id=conversation_id,
             topic=topic,
@@ -97,7 +95,6 @@ def capture_notebook_read(
     is_creator: bool,
     user_access_level: str | None = None,
     mcp_consumer: str | None = None,
-    mcp_oauth_client: str | None = None,
     api_key_type: str | None = None,
 ) -> None:
     """Emit `notebook read` for a programmatic (non-browser) notebook retrieve. Browser opens are
@@ -110,7 +107,6 @@ def capture_notebook_read(
         **_optional_props(
             user_access_level=user_access_level,
             mcp_consumer=mcp_consumer,
-            mcp_oauth_client=mcp_oauth_client,
             api_key_type=api_key_type,
         ),
     }

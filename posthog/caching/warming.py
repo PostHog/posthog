@@ -21,17 +21,17 @@ from posthog.clickhouse.query_tagging import Feature, get_team_query_tags, tag_q
 from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.event_usage import EventSource
 from posthog.exceptions_capture import capture_exception
-from posthog.hogql_queries.query_cache_base import QueryCacheManagerBase
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team
 from posthog.ph_client import ph_scoped_capture
+from posthog.query_cache.freshness_index import clean_up_stale_insights, get_stale_insights
 from posthog.query_creator_access import creator_access_revoked, report_creator_access_revoked
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
 
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 logger = structlog.get_logger(__name__)
 
@@ -100,10 +100,10 @@ def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[t
         LAST_VIEWED_THRESHOLD if not shared_only else SHARED_INSIGHTS_LAST_VIEWED_THRESHOLD
     )
 
-    QueryCacheManagerBase.clean_up_stale_insights(team_id=team.pk, threshold=threshold)
+    clean_up_stale_insights(team_id=team.pk, threshold=threshold)
 
     # get all insights currently in the cache for the team
-    combos = QueryCacheManagerBase.get_stale_insights(team_id=team.pk, limit=500)
+    combos = get_stale_insights(team_id=team.pk, limit=500)
 
     STALE_INSIGHTS_GAUGE.labels(team_id=team.pk).set(len(combos))
 

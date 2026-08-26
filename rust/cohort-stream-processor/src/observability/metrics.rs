@@ -13,6 +13,19 @@ pub use cohort_core::metrics::{
 pub const FILTER_CATALOG_TEAMS: &str = "filter_catalog_teams";
 /// Distinct `conditionHash`es across all teams in the current snapshot (gauge).
 pub const FILTER_CATALOG_UNIQUE_CONDITIONS: &str = "filter_catalog_unique_conditions";
+/// Unix timestamp of the last *successful* catalog refresh (gauge, seconds). Stamped inside
+/// `CatalogHandle::refresh`, so the boot load and the periodic loop both advance it. **Alert on
+/// staleness** via `time() - gauge`: a failed refresh keeps serving the previous snapshot silently,
+/// so cohort edits go invisible with nothing else moving. A gauge written only on success would go
+/// flat rather than climb, and the refresh loop is a detached task — a per-tick age gauge would
+/// freeze if it died. A timestamp keeps aging either way. Absent until the first successful refresh;
+/// the pipeline fails closed until then and the pod is not Ready, so the alert must be a plain
+/// threshold, never `absent()`.
+pub const FILTER_CATALOG_LAST_SUCCESS_TIMESTAMP_SECONDS: &str =
+    "filter_catalog_last_success_timestamp_seconds";
+/// Catalog refresh attempts, labelled by `result` (`success`|`error`) (counter). The `error` series
+/// gives the failure rate; the `success` series proves the loop is still ticking at all.
+pub const FILTER_CATALOG_REFRESH_TOTAL: &str = "filter_catalog_refresh_total";
 /// Cascade depths reached, from the `depth` field on cascade messages (histogram). Cohort ids are
 /// logged, not labelled, to keep cardinality bounded.
 pub const CASCADE_DEPTH_OBSERVED: &str = "cascade_depth_observed";
@@ -168,6 +181,19 @@ pub const STORE_SST_BYTES: &str = "store_sst_bytes";
 pub const STORE_LIVE_DATA_BYTES: &str = "store_live_data_bytes";
 /// Estimated key count, labelled by `cf` (gauge).
 pub const STORE_ESTIMATE_NUM_KEYS: &str = "store_estimate_num_keys";
+
+/// Size of the filesystem holding the store (gauge, bytes).
+pub const STORE_DISK_TOTAL_BYTES: &str = "store_disk_total_bytes";
+/// Bytes on the store filesystem available to unprivileged writes (`f_bavail`) (gauge).
+pub const STORE_DISK_AVAILABLE_BYTES: &str = "store_disk_available_bytes";
+/// Used share of the store filesystem, 0–100 (gauge). `f_bavail`-based like df, so it reads a
+/// few points above kubelet's used/capacity ratio on filesystems with a root reserve.
+/// **Alert on a sustained high level** — RocksDB compaction needs headroom well before disk-full.
+pub const STORE_DISK_UTILIZATION_PCT: &str = "store_disk_utilization_pct";
+/// Failed store-filesystem samples, including ticks skipped because the previous sample is still
+/// running (counter). While failing, the seed disk gate reads no fresh sample and never pauses
+/// (fail-open), so a persistently non-zero rate means the gate is dark.
+pub const STORE_DISK_SAMPLE_ERRORS_TOTAL: &str = "store_disk_sample_errors_total";
 
 /// Fraction of wall-clock worker-time spent executing tasks (gauge, 0.0–1.0).
 pub const TOKIO_RUNTIME_BUSY_RATIO: &str = "tokio_runtime_busy_ratio";
@@ -458,22 +484,80 @@ pub const SEED_REKEYED_TOTAL: &str = "cohort_seed_rekeyed_total";
 pub const SEED_REKEY_PRODUCE_FAILURE_TOTAL: &str = "cohort_seed_rekey_produce_failure_total";
 /// Hop-capped tile redirects applied inline (counter). Non-zero means a corrupt tombstone cycle.
 pub const SEED_REKEY_HOP_CAPPED_TOTAL: &str = "cohort_seed_rekey_hop_capped_total";
+
+/// Person seeds that wrote a record, labelled by `verdict`
+/// (`fresh`|`seed_newer`|`catalog_uncovered`) (counter).
+pub const PERSON_SEEDS_APPLIED_TOTAL: &str = "cohort_person_seeds_applied_total";
+/// Person seeds whose merge left the record unchanged (counter). The steady state of a re-run
+/// chunk.
+pub const PERSON_SEEDS_UNCHANGED_TOTAL: &str = "cohort_person_seeds_unchanged_total";
+/// Person seeds skipped and committed, labelled by `reason`
+/// (`apply_disabled`|`stale_vs_live`) (counter).
+pub const PERSON_SEEDS_SKIPPED_TOTAL: &str = "cohort_person_seeds_skipped_total";
+/// Person seeds dropped without a write, labelled by `reason`
+/// (`team_absent`|`no_effective_hashes`) (counter).
+pub const PERSON_SEEDS_DROPPED_TOTAL: &str = "cohort_person_seeds_dropped_total";
+/// Person seeds whose stored record existed but did not decode (counter). The apply then rebuilds
+/// from an absent baseline, dropping whatever the unreadable row held outside the seed's evaluated
+/// set. **Any non-zero value is a real record-codec failure, not a dormant person** — the event
+/// path's `stage1_person_record_total{result="corrupt"}` is the same signal for live traffic.
+pub const PERSON_SEED_PRIOR_CORRUPT_TOTAL: &str = "cohort_person_seed_prior_corrupt_total";
+/// Hashes dropped from a person seed's effective set, labelled by `reason`
+/// (`unknown_hash`|`variant_mismatch`) (counter). **Sustained non-zero means the run's pinned
+/// conditions have drifted from the live catalog.**
+pub const PERSON_SEED_HASHES_DROPPED_TOTAL: &str = "cohort_person_seed_hashes_dropped_total";
+/// Person seeds re-produced to a merge survivor's partition, counted post-ack (counter).
+pub const PERSON_SEED_REKEYED_TOTAL: &str = "cohort_person_seeds_rekeyed_total";
+/// Hop-capped person-seed redirects applied inline (counter). Non-zero means a corrupt tombstone
+/// cycle.
+pub const PERSON_SEED_REKEY_HOP_CAPPED_TOTAL: &str = "cohort_person_seeds_rekey_hop_capped_total";
+/// Failed person-seed re-key produces; the seed offset is held (counter).
+pub const PERSON_SEED_REKEY_PRODUCE_FAILURE_TOTAL: &str =
+    "cohort_person_seeds_rekey_produce_failure_total";
 /// The seed commit floor pinned by a sticky offset hold, labelled by `partition` (gauge).
 /// **Alert on a sustained non-zero level.**
 pub const SEED_HELD_OFFSET_GAUGE: &str = "seed_held_offset";
-/// Seed partitions currently held, fence-closed or backpressured (gauge).
+/// Seed partitions currently held for any cause (gauge) — sustained non-zero means tiles are not
+/// landing. [`SEED_PAUSED_PARTITIONS`] carries the per-cause breakdown.
 pub const SEED_FENCED_PARTITIONS: &str = "cohort_seed_fenced_partitions";
 /// How far the watermark trails `s_chunk + margin` per fenced partition (gauge, ms).
 pub const SEED_FENCE_DEFICIT_MS: &str = "cohort_seed_fence_deficit_ms";
 /// Age of each owned partition's live watermark, labelled by `partition` (gauge, ms).
 pub const LIVE_WATERMARK_AGE_MS: &str = "cohort_live_watermark_age_ms";
-/// Reconcile jobs admitted to partition-local queues (counter).
+/// Seed partitions currently paused, labelled by `cause`
+/// (`fence`|`channel_full`|`live_lag`|`disk_pressure`) (gauge). A partition holding several
+/// causes counts under each.
+pub const SEED_PAUSED_PARTITIONS: &str = "cohort_seed_paused_partitions";
+/// Continuous pause age per paused seed partition, labelled by `partition` (gauge, ms). Cause
+/// churn does not reset it. **Alert well below the seed topic's retention** — sustained live load
+/// can defer seeding indefinitely without any lag alarm firing.
+pub const SEED_PAUSE_AGE_MS: &str = "cohort_seed_pause_age_ms";
+/// Owned partitions with no live watermark at all (gauge). Fence-fail-closed with an unknown
+/// deficit, so otherwise indistinguishable from a merely trailing watermark on the deficit gauge.
+pub const SEED_NO_WATERMARK_PARTITIONS: &str = "cohort_seed_no_watermark_partitions";
+/// Broker-timestamp age of the oldest held seed per held partition, labelled by `partition`
+/// (gauge, ms). During a long pause this — not the pause age — is the distance to the seed
+/// topic's retention cliff. A missing broker timestamp reads 0.
+pub const SEED_OLDEST_HELD_AGE_MS: &str = "cohort_seed_oldest_held_age_ms";
+/// Wall-clock duration of one idle-probe pass across all owned partitions (histogram, seconds).
+/// Quiet partitions' watermarks advance only per pass, so a slow pass delays fence opens and
+/// live-lag releases alike.
+pub const SEED_IDLE_PROBE_DURATION_SECONDS: &str = "cohort_seed_idle_probe_duration_seconds";
+/// Unix timestamp of the last completed idle-probe pass (gauge, seconds). **Alert on
+/// staleness** — quiet partitions' fences and the live-lag gate both stall when the probe stops.
+pub const SEED_IDLE_PROBE_LAST_PASS_TIMESTAMP_SECONDS: &str =
+    "cohort_seed_idle_probe_last_pass_timestamp_seconds";
+/// Reconcile jobs admitted to partition-local queues, labelled by `kind` — the tile's shape-hash
+/// kind, `behavioral` or `person_property` (counter).
 pub const RECONCILE_JOBS_ENQUEUED_TOTAL: &str = "cohort_reconcile_jobs_enqueued_total";
-/// Reconcile jobs that emitted their completion marker and released their seed floor (counter).
+/// Reconcile jobs that emitted their completion marker and released their seed floor, labelled by
+/// `kind` (counter). Balances against the enqueued/discarded/superseded series per kind, which is
+/// how a run left short a marker becomes visible.
 pub const RECONCILE_JOBS_COMPLETED_TOTAL: &str = "cohort_reconcile_jobs_completed_total";
-/// Queued jobs replaced by a higher Kafka offset for the same team and cohort (counter).
+/// Queued jobs replaced by a higher Kafka offset for the same team, cohort, and `kind` (counter).
 pub const RECONCILE_JOBS_SUPERSEDED_TOTAL: &str = "cohort_reconcile_jobs_superseded_total";
-/// Reconcile jobs invalidated by a drain-time guard, labelled by bounded `reason` (counter).
+/// Reconcile jobs invalidated by a drain-time guard, labelled by bounded `reason` and `kind`
+/// (counter).
 pub const RECONCILE_JOBS_DISCARDED_TOTAL: &str = "cohort_reconcile_jobs_discarded_total";
 /// Stage 2 rows read by reconcile and durably settled, counted once per committed page (counter). A
 /// page that fails its produce or commit and retries is not double-counted.
@@ -483,8 +567,12 @@ pub const RECONCILE_ROWS_SCANNED_TOTAL: &str = "cohort_reconcile_rows_scanned_to
 pub const RECONCILE_ROWS_EMITTED_TOTAL: &str = "cohort_reconcile_rows_emitted_total";
 /// Stale Stage 2 bits durably fixed, labelled by `direction` (counter).
 pub const RECONCILE_BITS_FIXED_TOTAL: &str = "cohort_reconcile_bits_fixed_total";
-/// Reconcile completion markers acknowledged by Kafka (counter).
+/// Reconcile completion markers acknowledged by Kafka, labelled by `kind` (counter).
 pub const RECONCILE_MARKERS_EMITTED_TOTAL: &str = "cohort_reconcile_markers_emitted_total";
+/// Failed completion-marker produces, labelled by `kind` (counter). A permanently failing produce —
+/// a missing or mis-provisioned marker topic — otherwise only shows up as a seed offset that never
+/// advances.
+pub const RECONCILE_MARKER_PRODUCE_ERRORS: &str = "cohort_reconcile_marker_produce_errors_total";
 /// Partition-local reconcile queue depth, labelled by `partition` (gauge).
 pub const RECONCILE_QUEUE_DEPTH: &str = "cohort_reconcile_queue_depth";
 
@@ -501,6 +589,22 @@ pub fn install_recorder() -> PrometheusHandle {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn filter_catalog_metric_names_are_stable() {
+        // The staleness alert is written against these literals, so a rename here silently disarms
+        // the only signal that says the catalog stopped tracking cohort edits.
+        assert_eq!(FILTER_CATALOG_TEAMS, "filter_catalog_teams");
+        assert_eq!(
+            FILTER_CATALOG_UNIQUE_CONDITIONS,
+            "filter_catalog_unique_conditions",
+        );
+        assert_eq!(
+            FILTER_CATALOG_LAST_SUCCESS_TIMESTAMP_SECONDS,
+            "filter_catalog_last_success_timestamp_seconds",
+        );
+        assert_eq!(FILTER_CATALOG_REFRESH_TOTAL, "filter_catalog_refresh_total");
+    }
 
     #[test]
     fn cascade_metric_names_are_stable() {
@@ -626,6 +730,13 @@ mod tests {
         assert_eq!(STORE_SST_BYTES, "store_sst_bytes");
         assert_eq!(STORE_LIVE_DATA_BYTES, "store_live_data_bytes");
         assert_eq!(STORE_ESTIMATE_NUM_KEYS, "store_estimate_num_keys");
+        assert_eq!(STORE_DISK_TOTAL_BYTES, "store_disk_total_bytes");
+        assert_eq!(STORE_DISK_AVAILABLE_BYTES, "store_disk_available_bytes");
+        assert_eq!(STORE_DISK_UTILIZATION_PCT, "store_disk_utilization_pct");
+        assert_eq!(
+            STORE_DISK_SAMPLE_ERRORS_TOTAL,
+            "store_disk_sample_errors_total"
+        );
         assert_eq!(TOKIO_RUNTIME_BUSY_RATIO, "tokio_runtime_busy_ratio");
         assert_eq!(TOKIO_RUNTIME_ALIVE_TASKS, "tokio_runtime_alive_tasks");
         assert_eq!(
@@ -730,10 +841,61 @@ mod tests {
             SEED_REKEY_HOP_CAPPED_TOTAL,
             "cohort_seed_rekey_hop_capped_total"
         );
+        assert_eq!(
+            PERSON_SEEDS_APPLIED_TOTAL,
+            "cohort_person_seeds_applied_total"
+        );
+        assert_eq!(
+            PERSON_SEEDS_UNCHANGED_TOTAL,
+            "cohort_person_seeds_unchanged_total"
+        );
+        assert_eq!(
+            PERSON_SEEDS_SKIPPED_TOTAL,
+            "cohort_person_seeds_skipped_total"
+        );
+        assert_eq!(
+            PERSON_SEEDS_DROPPED_TOTAL,
+            "cohort_person_seeds_dropped_total"
+        );
+        assert_eq!(
+            PERSON_SEED_PRIOR_CORRUPT_TOTAL,
+            "cohort_person_seed_prior_corrupt_total",
+        );
+        assert_eq!(
+            PERSON_SEED_HASHES_DROPPED_TOTAL,
+            "cohort_person_seed_hashes_dropped_total",
+        );
+        assert_eq!(
+            PERSON_SEED_REKEYED_TOTAL,
+            "cohort_person_seeds_rekeyed_total"
+        );
+        assert_eq!(
+            PERSON_SEED_REKEY_HOP_CAPPED_TOTAL,
+            "cohort_person_seeds_rekey_hop_capped_total",
+        );
+        assert_eq!(
+            PERSON_SEED_REKEY_PRODUCE_FAILURE_TOTAL,
+            "cohort_person_seeds_rekey_produce_failure_total",
+        );
         // The held-offset gauge deliberately mirrors merge_held_offset/cascade_held_offset.
         assert_eq!(SEED_HELD_OFFSET_GAUGE, "seed_held_offset");
         assert_eq!(SEED_FENCED_PARTITIONS, "cohort_seed_fenced_partitions");
         assert_eq!(SEED_FENCE_DEFICIT_MS, "cohort_seed_fence_deficit_ms");
+        assert_eq!(SEED_PAUSED_PARTITIONS, "cohort_seed_paused_partitions");
+        assert_eq!(SEED_PAUSE_AGE_MS, "cohort_seed_pause_age_ms");
+        assert_eq!(
+            SEED_NO_WATERMARK_PARTITIONS,
+            "cohort_seed_no_watermark_partitions"
+        );
+        assert_eq!(SEED_OLDEST_HELD_AGE_MS, "cohort_seed_oldest_held_age_ms");
+        assert_eq!(
+            SEED_IDLE_PROBE_DURATION_SECONDS,
+            "cohort_seed_idle_probe_duration_seconds"
+        );
+        assert_eq!(
+            SEED_IDLE_PROBE_LAST_PASS_TIMESTAMP_SECONDS,
+            "cohort_seed_idle_probe_last_pass_timestamp_seconds"
+        );
         assert_eq!(
             RECONCILE_JOBS_ENQUEUED_TOTAL,
             "cohort_reconcile_jobs_enqueued_total"
@@ -778,6 +940,10 @@ mod tests {
         assert_eq!(
             RECONCILE_MARKERS_EMITTED_TOTAL,
             "cohort_reconcile_markers_emitted_total",
+        );
+        assert_eq!(
+            RECONCILE_MARKER_PRODUCE_ERRORS,
+            "cohort_reconcile_marker_produce_errors_total",
         );
         assert_eq!(RECONCILE_QUEUE_DEPTH, "cohort_reconcile_queue_depth");
     }

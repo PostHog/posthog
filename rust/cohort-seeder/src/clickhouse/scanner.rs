@@ -2,8 +2,6 @@
 //! evaluator into tiles, and emits the scan metrics. Depends on `domain`, `config`, and the sibling
 //! `sql`/`row` modules; never on `store` or `kafka`.
 
-use std::time::Instant;
-
 use chrono::Utc;
 use chrono_tz::Tz;
 use cohort_core::clickhouse_timestamp_to_millis;
@@ -22,8 +20,8 @@ use crate::domain::{
     RecordOutcome, RecordStats, ScannedChunk, SeedDomain, SeedTile, UtcMillis,
 };
 use crate::observability::metrics::{
-    AGGREGATE_ENTRIES, CHUNKS_VACUOUS, CHUNK_SCAN_DURATION_SECONDS, CONDITIONS_EVALUATED,
-    EVENTS_SKIPPED, HOGVM_ERRORS, ROWS_SCANNED,
+    MetricTimer, AGGREGATE_ENTRIES, CHUNKS_VACUOUS, CHUNK_SCAN_DURATION_SECONDS,
+    CONDITIONS_EVALUATED, EVENTS_SKIPPED, HOGVM_ERRORS, ROWS_SCANNED,
 };
 
 #[derive(Clone)]
@@ -79,7 +77,7 @@ impl ChunkScanner {
         lease_cancel: &CancellationToken,
         shutdown: &CancellationToken,
     ) -> Result<Vec<SeedTile>, ScanHalt> {
-        let _timer = ScanTimer::start();
+        let _timer = MetricTimer::start(CHUNK_SCAN_DURATION_SECONDS);
         let spec = chunk.spec();
         let domain = run.domain_for(&spec).map_err(ScanError::from)?;
         let active = active_conditions_at(spec.day, run.tz, now_ms, &run.conditions);
@@ -247,20 +245,6 @@ fn record_evaluation(stats: RecordStats) {
     }
     for (class, count) in stats.vm_failures.iter().filter(|(_, count)| *count > 0) {
         counter!(HOGVM_ERRORS, "class" => class.as_str()).increment(u64::from(count));
-    }
-}
-
-struct ScanTimer(Instant);
-
-impl ScanTimer {
-    fn start() -> Self {
-        Self(Instant::now())
-    }
-}
-
-impl Drop for ScanTimer {
-    fn drop(&mut self) {
-        histogram!(CHUNK_SCAN_DURATION_SECONDS).record(self.0.elapsed().as_secs_f64());
     }
 }
 

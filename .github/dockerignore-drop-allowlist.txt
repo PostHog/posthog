@@ -8,3 +8,9 @@
 #
 # Example:
 #   ^docs/internal/.*\.md$
+
+# The desktop app is a nested standalone workspace with its own build and release pipeline.
+# No server image imports it, so .dockerignore drops the whole tree rather than shipping
+# ~56 MiB of icons, fonts, videos, wasm grammars and a vendored ripgrep binary in every
+# image build context.
+^products/desktop/

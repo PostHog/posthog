@@ -16,12 +16,18 @@ CELERY_DEFAULT_QUEUE = "celery"
 # List them here so Celery's import_default_modules() registers them deterministically
 # (worker + tests), independent of what else got imported.
 CELERY_IMPORTS: list[str] = [
+    "ee.tasks.quota_limiting",
     "posthog.api.oauth.cimd",
     "posthog.caching.warming",
     "posthog.email",
     "posthog.models.product_intent.product_intent",
     "posthog.models.scoping",
+    "posthog.query_cache.tasks",
     "posthog.scoping_audit",
+    # Not a `<app>/tasks.py`, so autodiscovery walks past it — the app package holds a `tasks/`
+    # namespace package instead, and importing that doesn't reach the module inside.
+    "products.tasks.backend.tasks.tasks",
+    "products.legal_documents.backend.tasks.tasks",
 ]
 CELERY_BROKER_URL = REDIS_URL  # celery connects to redis
 CELERY_BEAT_MAX_LOOP_INTERVAL = 30  # sleep max 30sec before checking for new periodic events

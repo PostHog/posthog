@@ -88,6 +88,18 @@ class TestFiltersContradict(SimpleTestCase):
                 True,
             ),
             (
+                "starts_with contradicts not_starts_with that excludes its prefix",
+                {"key": "k", "type": "event", "operator": "starts_with", "value": ["/docs/api"]},
+                {"key": "k", "type": "event", "operator": "not_starts_with", "value": ["/Docs"]},
+                True,
+            ),
+            (
+                "ends_with does not contradict not_ends_with with an unrelated suffix",
+                {"key": "k", "type": "event", "operator": "ends_with", "value": ["@posthog.com"]},
+                {"key": "k", "type": "event", "operator": "not_ends_with", "value": ["@gmail.com"]},
+                False,
+            ),
+            (
                 "boolean and its lowercase string form are the same value",
                 {"key": "k", "type": "event", "operator": "exact", "value": [True]},
                 {"key": "k", "type": "event", "operator": "is_not", "value": ["true"]},

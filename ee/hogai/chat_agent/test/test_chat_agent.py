@@ -1706,7 +1706,7 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
                 ),
             ]
         )
-        mock_tool.return_value = ("Event list" * 128000, None)
+        mock_tool.return_value = ("Event list" * 200000, None)
         mock_should_compact.side_effect = cycle([False, True])  # Also changed this
 
         graph = (
@@ -1726,7 +1726,7 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
                     tool_calls=[{"id": "1", "name": "read_taxonomy", "args": {"query": {"kind": "events"}}}],
                 ),
             ),
-            ("message", AssistantToolCallMessage(tool_call_id="1", content="Event list" * 128000)),
+            ("message", AssistantToolCallMessage(tool_call_id="1", content="Event list" * 200000)),
             ("message", HumanMessage(content="First")),  # Should copy this message
             ("message", AssistantMessage(content="After summary")),
         ]

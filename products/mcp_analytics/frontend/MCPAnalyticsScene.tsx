@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 import { router, combineUrl } from 'kea-router'
 
 import { IconSparkles } from '@posthog/icons'
-import { LemonButton, LemonTab, LemonTabs } from '@posthog/lemon-ui'
+import { LemonButton, LemonTab, LemonTabs, LemonTag } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
@@ -22,6 +22,8 @@ import { mcpAnalyticsOnboardingLogic } from './mcpAnalyticsOnboardingLogic'
 import { MCPAnalyticsTab, TAB_AI_PROMPTS, TAB_DESCRIPTIONS, mcpAnalyticsSceneLogic } from './mcpAnalyticsSceneLogic'
 import { MCPAnalyticsSceneMenuBar } from './MCPAnalyticsSceneMenuBar'
 import { MCPAnalyticsToolQuality } from './MCPAnalyticsToolQuality'
+import { MCPAnalyticsNotifications } from './notifications/MCPAnalyticsNotifications'
+import { mcpAnalyticsNotificationsLogic } from './notifications/mcpAnalyticsNotificationsLogic'
 import { MCPSessionsPlaylist } from './sessions/MCPSessionsPlaylist'
 
 export const scene: SceneExport = {
@@ -45,6 +47,7 @@ function MCPAnalyticsSceneContent(): JSX.Element {
     const { searchParams } = useValues(router)
     const { activeTab } = useValues(mcpAnalyticsSceneLogic)
     const { onboardingState, dashboardStage } = useValues(mcpAnalyticsOnboardingLogic)
+    const { notificationCount } = useValues(mcpAnalyticsNotificationsLogic)
 
     // search is Sessions-only — drop it when leaving the tab; the date range stays shared.
     const { search: _search, ...sharedParams } = searchParams
@@ -89,6 +92,22 @@ function MCPAnalyticsSceneContent(): JSX.Element {
             content: <MCPAnalyticsClustering />,
             link: combineUrl(urls.mcpAnalyticsIntentClustering(), sharedParams).url,
             'data-attr': 'mcp-analytics-intent-clustering-tab',
+        },
+        {
+            key: 'notifications',
+            label: (
+                <span className="flex items-center gap-1.5">
+                    Notifications
+                    {notificationCount > 0 && (
+                        <LemonTag type="completion" size="small">
+                            {notificationCount}
+                        </LemonTag>
+                    )}
+                </span>
+            ),
+            content: <MCPAnalyticsNotifications />,
+            link: combineUrl(urls.mcpAnalyticsNotifications(), sharedParams).url,
+            'data-attr': 'mcp-analytics-notifications-tab',
         },
     ]
 

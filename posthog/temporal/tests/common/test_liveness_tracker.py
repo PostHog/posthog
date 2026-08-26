@@ -153,16 +153,21 @@ class TestLivenessTracker:
 
 
 @pytest.mark.parametrize(
-    "task_queue,supported",
+    "task_queue",
     (
-        (settings.DATA_WAREHOUSE_TASK_QUEUE, True),
-        (settings.MAX_AI_TASK_QUEUE, True),
-        (settings.TASKS_TASK_QUEUE, True),
-        ("some-other-queue", False),
+        settings.DATA_WAREHOUSE_TASK_QUEUE,
+        settings.MAX_AI_TASK_QUEUE,
+        settings.TASKS_TASK_QUEUE,
+        settings.SESSION_REPLAY_TASK_QUEUE,
+        settings.BATCH_EXPORTS_TASK_QUEUE,
+        settings.GENERAL_PURPOSE_TASK_QUEUE,
+        "a-queue-that-does-not-exist-yet",
     ),
 )
-def test_liveness_interceptor_supports_expected_task_queues(task_queue, supported):
-    assert is_task_queue_supported(task_queue, LivenessInterceptor) is supported
+def test_liveness_interceptor_covers_every_task_queue(task_queue):
+    # Narrowing this back to an allowlist leaves the omitted queue's tracker unfed, so
+    # /healthz reports process uptime and k8s reaps every replica at max_idle_seconds.
+    assert is_task_queue_supported(task_queue, LivenessInterceptor) is True
 
 
 @pytest.mark.asyncio

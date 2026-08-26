@@ -11,10 +11,6 @@ from posthog.schema import (
     SourceFieldSelectConfigOption,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -25,14 +21,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.twilio import TwilioSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.twilio.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    SHOULD_SYNC_DEFAULT,
+    TWILIO_API_HOST,
+    TWILIO_VERIFY_HOST,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.twilio.twilio import (
     TwilioAuth,
     TwilioResumeConfig,
+    check_endpoint_permissions as check_twilio_endpoint_permissions,
     twilio_source,
     validate_credentials as validate_twilio_credentials,
 )
@@ -60,7 +61,9 @@ class TwilioSource(ResumableSource[TwilioSourceConfig, TwilioResumeConfig]):
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your Twilio credentials to pull your Twilio data into the PostHog Data warehouse.
 
-Your **Account SID** is on the [Twilio Console dashboard](https://console.twilio.com). For credentials we recommend creating a [Standard API key](https://console.twilio.com/us1/account/keys-credentials/api-keys) (SID + Secret) since it can be revoked independently — alternatively you can use your Account SID and Auth Token.""",
+Your **Account SID** is on the [Twilio Console dashboard](https://console.twilio.com). For credentials we recommend creating a [Standard API key](https://console.twilio.com/us1/account/keys-credentials/api-keys) (SID + Secret) since it can be revoked independently. You can also use your Account SID and Auth Token.
+
+Create the key in the same Twilio account as the Account SID above, in Twilio's default us1 region. A Standard key can read every table except `keys`, which needs your Auth Token or a Main API key.""",
             iconPath="/static/services/twilio.png",
             docsUrl="https://posthog.com/docs/cdp/sources/twilio",
             fields=cast(
@@ -136,10 +139,26 @@ Your **Account SID** is on the [Twilio Console dashboard](https://console.twilio
         return CANONICAL_DESCRIPTIONS
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
-        return {
-            "401 Client Error: Unauthorized for url: https://api.twilio.com": "Invalid Twilio credentials. Please check your Account SID and Auth Token (or API key SID and secret) and reconnect.",
-            "403 Client Error: Forbidden for url: https://api.twilio.com": "Your Twilio credentials lack permission for this resource. Please check the credential's permissions and try again.",
-        }
+        # Each pattern is scoped to a Twilio host so an unrelated 401 elsewhere in the same job can't
+        # false-match. The catalog spans two hosts, so both need covering.
+        unauthorized = (
+            # Twilio returns 401 both for a bad secret and for a valid credential that isn't allowed to
+            # read the resource (error 20003), and the two are indistinguishable from the status alone,
+            # so this message has to cover both rather than asserting the credentials are invalid.
+            "Twilio rejected these credentials for this table. Either the Account SID and secret are wrong, "
+            "or the credential can't read this resource. A Restricted API key needs read access granted for "
+            "it, and the keys table needs your Auth token or a Main API key. Fix the credential, then "
+            "reconnect the source."
+        )
+        forbidden = (
+            "Your Twilio credentials lack permission for this resource. Please check the credential's "
+            "permissions and try again."
+        )
+        errors: dict[str, str | None] = {}
+        for host in (TWILIO_API_HOST, TWILIO_VERIFY_HOST):
+            errors[f"401 Client Error: Unauthorized for url: {host}"] = unauthorized
+            errors[f"403 Client Error: Forbidden for url: {host}"] = forbidden
+        return errors
 
     def _get_auth(self, config: TwilioSourceConfig) -> TwilioAuth:
         if config.auth_method.selection == "auth_token":
@@ -160,7 +179,7 @@ Your **Account SID** is on the [Twilio Console dashboard](https://console.twilio
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, should_sync_default=SHOULD_SYNC_DEFAULT)
 
     def validate_credentials(
         self,
@@ -174,6 +193,17 @@ Your **Account SID** is on the [Twilio Console dashboard](https://console.twilio
         except ValueError as e:
             return False, str(e)
         return validate_twilio_credentials(auth, config.account_sid, schema_name)
+
+    def get_endpoint_permissions(
+        self, config: TwilioSourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None
+    ) -> dict[str, str | None]:
+        try:
+            auth = self._get_auth(config)
+        except ValueError:
+            # validate_credentials already reports a missing secret, so treat every table as available
+            # rather than blocking the picker on a condition the caller has surfaced.
+            return dict.fromkeys(endpoints)
+        return check_twilio_endpoint_permissions(auth, config.account_sid, endpoints)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[TwilioResumeConfig]:
         return ResumableSourceManager[TwilioResumeConfig](inputs, TwilioResumeConfig)

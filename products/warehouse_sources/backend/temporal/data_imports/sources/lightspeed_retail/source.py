@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     FieldType,
     ResumableSource,
@@ -27,12 +23,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lightspeedretail import (
     LightspeedRetailSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.lightspeed_retail.constants import (
     LIGHTSPEED_RETAIL_API_VERSION_2_0,
     LIGHTSPEED_RETAIL_API_VERSION_2026_01,
+    LIGHTSPEED_RETAIL_API_VERSION_2026_07,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.lightspeed_retail.lightspeed_retail import (
     LightspeedRetailResumeConfig,
@@ -48,8 +46,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LightspeedRetailSource(ResumableSource[LightspeedRetailSourceConfig, LightspeedRetailResumeConfig]):
-    supported_versions = (LIGHTSPEED_RETAIL_API_VERSION_2_0, LIGHTSPEED_RETAIL_API_VERSION_2026_01)
-    default_version = LIGHTSPEED_RETAIL_API_VERSION_2026_01
+    supported_versions = (
+        LIGHTSPEED_RETAIL_API_VERSION_2_0,
+        LIGHTSPEED_RETAIL_API_VERSION_2026_01,
+        LIGHTSPEED_RETAIL_API_VERSION_2026_07,
+    )
+    default_version = LIGHTSPEED_RETAIL_API_VERSION_2026_07
     api_docs_url = "https://x-series-api.lightspeedhq.com/docs/introduction"
     # X-Series deprecated the legacy 2.0 version; no firm sunset date is published (deprecated
     # endpoints increasingly return 410 Gone before an eventual retirement).

@@ -34,12 +34,32 @@ def default_logs_distinct_id_attribute_keys() -> list[str]:
     return list(DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEYS)
 
 
-# Default log attribute keys whose values hold the PostHog session ID. `posthogSessionId`
-# is the key the posthog-js / posthog-react-native SDKs auto-attach to every log they
-# emit (see https://posthog.com/docs/logs/link-session-replay). Ordered: detection checks
-# keys in list order and the first match wins. Customers whose pipeline emits the session
-# ID under different keys can override via the `logs_config` endpoint.
-DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS = ["posthogSessionId"]
+# Built-in distinct-id attribute key conventions. Mirror of the frontend DISTINCT_ID_KEYS in
+# products/logs/frontend/utils.tsx — keep the two in sync. The logs UI renders a value under
+# any of these keys as a clickable person link (isDistinctIdKey), so the person Logs tab scopes
+# on them too (on top of a team's configured keys), otherwise a log shown as belonging to a
+# person would not appear on that person's tab. Literal keys only: the frontend additionally
+# matches dot-suffixed variants (e.g. `span.distinct_id`), which an exact attribute filter can't
+# express.
+DISTINCT_ID_ATTRIBUTE_KEY_CONVENTIONS = [
+    "distinct.id",
+    "distinct_id",
+    "distinctId",
+    "distinctID",
+    "posthogDistinctId",
+    "posthogDistinctID",
+    "posthog_distinct_id",
+    "posthog.distinct.id",
+    "posthog.distinct_id",
+]
+
+
+# Default log attribute keys whose values hold the PostHog session ID. `sessionId` is what
+# the posthog-js / posthog-react-native SDKs emit and what
+# https://posthog.com/docs/logs/link-session-replay tells backends to send. Ordered:
+# detection checks keys in list order and the first match wins. Customers whose pipeline
+# emits the session ID under different keys can override via the `logs_config` endpoint.
+DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS = ["sessionId"]
 
 
 def default_logs_session_id_attribute_keys() -> list[str]:
@@ -78,6 +98,8 @@ class TeamLogsConfig(models.Model):
     logs_session_id_attribute_keys = ArrayField(
         models.CharField(max_length=200),
         default=default_logs_session_id_attribute_keys,
+        # Stale relative to the default above; aligning it needs a migration and Django
+        # applies `default` first, so this is never observed.
         db_default=Value("{posthogSessionId}"),
     )
 
@@ -164,6 +186,7 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
     # Cooldown & snooze
     cooldown_minutes = models.PositiveIntegerField(default=0)
     snooze_until = models.DateTimeField(null=True, blank=True)
+    schedule_restriction = models.JSONField(null=True, blank=True, default=None)
 
     # Scheduling & tracking
     next_check_at = models.DateTimeField(null=True, blank=True)
@@ -397,6 +420,42 @@ class LogsExclusionRule(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields
         db_table = "logs_logsexclusionrule"
         indexes = [
             models.Index(fields=["team_id", "enabled", "priority"], name="logs_exclusion_team_en_pr_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.name} (team={self.team_id})"
+
+
+class LogsRetentionRule(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+    """User-defined rules that override how long matching log lines are retained (evaluated in ingestion
+    when enabled). First matching rule by (priority, created_at) wins; logs matching no rule keep the
+    team's default retention (`Team.logs_settings.retention_days`)."""
+
+    # Plain team FK — like LogsExclusionRule and TeamLogsConfig, retention rules are per-environment,
+    # so this deliberately does not use TeamScopedRootMixin (whose canonical-team save() rewrite would
+    # let one child environment mutate a sibling's rules). Tenant isolation is enforced at the API layer
+    # via safely_get_queryset filtering on team_id; the model is tracked in scoping/baseline_unmigrated.txt.
+    # db_constraint=False on the hot-table FKs (team, created_by) keeps the CreateModel migration
+    # lock-free — creating a real FK constraint would take a SHARE ROW EXCLUSIVE lock on the parent.
+    # Enforcement stays at the ORM level (cascade/set-null run through the Django collector).
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False
+    )
+    name = models.CharField(max_length=255)
+    enabled = models.BooleanField(default=False)
+    priority = models.PositiveIntegerField(
+        default=0,
+        help_text="Lower values run first; first matching rule wins. Ties use created_at ascending (same as ingestion query order).",
+    )
+    # {"filter_group": <PropertyGroupFilter>, "retention_days": <14|30|90>}
+    config = models.JSONField(default=dict)
+    version = models.PositiveIntegerField(default=1)
+
+    class Meta:
+        db_table = "logs_logsretentionrule"
+        indexes = [
+            models.Index(fields=["team_id", "enabled", "priority"], name="logs_retention_team_en_pr_idx"),
         ]
 
     def __str__(self) -> str:

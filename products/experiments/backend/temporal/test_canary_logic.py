@@ -28,6 +28,7 @@ from products.experiments.backend.temporal.models import (
     OUTCOME_SKIPPED,
     CanaryMetricResult,
     CanaryMetricTarget,
+    CanaryOutcome,
     CanaryReportInputs,
     CanaryRunSnapshot,
     CanaryVariantStats,
@@ -48,6 +49,7 @@ def _snapshot(label: str, variants: dict[str, tuple[float, int]], is_precomputed
 
 
 _BASE = {"control": (1000.0, 10000), "test": (1100.0, 10000)}
+_SPARSE = {"control": (27.0, 500000), "test": (13555.0, 500000)}
 
 
 class TestRelativeDeviation:
@@ -111,6 +113,22 @@ class TestEvaluateCanaryRuns:
                 OUTCOME_DIVERGENCE,
             ),
             (
+                "retention_samples_drift_between_precomputed_reads_passes",
+                "retention",
+                _BASE,
+                {"control": (1000.0, 10050), "test": (1100.0, 10000)},  # start counts read metric events: loose
+                {"control": (1000.0, 10050), "test": (1100.0, 10000)},
+                OUTCOME_PASS,
+            ),
+            (
+                "retention_samples_drift_beyond_loose_tolerance_diverges",
+                "retention",
+                _BASE,
+                {"control": (1000.0, 10300), "test": (1100.0, 10000)},  # 3% > 2%
+                {"control": (1000.0, 10300), "test": (1100.0, 10000)},
+                OUTCOME_DIVERGENCE,
+            ),
+            (
                 "direct_scan_within_loose_tolerance_passes",
                 "funnel",
                 _BASE,
@@ -124,6 +142,26 @@ class TestEvaluateCanaryRuns:
                 _BASE,
                 _BASE,
                 {"control": (1300.0, 10000), "test": (1100.0, 10000)},  # 23% — the incident signature
+                OUTCOME_DIVERGENCE,
+            ),
+            (
+                # 27% relative on the control sum, but only 10 events apart: expected live-vs-frozen drift
+                # on a sparse metric, not a divergence.
+                "sparse_metric_gap_below_absolute_floor_passes",
+                "funnel",
+                _SPARSE,
+                _SPARSE,
+                {"control": (37.0, 499000), "test": (13571.0, 499000)},
+                OUTCOME_PASS,
+            ),
+            (
+                # Exposure counts are never floored: 90 users is under MIN_CORRECTNESS_SUM_DELTA, but a
+                # beyond-tolerance exposure-set divergence on a small experiment must still page.
+                "small_experiment_exposure_drift_beyond_tolerance_diverges",
+                "funnel",
+                {"control": (500.0, 3000), "test": (500.0, 3000)},
+                {"control": (500.0, 3000), "test": (500.0, 3000)},
+                {"control": (500.0, 3090), "test": (500.0, 3000)},
                 OUTCOME_DIVERGENCE,
             ),
         ]
@@ -176,10 +214,18 @@ class TestEvaluateCanaryRuns:
         assert verdict.outcome == OUTCOME_SKIPPED
 
     def test_deviations_are_reported_on_pass(self):
-        c = {"control": (1010.0, 10000), "test": (1100.0, 10000)}
-        verdict = evaluate_canary_runs("funnel", _snapshot("a", _BASE), _snapshot("b", _BASE), _snapshot("c", c))
+        base = {"control": (100000.0, 10000), "test": (110000.0, 10000)}
+        c = {"control": (101500.0, 10000), "test": (110000.0, 10000)}  # 1.5% < 2%, 1500 events > floor
+        verdict = evaluate_canary_runs("funnel", _snapshot("a", base), _snapshot("b", base), _snapshot("c", c))
+        assert verdict.outcome == OUTCOME_PASS
         assert verdict.stability_deviation == 0.0
-        assert verdict.correctness_deviation == pytest.approx(0.01, rel=0.05)
+        assert verdict.correctness_deviation == pytest.approx(1500 / 101500)
+
+    def test_sub_floor_correctness_wiggle_is_not_reported(self):
+        c = {"control": (1010.0, 10000), "test": (1100.0, 10000)}  # 1% relative, but only 10 events
+        verdict = evaluate_canary_runs("funnel", _snapshot("a", _BASE), _snapshot("b", _BASE), _snapshot("c", c))
+        assert verdict.outcome == OUTCOME_PASS
+        assert verdict.correctness_deviation == 0.0
 
 
 def _inline_metric(metric_type: str) -> dict:
@@ -255,11 +301,12 @@ class TestCanarySampling(BaseTest):
         Experiment.objects.filter(id=experiment.id).update(**resolved)
         assert sample_canary_targets_sync(ExperimentPrecomputeCanaryInputs()) == []
 
-    def test_retention_and_legacy_metrics_are_dropped(self):
+    def test_legacy_metrics_are_dropped_but_retention_is_sampled(self):
         self._enable_precompute()
         legacy = {"uuid": str(uuid.uuid4()), "kind": "ExperimentTrendsQuery"}  # no metric_type
         self._experiment([_inline_metric("retention"), legacy])
-        assert sample_canary_targets_sync(ExperimentPrecomputeCanaryInputs()) == []
+        targets = sample_canary_targets_sync(ExperimentPrecomputeCanaryInputs())
+        assert [t.metric_type for t in targets] == ["retention"]
 
     def test_quotas_and_per_experiment_cap(self):
         self._enable_precompute()
@@ -385,7 +432,7 @@ class TestRunMetricCanary(BaseTest):
                 run_metric_canary_sync(self._target(experiment, metric["uuid"]))
 
 
-def _result(outcome: str, **kwargs) -> CanaryMetricResult:
+def _result(outcome: CanaryOutcome, **kwargs) -> CanaryMetricResult:
     target = CanaryMetricTarget(team_id=1, experiment_id=2, metric_uuid="m-uuid", metric_type="funnel")
     return CanaryMetricResult(target=target, outcome=outcome, runs=[_snapshot("a", _BASE)], **kwargs)
 

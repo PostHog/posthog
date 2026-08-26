@@ -87,6 +87,27 @@ def _merge(state_alias: str, base_aggregator: str) -> ast.Call:
     return ast.Call(name=base_aggregator + _MERGE_SUFFIX, args=[ast.Field(chain=["ev", state_alias])])
 
 
+def _fingerprint_hash_expr() -> ast.Call:
+    """Hash the fingerprint without resolving it to its materialized column.
+
+    Distributed aggregation uses the textual expression as the block-column
+    name for grouping keys. ClickHouse versions disagree on whether the ``$``
+    in ``mat_$exception_fingerprint`` needs backticks in that name, which can
+    make the coordinator reject an otherwise valid block returned by a shard.
+    Reading the string directly from the properties JSON keeps the expression
+    stable across nodes.
+    """
+    return ast.Call(
+        name="cityHash64",
+        args=[
+            ast.Call(
+                name="JSONExtractString",
+                args=[ast.Field(chain=["e", "properties"]), ast.Constant(value="$exception_fingerprint")],
+            )
+        ],
+    )
+
+
 class ErrorTrackingQueryBuilder:
     """ClickHouse-only query builder using the denormalized fingerprint table.
 
@@ -105,11 +126,19 @@ class ErrorTrackingQueryBuilder:
       mixed-OR semantics across the events/issue boundary.
     """
 
-    def __init__(self, query: ErrorTrackingQuery, team: Team, date_from: datetime.datetime, date_to: datetime.datetime):
+    def __init__(
+        self,
+        query: ErrorTrackingQuery,
+        team: Team,
+        date_from: datetime.datetime,
+        date_to: datetime.datetime,
+        include_recent_issue_state: bool = False,
+    ):
         self.query = query
         self.team = team
         self.date_from = date_from
         self.date_to = date_to
+        self.include_recent_issue_state = include_recent_issue_state
 
     def build_query(self) -> ast.SelectQuery:
         if self._needs_legacy_shape():
@@ -133,6 +162,7 @@ class ErrorTrackingQueryBuilder:
                 {
                     "id": str(result_dict["id"]),
                     "status": result_dict.get("status"),
+                    "severity": result_dict.get("severity"),
                     "name": result_dict.get("name"),
                     "description": result_dict.get("description"),
                     "first_seen": result_dict.get("first_seen"),
@@ -181,6 +211,103 @@ class ErrorTrackingQueryBuilder:
     # Optimized two-pass shape
     # ---------------------------------------------------------------------
 
+    def _fingerprint_state_join(
+        self,
+        fingerprint_hash: ast.Expr,
+        *,
+        join_type: str = "INNER JOIN",
+        fallback_issue_id: ast.Expr | None = None,
+    ) -> ast.JoinExpr:
+        fingerprint_state_join = ast.JoinExpr(
+            table=ast.Field(chain=["posthog", "error_tracking_fingerprint_issue_state"]),
+            alias="fp_state",
+            join_type=join_type,
+            constraint=ast.JoinConstraint(
+                expr=ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=fingerprint_hash,
+                    right=ast.Field(chain=["fp_state", "fp_hash"]),
+                ),
+                constraint_type="ON",
+            ),
+        )
+        if self.include_recent_issue_state:
+            issue_id_expr: ast.Expr = ast.Field(chain=["fp_state", "issue_id"])
+            if fallback_issue_id is not None:
+                issue_id_expr = ast.Call(
+                    name="if",
+                    args=[
+                        ast.Call(name="isNotNull", args=[ast.Field(chain=["fp_state", "issue_id"])]),
+                        ast.Field(chain=["fp_state", "issue_id"]),
+                        fallback_issue_id,
+                    ],
+                )
+            fingerprint_state_join.next_join = ast.JoinExpr(
+                table=ast.Field(chain=["posthog", "error_tracking_recent_issue_state"]),
+                alias="recent_state",
+                join_type="LEFT OUTER JOIN",
+                constraint=ast.JoinConstraint(
+                    expr=ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=issue_id_expr,
+                        right=ast.Field(chain=["recent_state", "issue_id"]),
+                    ),
+                    constraint_type="ON",
+                ),
+            )
+        return fingerprint_state_join
+
+    def _issue_state_expr(self, field_name: str) -> ast.Expr:
+        clickhouse_state = ast.Field(chain=["fp_state", field_name])
+        if not self.include_recent_issue_state or field_name in {"issue_id", "first_seen"}:
+            return clickhouse_state
+        return ast.Call(
+            name="if",
+            args=[
+                ast.Field(chain=["recent_state", "is_present"]),
+                ast.Field(chain=["recent_state", field_name]),
+                clickhouse_state,
+            ],
+        )
+
+    def _legacy_issue_state_expr(self, field_name: str) -> ast.Expr:
+        event_field_name = {
+            "issue_id": "issue_id",
+            "issue_status": "issue_status",
+            "issue_severity": "issue_severity",
+            "issue_name": "issue_name",
+            "issue_description": "issue_description",
+            "assigned_user_id": "issue_assigned_user_id",
+            "assigned_role_id": "issue_assigned_role_id",
+            "first_seen": "issue_first_seen",
+        }[field_name]
+        event_state = ast.Field(chain=["e", event_field_name])
+        if not self.include_recent_issue_state:
+            return event_state
+        if field_name == "issue_id":
+            event_state = ast.Field(chain=["e", "event_issue_id"])
+        elif field_name == "first_seen":
+            event_state = ast.Field(chain=["e", "timestamp"])
+
+        fingerprint_state = ast.Call(
+            name="if",
+            args=[
+                ast.Call(name="isNotNull", args=[ast.Field(chain=["fp_state", "issue_id"])]),
+                ast.Field(chain=["fp_state", field_name]),
+                event_state,
+            ],
+        )
+        if field_name in {"issue_id", "first_seen"}:
+            return fingerprint_state
+        return ast.Call(
+            name="if",
+            args=[
+                ast.Field(chain=["recent_state", "is_present"]),
+                ast.Field(chain=["recent_state", field_name]),
+                fingerprint_state,
+            ],
+        )
+
     def _build_query_optimized(self) -> ast.SelectQuery:
         inner = self._build_inner_query()
         outer_where_exprs = self._outer_where_exprs()
@@ -189,19 +316,7 @@ class ErrorTrackingQueryBuilder:
             select_from=ast.JoinExpr(
                 table=inner,
                 alias="ev",
-                next_join=ast.JoinExpr(
-                    table=ast.Field(chain=["posthog", "error_tracking_fingerprint_issue_state"]),
-                    alias="fp_state",
-                    join_type="INNER JOIN",
-                    constraint=ast.JoinConstraint(
-                        expr=ast.CompareOperation(
-                            op=ast.CompareOperationOp.Eq,
-                            left=ast.Field(chain=["ev", "fp_hash"]),
-                            right=ast.Field(chain=["fp_state", "fp_hash"]),
-                        ),
-                        constraint_type="ON",
-                    ),
-                ),
+                next_join=self._fingerprint_state_join(ast.Field(chain=["ev", "fp_hash"])),
             ),
             where=ast.And(exprs=outer_where_exprs) if outer_where_exprs else None,
             group_by=[ast.Field(chain=["id"])],
@@ -226,10 +341,7 @@ class ErrorTrackingQueryBuilder:
         exprs: list[ast.Expr] = [
             ast.Alias(
                 alias="fp_hash",
-                expr=ast.Call(
-                    name="cityHash64",
-                    args=[ast.Field(chain=["e", "properties", "$exception_fingerprint"])],
-                ),
+                expr=_fingerprint_hash_expr(),
             ),
             ast.Alias(alias="last_seen_fp", expr=ast.Call(name="max", args=[ast.Field(chain=["timestamp"])])),
             ast.Alias(alias="function_state", expr=_state(innermost_frame_attribute("$exception_functions"))),
@@ -276,9 +388,8 @@ class ErrorTrackingQueryBuilder:
                     ),
                 )
             )
-            # Same HLL tradeoff as `sessions`. Input semantics preserved
-            # (resolved person_id with distinct_id fallback) so the user
-            # population is unchanged — only the counting algorithm changed.
+            # Same HLL tradeoff as `sessions`. Use the raw event person id so
+            # counting users never requires the person override join.
             exprs.append(
                 ast.Alias(
                     alias="users_state",
@@ -292,7 +403,10 @@ class ErrorTrackingQueryBuilder:
                                         ast.Call(
                                             name="nullIf",
                                             args=[
-                                                ast.Call(name="toString", args=[ast.Field(chain=["e", "person_id"])]),
+                                                ast.Call(
+                                                    name="toString",
+                                                    args=[ast.Field(chain=["e", "event_person_id"])],
+                                                ),
                                                 ast.Constant(value="00000000-0000-0000-0000-000000000000"),
                                             ],
                                         ),
@@ -407,19 +521,20 @@ class ErrorTrackingQueryBuilder:
         # merged fingerprints to preserve the earliest-known-first-seen.
         exprs: list[ast.Expr] = [
             ast.Alias(alias="id", expr=ast.Field(chain=["fp_state", "issue_id"])),
-            ast.Alias(alias="status", expr=ast.Call(name="any", args=[ast.Field(chain=["fp_state", "issue_status"])])),
-            ast.Alias(alias="name", expr=ast.Call(name="any", args=[ast.Field(chain=["fp_state", "issue_name"])])),
+            ast.Alias(alias="status", expr=ast.Call(name="any", args=[self._issue_state_expr("issue_status")])),
+            ast.Alias(alias="severity", expr=ast.Call(name="any", args=[self._issue_state_expr("issue_severity")])),
+            ast.Alias(alias="name", expr=ast.Call(name="any", args=[self._issue_state_expr("issue_name")])),
             ast.Alias(
                 alias="description",
-                expr=ast.Call(name="any", args=[ast.Field(chain=["fp_state", "issue_description"])]),
+                expr=ast.Call(name="any", args=[self._issue_state_expr("issue_description")]),
             ),
             ast.Alias(
                 alias="assignee_user_id",
-                expr=ast.Call(name="any", args=[ast.Field(chain=["fp_state", "assigned_user_id"])]),
+                expr=ast.Call(name="any", args=[self._issue_state_expr("assigned_user_id")]),
             ),
             ast.Alias(
                 alias="assignee_role_id",
-                expr=ast.Call(name="any", args=[ast.Field(chain=["fp_state", "assigned_role_id"])]),
+                expr=ast.Call(name="any", args=[self._issue_state_expr("assigned_role_id")]),
             ),
             ast.Alias(
                 alias="first_seen",
@@ -469,7 +584,7 @@ class ErrorTrackingQueryBuilder:
             exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.Eq,
-                    left=ast.Field(chain=["fp_state", "issue_status"]),
+                    left=self._issue_state_expr("issue_status"),
                     right=ast.Constant(value=self.query.status),
                 )
             )
@@ -479,7 +594,7 @@ class ErrorTrackingQueryBuilder:
                 exprs.append(
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.Eq,
-                        left=ast.Field(chain=["fp_state", "assigned_user_id"]),
+                        left=self._issue_state_expr("assigned_user_id"),
                         right=ast.Constant(value=self.query.assignee.id),
                     )
                 )
@@ -487,7 +602,7 @@ class ErrorTrackingQueryBuilder:
                 exprs.append(
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.Eq,
-                        left=ast.Field(chain=["fp_state", "assigned_role_id"]),
+                        left=self._issue_state_expr("assigned_role_id"),
                         right=ast.Constant(value=str(self.query.assignee.id)),
                     )
                 )
@@ -499,9 +614,16 @@ class ErrorTrackingQueryBuilder:
     # ---------------------------------------------------------------------
 
     def _build_query_legacy(self) -> ast.SelectQuery:
+        select_from = ast.JoinExpr(table=ast.Field(chain=["events"]), alias="e")
+        if self.include_recent_issue_state:
+            select_from.next_join = self._fingerprint_state_join(
+                _fingerprint_hash_expr(),
+                join_type="LEFT OUTER JOIN",
+                fallback_issue_id=ast.Field(chain=["e", "event_issue_id"]),
+            )
         return ast.SelectQuery(
             select=self._select_expressions_legacy(),
-            select_from=ast.JoinExpr(table=ast.Field(chain=["events"]), alias="e"),
+            select_from=select_from,
             where=ast.And(exprs=self._where_exprs_legacy()),
             group_by=[ast.Field(chain=["id"])],
             order_by=[ast.OrderExpr(expr=ast.Field(chain=[self.query.orderBy]), order=order_direction(self.query))],
@@ -509,24 +631,29 @@ class ErrorTrackingQueryBuilder:
 
     def _select_expressions_legacy(self) -> list[ast.Expr]:
         exprs: list[ast.Expr] = [
-            ast.Alias(alias="id", expr=ast.Field(chain=["e", "issue_id_v2"])),
-            ast.Alias(alias="status", expr=ast.Call(name="any", args=[ast.Field(chain=["e", "issue_status"])])),
-            ast.Alias(alias="name", expr=ast.Call(name="any", args=[ast.Field(chain=["e", "issue_name"])])),
+            ast.Alias(alias="id", expr=self._legacy_issue_state_expr("issue_id")),
+            ast.Alias(alias="status", expr=ast.Call(name="any", args=[self._legacy_issue_state_expr("issue_status")])),
             ast.Alias(
-                alias="description", expr=ast.Call(name="any", args=[ast.Field(chain=["e", "issue_description"])])
+                alias="severity",
+                expr=ast.Call(name="any", args=[self._legacy_issue_state_expr("issue_severity")]),
+            ),
+            ast.Alias(alias="name", expr=ast.Call(name="any", args=[self._legacy_issue_state_expr("issue_name")])),
+            ast.Alias(
+                alias="description",
+                expr=ast.Call(name="any", args=[self._legacy_issue_state_expr("issue_description")]),
             ),
             ast.Alias(
                 alias="assignee_user_id",
-                expr=ast.Call(name="any", args=[ast.Field(chain=["e", "issue_assigned_user_id"])]),
+                expr=ast.Call(name="any", args=[self._legacy_issue_state_expr("assigned_user_id")]),
             ),
             ast.Alias(
                 alias="assignee_role_id",
-                expr=ast.Call(name="any", args=[ast.Field(chain=["e", "issue_assigned_role_id"])]),
+                expr=ast.Call(name="any", args=[self._legacy_issue_state_expr("assigned_role_id")]),
             ),
             ast.Alias(alias="last_seen", expr=ast.Call(name="max", args=[ast.Field(chain=["e", "timestamp"])])),
             ast.Alias(
                 alias="first_seen",
-                expr=ast.Call(name="min", args=[ast.Field(chain=["e", "issue_first_seen"])]),
+                expr=ast.Call(name="min", args=[self._legacy_issue_state_expr("first_seen")]),
             ),
             ast.Alias(alias="function", expr=innermost_frame_attribute("$exception_functions")),
             ast.Alias(alias="source", expr=innermost_frame_attribute("$exception_sources")),
@@ -564,7 +691,10 @@ class ErrorTrackingQueryBuilder:
                                     ast.Call(
                                         name="nullIf",
                                         args=[
-                                            ast.Call(name="toString", args=[ast.Field(chain=["e", "person_id"])]),
+                                            ast.Call(
+                                                name="toString",
+                                                args=[ast.Field(chain=["e", "event_person_id"])],
+                                            ),
                                             ast.Constant(value="00000000-0000-0000-0000-000000000000"),
                                         ],
                                     ),
@@ -622,7 +752,7 @@ class ErrorTrackingQueryBuilder:
                 left=ast.Field(chain=["e", "event"]),
                 right=ast.Constant(value="$exception"),
             ),
-            ast.Call(name="isNotNull", args=[ast.Field(chain=["e", "issue_id_v2"])]),
+            ast.Call(name="isNotNull", args=[self._legacy_issue_state_expr("issue_id")]),
             ast.Placeholder(expr=ast.Field(chain=["filters"])),
         ]
 
@@ -648,7 +778,7 @@ class ErrorTrackingQueryBuilder:
             exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.Eq,
-                    left=ast.Field(chain=["e", "issue_id_v2"]),
+                    left=self._legacy_issue_state_expr("issue_id"),
                     right=ast.Constant(value=self.query.issueId),
                 )
             )
@@ -678,7 +808,7 @@ class ErrorTrackingQueryBuilder:
             exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.Eq,
-                    left=ast.Field(chain=["e", "issue_status"]),
+                    left=self._legacy_issue_state_expr("issue_status"),
                     right=ast.Constant(value=self.query.status),
                 )
             )
@@ -688,7 +818,7 @@ class ErrorTrackingQueryBuilder:
                 exprs.append(
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.Eq,
-                        left=ast.Field(chain=["e", "issue_assigned_user_id"]),
+                        left=self._legacy_issue_state_expr("assigned_user_id"),
                         right=ast.Constant(value=self.query.assignee.id),
                     )
                 )
@@ -696,7 +826,7 @@ class ErrorTrackingQueryBuilder:
                 exprs.append(
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.Eq,
-                        left=ast.Field(chain=["e", "issue_assigned_role_id"]),
+                        left=self._legacy_issue_state_expr("assigned_role_id"),
                         right=ast.Constant(value=str(self.query.assignee.id)),
                     )
                 )
@@ -790,18 +920,19 @@ class ErrorTrackingQueryBuilder:
     def _issue_property_to_ast(self, prop: ErrorTrackingIssueFilter) -> ast.Expr | None:
         key = "description" if prop.key == "issue_description" else prop.key
 
-        field_chain_map: dict[str, list[str | int]] = {
-            "name": ["e", "issue_name"],
-            "description": ["e", "issue_description"],
-            "status": ["e", "issue_status"],
-            "first_seen": ["e", "issue_first_seen"],
+        field_name_map: dict[str, str] = {
+            "name": "issue_name",
+            "description": "issue_description",
+            "status": "issue_status",
+            "severity": "issue_severity",
+            "first_seen": "first_seen",
         }
 
-        field_chain = field_chain_map.get(key)
-        if field_chain is None:
+        field_name = field_name_map.get(key)
+        if field_name is None:
             return None
 
-        field = ast.Field(chain=field_chain)
+        field = self._legacy_issue_state_expr(field_name)
         value = prop.value
         operator = prop.operator
 
@@ -848,6 +979,20 @@ class ErrorTrackingQueryBuilder:
         if operator == PropertyOperator.NOT_ICONTAINS:
             return ast.CompareOperation(
                 op=ast.CompareOperationOp.NotILike, left=field, right=ast.Constant(value=f"%{value}%")
+            )
+
+        if operator in (
+            PropertyOperator.STARTS_WITH,
+            PropertyOperator.NOT_STARTS_WITH,
+            PropertyOperator.ENDS_WITH,
+            PropertyOperator.NOT_ENDS_WITH,
+        ):
+            prefix_match = operator in (PropertyOperator.STARTS_WITH, PropertyOperator.NOT_STARTS_WITH)
+            negated = operator in (PropertyOperator.NOT_STARTS_WITH, PropertyOperator.NOT_ENDS_WITH)
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.NotILike if negated else ast.CompareOperationOp.ILike,
+                left=field,
+                right=ast.Constant(value=f"{value}%" if prefix_match else f"%{value}"),
             )
 
         if operator in (PropertyOperator.GT, PropertyOperator.IS_DATE_AFTER):

@@ -7,9 +7,12 @@ use tokio::sync::RwLock;
 use crate::report::ConsistencyViolation;
 
 /// Journal of acked writes. Every property write acked by the leader path is
-/// recorded here; verification asserts each one is visible afterwards. Keys
-/// are unique per write, so the final state must contain every acked key
-/// regardless of the interleaving of concurrent writers.
+/// recorded here; verification asserts each one is visible afterwards.
+///
+/// Keys are reused, so the journal is only authoritative because each key
+/// belongs to one worker and workers write sequentially. A write whose
+/// outcome is unknown breaks that and drops its key — see
+/// [`PersonState::record_write_uncertain`].
 #[derive(Clone)]
 pub struct PersonState {
     inner: Arc<RwLock<Journal>>,
@@ -18,6 +21,12 @@ pub struct PersonState {
 #[derive(Default)]
 struct Journal {
     persons: HashMap<i64, ExpectedPerson>,
+    /// Persons currently frozen by a lifecycle fence, mapped to their
+    /// sealed version. While a person is here, no write above the sealed
+    /// version may be acked — the fence's whole guarantee. Writes acked at
+    /// or below the sealed version are pre-fence acks whose responses
+    /// landed late, not violations.
+    fenced: HashMap<i64, i64>,
     /// Acks that broke an invariant at journaling time. The leader
     /// serializes writes per person and bumps the version on every change,
     /// so each version of a person is assigned to at most one acked write;
@@ -47,6 +56,11 @@ impl PersonState {
         }
     }
 
+    /// Journal an ack that applied a change. Only these acks claim their
+    /// version: the leader assigns each applied update a fresh version
+    /// under the per-person lock, so two applied acks sharing one version
+    /// means two writes served from the same base state — the split-brain
+    /// signature the duplicate check exists to catch.
     pub async fn record_write(
         &self,
         person_id: i64,
@@ -74,6 +88,74 @@ impl PersonState {
                 expected: serde_json::json!("each version acked at most once"),
                 actual: serde_json::json!(version),
             });
+        }
+        if let Some(&sealed) = journal.fenced.get(&person_id) {
+            // A fenced person must reject writes; an ack above the sealed
+            // version means the fence failed open (leader amnesia, a
+            // fail-open check, a lost fence record). Acks at or below the
+            // seal raced the fence and were processed before it.
+            if version > sealed {
+                journal.anomalies.push(ConsistencyViolation {
+                    person_id,
+                    key: "__acked_write_while_fenced".to_string(),
+                    expected: serde_json::json!(format!("no acked version above seal {sealed}")),
+                    actual: serde_json::json!(version),
+                });
+            }
+        }
+    }
+
+    /// Open a fence window: from now until `close_fence`, any write acked
+    /// above `sealed_version` is a violation. Call after the fence ack (the
+    /// sealed version is only known then).
+    pub async fn open_fence(&self, person_id: i64, sealed_version: i64) {
+        self.inner
+            .write()
+            .await
+            .fenced
+            .insert(person_id, sealed_version);
+    }
+
+    /// Close a fence window. Call *before* issuing the release so a write
+    /// racing the release's ack cannot be flagged as a phantom violation;
+    /// the coverage lost is only the release call's own duration.
+    pub async fn close_fence(&self, person_id: i64) {
+        self.inner.write().await.fenced.remove(&person_id);
+    }
+
+    /// Journal an ack whose response reported no change applied. The data
+    /// is durable — the keys were already present, so they verify like any
+    /// other write — but the echoed version belongs to whichever earlier
+    /// write set it, not to this one, so no version is claimed. This is
+    /// the at-least-once replay shape: a redelivered write whose first
+    /// application succeeded echoes the person's current version, which a
+    /// concurrent writer may legitimately own.
+    pub async fn record_write_no_change(
+        &self,
+        person_id: i64,
+        properties: HashMap<String, serde_json::Value>,
+    ) {
+        let mut journal = self.inner.write().await;
+        let entry = journal
+            .persons
+            .entry(person_id)
+            .or_insert_with(|| ExpectedPerson {
+                written_properties: HashMap::new(),
+                last_version: 0,
+                acked_versions: HashSet::new(),
+            });
+        for (k, v) in properties {
+            entry.written_properties.insert(k, v);
+        }
+    }
+
+    /// Drop a key whose write errored: it may still have applied, so the
+    /// journalled value could be superseded and asserting it would fail a
+    /// correct stack. The next ack for the key restores coverage.
+    pub async fn record_write_uncertain(&self, person_id: i64, key: &str) {
+        let mut journal = self.inner.write().await;
+        if let Some(entry) = journal.persons.get_mut(&person_id) {
+            entry.written_properties.remove(key);
         }
     }
 
@@ -224,6 +306,35 @@ mod tests {
         }
     }
 
+    /// A no-change ack (an at-least-once replay echo) must journal its
+    /// keys without claiming the echoed version — otherwise a replay
+    /// racing a concurrent writer manufactures a false duplicate-version
+    /// violation. A real duplicate (two applied acks, one version) must
+    /// still be flagged.
+    #[tokio::test]
+    async fn no_change_acks_journal_keys_without_claiming_versions() {
+        let state = PersonState::new();
+        state.record_write(1, 41, props(&[("k1", "v1")])).await;
+        // The replay echo: version 41 is current, but this ack applied
+        // nothing. No violation, keys merged.
+        state
+            .record_write_no_change(1, props(&[("k2", "v2")]))
+            .await;
+        assert!(state.take_anomalies().await.is_empty());
+        let snapshot = state.snapshot().await;
+        let entry = &snapshot[&1];
+        assert_eq!(entry.written_properties.len(), 2);
+        assert_eq!(entry.last_version, 41);
+
+        // Two applied acks sharing a version stay a violation.
+        let state = PersonState::new();
+        state.record_write(2, 41, props(&[("a", "1")])).await;
+        state.record_write(2, 41, props(&[("b", "2")])).await;
+        let anomalies = state.take_anomalies().await;
+        assert_eq!(anomalies.len(), 1);
+        assert_eq!(anomalies[0].key, "__ack_version_duplicate");
+    }
+
     #[tokio::test]
     async fn journal_merges_keys_and_keeps_the_max_acked_version() {
         let state = PersonState::new();
@@ -286,6 +397,73 @@ mod tests {
         let person = &snapshot[&1];
         assert_eq!(person.last_version, 5, "anomaly must not move the version");
         assert!(person.written_properties.contains_key("k2"));
+    }
+
+    #[tokio::test]
+    async fn acked_writes_above_the_seal_are_violations_only_while_fenced() {
+        let state = PersonState::new();
+
+        // Pre-fence ack: no window open, nothing flagged.
+        state.record_write(1, 4, props(&[("k1", "v1")])).await;
+
+        state.open_fence(1, 5).await;
+        // An ack at or below the seal raced the fence (processed before it).
+        state.record_write(1, 5, props(&[("k2", "v2")])).await;
+        assert!(state.take_anomalies().await.is_empty());
+        // An ack above the seal means the fence failed open.
+        state.record_write(1, 6, props(&[("k3", "v3")])).await;
+        assert_eq!(
+            violation_keys(state.take_anomalies().await),
+            vec!["__acked_write_while_fenced"]
+        );
+        // Another person is unaffected by this person's fence.
+        state.record_write(2, 100, props(&[("k", "v")])).await;
+        assert!(state.take_anomalies().await.is_empty());
+
+        state.close_fence(1).await;
+        // Post-release writes above the old seal are normal life again.
+        state.record_write(1, 7, props(&[("k4", "v4")])).await;
+        assert!(state.take_anomalies().await.is_empty());
+
+        // The flagged write stays journaled: it was acked, so end-of-run
+        // verification must still hold it visible.
+        let snapshot = state.snapshot().await;
+        assert!(snapshot[&1].written_properties.contains_key("k3"));
+    }
+
+    /// With keys reused, a write that errored but still applied would
+    /// overwrite a journalled value and manufacture a violation against a
+    /// correct stack. Dropping the key is what makes reuse safe, and the
+    /// next ack has to bring it back or coverage decays over a run.
+    #[tokio::test]
+    async fn an_uncertain_write_drops_its_key_until_the_next_ack() {
+        let state = PersonState::new();
+        state
+            .record_write(1, 1, props(&[("k1", "v1"), ("k2", "v2")]))
+            .await;
+
+        state.record_write_uncertain(1, "k1").await;
+        // k1 can no longer be asserted; k2 is untouched.
+        assert!(state
+            .verify(1, &json!({"k1": "raced", "k2": "v2"}), 1)
+            .await
+            .is_empty());
+        assert_eq!(
+            violation_keys(state.verify(1, &json!({"k1": "raced"}), 1).await),
+            vec!["k2"]
+        );
+
+        // A later ack restores the key, and it verifies again.
+        state.record_write(1, 2, props(&[("k1", "v3")])).await;
+        assert_eq!(
+            violation_keys(
+                state
+                    .verify(1, &json!({"k1": "stale", "k2": "v2"}), 2)
+                    .await
+            ),
+            vec!["k1"]
+        );
+        assert!(state.take_anomalies().await.is_empty());
     }
 
     #[tokio::test]

@@ -1,10 +1,13 @@
 import uuid
 
+import pytest
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
-from django.db import transaction
+from django.db import OperationalError, transaction
 
+from asgiref.sync import async_to_sync
+from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -16,7 +19,16 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers 
     build_table_name,
     resolve_table_and_folder_names,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import merge_columns
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import (
+    _refresh_cumulative_row_count,
+    merge_columns,
+    update_last_synced_at,
+    validate_schema_and_update_table,
+)
+
+_PIPELINE_SYNC_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync"
+_DB_RETRY_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry"
+_TABLE_MODULE = "products.warehouse_sources.backend.models.table"
 
 
 class TestResolveTableAndFolderNames:
@@ -51,15 +63,15 @@ class TestResolveTableAndFolderNames:
     def test_resolve(
         self, _name: str, schema_name: str, resolved_folder: str | None, exp_table: str, exp_folder: str
     ) -> None:
-        table_storage_name, folder_name = resolve_table_and_folder_names(schema_name, resolved_folder)
-        assert table_storage_name == exp_table
-        assert folder_name == exp_folder
+        names = resolve_table_and_folder_names(schema_name, resolved_folder)
+        assert names.table_storage_name == exp_table
+        assert names.folder_name == exp_folder
 
     def test_table_name_unchanged_for_camelcase_source(self) -> None:
         # The regression guard: a populated (snake_cased) folder must NOT rename the HogQL table.
         source = ExternalDataSource(source_type="Stripe", prefix="")
-        table_storage_name, _ = resolve_table_and_folder_names("BalanceTransaction", "balance_transaction")
-        assert build_table_name(source, table_storage_name) == "stripe_balancetransaction"
+        names = resolve_table_and_folder_names("BalanceTransaction", "balance_transaction")
+        assert build_table_name(source, names.table_storage_name) == "stripe_balancetransaction"
 
     @parameterized.expand(
         [
@@ -76,8 +88,33 @@ class TestResolveTableAndFolderNames:
         self, _name: str, source_type: str, schema_name: str, expected: str
     ) -> None:
         source = ExternalDataSource(source_type=source_type, prefix="")
-        table_storage_name, _ = resolve_table_and_folder_names(schema_name, None)
-        assert build_table_name(source, table_storage_name) == expected
+        names = resolve_table_and_folder_names(schema_name, None)
+        assert build_table_name(source, names.table_storage_name) == expected
+
+
+class TestRefreshCumulativeRowCount:
+    def test_updates_row_count_on_success(self) -> None:
+        table = MagicMock(row_count=1)
+        table.get_count.return_value = 42
+
+        _refresh_cumulative_row_count(table, MagicMock(), "orders (schema-1)")
+
+        assert table.row_count == 42
+
+    def test_keeps_previous_row_count_when_get_count_fails(self) -> None:
+        # get_count() raises when both the chdb and ClickHouse-cluster reads of the S3 dataset
+        # time out on a large table. That's a display stat, not the synced data — it must not
+        # propagate and fail the whole table registration for an otherwise-successful sync.
+        table = MagicMock(row_count=7)
+        table.get_count.side_effect = Exception(
+            "Reading the files from your storage bucket took too long and the query was cancelled."
+        )
+        logger = MagicMock()
+
+        _refresh_cumulative_row_count(table, logger, "orders (schema-1)")
+
+        assert table.row_count == 7
+        logger.warning.assert_called_once()
 
 
 def _register_companion_sync(
@@ -271,3 +308,147 @@ class TestRegisterCDCCompanionTable(BaseTest):
             deleted=False,
         )
         assert companions.count() == 0
+
+
+# transaction=True: validate_schema_and_update_table writes to the DB from the async thread pool
+# (database_sync_to_async_pool), which can't see an atomic TestCase's uncommitted rows.
+@pytest.mark.django_db(transaction=True)
+class TestValidateSchemaAndUpdateTable:
+    def _schema_and_job(self, team) -> tuple[ExternalDataSchema, ExternalDataJob]:
+        source = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()), connection_id=str(uuid.uuid4()), team=team, source_type="Postgres"
+        )
+        schema = ExternalDataSchema.objects.create(name="orders", team=team, source=source)
+        job = ExternalDataJob.objects.create(
+            team=team, pipeline=source, schema=schema, status=ExternalDataJob.Status.RUNNING, rows_synced=10
+        )
+        return schema, job
+
+    def test_delta_table_with_no_committed_files_does_not_crash_the_sync(self, team):
+        # A Delta table can pass load.py's "does a table exist" check while still having zero
+        # committed add-file actions (e.g. an incremental run that wrote no new rows). ClickHouse then
+        # raises DELTA_KERNEL_ERROR ("No files in log segment") when get_columns() tries to DESCRIBE
+        # it. This must be tolerated like the sibling CANNOT_EXTRACT_TABLE_STRUCTURE (636) case rather
+        # than crash the whole sync activity - regression for a real production failure where it did.
+        schema, job = self._schema_and_job(team)
+        no_files_error = ServerException(
+            "DB::Exception: Received DeltaLake kernel error GenericError: Generic delta kernel error: "
+            "No files in log segment (in snapshot).",
+            code=742,
+        )
+
+        with (
+            patch(f"{_TABLE_MODULE}.sync_execute", side_effect=no_files_error),
+            patch(f"{_TABLE_MODULE}.time.sleep"),
+        ):
+            async_to_sync(validate_schema_and_update_table)(
+                run_id=str(job.id),
+                team_id=team.pk,
+                schema_id=schema.id,
+                row_count=10,
+                table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+                queryable_folder="s3://bucket/orders",
+            )
+
+        schema.refresh_from_db()
+        # get_columns() failing means the table never gets linked to the schema or given columns -
+        # but critically, the sync activity itself must survive rather than crash the whole run.
+        assert schema.table is None
+        table = DataWarehouseTable.objects.get(external_data_source=schema.source, deleted=False)
+        assert not table.columns
+        assert table.created_via == DataWarehouseTable.CreatedVia.SOURCE
+
+
+class TestUpdateLastSyncedAt:
+    @pytest.mark.asyncio
+    async def test_retries_transient_query_wait_timeout_then_succeeds(self):
+        # A saturated pgbouncer pool can reject either read with `query_wait_timeout` before the
+        # query ever reaches Postgres, so retrying the whole lookup+save is safe and avoids
+        # failing the whole import activity over a momentary blip.
+        job = MagicMock()
+        get_job = MagicMock(side_effect=[OperationalError("query_wait_timeout"), job])
+        schema = MagicMock()
+        get_schema = MagicMock(return_value=schema)
+
+        with (
+            patch(f"{_PIPELINE_SYNC_MODULE}.ExternalDataJob.objects.get", get_job),
+            patch(
+                f"{_PIPELINE_SYNC_MODULE}.ExternalDataSchema.objects.exclude", return_value=MagicMock(get=get_schema)
+            ),
+            patch(f"{_DB_RETRY_MODULE}.close_old_connections") as close,
+            patch(f"{_DB_RETRY_MODULE}.time.sleep") as sleep,
+        ):
+            await update_last_synced_at(job_id="job-1", schema_id="schema-1", team_id=1)
+
+        assert get_job.call_count == 2
+        assert schema.last_synced_at == job.created_at
+        schema.save.assert_called_once_with(skip_activity_log=True)
+        close.assert_called_once()
+        sleep.assert_called_once_with(2)
+
+
+class TestSetInitialSyncComplete(BaseTest):
+    """The purge-then-flip contract: a CDC snapshot schema's buffer prefix is purged before the
+    streaming flip (stale pre-snapshot files merged after the flip resurrect rows the snapshot
+    wiped), and NEVER purged when the schema is already streaming (those files are live,
+    unconsumed changes)."""
+
+    def _schema(self, *, sync_type: str, config: dict, initial_sync_complete: bool) -> ExternalDataSchema:
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            status="Completed",
+            source_type="Postgres",
+        )
+        return ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source=source,
+            name="public.users",
+            sync_type=sync_type,
+            sync_type_config=config,
+            initial_sync_complete=initial_sync_complete,
+        )
+
+    @parameterized.expand(
+        [
+            # The flip: stale buffer must be gone before streaming resumes.
+            ("cdc_snapshot_first_completion", "cdc", {"cdc_mode": "snapshot"}, False, True, "streaming"),
+            # Already streaming (idempotent completion call): purging would delete live files.
+            ("cdc_already_streaming", "cdc", {"cdc_mode": "streaming"}, True, False, "streaming"),
+            # Non-CDC schemas have no buffer; purge must not run.
+            ("non_cdc", "full_refresh", {}, False, False, None),
+        ]
+    )
+    def test_purges_buffer_only_on_snapshot_to_streaming_flip(
+        self,
+        _name: str,
+        sync_type: str,
+        config: dict,
+        initial_flag: bool,
+        expects_purge: bool,
+        expected_cdc_mode: str | None,
+    ) -> None:
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import (
+            _purge_stale_buffer_then_mark_initial_sync_complete,
+        )
+
+        schema = self._schema(sync_type=sync_type, config=config, initial_sync_complete=initial_flag)
+        calls: list[str] = []
+
+        def _record_purge(team_id: int, schema_id: str, logger, *, strict: bool = False) -> None:
+            assert strict, "flip purge must be strict — a swallowed failure re-ships the phantom-row bug"
+            fresh = ExternalDataSchema.objects.get(id=schema_id)
+            assert not fresh.initial_sync_complete, "purge must run BEFORE the flip commits"
+            calls.append(schema_id)
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.cdc.buffer.purge_buffer_prefix",
+            side_effect=_record_purge,
+        ):
+            _purge_stale_buffer_then_mark_initial_sync_complete(str(schema.id), self.team.pk, MagicMock())
+
+        schema.refresh_from_db()
+        assert schema.initial_sync_complete is True
+        assert (calls == [str(schema.id)]) is expects_purge
+        assert schema.sync_type_config.get("cdc_mode") == expected_cdc_mode

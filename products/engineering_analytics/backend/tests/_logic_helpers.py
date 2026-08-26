@@ -22,6 +22,7 @@ from products.engineering_analytics.backend.tests._github_fixtures import (
     _run_row,
     create_github_source,
     link_schema,
+    seeding_object_storage,
 )
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
 from products.warehouse_sources.backend.test.utils import create_data_warehouse_table_from_csv
@@ -55,6 +56,25 @@ def _dt(value: str) -> datetime:
     return datetime.fromisoformat(value).replace(tzinfo=UTC)
 
 
+_seed_clock: datetime | None = None
+
+
+def anchor_seed_clock() -> None:
+    """Pin the clock every seed in one test reads from. Called per test by the autouse fixture.
+
+    Seeds format to whole seconds, so two calls that straddle a wall-clock second land a second
+    apart even when the test asked for an exact number of days between them. Tests assert on the
+    distance between seeded rows (`merged_at` minus a `ready_for_review` event, for one), so
+    sampling the clock per call turned that distance into a coin flip on sub-second timing.
+    """
+    global _seed_clock
+    _seed_clock = timezone.now()
+
+
+def _seed_now() -> datetime:
+    return _seed_clock if _seed_clock is not None else timezone.now()
+
+
 def _ago(days: int) -> str:
     return _ago_with_duration(days, 0)[0]
 
@@ -62,7 +82,15 @@ def _ago(days: int) -> str:
 def _ago_with_duration(days: int, duration_seconds: int) -> tuple[str, str]:
     # Seed dates relative to real time: HogQL now() runs server-side and ignores
     # freezegun, so window/age assertions must share the clock the query uses.
-    started_at = timezone.now() - timedelta(days=days)
+    started_at = _seed_now() - timedelta(days=days)
+    updated_at = started_at + timedelta(seconds=duration_seconds)
+    fmt = "%Y-%m-%d %H:%M:%S"
+    return started_at.strftime(fmt), updated_at.strftime(fmt)
+
+
+def _ago_offset_with_duration(days: int, offset_seconds: int, duration_seconds: int) -> tuple[str, str]:
+    """Like ``_ago_with_duration`` but shifted forward, so several runs can share one round anchor."""
+    started_at = _seed_now() - timedelta(days=days) + timedelta(seconds=offset_seconds)
     updated_at = started_at + timedelta(seconds=duration_seconds)
     fmt = "%Y-%m-%d %H:%M:%S"
     return started_at.strftime(fmt), updated_at.strftime(fmt)
@@ -78,6 +106,7 @@ def _job_row(
     labels: str = '["depot-ubuntu-22.04-4"]',
     started: str = "2026-01-01 00:00:00",
     completed: str = "2026-01-01 00:02:00",
+    head_branch: str = "main",
 ) -> dict[str, Any]:
     return {
         "id": job_id,
@@ -88,7 +117,7 @@ def _job_row(
         "status": "completed",
         "conclusion": conclusion,
         "head_sha": "sha60",
-        "head_branch": "main",
+        "head_branch": head_branch,
         "labels": labels,
         "runner_name": "runner-1",
         "runner_group_name": "depot",
@@ -129,8 +158,7 @@ def _header(
 class _WarehouseMixin(ClickhouseTestMixin, BaseTest):
     """Seeds warehouse tables behind a connected GitHub source with a non-default prefix,
     so the full resolve -> build -> query path runs end to end against `myprefixgithub_*`
-    tables. Skips when object storage is unreachable so the suite still runs without the
-    dev stack."""
+    tables."""
 
     def setUp(self) -> None:
         super().setUp()
@@ -144,6 +172,7 @@ class _WarehouseMixin(ClickhouseTestMixin, BaseTest):
         *,
         source: ExternalDataSource | None = None,
         prefix: str = GITHUB_SOURCE_PREFIX,
+        schema_name: str | None = None,
     ) -> None:
         # Defaults to the mixin's single shared source; pass source + prefix to seed a second
         # source (e.g. one GitHub source per repository) under a distinct table prefix.
@@ -156,7 +185,7 @@ class _WarehouseMixin(ClickhouseTestMixin, BaseTest):
         df.to_csv(tmp.name, index=False)
         tmp.close()
         self.addCleanup(Path(tmp.name).unlink, missing_ok=True)
-        try:
+        with seeding_object_storage(self):
             table, _source, _credential, _df, cleanup = create_data_warehouse_table_from_csv(
                 csv_path=Path(tmp.name),
                 table_name=base_name,
@@ -166,17 +195,15 @@ class _WarehouseMixin(ClickhouseTestMixin, BaseTest):
                 source=source,
                 source_prefix=prefix,
             )
-        except PermissionError as err:
-            self.skipTest(f"object storage unavailable: {err}")
         self.addCleanup(cleanup)
-        # base_name is "github_<endpoint>"; the synced schema/endpoint is its suffix.
-        link_schema(self.team, source, name=base_name.removeprefix("github_"), table=table)
+        # base_name is "github_<endpoint>"; the synced schema/endpoint is its suffix. Non-GitHub
+        # sources (Trunk) pass their endpoint's schema name explicitly.
+        link_schema(self.team, source, name=schema_name or base_name.removeprefix("github_"), table=table)
 
 
 class _EndpointsWarehouseMixin(_WarehouseMixin):
     """End-to-end aggregates over real warehouse tables. Seeds dates relative to
-    real time (HogQL now() is server-side). Skips when object storage is
-    unreachable."""
+    real time (HogQL now() is server-side)."""
 
     def _seed(self) -> None:
         self._create_table(
@@ -209,6 +236,20 @@ class _EndpointsWarehouseMixin(_WarehouseMixin):
                 # A non-CI workflow so the CI workflow-health assertions stay at 2 runs.
                 _run_row(
                     2003, "Deploy", "sha10b", "completed", "success", _ago(1), _ago(1), pr_number=10, run_attempt=2
+                ),
+                # PR 10 queued to merge: the gate run is credited to PR 10 (its branch names it) but
+                # its head SHA is a rebase the queue made, so it must not read as a third push.
+                _run_row(
+                    2004,
+                    "Deploy",
+                    "sha10queue",
+                    "completed",
+                    "success",
+                    _ago(1),
+                    _ago(1),
+                    pr_number=9001,
+                    head_branch="trunk-merge/pr-10/cabec75e-5181-4429-aea5-0501a52d0688",
+                    actor="trunk-io[bot]",
                 ),
             ],
         )

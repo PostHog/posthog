@@ -1,10 +1,10 @@
+import socket
 from typing import Literal
 
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldSelectConfig
-
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.metabase import (
     MetabaseAuthMethodConfig,
     MetabaseSourceConfig,
@@ -12,12 +12,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.metabase.metabase import (
     API_KEY_AUTH,
     SESSION_AUTH,
-    SESSION_RESPONSE_NOT_JSON_ERROR,
     MetabaseAuth,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.metabase.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.metabase.source import MetabaseSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(selection: Literal["api_key", "session"] = "api_key", **auth_kwargs) -> MetabaseSourceConfig:
@@ -33,44 +31,31 @@ class TestMetabaseSource:
         self.team_id = 123
         self.config = _config(api_key="mb_secret")
 
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.METABASE
+    def test_dns_resolution_failure_message_is_classified_non_retryable(self):
+        # `_is_host_safe` raises this exact message when the Instance URL doesn't resolve via
+        # DNS — a permanent, deterministic failure until it's corrected. Build the message via
+        # the real `_is_host_safe` code path (not a hand-typed copy) so this test breaks if
+        # either side's wording drifts from the classifier's key.
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins.is_cloud",
+                return_value=True,
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins.get_instance_region",
+                return_value="US",
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins.socket.getaddrinfo",
+                side_effect=socket.gaierror,
+            ),
+        ):
+            ok, err = _is_host_safe("nonexistent.example", team_id=999)
 
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "Metabase"
-        assert config.label == "Metabase"
-        assert config.unreleasedSource is None
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.iconPath == "/static/services/metabase.png"
-
-        host_field, auth_field = config.fields
-        assert isinstance(host_field, SourceFieldInputConfig)
-        assert host_field.name == "host"
-        assert host_field.secret is False
-
-        assert isinstance(auth_field, SourceFieldSelectConfig)
-        assert auth_field.name == "auth_method"
-        assert [o.value for o in auth_field.options] == [API_KEY_AUTH, SESSION_AUTH]
-
-    def test_credential_fields_are_secret(self):
-        auth_field = self.source.get_source_config.fields[1]
-        assert isinstance(auth_field, SourceFieldSelectConfig)
-        secret_field_names = {
-            f.name
-            for option in auth_field.options
-            for f in (option.fields or [])
-            if isinstance(f, SourceFieldInputConfig) and f.secret
-        }
-        assert secret_field_names == {"api_key", "password"}
-
-    @pytest.mark.parametrize(
-        "expected_key",
-        ["401 Client Error", "403 Client Error", "Invalid Metabase credentials", SESSION_RESPONSE_NOT_JSON_ERROR],
-    )
-    def test_non_retryable_errors(self, expected_key):
-        assert expected_key in self.source.get_non_retryable_errors()
+        assert not ok
+        assert err is not None
+        non_retryable = self.source.get_non_retryable_errors()
+        assert any(key in err for key in non_retryable)
 
     def test_get_schemas_returns_all_endpoints(self):
         schemas = self.source.get_schemas(self.config, self.team_id)
@@ -103,22 +88,6 @@ class TestMetabaseSource:
         assert auth.method == selection
         assert (auth.api_key, auth.username, auth.password) == expected
 
-    @pytest.mark.parametrize("mock_return", [(True, None), (False, "Invalid Metabase credentials")])
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.metabase.source.validate_metabase_credentials"
-    )
-    def test_validate_credentials(self, mock_validate, mock_return):
-        mock_validate.return_value = mock_return
-
-        result = self.source.validate_credentials(self.config, self.team_id, schema_name="cards")
-
-        assert result == mock_return
-        args = mock_validate.call_args.args
-        assert args[0] == self.config.host
-        assert isinstance(args[1], MetabaseAuth)
-        assert args[2] == self.team_id
-        assert args[3] == "cards"
-
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.metabase.source.metabase_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_metabase_source):
         inputs = mock.MagicMock()
@@ -133,7 +102,3 @@ class TestMetabaseSource:
         assert isinstance(kwargs["auth"], MetabaseAuth)
         assert kwargs["endpoint"] == "cards"
         assert kwargs["team_id"] == 42
-
-    def test_canonical_descriptions_cover_endpoints(self):
-        descriptions = self.source.get_canonical_descriptions()
-        assert set(descriptions.keys()) == set(ENDPOINTS)

@@ -4,10 +4,23 @@ import os
 from dataclasses import dataclass
 from typing import ClassVar, Final
 
+from llm_gateway.baseten import (
+    BASETEN_DEEPSEEK_PUBLIC_MODEL,
+    BASETEN_EXCLUSIVE_COST_MODELS,
+    BASETEN_EXCLUSIVE_MODELS,
+    BASETEN_GLM53_PUBLIC_MODEL,
+    is_baseten_configured,
+)
 from llm_gateway.cloudflare import CLOUDFLARE_ALLOWED_MODELS, is_cloudflare_configured
 from llm_gateway.config import get_settings
-from llm_gateway.modal import MODAL_ALLOWED_MODELS, is_modal_configured
-from llm_gateway.products.config import get_product_config
+from llm_gateway.modal import (
+    MODAL_ALLOWED_MODELS,
+    MODAL_EXCLUSIVE_MODELS,
+    is_modal_configured,
+    is_modal_model_configured,
+)
+from llm_gateway.products.config import get_product_config, is_model_restricted_for_product
+from llm_gateway.rate_limiting.cost_refresh import COST_ALIASES
 from llm_gateway.rate_limiting.model_cost_service import ModelCost, ModelCostService
 
 # Cloudflare Workers AI models are served via the `@cf/` path (CLOUDFLARE_ALLOWED_MODELS), not
@@ -17,11 +30,17 @@ from llm_gateway.rate_limiting.model_cost_service import ModelCost, ModelCostSer
 # and silently fall back to their default.
 _CLOUDFLARE_PROVIDER: Final[str] = "cloudflare"
 _CLOUDFLARE_DEFAULT_CONTEXT_WINDOW: Final[int] = 128_000
+_BASETEN_CONTEXT_WINDOWS: Final[dict[str, int]] = {
+    BASETEN_DEEPSEEK_PUBLIC_MODEL: 1_048_000,
+    # Placeholder pending confirmation against the Baseten deployment.
+    BASETEN_GLM53_PUBLIC_MODEL: 200_000,
+}
 
 
 @dataclass(frozen=True)
 class ModelInfo:
     id: str
+    cost_model_id: str
     provider: str
     context_window: int
     supports_streaming: bool = True
@@ -100,6 +119,7 @@ class ModelRegistryService:
             return None
         return ModelInfo(
             id=model_id,
+            cost_model_id=model_id,
             provider=cost_data.get("litellm_provider", "unknown"),
             context_window=cost_data.get("max_input_tokens") or 0,
             supports_vision=bool(cost_data.get("supports_vision", False)),
@@ -115,6 +135,8 @@ class ModelRegistryService:
         all_litellm_models = ModelCostService.get_instance().get_all_models()
         models = []
         for model_id, cost_data in all_litellm_models.items():
+            if model_id in COST_ALIASES:
+                continue
             provider = cost_data.get("litellm_provider", "")
             if provider not in configured_providers:
                 continue
@@ -137,8 +159,32 @@ class ModelRegistryService:
             models.append(
                 ModelInfo(
                     id=model_id,
+                    cost_model_id=COST_ALIASES[f"openai/{model_id}"][0],
                     provider=_CLOUDFLARE_PROVIDER,
                     context_window=_CLOUDFLARE_DEFAULT_CONTEXT_WINDOW,
+                    supports_streaming=True,
+                    supports_vision=False,
+                )
+            )
+        for model_id in MODAL_EXCLUSIVE_MODELS:
+            if not is_modal_model_configured(model_id, get_settings()):
+                continue
+            if allowed_models is not None and not _model_matches_allowlist(model_id, allowed_models):
+                continue
+            model = self.get_model(model_id)
+            if model is not None:
+                models.append(model)
+        for model_id in BASETEN_EXCLUSIVE_MODELS:
+            if is_model_restricted_for_product(model_id, product) or not is_baseten_configured(get_settings()):
+                continue
+            if allowed_models is not None and not _model_matches_allowlist(model_id, allowed_models):
+                continue
+            models.append(
+                ModelInfo(
+                    id=model_id,
+                    cost_model_id=BASETEN_EXCLUSIVE_COST_MODELS[model_id],
+                    provider="baseten",
+                    context_window=_BASETEN_CONTEXT_WINDOWS[model_id],
                     supports_streaming=True,
                     supports_vision=False,
                 )
@@ -158,6 +204,12 @@ class ModelRegistryService:
         # on the CF allowlist + a configured backend (Cloudflare or Modal) instead.
         if _model_matches_allowlist(model_id, CLOUDFLARE_ALLOWED_MODELS):
             return _glm_backend_configured(model_id)
+
+        if _model_matches_allowlist(model_id, MODAL_ALLOWED_MODELS):
+            return is_modal_model_configured(model_id, get_settings())
+
+        if model_id in BASETEN_EXCLUSIVE_MODELS:
+            return not is_model_restricted_for_product(model_id, product) and is_baseten_configured(get_settings())
 
         model = self.get_model(model_id)
         if model is None:

@@ -9,10 +9,13 @@ from requests import Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.factorial.factorial import (
-    BASE_URL,
+    API_VERSION_2025_04_01,
+    API_VERSION_2026_04_01,
+    API_VERSION_2026_07_01,
     PAGE_SIZE,
     FactorialCursorPaginator,
     FactorialResumeConfig,
+    base_url,
     factorial_source,
     get_resource,
     validate_credentials,
@@ -25,6 +28,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.factorial.
 _SESSION_FACTORY = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.factorial.factorial.make_tracked_session"
 )
+
+# Paginator logic ignores the request URL (it only touches params), so any supported base is fine here.
+_BASE_URL = base_url(API_VERSION_2026_04_01)
 
 
 def _full_page() -> list[dict[str, Any]]:
@@ -44,7 +50,7 @@ class TestFactorialCursorPaginator:
 
     def test_init_request_emits_limit_only_when_fresh(self) -> None:
         paginator = FactorialCursorPaginator()
-        request = Request(method="GET", url=f"{BASE_URL}/resources/employees/employees")
+        request = Request(method="GET", url=f"{_BASE_URL}/resources/employees/employees")
         paginator.init_request(request)
         assert request.params["limit"] == PAGE_SIZE
         assert "after_id" not in request.params
@@ -54,7 +60,7 @@ class TestFactorialCursorPaginator:
         paginator.update_state(_meta_response({"has_next_page": True, "end_cursor": "Mjc="}), _full_page())
         assert paginator.has_next_page is True
 
-        request = Request(method="GET", url=f"{BASE_URL}/resources/employees/employees")
+        request = Request(method="GET", url=f"{_BASE_URL}/resources/employees/employees")
         paginator.update_request(request)
         assert request.params["after_id"] == "Mjc="
 
@@ -89,7 +95,7 @@ class TestFactorialCursorPaginator:
         paginator.set_resume_state({"after_id": "MTY="})
         assert paginator.has_next_page is True
 
-        request = Request(method="GET", url=f"{BASE_URL}/resources/employees/employees")
+        request = Request(method="GET", url=f"{_BASE_URL}/resources/employees/employees")
         paginator.init_request(request)
         assert request.params["after_id"] == "MTY="
         assert request.params["limit"] == PAGE_SIZE
@@ -97,7 +103,7 @@ class TestFactorialCursorPaginator:
     def test_set_resume_state_ignores_missing_cursor(self) -> None:
         paginator = FactorialCursorPaginator()
         paginator.set_resume_state({})
-        request = Request(method="GET", url=f"{BASE_URL}/resources/employees/employees")
+        request = Request(method="GET", url=f"{_BASE_URL}/resources/employees/employees")
         paginator.init_request(request)
         assert "after_id" not in request.params
 
@@ -131,6 +137,7 @@ class TestSourceResponsePartitioning:
                 team_id=123,
                 job_id="job-1",
                 resumable_source_manager=manager,
+                api_version=API_VERSION_2026_04_01,
             )
 
     @pytest.mark.parametrize(
@@ -172,13 +179,19 @@ class TestFactorialSourceResumeBehavior:
     """End-to-end resume behaviour of ``factorial_source`` via ``rest_api_resource``."""
 
     def _drive(
-        self, endpoint: str, manager: MagicMock, responses: list[Response]
-    ) -> tuple[MagicMock, list[dict[str, Any]]]:
+        self,
+        endpoint: str,
+        manager: MagicMock,
+        responses: list[Response],
+        api_version: str = API_VERSION_2026_04_01,
+    ) -> tuple[list[dict[str, Any]], list[str]]:
         sent_params: list[dict[str, Any]] = []
+        sent_urls: list[str] = []
         response_iter = iter(responses)
 
         def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
             sent_params.append(dict(request.params or {}))
+            sent_urls.append(request.url)
             return next(response_iter)
 
         with patch(_SESSION_FACTORY) as MockSession:
@@ -193,9 +206,10 @@ class TestFactorialSourceResumeBehavior:
                 team_id=123,
                 job_id="test_job",
                 resumable_source_manager=manager,
+                api_version=api_version,
             )
             list(cast(Iterable[Any], source.items()))
-            return mock_session, sent_params
+            return sent_params, sent_urls
 
     def _page_body(self, items: list[dict[str, Any]], meta: dict[str, Any]) -> dict[str, Any]:
         return {"data": items, "meta": meta}
@@ -208,7 +222,7 @@ class TestFactorialSourceResumeBehavior:
             _make_http_response(self._page_body(_full_page(), {"has_next_page": True, "end_cursor": "Mjc="})),
             _make_http_response(self._page_body([{"id": 999}], {"has_next_page": False, "end_cursor": None})),
         ]
-        _, sent_params = self._drive("employees", manager, responses)
+        sent_params, _ = self._drive("employees", manager, responses)
 
         # First request starts without a cursor; the second carries the advanced after_id.
         assert "after_id" not in sent_params[0]
@@ -226,10 +240,23 @@ class TestFactorialSourceResumeBehavior:
         responses = [
             _make_http_response(self._page_body([{"id": 17}], {"has_next_page": False, "end_cursor": None})),
         ]
-        _, sent_params = self._drive("employees", manager, responses)
+        sent_params, _ = self._drive("employees", manager, responses)
 
         assert sent_params[0].get("after_id") == "MTY="
         manager.load_state.assert_called_once()
+
+    @pytest.mark.parametrize("api_version", [API_VERSION_2025_04_01, API_VERSION_2026_04_01, API_VERSION_2026_07_01])
+    def test_requests_go_to_the_pinned_version_path(self, api_version: str) -> None:
+        # A pinned source must fetch under its own version segment — never a hardcoded default.
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+        responses = [
+            _make_http_response(self._page_body([{"id": 1}], {"has_next_page": False, "end_cursor": None})),
+        ]
+        _, sent_urls = self._drive("employees", manager, responses, api_version=api_version)
+
+        assert sent_urls
+        assert all(url.startswith(f"{base_url(api_version)}/resources/employees/employees") for url in sent_urls)
 
     def test_terminal_single_page_does_not_save_state(self) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
@@ -271,24 +298,25 @@ class TestValidateCredentials:
             response.status_code = status_code
             mock_session.get.return_value = response
 
-            valid, error = validate_credentials("test-key")
+            valid, error = validate_credentials("test-key", API_VERSION_2026_04_01)
             assert valid is expected_valid
             if expected_valid:
                 assert error is None
             else:
                 assert error is not None
 
-    def test_probes_employees_endpoint_with_api_key_header(self) -> None:
+    @pytest.mark.parametrize("api_version", [API_VERSION_2025_04_01, API_VERSION_2026_04_01, API_VERSION_2026_07_01])
+    def test_probes_employees_endpoint_under_requested_version(self, api_version: str) -> None:
         with patch(_SESSION_FACTORY) as MockSession:
             mock_session = MockSession.return_value
             response = MagicMock()
             response.status_code = 200
             mock_session.get.return_value = response
 
-            validate_credentials("test-key")
+            validate_credentials("test-key", api_version)
 
             call = mock_session.get.call_args
-            assert call.args[0] == f"{BASE_URL}/resources/employees/employees"
+            assert call.args[0] == f"{base_url(api_version)}/resources/employees/employees"
             assert call.kwargs["headers"] == {"x-api-key": "test-key"}
             assert call.kwargs["params"] == {"limit": 1}
             assert call.kwargs["allow_redirects"] is False
@@ -296,6 +324,6 @@ class TestValidateCredentials:
     def test_network_error_returns_message(self) -> None:
         with patch(_SESSION_FACTORY) as MockSession:
             MockSession.return_value.get.side_effect = Exception("boom")
-            valid, error = validate_credentials("test-key")
+            valid, error = validate_credentials("test-key", API_VERSION_2026_04_01)
             assert valid is False
             assert error == "boom"

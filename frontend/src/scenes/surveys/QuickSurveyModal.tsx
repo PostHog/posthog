@@ -68,6 +68,16 @@ export function QuickSurveyForm({ context, info, onCancel, showFollowupToggle }:
         <BindLogic logic={quickSurveyFormLogic} props={logicProps}>
             {info && <LemonBanner type="info">{info}</LemonBanner>}
 
+            {shouldShowSurveyToggle && (
+                <div className="p-4 border rounded bg-warning-highlight space-y-2 mt-2">
+                    <div>
+                        Surveys are currently disabled for this project. Enable them so this survey can be shown to
+                        users.
+                    </div>
+                    <SurveyEnableToggle />
+                </div>
+            )}
+
             <div className="grid grid-cols-2 gap-6 mt-2">
                 <div className="space-y-4">
                     {context.type !== QuickSurveyType.ANNOUNCEMENT && (
@@ -212,12 +222,6 @@ export function QuickSurveyForm({ context, info, onCancel, showFollowupToggle }:
             {context.type === QuickSurveyType.ERROR_TRACKING && <ExceptionFilters />}
 
             <div className="flex flex-col gap-3 mt-4">
-                {shouldShowSurveyToggle && (
-                    <div className="p-4 border rounded bg-warning-highlight">
-                        <SurveyEnableToggle />
-                    </div>
-                )}
-
                 <SdkVersionWarnings warnings={warnings} />
 
                 {submitDisabledReason && (

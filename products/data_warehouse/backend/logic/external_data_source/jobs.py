@@ -1,9 +1,13 @@
+import asyncio
 import datetime as dt
+from functools import partial
 
 from django.db import transaction
 
 from prometheus_client import Counter
 from structlog.types import FilteringBoundLogger
+
+from posthog.exceptions_capture import capture_exception
 
 from products.data_warehouse.backend.tasks.tasks import schedule_external_data_failure_digest
 from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema
@@ -18,6 +22,16 @@ JOB_STATUS_TRANSITION_REJECTED = Counter(
     "Job status transition rejected because the job was already in a different terminal state",
 )
 
+FINALIZE_QUEUE_BATCHES_SWEPT = Counter(
+    "dwh_finalize_queue_batches_swept",
+    "Queue batches failed because their v3 job reached a terminal state before the queue drained",
+)
+
+FINALIZE_QUEUE_SWEEP_ERRORS = Counter(
+    "dwh_finalize_queue_sweep_errors",
+    "Errors swallowed while sweeping queue batches at job finalize",
+)
+
 
 def update_external_job_status(
     job_id: str, team_id: int, status: ExternalDataJob.Status, logger: FilteringBoundLogger, latest_error: str | None
@@ -25,6 +39,9 @@ def update_external_job_status(
     is_first_terminal_transition = False
     with transaction.atomic():
         model = ExternalDataJob.objects.select_for_update().get(id=job_id, team_id=team_id)
+
+        was_already_terminal = model.status in TERMINAL_JOB_STATUSES
+        existing_error = model.latest_error
 
         # The loader may finish a run after lock takeover force-failed its job; only the
         # exact takeover sentinel unseals Failed -> Completed — genuine failures stay absorbing.
@@ -52,7 +69,16 @@ def update_external_job_status(
             )
 
         model.status = status
-        model.latest_error = latest_error
+
+        # Once a job records a terminal failure reason, a later write of the SAME terminal status
+        # must not overwrite it. When a schema auto-disables, its teardown force-fails every other
+        # still-running job of that schema with the real reason, then cancels their workflows;
+        # Temporal's cancellation re-finalizes each as FAILED with a bare "Cancelled", which would
+        # otherwise clobber the actionable error. Takeover recovery (Failed -> Completed) is exempt
+        # — it deliberately replaces the sentinel with the successful run's empty error.
+        preserve_existing_error = was_already_terminal and not is_takeover_recovery and existing_error is not None
+        error_to_persist = existing_error if preserve_existing_error else latest_error
+        model.latest_error = error_to_persist
 
         # Only stamp finished_at and emit metrics on the first terminal transition. Takeover
         # recovery re-stamps: the Failed stamp predates the load and never emitted success metrics.
@@ -90,8 +116,23 @@ def update_external_job_status(
             )
         else:
             schema.status = schema_status
-            schema.latest_error = latest_error
+            schema.latest_error = error_to_persist
             schema.save(update_fields=["status", "latest_error", "updated_at"])
+
+        # Every risky terminal write (any non-Completed terminal, plus the takeover-recovery
+        # Completed flip) can leave still-claimable batches in the v3 queue; a straggler loaded
+        # later can stale-overwrite newer data or flip this job's status. A normal v3 completion
+        # has drained the queue by construction, so the common completion path stays queue-free.
+        # on_commit: the queue is a separate Postgres; never call it holding these row locks.
+        should_sweep_queue = (
+            model.pipeline_version == ExternalDataJob.PipelineVersion.V3
+            and status in TERMINAL_JOB_STATUSES
+            and (status != ExternalDataJob.Status.COMPLETED or is_takeover_recovery)
+        )
+        if should_sweep_queue:
+            transaction.on_commit(
+                partial(_sweep_v3_queue_batches_swallowing_errors, job_id=job_id, status=status, logger=logger)
+            )
 
     model.refresh_from_db()
 
@@ -106,3 +147,60 @@ def update_external_job_status(
                 logger.exception("Failed to schedule external data failure digest")
 
     return model
+
+
+def _is_cancellation(error: BaseException) -> bool:
+    """Whether `error` is an activity cancellation, however it surfaced.
+
+    Temporal can inject a `temporalio.exceptions.CancelledError` (an `Exception` subclass) into the
+    thread this runs on when the calling activity is cancelled mid-sweep — match on the type name too
+    so it isn't mistaken for a genuine queue-DB failure.
+    """
+    return isinstance(error, asyncio.CancelledError) or type(error).__name__ == "CancelledError"
+
+
+def _sweep_v3_queue_batches_swallowing_errors(
+    *, job_id: str, status: ExternalDataJob.Status, logger: FilteringBoundLogger
+) -> None:
+    # A queue-DB error must never surface into the caller that just committed the status write.
+    # The stale-stranded reconcile sweep on the loader retries what this misses.
+    try:
+        _sweep_v3_queue_batches(job_id=job_id, status=status, logger=logger)
+    except Exception as e:
+        if _is_cancellation(e):
+            # Activity cancellation, not a sweep failure — propagate so the caller's own cancellation
+            # handling runs, instead of reporting it as `dwh_finalize_queue_sweep_failed` noise.
+            raise
+        FINALIZE_QUEUE_SWEEP_ERRORS.inc()
+        logger.exception("dwh_finalize_queue_sweep_failed", job_id=job_id)
+        capture_exception(e)
+
+
+def _sweep_v3_queue_batches(*, job_id: str, status: ExternalDataJob.Status, logger: FilteringBoundLogger) -> None:
+    """Fail any still-non-terminal queue batches of a v3 job that just went terminal."""
+    # Deferred: the queue package imports back through this module (see postgres_queue.consumer),
+    # so a top-level import would cycle.
+    import psycopg
+
+    from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
+
+    from products.warehouse_sources.backend.facade.pipelines import BatchQueue
+
+    conn = psycopg.Connection.connect(WAREHOUSE_SOURCES_DATABASE_URL, autocommit=True)
+    try:
+        swept = BatchQueue.fail_batches_for_job_sync(
+            conn,
+            job_id=job_id,
+            reason=f"job finalized as {status} before its queue drained",
+        )
+    finally:
+        conn.close()
+
+    if swept:
+        FINALIZE_QUEUE_BATCHES_SWEPT.inc(swept)
+        logger.warning(
+            "dwh_finalize_swept_queue_batches",
+            job_id=job_id,
+            status=status,
+            batch_count=swept,
+        )

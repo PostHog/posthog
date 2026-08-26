@@ -7,7 +7,7 @@ import { ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE } from 'lib/constants'
 import { calculateDays } from 'lib/utils/durations'
 import { isNumeric } from 'lib/utils/guards'
 import { areObjectValuesEmpty } from 'lib/utils/objects'
-import { BEHAVIORAL_TYPE_TO_LABEL, CRITERIA_VALIDATIONS, ROWS } from 'scenes/cohorts/CohortFilters/constants'
+import { BEHAVIORAL_TYPE_TO_LABEL, CRITERIA_VALIDATIONS, getRowShape } from 'scenes/cohorts/CohortFilters/constants'
 import {
     BehavioralFilterKey,
     BehavioralFilterType,
@@ -182,8 +182,22 @@ export function createCohortFormData(
     return cohortFormData
 }
 
+/** Whether a group (or bare criterion) contributes at least one positive (non-negated) matching criterion. */
+function hasPositiveCriterion(group: CohortCriteriaGroupFilter | AnyCohortCriteriaType): boolean {
+    if (!isCohortCriteriaGroup(group)) {
+        return !group.negation
+    }
+    return (group.values as AnyCohortCriteriaType[]).filter((g) => !isCohortCriteriaGroup(g)).some((c) => !c.negation)
+}
+
 export function validateGroup(
-    group: CohortCriteriaGroupFilter | AnyCohortCriteriaType
+    group: CohortCriteriaGroupFilter | AnyCohortCriteriaType,
+    // The outer ("Match all/any criteria") operator and the other groups in the cohort. When the
+    // outer operator is AND, every group is intersected, so a negation in one group is bounded by a
+    // positive matching criterion in any sibling group — the whole cohort has to be considered, not
+    // just this group in isolation.
+    outerOperator?: FilterLogicalOperator,
+    siblingGroups: (CohortCriteriaGroupFilter | AnyCohortCriteriaType)[] = []
 ): DeepPartialMap<CohortCriteriaGroupFilter, ValidationErrorType> {
     if (!isCohortCriteriaGroup(group)) {
         return {}
@@ -196,12 +210,15 @@ export function validateGroup(
     const negatedCriteria = criteria.filter((c) => !!c.negation)
     const negatedCriteriaIndices = new Set(negatedCriteria.map((c) => c.index))
 
-    if (
-        // Negation criteria can only be used when matching ALL criteria
-        (group.type !== FilterLogicalOperator.And && negatedCriteria.length > 0) ||
-        // Negation criteria has at least one positive matching criteria
-        (group.type === FilterLogicalOperator.And && negatedCriteria.length === criteria.length)
-    ) {
+    // A negation is bounded by a positive matching criterion either within this AND group, or — when
+    // the cohort matches ALL criteria (outer AND) — within any sibling group.
+    const boundedWithinGroup = group.type === FilterLogicalOperator.And && negatedCriteria.length < criteria.length
+    const boundedBySibling =
+        group.type === FilterLogicalOperator.And &&
+        outerOperator === FilterLogicalOperator.And &&
+        siblingGroups.some((sibling) => hasPositiveCriterion(sibling))
+
+    if (negatedCriteria.length > 0 && !boundedWithinGroup && !boundedBySibling) {
         const errorMsg = `${negatedCriteria
             .map((c) => {
                 const behavioralFilterType = criteriaToBehavioralFilterType(c)
@@ -357,7 +374,7 @@ export function validateGroup(
     return {
         values: criteria.map((c) => {
             const behavioralFilterType = criteriaToBehavioralFilterType(c)
-            const row = ROWS[behavioralFilterType]
+            const row = getRowShape(behavioralFilterType)
             let requiredFields = (row?.fields ?? []).filter((f) => !!f.fieldKey) as FieldWithFieldKey[]
 
             // Edge case where property value is not required if operator is "is set" or "is not set"
@@ -586,7 +603,7 @@ function getCriteriaValue(criteria: AnyCohortCriteriaType, key: string): any {
 // Populate empty values with default values on changing type, pruning any extra variables
 export function cleanCriteria(criteria: AnyCohortCriteriaType, shouldPurge: boolean = false): AnyCohortCriteriaType {
     const populatedCriteria: Record<string, any> = {}
-    const { fields, ...apiProps } = ROWS[criteriaToBehavioralFilterType(criteria)] ?? { fields: [] }
+    const { fields, ...apiProps } = getRowShape(criteriaToBehavioralFilterType(criteria)) ?? { fields: [] }
     Object.entries(apiProps).forEach(([key, defaultValue]) => {
         const nextValue = getCriteriaValue(criteria, key) ?? defaultValue
         if (shouldPurge) {
@@ -622,7 +639,7 @@ export function criteriaToHumanSentence(
     actionsById: Partial<Record<string | number, ActionType>>
 ): React.ReactNode {
     const words: React.ReactNode[] = []
-    const data = ROWS[criteriaToBehavioralFilterType(criteria)]
+    const data = getRowShape(criteriaToBehavioralFilterType(criteria))
 
     if (!data) {
         return <></>

@@ -12,6 +12,7 @@ import {
 } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
+import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion-restrictions'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { TeamManager } from '~/common/utils/team-manager'
@@ -31,9 +32,17 @@ import { createFetchPersonChunkStep } from '~/ingestion/common/steps/event-proce
 import { createHogTransformEventStep } from '~/ingestion/common/steps/event-processing/hog-transform-event-step'
 import { createReadOnlyProcessGroupsStep } from '~/ingestion/common/steps/event-processing/readonly-process-groups-step'
 import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
+import {
+    EventUsageBatchContext,
+    createEventUsageBeforeBatchStep,
+    createFlushEventUsageStep,
+    createRecordEventUsageAfterIngestStep,
+    createRecordEventUsageStep,
+} from '~/ingestion/common/steps/usage-records-steps'
+import { resolveExceptionUsageKey } from '~/ingestion/common/usage-records/billable-events'
 import { IngestionOverflowMode } from '~/ingestion/config'
 import { BatchingContext, BatchingPipeline } from '~/ingestion/framework/batching-pipeline'
-import { TopHogRegistry, count, countOk, createTopHogWrapper } from '~/ingestion/framework/extensions/tophog'
+import { TopHogRegistry, count } from '~/ingestion/framework/extensions/tophog'
 import { createBatch } from '~/ingestion/framework/helpers'
 
 import { createAttachMessageBytesStep } from './attach-message-bytes-step'
@@ -57,7 +66,7 @@ export type ErrorTrackingPipeline = BatchingPipeline<
     ErrorTrackingPipelineInput,
     ErrorTrackingPipelineOutput,
     { message: Message },
-    Record<never, object>,
+    EventUsageBatchContext,
     { message: Message } & BatchingContext,
     OverflowOutput
 >
@@ -93,6 +102,7 @@ export interface ErrorTrackingPipelineConfig {
     overflowLaneTTLRefreshService?: OverflowRedirectService
     /** TopHog registry for metrics. */
     topHog: TopHogRegistry
+    createEventUsageBatch?: () => UsageRecordBatch
 }
 
 /**
@@ -136,16 +146,17 @@ export function createErrorTrackingPipeline(config: ErrorTrackingPipelineConfig)
         overflowRedirectService,
         overflowLaneTTLRefreshService,
         topHog,
+        createEventUsageBatch = () => new UsageRecordBatch(null, { unit: 'events', isTeamEnabled: () => false }),
     } = config
-
-    const topHogWrapper = createTopHogWrapper(topHog)
 
     const preCymbal = newCommonIngestionPipeline<ErrorTrackingPipelineInput, { message: Message }, OverflowOutput>({
         teamManager,
         outputs,
         promiseScheduler,
         concurrentBatches: 1,
+        topHog,
     })
+        .beforeBatch((b) => b.pipe(createEventUsageBeforeBatchStep(createEventUsageBatch)))
         // Header-only steps: parse Kafka headers and apply token-level restrictions.
         // Cheap; runs per-event before we touch the body.
         .parseHeaders()
@@ -153,6 +164,8 @@ export function createErrorTrackingPipeline(config: ErrorTrackingPipelineConfig)
             createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
                 overflowMode,
                 preservePartitionLocality,
+                // createFetchPersonChunkStep below only reads persons.
+                pipelineWritesPersons: false,
             })
         )
         // Rate-limit non-cookieless events to overflow before parsing the body.
@@ -161,14 +174,7 @@ export function createErrorTrackingPipeline(config: ErrorTrackingPipelineConfig)
         // keys on the hashed distinct_id assigned by the cookieless step.
         .pipeChunk(createSkipCookielessRateLimitToOverflowStep(preservePartitionLocality, overflowRedirectService))
         .parseMessage()
-        .resolveTeam({
-            wrap: (step) =>
-                topHogWrapper(step, [
-                    countOk('resolved_teams', (output) => ({
-                        team_id: String(output.team.id),
-                    })),
-                ]),
-        })
+        .resolveTeam()
         // Carry the Kafka message byte size through for Cymbal batch chunking.
         .pipe(createAttachMessageBytesStep())
         // Cookieless processing: rewrites event.distinct_id for cookieless
@@ -196,32 +202,36 @@ export function createErrorTrackingPipeline(config: ErrorTrackingPipelineConfig)
 
     return (
         afterCymbal
-            // Batch fetch person (read-only, no updates)
-            .pipeChunk(createFetchPersonChunkStep(personRepository))
+            // Batch fetch person (read-only, no updates). The personhog client
+            // retries transient gRPC errors for ~150ms; this outer retry
+            // absorbs longer blips that would otherwise crash the worker via
+            // an unhandled rejection.
+            .pipeChunk(createFetchPersonChunkStep(personRepository), {
+                retry: { tries: 5, sleepMs: 100, name: 'fetch_person_chunk' },
+            })
             // Run Hog transformations (including GeoIP if team has it enabled)
             .pipe(createHogTransformEventStep(hogTransformer))
             // Prepare event for emission
             .pipe(createErrorTrackingPrepareEventStep())
             // Map group types to indexes (read-only, no new group types created)
             .pipe(createReadOnlyProcessGroupsStep(groupTypeManager))
+            // After Cymbal, so an exception it suppresses is never billed.
+            .pipe(createRecordEventUsageStep(resolveExceptionUsageKey))
             .pipe(createCreateEventStep(EVENTS_OUTPUT))
-            .pipe(
-                topHogWrapper(
-                    createEmitEventStep({
-                        outputs,
-                    }),
-                    [
-                        count('emitted_events', (input) => ({
-                            team_id: String(input.teamId),
-                        })),
-                        count('emitted_events_per_distinct_id', (input) => ({
-                            team_id: String(input.teamId),
-                            distinct_id: input.eventsToEmit[0]?.event.distinct_id ?? '',
-                        })),
-                    ]
-                )
-            )
+            .pipe(createEmitEventStep({ outputs }), {
+                topHog: [
+                    count('emitted_events', (input) => ({
+                        team_id: String(input.teamId),
+                    })),
+                    count('emitted_events_per_distinct_id', (input) => ({
+                        team_id: String(input.teamId),
+                        distinct_id: input.eventsToEmit[0]?.event.distinct_id ?? '',
+                    })),
+                ],
+            })
+            .pipe(createRecordEventUsageAfterIngestStep())
             .pipe(createRecordIngestionLagStep())
+            .afterBatch((b) => b.pipe(createFlushEventUsageStep()))
             .build()
     )
 }
@@ -244,7 +254,7 @@ export async function runErrorTrackingPipeline(pipeline: ErrorTrackingPipeline, 
     const batch = createBatch(messages.map((message) => ({ message })))
     // The consumer drains each batch fully before feeding the next and the hooks
     // always succeed, so a rejected feed can only be a framework invariant violation.
-    const feedResult = await pipeline.feed(batch)
+    const feedResult = await pipeline.feed(batch, {})
     if (!feedResult.ok) {
         throw new Error(`error tracking pipeline rejected feed: ${feedResult.kind} (${feedResult.reason})`)
     }

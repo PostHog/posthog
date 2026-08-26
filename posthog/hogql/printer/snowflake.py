@@ -7,6 +7,7 @@ from posthog.hogql.database.direct_snowflake_table import DirectSnowflakeTable
 from posthog.hogql.database.models import DatabaseField
 from posthog.hogql.errors import QueryError
 from posthog.hogql.escape_sql import escape_snowflake_identifier
+from posthog.hogql.printer.base import BasePrinter
 from posthog.hogql.printer.postgres import PostgresPrinter
 from posthog.hogql.printer.snowflake_functions import (
     SNOWFLAKE_FUNCTION_HANDLERS_LOWER,
@@ -77,6 +78,11 @@ class SnowflakePrinter(PostgresPrinter):
 
     DIALECT_NAME: ClassVar[HogQLDialect] = "snowflake"
     DIALECT_LABEL: ClassVar[str] = "Snowflake"
+
+    def _assert_set_operator_supported(self, set_operator: str) -> None:
+        # Snowflake has no INTERSECT ALL/EXCEPT ALL or BY NAME. The Postgres parent permits
+        # everything for DuckDB, so validate against the base gate directly instead.
+        BasePrinter._assert_set_operator_supported(self, set_operator)
 
     def _print_table_sql(self, table) -> str:
         return self._print_table(table)

@@ -8,13 +8,16 @@ import { createExampleHogFlowInvocation } from '~/cdp/_tests/fixtures-hogflows'
 import { HogFlowAction } from '~/cdp/schema/hogflow'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
 import { closeHub, createHub } from '~/common/utils/db/hub'
-import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { parseJSON } from '~/common/utils/json-parse'
+import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 
 import { CyclotronJobInvocationHogFlow, DBHogFunctionTemplate } from '../../../types'
+import { HogExecutorAsyncService } from '../../hog-executor-async.service'
 import { HogExecutorService } from '../../hog-executor.service'
 import { HogInputsService } from '../../hog-inputs.service'
 import { HogFunctionTemplateManagerService } from '../../managers/hog-function-template-manager.service'
+import { RecipientsManagerService } from '../../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../../managers/team-workflows-config.service'
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from '../../messaging/email-suppression.service'
 import { EmailValidationService } from '../../messaging/email-validation.service'
@@ -30,7 +33,7 @@ describe('HogFunctionHandler', () => {
     let hub: Hub
     let team: Team
     let hogFunctionHandler: HogFunctionHandler
-    let mockHogFunctionExecutor: HogExecutorService
+    let mockHogFunctionExecutor: HogExecutorAsyncService
     let mockHogFunctionTemplateManager: HogFunctionTemplateManagerService
     let mockHogFlowFunctionsService: HogFlowFunctionsService
     let mockRecipientPreferencesService: RecipientPreferencesService
@@ -39,11 +42,11 @@ describe('HogFunctionHandler', () => {
     let invocation: CyclotronJobInvocationHogFlow
     let action: Extract<HogFlowAction, { type: 'function' }>
     let template: DBHogFunctionTemplate
+    let integrationId: number
 
     beforeEach(async () => {
-        await resetTestDatabase()
         hub = await createHub()
-        team = await getFirstTeam(hub.postgres)
+        team = (await createTestTeamFixture(hub.postgres)).team
 
         const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
         const hogInputsService = new HogInputsService(
@@ -57,27 +60,34 @@ describe('HogFunctionHandler', () => {
                 sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
                 sesRegion: hub.SES_REGION,
                 sesEndpoint: hub.SES_ENDPOINT,
+                sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
+                sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
+                sesTenantAttributionEnabled: false,
             },
             hub.integrationManager,
             new TeamWorkflowsConfigService(hub.postgres),
             hub.ENCRYPTION_SALT_KEYS,
             hub.SITE_URL,
             new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
-            new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
+            new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
+            new RecipientsManagerService(hub.postgres)
         )
-        mockHogFunctionExecutor = new HogExecutorService(
+        mockHogFunctionExecutor = new HogExecutorAsyncService(
+            new HogExecutorService({ executionTimeoutMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS }, hogInputsService),
             {
-                hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
                 googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
                 fetchRetries: hub.CDP_FETCH_RETRIES,
                 fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
                 fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
+                siteUrl: hub.SITE_URL,
             },
-            { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
-            hogInputsService,
-            emailService,
-            recipientTokensService,
-            undefined as any
+            {
+                teamManager: hub.teamManager,
+                hogInputsService,
+                emailService,
+                recipientTokensService,
+                pushNotificationService: undefined as any,
+            }
         )
         mockHogFunctionTemplateManager = new HogFunctionTemplateManagerService(hub.postgres)
         mockHogFlowFunctionsService = new HogFlowFunctionsService(
@@ -101,7 +111,7 @@ describe('HogFunctionHandler', () => {
         // Simple hog function that prints the inputs
 
         template = await insertHogFunctionTemplate(hub.postgres, {
-            id: 'template-test-hogflow-executor',
+            id: `template-test-hogflow-executor-${team.id}`,
             name: 'Test Template',
             code: `fetch('http://localhost/test', { 'method': 'POST', 'body': inputs })`,
             inputs_schema: [
@@ -118,8 +128,9 @@ describe('HogFunctionHandler', () => {
             ],
         })
 
+        integrationId = team.id
         await insertIntegration(hub.postgres, team.id, {
-            id: 1,
+            id: integrationId,
             kind: 'slack',
             config: { team: 'foobar' },
             sensitive_config: {
@@ -141,7 +152,7 @@ describe('HogFunctionHandler', () => {
                                     value: 'John Doe',
                                 },
                                 oauth: {
-                                    value: 1,
+                                    value: integrationId,
                                 },
                             },
                             mappings: [
@@ -187,20 +198,17 @@ describe('HogFunctionHandler', () => {
 
         const handlerResult = await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
 
-        expect(mockFetch.mock.calls).toMatchInlineSnapshot(`
-            [
-              [
-                "http://localhost/test",
-                {
-                  "body": "{"name":"John Doe","oauth":{"$integration_id":1,"team":"foobar","access_token":"token","not_encrypted":"not-encrypted","access_token_raw":"token"}}",
-                  "headers": {
-                    "Content-Type": "application/json",
-                  },
-                  "method": "POST",
-                },
-              ],
-            ]
-        `)
+        expect(mockFetch.mock.calls[0][0]).toBe('http://localhost/test')
+        expect(parseJSON(mockFetch.mock.calls[0][1].body)).toEqual({
+            name: 'John Doe',
+            oauth: {
+                $integration_id: integrationId,
+                team: 'foobar',
+                access_token: 'token',
+                not_encrypted: 'not-encrypted',
+                access_token_raw: 'token',
+            },
+        })
 
         expect(handlerResult.nextAction?.id).toBe('exit')
         expect(invocationResult.logs).toHaveLength(1)
@@ -353,7 +361,7 @@ describe('HogFunctionHandler', () => {
                 value: 'John Doe',
             },
             oauth: {
-                value: 1,
+                value: integrationId,
             },
         })
         expect(calledConfig.inputs_schema).toEqual([
@@ -491,6 +499,41 @@ describe('HogFunctionHandler', () => {
         }
     )
 
+    // Live edits reach runs already in flight, so a run that entered on one version can send its
+    // message under a newer one. The conversion belongs to the version whose message the person
+    // received — the same version `email_sent` is counted under — so a send re-pins the attribution
+    // version. A non-message step must leave it alone.
+    it.each([
+        { billingType: 'email' as const, expected: 3 },
+        { billingType: 'push' as const, expected: 3 },
+        { billingType: 'fetch' as const, expected: 1 },
+    ])(
+        'a completed $billingType step leaves the attribution version at $expected',
+        async ({ billingType, expected }) => {
+            const handler = new HogFunctionHandler(
+                mockHogFlowFunctionsService,
+                mockRecipientPreferencesService,
+                mockEmailValidationService,
+                billingType
+            )
+            // The run entered on v1; v3 is what is live now and what this step executes under.
+            const republished = {
+                ...invocation,
+                hogFlow: { ...invocation.hogFlow, version: 3 },
+                state: { ...invocation.state, flowVersion: 1 },
+            }
+
+            const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(republished, {
+                queue: 'hog',
+                queuePriority: 0,
+            })
+
+            await handler.execute({ invocation: republished, action, result: invocationResult })
+
+            expect(invocationResult.invocation.state.flowVersion).toBe(expected)
+        }
+    )
+
     it('should not emit a billable_invocation metric if function is not finished', async () => {
         // Mock the executeWithAsyncFunctions to return a non-finished result
         jest.spyOn(mockHogFlowFunctionsService, 'executeWithAsyncFunctions').mockResolvedValueOnce({
@@ -500,7 +543,7 @@ describe('HogFunctionHandler', () => {
             metrics: [],
             capturedPostHogEvents: [],
             warehouseWebhookPayloads: [],
-            emailAssets: [],
+            messageAssets: [],
         })
 
         const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
@@ -542,7 +585,7 @@ describe('HogFunctionHandler', () => {
     describe('non_failure_status_codes propagation', () => {
         it('propagates non_failure_status_codes from action.config.inputs into the synthetic hog function', async () => {
             const templateWithNonFailure = await insertHogFunctionTemplate(hub.postgres, {
-                id: 'template-test-hogflow-non-failure-status',
+                id: `template-test-hogflow-non-failure-status-${team.id}`,
                 name: 'Test Template With Non-Failure Codes',
                 code: `fetch('http://localhost/test', { 'method': 'POST', 'body': {} })`,
                 inputs_schema: [

@@ -9,12 +9,14 @@ from posthog.schema import (
     CohortPropertyFilter,
     EventPropertyFilter,
     EventsNode,
+    FilterLogicalOperator,
     GroupPropertyFilter,
     HogQLPropertyFilter,
     PersonPropertyFilter,
     PersonsOnEventsMode,
     PropertyOperator,
     QueryTiming,
+    RecordingsQuery,
 )
 
 from posthog.hogql import ast
@@ -49,6 +51,8 @@ NEGATIVE_OPERATORS = [
     PropertyOperator.IS_NOT,
     PropertyOperator.NOT_REGEX,
     PropertyOperator.NOT_ICONTAINS,
+    PropertyOperator.NOT_STARTS_WITH,
+    PropertyOperator.NOT_ENDS_WITH,
     # PropertyOperator.NOT_BETWEEN, # in the schema but not used anywhere
     # PropertyOperator.NOT_IN,  # COHORT operator we don't need to handle it explicitly
 ]
@@ -59,6 +63,8 @@ INVERSE_OPERATOR_FOR = {
     PropertyOperator.NOT_IN: PropertyOperator.IN_,
     PropertyOperator.NOT_REGEX: PropertyOperator.REGEX,
     PropertyOperator.NOT_ICONTAINS: PropertyOperator.ICONTAINS,
+    PropertyOperator.NOT_STARTS_WITH: PropertyOperator.STARTS_WITH,
+    PropertyOperator.NOT_ENDS_WITH: PropertyOperator.ENDS_WITH,
     PropertyOperator.NOT_BETWEEN: PropertyOperator.BETWEEN,
 }
 
@@ -175,3 +181,19 @@ def _entity_to_expr(entity: EventsNode | ActionsNode) -> ast.Expr:
             left=ast.Field(chain=["events", "event"]),
             right=ast.Constant(value=entity.name),
         )
+
+
+def test_account_scoped_query(query: RecordingsQuery, test_account_filters: list) -> RecordingsQuery:
+    """The test-account filters as a query in their own right.
+
+    They are always AND'd regardless of the user's operand, and they need the same sub-query routing
+    as user filters, so they get a minimal query of their own rather than joining the property list.
+    Shared so a caller evaluating these filters separately cannot drift from the recordings list.
+    """
+    scoped = query.model_copy(deep=True)
+    scoped.properties = list(test_account_filters)
+    scoped.operand = FilterLogicalOperator.AND_
+    scoped.events = None
+    scoped.actions = None
+    scoped.console_log_filters = None
+    return scoped

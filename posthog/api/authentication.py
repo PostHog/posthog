@@ -1,6 +1,7 @@
 import re
 import json
 import time
+import random
 import datetime
 import unicodedata
 from typing import Any, TypedDict, cast
@@ -19,6 +20,7 @@ from django.contrib.auth.views import redirect_to_login
 from django.core.exceptions import ValidationError
 from django.core.signing import BadSignature
 from django.db import transaction
+from django.db.models import F, Q
 from django.http import Http404, HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.utils import timezone
@@ -30,6 +32,7 @@ from axes.exceptions import AxesBackendPermissionDenied
 from axes.handlers.proxy import AxesProxyHandler
 from django_otp import login as otp_login
 from django_otp.plugins.otp_static.models import StaticDevice
+from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session, restore_original_login
 from rest_framework import mixins, permissions, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -47,11 +50,14 @@ from webauthn.helpers.structs import AuthenticatorTransport, PublicKeyCredential
 
 from posthog.api.email_verification import EmailVerifier, is_email_verification_disabled
 from posthog.caching.login_device_cache import check_and_cache_login_device
+from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES
 from posthog.email import is_email_available
 from posthog.event_usage import report_user_logged_in, report_user_password_reset
 from posthog.exceptions_capture import capture_exception
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.dev_login import is_dev_login_allowed
+from posthog.helpers.email_utils import EmailLookupHandler
+from posthog.helpers.sso import get_safe_next_url, is_sso_reauth_begin, sso_failure_redirect_url
 from posthog.helpers.two_factor_session import (
     CODE_MAX_ATTEMPTS,
     LOGIN_CODE_VERIFICATION_COUNTER,
@@ -61,13 +67,15 @@ from posthog.helpers.two_factor_session import (
     set_two_factor_verified_in_session,
 )
 from posthog.helpers.user_devices import has_valid_known_device_cookie
+from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, resolve_login_organization
 from posthog.models import OrganizationDomain, User
-from posthog.models.activity_logging import signal_handlers  # noqa: F401
+from posthog.models.activity_logging import signal_handlers  # imported for its signal receivers too
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.passkey import generate_passkey_authentication_options, verify_passkey_authentication_response
 from posthog.rate_limit import (
     CodeBasedVerificationResendThrottle,
     CodeBasedVerificationThrottle,
+    LoginPrecheckThrottle,
     TwoFactorThrottle,
     UserPasswordResetThrottle,
 )
@@ -124,12 +132,22 @@ def axes_locked_out(*args, **kwargs):
 
 
 def sso_login(request: HttpRequest, backend: str) -> HttpResponse:
+    sso_providers = get_instance_available_sso_providers()
+    # because SAML is configured at the domain-level, we have to assume it's enabled for someone in the instance
+    sso_providers["saml"] = settings.EE_AVAILABLE
+
+    is_reauth = is_sso_reauth_begin(request)
+
+    # Checked before any session mutation below, so a misconfigured provider can never sign anyone out.
+    if backend not in sso_providers:
+        return redirect(sso_failure_redirect_url(request, "invalid_sso_provider", is_reauth=is_reauth))
+
+    if not sso_providers[backend]:
+        return redirect(sso_failure_redirect_url(request, "improperly_configured_sso", is_reauth=is_reauth))
+
     # The one known `connect_from` value is "posthog_code" - what PH Code uses when linking GH profile to PostHog user
     connect_from = (request.GET.get("connect_from") or "").strip()
-    if not connect_from:
-        # This is the default case - for regular login, we flush the session (log out)
-        request.session.flush()
-    else:
+    if connect_from:
         # For linking a social provider, we keep the session and set the next URL to /account-connected/github-login
         # (see frontend AccountConnected). QueryDict must be copied before mutation (GET is often immutable).
         query_dict = request.GET.copy()
@@ -137,16 +155,12 @@ def sso_login(request: HttpRequest, backend: str) -> HttpResponse:
             f"/account-connected/github-login?{urlencode({'provider': backend, 'connect_from': connect_from})}"
         )
         request.GET = query_dict  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
-
-    sso_providers = get_instance_available_sso_providers()
-    # because SAML is configured at the domain-level, we have to assume it's enabled for someone in the instance
-    sso_providers["saml"] = settings.EE_AVAILABLE
-
-    if backend not in sso_providers:
-        return redirect(f"/login?error_code=invalid_sso_provider")
-
-    if not sso_providers[backend]:
-        return redirect("/login?error_code=improperly_configured_sso")
+    elif not is_reauth:
+        # This is the default case - for regular login, we flush the session (log out)
+        request.session.flush()
+    # Re-auth keeps the session: the user is already signed in, and flushing here would sign them out
+    # before the IdP is even contacted, so any hiccup in the round trip would strand them at /login.
+    # `social_reauth_complete` grants the step-up on the way back in.
 
     try:
         return auth(request, backend)
@@ -154,7 +168,7 @@ def sso_login(request: HttpRequest, backend: str) -> HttpResponse:
         # AuthConnectionError covers an unreachable IdP or a TLS cert that fails during OIDC discovery -
         # it's a sibling of AuthFailed (not a subclass), so it would otherwise surface as an unhandled 500.
         logger.warning("SSO login failed, redirecting to login page", exc_info=e)
-        return redirect("/login?error_code=improperly_configured_sso")
+        return redirect(sso_failure_redirect_url(request, "improperly_configured_sso", is_reauth=is_reauth))
 
 
 class TwoFactorRequired(APIException):
@@ -171,17 +185,6 @@ class CodeBasedVerificationRequired(APIException):
     def __init__(self, email: str | None = None):
         detail = email if email else self.default_detail
         super().__init__(detail=detail, code=self.default_code)
-
-
-def get_safe_next_url(next_url: str | None, request: Request) -> str | None:
-    """Return next_url only when it's a safe same-origin/relative redirect target, else None.
-
-    The value is embedded into emailed verification links, so an unvalidated next
-    would be an open-redirect / phishing vector.
-    """
-    if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
-        return next_url
-    return None
 
 
 def is_email_verified_for_login(user: User, next_url: str | None = None) -> bool:
@@ -328,6 +331,13 @@ class LoginSerializer(serializers.Serializer):
                 code="not_verified",
             )
 
+        # Domain enforcement: refuse blocked members — blocked admins still get a gated session.
+        if not resolve_login_organization(user):
+            raise serializers.ValidationError(
+                VERIFIED_DOMAIN_REQUIRED_ERROR,
+                code="verified_domain_required",
+            )
+
         clear_two_factor_session_flags(request)
 
         if self._check_if_2fa_required(user):
@@ -388,8 +398,8 @@ class LoginPrecheckSerializer(serializers.Serializer):
     email = serializers.EmailField()
 
     def to_representation(
-        self, instance: dict[str, str | list[WebauthnCredentialPrecheck]]
-    ) -> dict[str, str | list[WebauthnCredentialPrecheck]]:
+        self, instance: dict[str, str | bool | list[str] | list[WebauthnCredentialPrecheck]]
+    ) -> dict[str, str | bool | list[str] | list[WebauthnCredentialPrecheck]]:
         return instance
 
     def create(self, validated_data: dict[str, str]) -> Any:
@@ -410,10 +420,48 @@ class LoginPrecheckSerializer(serializers.Serializer):
             for cred in credentials
         ]
 
+        saml_available = OrganizationDomain.objects.get_is_saml_available_for_email(email)
+
         return {
             "sso_enforcement": OrganizationDomain.objects.get_sso_enforcement_for_email_address(email),
-            "saml_available": OrganizationDomain.objects.get_is_saml_available_for_email(email),
+            "saml_available": saml_available,
             "webauthn_credentials": webauthn_credentials,
+            **self._available_local_methods(email, saml_available=saml_available),
+        }
+
+    @staticmethod
+    def _available_local_methods(email: str, *, saml_available: bool) -> dict[str, Any]:
+        """
+        Report whether this account can log in with a password, and which of its linked social
+        identities are actually usable on this instance, so the login form can stop offering a
+        password box (or a dead SSO button) to an account that cannot use it.
+
+        An email with no active user looks identical to a user who does have a password — a typo
+        must never be a dead end, and it keeps the account-existence signal limited to accounts
+        that are genuinely passwordless.
+        """
+        # Same lookup login itself uses (`UserManager.get_by_natural_key`), so precheck can never
+        # describe a different account than the one a password would authenticate: exact case first,
+        # then case-insensitive, and deterministic (last logged in) if case variations coexist.
+        user = EmailLookupHandler.get_user_by_email(email)
+        if user is None:
+            return {"password_login_available": True, "social_providers": []}
+
+        # Mirrors `UserSerializer.get_has_password`: `has_usable_password()` is True for an empty
+        # password, so the `bool(...)` half of the check is load-bearing.
+        password_login_available = bool(user.password) and user.has_usable_password()
+
+        usable_providers = {
+            provider for provider, available in get_instance_available_sso_providers().items() if available
+        }
+        if saml_available:
+            # SAML is domain-configured rather than instance-configured, so it isn't covered above.
+            usable_providers.add("saml")
+        linked_providers = set(user.social_auth.values_list("provider", flat=True))
+
+        return {
+            "password_login_available": password_login_available,
+            "social_providers": sorted(linked_providers & usable_providers),
         }
 
 
@@ -455,19 +503,89 @@ DEV_LOGIN_KNOWN_EMAIL_LABELS = {
     "test@posthog.com": "Default test user",
 }
 
+# Name pools for dev-login fresh account creation, so test accounts are easy to
+# tell apart in the login tools list.
+DEV_ACCOUNT_FIRST_NAMES = [
+    "Ada",
+    "Byron",
+    "Cleo",
+    "Dorian",
+    "Edith",
+    "Felix",
+    "Greta",
+    "Hugo",
+    "Iris",
+    "Jonas",
+    "Kira",
+    "Linus",
+    "Mira",
+    "Nico",
+    "Opal",
+    "Pablo",
+    "Quinn",
+    "Rosa",
+    "Silas",
+    "Tessa",
+]
+
+DEV_ACCOUNT_ORGANIZATION_NAMES = [
+    "Acme Analytics",
+    "Bluebird Labs",
+    "Cindercone Systems",
+    "Driftwood Data",
+    "Ember Metrics",
+    "Ferrous Works",
+    "Glimmer Grove",
+    "Halcyon House",
+    "Ironwood Insights",
+    "Juniper Junction",
+    "Kestrel Kollective",
+    "Lumen Loft",
+    "Marble & Moss",
+    "Northlight Co.",
+    "Obsidian Oak",
+    "Pinnacle Patch",
+    "Quartz Quarry",
+    "Riverstone Research",
+    "Solstice Software",
+    "Timberline Tools",
+]
+
 
 class DevLoginSerializer(serializers.Serializer):
     email = serializers.EmailField(
+        required=False,
         write_only=True,
         help_text="Email of the active user to log in as. Only honored when dev login is allowed (DEBUG and ALLOW_DEV_LOGIN).",
+    )
+    create_fresh_account = serializers.BooleanField(
+        required=False,
+        default=False,
+        write_only=True,
+        help_text="Create a fresh account/org with random names (password: 12345678) and log in directly, without signup. Only honored when dev login is allowed.",
     )
 
     def to_representation(self, instance: Any) -> dict[str, Any]:
         return {"success": True}
 
-    def create(self, validated_data: dict[str, str]) -> Any:
+    def validate(self, data: dict[str, Any]) -> dict[str, Any]:
+        # Gate first, before any field-level validation: when dev login is disabled the
+        # endpoint must look nonexistent (404) regardless of the request body, so a
+        # missing-email 400 can't leak that the route exists.
         if not is_dev_login_allowed():
             raise Http404()
+        if not data.get("create_fresh_account") and not data.get("email"):
+            raise serializers.ValidationError(
+                {"email": serializers.ErrorDetail("This field is required.", code="required")}
+            )
+        return data
+
+    def create(self, validated_data: dict[str, Any]) -> Any:
+        if not is_dev_login_allowed():
+            raise Http404()
+
+        if validated_data.get("create_fresh_account"):
+            return self._create_fresh_account()
 
         request = self.context["request"]
         try:
@@ -481,6 +599,46 @@ class DevLoginSerializer(serializers.Serializer):
         report_user_logged_in(user, social_provider="")
         return user
 
+    def _create_fresh_account(self) -> Any:
+        first_name = random.choice(DEV_ACCOUNT_FIRST_NAMES)
+        email = f"{first_name.lower()}-{uuid4().hex[:8]}@posthog.dev"
+        organization_name = random.choice(DEV_ACCOUNT_ORGANIZATION_NAMES)
+
+        with transaction.atomic():
+            _, _, user = User.objects.bootstrap(
+                organization_name=organization_name,
+                email=email,
+                password="12345678",
+                first_name=first_name,
+                is_email_verified=True,
+            )
+
+        request = self.context["request"]
+        login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+        request.session["reauth"] = "false"
+        request.session.save()
+        report_user_logged_in(user, social_provider="")
+        return user
+
+
+class DevLoginUserSerializer(serializers.Serializer):
+    email = serializers.EmailField(read_only=True, help_text="Email to log in as.")
+    first_name = serializers.CharField(read_only=True, help_text="First name, shown next to the email.")
+    is_staff = serializers.BooleanField(read_only=True, help_text="Whether the user is a staff (instance admin) user.")
+    # Shadows Field.label, which the metaclass moves aside into _declared_fields at runtime.
+    label = serializers.CharField(  # type: ignore[assignment]
+        read_only=True, allow_null=True, help_text="Label for accounts seeded by setup_dev, e.g. the default test user."
+    )
+    last_login = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="When this account was last logged in as, or null if never."
+    )
+
+
+class DevLoginUserListSerializer(serializers.Serializer):
+    users = DevLoginUserSerializer(
+        many=True, read_only=True, help_text="Every active user, seeded accounts first, then most recently used."
+    )
+
 
 class DevLoginViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
     """
@@ -493,11 +651,20 @@ class DevLoginViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
     serializer_class = DevLoginSerializer
     permission_classes = (permissions.AllowAny,)
 
+    @extend_schema(responses={200: DevLoginUserListSerializer})
     def list(self, request: Request) -> Response:
         if not is_dev_login_allowed():
             raise Http404()
 
-        users = list(User.objects.filter(is_active=True).order_by("email").values("email", "is_staff")[:50])
+        # Seeded accounts first so the default test user stays on top. After that recency beats
+        # alphabetical: on instances with hundreds of test accounts, the handful you actually
+        # switch between float up on their own. Email breaks ties to keep the order stable.
+        users = list(
+            User.objects.filter(is_active=True)
+            .annotate(is_seeded=Q(email__in=DEV_LOGIN_KNOWN_EMAIL_LABELS))
+            .order_by("-is_seeded", F("last_login").desc(nulls_last=True), "email")
+            .values("email", "first_name", "is_staff", "last_login")
+        )
         for entry in users:
             entry["label"] = DEV_LOGIN_KNOWN_EMAIL_LABELS.get(entry["email"])
 
@@ -946,6 +1113,7 @@ class LoginPrecheckViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
     queryset = User.objects.none()
     serializer_class = LoginPrecheckSerializer
     permission_classes = (permissions.AllowAny,)
+    throttle_classes = [] if settings.E2E_TESTING else [LoginPrecheckThrottle]
 
 
 class PasswordResetSerializer(serializers.Serializer):
@@ -1105,6 +1273,88 @@ class PasswordResetTokenGenerator(DefaultPasswordResetTokenGenerator):
 
 
 password_reset_token_generator = PasswordResetTokenGenerator()
+
+
+def _sso_reauth_request(strategy: DjangoStrategy) -> HttpRequest | None:
+    """The request behind a step-up re-auth of an already signed-in session, or None if it isn't one."""
+    if strategy.session_get("reauth") != "true":
+        return None
+
+    request = strategy.request
+    if not request or not request.user.is_authenticated:
+        return None
+
+    return request
+
+
+def social_reauth(
+    strategy: DjangoStrategy,
+    backend,
+    details: dict[str, Any] | None = None,
+    user: User | None = None,
+    social: Any = None,
+    **kwargs,
+) -> None:
+    """Turn away a step-up re-auth that isn't the signed-in user.
+
+    Runs right after `social_user`, so a mismatched identity is rejected before `associate_user` can
+    link it to the signed-in account or `social_create_user` can provision anything. The step-up
+    itself is granted at the end of the pipeline, by `social_reauth_complete`.
+    """
+    request = _sso_reauth_request(strategy)
+    if not request:
+        return
+
+    # An identity that isn't associated with anyone yet resolves to whoever is signed in, so without
+    # an email check `associate_user` would silently link a stranger's IdP account to this account.
+    identity_email = ((details or {}).get("email") or "").lower()
+    identity_is_signed_in_user = (
+        user is not None and user.pk == request.user.pk and (social is not None or identity_email == user.email.lower())
+    )
+
+    if not identity_is_signed_in_user:
+        logger.warning(
+            "SSO re-authentication identity mismatch",
+            backend=getattr(backend, "name", ""),
+            session_user_id=request.user.pk,
+        )
+        raise AuthFailed(backend, "reauth_user_mismatch")
+
+
+def social_reauth_complete(strategy: DjangoStrategy, backend, user: User | None = None, **kwargs) -> None:
+    """Grant the step-up, once every other pipeline step has accepted the flow.
+
+    `sso_login` doesn't flush the session for a re-auth, which means `do_complete` takes its
+    already-authenticated path and never calls `login()` - so the freshness stamp and the audit entry
+    that `login()` would have triggered have to happen here, or the modal would reopen forever.
+
+    This runs last because a step that returns a response aborts the pipeline - domain enforcement in
+    `social_create_user` does exactly that - and a refused re-auth must not leave a fresh window, a
+    cleared step-up flag, or a `logged_in` entry behind.
+    """
+    request = _sso_reauth_request(strategy)
+    if not request or user is None or user.pk != request.user.pk:
+        return
+
+    # Rotate the key the way `login()` would on a fresh sign-in. A step-up window is exactly what a
+    # copied session cookie wants, so the identifier that existed before it has to stop working. The
+    # session data - and with it the signed-in user - survives the rotation.
+    request.session.cycle_key()
+    request.session[settings.SESSION_LAST_REAUTH_AT_KEY] = time.time()
+    request.session.pop(settings.SESSION_STEP_UP_REQUIRED_KEY, None)
+
+    backend_name = getattr(backend, "name", "")
+    try:
+        signal_handlers.log_login_activity(
+            user,
+            request,
+            login_method=str(AUTH_BACKEND_DISPLAY_NAMES.get(backend_name, "Unknown")),
+            reauth=True,
+        )
+    except Exception as e:
+        # Matching `log_user_login_activity`: a failed audit write must not fail the re-auth itself
+        logger.exception("Failed to log SSO re-authentication activity", user_id=user.id, error=e)
+        capture_exception(e)
 
 
 def social_login_notification(

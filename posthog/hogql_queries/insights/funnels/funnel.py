@@ -10,6 +10,7 @@ from posthog.hogql.parser import parse_expr, parse_select
 
 from posthog.hogql_queries.insights.funnels.base import JOIN_ALGOS, FunnelBase
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
+from posthog.hogql_queries.insights.funnels.funnel_validation_rules import validate_max_funnel_steps
 from posthog.hogql_queries.insights.funnels.utils import get_breakdown_cohort_name
 from posthog.hogql_queries.insights.utils.breakdowns import NOT_IN_COHORT_ID
 from posthog.utils import DATERANGE_MAP
@@ -206,6 +207,10 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
         return inner_select
 
     def get_query(self) -> ast.SelectQuery:
+        # Enforced where the bitfield SQL is emitted because not every caller goes
+        # through the FunnelsQueryRunner validators
+        validate_max_funnel_steps(self.context.max_steps)
+
         funnelsFilter = self.context.funnelsFilter
 
         inner_select = self._inner_aggregation_query()
@@ -433,6 +438,10 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
         self,
         extra_fields: Optional[list[str]] = None,
     ) -> ast.SelectQuery:
+        # Insight actors and correlation queries build this directly, skipping the
+        # FunnelsQueryRunner validators
+        validate_max_funnel_steps(self.context.max_steps)
+
         select: list[ast.Expr] = [
             ast.Alias(alias="actor_id", expr=ast.Field(chain=["aggregation_target"])),
             *self._get_funnel_person_step_events(),

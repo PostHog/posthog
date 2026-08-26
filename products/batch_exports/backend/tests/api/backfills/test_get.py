@@ -1,9 +1,15 @@
 import datetime as dt
 
 import pytest
+from freezegun import freeze_time
 
 from django.test.client import Client as HttpClient
 
+# Pre-import pydantic.v1.types so that pydantic.v1.types.ConstrainedDate is created against the real
+# datetime.date class. Otherwise, when Django lazily resolves URLs inside a freeze_time() block below,
+# pydantic.v1.modules get imported with freezegun's FakeDate in place and pydantic's
+# `class ConstrainedDate(date, metaclass=ConstrainedNumberMeta)` raises a metaclass conflict.
+import pydantic.v1.types  # noqa: F401
 from rest_framework import status
 
 from products.batch_exports.backend.models.batch_export import BatchExportBackfill, BatchExportRun
@@ -160,7 +166,11 @@ def test_can_get_backfills_for_your_organizations(
 
     client.force_login(user)
 
-    backfill_data = get_batch_export_backfill_ok(client, team.pk, batch_export.id, backfill.id)
+    # Freeze time so that BatchExportBackfill.total_expected_runs (which uses datetime.now() for RUNNING backfills
+    # without end_at) yields deterministic results. TEST_TIME is captured at module import, and without this the
+    # asserted total_runs can drift as other tests in the same shard run before this one.
+    with freeze_time(TEST_TIME):
+        backfill_data = get_batch_export_backfill_ok(client, team.pk, batch_export.id, backfill.id)
 
     # as long as the created_at and last_updated_at are strings, we don't care about their exact values
     created_at = backfill_data.pop("created_at")

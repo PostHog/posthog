@@ -270,4 +270,30 @@ describe('sessionRecordingsListPropertiesLogic', () => {
         expect(issuedQueries[issuedQueries.length - 1]).toContain('$entry_utm_medium')
         expect(logic.values.recordingPropertiesById['s2']).toMatchObject({ $entry_utm_medium: 'paid' })
     })
+
+    it('resolves instead of throwing when the base query fails with no pins to fall back on', async () => {
+        useQueryMocks(() => [500, { detail: 'ClickHouse is unavailable' }])
+
+        await expectLogic(logic, () => {
+            logic.actions.loadPropertiesForSessions(mockSessons)
+        })
+            .toDispatchActions(['loadPropertiesForSessionsSuccess'])
+            .toNotHaveDispatchedActions(['loadPropertiesForSessionsFailure'])
+
+        expect(logic.values.recordingPropertiesById).toEqual({})
+    })
+
+    it('resolves instead of throwing when both the wide and fallback queries fail', async () => {
+        useQueryMocks(() => [500, { detail: 'ClickHouse is unavailable' }])
+        sessionRecordingPinnedPropertiesLogic.actions.setPinnedProperties(['$entry_utm_medium'])
+
+        await expectLogic(logic, () => {
+            logic.actions.loadPropertiesForSessions(mockSessons)
+        })
+            .toDispatchActions(['loadPropertiesForSessionsSuccess'])
+            .toNotHaveDispatchedActions(['loadPropertiesForSessionsFailure'])
+
+        // an outage on both queries isn't a 400, so the pin set isn't blacklisted (it's retried next batch)
+        expect(logic.values.unqueryableExtraProperties).toBeNull()
+    })
 })

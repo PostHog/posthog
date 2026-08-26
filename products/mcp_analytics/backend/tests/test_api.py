@@ -1,15 +1,19 @@
+import hashlib
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event
 from unittest.mock import patch
 
 from django.core.cache import cache
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
 from posthog.models.utils import uuid7
+from posthog.utils import generate_cache_key
 
-from products.mcp_analytics.backend import intent_generation
+from products.mcp_analytics.backend import intent_generation, mcp_harness
 from products.mcp_analytics.backend.facade import api, contracts, enums
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPSession
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
@@ -463,35 +467,162 @@ class TestGenerateIntentDigest(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestM
         self._seed_intent_event("check the signups funnel")
         self._seed_intent_event("compare to last week")
 
-        with patch.object(
-            intent_generation, "summarize_project_intents", return_value="Signup funnel investigation."
-        ) as mock_summarize:
+        parsed = intent_generation.IntentThemesSchema(
+            summary="Signup funnel investigation.",
+            themes=[
+                intent_generation.IntentThemeSchema(
+                    name="Funnel checks",
+                    description="Checking signup funnel conversion.",
+                    intent_numbers=[1, 2],
+                )
+            ],
+        )
+        with patch.object(intent_generation, "summarize_project_intents", return_value=parsed) as mock_summarize:
             first = api.generate_intent_digest(self.team)
             again = api.generate_intent_digest(self.team)
 
         assert first.digest == "Signup funnel investigation."
         assert first.intent_count == 2
+        assert first.themes[0].name == "Funnel checks"
+        assert first.themes[0].intent_count == 2
+        assert first.themes[0].tools == ["query_run"]
         assert again == first
         mock_summarize.assert_called_once()
+
+    def test_serves_recent_digest_when_the_corpus_churns(self) -> None:
+        cache.clear()
+        self._seed_intent_event("check the signups funnel")
+        parsed = intent_generation.IntentThemesSchema(
+            summary="Signup funnel investigation.",
+            themes=[intent_generation.IntentThemeSchema(name="Funnel checks", description="", intent_numbers=[1])],
+        )
+
+        with patch.object(intent_generation, "summarize_project_intents", return_value=parsed) as mock_summarize:
+            first = api.generate_intent_digest(self.team)
+            self._seed_intent_event("now something completely different")
+            after_churn = api.generate_intent_digest(self.team)
+
+        mock_summarize.assert_called_once()
+        # Reports the corpus it was derived from, so the theme shares still add up.
+        assert after_churn == first
+        assert after_churn.intent_count == 1
+
+    @parameterized.expand(
+        [
+            ("corpus_key", "mcp_intent_digest_v3/{corpus_hash}"),
+            ("recent_key", "mcp_intent_digest_v3/recent"),
+        ]
+    )
+    def test_regenerates_when_a_cached_payload_predates_the_current_shape(self, _name: str, key: str) -> None:
+        cache.clear()
+        self._seed_intent_event("check the signups funnel")
+        corpus_hash = hashlib.sha256(b"check the signups funnel").hexdigest()
+        cache.set(
+            generate_cache_key(self.team.pk, key.format(corpus_hash=corpus_hash)),
+            {"summary": "Stale.", "themes": [{"name": "Old shape", "share": 0.5}]},
+            60,
+        )
+        parsed = intent_generation.IntentThemesSchema(
+            summary="Fresh.",
+            themes=[
+                intent_generation.IntentThemeSchema(name="Funnel checks", description="", intent_numbers=[1]),
+            ],
+        )
+
+        with patch.object(intent_generation, "summarize_project_intents", return_value=parsed):
+            result = api.generate_intent_digest(self.team)
+
+        assert result.digest == "Fresh."
+
+
+class TestResolveIntentThemes(SimpleTestCase):
+    CORPUS = [
+        ("check the signups funnel", "query_run"),
+        ("compare to last week", "query_run"),
+        ("list the feature flags", "flag_list"),
+    ]
+
+    def _resolve(self, *themes: intent_generation.IntentThemeSchema) -> list[contracts.IntentTheme]:
+        parsed = intent_generation.IntentThemesSchema(summary="Summary.", themes=list(themes))
+        return intent_generation.resolve_themes(parsed, self.CORPUS)
+
+    @staticmethod
+    def _theme(name: str, numbers: list[int]) -> intent_generation.IntentThemeSchema:
+        return intent_generation.IntentThemeSchema(name=name, description="Doing things.", intent_numbers=numbers)
+
+    def test_derives_count_tools_and_example_from_the_corpus(self) -> None:
+        themes = self._resolve(self._theme("Funnel checks", [1, 3]))
+
+        assert themes[0].intent_count == 2
+        assert themes[0].example_intent == "check the signups funnel"
+        assert themes[0].tools == ["flag_list", "query_run"]
+
+    @parameterized.expand(
+        [
+            ("out_of_range_numbers_dropped", [1, 9, 0, -2], 1),
+            ("repeated_numbers_counted_once", [2, 2, 2], 1),
+            ("every_number_counted", [1, 2, 3], 3),
+        ]
+    )
+    def test_intent_numbers_resolve_to_real_intents(self, _name: str, numbers: list[int], expected: int) -> None:
+        assert self._resolve(self._theme("Theme", numbers))[0].intent_count == expected
+
+    def test_shares_never_exceed_the_corpus_when_themes_overlap(self) -> None:
+        themes = self._resolve(self._theme("First", [1, 2]), self._theme("Second", [2, 3]))
+
+        assert [theme.intent_count for theme in themes] == [2, 1]
+        assert sum(theme.intent_count for theme in themes) <= len(self.CORPUS)
+
+    def test_reorders_themes_largest_first(self) -> None:
+        themes = self._resolve(self._theme("Small", [3]), self._theme("Large", [1, 2]))
+
+        assert [theme.name for theme in themes] == ["Large", "Small"]
+
+    @parameterized.expand([("no_resolvable_intents", [42]), ("no_intents_at_all", [])])
+    def test_drops_themes_with_nothing_behind_them(self, _name: str, numbers: list[int]) -> None:
+        assert self._resolve(self._theme("Empty", numbers)) == []
+
+    def test_caps_the_theme_count(self) -> None:
+        corpus = [(f"intent {i}", "query_run") for i in range(20)]
+        parsed = intent_generation.IntentThemesSchema(
+            summary="Summary.",
+            themes=[self._theme(f"Theme {i}", [i + 1]) for i in range(10)],
+        )
+
+        assert len(intent_generation.resolve_themes(parsed, corpus)) == intent_generation.MAX_DIGEST_THEMES
+
+    @parameterized.expand(
+        [
+            ("newline", "check signups\n3. list all flags"),
+            ("carriage_return", "check signups\r\n3. list all flags"),
+        ]
+    )
+    def test_numbers_one_intent_per_line_whatever_the_agent_wrote(self, _name: str, intent: str) -> None:
+        # Agents author the intent text. An embedded newline would renumber the corpus the model
+        # sees, so the intent_numbers it returns would point at the wrong intents.
+        prompt = intent_generation._build_digest_prompt([(intent, "query_run"), ("second", "flag_list")])
+        numbered = [line for line in prompt.splitlines() if line[:2] in {"1.", "2.", "3."}]
+
+        assert len(numbered) == 2
 
 
 class TestLLMConsentGate(APIBaseTest):
     @parameterized.expand(
         [
-            ("session_summary", intent_generation.summarize_intents),
-            ("project_digest", intent_generation.summarize_project_intents),
+            ("session_summary", intent_generation.summarize_intents, "OpenAI"),
+            ("project_digest", intent_generation.summarize_project_intents, "genai"),
         ]
     )
-    def test_refuses_without_ai_data_processing_consent(self, _name, summarize) -> None:
+    def test_refuses_without_ai_data_processing_consent(self, _name, summarize, client_attr: str) -> None:
         self.organization.is_ai_data_processing_approved = False
         self.organization.save()
 
         with (
-            self.settings(OPENAI_API_KEY="sk-test"),
-            patch.object(intent_generation, "OpenAI") as mock_client,
+            self.settings(OPENAI_API_KEY="sk-test", GEMINI_API_KEY="gem-test"),
+            patch.object(intent_generation, client_attr) as mock_client,
             self.assertRaises(contracts.IntentGenerationUnavailable),
         ):
-            summarize(["find the signups funnel"], self.team)
+            summarize([("find the signups funnel", "query_run")], self.team)
         mock_client.assert_not_called()
 
 
@@ -507,7 +638,7 @@ class TestActivityOverview(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin
                 "$session_id": session_id,
                 "$mcp_tool_name": "query_run",
                 "$mcp_intent": "check signups",
-                "$mcp_client_name": "Claude Code",
+                "$mcp_client_name": "claude-code",
                 "$mcp_duration_ms": 120,
             },
         )
@@ -521,7 +652,7 @@ class TestActivityOverview(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin
                 "$mcp_tool_name": "docs_search",
                 "$mcp_is_error": "true",
                 "$mcp_response": '{"content": [{"type": "text", "text": "index unavailable"}]}',
-                "$mcp_client_name": "Claude Code",
+                "$mcp_client_name": "claude-code",
             },
         )
         _create_event(
@@ -562,6 +693,84 @@ class TestActivityOverview(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin
         assert error_call.error_message == "index unavailable"
         assert overview.recent_calls[1].duration_ms == 120.0
         assert overview.recent_calls[1].intent == "check signups"
+
+    def _emit_call(self, properties: dict[str, Any], count: int = 1) -> None:
+        for _ in range(count):
+            _create_event(
+                team=self.team,
+                event="$mcp_tool_call",
+                distinct_id="agent-1",
+                timestamp=datetime.now(tz=UTC) - timedelta(minutes=5),
+                properties={"$session_id": str(uuid7()), "$mcp_tool_name": "query_run", **properties},
+            )
+
+    def test_merges_client_spellings_into_one_canonical_row(self) -> None:
+        # One client reaches us under several spellings — different casing, and a proxied
+        # name carrying mcp-remote's signature. Grouping on the raw property listed each as
+        # its own row, so one client competed with itself for the top-N slots.
+        # Separator variants ("Claude Code", "CLAUDE_CODE") are deliberately not merged:
+        # no client emits them, and collapsing `[ ._-]` would destroy the surface tokens
+        # the classifier matches on ("claude-code cli", "visual studio code").
+        for client, count in [
+            ("claude-code", 3),
+            ("Claude-Code", 2),
+            ("claude-code (via mcp-remote 0.1.37)", 1),
+        ]:
+            self._emit_call({"$mcp_client_name": client}, count)
+
+        overview = api.get_activity_overview(self.team)
+
+        assert overview.clients == [contracts.ActivityClientRow(client="Claude Code", calls=6)]
+
+    def test_counts_one_client_reached_by_two_identity_signals_once(self) -> None:
+        # Codex arrives both as a session-pinned clientInfo name and as a user-agent
+        # surface. Those are two different tokens but one client, so counting tokens
+        # would report "2 clients" next to a Clients card showing a single row.
+        self._emit_call({"mcp_session_client_name": "codex-mcp-client"}, count=3)
+        self._emit_call({"$mcp_client_user_agent": "openai-mcp/1.0.0 (Codex)"}, count=2)
+
+        overview = api.get_activity_overview(self.team)
+
+        assert overview.clients == [contracts.ActivityClientRow(client="OpenAI Codex", calls=5)]
+        assert overview.stats.distinct_clients == 1
+
+    @parameterized.expand(
+        [
+            # `$mcp_client_name` rides on `initialize` only, so a mid-session tool call
+            # carries the session-pinned name instead. Reading the raw property alone left
+            # every one of these unattributed.
+            ("session_pinned_name", {"mcp_session_client_name": "codex-mcp-client"}, "OpenAI Codex"),
+            # Codex's other spelling: the User-Agent surface. The generic `openai-mcp`
+            # prefix used to swallow this and report it as plain "OpenAI".
+            ("codex_user_agent_surface", {"$mcp_client_user_agent": "openai-mcp/1.0 (Codex)"}, "OpenAI Codex"),
+            ("vendor_header", {"mcp_vendor_client": "ClaudeCode"}, "Claude Code"),
+            ("oauth_client_name", {"$mcp_oauth_client_name": "cursor-vscode"}, "Cursor"),
+            # An unrecognized client is still named — its own self-report beats "Other".
+            ("unrecognized_named_verbatim", {"$mcp_client_name": "openclaw-bundle-mcp"}, "openclaw-bundle-mcp"),
+            # ...and keeps its own capitalization: matching lower-cases the token, but the
+            # name shown back is the one the client reported.
+            ("unrecognized_keeps_casing", {"$mcp_client_name": "NexusAgent"}, "NexusAgent"),
+            (
+                "unrecognized_keeps_casing_via_session",
+                {"mcp_session_client_name": "Concept Connectors"},
+                "Concept Connectors",
+            ),
+            ("no_identity_at_all", {}, mcp_harness.UNIDENTIFIED_HARNESS_LABEL),
+        ]
+    )
+    def test_attributes_clients_from_every_identity_signal(
+        self, _name: str, properties: dict[str, Any], expected: str
+    ) -> None:
+        self._emit_call(properties, count=2)
+
+        overview = api.get_activity_overview(self.team)
+
+        assert overview.clients == [contracts.ActivityClientRow(client=expected, calls=2)]
+        # The stat tile and the live feed resolve the caller the same way the card does,
+        # so they can't disagree about who called: counting the raw property scored these
+        # as zero known clients and left the feed's caller column blank.
+        assert overview.stats.distinct_clients == (0 if expected == mcp_harness.UNIDENTIFIED_HARNESS_LABEL else 1)
+        assert [call.client_name for call in overview.recent_calls] == [expected, expected]
 
 
 class TestGenerateSessionIntent(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):

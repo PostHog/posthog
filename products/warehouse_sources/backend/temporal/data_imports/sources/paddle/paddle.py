@@ -6,7 +6,6 @@ import requests
 from dateutil import parser
 
 from products.warehouse_sources.backend.models.external_table_definitions import get_dlt_mapping_for_external_table
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
     DEFAULT_RETRY,
     make_tracked_session,
@@ -20,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.paddle.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -37,6 +37,29 @@ class PaddleResumeConfig:
 
 class PaddlePermissionError(Exception):
     pass
+
+
+class PaddlePaginator(JSONResponsePaginator):
+    """Follows ``meta.pagination.next``, gated on ``meta.pagination.has_more``.
+
+    Paddle populates ``next`` on every page, including the last one; per their
+    pagination docs, ``has_more`` is the only end-of-results signal. Following
+    ``next`` alone therefore refetches the final page forever.
+    """
+
+    def update_state(self, response: requests.Response, data: Optional[list[Any]] = None) -> None:
+        try:
+            body = response.json()
+        except Exception:
+            body = {}
+        meta = body.get("meta") if isinstance(body, dict) else None
+        pagination = meta.get("pagination") if isinstance(meta, dict) else None
+        if isinstance(pagination, dict) and pagination.get("has_more") is False:
+            self._has_next_page = False
+            return
+        # has_more missing or malformed: fall back to the next link, where the base
+        # class still stops on a repeated URL.
+        super().update_state(response, data)
 
 
 def _format_paddle_datetime_query_value(value: Any) -> str:
@@ -99,7 +122,7 @@ def paddle_source(
             "base_url": PADDLE_BASE_URL,
             "headers": {"Content-Type": "application/json"},
             "auth": {"type": "bearer", "token": api_key},
-            "paginator": JSONResponsePaginator(next_url_path="meta.pagination.next"),
+            "paginator": PaddlePaginator(next_url_path="meta.pagination.next"),
         },
         "resources": [
             {

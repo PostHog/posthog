@@ -3,7 +3,9 @@ import { useActions, useValues } from 'kea'
 import {
     LemonBanner,
     LemonButton,
+    LemonDialog,
     LemonInputSelect,
+    LemonSnack,
     LemonTable,
     LemonTableColumns,
     LemonTag,
@@ -12,9 +14,11 @@ import {
 } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import type { AnnouncementApi, AnnouncementDeliveryApi } from '../../generated/api.schemas'
+import { AnnouncementAccountFilters } from './AnnouncementAccountFilters'
 import { announcementsLogic } from './announcementsLogic'
 
 type TagType = 'success' | 'primary' | 'warning' | 'danger' | 'default'
@@ -34,16 +38,51 @@ function announcementStatusTag(status: AnnouncementApi['status']): { type: TagTy
     }
 }
 
+function ConfirmSendContent({ message, channelLabels }: { message: string; channelLabels: string[] }): JSX.Element {
+    return (
+        <div className="flex flex-col gap-2 max-w-[500px]">
+            <p className="m-0">
+                This message will be posted to {pluralize(channelLabels.length, 'customer channel')}. Sending cannot be
+                undone.
+            </p>
+            <div className="border rounded p-2 bg-surface-secondary whitespace-pre-wrap max-h-40 overflow-y-auto">
+                {message}
+            </div>
+            <div className="flex flex-wrap gap-1 max-h-32 overflow-y-auto">
+                {channelLabels.map((label) => (
+                    <LemonSnack key={label}>{label}</LemonSnack>
+                ))}
+            </div>
+        </div>
+    )
+}
+
 function AnnouncementComposer(): JSX.Element {
     const {
         messageDraft,
         selectedChannelIds,
+        selectedChannelLabels,
         channelOptions,
         memberChannelsLoading,
         submitting,
         submitDisabledReason,
     } = useValues(announcementsLogic)
     const { setMessage, setSelectedChannelIds, submitAnnouncement, loadMemberChannels } = useActions(announcementsLogic)
+
+    const confirmSend = (): void => {
+        LemonDialog.open({
+            title: `Send this announcement to ${pluralize(selectedChannelLabels.length, 'channel')}?`,
+            content: <ConfirmSendContent message={messageDraft.trim()} channelLabels={selectedChannelLabels} />,
+            primaryButton: {
+                children: 'Send',
+                onClick: submitAnnouncement,
+                'data-attr': 'confirm-send-announcement',
+            },
+            secondaryButton: {
+                children: 'Cancel',
+            },
+        })
+    }
 
     return (
         <div className="flex flex-col gap-2 max-w-[800px]">
@@ -53,6 +92,7 @@ function AnnouncementComposer(): JSX.Element {
                 placeholder="Write a message to send to the selected customer channels…"
                 minRows={4}
             />
+            <AnnouncementAccountFilters />
             <div className="flex gap-2 items-center">
                 <LemonInputSelect
                     mode="multiple"
@@ -75,7 +115,7 @@ function AnnouncementComposer(): JSX.Element {
             <div>
                 <LemonButton
                     type="primary"
-                    onClick={submitAnnouncement}
+                    onClick={confirmSend}
                     loading={submitting}
                     disabledReason={submitDisabledReason}
                     data-attr="send-announcement"

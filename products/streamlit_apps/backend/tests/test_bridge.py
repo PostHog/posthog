@@ -27,7 +27,7 @@ class TestExecuteBridgeQuery(BaseTest):
             clickhouse="SELECT ...",
         )
 
-        result = execute_bridge_query(query="SELECT 1", team_id=self.team.id)
+        result = execute_bridge_query(query="SELECT 1", team_id=self.team.id, user=self.user)
 
         assert set(result.keys()) == {"columns", "results", "types"}
         assert result["results"] == [[1, "hello"]]
@@ -38,16 +38,19 @@ class TestExecuteBridgeQuery(BaseTest):
     def test_passes_query_and_team(self, mock_execute):
         mock_execute.return_value = HogQLQueryResponse(results=[], columns=[])
 
-        execute_bridge_query(query="SELECT event FROM events", team_id=self.team.id)
+        execute_bridge_query(query="SELECT event FROM events", team_id=self.team.id, user=self.user)
 
         mock_execute.assert_called_once()
         call_kwargs = mock_execute.call_args
         assert call_kwargs.kwargs["query"] == "SELECT event FROM events"
         assert call_kwargs.kwargs["team"].id == self.team.id
+        # Warehouse table/view ACLs fail closed without a user, so the minting
+        # user must reach HogQL execution for table-level RBAC to apply.
+        assert call_kwargs.kwargs["user"] == self.user
 
     def test_invalid_team_raises(self):
         with pytest.raises(Exception):
-            execute_bridge_query(query="SELECT 1", team_id=999999)
+            execute_bridge_query(query="SELECT 1", team_id=999999, user=self.user)
 
 
 class TestStreamlitBridgeView(_StreamlitAppsFlagMixin, APIBaseTest):
@@ -171,6 +174,9 @@ class TestStreamlitBridgeView(_StreamlitAppsFlagMixin, APIBaseTest):
         assert data["results"] == [[1, "test"]]
         assert data["columns"] == ["id", "name"]
         assert "clickhouse" not in data
+        # End-to-end wiring guard: the token's minting user must reach HogQL
+        # execution, else warehouse ACLs fail closed and deny every warehouse table.
+        assert mock_execute.call_args.kwargs["user"] == self.user
 
     @patch("products.streamlit_apps.backend.logic.bridge.execute_hogql_query")
     def test_query_execution_error_returns_400(self, mock_execute):

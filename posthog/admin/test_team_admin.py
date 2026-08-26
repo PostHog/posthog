@@ -1,5 +1,5 @@
 import hashlib
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from freezegun import freeze_time
@@ -26,6 +26,10 @@ from posthog.llm.gateway_internal_client import (
 from posthog.models import Organization
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.team import Team
+from posthog.personhog_client.fake_client import FakePersonHogClient
+from posthog.personhog_client.proto import GetGroupTypeMappingsByProjectIdRequest
+
+from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 
 
 def _attach_messages(request) -> None:
@@ -595,6 +599,131 @@ class TestTeamAdminAIGatewayWallet(BaseTest):
         assert "no top-ups recorded" in rendered
 
 
+class TestTeamAdminEmailSendingSuspension(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+        self.factory = RequestFactory()
+        self.admin = TeamAdmin(Team, AdminSite())
+        self.suspend_url = f"/admin/posthog/team/{self.team.pk}/suspend-email-sending/"
+        self.team_change_url = f"/admin/posthog/team/{self.team.pk}/change/"
+
+        reverse_patcher = patch(
+            "posthog.admin.admins.team_admin.reverse",
+            side_effect=lambda name, args=None, kwargs=None: (
+                self.team_change_url if name == "admin:posthog_team_change" else self.suspend_url
+            ),
+        )
+        reverse_patcher.start()
+        self.addCleanup(reverse_patcher.stop)
+
+        suspend_email_patcher = patch("posthog.admin.admins.team_admin.send_email_sending_suspended")
+        unsuspend_email_patcher = patch("posthog.admin.admins.team_admin.send_email_sending_unsuspended")
+        notification_patcher = patch("posthog.admin.admins.team_admin.create_notification")
+        self.mock_suspend_email = suspend_email_patcher.start()
+        self.mock_unsuspend_email = unsuspend_email_patcher.start()
+        self.mock_notification = notification_patcher.start()
+        self.addCleanup(suspend_email_patcher.stop)
+        self.addCleanup(unsuspend_email_patcher.stop)
+        self.addCleanup(notification_patcher.stop)
+
+    def _post(self, data: dict | None = None):
+        request = self.factory.post("/", data or {})
+        request.user = self.user
+        _attach_messages(request)
+        return request
+
+    def _get(self):
+        request = self.factory.get("/")
+        request.user = self.user
+        _attach_messages(request)
+        return request
+
+    def _config(self) -> TeamWorkflowsConfig | None:
+        return TeamWorkflowsConfig.objects.filter(team_id=self.team.pk).first()
+
+    def test_get_renders_reason_form(self) -> None:
+        with patch("posthog.admin.admins.team_admin.render") as mock_render:
+            self.admin.suspend_email_sending_view(self._get(), str(self.team.pk))
+        assert mock_render.call_args.args[1] == "admin/posthog/team/suspend_email_sending_form.html"
+
+    def test_post_without_reason_makes_no_changes(self) -> None:
+        response = self.admin.suspend_email_sending_view(self._post({"reason": "  "}), str(self.team.pk))
+        assert response.status_code == 302
+        assert response["Location"] == self.suspend_url
+        config = self._config()
+        assert config is None or config.email_sending_suspended_at is None
+        self.mock_suspend_email.delay.assert_not_called()
+        self.mock_notification.assert_not_called()
+
+    def test_suspend_sets_fields_logs_activity_and_notifies(self) -> None:
+        response = self.admin.suspend_email_sending_view(
+            self._post({"reason": "Hard bounce rate above 5%"}), str(self.team.pk)
+        )
+        assert response.status_code == 302
+        assert response["Location"] == self.team_change_url
+
+        config = self._config()
+        assert config is not None
+        assert config.email_sending_suspended_at is not None
+        assert config.email_sending_suspension_reason == "Hard bounce rate above 5%"
+
+        entry = ActivityLog.objects.get(scope="Team", team_id=self.team.id, activity="email_sending_suspended")
+        assert entry.user == self.user
+        assert (entry.detail or {}).get("context", {}).get("reason") == "Hard bounce rate above 5%"
+
+        assert self.mock_suspend_email.delay.call_args.kwargs["team_id"] == self.team.id
+        assert self.mock_suspend_email.delay.call_args.kwargs["reason"] == "Hard bounce rate above 5%"
+        assert self.mock_notification.call_count == 1
+
+    def test_suspend_is_idempotent(self) -> None:
+        self.admin.suspend_email_sending_view(self._post({"reason": "first"}), str(self.team.pk))
+        response = self.admin.suspend_email_sending_view(self._post({"reason": "second"}), str(self.team.pk))
+        assert response.status_code == 302
+
+        config = self._config()
+        assert config is not None
+        assert config.email_sending_suspension_reason == "first"
+        assert self.mock_suspend_email.delay.call_count == 1
+        assert ActivityLog.objects.filter(scope="Team", activity="email_sending_suspended").count() == 1
+
+    def test_unsuspend_clears_fields_logs_activity_and_notifies(self) -> None:
+        self.admin.suspend_email_sending_view(self._post({"reason": "bad rates"}), str(self.team.pk))
+        self.mock_notification.reset_mock()
+
+        response = self.admin.unsuspend_email_sending_view(self._post(), str(self.team.pk))
+        assert response.status_code == 302
+        assert response["Location"] == self.team_change_url
+
+        config = self._config()
+        assert config is not None
+        assert config.email_sending_suspended_at is None
+        assert config.email_sending_suspension_reason == ""
+
+        assert ActivityLog.objects.filter(scope="Team", activity="email_sending_unsuspended").count() == 1
+        assert self.mock_unsuspend_email.delay.call_args.kwargs["team_id"] == self.team.id
+        assert self.mock_notification.call_count == 1
+
+    def test_unsuspend_is_a_noop_when_not_suspended(self) -> None:
+        response = self.admin.unsuspend_email_sending_view(self._post(), str(self.team.pk))
+        assert response.status_code == 302
+        self.mock_unsuspend_email.delay.assert_not_called()
+        self.mock_notification.assert_not_called()
+        assert not ActivityLog.objects.filter(scope="Team", activity="email_sending_unsuspended").exists()
+
+    @parameterized.expand(
+        [
+            ("suspend", "suspend_email_sending_view"),
+            ("unsuspend", "unsuspend_email_sending_view"),
+        ]
+    )
+    def test_views_require_change_permission(self, _name: str, view_name: str) -> None:
+        with patch.object(self.admin, "has_change_permission", return_value=False):
+            with self.assertRaises(PermissionDenied):
+                getattr(self.admin, view_name)(self._post({"reason": "x"}), str(self.team.pk))
+
+
 class TestTeamAdminFormOverspendAllowance(BaseTest):
     def _form(self, value, instance=None):
         instance = instance or self.team
@@ -650,3 +779,111 @@ class TestTeamInlineForm(BaseTest):
         form = self._inline_form({"test_account_filters": raw})
         form.is_valid()
         assert "test_account_filters" in form.errors
+
+
+class TestTeamAdminEditGroupTypeMappingView(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+        self.factory = RequestFactory()
+        self.admin = TeamAdmin(Team, AdminSite())
+        self.edit_url = f"/admin/posthog/team/{self.team.pk}/group-type-mapping/0/edit/"
+        self.team_change_url = f"/admin/posthog/team/{self.team.pk}/change/"
+
+        # Sub-second component matters: the form prefills created_at, so a lossy prefill would
+        # silently truncate it on every save.
+        existing_created_at = datetime(2026, 1, 15, 10, 30, 0, 123000, tzinfo=UTC)
+
+        self.fake_client = FakePersonHogClient()
+        self.fake_client.add_group_type_mapping(
+            project_id=self.team.project_id,
+            team_id=self.team.pk,
+            group_type="organization",
+            group_type_index=0,
+            created_at=int(existing_created_at.timestamp() * 1000),
+        )
+        client_patcher = patch("posthog.admin.admins.team_admin.get_personhog_client", return_value=self.fake_client)
+        client_patcher.start()
+        self.addCleanup(client_patcher.stop)
+
+        reverse_patcher = patch(
+            "posthog.admin.admins.team_admin.reverse",
+            side_effect=lambda name, args=None, kwargs=None: (
+                self.team_change_url if name == "admin:posthog_team_change" else self.edit_url
+            ),
+        )
+        reverse_patcher.start()
+        self.addCleanup(reverse_patcher.stop)
+
+    def _post(self, created_at: str):
+        http_request = self.factory.post(
+            self.edit_url,
+            {"name_singular": "org", "name_plural": "orgs", "default_columns": "", "created_at": created_at},
+        )
+        http_request.user = self.user
+        _attach_messages(http_request)
+        return self.admin.edit_group_type_mapping_view(http_request, str(self.team.pk), 0)
+
+    @parameterized.expand(
+        [
+            ("whole_seconds", "2026-02-20 08:15:00", int(datetime(2026, 2, 20, 8, 15, tzinfo=UTC).timestamp() * 1000)),
+            (
+                "with_millis",
+                "2026-02-20 08:15:00.456",
+                int(datetime(2026, 2, 20, 8, 15, tzinfo=UTC).timestamp() * 1000) + 456,
+            ),
+        ]
+    )
+    def test_post_sets_created_at_via_personhog(self, _name: str, created_at_raw: str, expected_millis: int) -> None:
+        response = self._post(created_at_raw)
+
+        assert response.status_code == 302
+        assert response["Location"] == self.team_change_url
+        update_calls = [c for c in self.fake_client.calls if c.method == "update_group_type_mapping"]
+        assert len(update_calls) == 1
+        update_request = update_calls[0].request
+        assert "created_at" in update_request.update_mask
+        assert update_request.created_at == expected_millis
+
+    def test_post_clears_created_at_when_field_is_blank(self) -> None:
+        # The mask path with no value is how the replica is told to null the column.
+        response = self._post("")
+
+        assert response.status_code == 302
+        update_calls = [c for c in self.fake_client.calls if c.method == "update_group_type_mapping"]
+        assert len(update_calls) == 1
+        update_request = update_calls[0].request
+        assert "created_at" in update_request.update_mask
+        assert not update_request.HasField("created_at")
+        assert (
+            not self.fake_client.get_group_type_mappings_by_project_id(
+                GetGroupTypeMappingsByProjectIdRequest(project_id=self.team.project_id)
+            )
+            .mappings[0]
+            .HasField("created_at")
+        )
+
+    def test_unedited_prefill_does_not_rewrite_created_at(self) -> None:
+        # Feeding GET's prefill straight back must be a no-op. Fails if the prefill loses
+        # sub-second precision, or if an unchanged value is still sent in the update_mask.
+        get_request = self.factory.get(self.edit_url)
+        get_request.user = self.user
+        _attach_messages(get_request)
+        with patch("posthog.admin.admins.team_admin.render") as mock_render:
+            self.admin.edit_group_type_mapping_view(get_request, str(self.team.pk), 0)
+        prefilled_created_at = mock_render.call_args.args[2]["created_at_display"]
+
+        response = self._post(prefilled_created_at)
+
+        assert response.status_code == 302
+        update_calls = [c for c in self.fake_client.calls if c.method == "update_group_type_mapping"]
+        assert len(update_calls) == 1
+        assert "created_at" not in update_calls[0].request.update_mask
+
+    def test_post_invalid_created_at_redirects_without_updating(self) -> None:
+        response = self._post("not-a-datetime")
+
+        assert response.status_code == 302
+        assert response["Location"] == self.edit_url
+        assert not any(c.method == "update_group_type_mapping" for c in self.fake_client.calls)

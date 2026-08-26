@@ -13,8 +13,12 @@
 //! scrubber), any object with more keys than the dup check covers, or any structural surprise makes
 //! the whole walk return `None` — the caller falls back to the parse, which resolves those exactly.
 
-use crate::assets::{is_media_src_attr, INLINE_IMAGE_ATTR, MEDIA_SRC_ATTRS, PLACEHOLDER_SRC};
+use crate::assets::{
+    is_fetchable_src_attr, is_image_ref_attr, is_media_src_attr, IMAGE_REF_ATTR_PREFIX,
+    INLINE_IMAGE_ATTR, MEDIA_SRC_ATTRS, PLACEHOLDER_SRC,
+};
 use crate::blur::is_image_data_uri;
+use crate::collect::is_image_ref_strict;
 use crate::context::Ctx;
 use crate::css;
 use crate::dom::{
@@ -231,7 +235,9 @@ fn scrub_cv_snapshot_value(
         return Some(false);
     }
     let content = if changed { &walked } else { &decompressed };
-    let zs = crate::compression::compress_cv(content).ok()?;
+    // Through `cv::compress_scrubbed`, never the raw codec: the walk may have substituted deferred
+    // image tokens into `walked`, and compression is the last moment they can still be resolved.
+    let zs = crate::cv::compress_scrubbed(ctx, content).ok()?;
     write_latin1_json_string(&zs, out);
     Some(true)
 }
@@ -705,12 +711,14 @@ impl<'c, 'a> Walker<'c, 'a> {
             scan::parse_number(bytes, v)
                 .and_then(|n| (n.fract() == 0.0 && (0.0..=255.0).contains(&n)).then_some(n as u8))
         });
-        let kind = match tag_m {
+        let tag = match tag_m {
             Some((_, v)) if scan::is_string(bytes, v) => {
-                classify_tag(&scan::unescape(bytes, v).ok()?)
+                scan::unescape(bytes, v).ok()?.into_owned()
             }
-            _ => classify_tag(""),
+            _ => String::new(),
         };
+        let kind = classify_tag(&tag);
+        let tag_src_is_image = crate::assets::tag_src_is_image(&tag);
         let node_changed = self.changed != changed_before;
 
         match ty {
@@ -731,7 +739,7 @@ impl<'c, 'a> Walker<'c, 'a> {
                 // Attributes with the real tag kind (media blur vs plain scrubs).
                 if let Some((key, v)) = attrs_m {
                     emit_deferred_key(bytes, key, &mut emitted, out);
-                    self.walk_attrs(v.0, kind, out)?;
+                    self.walk_attrs(v.0, kind, tag_src_is_image, out)?;
                 }
                 for (key, v) in [ty_m, tag_m, is_style_m, text_m].into_iter().flatten() {
                     emit_deferred_key(bytes, key, &mut emitted, out);
@@ -819,9 +827,15 @@ impl<'c, 'a> Walker<'c, 'a> {
     }
 
     /// An element's `attributes` object (mirrors `dom::scrub_attrs`, including the media blur).
-    /// Stash attrs (`data-anon-original-*`) are appended before the closing brace; the tree path
-    /// inserts them into the map instead, which is the same object semantically.
-    fn walk_attrs(&mut self, start: usize, kind: TagKind, out: &mut Vec<u8>) -> Option<usize> {
+    /// Namespaced attrs are appended before the closing brace; the tree path inserts them into the
+    /// map instead, which is the same object semantically.
+    fn walk_attrs(
+        &mut self,
+        start: usize,
+        kind: TagKind,
+        tag_src_is_image: bool,
+        out: &mut Vec<u8>,
+    ) -> Option<usize> {
         if self.bytes.get(start) != Some(&b'{') {
             return self.copy_value(start, out);
         }
@@ -830,8 +844,14 @@ impl<'c, 'a> Walker<'c, 'a> {
             let stashes = &mut stashes;
             self.walk_object(start, out, &mut |w, key, vstart, out| {
                 let name = std::str::from_utf8(&w.bytes[key.0..key.1]).ok()?;
+                // Existing internal refs need provenance validation and may need removing. The
+                // object emitter cannot omit one member, so let the tree path handle this rare
+                // input shape rather than risk duplicate or attacker-controlled join keys.
+                if is_image_ref_attr(name) {
+                    return None;
+                }
                 if kind == TagKind::Media && is_media_src_attr(name) {
-                    return w.blur_media_src(name, vstart, out, stashes);
+                    return w.blur_media_src(name, vstart, tag_src_is_image, out, stashes);
                 }
                 if name == INLINE_IMAGE_ATTR {
                     return w.scrub_string_value(vstart, out, |w, s| {
@@ -880,11 +900,13 @@ impl<'c, 'a> Walker<'c, 'a> {
     }
 
     /// One media source attribute (mirrors `assets::apply_blur` for a single key): data images are
-    /// blurred; remote URLs become the placeholder with the host-scrubbed original stashed.
+    /// blurred; a remote URL becomes the placeholder. Its fetch-lane ref, when collected, and its
+    /// host-scrubbed original are stashed alongside.
     fn blur_media_src(
         &mut self,
         name: &str,
         vstart: usize,
+        tag_src_is_image: bool,
         out: &mut Vec<u8>,
         stashes: &mut Vec<(String, String)>,
     ) -> Option<usize> {
@@ -895,12 +917,23 @@ impl<'c, 'a> Walker<'c, 'a> {
         }
         let end = scan::skip_string(bytes, vstart).ok()?;
         let existing = scan::unescape(bytes, (vstart, end)).ok()?;
+        // See `assets::apply_blur`: only on an explicitly trusted re-scrub, and only for a
+        // fully well-formed ref.
+        if self.ctx.keeps_image_refs() && is_image_ref_strict(&existing) {
+            return self.copy_value(vstart, out);
+        }
         if is_image_data_uri(&existing) {
             let blurred = self.ctx.scrub_image(&existing, ImageFallback::Placeholder);
             scan::write_json_string(&blurred, out);
         } else {
+            let collected = is_fetchable_src_attr(name, tag_src_is_image)
+                .then(|| self.ctx.collect_url(&existing))
+                .flatten();
             let scrubbed = scrub_url(self.ctx, &existing).unwrap_or_else(|| existing.into_owned());
             scan::write_json_string(PLACEHOLDER_SRC, out);
+            if let Some(url_ref) = collected {
+                stashes.push((format!("{IMAGE_REF_ATTR_PREFIX}{name}"), url_ref));
+            }
             stashes.push((format!("data-anon-original-{name}"), scrubbed));
         }
         self.changed = true;
@@ -952,7 +985,9 @@ impl<'c, 'a> Walker<'c, 'a> {
                         } else {
                             TagKind::Other
                         };
-                        w.walk_attrs(vstart, kind, out)
+                        // Mutation attributes carry no tag, so a `src` here is not known to be
+                        // an image. Decline rather than guess.
+                        w.walk_attrs(vstart, kind, false, out)
                     }
                     _ => w.copy_value(vstart, out),
                 },
@@ -995,7 +1030,8 @@ impl<'c, 'a> Walker<'c, 'a> {
                     return Some(send);
                 }
                 let content = if changed { &walked } else { &decompressed };
-                let zs = crate::compression::compress_cv(content).ok()?;
+                // See `scrub_cv_snapshot_value`: the barrier, not the raw codec.
+                let zs = crate::cv::compress_scrubbed(self.ctx, content).ok()?;
                 write_latin1_json_string(&zs, out);
                 self.changed = true;
                 Some(send)

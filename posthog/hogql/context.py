@@ -18,8 +18,9 @@ if TYPE_CHECKING:
 
     from posthog.clickhouse.client.execute import ClickHouseExternalTable
     from posthog.models import Team, User
-    from posthog.rbac.user_access_control import UserAccessControl
     from posthog.scopes import APIScopeObject
+
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 
 def _default_modifiers() -> "HogQLQueryModifiers":
@@ -62,6 +63,8 @@ class HogQLContext:
     database: Optional["Database"] = None
     # Metadata discovered for a direct Postgres connection, if one is selected
     direct_postgres_connection_metadata: dict[str, Any] | None = None
+    # Set when the query executes against an external direct-SQL connection instead of PostHog's own cluster
+    is_direct_query: bool = False
     # If set, will save string constants to this dict. Inlines strings into the query if None.
     values: dict = field(default_factory=dict)
     # Query-scoped ClickHouse external data tables accumulated during printing (keyed by table name).

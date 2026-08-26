@@ -26,6 +26,7 @@ import structlog
 from opentelemetry import trace
 
 from posthog.api.capture import capture_internal
+from posthog.api.secret_revocation import NON_PERSONAL_SECRET_PREFIXES
 from posthog.auth import AUTH_BRAND_COOKIE, apply_auth_brand_cookie, normalize_auth_brand
 from posthog.cloud_utils import is_cloud
 from posthog.email import is_email_available
@@ -64,10 +65,12 @@ from posthog.utils import (
 from products.messaging.backend.models.message_category import MessageCategory
 from products.messaging.backend.models.message_preferences import (
     ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
+    EMAIL_TRACKING_PREFERENCE_ID,
     MessageRecipientPreference,
     PreferenceStatus,
 )
 from products.messaging.backend.services.customerio_sync_service import sync_preferences_to_customerio
+from products.workflows.backend.models.team_workflows_config import EmailTrackingConsentMode
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -271,7 +274,7 @@ MAX_VALUE_DISPLAY_LENGTH = 200
 
 
 @dataclass
-class RedisKeyInfo:
+class RedisKeySnapshot:
     key: str
     type: str
     ttl: timedelta | int
@@ -300,7 +303,7 @@ def truncate_value(value, max_length: int = MAX_VALUE_DISPLAY_LENGTH) -> str:
     return str_value[:max_length] + "..."
 
 
-def get_redis_key_info(key: bytes, redis_client) -> RedisKeyInfo:
+def get_redis_key_info(key: bytes, redis_client) -> RedisKeySnapshot:
     redis_key = key.decode("utf-8")
     redis_type = redis_client.type(redis_key).decode("utf8")
     redis_ttl = redis_client.ttl(redis_key)
@@ -325,7 +328,7 @@ def get_redis_key_info(key: bytes, redis_client) -> RedisKeyInfo:
     full_value = str(value)
     is_truncated = len(full_value) > MAX_VALUE_DISPLAY_LENGTH
 
-    return RedisKeyInfo(
+    return RedisKeySnapshot(
         key=redis_key,
         type=redis_type,
         ttl=redis_ttl,
@@ -465,12 +468,7 @@ def api_key_search_view(request: HttpRequest):
     personal_api_key_hash_mode = None
     # Legacy personal API keys predate the phx_ prefix, so any query without another known
     # prefix is also treated as a personal key candidate (matching authentication behavior).
-    non_personal_api_key_prefixes = (
-        SECRET_API_TOKEN_PREFIX,
-        OAUTH_ACCESS_TOKEN_PREFIX,
-        OAUTH_REFRESH_TOKEN_PREFIX,
-        PROJECT_API_TOKEN_PREFIX,
-    )
+    non_personal_api_key_prefixes = (*NON_PERSONAL_SECRET_PREFIXES, PROJECT_API_TOKEN_PREFIX)
     if query and not query.startswith(non_personal_api_key_prefixes):
         result = find_personal_api_key(query)
         if result is not None:
@@ -574,6 +572,34 @@ def report_workflows_email_unsubscribed(team_id: int, identifier: str, category_
             capture_exception(e)
 
 
+def report_workflows_email_tracking_consent_updated(team_id: int, identifier: str, status: str) -> None:
+    """
+    Emit a $workflows_email_tracking_consent_updated engagement event when a recipient
+    changes their open/click tracking consent on the preferences page. Gated on the same
+    capture_workflows_engagement_events flag as the other $workflows_email_* events.
+    Best-effort — never fails the preferences flow.
+    """
+    try:
+        team = Team.objects.get(id=team_id)
+        if not team.workflows_config.capture_workflows_engagement_events:
+            return
+        result = capture_internal(
+            token=team.api_token,
+            event_name="$workflows_email_tracking_consent_updated",
+            event_source="workflows_preferences",
+            distinct_id=identifier,
+            properties={"$email": identifier, "status": status, "source": "preferences_page"},
+        )
+        if not result.succeeded():
+            logger.error(
+                "workflows_email_tracking_consent_capture_failed",
+                team_id=team_id,
+                error=result.error,
+            )
+    except Exception as e:
+        capture_exception(e)
+
+
 @csrf_exempt
 @require_http_methods(["GET", "POST"])
 def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
@@ -607,6 +633,12 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
         # Also set the "$all" preference
         preferences_dict[ALL_MESSAGE_PREFERENCE_CATEGORY_ID] = PreferenceStatus.OPTED_OUT.value
 
+        # Unsubscribing is about which emails arrive, not how they're measured — a stored
+        # tracking-consent answer must survive the wholesale rebuild
+        tracking_pref = (recipient.preferences or {}).get(EMAIL_TRACKING_PREFERENCE_ID)
+        if tracking_pref is not None:
+            preferences_dict[EMAIL_TRACKING_PREFERENCE_ID] = tracking_pref
+
         recipient.preferences = preferences_dict
         recipient.save(update_fields=["preferences"])
 
@@ -632,6 +664,11 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
         for cat in categories
     ]
 
+    # Only surface the tracking-consent toggle when the team actually enforces consent —
+    # in "off" mode a stored preference would have no effect on sends
+    tracking_consent_mode = Team.objects.get(id=team_id).workflows_config.email_tracking_consent_mode
+    tracking_status = preferences.get(EMAIL_TRACKING_PREFERENCE_ID, PreferenceStatus.NO_PREFERENCE)
+
     context = {
         "recipient": recipient,
         "categories": [
@@ -644,6 +681,13 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
             },
         ],
         "token": token,
+        "email_tracking_consent_enabled": tracking_consent_mode != EmailTrackingConsentMode.OFF,
+        # No stored answer falls back to the mode's default: tracked under opt-out, untracked under opt-in
+        "email_tracking_allowed": (
+            tracking_status == PreferenceStatus.OPTED_IN
+            if tracking_consent_mode == EmailTrackingConsentMode.OPT_IN
+            else tracking_status != PreferenceStatus.OPTED_OUT
+        ),
     }
 
     return render(
@@ -688,7 +732,6 @@ def update_preferences(request: HttpRequest) -> JsonResponse:
         preferences = request.POST.getlist("preferences[]")
         # Convert to dict of category_id: status
         preferences_dict = {}
-        all_opted_out = True
 
         for pref in preferences:
             category_id, opted_in = pref.split(":")
@@ -699,12 +742,23 @@ def update_preferences(request: HttpRequest) -> JsonResponse:
             status = PreferenceStatus.OPTED_IN if opted_in == "true" else PreferenceStatus.OPTED_OUT
             preferences_dict[category_id] = status.value
 
-            if status == PreferenceStatus.OPTED_IN:
-                all_opted_out = False
+        # $email_tracking is a measurement consent, not a subscription — it must neither
+        # block nor trigger the "unsubscribed from everything" $all computation
+        subscription_prefs = {k: v for k, v in preferences_dict.items() if k != EMAIL_TRACKING_PREFERENCE_ID}
 
         # If all preferences are opted out, add the "$all" preference
-        if all_opted_out and preferences_dict:
+        if subscription_prefs and all(v == PreferenceStatus.OPTED_OUT.value for v in subscription_prefs.values()):
             preferences_dict[ALL_MESSAGE_PREFERENCE_CATEGORY_ID] = PreferenceStatus.OPTED_OUT.value
+
+        # A save that doesn't include the tracking toggle (e.g. consent mode is off) must
+        # not erase a stored consent answer in the wholesale rebuild
+        if EMAIL_TRACKING_PREFERENCE_ID not in preferences_dict and EMAIL_TRACKING_PREFERENCE_ID in prior_preferences:
+            preferences_dict[EMAIL_TRACKING_PREFERENCE_ID] = prior_preferences[EMAIL_TRACKING_PREFERENCE_ID]
+
+        # A tracking-only save (no category toggles rendered, e.g. a team without marketing
+        # categories) must not rebuild subscription state - it would drop a stored $all opt-out
+        if not subscription_prefs:
+            preferences_dict = {**prior_preferences, **preferences_dict}
 
         # Update all preferences with a single DB write
         recipient.preferences = preferences_dict
@@ -716,11 +770,18 @@ def update_preferences(request: HttpRequest) -> JsonResponse:
         newly_opted_out = [
             category_id
             for category_id, status in preferences_dict.items()
-            if status == PreferenceStatus.OPTED_OUT.value
+            if category_id != EMAIL_TRACKING_PREFERENCE_ID
+            and status == PreferenceStatus.OPTED_OUT.value
             and prior_preferences.get(category_id) != PreferenceStatus.OPTED_OUT.value
         ]
         if newly_opted_out:
             report_workflows_email_unsubscribed(team_id, identifier, newly_opted_out, "preferences_page")
+
+        new_tracking_consent = preferences_dict.get(EMAIL_TRACKING_PREFERENCE_ID)
+        if new_tracking_consent is not None and new_tracking_consent != prior_preferences.get(
+            EMAIL_TRACKING_PREFERENCE_ID
+        ):
+            report_workflows_email_tracking_consent_updated(team_id, identifier, new_tracking_consent)
 
         return JsonResponse({"success": True})
 

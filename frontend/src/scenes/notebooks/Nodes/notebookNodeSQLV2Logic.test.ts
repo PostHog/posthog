@@ -9,7 +9,7 @@ import { initKeaTests } from '~/test/init'
 import { buildMarkdownNotebookContent, serializeMarkdownNotebookComponent } from '../Notebook/markdownNotebookV2'
 import { notebookSettingsLogic } from '../Notebook/notebookSettingsLogic'
 import { NotebookNodeType } from '../types'
-import { collectSqlV2Refs, notebookNodeSQLV2Logic } from './notebookNodeSQLV2Logic'
+import { collectSqlV2Refs, notebookNodeSQLV2Logic, pollIntervalMs } from './notebookNodeSQLV2Logic'
 
 describe('notebookNodeSQLV2Logic', () => {
     let logic: ReturnType<typeof notebookNodeSQLV2Logic.build>
@@ -138,6 +138,22 @@ describe('notebookNodeSQLV2Logic', () => {
         })
     })
 
+    describe('pollIntervalMs', () => {
+        // The steps are ordered slowest first and the lookup takes the first match, so
+        // reordering them silently returns one cadence for every wait. That changes how many
+        // requests a long-running cell makes by several times over, and nothing else catches it.
+        it.each([
+            [0, 1_000],
+            [29_999, 1_000],
+            [30_000, 2_000],
+            [119_999, 2_000],
+            [120_000, 5_000],
+            [20 * 60 * 1_000, 5_000],
+        ])('waits %ims into a run, so it polls every %ims', (waitedMs, expected) => {
+            expect(pollIntervalMs(waitedMs)).toEqual(expected)
+        })
+    })
+
     describe('execution lanes', () => {
         it('pages a direct run client-side from the rows the result poll returned', async () => {
             // The server page endpoint refuses hogql runs; losing the local slice would
@@ -178,14 +194,12 @@ describe('notebookNodeSQLV2Logic', () => {
             mount()
             logic.actions.runQuery('select 1')
             await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.activeRunLane).toEqual('direct')
             expect(notebookSettingsLogic.findMounted()?.values.showKernelInfo).toBe(false)
             expect(logic.values.pendingKernelStart).toBe(false)
             expect(toastSpy).not.toHaveBeenCalled()
 
             logic.actions.runQuery('select * from new_events', { new_events: { node_id: 'py', kind: 'local' } })
             await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.activeRunLane).toEqual('kernel')
             expect(notebookSettingsLogic.findMounted()?.values.showKernelInfo).toBe(true)
             expect(logic.values.pendingKernelStart).toBe(true)
             expect(toastSpy).toHaveBeenCalledWith(expect.stringContaining('Starting a compute sandbox'))
@@ -208,7 +222,19 @@ describe('notebookNodeSQLV2Logic', () => {
         expect(runSpy).toHaveBeenCalledWith('nb1', { node_id: 'n1', code: 'select 1', refs: {} })
         // runId is persisted so a reload/remount can recover the in-flight run; nodeId is
         // pinned so the markdown cell's fingerprint id can't drift away from the run's node_id.
-        expect(updateAttributes).toHaveBeenCalledWith({ nodeId: 'n1', runId: 'r1', result: null })
+        expect(updateAttributes).toHaveBeenCalledWith({ nodeId: 'n1', runId: 'r1', result: null, runStatus: null })
+    })
+
+    it('dispatches a run against the cell’s connection', async () => {
+        // Without this the run reaches the backend with no connection and executes on ClickHouse,
+        // which is what made warehouse queries fail with "Unknown table".
+        mount()
+        logic.actions.runQuery('select 1', {}, { connectionId: 'conn-1', sendRawQuery: true })
+        await expectLogic(logic).toDispatchActions(['runQuery', 'startPolling'])
+        expect(runSpy).toHaveBeenCalledWith(
+            'nb1',
+            expect.objectContaining({ connection_id: 'conn-1', send_raw_query: true })
+        )
     })
 
     it('dispatches a python run with its node type and output name', async () => {
@@ -247,6 +273,7 @@ describe('notebookNodeSQLV2Logic', () => {
                 stderr: '',
                 media: [],
             },
+            runStatus: 'done',
         })
         expect(logic.values.isRunning).toBe(false)
     })
@@ -269,8 +296,11 @@ describe('notebookNodeSQLV2Logic', () => {
         })
         mount({ runId: 'r1', hasResult: false })
         await expectLogic(logic).toFinishAllListeners()
+        // The outcome is persisted with the partial result: without it a reload can't tell this
+        // apart from a completed run, since both leave a result behind.
         expect(updateAttributes).toHaveBeenCalledWith({
             result: expect.objectContaining({ stdout: 'partial output' }),
+            runStatus: 'interrupted',
         })
         expect(logic.values.runError).toBe('Run interrupted.')
         expect(logic.values.isRunning).toBe(false)
@@ -431,6 +461,35 @@ describe('notebookNodeSQLV2Logic', () => {
         await expectLogic(other).toFinishAllListeners()
         expect(runSpy).toHaveBeenCalledTimes(2)
         other.unmount()
+    })
+
+    it('gives up the poller at the wait budget without leaving a stray timer', async () => {
+        // Reaching the 21-minute client budget stops polling synchronously, which disposes the
+        // poll timer. The self-rescheduling callback must not arm a new one afterwards: an
+        // untracked timer would survive unmount and re-fire the failure every interval, aborting
+        // any run-all chain waiting on this cell until a reload.
+        jest.useFakeTimers()
+        try {
+            mount({ runId: 'r1', hasResult: false })
+            // Let the first (still-running) poll settle so its scheduled follow-up is what trips
+            // the budget next.
+            await jest.advanceTimersByTimeAsync(0)
+
+            // Jump the accumulated wait to the budget edge; the next scheduled poll trips it.
+            logic.cache.pollWaitedMs = 21 * 60 * 1000
+            await jest.advanceTimersByTimeAsync(1000)
+
+            expect(logic.values.runError).toContain('Stopped checking')
+            // The poller is disposed and, crucially, not re-armed. A stray timer would re-enter
+            // the budget branch every interval, which each time accumulates the wait again — so an
+            // unchanged wait after advancing past several intervals proves nothing rescheduled.
+            expect(logic.cache.disposables.registry.has('pollResult')).toBe(false)
+            const waitedAfterGivingUp = logic.cache.pollWaitedMs
+            await jest.advanceTimersByTimeAsync(15_000)
+            expect(logic.cache.pollWaitedMs).toBe(waitedAfterGivingUp)
+        } finally {
+            jest.useRealTimers()
+        }
     })
 
     it('unmounting a busy node releases the notebook', async () => {

@@ -45,6 +45,12 @@ jobs:
                         - 'products/posthog_ai/**'
                         - '.github/workflows/ci-agent-skills.yml'
                         - 'services/mcp/schema/**'
+                        # check-skills zips products/*/skills/* via `hogli build:skills`
+                        # (see build.py's affected-path map), so posthog_ai's frontend
+                        # can't affect it. Scoped to posthog_ai, not
+                        # 'products/*/frontend/**', so a future deliberate frontend
+                        # include here isn't silently vetoed.
+                        - '!products/posthog_ai/frontend/**'
 
     check-skills:
         name: Check agent skills
@@ -60,6 +66,84 @@ jobs:
 
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  # Deep enough to reach the PR's merge base, which keys the schema cache below.
+                  fetch-depth: 1000
+                  filter: blob:none
+
+            - name: Fetch base branch for merge-base computation
+              if: github.event_name == 'pull_request'
+              env:
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
+              # Scoped, blob-less, no-tags: without an explicit refspec, git fetch
+              # falls back to remote.origin.fetch and pulls every branch.
+              run: git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
+
+            - name: Compute schema cache keys
+              id: schema-key
+              # Restores the schema dump ci-backend saves on master pushes, so the
+              # migrate step below only tops up what is newer instead of replaying the
+              # full migration history. On a PR the migration-set key is the merge-base's;
+              # on a master push it is HEAD's. A cache miss falls through to a full
+              # migrate, so an absent or wrong key is never a correctness risk.
+              env:
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
+                  IS_PUSH: ${{ github.event_name == 'push' }}
+                  # Manual cache-bust knob. Keep in sync with SCHEMA_CACHE_EPOCH in
+                  # ci-backend.yml, which saves these caches on master pushes.
+                  SCHEMA_CACHE_EPOCH: v2
+              run: |
+                  if [ "$IS_PUSH" = "true" ]; then
+                      # Pushed commit is checked out directly: no merge commit, no base ref.
+                      # The per-SHA key would point at this same push's cache (saved
+                      # concurrently by ci-backend, so racy); rely on the stable
+                      # migration-set key below.
+                      REF=HEAD
+                  else
+                      # HEAD is the synthetic merge commit; HEAD^2 is the PR branch tip.
+                      MERGE_BASE=$(git merge-base HEAD^2 "origin/${BASE_REF}" 2>/dev/null || echo "")
+                      if [ -z "$MERGE_BASE" ]; then
+                          echo "key=" >> $GITHUB_OUTPUT
+                          echo "migrations_key=" >> $GITHUB_OUTPUT
+                          echo "::notice::merge-base not found (branch too stale?), so the schema cache is skipped"
+                          exit 0
+                      fi
+                      # Routing decides which app labels reach the dump, so an edited routing
+                      # config matches no master dump: drop both keys and migrate from scratch.
+                      DB_ROUTING_BASE=$(git ls-tree -r --format='%(objectname) %(path)' "$MERGE_BASE" -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)
+                      DB_ROUTING_HEAD=$(git ls-tree -r --format='%(objectname) %(path)' HEAD -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)
+                      if [ "$DB_ROUTING_BASE" != "$DB_ROUTING_HEAD" ]; then
+                          echo "key=" >> $GITHUB_OUTPUT
+                          echo "migrations_key=" >> $GITHUB_OUTPUT
+                          echo "::notice::db routing config or router differs from the merge base, so the schema cache is skipped"
+                          exit 0
+                      fi
+                      echo "key=posthog-schema-master-${MERGE_BASE}" >> $GITHUB_OUTPUT
+                      REF="$MERGE_BASE"
+                  fi
+                  # Last-resort restore prefix: matches the newest saved dump when the exact
+                  # keys miss. Gated on checkout age because a re-run of an old commit could
+                  # restore a dump newer than its code, which forward-only migrate cannot repair.
+                  HEAD_AGE_SECONDS=$(( $(date +%s) - $(git show -s --format=%ct HEAD) ))
+                  if [ "$HEAD_AGE_SECONDS" -lt 86400 ]; then
+                      echo "prefix_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-" >> $GITHUB_OUTPUT
+                  fi
+                  # Must match ci-backend.yml's save-side computation byte for byte or the key never hits.
+                  MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' "$REF" \
+                      | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
+                      | grep -vE '/(clickhouse|async_migrations)/migrations/' \
+                      | LC_ALL=C sort) || true
+                  # Routing decides which app labels are in the dump, so these inputs belong in the key.
+                  DB_ROUTING=$(git ls-tree -r --format='%(objectname) %(path)' "$REF" -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)
+                  PG_IMAGE=$(git show "${REF}:docker-compose.base.yml" 2>/dev/null \
+                      | grep -m1 -E '^[[:space:]]*image:[[:space:]]*postgres:' | tr -d '[:space:]')
+                  if [ -z "$MIG_FILES" ]; then
+                      echo "migrations_key=" >> $GITHUB_OUTPUT
+                      echo "::notice::no migration files matched, so restore falls back to the SHA schema key"
+                  else
+                      MIG_HASH=$(printf '%s\n%s\n%s' "$MIG_FILES" "$PG_IMAGE" "$DB_ROUTING" | sha256sum | cut -c1-40)
+                      echo "migrations_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-${MIG_HASH}" >> $GITHUB_OUTPUT
+                  fi
 
             - name: Log in to Docker Hub
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
@@ -75,11 +159,21 @@ jobs:
               run: |
                   bin/ci-wait-for-docker launch --down
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version-file: 'pyproject.toml'
-                  token: ${{ github.token }}
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
@@ -110,6 +204,41 @@ jobs:
                   WAIT_FOR_DOCKER_LAUNCH_RETRIES: 3
               run: bin/ci-wait-for-docker wait
 
+            - name: Restore schema cache from master
+              if: steps.schema-key.outputs.migrations_key != '' || steps.schema-key.outputs.key != ''
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: schema.sql.gz
+                  # Prefer the shared content key; fall back to the exact merge-base SHA
+                  # key, then to the newest dump of any migration set.
+                  key: ${{ steps.schema-key.outputs.migrations_key || steps.schema-key.outputs.key }}
+                  restore-keys: |
+                      ${{ steps.schema-key.outputs.key }}
+                      ${{ steps.schema-key.outputs.prefix_key }}
+
+            - name: Prime posthog from cached schema
+              # db:restore-schema-fresh restores the dump and seeds the RunPython data a
+              # schema-only dump lacks; the migrate step below layers anything newer on
+              # top. On failure it leaves a fresh empty db, so migrate runs the full history.
+              env:
+                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da'
+                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
+                  REDIS_URL: 'redis://localhost'
+                  OBJECT_STORAGE_ENABLED: 'False'
+                  TEST: 1
+                  DEBUG: 1
+                  TARGET_DB: posthog
+              run: |
+                  if [ ! -f schema.sql.gz ]; then
+                      echo "::notice::Schema cache miss, so the migrate step below runs the full history"
+                      exit 0
+                  fi
+                  mkdir -p .postgres-backups
+                  mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
+                  if ! ./bin/hogli db:restore-schema-fresh; then
+                      echo "::warning::Schema restore failed (stale or incompatible cached dump?), so the migrate step below runs the full history"
+                  fi
+
             - name: Run migrations and create test data
               env:
                   SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da'
@@ -135,6 +264,59 @@ jobs:
                   TEST: 1
                   DEBUG: 1
               run: ./bin/hogli build:skills
+
+    # Skill markdown is embedded verbatim into the scene agent-context payloads. The only
+    # other check that regenerates those payloads is Backend CI's OpenAPI check, whose
+    # paths filter never matches markdown. Master pushes skip that filter and run the
+    # check anyway, so a skill-only PR merges green and then turns master red. This job
+    # makes the same assertion on the same inputs without needing the backend stack.
+    check-embedded-skills:
+        name: Check embedded skill payloads
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        needs: changes
+        if: needs.changes.outputs.skills == 'true'
+        permissions:
+            contents: read
+
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm --filter=@posthog/root --filter=@posthog/mcp... install --frozen-lockfile
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
+
+            - name: Check embedded skill payloads are up to date
+              run: |
+                  pnpm --filter=@posthog/mcp run generate-scene-tool-context
+                  if git diff --exit-code; then
+                      echo "Embedded skill payloads are up to date"
+                      exit 0
+                  fi
+                  echo ""
+                  echo "::error::Embedded skill payloads are out of date!"
+                  echo ""
+                  echo "A skill this PR edits is embedded into a scene agent-context payload"
+                  echo "(products/*/frontend/generated/agentContext.ts), so the payload has to be"
+                  echo "regenerated alongside it."
+                  echo ""
+                  echo "To fix, run locally:  hogli build:openapi-scene-tool-context"
+                  echo "Then commit the updated generated file."
+                  echo ""
+                  echo "Questions? #team-devex on Slack"
+                  exit 1
 
     current-master:
         name: Check current master
@@ -178,6 +360,41 @@ jobs:
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
+            - name: Compute schema cache key
+              id: schema-key
+              # The pushed commit is checked out directly, so the migration-set key is
+              # HEAD's. It matches the dump the previous master push saved unless this
+              # push itself changed the migration set; a miss falls through to the full
+              # migrate below, so an absent key is never a correctness risk.
+              env:
+                  # Manual cache-bust knob. Keep in sync with SCHEMA_CACHE_EPOCH in
+                  # ci-backend.yml, which saves these caches on master pushes.
+                  SCHEMA_CACHE_EPOCH: v2
+              run: |
+                  # Must match ci-backend.yml's save-side computation byte for byte or the key never hits.
+                  MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' HEAD \
+                      | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
+                      | grep -vE '/(clickhouse|async_migrations)/migrations/' \
+                      | LC_ALL=C sort) || true
+                  # Routing decides which app labels are in the dump, so these inputs belong in the key.
+                  DB_ROUTING=$(git ls-tree -r --format='%(objectname) %(path)' HEAD -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)
+                  PG_IMAGE=$(git show "HEAD:docker-compose.base.yml" 2>/dev/null \
+                      | grep -m1 -E '^[[:space:]]*image:[[:space:]]*postgres:' | tr -d '[:space:]')
+                  if [ -z "$MIG_FILES" ]; then
+                      echo "migrations_key=" >> $GITHUB_OUTPUT
+                      echo "::notice::no migration files matched, so migrate runs from scratch"
+                  else
+                      MIG_HASH=$(printf '%s\n%s\n%s' "$MIG_FILES" "$PG_IMAGE" "$DB_ROUTING" | sha256sum | cut -c1-40)
+                      echo "migrations_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-${MIG_HASH}" >> $GITHUB_OUTPUT
+                  fi
+                  # Last-resort restore prefix: matches the newest saved dump when the exact
+                  # key misses. Gated on checkout age because a re-run of an old commit could
+                  # restore a dump newer than its code, which forward-only migrate cannot repair.
+                  HEAD_AGE_SECONDS=$(( $(date +%s) - $(git show -s --format=%ct HEAD) ))
+                  if [ "$HEAD_AGE_SECONDS" -lt 86400 ]; then
+                      echo "prefix_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-" >> $GITHUB_OUTPUT
+                  fi
+
             - name: Log in to Docker Hub
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
@@ -192,11 +409,21 @@ jobs:
               run: |
                   bin/ci-wait-for-docker launch --down
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version-file: 'pyproject.toml'
-                  token: ${{ github.token }}
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
@@ -224,6 +451,38 @@ jobs:
                   WAIT_FOR_DOCKER_LAUNCH_RETRIES: 3
               run: bin/ci-wait-for-docker wait
 
+            - name: Restore schema cache from master
+              if: steps.schema-key.outputs.migrations_key != ''
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: schema.sql.gz
+                  key: ${{ steps.schema-key.outputs.migrations_key }}
+                  restore-keys: |
+                      ${{ steps.schema-key.outputs.prefix_key }}
+
+            - name: Prime posthog from cached schema
+              # db:restore-schema-fresh restores the dump and seeds the RunPython data a
+              # schema-only dump lacks; the migrate step below layers anything newer on
+              # top. On failure it leaves a fresh empty db, so migrate runs the full history.
+              env:
+                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da'
+                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
+                  REDIS_URL: 'redis://localhost'
+                  OBJECT_STORAGE_ENABLED: 'False'
+                  TEST: 1
+                  DEBUG: 1
+                  TARGET_DB: posthog
+              run: |
+                  if [ ! -f schema.sql.gz ]; then
+                      echo "::notice::Schema cache miss, so the migrate step below runs the full history"
+                      exit 0
+                  fi
+                  mkdir -p .postgres-backups
+                  mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
+                  if ! ./bin/hogli db:restore-schema-fresh; then
+                      echo "::warning::Schema restore failed (stale or incompatible cached dump?), so the migrate step below runs the full history"
+                  fi
+
             - name: Run migrations and create test data
               env:
                   SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da'
@@ -250,6 +509,13 @@ jobs:
                   DEBUG: 1
               run: ./bin/hogli build:skills
 
+            - name: Mint release GitHub token
+              id: release-token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+
             - name: Determine next version
               id: version
               run: |
@@ -261,7 +527,7 @@ jobs:
 
             - name: Create versioned release
               env:
-                  GH_TOKEN: ${{ github.token }}
+                  GH_TOKEN: ${{ steps.release-token.outputs.token }}
                   RELEASE_TAG: ${{ steps.version.outputs.tag }}
               run: |
                   gh release create "$RELEASE_TAG" \
@@ -273,13 +539,14 @@ jobs:
 
             - name: Update latest release
               env:
-                  GH_TOKEN: ${{ github.token }}
+                  GH_TOKEN: ${{ steps.release-token.outputs.token }}
                   RELEASE_TAG: ${{ steps.version.outputs.tag }}
               run: |
                   if gh release view agent-skills-latest &>/dev/null; then
                       gh release upload agent-skills-latest \
                           products/posthog_ai/dist/skills.zip --clobber
                       gh release edit agent-skills-latest \
+                          --title "Agent skills (Latest)" \
                           --notes "Latest build — same as $RELEASE_TAG"
                   else
                       gh release create agent-skills-latest \

@@ -2422,6 +2422,7 @@ fn seed_message(person: Uuid, day: i32, count: u32, offset: i64) -> ShuffleMessa
     ShuffleMessage::Seed {
         work: Box::new(SeedWork::Tile(seed_tile(person, day, count))),
         offset,
+        broker_ts_ms: None,
     }
 }
 

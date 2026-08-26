@@ -1,17 +1,30 @@
 from typing import Any
 
+from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
+from sshtunnel import BaseSSHTunnelForwarderError
 
+from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
+from posthog.hogql.database.models import StringDatabaseField, TableNode
+from posthog.hogql.direct_sql.adapter import DirectQueryRequest
 from posthog.hogql.direct_sql.clickhouse_adapter import (
+    ClickHouseAdapter,
     _fetch_capped_clickhouse_rows,
     ensure_read_only_raw_clickhouse_statement,
 )
 from posthog.hogql.errors import ExposedHogQLError, QueryError
+from posthog.hogql.parser import parse_select
+from posthog.hogql.printer.utils import prepare_and_print_ast
+from posthog.hogql.timings import HogQLTimings
+
+from products.warehouse_sources.backend.facade.source_management import ClickHouseConnectionError
 
 
 class TestDirectClickHouseTable(SimpleTestCase):
@@ -47,6 +60,94 @@ class TestDirectClickHouseTable(SimpleTestCase):
             table.to_printed_postgres(None)
         with self.assertRaises(QueryError):
             table.to_printed_mysql(None)
+
+
+class TestDirectClickHouseTeamIdGuard(BaseTest):
+    def _print(self, *, is_direct_query: bool) -> str:
+        table = DirectClickHouseTable(
+            name="external_events",
+            fields={"col1": StringDatabaseField(name="col1")},
+            clickhouse_database="mydb",
+            clickhouse_table_name="events",
+            external_data_source_id="src",
+        )
+        database = Database()
+        root = TableNode()
+        root.add_child(TableNode(name="external_events", table=table))
+        database._add_warehouse_tables(root)
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            database=database,
+            is_direct_query=is_direct_query,
+        )
+        return prepare_and_print_ast(parse_select("SELECT col1 FROM external_events"), context, "clickhouse")[0]
+
+    def test_direct_query_prints_external_table_without_team_id(self):
+        printed = self._print(is_direct_query=True)
+        self.assertIn("mydb.events", printed)
+        self.assertNotIn("team_id", printed)
+
+    def test_refuses_external_table_outside_a_direct_query(self):
+        # Our own cluster would happily resolve `mydb.events` — printing it there must fail, not read it.
+        with self.assertRaisesRegex(QueryError, "direct connection"):
+            self._print(is_direct_query=False)
+
+
+class TestClickHouseAdapterExecute(BaseTest):
+    def test_execute_raises_exposed_error_when_ssh_tunnel_fails(self):
+        source = MagicMock()
+        source.id = "src"
+        clickhouse_source = MagicMock()
+        clickhouse_source.direct_query_client.side_effect = BaseSSHTunnelForwarderError(
+            "Could not establish session to SSH gateway"
+        )
+
+        adapter = ClickHouseAdapter()
+        request = DirectQueryRequest(
+            source=source,
+            team=self.team,
+            sql="SELECT 1",
+            values=None,
+            settings=HogQLGlobalSettings(),
+            timings=HogQLTimings(),
+            query_type="HogQLQuery",
+            debug=False,
+        )
+
+        with patch.object(adapter, "validate_source_config", return_value=(clickhouse_source, MagicMock())):
+            with self.assertRaises(ExposedHogQLError) as error:
+                adapter.execute(request)
+
+        self.assertEqual(str(error.exception), "Could not establish session to SSH gateway")
+
+    def test_execute_raises_exposed_error_when_client_connection_fails(self):
+        # `_get_client` wraps connect-time failures (e.g. a read timeout waking a cold ClickHouse
+        # Cloud service) in `ClickHouseConnectionError`, a plain Exception rather than a
+        # `ClickHouseError`. Without it in this except clause, the error escapes as unhandled
+        # instead of a clean `ExposedHogQLError` and gets captured as error-tracking noise.
+        source = MagicMock()
+        source.id = "src"
+        clickhouse_source = MagicMock()
+        clickhouse_source.direct_query_client.side_effect = ClickHouseConnectionError("Read timed out")
+
+        adapter = ClickHouseAdapter()
+        request = DirectQueryRequest(
+            source=source,
+            team=self.team,
+            sql="SELECT 1",
+            values=None,
+            settings=HogQLGlobalSettings(),
+            timings=HogQLTimings(),
+            query_type="HogQLQuery",
+            debug=False,
+        )
+
+        with patch.object(adapter, "validate_source_config", return_value=(clickhouse_source, MagicMock())):
+            with self.assertRaises(ExposedHogQLError) as error:
+                adapter.execute(request)
+
+        self.assertEqual(str(error.exception), "Read timed out")
 
 
 class TestClickHouseReadOnlyGuard(SimpleTestCase):
@@ -138,10 +239,10 @@ class TestClickHouseRowCap(SimpleTestCase):
 
     def test_returns_rows_and_types_under_cap(self):
         client = self._stream_client([[(1,), (2,)], [(3,)]])
-        rows, column_names, column_types = _fetch_capped_clickhouse_rows(client, "SELECT n FROM t", None, 600)
-        self.assertEqual(rows, [(1,), (2,), (3,)])
-        self.assertEqual(column_names, ["n"])
-        self.assertEqual(column_types, ["Int64"])
+        fetch_result = _fetch_capped_clickhouse_rows(client, "SELECT n FROM t", None, 600)
+        self.assertEqual(fetch_result.rows, [(1,), (2,), (3,)])
+        self.assertEqual(fetch_result.column_names, ["n"])
+        self.assertEqual(fetch_result.column_types, ["Int64"])
 
     def test_raises_when_result_exceeds_cap(self):
         # The streaming guard trips one row past the cap — the memory-exhaustion path a raw

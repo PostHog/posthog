@@ -1,9 +1,13 @@
+from uuid import uuid4
+
 from django.test import SimpleTestCase, TestCase, override_settings
 
 from parameterized import parameterized
 
 from posthog.models import OAuthAccessToken, OAuthApplication, Organization, Team, User
+from posthog.scopes import MCP_BUILT_IN_AGENT_SCOPE
 from posthog.temporal.oauth import (
+    ARRAY_APP_CLIENT_ID_DEV,
     INTERNAL_SCOPES,
     MCP_READ_SCOPES,
     MCP_WRITE_SCOPES,
@@ -163,11 +167,40 @@ class TestCreateOAuthAccessTokenForUser(TestCase):
         assert access_token.scoped_teams == [team.id]
 
     @override_settings(CLOUD_DEPLOYMENT="DEV")
+    def test_task_binding_is_persisted_only_when_supplied(self) -> None:
+        self._create_oauth_app(ARRAY_APP_CLIENT_ID_DEV, "Array Dev App")
+        user, team = self._create_user_and_team()
+        task_id = uuid4()
+
+        bound = create_oauth_access_token_for_user(user, team.id, sandbox_task_id=task_id)
+        unbound = create_oauth_access_token_for_user(user, team.id)
+
+        assert OAuthAccessToken.objects.get(token=bound).sandbox_task_id == task_id
+        assert OAuthAccessToken.objects.get(token=unbound).sandbox_task_id is None
+
+    @override_settings(CLOUD_DEPLOYMENT="DEV")
     def test_posthog_ai_application_requires_existing_app(self) -> None:
         user, team = self._create_user_and_team()
 
         with self.assertRaisesRegex(RuntimeError, "PostHog AI app not found"):
             create_oauth_access_token_for_user(user, team.id, application="posthog_ai")
+
+    @override_settings(CLOUD_DEPLOYMENT="DEV")
+    def test_built_in_agent_scope_is_added_without_narrowing_scopes(self) -> None:
+        self._create_oauth_app(ARRAY_APP_CLIENT_ID_DEV, "Array Dev App")
+        user, team = self._create_user_and_team()
+
+        token = create_oauth_access_token_for_user(
+            user,
+            team.id,
+            include_mcp_builtin_agent_scope=True,
+        )
+
+        scopes = set(OAuthAccessToken.objects.get(token=token).scope.split())
+        assert MCP_BUILT_IN_AGENT_SCOPE in scopes
+        # The marker is provenance only: built-in agents keep the task tools.
+        assert "task:read" in scopes
+        assert "task:write" in scopes
 
 
 class TestCreateWizardOAuthAccessTokenForUser(TestCase):

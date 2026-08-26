@@ -1,7 +1,7 @@
 """DRF views for data_catalog.
 
 Thin: validate via the serializer, call the facade, serialize the result. Domain invariants
-(name reservation, upsert, validation, drift, approval) live in the logic layer behind the facade.
+(name uniqueness, upsert, rename, validation, drift, approval) live in the logic layer behind the facade.
 """
 
 from typing import cast
@@ -12,7 +12,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action as drf_action
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle
@@ -30,6 +30,9 @@ from ..facade.models import Metric, RelationshipProposal, TableCertification
 from .serializers import (
     CertificationCreateSerializer,
     CertificationSerializer,
+    MetricBulkApproveResponseSerializer,
+    MetricBulkDeleteResponseSerializer,
+    MetricBulkNamesRequestSerializer,
     MetricRunQuerySerializer,
     MetricRunRequestSerializer,
     MetricRunResponseSerializer,
@@ -43,8 +46,23 @@ from .serializers import (
 _STRUCTURED_QUERY_KINDS = {*INSIGHT_DEFINITION_KINDS, *NODE_DEFINITION_KINDS}
 
 
+def _resolve_bulk_metrics(
+    queryset: QuerySet[Metric], names: list[str]
+) -> tuple[list[Metric], list[api.MetricBulkSkip]]:
+    """Resolve names against a team-scoped queryset, deduped, in request order.
+
+    Shared by both bulk metric actions, so a name that resolves for one resolves for the other.
+    """
+    requested = list(dict.fromkeys(names))
+    by_name = {metric.name: metric for metric in queryset.filter(name__in=requested)}
+    return (
+        [by_name[name] for name in requested if name in by_name],
+        [api.MetricBulkSkip(name=name, reason=api.BULK_SKIP_NOT_FOUND) for name in requested if name not in by_name],
+    )
+
+
 class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    """CRUD for catalog metrics, addressed by their reserved ``name`` (e.g. /metrics/mrr/)."""
+    """CRUD for catalog metrics, addressed by their ``name`` (e.g. /metrics/mrr/)."""
 
     scope_object = "data_catalog"
     lookup_field = "name"
@@ -115,6 +133,7 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             user=cast(User, request.user),
             name=data["name"],
             description=data["description"],
+            request=request,
             **optional,
         )
         return Response(self.get_serializer(metric).data, status=status.HTTP_201_CREATED)
@@ -125,14 +144,11 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer = self.get_serializer(metric, data=request.data, partial=partial)
         serializer.is_valid(raise_exception=True)
         fields = dict(serializer.validated_data)
-        if "name" in fields and fields["name"] != metric.name:
-            raise ValidationError({"name": "Metric name is write-once and cannot be changed."})
-        fields.pop("name", None)
-        metric = api.update_metric(metric, team=self.team, user=cast(User, request.user), **fields)
+        metric = api.update_metric(metric, team=self.team, user=cast(User, request.user), request=request, **fields)
         return Response(self.get_serializer(metric).data)
 
     def perform_destroy(self, instance: Metric) -> None:
-        api.soft_delete_metric(instance, cast(User, self.request.user))
+        api.soft_delete_metric(instance, cast(User, self.request.user), request=self.request)
 
     @action(
         detail=True,
@@ -143,8 +159,47 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     def approve(self, request: Request, **kwargs) -> Response:
         """Bless a metric as canonical. Returns 409 while the metric is drifted from its insight."""
-        metric = api.approve_metric(self.get_object(), cast(User, request.user))
+        metric = api.approve_metric(self.get_object(), cast(User, request.user), request=request)
         return Response(self.get_serializer(metric).data)
+
+    # DRF routes detail=False actions before the {name} detail route, so these paths can't be
+    # shadowed by a metric literally named bulk_approve.
+    @action(
+        detail=False,
+        methods=["POST"],
+        required_scopes=["data_catalog_approval:write", "data_catalog:read"],
+        request=MetricBulkNamesRequestSerializer,
+        responses={200: MetricBulkApproveResponseSerializer},
+    )
+    @validated_request(request_serializer=MetricBulkNamesRequestSerializer)
+    def bulk_approve(self, request: ValidatedRequest, **kwargs) -> Response:
+        """Approve many metrics as canonical. Unknown, already-approved, and drifted metrics are skipped."""
+        metrics, unresolved = _resolve_bulk_metrics(self.get_queryset(), request.validated_data["names"])
+        approved, skipped = api.bulk_approve_metrics(metrics, cast(User, request.user), request=request)
+        # Approval is gated on a drift check over the same locked rows, so every metric in
+        # `approved` is in lockstep with its insight; recomputing would be a second bulk query.
+        context = {**self.get_serializer_context(), "drift_map": {metric.id: False for metric in approved}}
+        payload = MetricBulkApproveResponseSerializer(
+            {"approved": approved, "skipped": [*unresolved, *skipped]}, context=context
+        )
+        return Response(payload.data)
+
+    @action(
+        detail=False,
+        methods=["POST"],
+        required_scopes=["data_catalog:write"],
+        request=MetricBulkNamesRequestSerializer,
+        responses={200: MetricBulkDeleteResponseSerializer},
+    )
+    @validated_request(request_serializer=MetricBulkNamesRequestSerializer)
+    def bulk_delete(self, request: ValidatedRequest, **kwargs) -> Response:
+        """Delete many metrics, freeing their names for reuse. Unknown metrics are skipped."""
+        metrics, unresolved = _resolve_bulk_metrics(self.get_queryset(), request.validated_data["names"])
+        deleted, skipped = api.bulk_soft_delete_metrics(metrics, cast(User, request.user), request=request)
+        payload = MetricBulkDeleteResponseSerializer(
+            {"deleted": [metric.name for metric in deleted], "skipped": [*unresolved, *skipped]}
+        )
+        return Response(payload.data)
 
     @action(
         detail=True,
@@ -156,7 +211,7 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     def refresh_from_insight(self, request: Request, **kwargs) -> Response:
         """Re-snapshot the linked insight's current query into the definition."""
-        metric = api.refresh_metric_from_insight(self.get_object(), cast(User, request.user))
+        metric = api.refresh_metric_from_insight(self.get_object(), cast(User, request.user), request=request)
         return Response(self.get_serializer(metric).data)
 
     # @extend_schema must sit OUTSIDE @action: DRF's @action resets func.kwargs, wiping any schema
@@ -199,6 +254,7 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             date_to=overrides.get("date_to"),
             interval=overrides.get("interval"),
             query_id=overrides.get("query_id"),
+            request=request,
         )
         return Response(envelope)
 
@@ -229,11 +285,13 @@ class CertificationViewSet(
     def create(self, request: Request, *args, **kwargs) -> Response:
         serializer = CertificationCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        cert = api.propose_certification(team=self.team, user=cast(User, request.user), **serializer.validated_data)
+        cert = api.propose_certification(
+            team=self.team, user=cast(User, request.user), request=request, **serializer.validated_data
+        )
         return Response(CertificationSerializer(cert).data, status=status.HTTP_201_CREATED)
 
     def perform_destroy(self, instance: TableCertification) -> None:
-        api.revoke_certification(instance, cast(User, self.request.user))
+        api.revoke_certification(instance, cast(User, self.request.user), request=self.request)
 
     @action(
         detail=True,
@@ -244,7 +302,7 @@ class CertificationViewSet(
     )
     def certify(self, request: Request, **kwargs) -> Response:
         """Mark the target as certified (prefer this source)."""
-        cert = api.certify(self.get_object(), cast(User, request.user))
+        cert = api.certify(self.get_object(), cast(User, request.user), request=request)
         return Response(CertificationSerializer(cert).data)
 
     @action(
@@ -256,7 +314,7 @@ class CertificationViewSet(
     )
     def deprecate(self, request: Request, **kwargs) -> Response:
         """Mark the target as deprecated (avoid this source)."""
-        cert = api.deprecate(self.get_object(), cast(User, request.user))
+        cert = api.deprecate(self.get_object(), cast(User, request.user), request=request)
         return Response(CertificationSerializer(cert).data)
 
 
@@ -300,6 +358,7 @@ class RelationshipProposalViewSet(
             confidence=data.get("confidence"),
             reasoning=data.get("reasoning", ""),
             evidence=data.get("evidence"),
+            request=request,
         )
         return Response(self.get_serializer(proposal).data, status=status.HTTP_201_CREATED)
 
@@ -320,7 +379,7 @@ class RelationshipProposalViewSet(
             raise PermissionDenied("You need query access to accept a relationship proposal.")
         if not self.user_access_control.check_access_level_for_resource("warehouse_view", "editor"):
             raise PermissionDenied("You need warehouse view edit access to accept a relationship proposal.")
-        proposal = api.accept_proposal(self.get_object(), cast(User, request.user))
+        proposal = api.accept_proposal(self.get_object(), cast(User, request.user), request=request)
         return Response(self.get_serializer(proposal).data)
 
     @extend_schema(request=RelationshipRejectSerializer, responses={200: RelationshipProposalSerializer})
@@ -330,6 +389,9 @@ class RelationshipProposalViewSet(
         body = RelationshipRejectSerializer(data=request.data)
         body.is_valid(raise_exception=True)
         proposal = api.reject_proposal(
-            self.get_object(), cast(User, request.user), body.validated_data.get("rejection_reason", "")
+            self.get_object(),
+            cast(User, request.user),
+            body.validated_data.get("rejection_reason", ""),
+            request=request,
         )
         return Response(self.get_serializer(proposal).data)

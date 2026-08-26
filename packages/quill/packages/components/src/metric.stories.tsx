@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import * as React from 'react'
 
-import { useChartTheme } from '@posthog/quill-charts'
+import { DefaultTooltip, useChartTheme } from '@posthog/quill-charts'
 import { Card, TooltipProvider } from '@posthog/quill-primitives'
 
 import { Metric, MetricDelta, MetricHeader, MetricSparkline, MetricSubtitle, MetricTitle, MetricValue } from './metric'
@@ -212,6 +212,41 @@ export const HoverChangeFromPrevious: Story = {
                 >
                     <MetricHeader>
                         <MetricTitle>Active users</MetricTitle>
+                        <MetricDelta />
+                    </MetricHeader>
+                    <MetricValue className="mt-2" />
+                    <MetricSubtitle className="mt-1" />
+                    <MetricSparkline />
+                </Metric>
+            </Card>
+        )
+    },
+}
+
+// `series` draws one line per channel while the headline, hover and pill keep reading `data` — here
+// the per-index totals — so the tile still reads as one number. `sparklineTooltip` surfaces the
+// breakdown behind that total.
+export const MultiSeries: Story = {
+    render: () => {
+        const theme = useChartTheme()
+        const series = [
+            { key: 'email', label: 'Email', data: [420, 510, 470, 540, 600, 580, 640, 690, 720, 770, 810, 880] },
+            { key: 'push', label: 'Push', data: [180, 210, 240, 230, 260, 300, 320, 360, 400, 420, 460, 510] },
+        ]
+        const totals = series[0].data.map((v, i) => v + series[1].data[i])
+        return (
+            <Card flush className="h-[320px] w-[360px]">
+                <Metric
+                    data={totals}
+                    series={series}
+                    labels={MONTHS}
+                    theme={theme}
+                    sparklineFill
+                    sparklineTooltip={(ctx) => <DefaultTooltip {...ctx} showTotal sortedByValue />}
+                    formatValue={(v) => Math.round(v).toLocaleString()}
+                >
+                    <MetricHeader>
+                        <MetricTitle>Messages sent</MetricTitle>
                         <MetricDelta />
                     </MetricHeader>
                     <MetricValue className="mt-2" />

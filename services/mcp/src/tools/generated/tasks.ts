@@ -14,6 +14,12 @@ import {
     LoopsRunCreateParams,
     LoopsRunsRetrieveParams,
     LoopsRunsRetrieveQueryParams,
+    TaskChannelsCreateBody,
+    TaskChannelsInstructionsRetrieveParams,
+    TaskChannelsInstructionsUpdateBody,
+    TaskChannelsInstructionsUpdateParams,
+    TaskChannelsListQueryParams,
+    TaskChannelsRetrieveParams,
     TasksCreateBody,
     TasksListQueryParams,
     TasksRetrieveParams,
@@ -23,6 +29,7 @@ import {
     TasksRunsSessionLogsRetrieveParams,
     TasksRunsSessionLogsRetrieveQueryParams,
 } from '@/generated/tasks/api'
+import { ChannelInstructionsBaseVersionSchema } from '@/schema/tool-inputs'
 import { getConfirmedActionRuntime } from '@/tools/confirmed-action-registry'
 import {
     executeConfirmedAction,
@@ -31,6 +38,169 @@ import {
 } from '@/tools/confirmed-action-runtime'
 import { withPostHogUrl, pickResponseFields, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+
+const ChannelCreateSchema = TaskChannelsCreateBody
+
+const channelCreate = (): ToolBase<typeof ChannelCreateSchema, Schemas.ChannelDTO> => ({
+    name: 'channel-create',
+    schema: ChannelCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof ChannelCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.star !== undefined) {
+            body['star'] = params.star
+        }
+        const result = await context.api.request<Schemas.ChannelDTO>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/task_channels/`,
+            body,
+        })
+        return result
+    },
+})
+
+const ChannelInstructionsRetrieveSchema = TaskChannelsInstructionsRetrieveParams.omit({ project_id: true }).extend({
+    id: TaskChannelsInstructionsRetrieveParams.shape['id'].describe('ID of the channel whose instructions to read.'),
+})
+
+const channelInstructionsRetrieve = (): ToolBase<
+    typeof ChannelInstructionsRetrieveSchema,
+    Schemas.ChannelInstructionsDTO
+> => ({
+    name: 'channel-instructions-retrieve',
+    schema: ChannelInstructionsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof ChannelInstructionsRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ChannelInstructionsDTO>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/task_channels/${encodeURIComponent(String(params.id))}/instructions/`,
+        })
+        return result
+    },
+})
+
+const ChannelInstructionsUpdateSchema = TaskChannelsInstructionsUpdateParams.omit({ project_id: true })
+    .extend(TaskChannelsInstructionsUpdateBody.shape)
+    .extend({
+        id: TaskChannelsInstructionsUpdateParams.shape['id'].describe(
+            'ID of the channel whose instructions to update.'
+        ),
+        base_version: ChannelInstructionsBaseVersionSchema,
+    })
+
+const channelInstructionsUpdate = (): ToolBase<
+    typeof ChannelInstructionsUpdateSchema,
+    Schemas.ChannelInstructionsDTO
+> => ({
+    name: 'channel-instructions-update',
+    schema: ChannelInstructionsUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof ChannelInstructionsUpdateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.content !== undefined) {
+            body['content'] = params.content
+        }
+        if (params.base_version !== undefined) {
+            body['base_version'] = params.base_version
+        }
+        const result = await context.api.request<Schemas.ChannelInstructionsDTO>({
+            method: 'PUT',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/task_channels/${encodeURIComponent(String(params.id))}/instructions/`,
+            body,
+        })
+        return result
+    },
+})
+
+const ChannelListSchema = TaskChannelsListQueryParams
+
+const channelList = (): ToolBase<typeof ChannelListSchema, Schemas.PaginatedChannelDTOList> => ({
+    name: 'channel-list',
+    schema: ChannelListSchema,
+    handler: async (context: Context, params: z.infer<typeof ChannelListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedChannelDTOList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/task_channels/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return result
+    },
+})
+
+const ChannelRetrieveSchema = TaskChannelsRetrieveParams.omit({ project_id: true }).extend({
+    id: TaskChannelsRetrieveParams.shape['id'].describe('ID of the channel to read.'),
+})
+
+const channelRetrieve = (): ToolBase<typeof ChannelRetrieveSchema, Schemas.ChannelDTO> => ({
+    name: 'channel-retrieve',
+    schema: ChannelRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof ChannelRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ChannelDTO>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/task_channels/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const LoopChannelInstructionsRetrieveSchema = TaskChannelsInstructionsRetrieveParams.omit({ project_id: true }).extend({
+    id: TaskChannelsInstructionsRetrieveParams.shape['id'].describe("ID of the loop's context channel."),
+})
+
+const loopChannelInstructionsRetrieve = (): ToolBase<
+    typeof LoopChannelInstructionsRetrieveSchema,
+    Schemas.ChannelInstructionsDTO
+> => ({
+    name: 'loop-channel-instructions-retrieve',
+    schema: LoopChannelInstructionsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof LoopChannelInstructionsRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ChannelInstructionsDTO>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/task_channels/${encodeURIComponent(String(params.id))}/instructions/`,
+        })
+        return result
+    },
+})
+
+const LoopChannelInstructionsUpdateSchema = TaskChannelsInstructionsUpdateParams.omit({ project_id: true })
+    .extend(TaskChannelsInstructionsUpdateBody.shape)
+    .extend({
+        id: TaskChannelsInstructionsUpdateParams.shape['id'].describe("ID of the loop's context channel."),
+        base_version: ChannelInstructionsBaseVersionSchema,
+    })
+
+const loopChannelInstructionsUpdate = (): ToolBase<
+    typeof LoopChannelInstructionsUpdateSchema,
+    Schemas.ChannelInstructionsDTO
+> => ({
+    name: 'loop-channel-instructions-update',
+    schema: LoopChannelInstructionsUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof LoopChannelInstructionsUpdateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.content !== undefined) {
+            body['content'] = params.content
+        }
+        if (params.base_version !== undefined) {
+            body['base_version'] = params.base_version
+        }
+        const result = await context.api.request<Schemas.ChannelInstructionsDTO>({
+            method: 'PUT',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/task_channels/${encodeURIComponent(String(params.id))}/instructions/`,
+            body,
+        })
+        return result
+    },
+})
 
 const LoopsCreateSchema = LoopsCreateBody
 
@@ -54,6 +224,7 @@ const loopsCreatePrepare = (): ToolBase<typeof LoopsCreateSchema, PrepareConfirm
             messageTemplate:
                 "About to create the loop '{name}', a persistent automation that will run unattended with your GitHub and connector access whenever its triggers fire. Reply 'confirm' to create it.\n",
             codec: __runtime.codec,
+            stash: __runtime.stash,
             boundScope: { projectId: String(__scopeProjectId) },
         })
     },
@@ -70,6 +241,7 @@ const loopsCreateExecute = (): ToolBase<typeof LoopsCreateSchemaExecute, Schemas
             purpose: 'loops-create',
             codec: __runtime.codec,
             ledger: __runtime.ledger,
+            stash: __runtime.stash,
             expectedScope: { projectId: String(__scopeProjectId) },
         })
         if (!__guard.ok) {
@@ -330,22 +502,24 @@ const loopsRunsRetrieve = (): ToolBase<typeof LoopsRunsRetrieveSchema, WithPostH
 const TasksCreateSchema = TasksCreateBody.omit({
     title_manually_set: true,
     origin_product: true,
+    repositories: true,
     github_integration: true,
     github_user_integration: true,
     signal_report: true,
     signal_report_task_relationship: true,
     json_schema: true,
-    internal: true,
     archived: true,
     ci_prompt: true,
     branch: true,
     runtime_adapter: true,
     model: true,
     reasoning_effort: true,
+    initial_permission_mode: true,
     pending_user_message: true,
     pending_user_artifact_ids: true,
     auto_publish: true,
     channel: true,
+    naming_source: true,
     sandbox_environment_id: true,
     custom_image_id: true,
     runtime: true,
@@ -406,12 +580,19 @@ const tasksList = (): ToolBase<typeof TasksListSchema, WithPostHogUrl<Schemas.Pa
                 all_team_tasks: params.all_team_tasks,
                 archived: params.archived,
                 channel: params.channel,
+                ci_status: params.ci_status,
+                commented_by: params.commented_by,
                 created_by: params.created_by,
+                exclude_origin_product: params.exclude_origin_product,
                 internal: params.internal,
                 limit: params.limit,
+                mentions: params.mentions,
                 offset: params.offset,
+                ordering: params.ordering,
                 organization: params.organization,
                 origin_product: params.origin_product,
+                pinned: params.pinned,
+                pr_state: params.pr_state,
                 repository: params.repository,
                 search: params.search,
                 stage: params.stage,
@@ -429,6 +610,11 @@ const tasksList = (): ToolBase<typeof TasksListSchema, WithPostHogUrl<Schemas.Pa
                     'origin_product',
                     'repository',
                     'internal',
+                    'channel',
+                    'created_by.first_name',
+                    'created_by.last_name',
+                    'latest_run.id',
+                    'latest_run.status',
                     'created_at',
                     'updated_at',
                 ])
@@ -557,6 +743,13 @@ const tasksRunsSessionLogsRetrieve = (): ToolBase<typeof TasksRunsSessionLogsRet
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'channel-create': channelCreate,
+    'channel-instructions-retrieve': channelInstructionsRetrieve,
+    'channel-instructions-update': channelInstructionsUpdate,
+    'channel-list': channelList,
+    'channel-retrieve': channelRetrieve,
+    'loop-channel-instructions-retrieve': loopChannelInstructionsRetrieve,
+    'loop-channel-instructions-update': loopChannelInstructionsUpdate,
     'loops-create-prepare': loopsCreatePrepare,
     'loops-create-execute': loopsCreateExecute,
     'loops-destroy': loopsDestroy,

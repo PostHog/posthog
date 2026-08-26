@@ -131,9 +131,33 @@ class TeamScopedManager(models.Manager[T]):
         return self._queryset_class(self.model, using=self._db)._apply_team_filter(team_id)
 
 
+class EnvironmentScopedManager(TeamScopedManager[T]):
+    """Fail-closed manager for models where sibling environments must stay isolated.
+
+    `TeamScopedManager`'s contract is canonical (project-level) team ids: ambient
+    request scope and `for_team()` both resolve a child environment's id to the
+    parent. For per-environment rows (e.g. signing secrets) that is a cross-
+    environment leak: reads for one environment would select another's row.
+
+    Here `for_team()` filters by the literal id given, and ambient-context reads
+    are refused so a canonicalized id can never silently pick a sibling's row.
+    """
+
+    def get_queryset(self) -> TeamScopedQuerySet[T]:
+        raise TeamScopeError(
+            f"{self.model.__name__} is environment-scoped: ambient team scope is canonical "
+            "(project-level) and could select a sibling environment's row. "
+            "Use .for_team(team_id) with the environment's own id, or .unscoped()."
+        )
+
+    def for_team(self, team_id: int, *, canonical: bool = False) -> TeamScopedQuerySet[T]:
+        return self._queryset_class(self.model, using=self._db)._apply_team_filter(team_id)
+
+
 __all__ = [
     "TeamScopeError",
     "TeamScopedQuerySet",
     "TeamScopedManager",
+    "EnvironmentScopedManager",
     "resolve_effective_team_id",
 ]

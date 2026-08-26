@@ -1,7 +1,8 @@
 from .clustering_config import ClusteringConfig
 from .clustering_job import ClusteringJob
-from .datasets import Dataset, DatasetItem
+from .datasets import Dataset, DatasetItem, DatasetItemVersion, DatasetRevision
 from .evaluation_config import EvaluationConfig
+from .evaluation_directories import EvaluationDirectory
 from .evaluation_reports import EvaluationReport, EvaluationReportRun
 from .evaluations import Evaluation
 from .llm_prompt import LLMPrompt, LLMPromptLabel
@@ -19,10 +20,13 @@ __all__ = [
     "ClusteringJob",
     "Evaluation",
     "EvaluationConfig",
+    "EvaluationDirectory",
     "EvaluationReport",
     "EvaluationReportRun",
     "Dataset",
     "DatasetItem",
+    "DatasetItemVersion",
+    "DatasetRevision",
     "LLMModelConfiguration",
     "LLMPrompt",
     "LLMPromptLabel",

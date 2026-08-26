@@ -1,7 +1,9 @@
+from uuid import uuid4
+
 import pytest
 
 from products.revenue_analytics.backend.views.core import view_prefix_for_event, view_prefix_for_source
-from products.warehouse_sources.backend.facade.models import ExternalDataSource
+from products.warehouse_sources.backend.facade.contracts import RevenueSource
 
 
 @pytest.mark.parametrize(
@@ -15,7 +17,14 @@ from products.warehouse_sources.backend.facade.models import ExternalDataSource
     ],
 )
 def test_get_view_name_for_source(source_type, prefix, expected):
-    source = ExternalDataSource(source_type=source_type, prefix=prefix)
+    source = RevenueSource(
+        id=uuid4(),
+        source_type=source_type,
+        prefix=prefix,
+        enabled=True,
+        include_invoiceless_charges=True,
+        schemas=(),
+    )
     result = view_prefix_for_source(source)
     assert result == expected
 

@@ -178,6 +178,16 @@ DATADOG_ENDPOINTS: dict[str, DatadogEndpointConfig] = {
     ),
 }
 
+# Vendor API versions. Datadog serves each resource under a fixed API version, so this source
+# already reads logs/audit_logs/events/users/incidents/downtimes at /api/v2 and
+# dashboards/monitors/slos/synthetic_tests at /api/v1 (those four have no v2 list endpoint). Both
+# labels therefore resolve to the identical request paths; the pin only selects the version a new
+# source is stamped with and drives the deprecation warning for v1.
+DATADOG_API_VERSION_V1 = "v1"
+DATADOG_API_VERSION_V2 = "v2"
+DATADOG_SUPPORTED_VERSIONS = (DATADOG_API_VERSION_V1, DATADOG_API_VERSION_V2)
+DATADOG_DEFAULT_VERSION = DATADOG_API_VERSION_V2
+
 ENDPOINTS = tuple(DATADOG_ENDPOINTS.keys())
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {

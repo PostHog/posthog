@@ -129,6 +129,7 @@ class RemoteConfig(UUIDTModel):
         base_config = {
             "endpoint": "/s/",
             "consoleLogRecordingEnabled": capture_console_logs,
+            # Required by posthog-js <= 1.115.0 to select recorder-v2.js; >= 1.115.1 always uses v2 and no longer reads it.
             "recorderVersion": "v2",
             "minimumDurationMilliseconds": minimum_duration,
             "networkPayloadCapture": team.session_recording_network_payload_capture_config or None,
@@ -206,12 +207,13 @@ class RemoteConfig(UUIDTModel):
         }
 
     @tracer.start_as_current_span("RemoteConfig.build_config")
-    def build_config(self, bypass_recordings_quota_cache: bool = False):
+    def build_config(self, bypass_recordings_quota_cache: bool = False) -> dict[str, Any]:
         from posthog.models.team import Team
         from posthog.plugins.site import get_decide_site_apps
 
         from products.error_tracking.backend.facade import build_error_tracking_config
         from products.feature_flags.backend.models.feature_flag import FeatureFlag
+        from products.messaging.backend.remote_config import build_push_config
         from products.surveys.backend.api.survey import get_surveys_opt_in, get_surveys_response
 
         # NOTE: It is important this is changed carefully. This is what the SDK will load in place of "decide" so the format
@@ -222,7 +224,6 @@ class RemoteConfig(UUIDTModel):
 
         # NOTE: Let's try and keep this tidy! Follow the styling of the values already here...
         config = {
-            "token": team.api_token,
             "supportedCompression": ["gzip", "gzip-js"],
             "hasFeatureFlags": FeatureFlag.objects.filter(team=team, active=True).exists(),
             "captureDeadClicks": bool(team.capture_dead_clicks),
@@ -247,6 +248,9 @@ class RemoteConfig(UUIDTModel):
 
         # MARK: Error tracking
         config["errorTracking"] = build_error_tracking_config(team)
+
+        # MARK: Push notifications
+        config["push"] = build_push_config(team)
 
         # MARK: Logs
         logs_settings = team.logs_settings or {}
@@ -305,15 +309,8 @@ class RemoteConfig(UUIDTModel):
         surveys_opt_in = get_surveys_opt_in(team)
 
         if surveys_opt_in:
-            surveys_response = get_surveys_response(team)
-            surveys = surveys_response["surveys"]
-            if len(surveys) > 0:
-                config["surveys"] = surveys_response["surveys"]
-
-                if surveys_response["survey_config"]:
-                    config["survey_config"] = surveys_response["survey_config"]
-            else:
-                config["surveys"] = False
+            surveys = get_surveys_response(team)["surveys"]
+            config["surveys"] = surveys if len(surveys) > 0 else False
         else:
             config["surveys"] = False
 
@@ -329,7 +326,9 @@ class RemoteConfig(UUIDTModel):
         else:
             config["productTours"] = False
 
-        config["defaultIdentifiedOnly"] = True  # Support old SDK versions with setting that is now the default
+        # Required by posthog-js <= 1.207.1; without it those versions default to person_profiles="always".
+        # posthog-js >= 1.207.2 always defaults to "identified_only" and no longer reads this field.
+        config["defaultIdentifiedOnly"] = True
 
         # MARK: Site apps - we want to eventually inline the JS but that will come later
         site_apps = []
@@ -344,7 +343,9 @@ class RemoteConfig(UUIDTModel):
         # Array of JS objects to be included when building the final JS
         config["siteAppsJS"] = self._build_site_apps_js()
 
-        # MARK: Snippet versioning — store requested version, resolved at request time
+        # MARK: Snippet versioning: store requested version, resolved at request time
+        # Keep this internal metadata while snippet version pinning is enabled. posthog-js <= 1.369.1 read only
+        # the sibling `resolved` field; >= 1.369.2 reads neither field.
         if settings.POSTHOG_JS_S3_BUCKET:
             snippet_config = get_or_create_team_extension(team, TeamJsSnippetConfig)
             config["sdkVersion"] = {"requested": snippet_config.js_snippet_version or DEFAULT_SNIPPET_VERSION}
@@ -369,33 +370,38 @@ class RemoteConfig(UUIDTModel):
                     f"\n{{\n  id: '{site_app.token}',\n  init: function(config) {{\n    {indent_js(site_app.source, indent=4)}().inject({{ config:{json.dumps(config)}, posthog:config.posthog }});\n    config.callback(); return {{}}  }}\n}}"
                 )
             )
-        site_functions = (
-            HogFunction.objects.select_related("team")
-            .filter(
-                team=self.team,
-                enabled=True,
-                deleted=False,
-                type__in=("site_destination", "site_app"),
-            )
-            .all()
-        )
-
         site_functions_js = []
 
-        for site_function in site_functions:
-            try:
-                source = get_transpiled_function(site_function)
-                # NOTE: It is an object as we can later add other properties such as a consent ID
-                # Indentation to make it more readable (and therefore debuggable)
-                site_functions_js.append(
-                    indent_js(
-                        f"\n{{\n  id: '{site_function.id}',\n  init: function(config) {{ return {indent_js(source, indent=4)}().init(config) }} \n}}"
-                    )
+        try:
+            site_functions = (
+                HogFunction.objects.select_related("team")
+                .filter(
+                    team=self.team,
+                    enabled=True,
+                    deleted=False,
+                    type__in=("site_destination", "site_app"),
                 )
-            except Exception:
-                # TODO: Should we track this to somewhere?
-                logger.exception(f"Failed to build JS for site function {site_function.id}")
-                pass
+                .only("id", "team_id", "inputs", "hog", "filters", "mappings")
+            )
+
+            for site_function in site_functions:
+                try:
+                    source = get_transpiled_function(site_function)
+                    # NOTE: It is an object as we can later add other properties such as a consent ID
+                    # Indentation to make it more readable (and therefore debuggable)
+                    site_functions_js.append(
+                        indent_js(
+                            f"\n{{\n  id: '{site_function.id}',\n  init: function(config) {{ return {indent_js(source, indent=4)}().init(config) }} \n}}"
+                        )
+                    )
+                except Exception as e:
+                    # Caught exceptions never reach error tracking on their own, and degrading
+                    # silently here hides a broken site function from everyone.
+                    logger.exception(f"Failed to build JS for site function {site_function.id}")
+                    capture_exception(e)
+        except Exception as e:
+            logger.exception(f"Failed to fetch site functions for team {self.team.id}")
+            capture_exception(e)
 
         return site_apps_js + site_functions_js
 
@@ -588,4 +594,22 @@ def error_tracking_suppression_rule_saved(sender, instance, created, **kwargs):
 
 @receiver(post_save, sender="posthog.TeamJsSnippetConfig")
 def js_snippet_config_saved(sender, instance, created, **kwargs):
+    transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
+
+
+@receiver(post_save, sender="posthog.Integration")
+@receiver(post_delete, sender="posthog.Integration")
+def push_integration_changed(sender, instance, **kwargs):
+    from products.messaging.backend.remote_config import PUSH_APP_ID_CONFIG_KEYS
+
+    # Integrations cover every kind we support, and most of them have nothing to do with the SDK
+    # payload. Only refresh for the two push kinds, so an OAuth token refresh on an unrelated
+    # integration doesn't enqueue a rebuild for every team that has one.
+    if instance.kind not in PUSH_APP_ID_CONFIG_KEYS:
+        return
+    # The app_ids live in config, and integration code saves errors and created_by on their own —
+    # apns_integration alone does three saves per creation. Only config can change the payload.
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None and "config" not in update_fields:
+        return
     transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
