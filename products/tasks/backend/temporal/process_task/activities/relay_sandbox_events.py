@@ -60,6 +60,19 @@ TERMINAL_NOTIFICATION_METHODS = frozenset(
 FINAL_MESSAGE_MAX_CHARS = 20_000
 
 
+def _sanitize_httpx_error(e: httpx.HTTPStatusError) -> str:
+    """str(e) without the request URL's query string.
+
+    The relayed request carries the sandbox transport token (the account-wide
+    Hogland bearer, for hogland runs) as a query param. httpx's default error
+    message embeds the full request URL, so logging str(e) verbatim would copy
+    that credential into application logs on every 5xx from the sandbox.
+    """
+    url = e.request.url
+    redacted_url = url.copy_with(query=b"redacted") if url.query else url
+    return f"Server error '{e.response.status_code}' for url '{redacted_url}'"
+
+
 class FinalMessageTracker:
     def __init__(self) -> None:
         self._current_turn_parts: list[str] = []
@@ -575,7 +588,7 @@ async def _relay_loop(
                     "relay_sandbox_events_http_error",
                     run_id=run_id,
                     status_code=status,
-                    error=str(e),
+                    error=_sanitize_httpx_error(e),
                     reconnect_count=reconnect_count,
                 )
                 await asyncio.sleep(min(reconnect_count * 2, 10))
