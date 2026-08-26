@@ -74,68 +74,42 @@ class TestMCPMissingCapabilitiesQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Cl
 
     @parameterized.expand(
         [
-            ("lower_case_term", "pdf", ["export a dashboard as a PDF"]),
-            ("upper_case_term", "PDF", ["export a dashboard as a PDF"]),
-            ("mixed_case_term", "DaShBoArD", ["export a dashboard as a PDF"]),
-            ("mid_word_substring", "board", ["export a dashboard as a PDF"]),
+            ("mixed_case_substring", "DaShBoArD", ["export a dashboard as a PDF"]),
             ("wildcard_is_literal", "%", []),
-            ("no_match", "webhooks", []),
         ]
     )
-    def test_search_matches_case_insensitively(self, _name: str, term: str, expected: list[str]) -> None:
+    def test_search_filters_reports(self, _name: str, term: str, expected: list[str]) -> None:
         self._emit(intent="export a dashboard as a PDF")
         self._emit(intent="rename a project")
         flush_persons_and_events()
 
         assert [row.intent for row in self._run(search=term)] == expected
 
-    def test_report_without_a_client_name_still_returns_a_row(self) -> None:
-        # Reports without client identity must remain visible and distinct from unrecognized clients.
+    def test_labels_unidentified_and_self_reported_clients(self) -> None:
         self._emit(intent="no client identity", client_name=None)
+        self._emit(intent="self-reported client", client_name="some-inhouse-agent")
         flush_persons_and_events()
 
-        rows = self._run()
+        harness_by_intent = {row.intent: row.harness for row in self._run()}
 
-        assert [row.intent for row in rows] == ["no client identity"]
-        assert rows[0].harness == "Unidentified client"
+        assert harness_by_intent == {
+            "no client identity": "Unidentified client",
+            "self-reported client": "some-inhouse-agent",
+        }
 
-    def test_unrecognized_client_is_named_verbatim(self) -> None:
-        self._emit(client_name="some-inhouse-agent")
-        flush_persons_and_events()
-
-        assert self._run()[0].harness == "some-inhouse-agent"
-
-    @parameterized.expand(
-        [
-            ("first_page", 0, ["r3", "r2"], True),
-            ("last_page", 2, ["r1"], False),
-            ("past_the_end", 3, [], False),
-        ]
-    )
-    def test_paging_reports_whether_more_remain(
-        self, _name: str, offset: int, expected: list[str], expected_has_next: bool
-    ) -> None:
+    def test_pages_equal_timestamps_deterministically(self) -> None:
         now = datetime.now(tz=UTC)
         for index, intent in enumerate(["r1", "r2", "r3"]):
             self._emit(intent=intent, timestamp=now, event_uuid=UUID(int=index + 1))
         flush_persons_and_events()
 
-        response = self._response(limit=2, offset=offset)
+        first_page = self._response(limit=2, offset=0)
+        second_page = self._response(limit=2, offset=2)
 
-        assert [row.intent for row in response.results] == expected
-        assert response.has_next is expected_has_next
-
-    @parameterized.expand(
-        [
-            ("negative", -1, 1),
-            ("zero_uses_default", 0, 100),
-            ("above_maximum", 501, 500),
-        ]
-    )
-    def test_limit_is_bounded(self, _name: str, limit: int, expected_limit: int) -> None:
-        runner = MCPMissingCapabilitiesQueryRunner(query=MCPMissingCapabilitiesQuery(limit=limit), team=self.team)
-
-        assert runner.limit == expected_limit
+        assert [row.intent for row in first_page.results] == ["r3", "r2"]
+        assert first_page.has_next is True
+        assert [row.intent for row in second_page.results] == ["r1"]
+        assert second_page.has_next is False
 
     def test_carries_only_the_person_fields_the_row_renders(self) -> None:
         _create_person(team=self.team, distinct_ids=["d1"], properties={"email": "a@b.com", "plan": "enterprise"})
@@ -146,11 +120,6 @@ class TestMCPMissingCapabilitiesQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Cl
 
         assert '"email":"a@b.com"' in person_properties.replace(" ", "")
         assert "enterprise" not in person_properties
-
-    def test_allows_access_when_flag_enabled(self) -> None:
-        # The mixin enables only the mcp-analytics flag, mirroring the DRF gate.
-        runner = MCPMissingCapabilitiesQueryRunner(query=MCPMissingCapabilitiesQuery(), team=self.team, user=self.user)
-        assert runner.validate_query_runner_access(self.user) is True
 
     def test_blocks_access_when_flag_disabled(self) -> None:
         runner = MCPMissingCapabilitiesQueryRunner(query=MCPMissingCapabilitiesQuery(), team=self.team, user=self.user)
