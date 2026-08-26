@@ -22,6 +22,7 @@ def merge_queue_branch_predicate(branch_sql: str) -> str:
     return f"startsWith({branch_sql}, '{MERGE_QUEUE_BRANCH_PREFIX}')"
 
 
+# Mirrors DECISIVE_FAILURE_CONCLUSIONS in frontend/lib/lifecycle.ts (keep the two in sync).
 DECISIVE_FAILURE_CONCLUSIONS = ("failure", "timed_out", "startup_failure", "stale")
 DECISIVE_FAILURE_CONCLUSIONS_SQL = ", ".join(f"'{conclusion}'" for conclusion in DECISIVE_FAILURE_CONCLUSIONS)
 SUCCESSFUL_RUN_CONDITION = "status = 'completed' AND conclusion = 'success'"

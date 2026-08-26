@@ -9,6 +9,7 @@ import { ReactNode } from 'react'
 
 import { LemonCard, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
+import { percent } from '../lib/format'
 import { DeltaBadge, percentChange, pointChange } from './MetricTile'
 
 function MagnitudeBar({
@@ -41,10 +42,8 @@ function MagnitudeBar({
 }
 
 function SplitBar({ rate }: { rate: number }): JSX.Element {
-    const passedPercent = (rate * 100).toFixed(1)
-    const failedPercent = ((1 - rate) * 100).toFixed(1)
     return (
-        <Tooltip title={`${passedPercent}% passed, ${failedPercent}% failed`}>
+        <Tooltip title={`${percent(rate, 1)} passed, ${percent(1 - rate, 1)} failed`}>
             <div className="flex h-2.5 flex-1 overflow-hidden rounded-sm">
                 <div className="h-full bg-success" style={{ width: `${rate * 100}%` }} />
                 <div className="h-full flex-1 bg-danger" />

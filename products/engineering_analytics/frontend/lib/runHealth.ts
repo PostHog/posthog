@@ -66,7 +66,7 @@ export interface FleetRow {
     billableMinutes?: number | null
     estimatedCostUsd?: number | null
     /** Per-bucket outcome counts that weight the fleet-wide pass rate. */
-    buckets?: { completed: number; successes: number; failures: number }[]
+    buckets?: { successes: number; failures: number }[]
     /** Runs in the window that were a 2nd+ attempt. */
     rerunCycles?: number
 }

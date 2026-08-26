@@ -36,6 +36,7 @@ export interface WorkflowRun {
 }
 
 const PASSING_CONCLUSIONS = new Set(['success', 'skipped', 'neutral', 'completed'])
+// Mirrors DECISIVE_FAILURE_CONCLUSIONS in backend/logic/queries/_workflow_filters.py (keep the two in sync).
 const DECISIVE_FAILURE_CONCLUSIONS = new Set(['failure', 'timed_out', 'startup_failure', 'stale'])
 
 /** For a finished run's conclusion; 'completed' stands in when no conclusion was recorded. */

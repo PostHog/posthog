@@ -183,19 +183,14 @@ describe('runHealth', () => {
         [
             'weights the fleet rate by conclusive runs, not per-row average',
             [
-                {
-                    runCount: 2,
-                    successRate: 1,
-                    latestRunFailed: false,
-                    buckets: [{ completed: 2, successes: 2, failures: 0 }],
-                },
+                { runCount: 2, successRate: 1, latestRunFailed: false, buckets: [{ successes: 2, failures: 0 }] },
                 {
                     runCount: 10,
                     successRate: 0.5,
                     latestRunFailed: true,
                     buckets: [
-                        { completed: 5, successes: 2, failures: 1 },
-                        { completed: 5, successes: 1, failures: 2 },
+                        { successes: 2, failures: 1 },
+                        { successes: 1, failures: 2 },
                     ],
                 },
             ],
@@ -204,26 +199,14 @@ describe('runHealth', () => {
         // Completed runs without a verdict produce null, never a misleading 0%.
         [
             'null when nothing reached a verdict',
-            [
-                {
-                    runCount: 3,
-                    successRate: null,
-                    latestRunFailed: false,
-                    buckets: [{ completed: 3, successes: 0, failures: 0 }],
-                },
-            ],
+            [{ runCount: 3, successRate: null, latestRunFailed: false, buckets: [{ successes: 0, failures: 0 }] }],
             null,
         ],
         // Rows without buckets (per-push rows) contribute nothing rather than crashing or zeroing the rate.
         [
             'rows without buckets are tolerated',
             [
-                {
-                    runCount: 4,
-                    successRate: 0.5,
-                    latestRunFailed: false,
-                    buckets: [{ completed: 4, successes: 2, failures: 2 }],
-                },
+                { runCount: 4, successRate: 0.5, latestRunFailed: false, buckets: [{ successes: 2, failures: 2 }] },
                 { runCount: 9, successRate: 1, latestRunFailed: false },
             ],
             0.5,

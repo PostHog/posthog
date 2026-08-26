@@ -106,7 +106,7 @@ _BUCKET_SELECT = f"""
         __BUCKET_FN__ AS bucket_start,
         count() AS run_count,
         countIf(status = 'completed') AS completed,
-        countIf(status = 'completed' AND conclusion = 'success') AS successes,
+        countIf({SUCCESSFUL_RUN_CONDITION}) AS successes,
         countIf(status = 'completed' AND conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL})) AS failures
     FROM __RUNS_SOURCE__ AS r
     WHERE run_started_at >= {{date_from}} __DATE_TO__ __BRANCH__ __RUN_SCOPE__
@@ -147,7 +147,7 @@ _TIME_TO_GREEN_CTES = f"""
                 status = 'completed' AND coalesce(conclusion, '') IN ('success', 'skipped', 'neutral'),
                 updated_at, NULL
             )) AS first_green_end,
-            countIf(status = 'completed' AND conclusion = 'success') > 0 AS has_success
+            countIf({SUCCESSFUL_RUN_CONDITION}) > 0 AS has_success
         FROM __RUNS_SOURCE__ AS r
         WHERE run_started_at >= {{scan_from}} __DATE_TO__
           AND NOT r.is_merge_queue

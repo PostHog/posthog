@@ -212,8 +212,8 @@ def detect_broken_default_branch(
                 continue
             if item.conclusive_run_count < min_runs or not item.latest_run_failed:
                 continue
-            conclusive_success_rate = item.success_rate
-            if conclusive_success_rate is None or conclusive_success_rate > max_success_rate:
+            success_rate = item.success_rate
+            if success_rate is None or success_rate > max_success_rate:
                 continue
             repo = f"{item.repo.owner}/{item.repo.name}"
             latest_conclusion = item.latest_run_conclusion or "failure"
@@ -227,7 +227,7 @@ def detect_broken_default_branch(
                     ),
                     description=(
                         f"CI workflow '{item.workflow_name}' is failing on {branch} for {repo}\n"
-                        f"{conclusive_success_rate:.0%} success over the last {window_hours}h "
+                        f"{success_rate:.0%} success over the last {window_hours}h "
                         f"({item.conclusive_run_count} runs that reached a verdict), latest completed run "
                         f"'{latest_conclusion}'. The default branch is red, so every PR branched from it "
                         f"inherits the failure."
@@ -238,7 +238,7 @@ def detect_broken_default_branch(
                         repo_name=item.repo.name,
                         workflow_name=item.workflow_name,
                         branch=branch,
-                        conclusive_success_rate=conclusive_success_rate,
+                        conclusive_success_rate=success_rate,
                         conclusive_run_count=int(item.conclusive_run_count),
                         latest_conclusion=latest_conclusion,
                         window_hours=window_hours,
