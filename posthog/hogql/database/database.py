@@ -93,7 +93,6 @@ from posthog.hogql.database.schema.heatmaps import HeatmapsTable
 from posthog.hogql.database.schema.hog_invocation_results import HogInvocationResultsTable
 from posthog.hogql.database.schema.information_schema import (
     direct_connection_information_schema_node,
-    disable_data_catalog,
     disable_data_quality,
 )
 from posthog.hogql.database.schema.log_entries import (
@@ -227,7 +226,6 @@ class HogQLDatabaseSources:
     modifiers: HogQLQueryModifiers
     is_managed_viewset_enabled: bool
     is_hogql_warehouse_access_control_enabled: bool
-    is_data_catalog_enabled: bool
     is_data_quality_enabled: bool
     # Userless internal contexts that must resolve every warehouse table/view; skips access control
     bypass_warehouse_access_control: bool
@@ -1464,10 +1462,8 @@ class Database(BaseModel):
             )
 
             # Function-local + facade-only: keeps the products off the django.setup() path.
-            from products.data_catalog.backend.facade.flags import is_data_catalog_enabled  # noqa: PLC0415
             from products.data_quality.backend.facade.flags import is_data_quality_checks_enabled  # noqa: PLC0415
 
-            data_catalog_enabled = is_data_catalog_enabled(team)
             data_quality_enabled = is_data_quality_checks_enabled(team)
 
         with timings.measure("database", emit_span=True):
@@ -1716,7 +1712,6 @@ class Database(BaseModel):
             modifiers=modifiers,
             is_managed_viewset_enabled=is_managed_viewset_enabled,
             is_hogql_warehouse_access_control_enabled=is_hogql_warehouse_access_control_enabled,
-            is_data_catalog_enabled=data_catalog_enabled,
             is_data_quality_enabled=data_quality_enabled,
             # Managed warehouse is a built-in project datastore and has no warehouse-object ACL surface.
             # Principals that skip warehouse access control by design:
@@ -1777,7 +1772,7 @@ class Database(BaseModel):
 
         with timings.measure("filter_system_tables_for_user", emit_span=True):
             database._apply_system_table_access(sources.user_access_control, sources.denied_system_table_names)
-            if not sources.is_data_catalog_enabled or not sources.is_data_quality_enabled:
+            if not sources.is_data_quality_enabled:
                 system_node = database.tables.children.get("system")
                 info_schema = (
                     system_node.children.get("information_schema")
@@ -1785,10 +1780,7 @@ class Database(BaseModel):
                     else None
                 )
                 if info_schema is not None and hasattr(info_schema, "children"):
-                    if not sources.is_data_catalog_enabled:
-                        disable_data_catalog(info_schema)
-                    if not sources.is_data_quality_enabled:
-                        disable_data_quality(info_schema)
+                    disable_data_quality(info_schema)
 
         with timings.measure("modifiers", emit_span=True):
             if not database._is_direct_query():
@@ -2821,10 +2813,10 @@ def _settled_catalog_certifications(
     """Settled (certified/deprecated) catalog marks for the team as `(by_table_id, by_saved_query_id)`.
 
     One bulk query keyed by target id — `(team, name)` is not unique on `DataWarehouseTable`, so a
-    name-keyed lookup could let one table's mark clobber another's. Gated on the product flag and on
-    data_catalog read access like `information_schema`, and fail-soft: certification must never break
-    schema serialization. Contexts without a `team` object (e.g. the AI schema path) skip the flag
-    evaluation and get no marks rather than paying a Team fetch.
+    name-keyed lookup could let one table's mark clobber another's. Gated on data_catalog read access
+    like `information_schema`, and fail-soft: certification must never break schema serialization.
+    Contexts without a `team` object (e.g. the AI schema path) get no marks rather than paying a
+    Team fetch.
     """
     from posthog.schema import DatabaseSchemaTableCertification  # noqa: PLC0415
 
@@ -2835,10 +2827,9 @@ def _settled_catalog_certifications(
 
     try:
         from products.data_catalog.backend.facade.enums import CertificationStatus  # noqa: PLC0415
-        from products.data_catalog.backend.facade.flags import is_data_catalog_enabled  # noqa: PLC0415
         from products.data_catalog.backend.facade.models import TableCertification  # noqa: PLC0415
 
-        if team is None or team_id is None or not is_data_catalog_enabled(team) or not _can_read_catalog(context):
+        if team is None or team_id is None or not _can_read_catalog(context):
             return {}, {}
 
         record_catalog_read("schema_serialization")
