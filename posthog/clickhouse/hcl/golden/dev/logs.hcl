@@ -501,6 +501,12 @@ database "posthog" {
     column "_record_count" {
       type = "UInt64"
     }
+    column "pattern" {
+      type = "String"
+    }
+    column "pattern_version" {
+      type = "UInt8"
+    }
     index "idx_severity_text_set" {
       expr        = "severity_text"
       type        = "set(10)"
@@ -722,6 +728,12 @@ SQL
     }
     column "_record_count" {
       type = "UInt64"
+    }
+    column "pattern" {
+      type = "String"
+    }
+    column "pattern_version" {
+      type = "UInt8"
     }
     engine "distributed" {
       cluster_name    = "logs"

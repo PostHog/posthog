@@ -650,6 +650,12 @@ database "posthog" {
     column "_record_count" {
       type = "UInt64"
     }
+    column "pattern" {
+      type = "String"
+    }
+    column "pattern_version" {
+      type = "UInt8"
+    }
     engine "distributed" {
       cluster_name    = "posthog_single_shard"
       remote_database = "posthog"
@@ -1043,6 +1049,12 @@ database "posthog" {
     }
     column "_record_count" {
       type = "UInt64"
+    }
+    column "pattern" {
+      type = "String"
+    }
+    column "pattern_version" {
+      type = "UInt8"
     }
     index "idx_severity_text_set" {
       expr        = "severity_text"
