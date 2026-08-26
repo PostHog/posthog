@@ -6401,6 +6401,11 @@ def warm_task_resume_sandbox(
     previous_run = task.runs.filter(id=resume_from_run_id).first()
     if previous_run is None or not previous_run.is_terminal:
         return None
+    if not previous_run.matches_task_ownership(task):
+        # A handed-off task keeps its old runs stamped with the previous owner, so create_run would
+        # reject this resume source with TaskOwnershipChangedError. Skip warming; the cold resume path
+        # reports the friendly error when the person submits.
+        return None
     latest_run = task.latest_run
     latest_state = (latest_run.state or {}) if latest_run is not None else {}
     latest_is_expected_source = latest_run is not None and latest_run.id == previous_run.id
@@ -6514,7 +6519,9 @@ def warm_task_resume_sandbox(
             expected_resume_from_run_id=previous_run.id,
             required_existing_state=stable_selection,
         )
-    except (PermissionDenied, QuotaLimitExceeded, Throttled, WarmSourceChanged):
+    except (PermissionDenied, QuotaLimitExceeded, Throttled, WarmSourceChanged, TaskOwnershipChangedError):
+        # TaskOwnershipChangedError guards a handoff that lands after the check above but before the
+        # locked create_run, keeping this best-effort endpoint from returning a server error.
         return None
     return contracts.WarmTaskDTO(task_id=task.id, run_id=result.run.id)
 
