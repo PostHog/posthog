@@ -105,11 +105,6 @@ export const TEST_KAFKA_TOPICS = [
     KAFKA_CLICKHOUSE_TOPHOG,
 ]
 
-export async function resetKafka(extraServerConfig?: Partial<PluginsServerConfig>): Promise<void> {
-    const kafkaConfig = buildKafkaConfig(extraServerConfig)
-    await createTopics(kafkaConfig, TEST_KAFKA_TOPICS)
-}
-
 // Builds a unique topic name for a test so each test can produce to and consume from an
 // isolated input topic without deleting the shared topics ClickHouse subscribes to.
 export function createKafkaTestTopicName(baseTopic: string): string {
@@ -125,8 +120,8 @@ export async function createTopics(kafkaConfig: any, topics: string[]): Promise<
 
 /**
  * Create Kafka topics if they don't already exist, without deleting existing topics.
- * Unlike resetKafka, this preserves ClickHouse Kafka engine consumer connections,
- * avoiding the slow reconnection cycle that causes flaky tests.
+ * This preserves ClickHouse Kafka engine consumer connections, avoiding the slow
+ * reconnection cycle that causes flaky tests.
  */
 export async function ensureKafkaTopics(
     topics: string[],

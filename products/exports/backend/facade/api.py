@@ -10,6 +10,8 @@ import structlog
 from asgiref.sync import async_to_sync
 from temporalio.common import WorkflowIDReusePolicy
 
+from posthog.hogql.constants import LimitContext
+
 from posthog.models import Team, User
 from posthog.storage import object_storage
 from posthog.temporal.common.client import async_connect
@@ -131,13 +133,31 @@ def dashboard_ids_with_subscriptions(dashboard_ids: Collection[int]) -> set[int]
     )
 
 
+# The limit contexts an export writer can pin, keyed by the string it stores in export_context.
+# The API rejects this key from clients, so only PostHog's own writers reach this map.
+_PINNABLE_EXPORT_LIMIT_CONTEXTS = {"posthog_ai": LimitContext.POSTHOG_AI}
+
+
+def export_limit_context(export_context: dict | None) -> LimitContext:
+    requested = (export_context or {}).get("limit_context")
+    if isinstance(requested, str):
+        return _PINNABLE_EXPORT_LIMIT_CONTEXTS.get(requested, LimitContext.QUERY)
+    return LimitContext.QUERY
+
+
 def _validate_adhoc_export_context(export_context: dict) -> None:
-    """The ad-hoc render pipeline (viewport sizing, the exporter page's Query dispatch)
-    assumes an InsightVizNode-wrapped source; anything else renders a JSON dump instead
-    of a chart, so reject it here with a real error instead."""
+    """The ad-hoc render pipeline (viewport sizing, the exporter page's Query dispatch) draws a
+    chart for an InsightVizNode-wrapped source, or for a DataVisualizationNode over HogQL. Anything
+    else renders a JSON dump instead of a chart, so reject it here with a real error instead."""
     source = export_context.get("source")
-    if not isinstance(source, dict) or source.get("kind") != "InsightVizNode":
-        raise ValueError("export_context.source must be an InsightVizNode-wrapped query")
+    if isinstance(source, dict):
+        kind = source.get("kind")
+        if kind == "InsightVizNode":
+            return
+        inner = source.get("source")
+        if kind == "DataVisualizationNode" and isinstance(inner, dict) and inner.get("kind") == "HogQLQuery":
+            return
+    raise ValueError("export_context.source must be an InsightVizNode- or DataVisualizationNode-wrapped query")
 
 
 def get_delivery_image_url(
@@ -189,7 +209,7 @@ def render_png_export(
         # An ad-hoc render runs whatever query the caller supplies, so it needs the same gate as
         # running that query directly; the object-level check below covers only saved insights.
         if not UserAccessControl(user=created_by, team=team).check_access_level_for_resource("query", "viewer"):
-            raise ValueError("Not allowed to run queries in this project")
+            raise ValueError("You need query access to render this export")
     if insight_id is not None or insight_short_id is not None:
         insight_filter = {"id": insight_id} if insight_id is not None else {"short_id": insight_short_id}
         insight = Insight.objects.filter(team_id=team.id, deleted=False, **insight_filter).first()

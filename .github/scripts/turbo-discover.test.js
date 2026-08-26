@@ -3,9 +3,8 @@
 // Pins turbo-discover's DJANGO_SEGMENTS table to the Django pytest invocations
 // in ci-backend.yml. The table sizes the shards each segment gets, so a segment
 // listing paths the workflow no longer runs (or missing ones it does) budgets
-// wall time for a run that never happens, and the select-tests classify step
-// routes selected files to a matrix leg that ignores them. Both workflow copies
-// are read: the Depot mirror runs the same matrix and drifts on its own.
+// wall time for a run that never happens. Both workflow copies are read: the
+// Depot mirror runs the same matrix and drifts on its own.
 //
 // Reads the workflow rather than a fixture on purpose — the workflow is the one
 // side that can drift, and there is nothing else to compare the table against.
@@ -68,45 +67,6 @@ function parseTemporalTargets(text) {
     return invocation[1].split(/\s+/)
 }
 
-// Each classify arm is `pattern|pattern)` followed by its body up to `;;`. The
-// body says which segment the arm feeds; an arm that appends nothing is a path
-// the Core invocation ignores.
-function parseClassifyArms(block) {
-    const arms = { core: [], poe: [], temporal: [], ignored: [] }
-    let patterns = null
-    let body = ''
-    for (const line of block.split('\n')) {
-        const trimmed = line.trim()
-        if (trimmed.startsWith('#')) {
-            continue
-        }
-        if (patterns === null) {
-            if (trimmed.endsWith(')')) {
-                patterns = trimmed.slice(0, -1).split('|')
-            }
-            continue
-        }
-        if (trimmed !== ';;') {
-            body += trimmed
-            continue
-        }
-        const prefixes = patterns.map((pattern) => pattern.replace(/\*$/, ''))
-        if (body.includes('temporal+=')) {
-            arms.temporal.push(...prefixes)
-        } else if (body.includes('poe+=')) {
-            arms.poe.push(...prefixes)
-        } else if (body.includes('core+=')) {
-            arms.core.push(...prefixes)
-        } else {
-            arms.ignored.push(...prefixes)
-        }
-        patterns = null
-        body = ''
-    }
-    assert.ok(arms.temporal.length && arms.poe.length && arms.core.length, 'classify arms not parsed')
-    return arms
-}
-
 for (const workflow of WORKFLOWS) {
     const text = fs.readFileSync(path.join(REPO_ROOT, workflow), 'utf8')
     const core = parseCoreStep(text)
@@ -122,28 +82,12 @@ for (const workflow of WORKFLOWS) {
             assert.deepEqual(sorted(DJANGO_SEGMENTS[segment].exclude), sorted(paths.exclude.map(toPrefix)))
         })
     }
-
-    // The classify step is the third copy of the partition: it routes each
-    // selected file to a matrix leg, so an arm naming a path the pytest
-    // invocation does not run sends tests to a leg that ignores them.
-    test(`the select-tests classify arms match the segments in ${workflow}`, () => {
-        const arms = parseClassifyArms(section(text, 'case "$f" in', 'esac'))
-
-        assert.deepEqual(sorted(arms.temporal), sorted(DJANGO_SEGMENTS.Temporal.include))
-        assert.deepEqual(sorted(arms.poe), sorted(DJANGO_SEGMENTS.CorePOE.include))
-        assert.deepEqual(sorted(arms.core), sorted(DJANGO_SEGMENTS.Core.include))
-        // The temporal arm comes first, so the paths it claims from inside the
-        // Core scope are excluded from Core alongside the ignored arm's.
-        const claimedFromCore = arms.temporal.filter((prefix) =>
-            DJANGO_SEGMENTS.Core.include.some((include) => prefix.startsWith(include))
-        )
-        assert.deepEqual(sorted([...arms.ignored, ...claimedFromCore]), sorted(DJANGO_SEGMENTS.Core.exclude))
-    })
 }
 
-// The backend test selector is the fourth copy of the partition: it routes each
-// selected test file to a segment so the verdict can say which matrix leg missed
-// it. Its prefix tuples are plain literals, read here the same way the workflow is.
+// The backend test selector is the third copy of the partition: it routes each
+// selected test file to a segment, so a prefix it no longer shares with the pytest
+// invocation sends selected tests to a leg that ignores them. Its prefix tuples are
+// plain literals, read here the same way the workflow is.
 const SELECTOR = 'tools/snob_backend_test_selection_shadow.py'
 
 function pythonTuple(text, name) {

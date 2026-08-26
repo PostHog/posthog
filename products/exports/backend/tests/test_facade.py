@@ -1,7 +1,7 @@
 from datetime import timedelta
 
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
@@ -24,12 +24,28 @@ class TestValidateAdhocExportContext(SimpleTestCase):
             {"source": {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": [{"event": "a"}]}}}
         )
 
+    def test_accepts_data_visualization_node_over_hogql(self):
+        _validate_adhoc_export_context(
+            {
+                "source": {
+                    "kind": "DataVisualizationNode",
+                    "source": {"kind": "HogQLQuery", "query": "SELECT 1"},
+                    "display": "ActionsLineGraph",
+                }
+            }
+        )
+
     @parameterized.expand(
         [
             ("bare_trends_query", {"source": {"kind": "TrendsQuery", "series": [{"event": "a"}]}}),
             ("data_table", {"source": {"kind": "DataTableNode"}}),
             ("non_dict_source", {"source": "SELECT 1"}),
             ("missing_source", {}),
+            (
+                "data_visualization_over_trends",
+                {"source": {"kind": "DataVisualizationNode", "source": {"kind": "TrendsQuery"}}},
+            ),
+            ("data_visualization_without_source", {"source": {"kind": "DataVisualizationNode"}}),
         ]
     )
     def test_rejects_unwrapped_sources(self, _name, export_context):
@@ -59,19 +75,6 @@ class TestRenderPngExportInsightLookup(BaseTest):
 
         assert asset.insight_id == insight.id
         assert png == b"png"
-
-    def test_adhoc_render_requires_query_access(self):
-        with (
-            patch(
-                "products.exports.backend.facade.api.UserAccessControl.check_access_level_for_resource",
-                return_value=False,
-            ),
-            self.assertRaises(ValueError),
-        ):
-            render_png_export(
-                team=self.team, created_by=self.user, export_context={"source": {"kind": "InsightVizNode"}}
-            )
-        assert not ExportedAsset.objects.filter(team=self.team).exists()
 
     @parameterized.expand(
         [
@@ -105,3 +108,18 @@ class TestGetDeliveryImageUrl(BaseTest):
             )
             is None
         )
+
+
+class TestAdhocRenderRequiresQueryAccess(SimpleTestCase):
+    def test_a_user_without_query_access_cannot_render_an_ad_hoc_query(self):
+        context = {
+            "source": {
+                "kind": "DataVisualizationNode",
+                "source": {"kind": "HogQLQuery", "query": "SELECT 1"},
+                "display": "ActionsLineGraph",
+            }
+        }
+        with patch("products.exports.backend.facade.api.UserAccessControl") as access_control:
+            access_control.return_value.check_access_level_for_resource.return_value = False
+            with self.assertRaisesMessage(ValueError, "query access"):
+                render_png_export(team=MagicMock(), created_by=MagicMock(), export_context=context)

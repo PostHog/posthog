@@ -96,8 +96,8 @@ describe('taskTrackerSceneLogic', () => {
         // state). Dropping either regresses follow-up streaming / loses the first prompt.
         expect(runBody).toMatchObject({
             mode: 'interactive',
-            // Claude's default is Plan, matching the desktop app's per-runtime default.
-            initial_permission_mode: 'plan',
+            // Both runtimes default to Auto, so a new task starts working without a plan approval.
+            initial_permission_mode: 'auto',
             pending_user_message: 'do the thing',
         })
         const streamKey = logic.values.activeCreation?.streamKey
@@ -106,6 +106,39 @@ describe('taskTrackerSceneLogic', () => {
             { targetId: 'insight-1:activation-1', tools: ['create_insight'] },
         ])
         expect(router.values.location.pathname).toContain('/tasks/new-task')
+    })
+
+    // A warm sandbox is adopted inside `tasks/create`, which returns the activated Run as `latest_run`.
+    // Issuing the usual run-create on top would strand that warm sandbox and cold-boot a second one —
+    // exactly the ~16s the warm existed to avoid. The create must also carry the warm-reuse hints, since
+    // the backend never even attempts a match unless `branch` is present as a key.
+    it('skips the run create when the backend activated a warm run', async () => {
+        useMocks({
+            post: {
+                '/api/projects/:team/tasks/': async ({ request }) => {
+                    createBody = (await request.json()) as Record<string, any>
+                    return [200, { id: 'new-task', latest_run: { id: 'warm-run-1' } }]
+                },
+                '/api/projects/:team/tasks/:id/run/': async ({ request }) => {
+                    runBody = (await request.json()) as Record<string, any>
+                    return [200, { id: 'new-task', latest_run: 'run-1' }]
+                },
+            },
+        })
+        logic.mount()
+        logic.actions.setNewTaskData({ description: 'do the thing' })
+        logic.actions.submitNewTask()
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(createBody).toMatchObject({
+            branch: null,
+            model: 'claude-sonnet-5',
+            initial_permission_mode: 'auto',
+            pending_user_message: 'do the thing',
+        })
+        expect(runBody).toBeNull()
+        expect(logic.values.activeCreation?.runId).toBe('warm-run-1')
     })
 
     // The seeded first message wraps the on-screen context, and the wrapped non-text refs must be marked
@@ -132,19 +165,23 @@ describe('taskTrackerSceneLogic', () => {
 
     // The tasks backend has no server-side consent check (unlike the conversations coordinator), so a
     // send must be blocked client-side before it ever reaches `api.tasks.create` — otherwise a sandbox
-    // run starts with zero consent enforcement. Uses a distinct `panelId` key so the logic is built
-    // (and connects to `aiConsentLogic`) after the selector is stubbed.
-    it('blocks submitNewTask without creating a task when AI data processing consent is not accepted', async () => {
+    // run starts with zero consent enforcement. Warming is held to the same rule: it boots a cloud
+    // sandbox and clones the selected repository, so typing must not start one either. Uses a distinct
+    // `panelId` key so the logic is built (and connects to `aiConsentLogic`) after the selector is stubbed.
+    it('blocks submitNewTask and warming when AI data processing consent is not accepted', async () => {
         const consent = aiConsentLogic()
         consent.mount()
         jest.spyOn(consent.selectors, 'dataProcessingAccepted').mockReturnValue(false)
 
         const blockedLogic = taskTrackerSceneLogic({ panelId: 'consent-test' })
         blockedLogic.mount()
-        blockedLogic.actions.setNewTaskData({ description: 'do the thing' })
-        blockedLogic.actions.submitNewTask()
 
-        await expectLogic(blockedLogic).toFinishAllListeners()
+        await expectLogic(blockedLogic, () => {
+            blockedLogic.actions.setNewTaskData({ description: 'do the thing' })
+            blockedLogic.actions.submitNewTask()
+        })
+            .toNotHaveDispatchedActions(['noteDraft'])
+            .toFinishAllListeners()
 
         expect(createBody).toBeNull()
         expect(blockedLogic.values.consentBlocked).toBe(true)

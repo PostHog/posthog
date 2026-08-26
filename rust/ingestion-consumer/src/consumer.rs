@@ -1,4 +1,5 @@
 use std::collections::{HashMap, VecDeque};
+use std::future::Future;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -414,19 +415,19 @@ impl IngestionConsumer {
 
     async fn await_processed_batch(&self, batch: InFlightBatch) -> anyhow::Result<ProcessedBatch> {
         let batch_id = batch.batch_id;
-        let mut handle = batch.handle;
-        let mut heartbeat = tokio::time::interval(Duration::from_secs(10));
+        let processed = self.heartbeat_while(batch.handle).await??;
+        info!(batch_id = %batch_id, "Kafka batch processing completed");
+        Ok(processed)
+    }
+
+    async fn heartbeat_while<F: Future>(&self, fut: F) -> F::Output {
+        tokio::pin!(fut);
+        let mut heartbeat = tokio::time::interval(Duration::from_secs(1));
 
         loop {
             tokio::select! {
-                result = &mut handle => {
-                    let processed = result??;
-                    info!(batch_id = %batch_id, "Kafka batch processing completed");
-                    return Ok(processed);
-                }
-                _ = heartbeat.tick() => {
-                    self.handle.report_healthy();
-                }
+                output = &mut fut => return output,
+                _ = heartbeat.tick() => self.handle.report_healthy(),
             }
         }
     }
@@ -471,17 +472,20 @@ impl IngestionConsumer {
                         _ = self.handle.shutdown_recv() => {
                             anyhow::bail!("shutdown while flushing deferred messages");
                         }
-                        _ = tokio::time::sleep(Duration::from_millis(200)) => {}
+                        _ = tokio::time::sleep(Duration::from_millis(200)) => {
+                            self.handle.report_healthy();
+                        }
                     }
                 } else {
-                    accepted_this_round += Self::scatter(
-                        &self.dispatcher,
-                        &self.transport,
-                        batch_id,
-                        sub_batches,
-                        true,
-                    )
-                    .await?;
+                    accepted_this_round += self
+                        .heartbeat_while(Self::scatter(
+                            &self.dispatcher,
+                            &self.transport,
+                            batch_id,
+                            sub_batches,
+                            true,
+                        ))
+                        .await?;
                 }
                 // Eager-path acceptances count as progress too — a batch whose
                 // remaining groups are all draining through eager chains must
