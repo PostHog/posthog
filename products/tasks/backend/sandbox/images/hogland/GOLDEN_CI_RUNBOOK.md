@@ -108,7 +108,7 @@ For **each** cluster the workflow targets (dev, then prod-us):
    VPC IP — so `ssh-private` fails at the first `ssh` until a grant is added in
    `posthog-cloud-infra/tailnet-policy.hujson`:
 
-   ```
+   ```text
    src: tag:hogland-ci
    dst: 10.90.0.0/16:10000-59999, 10.91.0.0/16:10000-59999
    ```
