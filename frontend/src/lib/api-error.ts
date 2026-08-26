@@ -180,6 +180,23 @@ export const UNACTIONABLE_NETWORK_ERROR_MESSAGES: ReadonlySet<string> = new Set(
 ])
 
 /**
+ * A 2xx response whose body could not be read or parsed as JSON — a truncated or non-JSON body
+ * behind a success status. `status` stays undefined, like `NetworkError`, so recovery paths read it
+ * as transient. A read on `/query` is safe to repeat, so callers can retry once on this error.
+ */
+export class GarbledResponseError extends ApiError {
+    constructor(message: string) {
+        super(message)
+        this.name = 'GarbledResponseError'
+    }
+}
+
+/** Whether a request failed because its 2xx body was truncated or non-JSON. */
+export function isGarbledResponseError(error: unknown): error is GarbledResponseError {
+    return error instanceof GarbledResponseError
+}
+
+/**
  * A request the browser never completed, so there is no HTTP status to react to. `status` is left
  * undefined on purpose: recovery paths across the app read `status === undefined` as "transient,
  * may be retried" (for example `inviteSignupLogic` and `sourcesDataLogic`), and a placeholder like

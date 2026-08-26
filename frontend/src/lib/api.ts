@@ -7,7 +7,13 @@ import { encodeParams } from 'kea-router'
 export type { EventSourceMessage } from '@microsoft/fetch-event-source'
 import posthog from 'posthog-js'
 
-import { ApiError, NetworkError, type NetworkFailureReason } from 'lib/api-error'
+import {
+    ApiError,
+    GarbledResponseError,
+    isGarbledResponseError,
+    NetworkError,
+    type NetworkFailureReason,
+} from 'lib/api-error'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
@@ -405,7 +411,7 @@ async function getJSONFromSuccessResponse(response: Response, method: string, ur
         }
         // The body stream failed mid-read (e.g. a network drop truncating a chunked response) —
         // the response is unusable, so surface it instead of handing callers a null.
-        throw new ApiError(`Failed to read response body ${requestContext()}`)
+        throw new GarbledResponseError(`Failed to read response body ${requestContext()}`)
     }
     if (!text.trim()) {
         return null
@@ -413,7 +419,7 @@ async function getJSONFromSuccessResponse(response: Response, method: string, ur
     try {
         return JSON.parse(text)
     } catch {
-        throw new ApiError(`Malformed JSON response ${requestContext()}`)
+        throw new GarbledResponseError(`Malformed JSON response ${requestContext()}`)
     }
 }
 
@@ -6852,17 +6858,28 @@ const api = {
             throw new Error(`Query kind mismatch: path kind "${pathKind}" does not match body kind "${bodyKind}".`)
         }
 
-        return await new ApiRequest().query(undefined, bodyKind).create({
-            ...queryOptions?.requestOptions,
-            data: {
-                query,
-                client_query_id: queryOptions?.clientQueryId,
-                refresh: queryOptions?.refresh,
-                filters_override: queryOptions?.filtersOverride,
-                variables_override: queryOptions?.variablesOverride,
-                limit_context: queryOptions?.limitContext,
-            },
-        })
+        const runQuery = async (): Promise<any> =>
+            await new ApiRequest().query(undefined, bodyKind).create({
+                ...queryOptions?.requestOptions,
+                data: {
+                    query,
+                    client_query_id: queryOptions?.clientQueryId,
+                    refresh: queryOptions?.refresh,
+                    filters_override: queryOptions?.filtersOverride,
+                    variables_override: queryOptions?.variablesOverride,
+                    limit_context: queryOptions?.limitContext,
+                },
+            })
+
+        // A query is a read, so a truncated or non-JSON body is transient and safe to repeat once.
+        try {
+            return await runQuery()
+        } catch (error) {
+            if (isGarbledResponseError(error)) {
+                return await runQuery()
+            }
+            throw error
+        }
     },
 
     async queryHogQL<T = any[]>(

@@ -6,6 +6,7 @@ import { pngHoggie } from 'lib/brand/hoggies'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FilterBar } from 'lib/components/FilterBar'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 
 import { webAnalyticsDateMapping } from './constants'
@@ -34,14 +35,26 @@ function NoUrlSelectedMessage(): JSX.Element {
 }
 
 export function PageReportsFilters({ tabs }: { tabs: JSX.Element }): JSX.Element {
-    const { pageUrlOptions, pageUrl, isLoading, dateFilter, pageUrlSearchTerm, featureFlags, isPathCleaningEnabled } =
-        useValues(pageReportsLogic)
+    const {
+        pageUrlOptions,
+        pageUrl,
+        isLoading,
+        dateFilter,
+        pageUrlSearchTerm,
+        pagesUrlsFailed,
+        featureFlags,
+        isPathCleaningEnabled,
+    } = useValues(pageReportsLogic)
     const { setPageUrl, setPageUrlSearchTerm, loadPages, setDates, setIsPathCleaningEnabled } =
         useActions(pageReportsLogic)
 
     const rankedSearchEnabled = !!featureFlags[FEATURE_FLAGS.PAGE_REPORTS_RANKED_URL_SEARCH]
 
-    const emptyStateComponent = rankedSearchEnabled ? (
+    const emptyStateComponent = pagesUrlsFailed ? (
+        <div className="text-muted-alt px-3 py-2 text-xs">
+            Couldn't load pages. Try again, or paste a URL to analyze it.
+        </div>
+    ) : rankedSearchEnabled ? (
         <div className="text-muted-alt px-3 py-2 text-xs">
             {pageUrlSearchTerm
                 ? `No pages match "${pageUrlSearchTerm}". Press Enter to analyze it as a custom URL.`
@@ -61,22 +74,40 @@ export function PageReportsFilters({ tabs }: { tabs: JSX.Element }): JSX.Element
                         dateOptions={webAnalyticsDateMapping}
                     />
                     <WebAnalyticsCompareFilter />
-                    <LemonInputSelect
-                        className="flex-1 min-w-0"
-                        allowCustomValues={true}
-                        fullWidth={true}
-                        placeholder="Click or type to see top pages, or paste a URL"
-                        loading={isLoading}
-                        size="small"
-                        mode="single"
-                        value={pageUrl ? [pageUrl] : null}
-                        onChange={(val: string[]) => setPageUrl(val.length > 0 ? val[0] : null)}
-                        options={pageUrlOptions}
-                        onInputChange={(val: string) => setPageUrlSearchTerm(val)}
-                        data-attr="page-reports-url-search"
-                        onFocus={() => loadPages('')}
-                        emptyStateComponent={emptyStateComponent}
-                    />
+                    <div className="flex flex-col flex-1 min-w-0 gap-1">
+                        <LemonInputSelect
+                            className="w-full min-w-0"
+                            allowCustomValues={true}
+                            fullWidth={true}
+                            placeholder="Click or type to see top pages, or paste a URL"
+                            loading={isLoading}
+                            size="small"
+                            mode="single"
+                            value={pageUrl ? [pageUrl] : null}
+                            onChange={(val: string[]) => setPageUrl(val.length > 0 ? val[0] : null)}
+                            options={pageUrlOptions}
+                            onInputChange={(val: string) => setPageUrlSearchTerm(val)}
+                            data-attr="page-reports-url-search"
+                            onFocus={() => loadPages('')}
+                            emptyStateComponent={emptyStateComponent}
+                        />
+                        {pagesUrlsFailed && (
+                            <div
+                                className="flex items-center gap-1 text-xs text-danger"
+                                data-attr="page-reports-url-search-error"
+                            >
+                                <span>Couldn't load pages.</span>
+                                <LemonButton
+                                    size="xsmall"
+                                    type="tertiary"
+                                    onClick={() => loadPages(pageUrlSearchTerm)}
+                                    disabledReason={isLoading ? 'Loading…' : undefined}
+                                >
+                                    Try again
+                                </LemonButton>
+                            </div>
+                        )}
+                    </div>
                     <PathCleaningToggle value={isPathCleaningEnabled} onChange={setIsPathCleaningEnabled} />
                     <WebAnalyticsDomainSelector />
                 </div>

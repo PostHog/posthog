@@ -282,6 +282,7 @@ export interface pageReportsLogicValues {
     pageUrlOptions: PageURLOption[]
     pageUrlSearchTerm: string
     pagesUrls: PageURLSearchResult[]
+    pagesUrlsFailed: boolean
     pagesUrlsLoading: boolean
     pathCleaningFilters: PathCleaningFilter[]
     queries:
@@ -644,6 +645,15 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
             true,
             {
                 loadPagesUrlsSuccess: () => false,
+                loadPagesUrlsFailure: () => false,
+            },
+        ],
+        pagesUrlsFailed: [
+            false,
+            {
+                loadPagesUrls: () => false,
+                loadPagesUrlsSuccess: () => false,
+                loadPagesUrlsFailure: () => true,
             },
         ],
         tileVisualizations: [
