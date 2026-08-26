@@ -116,6 +116,9 @@ export const taskWarmLogic = kea<taskWarmLogicType>([
                 // Draft emptied — drop a pending warm and schedule a release, so a user who clears the
                 // box and walks away doesn't leave a sandbox idling until the server-side reaper.
                 cache.disposables.dispose('warm-debounce')
+                // Also drop any selection queued behind an in-flight warm, so an abandon isn't followed
+                // by a re-warm for a selection the user no longer wants.
+                cache.pendingWarmRequest = null
                 if (values.warmLease || cache.warming) {
                     cache.disposables.add(() => {
                         const timer = setTimeout(() => actions.releaseWarm(), RELEASE_AFTER_EMPTY_MS)
@@ -127,6 +130,10 @@ export const taskWarmLogic = kea<taskWarmLogicType>([
             cache.disposables.dispose('warm-release')
             const key = warmLeaseKey(request)
             if (values.warmLease?.key === key || cache.warmingKey === key) {
+                // Re-engaging the selection we already warmed or are still warming. A release may have
+                // raced the in-flight POST and deferred itself via pendingRelease; clear it so the warm
+                // that lands is kept for this submit rather than cancelled out from under the user.
+                cache.pendingRelease = false
                 return
             }
             // The selection changed out from under an existing warm (a different repo, branch, model or
@@ -143,12 +150,24 @@ export const taskWarmLogic = kea<taskWarmLogicType>([
         prewarm: async ({ request }) => {
             cache.disposables.dispose('warm-debounce')
             const key = warmLeaseKey(request)
-            if (values.currentProjectId == null || cache.warming || values.warmLease?.key === key) {
+            if (values.currentProjectId == null || values.warmLease?.key === key) {
+                return
+            }
+            if (cache.warming) {
+                // Only one warm POST runs at a time. A newer selection that arrives mid-flight must not
+                // be dropped, or the completing POST installs a lease on the stale selection and the
+                // submit cold-creates while that sandbox idles until the reaper. Record the latest
+                // selection so the completion below re-warms for it. This is the re-warm partner of the
+                // pendingRelease handling.
+                if (cache.warmingKey !== key) {
+                    cache.pendingWarmRequest = request
+                }
                 return
             }
             cache.warming = true
             cache.warmingKey = key
             cache.pendingRelease = false
+            cache.pendingWarmRequest = null
             try {
                 const warm = await tasksWarmCreate(String(values.currentProjectId), request)
                 // An empty body is the documented "not warmed" answer — the flag is off, the pool is
@@ -168,6 +187,18 @@ export const taskWarmLogic = kea<taskWarmLogicType>([
             } finally {
                 cache.warming = false
                 cache.warmingKey = null
+            }
+            // A newer selection arrived while the POST was open. Now that the slot is free, release the
+            // sandbox booted for the stale selection and warm for the latest one instead. A pending
+            // release above has already cleared the lease and dropped pendingWarmRequest via noteDraft,
+            // so this only fires when the latest selection still stands.
+            const pending = cache.pendingWarmRequest
+            cache.pendingWarmRequest = null
+            if (pending && warmLeaseKey(pending) !== values.warmLease?.key) {
+                if (values.warmLease) {
+                    actions.releaseWarm()
+                }
+                actions.prewarm(pending)
             }
         },
 
@@ -205,6 +236,7 @@ export const taskWarmLogic = kea<taskWarmLogicType>([
             cache.disposables.dispose('warm-debounce')
             cache.disposables.dispose('warm-release')
             cache.pendingRelease = false
+            cache.pendingWarmRequest = null
             actions.setWarmLease(null)
         },
     })),

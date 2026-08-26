@@ -157,4 +157,74 @@ describe('taskWarmLogic', () => {
 
         expect(warmCalls).toBe(1)
     })
+
+    it('re-warms for a selection changed while the first warm was still in flight', async () => {
+        // Hold the first warm POST open so a model change collides with it. Without queuing the newer
+        // selection, the completing POST leaves the lease on the stale model and never warms the new
+        // one, so the submit silently takes the cold path and the first sandbox idles until the reaper.
+        let resolveFirst: () => void = () => {}
+        useMocks({
+            post: {
+                '/api/projects/:team/tasks/warm/': async () => {
+                    warmCalls += 1
+                    const n = warmCalls
+                    if (n === 1) {
+                        await new Promise<void>((resolve) => {
+                            resolveFirst = resolve
+                        })
+                    }
+                    return [200, { task_id: `warm-task-${n}`, run_id: `warm-run-${n}` }]
+                },
+                '/api/projects/:team/tasks/:taskId/runs/:runId/command/': async ({ params }) => {
+                    cancelledRuns.push(params.runId as string)
+                    return [200, {}]
+                },
+            },
+        })
+
+        logic.actions.prewarm(WARM_REQUEST)
+        await expectLogic(logic).toMount()
+        // A different model arrives before the first warm resolves.
+        logic.actions.prewarm({ ...WARM_REQUEST, model: 'claude-opus-4-8' })
+
+        resolveFirst()
+        await expectLogic(logic).toFinishAllListeners()
+
+        // The stale first sandbox is released and the latest selection is the one left warm.
+        expect(warmCalls).toBe(2)
+        expect(cancelledRuns).toEqual(['warm-run-1'])
+        expect(logic.values.warmLease).toMatchObject({ runId: 'warm-run-2' })
+    })
+
+    it('keeps a warm the user re-engaged after a release raced the in-flight POST', async () => {
+        // Release fires while the POST is open (no lease yet), then the user types the same selection
+        // again before it resolves. Re-engaging must clear the deferred release so the landing sandbox
+        // is kept, not cancelled the moment it appears.
+        let resolveHeldWarm: () => void = () => {}
+        useMocks({
+            post: {
+                '/api/projects/:team/tasks/warm/': async () => {
+                    await new Promise<void>((resolve) => {
+                        resolveHeldWarm = resolve
+                    })
+                    return [200, { task_id: 'warm-task-1', run_id: 'warm-run-1' }]
+                },
+                '/api/projects/:team/tasks/:taskId/runs/:runId/command/': async ({ params }) => {
+                    cancelledRuns.push(params.runId as string)
+                    return [200, {}]
+                },
+            },
+        })
+
+        logic.actions.prewarm(WARM_REQUEST)
+        await expectLogic(logic).toMount()
+        logic.actions.releaseWarm()
+        logic.actions.noteDraft(true, WARM_REQUEST)
+
+        resolveHeldWarm()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.warmLease).toMatchObject({ runId: 'warm-run-1' })
+        expect(cancelledRuns).toEqual([])
+    })
 })
