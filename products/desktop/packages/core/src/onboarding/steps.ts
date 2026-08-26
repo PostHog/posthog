@@ -21,7 +21,7 @@ export interface DetectedRepo {
   branch?: string;
 }
 
-export function computeActiveSteps(options: {
+export interface StepGates {
   /** Undefined while the integrations query is loading; the step only drops on a confirmed connection. */
   hasGithubIntegration: boolean | undefined;
   /** Undefined while the local git and gh checks are loading. */
@@ -29,7 +29,9 @@ export function computeActiveSteps(options: {
   /** Undefined until the project list has loaded, so a slow list cannot skip a real choice. */
   projectCount: number | undefined;
   consentRequired: boolean | undefined;
-}): OnboardingStep[] {
+}
+
+export function computeActiveSteps(options: StepGates): OnboardingStep[] {
   return ONBOARDING_STEPS.filter((step) => {
     if (step === "project-select" && options.projectCount === 1) return false;
     if (step === "consent" && options.consentRequired === false) return false;
@@ -43,6 +45,27 @@ export function computeActiveSteps(options: {
     }
     return true;
   });
+}
+
+/**
+ * Whether a gate that governs `step` has not answered yet. An unanswered gate
+ * keeps its step in the active set, so the step is on screen but a later answer
+ * can still take it away. Analytics waits for this to be false, or it records a
+ * view for a step the person never had to complete.
+ */
+export function stepGatePending(
+  step: OnboardingStep,
+  options: StepGates,
+): boolean {
+  if (step === "project-select") return options.projectCount === undefined;
+  if (step === "consent") return options.consentRequired === undefined;
+  if (step === "install-cli") {
+    return (
+      options.hasGithubIntegration === undefined ||
+      options.cliReady === undefined
+    );
+  }
+  return false;
 }
 
 /**

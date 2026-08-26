@@ -12,6 +12,7 @@ import {
   nearestActiveStep,
   type OnboardingStep,
   stepDirection,
+  stepGatePending,
 } from "@posthog/core/onboarding/steps";
 import { useHostTRPC, useHostTRPCClient } from "@posthog/host-router/react";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
@@ -205,25 +206,24 @@ export function useOnboardingFlow() {
     );
   }, [consent]);
 
+  // A failed lookup keeps the step, same as an unanswered one, but it answers
+  // the gate. Otherwise the step shows with its view never recorded.
   const consentRequired =
-    consentRequirement?.organizationId === consent.organizationId
-      ? consentRequirement?.required
-      : undefined;
+    consent.status === "error"
+      ? true
+      : consentRequirement?.organizationId === consent.organizationId
+        ? consentRequirement?.required
+        : undefined;
   const sampledConsentRequirement =
     consentRequirement?.organizationId === consent.organizationId
       ? consentRequirement
       : undefined;
 
-  const activeSteps = useMemo(
-    () =>
-      computeActiveSteps({
-        hasGithubIntegration,
-        cliReady,
-        projectCount,
-        consentRequired,
-      }),
+  const stepGates = useMemo(
+    () => ({ hasGithubIntegration, cliReady, projectCount, consentRequired }),
     [hasGithubIntegration, cliReady, projectCount, consentRequired],
   );
+  const activeSteps = useMemo(() => computeActiveSteps(stepGates), [stepGates]);
 
   useEffect(() => {
     if (!activeSteps.includes(currentStep)) {
@@ -259,6 +259,7 @@ export function useOnboardingFlow() {
   return {
     currentStep,
     currentIndex,
+    currentStepPending: stepGatePending(currentStep, stepGates),
     totalSteps: activeSteps.length,
     activeSteps,
     isFirstStep,
