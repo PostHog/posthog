@@ -50,21 +50,21 @@ class TestStickinessInsightActors(ClickhouseTestMixin, APIBaseTest):
             ("p3", ["2020-01-12T12:00:00Z"]),
             ("p4", ["2020-01-15T12:00:00Z"]),
         ]
-        for id, timestamps in data:
+        for distinct_id, timestamps in data:
             with freeze_time(timestamps[0]):
                 _create_person(
                     team_id=self.team.pk,
-                    distinct_ids=[id],
+                    distinct_ids=[distinct_id],
                     properties={
-                        "name": id,
-                        **({"email": "test@posthog.com"} if id == "p1" else {}),
+                        "name": distinct_id,
+                        **({"email": "test@posthog.com"} if distinct_id == "p1" else {}),
                     },
                 )
             for timestamp in timestamps:
                 _create_event(
                     team=self.team,
                     event="$pageview",
-                    distinct_id=id,
+                    distinct_id=distinct_id,
                     timestamp=timestamp,
                     properties={"$group_0": "org:1"},
                 )
