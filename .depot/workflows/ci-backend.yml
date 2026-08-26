@@ -257,6 +257,8 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
+                  sparse-checkout: .depot/actions/paths-filter
+                  sparse-checkout-cone-mode: false
             - name: Clean up data directories with container permissions
               run: |
                   # Use docker to clean up files created by containers
@@ -334,9 +336,13 @@ jobs:
                         - 'tools/hogli-commands/hogli_commands/hints.py'
                         - 'tools/hogli-commands/hogli_commands/product/**'
                         - 'tools/hogli-commands/hogli_commands/product_structure.yaml'
-                        # product:lint --all checks this generated file against the tree,
-                        # so a baseline-only edit must run it too
+                        # product:lint --all checks these generated files against the tree,
+                        # so a baseline-only edit must run it too. The crossings baseline is
+                        # also what product:lint reads to let a wiring location leave a
+                        # product's turbo.json inputs, so both edits must run the checks.
                         - products/isolation_baseline.txt
+                        - products/model_crossing_uses_baseline.txt
+                        - 'products/*/turbo.json'
                         # Make sure we run if someone is explicitly changing the workflow
                         - .depot/workflows/ci-backend.yml
                         - .github/clickhouse-versions.json
