@@ -1380,6 +1380,8 @@ class ExternalDataSourceType(models.TextChoices):
     LIVEBLOCKS = "Liveblocks", "Liveblocks"
     NATIONBUILDER = "NationBuilder", "NationBuilder"
     TANA = "Tana", "Tana"
+    ZENCHEF = "Zenchef", "Zenchef"
+    LOVABLE = "Lovable", "Lovable"
 
 
 def external_data_source_type_choices() -> list[tuple[str, str | Promise]]:
