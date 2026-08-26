@@ -20,8 +20,8 @@ from posthog.schema import (
 
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
-from posthog.rbac.user_access_control import UserAccessControlError
 
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.mcp_analytics.backend.hogql_queries.dashboard_series import (
     MCPToolCallBreakdownQueryRunner,
     MCPToolCallsAndErrorsQueryRunner,

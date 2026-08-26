@@ -120,7 +120,7 @@ export function VisionMetrics(): JSX.Element {
                 </div>
                 <div className="flex-1 bg-bg-light border rounded p-4 flex flex-col">
                     <div className="flex items-baseline justify-between gap-3 mb-2">
-                        <div className="text-muted text-xs font-medium uppercase">Spend this period</div>
+                        <div className="text-muted text-xs font-medium uppercase">Spend this billing period</div>
                         {hasCap && (
                             <span className={`text-xs tabular-nums ${styles.text}`}>
                                 {periodEndPct}%{' '}
@@ -153,7 +153,7 @@ export function VisionMetrics(): JSX.Element {
                                         title={
                                             <div className="text-xs space-y-0.5">
                                                 <div>
-                                                    Spent this period:{' '}
+                                                    Spent this billing period:{' '}
                                                     <strong>{formatCreditCount(quota.credits_used)}</strong>
                                                 </div>
                                                 <div>
