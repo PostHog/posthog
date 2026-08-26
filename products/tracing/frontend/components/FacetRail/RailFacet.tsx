@@ -37,6 +37,8 @@ export function RailFacet({ facet, id = TRACING_SCENE_VIEWER_ID, hidden }: RailF
     const { serviceNames, filters } = useValues(tracingFiltersLogic({ id }))
     const { toggleFacetValue, toggleFacetCollapsed } = useActions(facetRailLogic({ id }))
     const { removeCustomFacet } = useActions(customFacetsLogic)
+    const { entriesLoading } = useValues(customFacetsLogic)
+    const removeDisabledReason = entriesLoading ? 'Custom facets are updating' : undefined
 
     if (hidden) {
         return null
@@ -78,6 +80,7 @@ export function RailFacet({ facet, id = TRACING_SCENE_VIEWER_ID, hidden }: RailF
                 dimZeroCounts
                 error={fetchFailed}
                 onRemove={onRemove}
+                removeDisabledReason={removeDisabledReason}
             />
         )
     }
@@ -102,6 +105,7 @@ export function RailFacet({ facet, id = TRACING_SCENE_VIEWER_ID, hidden }: RailF
             maxHeight={facet.maxHeight}
             error={fetchFailed}
             onRemove={onRemove}
+            removeDisabledReason={removeDisabledReason}
         />
     )
 }

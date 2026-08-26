@@ -34,6 +34,8 @@ interface FacetProps {
     error?: boolean
     /** When set, renders a remove control in the header — for user-added custom facets only. */
     onRemove?: () => void
+    /** Disables the remove control (with this explanation) while a custom-facet update is in flight. */
+    removeDisabledReason?: string
 }
 
 /**
@@ -66,6 +68,7 @@ export function Facet({
     dimZeroCounts = false,
     error = false,
     onRemove,
+    removeDisabledReason,
 }: FacetProps): JSX.Element {
     const slug = slugify(title)
 
@@ -92,6 +95,7 @@ export function Facet({
                         size="small"
                         icon={<IconX />}
                         onClick={onRemove}
+                        disabledReason={removeDisabledReason}
                         tooltip="Remove custom facet"
                         data-attr={`tracing-facet-${slug}-remove`}
                     />

@@ -8,7 +8,6 @@ import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicStringPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { tracingConfigLogic } from '../../tracingConfigLogic'
 import { customFacetsLogic } from './customFacetsLogic'
@@ -30,7 +29,7 @@ export function FacetRail(): JSX.Element {
     const { facetNameSearch } = useValues(facetRailLogic)
     const { setFacetNameSearch } = useActions(facetRailLogic)
     const { addCustomFacet } = useActions(customFacetsLogic)
-    const customFacetsEnabled = useFeatureFlag('CUSTOM_FACET_PINNING')
+    const { customFacetsEnabled, entriesLoading } = useValues(customFacetsLogic)
 
     const onToggleClosed = useCallback(
         (shouldBeClosed: boolean) => setFacetRailCollapsed(shouldBeClosed),
@@ -83,6 +82,7 @@ export function FacetRail(): JSX.Element {
                         size="small"
                         icon={<IconPlus />}
                         tooltip="Add custom facet"
+                        disabledReason={entriesLoading ? 'Custom facets are updating' : undefined}
                         data-attr="tracing-facet-rail-add"
                         onChange={(value, groupType) =>
                             addCustomFacet(

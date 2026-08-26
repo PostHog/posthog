@@ -1,9 +1,15 @@
-import { PropertyFilterType, UniversalFiltersGroup } from '~/types'
+import { UniversalFiltersGroup } from '~/types'
 
 import { SEVERITY_BAR_COLORS } from 'products/logs/frontend/components/VirtualizedLogsList/columnDefinitions'
 
 import { FacetOption } from './Facet'
-import { SERVICE_NAME_FILTER, SEVERITY_LEVEL_FILTER, innerFilters, isPropertyLeaf } from './facetFilters'
+import {
+    SERVICE_NAME_FILTER,
+    SEVERITY_LEVEL_FILTER,
+    facetFilterTarget,
+    innerFilters,
+    isPropertyLeaf,
+} from './facetFilters'
 
 /**
  * Whether a facet's value set is known ahead of time or discovered from the data.
@@ -63,8 +69,8 @@ export interface FacetConfig {
     emptyLabel?: string
     /** Max pixel height before the value list virtualizes and scrolls. */
     maxHeight?: number
-    /** User-added facets show a remove control in the rail; curated facets never do. */
-    removable?: boolean
+    /** The (key, sourceType) a user-added custom facet was built from; curated facets never set it. */
+    custom?: { key: string; sourceType: CustomFacetSourceType }
 }
 
 /** The data key a facet is queried on: its column, or the resource-attribute key resolution picked. */
@@ -94,32 +100,16 @@ export interface FacetScope {
  */
 export function facetScopeSignature(facet: FacetConfig, scope: FacetScope): string {
     const { source } = facet
-    const selfLogKey = source.type === 'column' ? source.logKey : undefined
-    const selfResourceKey = source.type === 'resourceAttribute' ? source.key : undefined
-    const selfAttributeKey = source.type === 'attribute' ? source.key : undefined
+    // The facet's own filter target — the backend strips filters under it wholesale (any operator,
+    // both polarities), so they must not enter the signature.
+    const self = facetFilterTarget(source)
     const groupSignature = innerFilters(scope.queryFilterGroup)
         .map((entry): unknown[] | null => {
             if (!isPropertyLeaf(entry)) {
                 // Nested groups aren't leaves the backend can strip — carry them whole.
                 return ['group', JSON.stringify(entry)]
             }
-            // Any operator: the backend skips a log filter under the facet's own column wholesale.
-            if (selfLogKey !== undefined && entry.type === PropertyFilterType.Log && entry.key === selfLogKey) {
-                return null
-            }
-            // Both polarities, any operator.
-            if (
-                selfResourceKey !== undefined &&
-                entry.type === PropertyFilterType.LogResourceAttribute &&
-                entry.key === selfResourceKey
-            ) {
-                return null
-            }
-            if (
-                selfAttributeKey !== undefined &&
-                entry.type === PropertyFilterType.LogAttribute &&
-                entry.key === selfAttributeKey
-            ) {
+            if (entry.type === self.type && entry.key === self.key) {
                 return null
             }
             return [entry.type, entry.key, entry.operator, JSON.stringify(entry.value ?? null)]
@@ -130,11 +120,7 @@ export function facetScopeSignature(facet: FacetConfig, scope: FacetScope): stri
         // A facet mounted before the team resolved fetches nothing; keeping the id in the signature
         // makes it fetch once the team arrives.
         scope.currentTeamId ?? null,
-        source.type === 'column'
-            ? ['column', source.column]
-            : source.type === 'attribute'
-              ? ['attribute', source.key]
-              : ['resource', source.key],
+        [source.type, facetSourceKey(facet)],
         scope.utcDateRange.date_from ?? null,
         scope.utcDateRange.date_to ?? null,
         scope.utcDateRange.explicitDate ?? null,
@@ -309,7 +295,7 @@ export function facetsByGroup(facets: FacetConfig[]): [string, FacetConfig[]][] 
 /** A custom facet's source kind, as persisted per-user — mirrors the backend's `source_type` choices. */
 export type CustomFacetSourceType = 'attribute' | 'resourceAttribute'
 
-/** Builds a rail-renderable FacetConfig for a user-added custom facet — always dynamic, always removable. */
+/** Builds a rail-renderable FacetConfig for a user-added custom facet — always dynamic, with a remove control. */
 export function buildCustomFacet(key: string, sourceType: CustomFacetSourceType): FacetConfig {
     return {
         key: `custom:${sourceType}:${key}`,
@@ -320,14 +306,11 @@ export function buildCustomFacet(key: string, sourceType: CustomFacetSourceType)
         searchable: true,
         emptyLabel: `No ${key} values`,
         maxHeight: 300,
-        removable: true,
+        custom: { key, sourceType },
     }
 }
 
-/** The (key, sourceType) a removable custom facet was built from — `null` for a curated facet. */
+/** The (key, sourceType) a custom facet was built from — `null` for a curated facet. */
 export function customFacetIdentity(facet: FacetConfig): { key: string; sourceType: CustomFacetSourceType } | null {
-    if (!facet.removable || facet.source.type === 'column') {
-        return null
-    }
-    return { key: facet.source.key, sourceType: facet.source.type }
+    return facet.custom ?? null
 }

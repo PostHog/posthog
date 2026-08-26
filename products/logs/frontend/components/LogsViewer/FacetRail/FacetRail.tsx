@@ -8,7 +8,6 @@ import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicStringPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
 
@@ -34,7 +33,7 @@ export function FacetRail({ id }: FacetRailProps): JSX.Element {
     const { facetNameSearch } = useValues(facetRailLogic({ id }))
     const { setFacetNameSearch } = useActions(facetRailLogic({ id }))
     const { addCustomFacet } = useActions(customFacetsLogic)
-    const customFacetsEnabled = useFeatureFlag('CUSTOM_FACET_PINNING')
+    const { customFacetsEnabled, entriesLoading } = useValues(customFacetsLogic)
 
     const onToggleClosed = useCallback(
         (shouldBeClosed: boolean) => setFacetRailCollapsed(shouldBeClosed),
@@ -85,6 +84,7 @@ export function FacetRail({ id }: FacetRailProps): JSX.Element {
                         size="small"
                         icon={<IconPlus />}
                         tooltip="Add custom facet"
+                        disabledReason={entriesLoading ? 'Custom facets are updating' : undefined}
                         data-attr="logs-facet-rail-add"
                         onChange={(value, groupType) =>
                             addCustomFacet(

@@ -68,8 +68,8 @@ export interface FacetConfig {
     emptyLabel?: string
     /** Max pixel height before the value list virtualizes and scrolls. */
     maxHeight?: number
-    /** User-added facets show a remove control in the rail; curated facets never do. */
-    removable?: boolean
+    /** The (key, sourceType) a user-added custom facet was built from; curated facets never set it. */
+    custom?: { key: string; sourceType: CustomFacetSourceType }
 }
 
 interface SpanFacetFilter {
@@ -89,7 +89,7 @@ export function innerFilters(group: UniversalFiltersGroup | undefined): SpanFace
 
 /** The property filter home for a facet's selection: span filters for status_code, attribute/resource-attribute filters otherwise. */
 function facetFilterType(
-    source: FilterGroupFacetSource
+    source: FacetSource
 ): PropertyFilterType.Span | PropertyFilterType.SpanResourceAttribute | PropertyFilterType.SpanAttribute {
     switch (source.type) {
         case 'column':
@@ -249,12 +249,7 @@ export interface FacetScope {
 export function facetScopeSignature(facet: FacetConfig, scope: FacetScope): string {
     const { source } = facet
     const selfKey = facetSourceKey(facet)
-    const selfType =
-        source.type === 'column'
-            ? PropertyFilterType.Span
-            : source.type === 'attribute'
-              ? PropertyFilterType.SpanAttribute
-              : PropertyFilterType.SpanResourceAttribute
+    const selfType = facetFilterType(source)
     // Any operator: the backend drops every filter under the breakdown key, not just the rail's own.
     const groupSignature = innerFilters(scope.queryFilterGroup)
         .filter((filter) => !(filter.type === selfType && filter.key === selfKey))
@@ -490,7 +485,7 @@ export function facetsByGroup(facets: FacetConfig[]): [string, FacetConfig[]][] 
 /** A custom facet's source kind, as persisted per-user — mirrors the backend's `source_type` choices. */
 export type CustomFacetSourceType = 'attribute' | 'resourceAttribute'
 
-/** Builds a rail-renderable FacetConfig for a user-added custom facet — always dynamic, always removable. */
+/** Builds a rail-renderable FacetConfig for a user-added custom facet — always dynamic, with a remove control. */
 export function buildCustomFacet(key: string, sourceType: CustomFacetSourceType): FacetConfig {
     return {
         key: `custom:${sourceType}:${key}`,
@@ -501,14 +496,11 @@ export function buildCustomFacet(key: string, sourceType: CustomFacetSourceType)
         searchable: true,
         emptyLabel: `No ${key} values`,
         maxHeight: 300,
-        removable: true,
+        custom: { key, sourceType },
     }
 }
 
-/** The (key, sourceType) a removable custom facet was built from — `null` for a curated facet. */
+/** The (key, sourceType) a custom facet was built from — `null` for a curated facet. */
 export function customFacetIdentity(facet: FacetConfig): { key: string; sourceType: CustomFacetSourceType } | null {
-    if (!facet.removable || facet.source.type === 'column') {
-        return null
-    }
-    return { key: facet.source.key, sourceType: facet.source.type }
+    return facet.custom ?? null
 }

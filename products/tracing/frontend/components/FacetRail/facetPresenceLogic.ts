@@ -20,6 +20,7 @@ export interface facetPresenceLogicValues {
     currentTeamId: number | null // teamLogic
     presentResourceKeys: string[]
     presentResourceKeysLoading: boolean
+    resolvedFacets: FacetConfig[]
     visibleFacets: FacetConfig[]
 }
 
@@ -46,7 +47,8 @@ export interface facetPresenceLogicActions {
 export interface facetPresenceLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        visibleFacets: (presentResourceKeys: string[], customFacets: FacetConfig[]) => FacetConfig[]
+        resolvedFacets: (presentResourceKeys: string[]) => FacetConfig[]
+        visibleFacets: (resolvedFacets: FacetConfig[], customFacets: FacetConfig[]) => FacetConfig[]
     }
 }
 
@@ -97,10 +99,16 @@ export const facetPresenceLogic = kea<facetPresenceLogicType>([
         // of its aliases, which resolution rewrites the facet onto). Custom facets skip that presence gate
         // entirely — the user picked them from a live taxonomic list, so they're known to exist already —
         // and render last, after every curated facet.
+        // Intermediate so curated facet identities stay stable across custom-facet changes — a fresh
+        // alias-resolved FacetConfig would re-render every virtualized value row (see RailFacet).
+        resolvedFacets: [
+            (s) => [s.presentResourceKeys],
+            (presentResourceKeys: string[]): FacetConfig[] => resolveFacets(FACETS, presentResourceKeys),
+        ],
         visibleFacets: [
-            (s) => [s.presentResourceKeys, s.customFacets],
-            (presentResourceKeys: string[], customFacets: FacetConfig[]): FacetConfig[] => [
-                ...resolveFacets(FACETS, presentResourceKeys),
+            (s) => [s.resolvedFacets, s.customFacets],
+            (resolvedFacets: FacetConfig[], customFacets: FacetConfig[]): FacetConfig[] => [
+                ...resolvedFacets,
                 ...customFacets,
             ],
         ],

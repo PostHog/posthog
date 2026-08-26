@@ -1,8 +1,11 @@
 from typing import Any, cast
 
+from django.db.models import QuerySet
+
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import exceptions, serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
@@ -90,27 +93,42 @@ class UserFacetSettingsViewSet(viewsets.GenericViewSet):
 
         return super().get_object()
 
-    def get_queryset(self):
+    def get_queryset(self) -> QuerySet[User]:
         queryset = super().get_queryset()
         if not self.request.user.is_staff:
             queryset = queryset.filter(id=self.request.user.id)
         return queryset
 
-    def retrieve(self, request: Any, *args: Any, **kwargs: Any) -> Response:
-        instance = self.get_object()
-        settings = self._get_settings(instance, self._get_product())
-        return Response({"custom_facets": settings.custom_facets})
-
-    def partial_update(self, request: Any, *args: Any, **kwargs: Any) -> Response:
+    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
         product = self._get_product()
+        team_id = self._get_team_id(instance)
+
+        # Read-only: most users never pin a facet, so a missing row reads as an empty list
+        # instead of creating one per user/team/product on every rail mount.
+        with team_scope(team_id):
+            custom_facets = (
+                UserFacetSettings.objects.filter(user=instance, team_id=team_id, product=product)
+                .values_list("custom_facets", flat=True)
+                .first()
+            )
+        return Response({"custom_facets": custom_facets or []})
+
+    def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance = self.get_object()
+        product = self._get_product()
+        team_id = self._get_team_id(instance)
 
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        settings = self._get_settings(instance, product)
-        settings.custom_facets = serializer.validated_data["custom_facets"]
-        settings.save()
+        with team_scope(team_id):
+            settings, _ = UserFacetSettings.objects.update_or_create(
+                user=instance,
+                team_id=team_id,
+                product=product,
+                defaults={"custom_facets": serializer.validated_data["custom_facets"]},
+            )
 
         return Response({"custom_facets": settings.custom_facets})
 
@@ -123,11 +141,10 @@ class UserFacetSettingsViewSet(viewsets.GenericViewSet):
             )
         return product
 
-    def _get_settings(self, instance: User, product: str) -> UserFacetSettings:
-        team = instance.current_team
-        if not team:
+    def _get_team_id(self, instance: User) -> int:
+        # The id column on the user row is enough — dereferencing `current_team` would fetch the
+        # whole (wide) Team row on every request.
+        team_id = instance.current_team_id
+        if not team_id:
             raise serializers.ValidationError("Current team is required to manage custom facets.")
-
-        with team_scope(team.id):
-            settings, _ = UserFacetSettings.objects.get_or_create(user=instance, team=team, product=product)
-        return settings
+        return team_id

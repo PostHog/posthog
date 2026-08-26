@@ -39,6 +39,8 @@ interface FacetProps {
     dimZeroCounts?: boolean
     /** When set, renders a remove control in the header — for user-added custom facets only. */
     onRemove?: () => void
+    /** Disables the remove control (with this explanation) while a custom-facet update is in flight. */
+    removeDisabledReason?: string
 }
 
 /** A single rail facet: a collapsible field title and its selectable values (multi-select = OR), each with a count. */
@@ -58,6 +60,7 @@ export function Facet({
     maxHeight,
     dimZeroCounts = false,
     onRemove,
+    removeDisabledReason,
 }: FacetProps): JSX.Element {
     const slug = title.toLowerCase().replace(/\s+/g, '-')
 
@@ -84,6 +87,7 @@ export function Facet({
                         size="small"
                         icon={<IconX />}
                         onClick={onRemove}
+                        disabledReason={removeDisabledReason}
                         tooltip="Remove custom facet"
                         data-attr={`logs-facet-${slug}-remove`}
                     />

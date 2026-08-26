@@ -319,12 +319,11 @@ describe('facets', () => {
             'round-trips the key and sourceType through a %s facet',
             (sourceType) => {
                 const built = buildCustomFacet('http.status_code', sourceType)
-                expect(built.removable).toBe(true)
                 expect(customFacetIdentity(built)).toEqual({ key: 'http.status_code', sourceType })
             }
         )
 
-        it('returns null for a curated (non-removable) facet', () => {
+        it('returns null for a curated facet', () => {
             expect(customFacetIdentity(CONFIGURED_FACETS[0])).toBeNull()
         })
     })

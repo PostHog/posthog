@@ -47,7 +47,7 @@ class TestUserFacetSettingsAPI(APIBaseTest):
         self.assertEqual(response.json(), {"custom_facets": payload["custom_facets"]})
 
         # A different product for the same user/team stays untouched — the real regression risk
-        # here is the product filter being dropped from the underlying get_or_create.
+        # here is the product filter being dropped from the underlying update_or_create.
         logs_response = self.client.get("/api/user_facet_settings/@me/?product=logs")
         self.assertEqual(logs_response.json(), {"custom_facets": []})
 

@@ -58,6 +58,40 @@ describe('customFacetsLogic', () => {
         expect(logic.values.customFacets).toEqual([])
     })
 
+    it('loads entries when the flag arrives after mount', async () => {
+        featureFlagLogic.actions.setFeatureFlags([], {})
+        mount()
+        expect(mockRetrieve).not.toHaveBeenCalled()
+
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.CUSTOM_FACET_PINNING]: true })
+        await expectLogic(logic).toDispatchActions(['loadEntries', 'loadEntriesSuccess'])
+    })
+
+    it('mutations build on the persisted list when entries have not loaded yet', async () => {
+        // A PATCH replaces the whole server-side list — building it on unloaded local state would
+        // wipe every facet the user pinned elsewhere.
+        featureFlagLogic.actions.setFeatureFlags([], {})
+        mockRetrieve.mockResolvedValue({
+            custom_facets: [
+                { key: 'pinned.elsewhere', source_type: UserFacetSettingsEntrySourceTypeEnumApi.Attribute },
+            ],
+        })
+        mount()
+        logic.actions.addCustomFacet('log.iostream', 'attribute')
+        await expectLogic(logic).toDispatchActions(['addCustomFacetSuccess'])
+
+        expect(mockPartialUpdate).toHaveBeenCalledWith(
+            '@me',
+            { product: 'logs' },
+            {
+                custom_facets: [
+                    { key: 'pinned.elsewhere', source_type: UserFacetSettingsEntrySourceTypeEnumApi.Attribute },
+                    { key: 'log.iostream', source_type: UserFacetSettingsEntrySourceTypeEnumApi.Attribute },
+                ],
+            }
+        )
+    })
+
     it('loads persisted entries on mount and exposes them as facet configs', async () => {
         mockRetrieve.mockResolvedValue({
             custom_facets: [{ key: 'log.iostream', source_type: UserFacetSettingsEntrySourceTypeEnumApi.Attribute }],
