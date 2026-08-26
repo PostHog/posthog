@@ -83,6 +83,27 @@ describe('taskWarmLogic', () => {
         expect(cancelledRuns).toEqual([])
     })
 
+    it('warms again for the next draft after a submit consumed the previous warm', async () => {
+        jest.useFakeTimers()
+        logic.actions.noteDraft(true, WARM_REQUEST)
+        jest.advanceTimersByTime(300)
+        jest.useRealTimers()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(warmCalls).toBe(1)
+
+        logic.actions.consumeWarm()
+        await expectLogic(logic).toFinishAllListeners()
+
+        jest.useFakeTimers()
+        logic.actions.noteDraft(true, WARM_REQUEST)
+        jest.advanceTimersByTime(300)
+        jest.useRealTimers()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(warmCalls).toBe(2)
+        expect(logic.values.warmLease).toMatchObject({ taskId: 'warm-task-2', runId: 'warm-run-2' })
+    })
+
     it('releases the warm when the draft is abandoned', async () => {
         jest.useFakeTimers()
         logic.actions.noteDraft(true, WARM_REQUEST)

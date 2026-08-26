@@ -263,6 +263,12 @@ export const taskWarmLogic = kea<taskWarmLogicType>([
                 // full, or the integration didn't resolve. Not an error, just no speedup this time.
                 if (warm?.task_id && warm?.run_id) {
                     actions.setWarmLease({ key, taskId: warm.task_id, runId: warm.run_id })
+                    // The cooldown throttles repeated "not warmed" answers, which leave no lease. This
+                    // warm produced one, so drop the stamp: once a submit consumes the lease or a
+                    // release drops it, the next draft for the same selection must warm again instead
+                    // of waiting out the cooldown.
+                    cache.lastWarmRequestKey = null
+                    cache.lastWarmRequestAt = null
                 }
                 // The user may have abandoned the draft while this POST was in flight, in which case the
                 // release hit the early-exit below with nothing to release. Honor that intent now so the
@@ -317,6 +323,11 @@ export const taskWarmLogic = kea<taskWarmLogicType>([
             cache.disposables.dispose('warm-release')
             cache.pendingRelease = false
             cache.pendingWarmRequest = null
+            // A warm fenced below by consumedWhileWarming returns before it installs a lease, so it
+            // never clears the cooldown stamp itself. Clear it here so the next draft in this composer
+            // can warm rather than taking the cold path for the rest of the cooldown.
+            cache.lastWarmRequestKey = null
+            cache.lastWarmRequestAt = null
             // The submit can beat an in-flight warm POST back to the client (the scene consumes only after
             // its create resolves). Fence that response so its completion drops rather than installs a
             // lease — otherwise a stale lease survives the submit and a later selection change cancels a
