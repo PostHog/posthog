@@ -8,6 +8,7 @@ from products.managed_warehouse.backend.common import (
     duckgres_data_imports_table_name,
     duckgres_data_modeling_schema,
 )
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceAccessMethod
 
 logger = logging.getLogger(__name__)
 
@@ -69,13 +70,13 @@ def _bind_source_tables(database: Any, team_id: int) -> None:
     from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
     from posthog.hogql.errors import ResolutionError
 
-    from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
+    from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
     schema_name = duckgres_data_imports_schema(team_id)
     tables = (
         DataWarehouseTable.objects.queryable()
         .filter(team_id=team_id, external_data_source__isnull=False)
-        .exclude(external_data_source__access_method=ExternalDataSource.AccessMethod.DIRECT)
+        .exclude(external_data_source__access_method=ExternalDataSourceAccessMethod.DIRECT)
         .prefetch_related("externaldataschema_set__source")
     )
     for table in tables:
