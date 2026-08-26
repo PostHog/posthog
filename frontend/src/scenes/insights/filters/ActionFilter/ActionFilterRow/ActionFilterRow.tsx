@@ -97,6 +97,7 @@ export function ActionFilterRow({
     hideDeleteBtn = false,
     showCombine = false,
     insightType,
+    allowBehavioralPropertyFilter = false,
     propertyFiltersPopover = false,
     onRenameClick = () => {},
     showSeriesIndicator,
@@ -360,7 +361,10 @@ export function ActionFilterRow({
 
     const isDataWarehouseFilter = filter.type === EntityTypes.DATA_WAREHOUSE
     // A behavioral filter compiles to a person_id subquery over the events table, which a warehouse series has no key for
-    const behavioralFiltersEnabled = !!featureFlags[FEATURE_FLAGS.BEHAVIORAL_PROPERTY_FILTER] && !isDataWarehouseFilter
+    const behavioralFiltersEnabled =
+        allowBehavioralPropertyFilter &&
+        !!featureFlags[FEATURE_FLAGS.BEHAVIORAL_PROPERTY_FILTER] &&
+        !isDataWarehouseFilter
     // CDP destination/workflow filters restrict the picker to the one warehouse table family their
     // trigger fires on, so each family gets its own typeKey.
     const dataWarehouseGroupType =

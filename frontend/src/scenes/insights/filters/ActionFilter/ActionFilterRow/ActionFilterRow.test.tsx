@@ -383,20 +383,20 @@ describe('ActionFilterRow', () => {
                 expect(document.querySelector('.ActionFilterRow-filters')).not.toBeInTheDocument()
             })
 
-            it.each([
-                [true, true],
-                [false, false],
-            ])('behavioral filter enabled=%s → "Performed" entry point shown=%s', (enabled, shown) => {
+            it.each<{ flags: string[]; variants: Record<string, string | boolean>; shown: boolean }>([
+                {
+                    flags: [FEATURE_FLAGS.BEHAVIORAL_PROPERTY_FILTER],
+                    variants: { [FEATURE_FLAGS.BEHAVIORAL_PROPERTY_FILTER]: true },
+                    shown: true,
+                },
+                { flags: [], variants: {}, shown: false },
+            ])('behavioral "Performed" entry point shown=$shown when flag present', ({ flags, variants, shown }) => {
                 featureFlagLogic.mount()
-                featureFlagLogic.actions.setFeatureFlags(
-                    enabled ? [FEATURE_FLAGS.BEHAVIORAL_PROPERTY_FILTER] : [],
-                    enabled ? { [FEATURE_FLAGS.BEHAVIORAL_PROPERTY_FILTER]: true } : {}
-                )
+                featureFlagLogic.actions.setFeatureFlags(flags, variants)
                 const { logic } = setup()
                 logic.actions.setEntityFilterVisibility(0, true)
-                renderRow(logic)
-                const button = screen.queryByText('Performed')
-                expect(!!button).toBe(shown)
+                renderRow(logic, { allowBehavioralPropertyFilter: true })
+                expect(!!screen.queryByText('Performed')).toBe(shown)
             })
         })
 
