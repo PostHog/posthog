@@ -175,6 +175,23 @@ class ProvisioningCapabilityFilter(admin.SimpleListFilter):
         return queryset.filter(**{f"_provisioning_config__{capability}": True})
 
 
+def cimd_blocklist_warning(application: OAuthApplication) -> str | None:
+    """The warning to show before deleting an application, or None when it needs none.
+
+    A post_delete signal blocklists a CIMD app's metadata URL so the partner cannot register
+    again from the same document. Nothing else on the delete page says so, and afterwards the
+    only symptom is authorize rejecting that client_id, so warn while the operator can still
+    stop.
+    """
+    if not (application.is_cimd_client and application.cimd_metadata_url):
+        return None
+    return format_html(
+        "Deleting this app also blocklists <code>{}</code>, so it cannot register again from "
+        "its metadata document. Remove the entry under CIMD Blocklist Entries to allow it back.",
+        application.cimd_metadata_url,
+    )
+
+
 # Registered manually in `posthog/admin/__init__.py::register_all_admin()`
 # after `admin.site.unregister(OAuthApplication)` clears the default that
 # `oauth2_provider`'s autodiscover sets up. `@admin.register` would race
@@ -253,6 +270,13 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
             "action_checkbox_name": helpers.ACTION_CHECKBOX_NAME,
         }
         return TemplateResponse(request, "admin/posthog/oauthapplication/revoke_all_sessions_confirm.html", context)
+
+    def delete_view(self, request, object_id, extra_context=None):
+        if request.method == "GET":
+            application = self.get_object(request, object_id)
+            if application is not None and (warning := cimd_blocklist_warning(application)):
+                self.message_user(request, warning, level=messages.WARNING)
+        return super().delete_view(request, object_id, extra_context)
 
     def view_on_site(self, obj: OAuthApplication):
         code_verifier = "test"

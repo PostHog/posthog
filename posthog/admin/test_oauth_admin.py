@@ -11,7 +11,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.admin.admins.oauth_admin import OAuthApplicationAdmin
+from posthog.admin.admins.oauth_admin import OAuthApplicationAdmin, cimd_blocklist_warning
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 
 
@@ -202,3 +202,21 @@ class TestOAuthApplicationAdmin(BaseTest):
         app = OAuthApplication(is_cimd_client=is_cimd)
         readonly = self.admin.get_readonly_fields(request=None, obj=app)
         assert ("scopes" in readonly) is expected_readonly
+
+    @parameterized.expand(
+        [
+            ("cimd_app", True, True),
+            ("regular_app", False, False),
+        ]
+    )
+    def test_only_a_cimd_app_warns_that_deletion_blocklists_its_url(self, _name, is_cimd, expects_warning):
+        app = OAuthApplication(
+            is_cimd_client=is_cimd,
+            cimd_metadata_url="https://partner.example.com/client.json" if is_cimd else None,
+        )
+
+        warning = cimd_blocklist_warning(app)
+
+        assert (warning is not None) is expects_warning
+        if warning is not None:
+            assert "partner.example.com/client.json" in warning
