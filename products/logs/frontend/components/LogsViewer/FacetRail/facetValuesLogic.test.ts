@@ -56,8 +56,8 @@ describe('facetValuesLogic', () => {
     // Selecting a value re-scopes the *other* facets: the backend strips a facet's own filter from
     // its own query, so refetching it burns a request on a response that cannot have changed.
     it.each<[string, FacetConfig, FacetConfig, () => void]>([
-        ['a level selection', LEVEL, SERVICE, () => filtersLogic.actions.setSeverityLevels(['error'])],
-        ['a service selection', SERVICE, LEVEL, () => filtersLogic.actions.setServiceNames(['api'])],
+        ['a level selection', LEVEL, SERVICE, () => filtersLogic.actions.setFilters({ severityLevels: ['error'] })],
+        ['a service selection', SERVICE, LEVEL, () => filtersLogic.actions.setFilters({ serviceNames: ['api'] })],
     ])('%s reloads the other facets but not itself', async (_, selected, other, select) => {
         const selectedLogic = mountFacet(selected)
         const otherLogic = mountFacet(other)
