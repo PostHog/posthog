@@ -66,10 +66,13 @@ from products.notebooks.backend.genui import (
     GenUIRateLimitError,
     cancel_genui_generation,
     generate_genui,
+    get_genui_source,
     get_genui_status,
     infer_genui_inputs,
     inspect_genui_inputs,
     read_genui_frame,
+    revert_genui_version,
+    save_genui_source,
 )
 from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
 from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
@@ -78,6 +81,10 @@ from products.notebooks.backend.presentation.genui_serializers import (
     GenUIErrorSerializer,
     GenUIFrameSerializer,
     GenUIGenerateRequestSerializer,
+    GenUIRevertRequestSerializer,
+    GenUISourceQuerySerializer,
+    GenUISourceResponseSerializer,
+    GenUISourceSaveRequestSerializer,
     GenUIStatusSerializer,
 )
 from products.notebooks.backend.python_analysis import analyze_python_globals, annotate_python_nodes
@@ -770,6 +777,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 inspection=inspection,
                 model=serializer.validated_data["model"],
                 generation_id=serializer.validated_data["generation_id"],
+                operation=serializer.validated_data["operation"],
             )
         except GenUIError as error:
             return self._genui_error_response(error)
@@ -836,6 +844,148 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             raise Http404()
         try:
             result = get_genui_status(notebook=self.get_object(), node_id=node_id)
+        except GenUIError as error:
+            return self._genui_error_response(error)
+        return Response(GenUIStatusSerializer(result).data)
+
+    @extend_schema(
+        operation_id="notebooks_genui_source",
+        responses={200: GenUISourceResponseSerializer, 400: GenUIErrorSerializer, 404: GenUIErrorSerializer},
+        parameters=[
+            OpenApiParameter(
+                "node_id",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.PATH,
+                description="Stable identifier of the generated visualization node.",
+            ),
+            OpenApiParameter(
+                "version_id",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Historical source version to return instead of the current version.",
+            ),
+        ],
+    )
+    @action(
+        methods=["GET"],
+        url_path="genui/(?P<node_id>[^/.]+)/source",
+        detail=True,
+        required_scopes=["notebook:read"],
+    )
+    def genui_source(self, request: Request, node_id: str | None = None, **kwargs) -> Response:
+        if node_id is None:
+            raise Http404()
+        query = GenUISourceQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        try:
+            result = get_genui_source(
+                notebook=self.get_object(),
+                node_id=node_id,
+                version_id=query.validated_data.get("version_id"),
+            )
+        except GenUIError as error:
+            return self._genui_error_response(error)
+        return Response(GenUISourceResponseSerializer(result).data)
+
+    @extend_schema(
+        operation_id="notebooks_genui_save_source",
+        request=GenUISourceSaveRequestSerializer,
+        responses={
+            200: GenUIStatusSerializer,
+            400: GenUIErrorSerializer,
+            404: GenUIErrorSerializer,
+            409: GenUIErrorSerializer,
+            429: GenUIErrorSerializer,
+        },
+        parameters=[
+            OpenApiParameter(
+                "node_id",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.PATH,
+                description="Stable identifier of the generated visualization node.",
+            )
+        ],
+    )
+    @action(
+        methods=["POST"],
+        url_path="genui/(?P<node_id>[^/.]+)/save-source",
+        detail=True,
+        required_scopes=["notebook:write", "query:read"],
+    )
+    def genui_save_source(self, request: Request, node_id: str | None = None, **kwargs) -> Response:
+        if node_id is None:
+            raise Http404()
+        user = self._current_user()
+        if user is None:
+            raise PermissionDenied("A user is required to edit visualization source.")
+        serializer = GenUISourceSaveRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        notebook = self.get_object()
+        self._require_query_access()
+        try:
+            input_candidates = infer_genui_inputs(notebook, node_id)
+            inspection = inspect_genui_inputs(
+                notebook,
+                input_candidates,
+                self._authorize_genui_run,
+                node_id=node_id,
+                require_all=False,
+            )
+            result = save_genui_source(
+                notebook=notebook,
+                node_id=node_id,
+                source=serializer.validated_data["source"],
+                prompt=serializer.validated_data["prompt"],
+                expected_current_version_id=serializer.validated_data["expected_current_version_id"],
+                inputs=[resolved.name for resolved in inspection.resolved_inputs],
+                user_id=user.id,
+            )
+        except GenUIError as error:
+            return self._genui_error_response(error)
+        return Response(GenUIStatusSerializer(result).data)
+
+    @extend_schema(
+        operation_id="notebooks_genui_revert",
+        request=GenUIRevertRequestSerializer,
+        responses={
+            200: GenUIStatusSerializer,
+            400: GenUIErrorSerializer,
+            404: GenUIErrorSerializer,
+            409: GenUIErrorSerializer,
+            429: GenUIErrorSerializer,
+        },
+        parameters=[
+            OpenApiParameter(
+                "node_id",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.PATH,
+                description="Stable identifier of the generated visualization node.",
+            )
+        ],
+    )
+    @action(
+        methods=["POST"],
+        url_path="genui/(?P<node_id>[^/.]+)/revert",
+        detail=True,
+        required_scopes=["notebook:write"],
+    )
+    def genui_revert(self, request: Request, node_id: str | None = None, **kwargs) -> Response:
+        if node_id is None:
+            raise Http404()
+        user = self._current_user()
+        if user is None:
+            raise PermissionDenied("A user is required to restore a visualization version.")
+        serializer = GenUIRevertRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            result = revert_genui_version(
+                notebook=self.get_object(),
+                node_id=node_id,
+                version_id=serializer.validated_data["version_id"],
+                expected_current_version_id=serializer.validated_data["expected_current_version_id"],
+                user_id=user.id,
+            )
         except GenUIError as error:
             return self._genui_error_response(error)
         return Response(GenUIStatusSerializer(result).data)

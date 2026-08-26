@@ -12,6 +12,9 @@ import type {
     GenUICancelRequestApi,
     GenUIFrameApi,
     GenUIGenerateRequestApi,
+    GenUIRevertRequestApi,
+    GenUISourceResponseApi,
+    GenUISourceSaveRequestApi,
     GenUIStatusApi,
     NotebookApi,
     NotebookCollabPresenceApi,
@@ -25,6 +28,7 @@ import type {
     NotebookSQLV2RunResponseApi,
     NotebookSQLV2RunStatusResponseApi,
     NotebookSQLV2StateResponseApi,
+    NotebooksGenuiSourceParams,
     NotebooksListParams,
     PaginatedNotebookMinimalListApi,
     PatchedNotebookApi,
@@ -331,6 +335,87 @@ export const notebooksGenuiGenerate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(genUIGenerateRequestApi),
+    })
+}
+
+export const getNotebooksGenuiRevertUrl = (projectId: string, shortId: string, nodeId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/genui/${nodeId}/revert/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksGenuiRevert = async (
+    projectId: string,
+    shortId: string,
+    nodeId: string,
+    genUIRevertRequestApi: GenUIRevertRequestApi,
+    options?: RequestInit
+): Promise<GenUIStatusApi> => {
+    return apiMutator<GenUIStatusApi>(getNotebooksGenuiRevertUrl(projectId, shortId, nodeId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(genUIRevertRequestApi),
+    })
+}
+
+export const getNotebooksGenuiSaveSourceUrl = (projectId: string, shortId: string, nodeId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/genui/${nodeId}/save-source/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksGenuiSaveSource = async (
+    projectId: string,
+    shortId: string,
+    nodeId: string,
+    genUISourceSaveRequestApi: GenUISourceSaveRequestApi,
+    options?: RequestInit
+): Promise<GenUIStatusApi> => {
+    return apiMutator<GenUIStatusApi>(getNotebooksGenuiSaveSourceUrl(projectId, shortId, nodeId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(genUISourceSaveRequestApi),
+    })
+}
+
+export const getNotebooksGenuiSourceUrl = (
+    projectId: string,
+    shortId: string,
+    nodeId: string,
+    params?: NotebooksGenuiSourceParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/notebooks/${shortId}/genui/${nodeId}/source/?${stringifiedParams}`
+        : `/api/projects/${projectId}/notebooks/${shortId}/genui/${nodeId}/source/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksGenuiSource = async (
+    projectId: string,
+    shortId: string,
+    nodeId: string,
+    params?: NotebooksGenuiSourceParams,
+    options?: RequestInit
+): Promise<GenUISourceResponseApi> => {
+    return apiMutator<GenUISourceResponseApi>(getNotebooksGenuiSourceUrl(projectId, shortId, nodeId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

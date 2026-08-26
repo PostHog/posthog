@@ -39427,6 +39427,20 @@ export namespace Schemas {
       ClaudeOpus5: 'claude-opus-5',
     } as const;
 
+    /**
+     * * `initial` - initial
+     * * `regenerate` - regenerate
+     * * `improve` - improve
+     */
+    export type GenUIGenerateRequestOperationEnum = typeof GenUIGenerateRequestOperationEnum[keyof typeof GenUIGenerateRequestOperationEnum];
+
+
+    export const GenUIGenerateRequestOperationEnum = {
+      Initial: 'initial',
+      Regenerate: 'regenerate',
+      Improve: 'improve',
+    } as const;
+
     export interface GenUIGenerateRequest {
       /**
          * Instructions for the generated visualization.
@@ -39442,10 +39456,45 @@ export namespace Schemas {
        * * `claude-sonnet-5` - claude-sonnet-5
        * * `claude-opus-5` - claude-opus-5 */
       model?: GenUIGenerateRequestModelEnum;
+      /** Whether to generate from scratch or improve the current source.
+       *
+       * * `initial` - initial
+       * * `regenerate` - regenerate
+       * * `improve` - improve */
+      operation?: GenUIGenerateRequestOperationEnum;
+    }
+
+    export interface GenUIRevertRequest {
+      /** Historical source version to restore. */
+      version_id: string;
+      /** Current version observed before requesting the restore. */
+      expected_current_version_id: string;
+    }
+
+    export interface GenUISourceResponse {
+      /** Source version returned by this response. */
+      version_id: string;
+      /** Current source version used for optimistic concurrency. */
+      current_version_id: string;
+      /** Complete editable src/canvas.tsx source for this version. */
+      source: string;
+    }
+
+    export interface GenUISourceSaveRequest {
+      /** Complete replacement src/canvas.tsx source. */
+      source: string;
+      /**
+         * Change note stored with the new source version.
+         * @maxLength 20000
+         */
+      prompt: string;
+      /** Current version the source edit is based on. */
+      expected_current_version_id: string;
     }
 
     /**
      * * `awaiting_generation` - awaiting_generation
+     * * `generating` - generating
      * * `building` - building
      * * `ready` - ready
      * * `failed` - failed
@@ -39455,15 +39504,78 @@ export namespace Schemas {
 
     export const LifecycleStatusEnum = {
       AwaitingGeneration: 'awaiting_generation',
+      Generating: 'generating',
       Building: 'building',
       Ready: 'ready',
       Failed: 'failed',
     } as const;
 
+    /**
+     * * `initial` - initial
+     * * `regenerate` - regenerate
+     * * `improve` - improve
+     * * `source_edit` - source_edit
+     */
+    export type GenUIVersionOperationEnum = typeof GenUIVersionOperationEnum[keyof typeof GenUIVersionOperationEnum];
+
+
+    export const GenUIVersionOperationEnum = {
+      Initial: 'initial',
+      Regenerate: 'regenerate',
+      Improve: 'improve',
+      SourceEdit: 'source_edit',
+    } as const;
+
+    export interface GenUIVersion {
+      /** Canvas source version identifier. */
+      id: string;
+      /**
+         * Canvas source version this version was based on.
+         * @nullable
+         */
+      parent_version_id: string | null;
+      /**
+         * One-based version number within this visualization.
+         * @minimum 1
+         */
+      version: number;
+      /** Action that created this version.
+       *
+       * * `initial` - initial
+       * * `regenerate` - regenerate
+       * * `improve` - improve
+       * * `source_edit` - source_edit */
+      operation: GenUIVersionOperationEnum;
+      /** Prompt or change note entered for this version. */
+      prompt: string;
+      /** Complete prompt represented by this version. */
+      effective_prompt: string;
+      /**
+         * AI model used for this version, or null for imported and manually edited versions.
+         * @nullable
+         */
+      model: string | null;
+      /** When this version was created. */
+      created_at: string;
+      /** Latest Canvas build state for this source version.
+       *
+       * * `queued` - queued
+       * * `building` - building
+       * * `ready` - ready
+       * * `failed` - failed */
+      build_status: BuildStatusEnum | null;
+      /**
+         * Short-lived artifact URL for previewing this version when a retained build is available.
+         * @nullable
+         */
+      artifact_url: string | null;
+    }
+
     export interface GenUIStatus {
       /** Current visualization state derived from its Canvas build.
        *
        * * `awaiting_generation` - awaiting_generation
+       * * `generating` - generating
        * * `building` - building
        * * `ready` - ready
        * * `failed` - failed */
@@ -39480,6 +39592,23 @@ export namespace Schemas {
       artifact_url?: string | null;
       /** Dataframes the current visualization may read. */
       frame_names: string[];
+      /**
+         * When the active or most recent generation started.
+         * @nullable
+         */
+      generation_started_at: string | null;
+      /**
+         * Cancelable generation identifier while model generation is active.
+         * @nullable
+         */
+      generation_id: string | null;
+      /**
+         * Canvas source version currently selected as the visualization head.
+         * @nullable
+         */
+      current_version_id: string | null;
+      /** Complete source-version history, oldest first. */
+      versions: GenUIVersion[];
     }
 
     /**
@@ -50758,20 +50887,6 @@ export namespace Schemas {
          */
       p50_seconds: number | null;
     }
-
-    /**
-     * * `quarantine` - QUARANTINE
-     * * `extend` - EXTEND
-     * * `remove` - REMOVE
-     */
-    export type OperationEnum = typeof OperationEnum[keyof typeof OperationEnum];
-
-
-    export const OperationEnum = {
-      Quarantine: 'quarantine',
-      Extend: 'extend',
-      Remove: 'remove',
-    } as const;
 
     /**
      * * `latest` - latest
@@ -68465,6 +68580,20 @@ export namespace Schemas {
     }
 
     /**
+     * * `quarantine` - QUARANTINE
+     * * `extend` - EXTEND
+     * * `remove` - REMOVE
+     */
+    export type QuarantineRequestOperationEnum = typeof QuarantineRequestOperationEnum[keyof typeof QuarantineRequestOperationEnum];
+
+
+    export const QuarantineRequestOperationEnum = {
+      Quarantine: 'quarantine',
+      Extend: 'extend',
+      Remove: 'remove',
+    } as const;
+
+    /**
      * * `pytest` - PYTEST
      * * `jest` - JEST
      * * `playwright` - PLAYWRIGHT
@@ -68484,7 +68613,7 @@ export namespace Schemas {
        * * `quarantine` - QUARANTINE
        * * `extend` - EXTEND
        * * `remove` - REMOVE */
-      operation: OperationEnum;
+      operation: QuarantineRequestOperationEnum;
       /** Test selector to act on: an exact test id, a file, a directory, a class prefix, or 'product:<dashed-name>'. */
       selector: string;
       /** Test runner the selector targets: 'pytest', 'jest', or 'playwright'. Existing entries and Jest file extensions are inferred for older clients that omit it; other selectors default to 'pytest'.
@@ -93617,6 +93746,13 @@ export namespace Schemas {
      * If any value is provided for this parameter, return notebooks created by the logged in user.
      */
     user?: string;
+    };
+
+    export type NotebooksGenuiSourceParams = {
+    /**
+     * Historical source version to return instead of the current version.
+     */
+    version_id?: string;
     };
 
     export type NotificationsListParams = {

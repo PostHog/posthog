@@ -34,6 +34,15 @@ const HISTORICAL_DOC: JSONContent = {
     content: [{ type: 'paragraph', content: [{ type: 'text', text: 'historical' }] }],
 }
 
+const setDocumentHidden = (hidden: boolean): void => {
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden })
+    Object.defineProperty(document, 'visibilityState', {
+        configurable: true,
+        get: () => (hidden ? 'hidden' : 'visible'),
+    })
+    document.dispatchEvent(new Event('visibilitychange'))
+}
+
 const cachedNotebook: NotebookType = {
     id: 'notebook-id',
     short_id: SHORT_ID,
@@ -59,6 +68,7 @@ describe('Notebook history revert flow', () => {
 
     beforeEach(() => {
         localStorage.clear()
+        setDocumentHidden(false)
         historyLogic = null
         useMocks({
             get: {
@@ -84,6 +94,7 @@ describe('Notebook history revert flow', () => {
     afterEach(() => {
         logic?.unmount()
         historyLogic?.unmount()
+        setDocumentHidden(false)
         jest.restoreAllMocks()
     })
 
@@ -325,6 +336,34 @@ converted`)
 
         expect(logic.values.notebook?.version).toBe(2)
         expect(logic.values.notebook?.content).toEqual(updatedContent)
+    })
+
+    it('releases the collaboration stream while the notebook tab is hidden', async () => {
+        const streamSignals: AbortSignal[] = []
+        const collabStreamSpy = jest
+            .spyOn(api.notebooks, 'collabStream')
+            .mockImplementation(async (_shortId, { signal }) => {
+                if (!signal) {
+                    throw new Error('expected collaboration stream to be abortable')
+                }
+                streamSignals.push(signal)
+                await new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve(), { once: true }))
+            })
+
+        logic = notebookLogic({ shortId: SHORT_ID, mode: 'notebook' })
+        logic.mount()
+        logic.actions.loadNotebook()
+        await expectLogic(logic).toDispatchActions(['loadNotebookSuccess']).toFinishAllListeners()
+
+        expect(collabStreamSpy).toHaveBeenCalledTimes(1)
+        expect(streamSignals[0].aborted).toBe(false)
+
+        setDocumentHidden(true)
+        expect(streamSignals[0].aborted).toBe(true)
+
+        setDocumentHidden(false)
+        expect(collabStreamSpy).toHaveBeenCalledTimes(2)
+        expect(streamSignals[1].aborted).toBe(false)
     })
 
     it('clears markdown local content after the save response updates notebook content', async () => {

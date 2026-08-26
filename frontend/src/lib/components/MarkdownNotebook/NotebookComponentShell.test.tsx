@@ -21,6 +21,49 @@ function PanelStateProbe(): JSX.Element {
 }
 
 describe('NotebookComponentShell', () => {
+    it('opens a fullscreenable component results panel from the toolbar', () => {
+        const registry = createMarkdownNotebookRegistry([
+            {
+                tagName: 'Probe',
+                label: 'Probe',
+                category: 'Test',
+                ViewComponent: () => <div>Results</div>,
+                fullscreenable: true,
+            },
+        ])
+
+        const { container } = render(
+            <NotebookComponentShell
+                node={{
+                    id: 'probe-node',
+                    type: 'component',
+                    tagName: 'Probe',
+                    props: {},
+                }}
+                mode="edit"
+                componentPanels={{ filters: false, results: true }}
+                persistComponentPanelVisibility={false}
+                isSelected={false}
+                registry={registry}
+                toggleComponentPanel={jest.fn()}
+                setLocalComponentPanels={jest.fn()}
+                rememberComponentPanels={jest.fn()}
+                setBlockRef={jest.fn()}
+                updateNode={jest.fn()}
+                deleteNode={jest.fn()}
+                deleteSelectedNotebookBlocks={jest.fn(() => false)}
+                insertParagraphAfterNode={jest.fn()}
+                moveFocusToAdjacentNode={jest.fn(() => false)}
+            />
+        )
+        const resultsPanel = container.querySelector('.MarkdownNotebook__component-panel--results') as HTMLDivElement
+        resultsPanel.requestFullscreen = jest.fn().mockResolvedValue(undefined)
+
+        fireEvent.click(screen.getByLabelText('View fullscreen'))
+
+        expect(resultsPanel.requestFullscreen).toHaveBeenCalledTimes(1)
+    })
+
     it('provides markdown component panel state to rendered components', () => {
         const registry = createMarkdownNotebookRegistry([
             {

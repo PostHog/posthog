@@ -7,13 +7,18 @@ from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.test import SimpleTestCase
+from django.utils import timezone
 
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 
-from products.canvas.backend.notebook_integration import validate_notebook_canvas_source
+from products.canvas.backend.notebook_integration import (
+    CanvasGenerationState,
+    NotebookCanvasVersion,
+    validate_notebook_canvas_source,
+)
 from products.notebooks.backend.genui import (
     MAX_FRAME_BYTES,
     GenUIError,
@@ -28,13 +33,15 @@ from products.notebooks.backend.genui_generation import (
     GENUI_MODEL_MAX_TOKENS,
     GENUI_MODEL_TEMPERATURE,
     GENUI_MODEL_TIMEOUT_SECONDS,
+    GENUI_MODEL_TOTAL_BUDGET_SECONDS,
     GenUISourceGenerationCancelled,
     GenUISourceGenerationError,
+    GenUISourceGenerationTimedOut,
     _generation_prompt,
     generate_genui_source,
 )
 from products.notebooks.backend.genui_models import DEFAULT_GENUI_MODEL
-from products.notebooks.backend.models import Notebook, NotebookGenUI, NotebookNodeRun
+from products.notebooks.backend.models import Notebook, NotebookGenUI, NotebookGenUIVersion, NotebookNodeRun
 from products.notebooks.backend.presentation.genui_serializers import GenUIGenerateRequestSerializer
 
 from ee.models.rbac.access_control import AccessControl
@@ -107,6 +114,7 @@ class TestGenUIGeneration(SimpleTestCase):
         assert "camera orbit, pan, and zoom" in prompt
         assert "controls for exploring or manipulating the data" in prompt
         assert "without rebuilding the entire scene" in prompt
+        assert "Do not import `usePostHog`" in prompt
 
     def test_invalid_source_gets_one_repair_attempt(self) -> None:
         client = MagicMock()
@@ -130,7 +138,9 @@ class TestGenUIGeneration(SimpleTestCase):
         )
 
         assert source == "export default function Canvas() { return <div>Ready</div> }"
-        client.with_options.assert_called_with(timeout=GENUI_MODEL_TIMEOUT_SECONDS[DEFAULT_GENUI_MODEL], max_retries=0)
+        timeout_options = client.with_options.call_args.kwargs
+        self.assertAlmostEqual(timeout_options["timeout"], GENUI_MODEL_TIMEOUT_SECONDS[DEFAULT_GENUI_MODEL], places=1)
+        assert timeout_options["max_retries"] == 0
         assert client.chat.completions.create.call_count == 2
         first_request = client.chat.completions.create.call_args_list[0].kwargs
         assert first_request["model"] == DEFAULT_GENUI_MODEL
@@ -159,6 +169,54 @@ class TestGenUIGeneration(SimpleTestCase):
                 input_names=[],
                 client=client,
                 is_cancelled=is_cancelled,
+            )
+
+        stream.close.assert_called_once()
+
+    def test_improvement_includes_the_existing_source_and_requested_change(self) -> None:
+        client = MagicMock()
+        client.with_options.return_value = client
+        stream = completion_stream('{"source":"export default function Canvas() { return <main>Light</main> }"}')
+        client.chat.completions.create.return_value = stream
+
+        source = generate_genui_source(
+            team_id=42,
+            trace_id="trace-42",
+            prompt="Render a globe\n\nAdditional change:\nMake it lighter",
+            schemas=[],
+            input_names=[],
+            client=client,
+            base_source="export default function Canvas() { return <main>Dark</main> }",
+            change_prompt="Make it lighter",
+        )
+
+        assert source == "export default function Canvas() { return <main>Light</main> }"
+        request = client.chat.completions.create.call_args.kwargs["messages"][1]["content"]
+        assert "<existing_source>" in request
+        assert "<requested_change>Make it lighter</requested_change>" in request
+        assert "Preserve working behavior" in request
+
+    def test_generation_enforces_a_total_wall_clock_budget(self) -> None:
+        client = MagicMock()
+        client.with_options.return_value = client
+        stream = completion_stream('{"source":"export default function Canvas() { return <div /> }"}')
+        client.chat.completions.create.return_value = stream
+        total_budget = GENUI_MODEL_TOTAL_BUDGET_SECONDS[DEFAULT_GENUI_MODEL]
+
+        with (
+            patch(
+                "products.notebooks.backend.genui_generation.monotonic",
+                side_effect=[0.0, 0.0, total_budget + 1.0],
+            ),
+            self.assertRaises(GenUISourceGenerationTimedOut),
+        ):
+            generate_genui_source(
+                team_id=42,
+                trace_id="trace-42",
+                prompt="Render a globe",
+                schemas=[],
+                input_names=[],
+                client=client,
             )
 
         stream.close.assert_called_once()
@@ -244,6 +302,18 @@ class TestGenUIGeneration(SimpleTestCase):
         )
 
         assert infer_genui_inputs(notebook, "globe") == ["locations_df", "summary_df", "future_df"]
+
+    def test_infers_dataframe_context_for_a_legacy_node_without_an_explicit_id(self) -> None:
+        notebook = cast(
+            Notebook,
+            SimpleNamespace(
+                content=markdown_content(
+                    '<SQLV2 nodeId="source" returnVariable="sql_df" />\n\n<GenUI prompt="Render a globe" />'
+                )
+            ),
+        )
+
+        assert infer_genui_inputs(notebook, "mdn-1wuadf9-0") == ["sql_df"]
 
 
 class TestGenUIData(APIBaseTest):
@@ -352,6 +422,67 @@ class TestGenUIData(APIBaseTest):
         assert response.json()["lifecycle_status"] == "awaiting_generation"
         generate.assert_not_called()
 
+    def test_status_returns_complete_version_history(self) -> None:
+        source_version_id = uuid4()
+        row = self._mapping()
+        NotebookGenUIVersion.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            genui=row,
+            canvas_source_version_id=source_version_id,
+            operation=NotebookGenUIVersion.Operation.IMPROVE,
+            prompt="Make it lighter",
+            effective_prompt="Render a globe\n\nAdditional change:\nMake it lighter",
+            model="claude-sonnet-4-6",
+        )
+        state = CanvasGenerationState(
+            current_source_version_id=source_version_id,
+            published_source_version_id=source_version_id,
+            artifact_url=None,
+            build_status="ready",
+            build_error=None,
+        )
+        history = [
+            NotebookCanvasVersion(
+                id=source_version_id,
+                parent_version_id=None,
+                prompt="Make it lighter",
+                created_at=timezone.now(),
+                build_status="ready",
+                artifact_url="https://example.com/globe.html",
+            )
+        ]
+        url = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/genui/{self.NODE_ID}/status/"
+
+        with (
+            patch(
+                "products.canvas.backend.notebook_integration.get_canvas_generation_state",
+                return_value=state,
+            ),
+            patch(
+                "products.canvas.backend.notebook_integration.list_notebook_canvas_versions",
+                return_value=history,
+            ),
+        ):
+            response = self.client.get(url)
+
+        assert response.status_code == 200
+        assert response.json()["lifecycle_status"] == "ready"
+        assert response.json()["current_version_id"] == str(source_version_id)
+        assert response.json()["versions"] == [
+            {
+                "id": str(source_version_id),
+                "parent_version_id": None,
+                "version": 1,
+                "operation": "improve",
+                "prompt": "Make it lighter",
+                "effective_prompt": "Render a globe\n\nAdditional change:\nMake it lighter",
+                "model": "claude-sonnet-4-6",
+                "created_at": history[0].created_at.isoformat().replace("+00:00", "Z"),
+                "build_status": "ready",
+                "artifact_url": "https://example.com/globe.html",
+            }
+        ]
+
     def test_generate_endpoint_infers_available_dataframes(self) -> None:
         latest = self._run()
         url = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/genui/{self.NODE_ID}/generate/"
@@ -360,6 +491,10 @@ class TestGenUIData(APIBaseTest):
             error_detail=None,
             artifact_url=None,
             frame_names=[self.INPUT_NAME],
+            generation_started_at=None,
+            generation_id=None,
+            current_version_id=None,
+            versions=[],
         )
 
         with patch(
@@ -374,6 +509,7 @@ class TestGenUIData(APIBaseTest):
         assert response.status_code == 200
         assert generate.call_args.kwargs["inputs"] == [self.INPUT_NAME]
         assert generate.call_args.kwargs["inspection"].resolved_inputs[0].run == latest
+        assert generate.call_args.kwargs["operation"] == "regenerate"
 
     def test_cancel_endpoint_records_the_request(self) -> None:
         generation_id = uuid4()

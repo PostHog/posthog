@@ -1,13 +1,15 @@
 import re
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
 from posthog.dataclasses import frozen
 from posthog.models import User
+from posthog.storage.object_storage import ObjectStorageError
 
 from products.canvas.backend import build_service
 from products.canvas.backend.artifacts import create_canvas_artifact_url
-from products.canvas.backend.models import Canvas, CanvasBuild
+from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.canvas.backend.source import has_errors, synthetic_source_project, validate_source_project
 
 NOTEBOOK_FRAME_KEY_PREFIX = "__posthog_notebook_frame__:"
@@ -27,6 +29,23 @@ class CanvasGenerationState:
     published_source_version_id: UUID | None
     artifact_url: str | None
     build_status: str | None
+    build_error: str | None
+
+
+@frozen
+class NotebookCanvasVersion:
+    id: UUID
+    parent_version_id: UUID | None
+    prompt: str | None
+    created_at: datetime
+    build_status: str | None
+    artifact_url: str | None
+
+
+@frozen
+class NotebookCanvasSource:
+    version_id: UUID
+    source: str
 
 
 class NotebookCanvasError(Exception):
@@ -119,7 +138,7 @@ def publish_notebook_canvas_source(
     prompt: str,
     name: str,
     expected_current_version_id: UUID | None,
-) -> None:
+) -> tuple[UUID, UUID]:
     canvas = Canvas.objects.for_team(team_id).filter(id=canvas_id, deleted=False).first()
     user = User.objects.filter(id=user_id).first()
     if canvas is None or user is None:
@@ -130,7 +149,7 @@ def publish_notebook_canvas_source(
         raise NotebookCanvasSourceInvalidError
 
     try:
-        build_service.publish_source_project(
+        _, version, build, _ = build_service.publish_source_project(
             canvas,
             project=project,
             prompt=prompt,
@@ -144,6 +163,101 @@ def publish_notebook_canvas_source(
         raise NotebookCanvasVersionConflictError from error
     except build_service.CanvasBuildCapacityExceeded as error:
         raise NotebookCanvasBuildCapacityError from error
+    return version.id, build.id
+
+
+def list_notebook_canvas_versions(*, team_id: int, canvas_id: UUID) -> list[NotebookCanvasVersion]:
+    canvas = Canvas.objects.for_team(team_id).filter(id=canvas_id, deleted=False).first()
+    if canvas is None:
+        raise NotebookCanvasNotFoundError
+    versions = list(
+        CanvasSourceVersion.objects.for_team(team_id).filter(canvas_id=canvas.id, draft=False).order_by("created_at")
+    )
+    builds = CanvasBuild.objects.for_team(team_id).filter(canvas_id=canvas.id).order_by("-created_at")
+    latest_builds: dict[UUID, CanvasBuild] = {}
+    latest_ready_builds: dict[UUID, CanvasBuild] = {}
+    for build_record in builds:
+        latest_builds.setdefault(build_record.source_version_id, build_record)
+        if build_record.status == CanvasBuild.STATUS_READY:
+            latest_ready_builds.setdefault(build_record.source_version_id, build_record)
+
+    result: list[NotebookCanvasVersion] = []
+    for version in versions:
+        current_build = latest_builds.get(version.id)
+        ready_build = latest_ready_builds.get(version.id)
+        artifact_url: str | None = None
+        if (
+            ready_build is not None
+            and ready_build.artifact_object_prefix
+            and isinstance(ready_build.manifest, dict)
+            and isinstance(entry := ready_build.manifest.get("entryHtml"), str)
+        ):
+            artifact_url = create_canvas_artifact_url(ready_build, entry)
+        result.append(
+            NotebookCanvasVersion(
+                id=version.id,
+                parent_version_id=version.parent_version_id,
+                prompt=version.prompt,
+                created_at=version.created_at,
+                build_status=current_build.status if current_build is not None else None,
+                artifact_url=artifact_url,
+            )
+        )
+    return result
+
+
+def get_notebook_canvas_source(
+    *, team_id: int, canvas_id: UUID, version_id: UUID | None = None
+) -> NotebookCanvasSource:
+    canvas = Canvas.objects.for_team(team_id).filter(id=canvas_id, deleted=False).first()
+    if canvas is None:
+        raise NotebookCanvasNotFoundError
+    resolved_version_id = version_id or canvas.current_source_version_id
+    if resolved_version_id is None:
+        raise NotebookCanvasNotFoundError
+    version = (
+        CanvasSourceVersion.objects.for_team(team_id)
+        .filter(id=resolved_version_id, canvas_id=canvas.id, draft=False)
+        .first()
+    )
+    if version is None:
+        raise NotebookCanvasNotFoundError
+    try:
+        project = build_service.read_source_project(version)
+    except ObjectStorageError as error:
+        raise NotebookCanvasError from error
+    files = project.get("files")
+    source = files.get("src/canvas.tsx") if isinstance(files, dict) else None
+    if not isinstance(source, str):
+        raise NotebookCanvasSourceInvalidError
+    bridge_prefix = f"{_FRAME_BRIDGE}\n\n"
+    return NotebookCanvasSource(
+        version_id=version.id,
+        source=source.removeprefix(bridge_prefix),
+    )
+
+
+def revert_notebook_canvas(
+    *, team_id: int, canvas_id: UUID, version_id: UUID, expected_current_version_id: UUID | None, user_id: int
+) -> UUID:
+    canvas = Canvas.objects.for_team(team_id).filter(id=canvas_id, deleted=False).first()
+    user = User.objects.filter(id=user_id).first()
+    if canvas is None or user is None:
+        raise NotebookCanvasNotFoundError
+    try:
+        _, build = build_service.revert_to_version(
+            canvas,
+            version_id,
+            expected_current_version_id,
+            user=user,
+        )
+    except CanvasSourceVersion.DoesNotExist as error:
+        raise NotebookCanvasNotFoundError from error
+    except build_service.CanvasVersionConflict as error:
+        raise NotebookCanvasVersionConflictError from error
+    except build_service.CanvasBuildCapacityExceeded as error:
+        raise NotebookCanvasBuildCapacityError from error
+    return build.id
 
 
 def get_canvas_generation_state(*, team_id: int, canvas_id: UUID) -> CanvasGenerationState | None:
@@ -175,9 +289,17 @@ def get_canvas_generation_state(*, team_id: int, canvas_id: UUID) -> CanvasGener
     ):
         artifact_url = create_canvas_artifact_url(published_build, entry)
 
+    build_error: str | None = None
+    if current_build is not None and isinstance(current_build.diagnostics, list):
+        for diagnostic in current_build.diagnostics:
+            if isinstance(diagnostic, dict) and isinstance(message := diagnostic.get("message"), str):
+                build_error = message[:1_000]
+                break
+
     return CanvasGenerationState(
         current_source_version_id=canvas.current_source_version_id,
         published_source_version_id=published_build.source_version_id if published_build else None,
         artifact_url=artifact_url,
         build_status=current_build.status if current_build else None,
+        build_error=build_error,
     )

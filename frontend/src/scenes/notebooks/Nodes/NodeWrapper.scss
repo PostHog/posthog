@@ -41,6 +41,18 @@
         .NotebookNode__content {
             z-index: 1;
             transition: box-shadow 150ms ease-out;
+
+            &:fullscreen {
+                width: 100vw;
+                height: 100vh !important;
+                min-height: 100vh !important;
+                resize: none;
+                background-color: var(--color-bg-surface-primary);
+
+                .NotebookNode__resize-handle {
+                    display: none;
+                }
+            }
         }
 
         .NotebookNode__resize-handle {

@@ -86,6 +86,7 @@ describe('markdownNotebookRegistry', () => {
             expect(
                 getInsertCommandsByLabel({ [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]: true }, 'Custom visualization')
             ).toEqual([{ key: 'component-GenUI', category: 'Code' }])
+            expect(NOTEBOOK_MARKDOWN_REGISTRY.components.GenUI.fullscreenable).toBe(true)
         })
 
         // The panel visibility resolver is the notebook shell's public behavior. Testing through it

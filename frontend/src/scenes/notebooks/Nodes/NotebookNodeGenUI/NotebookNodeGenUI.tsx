@@ -9,11 +9,10 @@ import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 
 import { NotebookNodeProps, NotebookNodeType } from '../../types'
 import { notebookNodeLogic } from '../notebookNodeLogic'
-import { confirmGenUIGeneration } from './confirmGenUIGeneration'
 import { GenUIArtifactFrame } from './GenUIArtifactFrame'
 import { DEFAULT_GENUI_MODEL, GenUIModel } from './genUIModels'
 import { getGenUIName } from './genUIName'
-import { loadGenUIFrame, notebookNodeGenUILogic } from './notebookNodeGenUILogic'
+import { formatGenUIElapsed, loadGenUIFrame, notebookNodeGenUILogic } from './notebookNodeGenUILogic'
 import { NotebookNodeGenUISettings } from './NotebookNodeGenUISettings'
 
 export type NotebookNodeGenUIAttributes = {
@@ -49,14 +48,20 @@ function Component({ attributes }: NotebookNodeProps<NotebookNodeGenUIAttributes
     const {
         cancellationInFlight,
         currentTeamId,
+        elapsedSeconds,
         error,
         frameRevision,
         generationInFlight,
+        isWorking,
         runtimeError,
+        selectedVersion,
+        selectedVersionId,
         status,
         statusLoading,
+        workingStatus,
     } = useValues(logic)
-    const { cancelGeneration, generateVisualization, loadStatus, setRuntimeError } = useActions(logic)
+    const { cancelGeneration, generateVisualization, loadStatus, openGenerationModal, setRuntimeError } =
+        useActions(logic)
 
     if (!expanded) {
         return null
@@ -70,15 +75,22 @@ function Component({ attributes }: NotebookNodeProps<NotebookNodeGenUIAttributes
         )
     }
 
-    const isBuilding = status?.lifecycle_status === 'building'
     const canGenerate = Boolean((attributes.prompt ?? '').trim())
+    const selectedArtifactUrl =
+        selectedVersion?.artifact_url ??
+        (selectedVersionId === status?.current_version_id ? status?.artifact_url : null)
 
-    if (status?.artifact_url && currentTeamId) {
+    if (selectedArtifactUrl && currentTeamId) {
         return (
             <div className="flex h-full min-h-0 w-full flex-col">
                 {error ? (
                     <LemonBanner type="error" className="m-2">
                         {error}
+                    </LemonBanner>
+                ) : null}
+                {status?.lifecycle_status === 'failed' && status.error_detail ? (
+                    <LemonBanner type="error" className="m-2">
+                        {status.error_detail}
                     </LemonBanner>
                 ) : null}
                 {runtimeError ? (
@@ -88,9 +100,9 @@ function Component({ attributes }: NotebookNodeProps<NotebookNodeGenUIAttributes
                 ) : null}
                 <div className="min-h-0 flex-1">
                     <GenUIArtifactFrame
-                        key={`${status.artifact_url}-${frameRevision}`}
-                        artifactUrl={status.artifact_url}
-                        allowedFrames={status.frame_names}
+                        key={`${selectedArtifactUrl}-${frameRevision}`}
+                        artifactUrl={selectedArtifactUrl}
+                        allowedFrames={status?.frame_names ?? []}
                         onReadFrame={(name) =>
                             loadGenUIFrame(String(currentTeamId), notebookShortId, attributes.nodeId, name)
                         }
@@ -107,15 +119,24 @@ function Component({ attributes }: NotebookNodeProps<NotebookNodeGenUIAttributes
         )
     }
 
-    if (generationInFlight || isBuilding) {
+    if (isWorking) {
         return (
             <EmptyState>
                 <div className="flex flex-col items-center gap-3">
                     <div className="flex items-center gap-2" role="status" aria-live="polite">
                         <Spinner />
-                        <span>{generationInFlight ? 'Generating visualization…' : 'Building visualization…'}</span>
+                        <span>{workingStatus?.label}</span>
+                        <span className="font-mono tabular-nums">Elapsed {formatGenUIElapsed(elapsedSeconds)}</span>
                     </div>
-                    {generationInFlight && isEditable ? (
+                    {workingStatus ? (
+                        <div className="flex max-w-lg flex-col gap-1 text-sm">
+                            <span>{workingStatus.detail}</span>
+                            <span className={workingStatus.isOverEstimate ? 'text-warning' : 'text-muted'}>
+                                {workingStatus.timing}
+                            </span>
+                        </div>
+                    ) : null}
+                    {(status?.generation_id || generationInFlight) && isEditable ? (
                         <LemonButton onClick={cancelGeneration} loading={cancellationInFlight}>
                             Cancel
                         </LemonButton>
@@ -133,14 +154,31 @@ function Component({ attributes }: NotebookNodeProps<NotebookNodeGenUIAttributes
                     {isEditable ? (
                         <LemonButton
                             type="primary"
-                            onClick={() => confirmGenUIGeneration(generateVisualization)}
+                            onClick={() =>
+                                status?.versions.length
+                                    ? openGenerationModal('regenerate')
+                                    : generateVisualization(
+                                          attributes.prompt ?? '',
+                                          attributes.model ?? DEFAULT_GENUI_MODEL,
+                                          'initial'
+                                      )
+                            }
                             loading={generationInFlight}
-                            disabledReason={!canGenerate ? 'Add a prompt first' : undefined}
+                            disabledReason={!status?.versions.length && !canGenerate ? 'Add a prompt first' : undefined}
                         >
                             Try again
                         </LemonButton>
                     ) : null}
                 </div>
+            </EmptyState>
+        )
+    }
+
+    if (selectedVersion) {
+        return (
+            <EmptyState>
+                This version's preview is no longer available. You can still view its prompt and source in the block
+                settings.
             </EmptyState>
         )
     }
@@ -153,7 +191,17 @@ function Component({ attributes }: NotebookNodeProps<NotebookNodeGenUIAttributes
             <div className="flex flex-col items-center gap-3">
                 <div>This visualization has not been generated yet.</div>
                 {isEditable ? (
-                    <LemonButton type="primary" onClick={generateVisualization} loading={generationInFlight}>
+                    <LemonButton
+                        type="primary"
+                        onClick={() =>
+                            generateVisualization(
+                                attributes.prompt ?? '',
+                                attributes.model ?? DEFAULT_GENUI_MODEL,
+                                'initial'
+                            )
+                        }
+                        loading={generationInFlight}
+                    >
                         Generate visualization
                     </LemonButton>
                 ) : null}
@@ -171,6 +219,7 @@ export const NotebookNodeGenUI = createPostHogWidgetNode<NotebookNodeGenUIAttrib
     heightEstimate: 420,
     minHeight: 180,
     resizeable: true,
+    fullscreenable: true,
     expandable: false,
     attributes: {
         prompt: { default: '' },

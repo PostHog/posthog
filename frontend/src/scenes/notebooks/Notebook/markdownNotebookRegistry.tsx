@@ -353,6 +353,7 @@ export const NOTEBOOK_MARKDOWN_REGISTRY: NotebookComponentRegistry = createMarkd
             EditComponent: definition.EditComponent ?? RealNotebookNodeEdit,
             exclusiveEditPanel: definition.exclusiveEditPanel,
             editableTitle: options?.editableTitle,
+            fullscreenable: options?.fullscreenable,
             // Nodes with a Settings panel keep their filters toggle on read-only canvases
             // (customer profiles), where the panel is the only way to configure them.
             viewModeFilters: !!options?.Settings,

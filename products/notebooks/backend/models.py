@@ -307,3 +307,32 @@ class NotebookGenUI(TeamScopedRootMixin, UUIDModel):
         indexes = [
             models.Index(fields=["team", "notebook", "lifecycle_status"], name="notebook_genui_lifecycle"),
         ]
+
+
+class NotebookGenUIVersion(TeamScopedRootMixin, UUIDModel):
+    class Operation(models.TextChoices):
+        INITIAL = "initial", "initial"
+        REGENERATE = "regenerate", "regenerate"
+        IMPROVE = "improve", "improve"
+        SOURCE_EDIT = "source_edit", "source_edit"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    genui = models.ForeignKey("notebooks.NotebookGenUI", on_delete=models.CASCADE, related_name="version_metadata")
+    canvas_source_version_id = models.UUIDField()
+    operation = models.CharField(choices=Operation, max_length=16)
+    prompt = models.TextField()
+    effective_prompt = models.TextField()
+    model = models.CharField(max_length=64, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "posthog_notebookgenui_version"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "genui", "canvas_source_version_id"],
+                name="notebook_genui_canvas_version_unique",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["team", "genui", "-created_at"], name="notebook_genui_version_recency"),
+        ]

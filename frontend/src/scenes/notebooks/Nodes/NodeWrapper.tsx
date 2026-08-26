@@ -15,7 +15,7 @@ import { DuckSqlRunMenu } from './components/DuckSqlRunMenu'
 import { HogqlSqlRunMenu } from './components/HogqlSqlRunMenu'
 import { PythonRunMenu } from './components/PythonRunMenu'
 import { NotebookNodeContext } from './NotebookNodeContext'
-import { IconCollapse, IconEllipsis, IconExpand, IconPencil } from '@posthog/icons'
+import { IconCollapse, IconEllipsis, IconExpand, IconExpand45, IconPencil } from '@posthog/icons'
 import {
     CreatePostHogWidgetNodeOptions,
     CustomNotebookNodeAttributes,
@@ -36,6 +36,9 @@ const NON_COPYABLE_NODES = [
     NotebookNodeType.RelatedGroups,
 ]
 
+// pinned: the data attribute is used by product analytics and browser tests
+const NOTEBOOK_NODE_FULLSCREEN_DATA_ATTR = 'notebook-node-view-fullscreen'
+
 function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperProps<T>): JSX.Element {
     const {
         nodeType,
@@ -44,6 +47,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
         href,
         heightEstimate = '4rem',
         expandable = true,
+        fullscreenable = false,
         expandOnClick = true,
         autoHideMetadata = false,
         minHeight,
@@ -114,6 +118,12 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
     })
 
     const contentRef = useRef<HTMLDivElement | null>(null)
+    const openFullscreen = useCallback((): void => {
+        const content = contentRef.current
+        if (content?.requestFullscreen) {
+            void content.requestFullscreen().catch(() => undefined)
+        }
+    }, [])
 
     // If resizeable is true then the node attr "height" is required
     const height = attributes.height ?? heightEstimate
@@ -374,6 +384,16 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                                                 : 'Show editor and settings'
                                                         }
                                                         data-attr="notebook-node-edit-settings"
+                                                    />
+                                                ) : null}
+
+                                                {fullscreenable ? (
+                                                    <LemonButton
+                                                        onClick={openFullscreen}
+                                                        size="small"
+                                                        icon={<IconExpand45 />}
+                                                        tooltip="View fullscreen. Press Esc to exit."
+                                                        data-attr={NOTEBOOK_NODE_FULLSCREEN_DATA_ATTR}
                                                     />
                                                 ) : null}
 

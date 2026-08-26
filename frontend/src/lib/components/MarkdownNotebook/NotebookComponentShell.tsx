@@ -17,6 +17,7 @@ import {
     IconDatabase,
     IconEllipsis,
     IconExpand,
+    IconExpand45,
     IconEye,
     IconPencil,
     IconGraph,
@@ -124,6 +125,7 @@ export function NotebookComponentShell({
     const showViewPanel =
         ((mode === 'view' && !isViewModeCanvas) || componentPanels.results) &&
         !(showEditPanel && definition?.exclusiveEditPanel)
+    const showFullscreen = !!definition?.fullscreenable && showViewPanel
     const showModeActions = mode === 'edit' && !!definition && !definition.hideModeActions
     // Edit mode already covers folding via the eye/title, so collapse only shows where those
     // controls don't render: read-only canvases.
@@ -186,6 +188,13 @@ export function NotebookComponentShell({
         ...(mode === 'edit' ? (toolbarExtras?.editMenuItems ?? []) : []),
     ])
     const hasToolbarMenu = toolbarMenuItems.some(Boolean)
+    const resultsPanelRef = useRef<HTMLDivElement | null>(null)
+    const openResultsFullscreen = useCallback((): void => {
+        const resultsPanel = resultsPanelRef.current
+        if (resultsPanel?.requestFullscreen) {
+            void resultsPanel.requestFullscreen().catch(() => undefined)
+        }
+    }, [])
     const [titleDraft, setTitleDraft] = useState<string | null>(null)
     const [isEditingTitle, setIsEditingTitle] = useState(false)
     // A browser fires two `click`s before `dblclick`. Defer the title's collapse so a rename
@@ -501,7 +510,7 @@ export function NotebookComponentShell({
                         {titleStatusTag}
                     </div>
                 ) : null}
-                {hasToolbarMenu || mode === 'edit' || showCollapseToggle ? (
+                {hasToolbarMenu || mode === 'edit' || showCollapseToggle || showFullscreen ? (
                     <div className="MarkdownNotebook__component-actions">
                         {showCollapseToggle ? (
                             <LemonButton
@@ -510,6 +519,16 @@ export function NotebookComponentShell({
                                 icon={hasOpenComponentPanel ? <IconCollapse /> : <IconExpand />}
                                 tooltip={hasOpenComponentPanel ? 'Collapse' : 'Expand'}
                                 onClick={toggleAllComponentPanels}
+                            />
+                        ) : null}
+                        {showFullscreen ? (
+                            <LemonButton
+                                aria-label="View fullscreen"
+                                size="xsmall"
+                                icon={<IconExpand45 />}
+                                tooltip="View fullscreen. Press Esc to exit."
+                                onClick={openResultsFullscreen}
+                                data-attr="notebook-node-view-fullscreen"
                             />
                         ) : null}
                         {hasToolbarMenu ? (
@@ -558,7 +577,10 @@ export function NotebookComponentShell({
                         </div>
                     ) : null}
                     {showViewPanel ? (
-                        <div className="MarkdownNotebook__component-panel MarkdownNotebook__component-panel--results">
+                        <div
+                            ref={resultsPanelRef}
+                            className="MarkdownNotebook__component-panel MarkdownNotebook__component-panel--results"
+                        >
                             {ViewComponent ? (
                                 <NotebookComponentPanelErrorBoundary node={node} panel="results">
                                     <ViewComponent

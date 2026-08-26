@@ -218,6 +218,7 @@ export const NotebooksGenuiCancelBody = /* @__PURE__ */ zod.object({
 export const notebooksGenuiGenerateBodyPromptMax = 20000
 
 export const notebooksGenuiGenerateBodyModelDefault = `claude-sonnet-4-6`
+export const notebooksGenuiGenerateBodyOperationDefault = `regenerate`
 
 export const NotebooksGenuiGenerateBody = /* @__PURE__ */ zod.object({
     prompt: zod
@@ -234,6 +235,35 @@ export const NotebooksGenuiGenerateBody = /* @__PURE__ */ zod.object({
         .describe(
             'AI model used to generate the visualization.\n\n\* `claude-haiku-4-5` - claude-haiku-4-5\n\* `claude-sonnet-4-6` - claude-sonnet-4-6\n\* `claude-sonnet-5` - claude-sonnet-5\n\* `claude-opus-5` - claude-opus-5'
         ),
+    operation: zod
+        .enum(['initial', 'regenerate', 'improve'])
+        .describe('\* `initial` - initial\n\* `regenerate` - regenerate\n\* `improve` - improve')
+        .default(notebooksGenuiGenerateBodyOperationDefault)
+        .describe(
+            'Whether to generate from scratch or improve the current source.\n\n\* `initial` - initial\n\* `regenerate` - regenerate\n\* `improve` - improve'
+        ),
+})
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const NotebooksGenuiRevertBody = /* @__PURE__ */ zod.object({
+    version_id: zod.uuid().describe('Historical source version to restore.'),
+    expected_current_version_id: zod.uuid().describe('Current version observed before requesting the restore.'),
+})
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksGenuiSaveSourceBodyPromptMax = 20000
+
+export const NotebooksGenuiSaveSourceBody = /* @__PURE__ */ zod.object({
+    source: zod.string().describe('Complete replacement src\/canvas.tsx source.'),
+    prompt: zod
+        .string()
+        .max(notebooksGenuiSaveSourceBodyPromptMax)
+        .describe('Change note stored with the new source version.'),
+    expected_current_version_id: zod.uuid().describe('Current version the source edit is based on.'),
 })
 
 /**

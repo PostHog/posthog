@@ -330,6 +330,20 @@ export const GenUIGenerateRequestModelEnumApi = {
     ClaudeOpus5: 'claude-opus-5',
 } as const
 
+/**
+ * * `initial` - initial
+ * * `regenerate` - regenerate
+ * * `improve` - improve
+ */
+export type GenUIGenerateRequestOperationEnumApi =
+    (typeof GenUIGenerateRequestOperationEnumApi)[keyof typeof GenUIGenerateRequestOperationEnumApi]
+
+export const GenUIGenerateRequestOperationEnumApi = {
+    Initial: 'initial',
+    Regenerate: 'regenerate',
+    Improve: 'improve',
+} as const
+
 export interface GenUIGenerateRequestApi {
     /**
      * Instructions for the generated visualization.
@@ -345,10 +359,17 @@ export interface GenUIGenerateRequestApi {
      * * `claude-sonnet-5` - claude-sonnet-5
      * * `claude-opus-5` - claude-opus-5 */
     model?: GenUIGenerateRequestModelEnumApi
+    /** Whether to generate from scratch or improve the current source.
+     *
+     * * `initial` - initial
+     * * `regenerate` - regenerate
+     * * `improve` - improve */
+    operation?: GenUIGenerateRequestOperationEnumApi
 }
 
 /**
  * * `awaiting_generation` - awaiting_generation
+ * * `generating` - generating
  * * `building` - building
  * * `ready` - ready
  * * `failed` - failed
@@ -357,15 +378,93 @@ export type LifecycleStatusEnumApi = (typeof LifecycleStatusEnumApi)[keyof typeo
 
 export const LifecycleStatusEnumApi = {
     AwaitingGeneration: 'awaiting_generation',
+    Generating: 'generating',
     Building: 'building',
     Ready: 'ready',
     Failed: 'failed',
 } as const
 
+/**
+ * * `initial` - initial
+ * * `regenerate` - regenerate
+ * * `improve` - improve
+ * * `source_edit` - source_edit
+ */
+export type GenUIVersionOperationEnumApi =
+    (typeof GenUIVersionOperationEnumApi)[keyof typeof GenUIVersionOperationEnumApi]
+
+export const GenUIVersionOperationEnumApi = {
+    Initial: 'initial',
+    Regenerate: 'regenerate',
+    Improve: 'improve',
+    SourceEdit: 'source_edit',
+} as const
+
+/**
+ * * `queued` - queued
+ * * `building` - building
+ * * `ready` - ready
+ * * `failed` - failed
+ */
+export type BuildStatusEnumApi = (typeof BuildStatusEnumApi)[keyof typeof BuildStatusEnumApi]
+
+export const BuildStatusEnumApi = {
+    Queued: 'queued',
+    Building: 'building',
+    Ready: 'ready',
+    Failed: 'failed',
+} as const
+
+export interface GenUIVersionApi {
+    /** Canvas source version identifier. */
+    id: string
+    /**
+     * Canvas source version this version was based on.
+     * @nullable
+     */
+    parent_version_id: string | null
+    /**
+     * One-based version number within this visualization.
+     * @minimum 1
+     */
+    version: number
+    /** Action that created this version.
+     *
+     * * `initial` - initial
+     * * `regenerate` - regenerate
+     * * `improve` - improve
+     * * `source_edit` - source_edit */
+    operation: GenUIVersionOperationEnumApi
+    /** Prompt or change note entered for this version. */
+    prompt: string
+    /** Complete prompt represented by this version. */
+    effective_prompt: string
+    /**
+     * AI model used for this version, or null for imported and manually edited versions.
+     * @nullable
+     */
+    model: string | null
+    /** When this version was created. */
+    created_at: string
+    /** Latest Canvas build state for this source version.
+     *
+     * * `queued` - queued
+     * * `building` - building
+     * * `ready` - ready
+     * * `failed` - failed */
+    build_status: BuildStatusEnumApi | null
+    /**
+     * Short-lived artifact URL for previewing this version when a retained build is available.
+     * @nullable
+     */
+    artifact_url: string | null
+}
+
 export interface GenUIStatusApi {
     /** Current visualization state derived from its Canvas build.
      *
      * * `awaiting_generation` - awaiting_generation
+     * * `generating` - generating
      * * `building` - building
      * * `ready` - ready
      * * `failed` - failed */
@@ -382,6 +481,51 @@ export interface GenUIStatusApi {
     artifact_url?: string | null
     /** Dataframes the current visualization may read. */
     frame_names: string[]
+    /**
+     * When the active or most recent generation started.
+     * @nullable
+     */
+    generation_started_at: string | null
+    /**
+     * Cancelable generation identifier while model generation is active.
+     * @nullable
+     */
+    generation_id: string | null
+    /**
+     * Canvas source version currently selected as the visualization head.
+     * @nullable
+     */
+    current_version_id: string | null
+    /** Complete source-version history, oldest first. */
+    versions: GenUIVersionApi[]
+}
+
+export interface GenUIRevertRequestApi {
+    /** Historical source version to restore. */
+    version_id: string
+    /** Current version observed before requesting the restore. */
+    expected_current_version_id: string
+}
+
+export interface GenUISourceSaveRequestApi {
+    /** Complete replacement src/canvas.tsx source. */
+    source: string
+    /**
+     * Change note stored with the new source version.
+     * @maxLength 20000
+     */
+    prompt: string
+    /** Current version the source edit is based on. */
+    expected_current_version_id: string
+}
+
+export interface GenUISourceResponseApi {
+    /** Source version returned by this response. */
+    version_id: string
+    /** Current source version used for optimistic concurrency. */
+    current_version_id: string
+    /** Complete editable src/canvas.tsx source for this version. */
+    source: string
 }
 
 export interface NotebookKernelConfigApi {
@@ -739,4 +883,11 @@ export type NotebooksListParams = {
      * If any value is provided for this parameter, return notebooks created by the logged in user.
      */
     user?: string
+}
+
+export type NotebooksGenuiSourceParams = {
+    /**
+     * Historical source version to return instead of the current version.
+     */
+    version_id?: string
 }

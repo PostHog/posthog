@@ -1804,6 +1804,28 @@ h3.MarkdownNotebook__text-block--heading {
 
 .MarkdownNotebook__component-panel--results {
     background: var(--color-bg-surface-primary);
+
+    &:fullscreen {
+        width: 100vw;
+        height: 100vh;
+        min-height: 0;
+        overflow: hidden;
+
+        .MarkdownNotebook__real-node,
+        .MarkdownNotebook__real-node-content {
+            width: 100%;
+            height: 100% !important;
+            min-height: 0;
+        }
+
+        .MarkdownNotebook__real-node-content {
+            resize: none;
+        }
+
+        .MarkdownNotebook__real-node-resize-handle {
+            display: none;
+        }
+    }
 }
 
 .MarkdownNotebook__component-panel + .MarkdownNotebook__component-panel {

@@ -1558,7 +1558,7 @@ export const notebookLogic = kea<notebookLogicType>([
                     return () => controller.abort()
                 },
                 'markdownUpdateStream',
-                { pauseOnPageHidden: false }
+                { pauseOnPageHidden: true }
             )
 
             cache.disposables.add(() => {
