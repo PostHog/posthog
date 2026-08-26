@@ -49,7 +49,9 @@ from products.signals.backend.artefact_schemas import (
     SafetyJudgment,
     SuggestedReviewerEntry,
     SuggestedReviewers,
+    SummaryChange,
     TaskRunArtefact,
+    TitleChange,
 )
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalScoutRun
 from products.signals.backend.report_charts import ReportChart, chart_batch_error
@@ -310,7 +312,6 @@ def update_scout_report(
     title: str | None = None,
     summary: str | None = None,
     attribution: ArtefactAttribution | None = None,
-    author: str | None = None,
 ) -> list[str]:
     """Rewrite an existing report's `title`/`summary` in place (the `edit_report` content path).
 
@@ -318,10 +319,11 @@ def update_scout_report(
     the modified field names. Title/summary edits are best-effort authorship — the pipeline may later
     re-research and overwrite them (decision #6); that is documented in the scout-facing contract.
 
-    When `attribution` is supplied and the content actually changes, an audit note is appended to the
-    report's work log recording who rewrote what — `edit_report` can target ANY inbox report (pipeline-
-    authored included), so a core-content rewrite must leave a durable, attributable trail, not just a
-    silent field mutation.
+    When `attribution` is supplied and the content actually changes, a typed `title_change` /
+    `summary_change` artefact is appended to the report's work log for each edited field, recording the
+    value before and after — the same shape the human PATCH path writes. `edit_report` can target ANY
+    inbox report (pipeline-authored included), so a core-content rewrite must leave a durable,
+    attributable, machine-readable trail, not just a silent field mutation.
     """
     if title is None and summary is None:
         return []
@@ -333,6 +335,8 @@ def update_scout_report(
         report = SignalReport.objects.select_for_update().filter(team_id=team_id, id=report_id).first()
         if report is None:
             raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
+        # Captured before the in-place mutation so each edit artefact carries the value before and after.
+        old_title, old_summary = report.title, report.summary
         updated_fields = report.update_authored_content(title=title, summary=summary)
         if updated_fields:
             # Agent-authored text that the safety judge has not seen; the report's existing verdict was
@@ -341,12 +345,18 @@ def update_scout_report(
             report._unreviewed_edit = True  # type: ignore[attr-defined]
             report.save(update_fields=updated_fields)
             if attribution is not None:
-                SignalReportArtefact.add_log(
-                    team_id=team_id,
-                    report_id=report_id,
-                    content=NoteArtefact(note=_content_edit_note(updated_fields), author=author),
-                    attribution=attribution,
-                )
+                edit_artefacts: list[TitleChange | SummaryChange] = []
+                if "title" in updated_fields:
+                    edit_artefacts.append(TitleChange(old_title=old_title, new_title=report.title))
+                if "summary" in updated_fields:
+                    edit_artefacts.append(SummaryChange(old_summary=old_summary, new_summary=report.summary))
+                for content in edit_artefacts:
+                    SignalReportArtefact.add_log(
+                        team_id=team_id,
+                        report_id=report_id,
+                        content=content,
+                        attribution=attribution,
+                    )
 
     logger.info(
         "signals_scout.edit_report: content updated",
@@ -882,10 +892,6 @@ def _validate_create_inputs(title: str, summary: str, signals: Sequence[ScoutRep
 def _validate_optional_text(field_name: str, value: str | None) -> None:
     if value is not None and not value.strip():
         raise InvalidScoutReportError(f"{field_name} must not be empty when provided")
-
-
-def _content_edit_note(updated_fields: list[str]) -> str:
-    return f"Edited report {' and '.join(updated_fields)} via edit_report."
 
 
 def _chart_edit_note(count: int) -> str:
