@@ -27,13 +27,17 @@ from .resolver import DEFAULT_PURPOSE, OwnersResolver, Purpose, read_stdin_paths
 def main() -> None:
     args = sys.argv[1:]
     purpose: Purpose = DEFAULT_PURPOSE
-    if "--purpose" in args:
-        flag = args.index("--purpose")
-        value = args[flag + 1] if flag + 1 < len(args) else ""
+    while flagged := next((a for a in args if a == "--purpose" or a.startswith("--purpose=")), None):
+        flag = args.index(flagged)
+        if "=" in flagged:
+            value = flagged.split("=", 1)[1]
+            args = args[:flag] + args[flag + 1 :]
+        else:
+            value = args[flag + 1] if flag + 1 < len(args) else ""
+            args = args[:flag] + args[flag + 2 :]
         if value not in ("slack", "notifications"):
             sys.exit(f"--purpose must be 'slack' or 'notifications', got {value!r}")
-        purpose = cast(Purpose, value)
-        args = args[:flag] + args[flag + 2 :]
+        purpose = cast("Purpose", value)
     paths = args if args else read_stdin_paths()
 
     resolver = OwnersResolver(purpose=purpose)

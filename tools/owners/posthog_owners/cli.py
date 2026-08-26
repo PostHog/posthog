@@ -6,11 +6,15 @@ import sys
 import json
 import subprocess
 from collections import defaultdict
+from typing import TYPE_CHECKING, cast
 
 import click
 
 from .matcher import compile_pattern, normalize_path
 from .resolver import OWNERS_FILENAME, PRODUCT_FILENAME, OwnersResolver, read_stdin_paths, resolution_to_wire
+
+if TYPE_CHECKING:
+    from .resolver import Purpose
 from .schema import is_simple_owners_file, normalize_product_owners
 
 
@@ -25,9 +29,15 @@ def _read_paths(paths: tuple[str, ...]) -> list[str]:
 
 @click.command(name="owners:resolve", help="Resolve ownership for paths (args or newline-delimited stdin)")
 @click.option("--json", "as_json", is_flag=True, help="Emit JSON keyed by path")
+@click.option(
+    "--purpose",
+    type=click.Choice(["slack", "notifications"]),
+    default="slack",
+    help="Which team channel `slack` resolves to: where people are, or where automation posts",
+)
 @click.argument("paths", nargs=-1)
-def cmd_resolve(as_json: bool, paths: tuple[str, ...]) -> None:
-    resolver = OwnersResolver()
+def cmd_resolve(as_json: bool, purpose: str, paths: tuple[str, ...]) -> None:
+    resolver = OwnersResolver(purpose=cast("Purpose", purpose))
     targets = _read_paths(paths)
     result = {normalize_path(path): resolution_to_wire(resolver.resolve(path)) for path in targets}
     if as_json:

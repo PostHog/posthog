@@ -524,15 +524,21 @@ async function main() {
     }
     const digestTs = await postToSlack(blocks, 'Weekly flaky test report')
     console.info(`Posted weekly flaky report to ${SLACK_CHANNEL}.`)
-    for (const digest of teamDigests) {
+    let postedSlices = 0
+    for (const [index, digest] of teamDigests.entries()) {
+        if (index > 0) {
+            // chat.postMessage allows about one message per second per channel.
+            await new Promise((resolve) => setTimeout(resolve, 1100))
+        }
         // A failed slice must not sink the slices behind it; the digest itself already landed.
         try {
             await postToSlack(buildShadowBlocks(digest), `Flaky tests owned by ${digest.owner}`, digestTs)
+            postedSlices += 1
         } catch (err) {
             console.warn(`shadow digest for ${digest.owner} failed: ${err.message}`)
         }
     }
-    console.info(`Posted ${teamDigests.length} shadow team digest(s) in thread.`)
+    console.info(`Posted ${postedSlices}/${teamDigests.length} shadow team digest(s) in thread.`)
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
