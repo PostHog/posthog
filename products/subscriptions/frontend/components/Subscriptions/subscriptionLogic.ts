@@ -853,7 +853,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         },
     })),
 
-    events(({ actions, values }) => ({
+    events(({ actions, values, props }) => ({
         afterMount: () => {
             if (props.id === 'new' && !values.subscriptionInitialized) {
                 actions.loadSubscriptionSuccess({ ...NEW_SUBSCRIPTION })
