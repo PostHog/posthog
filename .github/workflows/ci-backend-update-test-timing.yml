@@ -244,8 +244,10 @@ jobs:
                   fi
                   # Products has its own guarded scoping inside the script (only scopes when the
                   # JUnit shard set is complete), so no flag here.
+                  # Products has no unscoped retry: a map whose shape drifted from the
+                  # clock must not reach the cache, so this one fails the refresh.
                   uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/products_durations \
-                      --segment Products --junit-dir junit_artifacts
+                      --segment Products --junit-dir junit_artifacts --fail-on-drift
 
                   # Process Dagster segment if available
                   if [ -n "$DAGSTER_RUN_ID" ]; then

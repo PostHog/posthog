@@ -15,12 +15,14 @@ from optimize_test_durations import (
     ShardTimings,
     _pick_outlier,
     average_durations,
+    drifting_shards,
     main,
     outlier_merge_durations,
     run_average_files,
     run_merge_files,
     scale_products_to_junit,
     scope_products_to_junit,
+    shard_map_clock_ratios,
     shard_sets_match,
 )
 
@@ -450,6 +452,62 @@ def test_scale_products_to_junit_matches_sums_to_measured_work(tmp_path: Path) -
     assert scaled["products/big_one/backend/test_a.py::TestA::test_b"] == pytest.approx(200.0)
     assert scaled["posthog/test/test_x.py::test_x"] == 5.0
     assert scaled["products/.junit-scaled"] == 1.0
+
+
+def test_main_writes_sub_ten_millisecond_durations_as_recorded(tmp_path: Path, monkeypatch) -> None:
+    # A global floor once rewrote every fast test as 10 ms. Tens of thousands of
+    # parametrized tests really take 1 ms, so a shard of them planned at twice
+    # its real length.
+    shard_dir = tmp_path / "timing_artifacts" / "timing_data-Core-1"
+    shard_dir.mkdir(parents=True)
+    (shard_dir / ".test_durations").write_text(
+        json.dumps({"posthog/test_foo.py::TestThing::test_one": 0.5, "posthog/test_foo.py::TestThing::test_two": 0.001})
+    )
+    junit_dir = tmp_path / "junit_artifacts" / "junit-results-backend-core-1"
+    junit_dir.mkdir(parents=True)
+    (junit_dir / "junit.xml").write_bytes(
+        b'<?xml version="1.0"?><testsuite name="pytest">'
+        b'<testcase classname="posthog.test_foo.TestThing" name="test_one" time="0.5"/>'
+        b'<testcase classname="posthog.test_foo.TestThing" name="test_two" time="0.001"/></testsuite>'
+    )
+    out = tmp_path / "core_durations"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "optimize_test_durations.py",
+            str(tmp_path / "timing_artifacts"),
+            str(out),
+            "--segment",
+            "Core",
+            "--junit-dir",
+            str(tmp_path / "junit_artifacts"),
+            "--fail-on-drift",
+        ],
+    )
+
+    main()
+
+    assert json.loads(out.read_text())["posthog/test_foo.py::TestThing::test_two"] == 0.001
+
+
+@pytest.mark.parametrize(
+    "mapped_seconds, drifts",
+    [
+        (110.0, False),  # a tenth over: run-to-run noise
+        (250.0, True),  # the shape is wrong: tiny tests carrying phantom weight
+        (40.0, True),  # the other direction: heavy tests under-counted
+    ],
+)
+def test_shard_map_clock_ratio_flags_shape_drift(mapped_seconds: float, drifts: bool) -> None:
+    shard = JUnitShard(name="product-junit-results-3", call_times={"products/p/backend/test_a.py::test_a": 100.0})
+    durations = {"products/p/backend/test_a.py::test_a": mapped_seconds, "products/p/backend/test_b.py::test_b": 5.0}
+
+    ratios = shard_map_clock_ratios(durations, [shard])
+
+    # test_b never ran in this shard, so it does not count against the shard.
+    assert ratios == {"product-junit-results-3": pytest.approx(mapped_seconds / 100.0)}
+    assert bool(drifting_shards(ratios)) is drifts
 
 
 def test_scale_products_to_junit_leaves_products_without_junit_alone(tmp_path: Path) -> None:

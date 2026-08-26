@@ -21,6 +21,16 @@ and skewing pytest-split.
 This script merges the per-shard artifacts, floors any test recorded far
 above its JUnit call time (or sitting at a flat-default placeholder) back
 to that call time, and outputs clean durations for balanced distribution.
+There is no global minimum: a 1 ms test is written as 1 ms. A floor there
+gave tens of thousands of tiny parametrized tests ten times their real
+weight, so a contiguous shard of them planned at twice its real length
+while the fixture-heavy shard next to it ran past its budget.
+
+The map-versus-clock report at the end compares, per JUnit shard, the sum of
+the finished durations for the tests that shard ran against the sum of the
+shard's JUnit times. Both are per-test measurements of the same run, so a
+correct file lands near 1.0 on every shard; a ratio far from 1.0 means a
+processing step changed the shape of the data, not just its total.
 """
 
 import re
@@ -40,7 +50,14 @@ from defusedxml.ElementTree import ParseError
 
 logger = logging.getLogger(__name__)
 
-MIN_DURATION = 0.01
+# Lower bound for a duration the corrections below rewrite: a corrected value
+# must stay positive so pytest-split still counts the test. Not a floor for
+# measured values; those are written as recorded.
+MIN_DURATION = 0.001
+# A shard whose map/clock ratio leaves this band has the wrong shape, not just
+# the wrong total. Per-shard sums cover hundreds of tests, so run-to-run noise
+# stays well inside it.
+SHARD_DRIFT_TOLERANCE = 1.5
 # Tests with recorded duration above this threshold in a single shard
 # are candidates for migration carriers (real tests rarely exceed this)
 CARRIER_THRESHOLD_SECONDS = 200.0
@@ -479,9 +496,28 @@ def _junit_to_pytest_id(classname: str, testname: str) -> str | None:
     return f"{module_path}::{testname}"
 
 
-def ensure_minimum_duration(durations: dict[str, float]) -> dict[str, float]:
-    """Ensure all durations have a minimum value for pytest-split."""
-    return {test: max(MIN_DURATION, dur) for test, dur in durations.items()}
+def shard_map_clock_ratios(durations: dict[str, float], junit_shards: list["JUnitShard"]) -> dict[str, float]:
+    """Per JUnit shard: sum of finished durations / sum of JUnit times, over the tests both hold.
+
+    The map is what pytest-split plans from; the clock is what the same run
+    measured. A shard far from 1.0 is one the plan will cut wrong.
+    """
+    ratios: dict[str, float] = {}
+    for shard in junit_shards:
+        clock = 0.0
+        mapped = 0.0
+        for test_id, seconds in shard.call_times.items():
+            if test_id not in durations:
+                continue
+            clock += seconds
+            mapped += durations[test_id]
+        if clock > 0:
+            ratios[shard.name] = mapped / clock
+    return ratios
+
+
+def drifting_shards(ratios: dict[str, float], tolerance: float = SHARD_DRIFT_TOLERANCE) -> dict[str, float]:
+    return {name: ratio for name, ratio in ratios.items() if ratio > tolerance or ratio < 1 / tolerance}
 
 
 def shard_sets_match(timing_shards: list[ShardTimings], junit_shards: list[JUnitShard]) -> bool:
@@ -717,6 +753,15 @@ def main():
         help="Filter to only tests that exist in the codebase (runs pytest --collect-only)",
     )
     parser.add_argument(
+        "--fail-on-drift",
+        action="store_true",
+        help=(
+            "Exit non-zero when a JUnit shard's finished durations sum to more than "
+            f"{SHARD_DRIFT_TOLERANCE}x (or less than 1/{SHARD_DRIFT_TOLERANCE}x) of its JUnit times "
+            "(requires --junit-dir). Without it the drift is only logged."
+        ),
+    )
+    parser.add_argument(
         "--scope-to-junit",
         action="store_true",
         help=(
@@ -881,12 +926,28 @@ def main():
         logger.info("  Filtered to %d tests (removed %d stale)", len(durations), before_count - len(durations))
 
     logger.info("  Total tests: %d", len(durations))
-    processed = ensure_minimum_duration(durations)
+
+    if junit_shards:
+        ratios = shard_map_clock_ratios(durations, junit_shards)
+        for name, ratio in sorted(ratios.items()):
+            logger.info("  map/clock %s: %.2f", name, ratio)
+        drift = drifting_shards(ratios)
+        if drift:
+            level = logger.error if args.fail_on_drift else logger.warning
+            level(
+                "Map/clock drift outside %.2fx on %d of %d shards: %s",
+                SHARD_DRIFT_TOLERANCE,
+                len(drift),
+                len(ratios),
+                ", ".join(f"{name}={ratio:.2f}" for name, ratio in sorted(drift.items())),
+            )
+            if args.fail_on_drift:
+                sys.exit(1)
 
     with open(args.output_file, "w") as f:
-        json.dump(processed, f, indent=4, sort_keys=True)
+        json.dump(durations, f, indent=4, sort_keys=True)
         f.write("\n")
-    logger.info("Saved %d tests to %s", len(processed), args.output_file)
+    logger.info("Saved %d tests to %s", len(durations), args.output_file)
 
 
 if __name__ == "__main__":
