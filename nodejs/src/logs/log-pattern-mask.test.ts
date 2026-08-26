@@ -68,7 +68,7 @@ describe('log-pattern-mask', () => {
             const body = JSON.stringify({ message: 'x'.repeat(100) })
             const result = computeLogPattern(body, 20, NO_CAP)
             expect(result.inputCapped).toEqual(true)
-            expect(result.bodyKind).toEqual('invalid_json')
+            expect(result.bodyKind).toEqual('plaintext')
             expect(result.pattern).toEqual(body.slice(0, 20))
         })
 
@@ -88,7 +88,7 @@ describe('log-pattern-mask', () => {
             ['json array', '[1,2]', 'json_object_or_array', JSON_ARRAY],
             ['json string', '"quoted 7"', 'json_string', 'quoted <N>'],
             ['json number primitive', '42', 'primitive', '<N>'],
-            ['prose body', 'plain text 3', 'invalid_json', 'plain text <N>'],
+            ['prose body', 'plain text 3', 'plaintext', 'plain text <N>'],
         ])('body kind %s', (_name, body, expectedKind, expectedPattern) => {
             const result = computeLogPattern(body, NO_CAP, NO_CAP)
             expect(result.bodyKind).toEqual(expectedKind)
