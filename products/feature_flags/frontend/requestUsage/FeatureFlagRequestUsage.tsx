@@ -213,15 +213,13 @@ export function FeatureFlagRequestUsage(): JSX.Element {
                         <RequestUsageSummaryCard label="Remote requests" value={totalRemoteRequests} />
                         <RequestUsageSummaryCard label="Local requests" value={totalLocalRequests} />
                         <RequestUsageSummaryCard label="Billing units" value={totalBillingUnits} />
-                        <LemonCard className="p-4">
-                            <div className="text-secondary">Largest SDK contributor</div>
-                            <div className="text-2xl font-semibold truncate">{largestSdk?.sdk ?? '—'}</div>
-                            {largestSdk && (
-                                <div className="text-secondary tabular-nums">
-                                    {largestSdk.billingUnitsShare.toFixed(1)}% of billing units
-                                </div>
-                            )}
-                        </LemonCard>
+                        <RequestUsageSummaryCard
+                            label="Largest SDK contributor"
+                            value={largestSdk?.sdk ?? '—'}
+                            footer={
+                                largestSdk ? `${largestSdk.billingUnitsShare.toFixed(1)}% of billing units` : undefined
+                            }
+                        />
                     </div>
 
                     {sdkTotals.length === 0 ? (

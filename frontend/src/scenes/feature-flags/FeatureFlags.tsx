@@ -828,7 +828,7 @@ export function FeatureFlags(): JSX.Element {
                         ? [
                               {
                                   key: FeatureFlagsTab.USAGE,
-                                  label: 'Usage',
+                                  label: 'Request usage',
                                   content: <FeatureFlagRequestUsage />,
                               },
                           ]

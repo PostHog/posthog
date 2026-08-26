@@ -42,6 +42,9 @@ REQUEST_USAGE_QUERY_SETTINGS = {
 
 FeatureFlagRequestUsageRow = tuple[datetime, Literal["remote_evaluation", "local_evaluation"], int, str]
 
+# Keep aligned with usage_report.py, which applies this multiplier to billed local evaluation requests.
+LOCAL_EVALUATION_BILLING_WEIGHT = 10
+
 
 def parse_sdk_breakdown(raw_sdk_breakdown: str) -> dict[str, int]:
     try:
@@ -74,7 +77,8 @@ def aggregate_feature_flag_request_usage(
             request_type=request_type,
             sdk=sdk,
             request_count=request_count,
-            billing_units=request_count * (10 if request_type == FeatureFlagRequestType.LOCAL_EVALUATION else 1),
+            billing_units=request_count
+            * (LOCAL_EVALUATION_BILLING_WEIGHT if request_type == FeatureFlagRequestType.LOCAL_EVALUATION else 1),
         )
         for (bucket, request_type, sdk), request_count in sorted(counts.items())
         if request_count > 0
@@ -97,7 +101,7 @@ def query_feature_flag_request_usage(
     local_event = USAGE_EVENT_NAMES[FlagRequestType.LOCAL_EVALUATION]
 
     with tags_context(product=Product.FEATURE_FLAGS, feature=Feature.QUERY, team_id=team_id):
-        # nosemgrep: clickhouse-fstring-param-audit - bucket function and table expressions are internal allowlisted fragments
+        # nosemgrep: clickhouse-fstring-param-audit - bucket function and table expressions are internal fragments
         rows = sync_execute(
             f"""
             SELECT
