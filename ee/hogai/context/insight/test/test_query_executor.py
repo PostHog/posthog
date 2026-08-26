@@ -132,6 +132,18 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         mock_process_query.assert_called_once()
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
+    async def test_arun_format_and_capture_hands_back_the_response(self, mock_process_query):
+        response = {"results": [{"count": 100}], "columns": ["count"]}
+        mock_process_query.return_value = response
+
+        query = AssistantHogQLQuery(query="SELECT count() FROM events")
+        result = await self.query_runner.arun_format_and_capture(query)
+
+        self.assertIsInstance(result.formatted, str)
+        self.assertFalse(result.fallback_used)
+        self.assertEqual(result.response, response)
+
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     async def test_run_and_format_query_data_visualization_sql(self, mock_process_query):
         mock_process_query.return_value = {"results": [{"count": 100}, {"count": 200}], "columns": ["count"]}
 
