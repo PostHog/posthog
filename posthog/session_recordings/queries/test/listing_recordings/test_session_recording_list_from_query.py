@@ -266,6 +266,32 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
 
         assert more_recordings_available is False
 
+    def test_duration_metrics_stay_in_valid_range(self):
+        # An ongoing recording can report more active time than its elapsed span,
+        # which used to give a negative inactive time and an activity score above 100.
+        user = "test_duration_metrics-user"
+        create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+
+        session_id = f"test_duration_metrics-{str(uuid4())}"
+        produce_replay_summary(
+            session_id=session_id,
+            team_id=self.team.pk,
+            first_timestamp=self.an_hour_ago,
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=20)),
+            distinct_id=user,
+            click_count=0,
+            keypress_count=0,
+            mouse_activity_count=1,
+            active_milliseconds=100 * 1000,  # more active time than the 20 second span
+        )
+
+        session_recordings, _, _, _ = self._filter_recordings_by()
+
+        assert len(session_recordings) == 1
+        recording = session_recordings[0]
+        assert recording["inactive_seconds"] == 0
+        assert 0 <= recording["activity_score"] <= 100
+
     @snapshot_clickhouse_queries
     def test_basic_query_active_sessions(
         self,
