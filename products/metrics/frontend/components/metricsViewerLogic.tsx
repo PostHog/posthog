@@ -38,7 +38,11 @@ import { metricNamePickerLogic } from './metricNamePickerLogic'
 import type { MetricNameItem } from './metricNamePickerLogic'
 import type { MetricsChartSeries } from './metricsSeries'
 
+// A derived type ((typeof METRIC_AGGREGATIONS)[number]) would keep these in sync, but
+// kea-typegen inlines derived unions into every consumer's generated block — keep the
+// named alias so those blocks stay stable.
 export type MetricAggregation = 'sum' | 'avg' | 'count' | 'p95' | 'rate' | 'increase'
+export const METRIC_AGGREGATIONS: MetricAggregation[] = ['sum', 'avg', 'count', 'p95', 'rate', 'increase']
 
 export type MetricsViewerSeries = _MetricSeriesApi
 
@@ -51,7 +55,7 @@ export interface MetricsAnomalyBadge {
     onsetTime: string | null
 }
 
-const DEFAULT_AGGREGATION: MetricAggregation = 'sum'
+export const DEFAULT_AGGREGATION: MetricAggregation = 'sum'
 
 // Aggregation applied automatically when a metric of this type is selected.
 // Cumulative counters (OTel type 'sum') summed raw give meaningless ever-growing
@@ -65,7 +69,7 @@ export const RECOMMENDED_AGGREGATION_BY_TYPE: Record<string, MetricAggregation> 
     summary: 'p95',
     exponential_histogram: 'p95',
 }
-const DEFAULT_DATE_FROM = '-1h'
+export const DEFAULT_DATE_FROM = '-1h'
 export const NEW_QUERY_STARTED_ERROR_MESSAGE = 'A new metrics query started, canceling the previous one'
 
 // A superseded or unmounted request rejects with an abort, not a real failure — never surface it as an error.
@@ -517,6 +521,13 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
             const known = toKnownMetricType(metricType)
             if (known) {
                 actions.setSelectedMetricType(known)
+            }
+            // The name was set before the list arrived, so the pick-time recommendation
+            // never ran. Apply it late, but only over the untouched default — an
+            // aggregation restored from the URL or picked by the user stays.
+            const recommended = metricType ? RECOMMENDED_AGGREGATION_BY_TYPE[metricType] : undefined
+            if (recommended && values.aggregation === DEFAULT_AGGREGATION && recommended !== values.aggregation) {
+                actions.setRecommendedAggregation(recommended)
             }
         },
         saveAsInsightFailure: ({ error }) => {
