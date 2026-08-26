@@ -513,6 +513,25 @@ class TestGarageDrives:
         assert {(d.product, d.kind): n for d, n in drives.items()} == {("product_analytics", "PathsQuery"): 1}
         assert crossings._KindHint.for_kinds(KINDS).matches(source.encode())
 
+    def test_module_object_imports_count_as_drives(self) -> None:
+        source = textwrap.dedent(
+            """
+            import products.web_analytics.backend.hogql_queries.web_overview as overview
+            from products.web_analytics.backend.hogql_queries import stats_table
+            from products.web_analytics.backend.facade.queries import WebOverviewQueryRunner
+            """
+        )
+        imports = crossings._read_imports(source.encode(), "posthog.test")
+        location = crossings._WiringLocation("web_analytics", "backend/hogql_queries/")
+        modules = {
+            "products.web_analytics.backend.hogql_queries.web_overview",
+            "products.web_analytics.backend.hogql_queries.stats_table",
+        }
+        assert crossings.module_drives(imports, [location], modules.__contains__) == {
+            (location.label, "web_overview"): 1,
+            (location.label, "stats_table"): 1,
+        }
+
     def test_hint_matches_the_enum_form(self) -> None:
         hint = crossings._KindHint.for_kinds(KINDS)
         assert hint.matches(b'client.post(url, {"query": {"kind": NodeKind.PATHS_QUERY}})')

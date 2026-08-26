@@ -767,6 +767,28 @@ def _top_level_names(tree: ast.Module) -> list[str]:
     return [name for name in names if not name.startswith("_")]
 
 
+def module_drives(
+    imports: _ImportTable, locations: Iterable[_WiringLocation], exists: Callable[[str], bool] | None = None
+) -> Counter[tuple[str, str]]:
+    """(location label, module name) -> 1 for every wiring-location module a test binds as an object.
+
+    `import ...hogql_queries.web_overview as m` or `from ...hogql_queries import web_overview`
+    binds the module itself, usually to patch an attribute on it. No exported name is read, so
+    the origins pass cannot see it; the module alias table can. Every `from a import b` lands in
+    that table as a possible module `a.b`, so only names that are modules on disk count here;
+    a class imported that way is the origins pass's to count."""
+    exists = exists or _module_exists
+    found: Counter[tuple[str, str]] = Counter()
+    prefixes = [
+        (f"products.{loc.product}." + loc.location.rstrip("/").replace("/", ".") + ".", loc) for loc in locations
+    ]
+    for alias in imports.module_aliases:
+        for prefix, location in prefixes:
+            if alias.module.startswith(prefix) and exists(alias.module):
+                found[(location.label, alias.module.rsplit(".", 1)[-1])] += 1
+    return found
+
+
 def _module_exists(dotted: str) -> bool:
     path = REPO_ROOT / dotted.replace(".", "/")
     return path.with_suffix(".py").is_file() or (path / "__init__.py").is_file()
@@ -1097,6 +1119,10 @@ def scan_crossing_uses(products: Iterable[str] | None = None) -> list[CrossingUs
         names = {name: label for name, label in _bound_names(candidate, origins).items() if (":" in label) == is_test}
         aliases = {a.alias: a.module for a in candidate.imports.module_aliases if a.module in origin_modules}
         hinted = candidate.mentions_query_kind if is_test else candidate.mentions_get_model
+        if is_test:
+            for (label, name), count in module_drives(candidate.imports, locations).items():
+                if not candidate.path.is_relative_to(owning_dir[label]):
+                    counts[(label, candidate.dotted, f"drives({name})")] += count
         if not names and not aliases and not hinted:
             continue
         try:
