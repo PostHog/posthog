@@ -263,6 +263,7 @@ export interface supportTicketSceneLogicValues {
     previousTickets: Ticket[]
     previousTicketsLoading: boolean
     priority: TicketPriority | null
+    questionsHighlighted: boolean
     replyRecipientDescription: string
     sidePanelContext: SidePanelSceneContext | null
     snoozedUntil: string | null
@@ -449,6 +450,9 @@ export interface supportTicketSceneLogicActions {
     setPriority: (priority: TicketPriority) => {
         priority: TicketPriority
     }
+    setQuestionsHighlighted: (enabled: boolean) => {
+        enabled: boolean
+    }
     setSnoozedUntil: (snoozedUntil: string | null) => {
         snoozedUntil: string | null
     }
@@ -616,6 +620,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         setDraftIsPrivate: (isPrivate: boolean) => ({ isPrivate }),
         // Per-ticket draft mode override, seeded from the browser-local default on open
         setDraftModeEnabled: (enabled: boolean) => ({ enabled }),
+        setQuestionsHighlighted: (enabled: boolean) => ({ enabled }),
 
         startEditingMessage: (message: ChatMessage) => ({ message }),
         cancelEditingMessage: true,
@@ -868,6 +873,12 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             false,
             {
                 setDraftModeEnabled: (_, { enabled }) => enabled,
+            },
+        ],
+        questionsHighlighted: [
+            false,
+            {
+                setQuestionsHighlighted: (_, { enabled }) => enabled,
             },
         ],
         editingMessageId: [

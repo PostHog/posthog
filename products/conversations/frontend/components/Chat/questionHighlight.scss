@@ -1,0 +1,6 @@
+// `::highlight()` accepts only colour, background-color, text-decoration, text-shadow and
+// -webkit-text-stroke. Background only: Chromium paints a highlight underline per word, so a
+// decoration here comes out broken across the spaces.
+::highlight(support-question) {
+    background-color: color-mix(in oklab, var(--color-yellow-400) 45%, transparent);
+}

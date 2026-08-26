@@ -116,6 +116,7 @@ export function Message({
                             byline and the lock badge above follow the same colour, so one note is
                             one signal rather than three competing ones. */}
                         <div
+                            data-message-author={message.authorType}
                             className={`border py-2 px-3 rounded-lg ${
                                 isPrivate
                                     ? isAgent

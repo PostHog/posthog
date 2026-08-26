@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { useRef } from 'react'
 
-import { IconChevronDown } from '@posthog/icons'
+import { IconChevronDown, IconQuestion } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonSelect, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -27,6 +27,7 @@ import { AccessControlLevel, AccessControlResourceType, Breadcrumb } from '~/typ
 import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeSelect } from '../../components/Assignee'
 import { ChannelsTag, getChannelThreadUrl } from '../../components/Channels/ChannelsTag'
 import { ChatView } from '../../components/Chat/ChatView'
+import { supportsQuestionHighlight, useQuestionHighlight } from '../../components/Chat/useQuestionHighlight'
 import { IdentityBadge } from '../../components/IdentityBadge/IdentityBadge'
 import { SlaDisplay } from '../../components/SlaDisplay'
 import { TicketTags } from '../../components/TicketTags'
@@ -109,6 +110,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         feedbackByMessageId,
         editingMessageId,
         discussionsEnabled,
+        questionsHighlighted,
     } = useValues(logic)
     // The list's filters / saved view ride along in this page's query string
     // (the ticket row carries them through on navigation). Preserve them on the
@@ -132,6 +134,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         startEditingMessage,
         cancelEditingMessage,
         deleteMessage,
+        setQuestionsHighlighted,
     } = useActions(logic)
 
     const { user } = useValues(userLogic)
@@ -189,6 +192,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
     // Above the early returns below: this scene renders a spinner and a not-found state before the
     // thread, and a hook can't be called on only some of those paths.
     const discussionExtras = useDiscussionTimelineExtras(ticket?.id, discussionsEnabled)
+    useQuestionHighlight(chatPanelRef, questionsHighlighted)
 
     if (ticketLoading) {
         return (
@@ -239,6 +243,23 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                 >
                     {/* Main conversation area */}
                     <ChatView
+                        header={
+                            supportsQuestionHighlight() ? (
+                                <div className="flex justify-end pb-2">
+                                    <LemonButton
+                                        size="xsmall"
+                                        type="tertiary"
+                                        icon={<IconQuestion />}
+                                        active={questionsHighlighted}
+                                        onClick={() => setQuestionsHighlighted(!questionsHighlighted)}
+                                        tooltip="Highlight questions in customer messages"
+                                        data-attr="ticket-highlight-questions"
+                                    >
+                                        Highlight questions
+                                    </LemonButton>
+                                </div>
+                            ) : undefined
+                        }
                         threadExtras={[...reportTimelineExtras(linkedReports), ...discussionExtras]}
                         messages={chatMessages}
                         messagesLoading={messagesLoading}
