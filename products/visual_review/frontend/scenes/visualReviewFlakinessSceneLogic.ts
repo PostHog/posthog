@@ -36,7 +36,9 @@ export type Filters = {
 }
 
 // A decision waiting on a human is the landing slice: it is the only one that
-// nothing else on the page can resolve.
+// nothing else on the page can resolve. It is also the one most often empty, so
+// `landOnSomethingUseful` moves off it when this repo has nothing there. See
+// that listener for why the default cannot simply be a busier preset.
 const EMPTY_FILTERS: Filters = {
     preset: 'needs_decision',
     typeKeys: [],
@@ -187,6 +189,7 @@ export interface visualReviewFlakinessSceneLogicValues {
     overview: FlakinessOverviewApi | null
     overviewLoading: boolean
     pendingQuarantineKeys: string[]
+    presetChosen: boolean
     repoId: string
     statCounts: Record<FlakinessPreset, number>
     thumbnailBasePath: string | null
@@ -196,6 +199,9 @@ export interface visualReviewFlakinessSceneLogicValues {
 export interface visualReviewFlakinessSceneLogicActions {
     clearAllFilters: () => {
         value: true
+    }
+    landOnPreset: (preset: FlakinessPreset) => {
+        preset: FlakinessPreset
     }
     loadOverview: () => any
     loadOverviewFailure: (
@@ -288,6 +294,7 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
     })),
     actions({
         setPreset: (preset: FlakinessPreset) => ({ preset }),
+        landOnPreset: (preset: FlakinessPreset) => ({ preset }),
         toggleType: (value: string) => ({ value }),
         toggleArea: (value: string) => ({ value }),
         setSearch: (search: string) => ({ search }),
@@ -321,6 +328,15 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
                 loadOverviewFailure: (_state: string | null, { error }: { error: string }) => error || 'Unknown error',
             },
         ],
+        // True once the preset came from somebody rather than the default, either
+        // by clicking a tile or by arriving on a link that names one. Landing
+        // must not move a preset that was asked for.
+        presetChosen: [
+            false,
+            {
+                setPreset: () => true,
+            },
+        ],
         pendingQuarantineKeys: [
             [] as string[],
             {
@@ -338,6 +354,7 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
             EMPTY_FILTERS,
             {
                 setPreset: (state, { preset }) => ({ ...state, preset }),
+                landOnPreset: (state, { preset }) => ({ ...state, preset }),
                 toggleType: (state, { value }) => ({
                     ...state,
                     typeKeys: state.typeKeys.includes(value)
@@ -434,6 +451,30 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
         ],
     }),
     listeners(({ actions, values, props }) => ({
+        // A fixed default lands on an empty list whenever this repo happens to
+        // have nothing in that bucket, and every candidate is empty on some
+        // repo: a suite with no quarantines has no decisions, and one whose
+        // snapshots all render cleanly has nothing unstable. So the default
+        // holds only until the counts arrive, then the page moves to the most
+        // urgent preset that has anything in it.
+        loadOverviewSuccess: () => {
+            if (values.presetChosen) {
+                return
+            }
+            // Counted over the entries, not over `statCounts`. The totals cover
+            // the whole population while the entry list stops at the cap, so a
+            // tile can read 12 with none of those twelve actually listed, and
+            // landing on it would show a filled tile above an empty table.
+            const rows = values.decoratedEntries
+            const has = (preset: FlakinessPreset): boolean => rows.some((entry) => matchesPreset(entry, preset))
+            if (has(values.filters.preset)) {
+                return
+            }
+            const populated = PRESETS.find(has)
+            if (populated) {
+                actions.landOnPreset(populated)
+            }
+        },
         quarantineIdentifier: async ({ identifier, runType, reason, expiresAt, sourceRunId }) => {
             try {
                 await visualReviewReposQuarantineCreate(String(values.currentProjectId), props.repoId, runType, {

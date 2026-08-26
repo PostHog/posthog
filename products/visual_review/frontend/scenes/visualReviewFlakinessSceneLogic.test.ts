@@ -65,6 +65,64 @@ describe('visualReviewFlakinessSceneLogic', () => {
         })
     })
 
+    describe('when the default preset has nothing in it', () => {
+        // A fixed default lands on an empty table whenever this repo has nothing
+        // in that bucket, and every candidate is empty on some repo. The page has
+        // to move to the most urgent preset that has rows.
+        // Totals say twelve need a decision while none of the listed entries
+        // does, which is what a capped response looks like. Landing on the
+        // totals would put a filled tile over an empty table.
+        const nothingNeedsADecision: FlakinessOverviewApi = {
+            ...overview,
+            entries: [
+                {
+                    identifier: 'components-chart--donut--dark',
+                    run_type: 'storybook',
+                    browser: null,
+                    thumbnail_hash: null,
+                    width: null,
+                    height: null,
+                    variant_count: 0,
+                    hard_count: 40,
+                    soft_count: 0,
+                    window_runs: 41,
+                    hard_rate: 40 / 41,
+                    soft_rate: 0,
+                    last_flaked_at: '2026-06-10T09:00:00Z',
+                    avg_diff_percentage: null,
+                    worst_soft_diff_percentage: null,
+                    headroom: null,
+                    baseline_age_days: 3,
+                    daily_hard_counts: [],
+                    daily_soft_counts: [],
+                    baseline_moved_day_index: null,
+                    flakiness_state: 'broken',
+                    is_quarantined: false,
+                    needs_decision: false,
+                    quarantine: null,
+                },
+            ],
+        }
+
+        beforeEach(() => {
+            initKeaTests()
+            useMocks({ get: { [FLAKINESS_URL]: nothingNeedsADecision } })
+            logic = visualReviewFlakinessSceneLogic({ repoId: REPO_ID })
+            logic.mount()
+        })
+
+        it('lands on the most urgent preset that has rows', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.filters.preset).toBe('broken')
+        })
+
+        it('leaves a preset the link asked for alone', async () => {
+            router.actions.push(`/visual_review/repos/${REPO_ID}/flakiness`, {}, { preset: 'at_risk' })
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.filters.preset).toBe('at_risk')
+        })
+    })
+
     describe('when the preset arrives in the URL', () => {
         beforeEach(() => {
             initKeaTests()

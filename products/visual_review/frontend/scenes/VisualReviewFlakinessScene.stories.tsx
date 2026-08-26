@@ -119,7 +119,10 @@ const overview: FlakinessOverviewApi = {
         noisy: 604,
         clean: 812,
         quarantined: 47,
-        needs_decision: 12,
+        // Zero, and deliberately so: none of the three entries needs a decision,
+        // and a total that disagreed with them would send the landing logic to a
+        // preset with nothing to render.
+        needs_decision: 0,
         by_run_type: { storybook: 3 },
     },
     truncated: false,
@@ -171,7 +174,12 @@ export default meta
 
 // Chronic drip, a quarantine that has run out while the snapshot still flakes,
 // and a burst against a four-day-old baseline.
-export const Unstable: StoryObj = {}
+export const Unstable: StoryObj = {
+    // Names its own preset. Inheriting the default made this story a hostage to
+    // it: the default changed, no fixture matched the new one, and the story
+    // quietly rendered an empty table for a while before anybody noticed.
+    parameters: { pageUrl: `/visual_review/repos/${REPO_ID}/flakiness#preset=unstable` },
+}
 
 // A repo whose snapshots all render deterministically. Two of the three repos in
 // this project land here, so it is worth holding to the same standard.
