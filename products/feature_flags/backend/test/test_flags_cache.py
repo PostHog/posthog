@@ -998,6 +998,38 @@ class TestShadowInvalidationPublishing(SimpleTestCase):
         mock_produce.assert_not_called()
 
     @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
+    @patch("products.feature_flags.backend.flags_cache._shadow_compare_enabled")
+    @patch(
+        "products.feature_flags.backend.flags_cache._evaluate_kafka_routing_flag",
+        side_effect=RuntimeError("flag client down"),
+    )
+    def test_routing_evaluation_failure_publishes_nothing(self, mock_gate, mock_shadow_gate, mock_produce):
+        # Not raising is the assertion. An escape here reaches the tail of
+        # update_team_service_flags_cache and makes Celery retry a build that
+        # already wrote the cache.
+        publish_shadow_invalidation(self.TEAM_ID)
+
+        mock_shadow_gate.assert_not_called()
+        mock_produce.assert_not_called()
+
+    @patch("products.feature_flags.backend.flags_cache.logger")
+    @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
+    @patch(
+        "products.feature_flags.backend.flags_cache.posthoganalytics.feature_enabled",
+        side_effect=RuntimeError("flag client down"),
+    )
+    @patch("products.feature_flags.backend.flags_cache._evaluate_kafka_routing_flag", return_value=False)
+    def test_shadow_gate_failure_publishes_nothing_and_warns(
+        self, mock_gate, mock_feature_enabled, mock_produce, mock_logger
+    ):
+        publish_shadow_invalidation(self.TEAM_ID)
+
+        mock_produce.assert_not_called()
+        # The warning is the only signal for a fleet-wide silent disable, because
+        # the gate reports its own failure as "shadow off".
+        assert mock_logger.warning.call_args.args[0] == "flags_cache_shadow_compare_flag_evaluation_failed"
+
+    @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
     @patch("products.feature_flags.backend.flags_cache.posthoganalytics.feature_enabled", return_value=False)
     def test_both_gates_evaluate_locally_and_capture_nothing(self, mock_feature_enabled, mock_produce):
         publish_shadow_invalidation(self.TEAM_ID)
