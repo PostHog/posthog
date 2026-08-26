@@ -1331,13 +1331,14 @@ export const agentAnalyticsLogic = kea<agentAnalyticsLogicType>([
             '',
             {
                 setLlmsTxtFromUrl: (_, { content }) => content,
+                submitLlmsTxtSourceFailure: () => '',
             },
         ],
         llmsTxtLoadedUrl: [
             null as string | null,
             {
-                submitLlmsTxtSource: () => null,
                 setLlmsTxtFromUrl: (_, { url }) => url,
+                submitLlmsTxtSourceFailure: () => null,
             },
         ],
         llmsTxtFetchError: [

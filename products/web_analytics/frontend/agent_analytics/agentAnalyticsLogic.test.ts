@@ -239,6 +239,28 @@ describe('agentAnalyticsLogic', () => {
                     isLlmsTxtSourceSubmitting: false,
                 })
         })
+
+        it('drops the previous file when a later load fails', async () => {
+            mockFetchLlmsTxt.mockResolvedValue({
+                content: '# Example\n/docs\n/pricing',
+                url: 'https://www.example.com/llms.txt',
+            })
+            logic.actions.setLlmsTxtSourceValue('url', 'https://example.com/llms.txt')
+            await expectLogic(logic, () => logic.actions.submitLlmsTxtSource()).toFinishAllListeners()
+            expect(logic.values.llmsTxtLinks.size).toBeGreaterThan(0)
+
+            mockFetchLlmsTxt.mockRejectedValue({ data: { url: ['The URL returned HTTP 404.'] } })
+            logic.actions.setLlmsTxtSourceValue('url', 'https://example.com/missing.txt')
+
+            await expectLogic(logic, () => logic.actions.submitLlmsTxtSource())
+                .toFinishAllListeners()
+                .toMatchValues({
+                    llmsTxtInput: '',
+                    llmsTxtLoadedUrl: null,
+                    llmsTxtFetchError: 'The URL returned HTTP 404.',
+                })
+            expect(logic.values.llmsTxtLinks.size).toBe(0)
+        })
     })
 
     describe('query construction', () => {
