@@ -26,8 +26,8 @@ from products.replay_vision.backend.scanner_draft import (
     _generate,
     _LlmDraft,
     _LlmDraftV2,
-    _pages_query,
     _solve_budget,
+    _v2_query,
     draft_scanner_from_goal_v2,
 )
 from products.replay_vision.backend.tag_suggestions import _ProductTaxonomy
@@ -585,11 +585,11 @@ class TestDraftScannerEndpoint(_VisionAPITestCase):
         assert resp.status_code == status.HTTP_429_TOO_MANY_REQUESTS
 
 
-class TestPagesQuery:
+class TestV2Query:
     def test_pages_become_one_multi_value_property(self):
         # Separate properties would AND and match almost nothing: measured 68 sessions where the
         # one-property shape matched 44,523.
-        query = _pages_query(["/billing", "/checkout", "/payment"])
+        query = _v2_query(["/billing", "/checkout", "/payment"], [])
 
         assert query is not None
         assert len(query["properties"]) == 1
@@ -599,11 +599,33 @@ class TestPagesQuery:
             "value": ["/billing", "/checkout", "/payment"],
             "operator": "icontains",
         }
+        assert "events" not in query
+
+    def test_events_become_the_events_list(self):
+        # Some goals ("did they enter the create flow") are sharper as an event than a URL. Without
+        # this, an event-driven goal falls back to no filter and scans everything.
+        query = _v2_query([], ["scanner_create_started"])
+
+        assert query is not None
+        assert query["events"] == [
+            {"id": "scanner_create_started", "name": "scanner_create_started", "type": "events", "order": 0}
+        ]
+        assert "properties" not in query
+
+    def test_pages_and_events_combine_in_one_query(self):
+        query = _v2_query(["/billing"], ["checkout_started"])
+
+        assert query is not None
+        assert query["properties"][0]["value"] == ["/billing"]
+        assert query["events"][0]["id"] == "checkout_started"
+
+    def test_no_pages_and_no_events_is_no_query(self):
+        assert _v2_query([], []) is None
 
     def test_collapsed_id_pages_filter_by_their_prefix(self):
         # The grounding list says "/invoice/:id" but real URLs hold real IDs, so the literal value
         # would match zero sessions. The prefix still matches every such URL.
-        query = _pages_query(["/invoice/:id", "/billing"])
+        query = _v2_query(["/invoice/:id", "/billing"], [])
 
         assert query is not None
         assert query["properties"][0]["value"] == ["/invoice/", "/billing"]
@@ -612,10 +634,10 @@ class TestPagesQuery:
     def test_a_page_that_cannot_narrow_is_dropped(self, pathname):
         # "/a/:id/b" prefixes to "/a/", two non-slash chars: icontains on it matches nearly every
         # URL, so it reads as a narrowing filter while narrowing nothing.
-        assert _pages_query([pathname]) is None
+        assert _v2_query([pathname], []) is None
 
     def test_prefix_collisions_are_deduped(self):
-        query = _pages_query(["/invoice/:id", "/invoice/:id/edit"])
+        query = _v2_query(["/invoice/:id", "/invoice/:id/edit"], [])
 
         assert query is not None
         assert query["properties"][0]["value"] == ["/invoice/"]
@@ -626,19 +648,35 @@ class TestFinalizeV2:
         draft = _finalize_v2(
             _draft_v2(filter_pages=["/billing", "/made-up-page"]),
             allowed_pages=["/billing", "/checkout"],
+            allowed_events=[],
             team_id=1,
         )
 
         assert draft.query is not None
         assert draft.query["properties"][0]["value"] == ["/billing"]
 
+    def test_hallucinated_events_are_dropped(self):
+        # A filter on an event the product never emits matches zero sessions, so an ungrounded one
+        # must not survive into the scanner.
+        draft = _finalize_v2(
+            _draft_v2(filter_events=["real_event", "made_up_event"]),
+            allowed_pages=[],
+            allowed_events=["real_event"],
+            team_id=1,
+        )
+
+        assert draft.query is not None
+        assert [e["id"] for e in draft.query["events"]] == ["real_event"]
+
     def test_no_grounded_pages_means_no_query(self):
-        draft = _finalize_v2(_draft_v2(filter_pages=["/made-up"]), allowed_pages=["/billing"], team_id=1)
+        draft = _finalize_v2(
+            _draft_v2(filter_pages=["/made-up"]), allowed_pages=["/billing"], allowed_events=[], team_id=1
+        )
 
         assert draft.query is None
 
     def test_carries_the_models_sampling_mode_without_costing(self):
-        draft = _finalize_v2(_draft_v2(sampling_mode="focused"), allowed_pages=[], team_id=1)
+        draft = _finalize_v2(_draft_v2(sampling_mode="focused"), allowed_pages=[], allowed_events=[], team_id=1)
 
         assert draft.sampling_mode == "focused"
         assert draft.sampling_rate is None

@@ -562,6 +562,13 @@ class _LlmDraftV2(BaseModel):
         "briefing's pages list. They OR together: a session that visited ANY of them is scanned. Empty only "
         "when the goal genuinely spans the whole product.",
     )
+    filter_events: list[str] = Field(
+        default_factory=list,
+        description="Custom events a session must contain to be worth scanning, each copied verbatim from the "
+        "briefing's events list. Use when a specific action is the sharpest signal for the goal (e.g. an event "
+        "fired when a flow starts). Each event ANDs, with the other events and with the pages, so a session must "
+        "have all of them; keep to the one or two that define the flow, and leave empty when pages already capture it.",
+    )
     sampling_mode: Literal["comprehensive", "balanced", "focused"] = Field(
         default="comprehensive",
         description="Which sessions deserve the budget when it cannot cover everything; see the drafting rules.",
@@ -599,13 +606,20 @@ Pick the single type that best fits the goal, then draft the scanner:
   forced into a no.
 - For classifiers: 4-8 lowercase snake_case tags that are distinct, non-overlapping categories along the
   dimension. No vague catch-alls ("other", "misc").
-- filter_pages: which sessions get scanned. The pages list is what the product actually calls things, so
-  map the goal's words onto their closest real pages, including synonyms: someone saying "money" or
-  "payments" means the billing pages. Pick up to 5, each copied EXACTLY from the briefing's pages list
-  (anything not in the list is discarded). They OR together: a session that visited ANY of them is
-  scanned, so cover the flow rather than picking one page. Leave the list empty ONLY when the goal
-  genuinely spans the whole product ("summarize what users do here"). The custom events are context for
-  the prompt, never a filter.
+- filter_pages and filter_events: which sessions get scanned. Two ways to narrow, and you can use
+  either or both.
+  - filter_pages: the pages list is what the product actually calls things, so map the goal's words
+    onto their closest real pages, including synonyms: someone saying "money" or "payments" means the
+    billing pages. Pick up to 5, each copied EXACTLY from the briefing's pages list. They OR together:
+    a session that visited ANY of them is scanned, so cover the flow rather than picking one page.
+  - filter_events: when a specific action is the sharpest signal for the goal, pick the one or two
+    custom events that mark it, each copied EXACTLY from the briefing's events list. An event is often
+    more precise than a page for "did the user DO X" (e.g. an event fired when a flow starts).
+  - Prefer the single strongest signal. Events AND with each other and with the pages, so a session
+    must satisfy ALL of them: only combine when a session genuinely has both, or the filter matches
+    nothing. Anything not copied from the briefing's lists is discarded.
+  - Leave both empty ONLY when the goal genuinely spans the whole product ("summarize what users do
+    here").
 - sampling_mode: who deserves the budget when it cannot cover every matching session. Each session
   carries a score of how eventful it looks; the mode drops the lowest-scoring sessions before random
   sampling. Choose by what the goal hunts:
@@ -668,8 +682,8 @@ def _build_user_content_v2(
             )
         if events:
             taxonomy_lines.append(
-                "The product's most active custom events (context for the prompt, never a filter):\n- "
-                + "\n- ".join(events)
+                "The product's most active custom events (use to ground the prompt, and pick from these "
+                "for filter_events when an action is the sharpest signal):\n- " + "\n- ".join(events)
             )
         lines.append("\n" + as_untrusted_data("product-data", taxonomy_lines, source="collected from product traffic"))
     if scanners:
@@ -699,15 +713,24 @@ def _page_filter_value(pathname: str) -> str | None:
     return value
 
 
-def _pages_query(pathnames: Sequence[str]) -> dict[str, Any] | None:
-    """ONE multi-value `visited_page` property. Separate properties would AND and match almost nothing."""
+def _v2_query(pathnames: Sequence[str], events: Sequence[str]) -> dict[str, Any] | None:
+    """The scanner's recording filter from the grounded pages and events.
+
+    Pages become ONE multi-value `visited_page` property (its values OR). Events go in the `events`
+    list, where each event ANDs, with the other events and with the page property. The estimate the
+    caller runs, and the review page's Save-at-zero gate, catch an over-constrained AND before it
+    ever becomes a scanner.
+    """
+    query: dict[str, Any] = {"kind": "RecordingsQuery"}
     values = list(dict.fromkeys(v for p in pathnames if (v := _page_filter_value(p)) is not None))
-    if not values:
+    if values:
+        query["properties"] = [{"type": "recording", "key": "visited_page", "value": values, "operator": "icontains"}]
+    if events:
+        # The shape the replay filter UI produces for an event condition.
+        query["events"] = [{"id": event, "name": event, "type": "events", "order": 0} for event in events]
+    if "properties" not in query and "events" not in query:
         return None
-    return {
-        "kind": "RecordingsQuery",
-        "properties": [{"type": "recording", "key": "visited_page", "value": values, "operator": "icontains"}],
-    }
+    return query
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -776,29 +799,33 @@ def _solve_budget(
     )
 
 
-def _finalize_v2(parsed: _LlmDraftV2, *, allowed_pages: Sequence[str], team_id: int) -> ScannerDraft:
+def _finalize_v2(
+    parsed: _LlmDraftV2, *, allowed_pages: Sequence[str], allowed_events: Sequence[str], team_id: int
+) -> ScannerDraft:
     """Normalize the v2 model output; costing is applied by the caller."""
     name = parsed.name.strip()[:_MAX_NAME_LENGTH]
     if not name or not parsed.prompt.strip():
         raise DraftError("draft missing name or prompt")
     scanner_config = _normalized_config(parsed)  # type: ignore[arg-type]
 
-    # Verbatim membership in the list the model was shown: a page the product never serves would
-    # silently match zero sessions, so a hallucinated one must not survive.
+    # Verbatim membership in the lists the model was shown: a page or event the product never emits
+    # would silently match zero sessions, so a hallucinated one must not survive.
     pages = _grounded(parsed.filter_pages, allowed_pages, _MAX_FILTER_PAGES)
-    dropped = {p for p in (v.strip() for v in parsed.filter_pages) if p} - set(pages)
-    if dropped:
+    events = _grounded(parsed.filter_events, allowed_events, _MAX_FILTER_EVENTS)
+    dropped_pages = {p for p in (v.strip() for v in parsed.filter_pages) if p} - set(pages)
+    dropped_events = {e for e in (v.strip() for v in parsed.filter_events) if e} - set(events)
+    if dropped_pages or dropped_events:
         # Every dropped value silently broadens the scan (worst case to every session, the most
         # expensive outcome) while the rationale may still describe a narrow one.
         logger.warning(
             "replay_vision.scanner_draft.filter_values_dropped",
             team_id=team_id,
             scanner_type=parsed.scanner_type,
-            dropped_screens=len(dropped),
-            dropped_events=0,
+            dropped_screens=len(dropped_pages),
+            dropped_events=len(dropped_events),
             kept_screens=len(pages),
-            kept_events=0,
-            scans_every_session=not pages,
+            kept_events=len(events),
+            scans_every_session=not pages and not events,
         )
 
     return ScannerDraft(
@@ -807,7 +834,7 @@ def _finalize_v2(parsed: _LlmDraftV2, *, allowed_pages: Sequence[str], team_id: 
         scanner_type=parsed.scanner_type,
         scanner_config=scanner_config,
         rationale=parsed.rationale.strip()[:_MAX_RATIONALE_LENGTH],
-        query=_pages_query(pages),
+        query=_v2_query(pages, events),
         sampling_mode=parsed.sampling_mode,
     )
 
@@ -855,7 +882,12 @@ def draft_scanner_from_goal_v2(
         response_model=_LlmDraftV2,  # type: ignore[arg-type]
         feature="draft_scanner_from_goal_v2",
     )
-    draft = _finalize_v2(cast(_LlmDraftV2, parsed), allowed_pages=[p.pathname for p in pages], team_id=team.id)
+    draft = _finalize_v2(
+        cast(_LlmDraftV2, parsed),
+        allowed_pages=[p.pathname for p in pages],
+        allowed_events=events,
+        team_id=team.id,
+    )
 
     try:
         solution = _solve_budget(
