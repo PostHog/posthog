@@ -81,30 +81,37 @@ class TestSnobBackendTestSelectionShadow(unittest.TestCase):
             self.assertEqual(["products/feature_flags/backend/test/test_api.py"], result.tests)
 
     def test_ast_selection_matches_posthog_api_test_by_filename(self) -> None:
-        selection = _load_selection_module()
+        with tempfile.TemporaryDirectory() as root:
+            tmp_path = Path(root)
+            selection = _load_selection_module()
+            selection.REPO_ROOT = tmp_path
 
-        result = selection.ast_select_tests(
-            ["posthog/api/project.py"],
-            {
-                "posthog/api/test/test_project.py": selection.TestFeatures(
-                    path="posthog/api/test/test_project.py",
-                    imports_api_client=True,
-                    api_tokens=("project",),
-                ),
-                "posthog/api/test/test_user.py": selection.TestFeatures(
-                    path="posthog/api/test/test_user.py",
-                    imports_api_client=True,
-                    api_tokens=("user",),
-                ),
-            },
-        )
+            neighbor = tmp_path / "posthog" / "api" / "test" / "test_project.py"
+            neighbor.parent.mkdir(parents=True)
+            neighbor.touch()
 
-        self.assertIn("conventional_neighbors", result.groups)
-        self.assertIn("posthog_api_route_tokens", result.groups)
-        # same-app fallback includes all tests under posthog/api/
-        self.assertIn("same_app:posthog/api", result.groups)
-        self.assertIn("posthog/api/test/test_project.py", result.tests)
-        self.assertIn("posthog/api/test/test_user.py", result.tests)
+            result = selection.ast_select_tests(
+                ["posthog/api/project.py"],
+                {
+                    "posthog/api/test/test_project.py": selection.TestFeatures(
+                        path="posthog/api/test/test_project.py",
+                        imports_api_client=True,
+                        api_tokens=("project",),
+                    ),
+                    "posthog/api/test/test_user.py": selection.TestFeatures(
+                        path="posthog/api/test/test_user.py",
+                        imports_api_client=True,
+                        api_tokens=("user",),
+                    ),
+                },
+            )
+
+            self.assertIn("conventional_neighbors", result.groups)
+            self.assertIn("posthog_api_route_tokens", result.groups)
+            # same-app fallback includes all tests under posthog/api/
+            self.assertIn("same_app:posthog/api", result.groups)
+            self.assertIn("posthog/api/test/test_project.py", result.tests)
+            self.assertIn("posthog/api/test/test_user.py", result.tests)
 
     def test_snob_selection_filters_to_python_files(self) -> None:
         selection = _load_selection_module()
