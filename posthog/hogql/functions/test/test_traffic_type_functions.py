@@ -12,6 +12,7 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import QueryError
 from posthog.hogql.functions.traffic_type import (
+    _property_expr,
     get_bot_name,
     get_bot_operator,
     get_bot_type,
@@ -45,6 +46,25 @@ class TestTrafficTypeFunctions:
         assert result.args[1].value == "Regular"
         # Third arg: array access
         assert isinstance(result.args[2], ast.ArrayAccess)
+
+    @parameterized.expand(
+        [
+            # Canonical shape: a rule on another property reads it from the same properties object.
+            ("event properties", ["properties", "$raw_user_agent"], ["properties", "$host"]),
+            ("person-on-events", ["poe", "properties", "$raw_user_agent"], ["poe", "properties", "$host"]),
+            # A user agent not read from a properties object has no sibling to reach for, so the rule
+            # is skipped rather than inventing a column that fails the whole query.
+            ("arbitrary parent", ["foo", "ua"], None),
+            ("parent is not properties", ["events", "$raw_user_agent"], None),
+        ]
+    )
+    def test_property_expr_only_infers_sibling_from_a_properties_object(self, _name, chain, expected):
+        result = _property_expr("$host", [ast.Field(chain=chain)])
+        if expected is None:
+            assert result is None
+        else:
+            assert isinstance(result, ast.Field)
+            assert result.chain == expected
 
     def test_get_traffic_type_uses_multiMatchAnyIndex(self):
         node = ast.Call(name="getTrafficType", args=[])

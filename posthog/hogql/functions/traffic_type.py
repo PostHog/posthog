@@ -73,7 +73,15 @@ def _property_expr(key: str, args: list[ast.Expr]) -> Optional[ast.Expr]:
     if key == IP_FIELD and ip_expr is not None:
         return ip_expr
     user_agent_expr = args[0]
-    if isinstance(user_agent_expr, ast.Field) and len(user_agent_expr.chain) > 1:
+    # Only a user agent read straight from a properties object (properties.$raw_user_agent) has a
+    # sibling to reach for. Replacing the last segment of any other chain would invent a column, e.g.
+    # getBotName(foo.ua) -> foo.$host, and fail the whole query, so skip the rule instead.
+    if (
+        isinstance(user_agent_expr, ast.Field)
+        and len(user_agent_expr.chain) > 1
+        and user_agent_expr.chain[-1] == USER_AGENT_FIELD
+        and user_agent_expr.chain[-2] == "properties"
+    ):
         return ast.Field(chain=[*user_agent_expr.chain[:-1], key])
     return None
 
