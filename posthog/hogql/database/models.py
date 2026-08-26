@@ -300,20 +300,21 @@ class TableNode(BaseModel):
 
     def _case_insensitive_index(self) -> dict[str, "TableNode"]:
         # Kept in self.__dict__ instead of a pydantic PrivateAttr: a private attr would slow
-        # catalog pickling for every node (see _slim_pickle_getstate). Rebuilt when `children`
-        # is a different dict or length; add_child covers same-name replacement, which those
-        # checks miss. Survives pickling intact. Concurrent builds compute the same index, so
-        # races are harmless.
-        cache: Optional[tuple[dict[str, TableNode], int, dict[str, TableNode]]] = self.__dict__.get(_CI_INDEX_CACHE_KEY)
-        if cache is None or cache[0] is not self.children or cache[1] != len(self.children):
+        # catalog pickling for every node (see _slim_pickle_getstate). The cache is keyed on a
+        # snapshot of the child names, so an in-place edit that keeps `children`'s identity and
+        # length (a delete plus an add) still rebuilds the index instead of hiding a real table.
+        # add_child drops the cache for a same-name replacement, which name comparison misses.
+        # Survives pickling intact. Concurrent builds compute the same index, so races are harmless.
+        cache: Optional[tuple[frozenset[str], dict[str, TableNode]]] = self.__dict__.get(_CI_INDEX_CACHE_KEY)
+        if cache is None or cache[0] != self.children.keys():
             index: dict[str, TableNode] = {}
             for key, node in self.children.items():
                 if node.case_insensitive:
                     # On duplicate lowercased names the first child in iteration order wins.
                     index.setdefault(key.lower(), node)
-            cache = (self.children, len(self.children), index)
+            cache = (frozenset(self.children), index)
             object.__setattr__(self, _CI_INDEX_CACHE_KEY, cache)
-        return cache[2]
+        return cache[1]
 
     def _match_child(self, name: str) -> Optional["TableNode"]:
         child = self.children.get(name)

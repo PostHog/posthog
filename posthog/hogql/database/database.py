@@ -771,7 +771,9 @@ class Database(BaseModel):
         Builds the candidate list from the raw name caches rather than from
         `get_all_table_names()` — the latter verifies each warehouse entry by
         calling `get_table()`, which would recurse back into this helper when
-        a warehouse table fails to resolve.
+        a warehouse table fails to resolve. The raw caches are maintained apart
+        from the `tables` tree the resolver walks, so each candidate is checked
+        against the tree to avoid suggesting a table the resolver cannot reach.
 
         A qualified name states which schema the author meant, so candidates
         outside it are dropped no matter how well the leaf scores. When no such
@@ -791,7 +793,7 @@ class Database(BaseModel):
         # is noise, and on a direct connection the same name can exist in the broader
         # catalog without being available on the source we actually queried.
         lowered = name.casefold()
-        candidates = {c for c in candidates if c.casefold() != lowered}
+        candidates = {c for c in candidates if c.casefold() != lowered and self.has_table(c)}
         prefix, dot, _ = name.rpartition(".")
         if dot:
             schema = prefix.casefold()

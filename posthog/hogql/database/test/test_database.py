@@ -258,6 +258,18 @@ class TestTableNodeCaseInsensitiveLookup(TestCase):
 
         assert not root.has_child(["nation"])
 
+    def test_lookup_sees_same_length_child_swap(self):
+        # A delete plus an add keeps `children`'s identity and length, so an index keyed on those
+        # alone would keep resolving the old name and hide the new one.
+        root = TableNode(name="root", children={"Nation": self._node("Nation", case_insensitive=True)})
+        assert root.has_child(["nation"])  # warms the case-insensitive index
+
+        del root.children["Nation"]
+        root.children["Region"] = self._node("Region", case_insensitive=True)
+
+        assert not root.has_child(["nation"])
+        assert root.has_child(["region"])
+
 
 class TestUnknownTableSuggestions(TestCase):
     @parameterized.expand(
@@ -322,6 +334,17 @@ class TestUnknownTableSuggestions(TestCase):
             database.get_table(missing_table)
 
         assert str(error.exception) == expected_message
+
+    def test_candidate_absent_from_the_resolver_tree_is_not_suggested(self):
+        # The raw name caches are maintained apart from the `tables` tree, so a cached name can
+        # point at a table the resolver cannot reach. Such a name must not be suggested.
+        database = Database()
+        database._warehouse_table_names.append("customer_order")
+
+        with self.assertRaises(QueryError) as error:
+            database.get_table("customer_orders")
+
+        assert str(error.exception) == "Unknown table `customer_orders`."
 
 
 class TestDatabase(BaseTest, QueryMatchingTest):
