@@ -44,7 +44,7 @@ export const LiveBotTiles = (): JSX.Element => {
                     isLoading={isLoading}
                     contentClassName="h-64 md:h-80"
                 >
-                    <BotEventsPerMinuteChart data={chartData} />
+                    <BotEventsPerMinuteChart data={chartData} timezone={timezone} />
                 </LiveChartCard>
                 <LiveBotTrafficCard
                     data={botBreakdown}

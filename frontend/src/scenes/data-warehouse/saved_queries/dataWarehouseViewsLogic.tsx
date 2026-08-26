@@ -9,7 +9,12 @@ import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { DataModelingSyncInterval, DataWarehouseSavedQuery, DataWarehouseSavedQueryFolder } from '~/types'
+import {
+    DataModelingSyncInterval,
+    DataWarehouseSavedQuery,
+    DataWarehouseSavedQueryFolder,
+    DataWarehouseSavedQueryIncremental,
+} from '~/types'
 
 import { warehouseSavedQueriesMaterializeCreate } from 'products/data_warehouse/frontend/generated/api'
 
@@ -169,15 +174,24 @@ export interface dataWarehouseViewsLogicActions {
     }
     materializeDataWarehouseSavedQuery: (
         viewId: string,
-        syncFrequency?: DataModelingSyncInterval
+        syncFrequency?: DataModelingSyncInterval,
+        incremental?: DataWarehouseSavedQueryIncremental
     ) => {
+        incremental: DataWarehouseSavedQueryIncremental | undefined
         syncFrequency: DataModelingSyncInterval | undefined
         viewId: string
     }
     revertMaterialization: (viewId: string) => {
         viewId: string
     }
-    runDataWarehouseSavedQuery: (viewId: string) => {
+    runDataWarehouseSavedQuery: (
+        viewId: string,
+        fullRefresh?: boolean
+    ) => {
+        fullRefresh: boolean | undefined
+        viewId: string
+    }
+    runDataWarehouseSavedQueryFailure: (viewId: string) => {
         viewId: string
     }
     updateDataWarehouseSavedQuery: (
@@ -319,11 +333,17 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
         ],
     }),
     actions({
-        runDataWarehouseSavedQuery: (viewId: string) => ({ viewId }),
+        runDataWarehouseSavedQuery: (viewId: string, fullRefresh?: boolean) => ({ viewId, fullRefresh }),
+        runDataWarehouseSavedQueryFailure: (viewId: string) => ({ viewId }),
         cancelDataWarehouseSavedQuery: (viewId: string) => ({ viewId }),
-        materializeDataWarehouseSavedQuery: (viewId: string, syncFrequency?: DataModelingSyncInterval) => ({
+        materializeDataWarehouseSavedQuery: (
+            viewId: string,
+            syncFrequency?: DataModelingSyncInterval,
+            incremental?: DataWarehouseSavedQueryIncremental
+        ) => ({
             viewId,
             syncFrequency,
+            incremental,
         }),
         revertMaterialization: (viewId: string) => ({ viewId }),
         addMaterializingViews: (viewIds: string[]) => ({ viewIds }),
@@ -510,13 +530,14 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
             actions.loadDataWarehouseSavedQueries()
             actions.refreshDatabaseSchema()
         },
-        runDataWarehouseSavedQuery: async ({ viewId }) => {
+        runDataWarehouseSavedQuery: async ({ viewId, fullRefresh }) => {
             try {
-                await api.dataWarehouseSavedQueries.run(viewId)
-                lemonToast.success('Materialization started')
+                await api.dataWarehouseSavedQueries.run(viewId, fullRefresh)
+                lemonToast.success(fullRefresh ? 'Rebuild started' : 'Materialization started')
                 actions.loadDataWarehouseSavedQueries()
             } catch {
-                lemonToast.error(`Failed to run materialization`)
+                lemonToast.error(fullRefresh ? 'Failed to start rebuild' : 'Failed to run materialization')
+                actions.runDataWarehouseSavedQueryFailure(viewId)
             }
         },
         cancelDataWarehouseSavedQuery: async ({ viewId }) => {
@@ -528,8 +549,19 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 lemonToast.error(`Failed to cancel materialization`)
             }
         },
-        materializeDataWarehouseSavedQuery: async ({ viewId, syncFrequency }) => {
+        materializeDataWarehouseSavedQuery: async ({ viewId, syncFrequency, incremental }) => {
             const requestedFrequency = syncFrequency ?? DEFAULT_MATERIALIZE_SYNC_FREQUENCY
+            if (incremental) {
+                // Persist the config first so the materialization run picks it up. Same shape as the
+                // save-as-view flow, which creates the view with the config before materializing.
+                try {
+                    await api.dataWarehouseSavedQueries.update(viewId, { incremental })
+                } catch (error: any) {
+                    // The server names the construct blocking incremental — surface it over a generic failure.
+                    lemonToast.error(error?.detail || 'Failed to save incremental settings')
+                    return
+                }
+            }
             try {
                 await warehouseSavedQueriesMaterializeCreate(String(ApiConfig.getCurrentTeamId()), viewId, {
                     sync_frequency: requestedFrequency,
@@ -537,6 +569,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 lemonToast.success('View materialized successfully')
                 posthog.capture('materialized view created', {
                     sync_frequency: requestedFrequency,
+                    incremental: !!incremental,
                 })
                 actions.addMaterializingViews([viewId])
                 actions.loadDataWarehouseSavedQueries()

@@ -21,7 +21,7 @@ import { flagCleanupTaskLogic } from './flagCleanupTaskLogic'
 import { RunningTime } from './RunningTime'
 import { StatusTag } from './StatusTag'
 
-function FlagCleanupLine({ experimentId, taskId }: { experimentId: number; taskId: string }): JSX.Element | null {
+function FlagCleanupField({ experimentId, taskId }: { experimentId: number; taskId: string }): JSX.Element | null {
     const { cleanupTask } = useValues(flagCleanupTaskLogic({ experimentId }))
 
     if (!cleanupTask) {
@@ -48,26 +48,29 @@ function FlagCleanupLine({ experimentId, taskId }: { experimentId: number; taskI
     const showLink = isExternalLink || cleanupTask.can_view_task
 
     return (
-        <div className="text-xs text-muted mt-1 mb-3 flex items-center gap-1">
-            {text}
-            {showLink && (
-                <>
-                    ·
-                    <Link
-                        target={isExternalLink ? '_blank' : undefined}
-                        className="flex items-center gap-0.5"
-                        to={prUrl ?? urls.taskDetail(taskId)}
-                    >
-                        {isExternalLink ? (
-                            <>
-                                View on GitHub <IconOpenInNew fontSize="12" />
-                            </>
-                        ) : (
-                            'View task'
-                        )}
-                    </Link>
-                </>
-            )}
+        <div className="flex flex-col" data-attr="experiment-flag-cleanup">
+            <Label intent="menu">Flag cleanup</Label>
+            <div className="flex items-center gap-1">
+                {text}
+                {showLink && (
+                    <>
+                        ·
+                        <Link
+                            target={isExternalLink ? '_blank' : undefined}
+                            className="flex items-center gap-0.5"
+                            to={prUrl ?? urls.taskDetail(taskId)}
+                        >
+                            {isExternalLink ? (
+                                <>
+                                    View on GitHub <IconOpenInNew fontSize="14" />
+                                </>
+                            ) : (
+                                'View task'
+                            )}
+                        </Link>
+                    </>
+                )}
+            </div>
         </div>
     )
 }
@@ -99,7 +102,7 @@ export function Info(): JSX.Element {
 
     return (
         <>
-            <div className="grid gap-2 overflow-hidden grid-cols-1 min-[1100px]:grid-cols-[1fr_1fr]">
+            <div className="grid gap-2 overflow-hidden grid-cols-1 min-[1100px]:grid-cols-[3fr_2fr]">
                 {/* Column 1 */}
                 <div className="flex flex-col gap-0 overflow-hidden min-w-0">
                     {/* Row 1: Status, Feature flag, Stats engine */}
@@ -175,6 +178,33 @@ export function Info(): JSX.Element {
                                     : `${((1 - (experiment.stats_config?.frequentist?.alpha ?? 0.05)) * 100).toFixed(0)}%`}
                             </span>
                         </div>
+                        {experiment.conclusion && experiment.end_date && (
+                            <div className="flex flex-col" data-attr="experiment-conclusion">
+                                <Label intent="menu">Conclusion</Label>
+                                <div className="flex items-center gap-2">
+                                    <div
+                                        className={clsx(
+                                            'w-2 h-2 rounded-full shrink-0',
+                                            CONCLUSION_DISPLAY_CONFIG[experiment.conclusion]?.color || ''
+                                        )}
+                                    />
+                                    <span className="font-semibold">
+                                        {CONCLUSION_DISPLAY_CONFIG[experiment.conclusion]?.title ||
+                                            experiment.conclusion}
+                                    </span>
+                                    <LemonButton
+                                        type="secondary"
+                                        size="xsmall"
+                                        icon={<IconPencil />}
+                                        onClick={openEditConclusionModal}
+                                        tooltip="Edit conclusion"
+                                    />
+                                </div>
+                            </div>
+                        )}
+                        {experiment.flag_cleanup_task_id && typeof experiment.id === 'number' && (
+                            <FlagCleanupField experimentId={experiment.id} taskId={experiment.flag_cleanup_task_id} />
+                        )}
                     </div>
                 </div>
 
@@ -202,41 +232,9 @@ export function Info(): JSX.Element {
                     </div>
                 </div>
             </div>
-            <div className="flex gap-6">
-                {experiment.conclusion && experiment.end_date && (
-                    <div className="max-w-[500px]">
-                        <div className="flex items-center gap-2">
-                            <Label intent="menu">Conclusion</Label>
-                            <LemonButton
-                                type="secondary"
-                                size="xsmall"
-                                icon={<IconPencil />}
-                                onClick={openEditConclusionModal}
-                            />
-                        </div>
-                        <div>
-                            <div className="font-semibold flex items-center gap-2">
-                                <div
-                                    className={clsx(
-                                        'w-2 h-2 rounded-full',
-                                        CONCLUSION_DISPLAY_CONFIG[experiment.conclusion]?.color || ''
-                                    )}
-                                />
-                                <span>
-                                    {CONCLUSION_DISPLAY_CONFIG[experiment.conclusion]?.title || experiment.conclusion}
-                                </span>
-                            </div>
-                            <div>{experiment.conclusion_comment}</div>
-                            {experiment.flag_cleanup_task_id && typeof experiment.id === 'number' && (
-                                <FlagCleanupLine
-                                    experimentId={experiment.id}
-                                    taskId={experiment.flag_cleanup_task_id}
-                                />
-                            )}
-                        </div>
-                    </div>
-                )}
-            </div>
+            {experiment.conclusion && experiment.end_date && experiment.conclusion_comment && (
+                <div className="mt-2 max-w-[600px] text-secondary">{experiment.conclusion_comment}</div>
+            )}
         </>
     )
 }

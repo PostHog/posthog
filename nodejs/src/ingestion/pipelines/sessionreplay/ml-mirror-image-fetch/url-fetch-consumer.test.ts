@@ -1,222 +1,436 @@
 import { Message } from 'node-rdkafka'
 
+import { FetchCandidate, MAX_HOPS, serializeFrontierRecord } from './collected-urls-record'
+import { CrawlHistoryItem, CrawlHistoryStore, configurationCacheKey } from './crawl-history'
+import { AttemptOutcome, DELAY_TOO_LONG, FetchAttempt, FetchPass, HOPS_EXHAUSTED } from './fetch-runner'
+import { FrontierPublisher, RepublishFlushResult, RepublishResult } from './frontier-publisher'
+import { ImageFetchConsumerMetrics, ImageFetchRequestMetrics } from './metrics'
 import { UrlFetchConsumer } from './url-fetch-consumer'
-import { SightingStore, sightingKey } from './url-sightings'
 
-const TEAM = '0123456789abcdef0123456789abcdef'
-const OTHER_TEAM = 'fedcba9876543210fedcba9876543210'
-const NOW = 1_700_000_000_000
+const NOW_MS = 1_700_000_000_000
 
-/** The ref format fixes the hash at 22 base64url characters, so a short test name has to be padded. */
-const hash = (name: string): string => name.padEnd(22, '0')
-
-function ref(name: string, team: string = TEAM): string {
-    return `imageurl:${team}:${hash(name)}`
-}
-
-class FakeSightings implements SightingStore {
-    public readonly stored = new Map<string, number>()
-    public readFailure: Error | null = null
-    public writeFailure: Error | null = null
-    /** Keys whose individual write reports a per-command failure, as ioredis does inside a pipeline. */
-    public partialWriteFailures = new Set<string>()
-    public reads = 0
-
-    read(keys: string[]): Promise<{ known: Set<number>; failed: number }> {
-        this.reads++
-        if (this.readFailure) {
-            return Promise.reject(this.readFailure)
-        }
-        const known = new Set<number>()
-        keys.forEach((key, index) => {
-            if (this.stored.has(key)) {
-                known.add(index)
-            }
-        })
-        return Promise.resolve({ known, failed: 0 })
-    }
-
-    record(keys: string[], nowMs: number): Promise<{ failed: Set<number> }> {
-        if (this.writeFailure) {
-            return Promise.reject(this.writeFailure)
-        }
-        const failed = new Set<number>()
-        keys.forEach((key, index) => {
-            if (this.partialWriteFailures.has(key)) {
-                failed.add(index)
-                return
-            }
-            this.stored.set(key, nowMs)
-        })
-        return Promise.resolve({ failed })
+function candidate(name: string, overrides: Partial<FetchCandidate> = {}): FetchCandidate {
+    const hash = name.padEnd(22, '0')
+    return {
+        originalRef: `imageurl:${hash}`,
+        currentUrl: `https://cdn.example.com/${name}.png`,
+        host: 'cdn.example.com',
+        origin: 'https://cdn.example.com',
+        registrableDomain: 'example.com',
+        remainingHops: MAX_HOPS,
+        notBeforeMs: 0,
+        firstSeenAtMs: NOW_MS,
+        fetchCount: 0,
+        republishCount: 0,
+        lastRepublishReason: null,
+        ...overrides,
     }
 }
 
-/** A real Message, so a field the consumer starts reading cannot be missing without the type saying so. */
-function message(value: Buffer | null, key: string | null): Message {
+function message(candidates: FetchCandidate[], key = 'example.com'): Message {
+    const value = serializeFrontierRecord(candidates)
     return {
         value,
-        key: key === null ? null : Buffer.from(key),
-        size: value?.length ?? 0,
+        key: Buffer.from(key),
+        size: value.length,
         topic: 'session_replay_image_fetch',
         partition: 0,
         offset: 0,
     }
 }
 
-function record(
-    urls: { ref: string; url: string; host: string }[],
-    overrides: { v?: unknown; pseudoTeam?: string; capturedAtMs?: number; key?: string | null } = {}
-): Message {
-    const body = {
-        v: overrides.v ?? 1,
-        pseudoTeam: overrides.pseudoTeam ?? TEAM,
-        capturedAtMs: overrides.capturedAtMs ?? NOW,
-        urls,
+class FakeCrawlHistory implements CrawlHistoryStore {
+    public readonly items = new Map<string, CrawlHistoryItem>()
+    public readKeys: string[][] = []
+    public writes: CrawlHistoryItem[][] = []
+    public readError: Error | undefined
+    public writeError: Error | undefined
+
+    read(keys: string[]): Promise<Map<string, CrawlHistoryItem>> {
+        this.readKeys.push(keys)
+        if (this.readError) {
+            return Promise.reject(this.readError)
+        }
+        return Promise.resolve(
+            new Map(keys.flatMap((key) => (this.items.has(key) ? [[key, this.items.get(key)!] as const] : [])))
+        )
     }
-    return message(Buffer.from(JSON.stringify(body)), overrides.key === null ? null : (overrides.key ?? 'example.com'))
+
+    write(items: CrawlHistoryItem[]): Promise<void> {
+        this.writes.push(items)
+        if (this.writeError) {
+            return Promise.reject(this.writeError)
+        }
+        for (const item of items) {
+            this.items.set(item.key, item)
+        }
+        return Promise.resolve()
+    }
 }
 
-function url(name: string, host = 'cdn.example.com'): { ref: string; url: string; host: string } {
-    return { ref: ref(name), url: `https://${host}/${name}.png`, host }
+function terminal(candidate: FetchCandidate, outcome: AttemptOutcome = 'ok'): FetchAttempt {
+    return {
+        candidate,
+        outcome,
+        finished: true,
+        lost: false,
+        history: {
+            kind: 'url',
+            key: candidate.originalRef,
+            nextFetchAtMs: NOW_MS + 30 * 24 * 60 * 60 * 1000,
+            storageExpiresAtMs: NOW_MS + 30 * 24 * 60 * 60 * 1000,
+            outcome,
+        },
+        configurationUpdates: [],
+    }
+}
+
+interface Harness {
+    consumer: UrlFetchConsumer
+    history: FakeCrawlHistory
+    run: jest.Mock<Promise<FetchAttempt[]>, [FetchCandidate[], Map<string, CrawlHistoryItem>]>
+    republish: jest.Mock<Promise<RepublishResult>, any[]>
+    flush: jest.Mock<Promise<RepublishFlushResult>, []>
+}
+
+function build(dryRun = false): Harness {
+    const history = new FakeCrawlHistory()
+    const run = jest.fn((candidates: FetchCandidate[], _stored: Map<string, CrawlHistoryItem>) =>
+        Promise.resolve(candidates.map((item) => terminal(item)))
+    )
+    const republish = jest.fn(() => Promise.resolve('queued' as const))
+    const flush = jest.fn(() => Promise.resolve({ failedUrls: 0 }))
+    const consumer = new UrlFetchConsumer(
+        history,
+        { createRepublishBatch: () => ({ republish, flush }) } as unknown as FrontierPublisher,
+        { seenTtlSeconds: 30 * 24 * 60 * 60, dryRun },
+        dryRun ? undefined : ({ run } as FetchPass)
+    )
+    return { consumer, history, run, republish, flush }
 }
 
 describe('UrlFetchConsumer', () => {
-    let sightings: FakeSightings
-    let consumer: UrlFetchConsumer
+    afterEach(() => jest.restoreAllMocks())
 
-    const build = (dedupMaxRefs = 1000): UrlFetchConsumer =>
-        new UrlFetchConsumer(sightings, {
-            maxAgeMs: 6 * 60 * 60 * 1000,
-            dedupMaxRefs,
-            dryRun: true,
+    it.each([Number.NaN, 0, 3_599, 3_600.5])('refuses an invalid crawl-history TTL of %p', (seenTtlSeconds) => {
+        expect(
+            () =>
+                new UrlFetchConsumer(new FakeCrawlHistory(), {} as FrontierPublisher, { seenTtlSeconds, dryRun: true })
+        ).toThrow('AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS')
+    })
+
+    it('refuses active mode without a fetch pass', () => {
+        expect(
+            () =>
+                new UrlFetchConsumer(new FakeCrawlHistory(), {} as FrontierPublisher, {
+                    seenTtlSeconds: 3_600,
+                    dryRun: false,
+                })
+        ).toThrow('fetch runner')
+    })
+
+    it('parses dry-run traffic without reading or writing shared state', async () => {
+        const harness = build(true)
+
+        await harness.consumer.handleBatch([message([candidate('a')])], NOW_MS)
+
+        expect(harness.history.readKeys).toEqual([])
+        expect(harness.history.writes).toEqual([])
+    })
+
+    it('bulk reads URL and per-origin configuration keys', async () => {
+        const harness = build()
+
+        await harness.consumer.handleBatch([message([candidate('a'), candidate('b')])], NOW_MS)
+
+        expect(harness.history.readKeys).toEqual([
+            [
+                candidate('a').originalRef,
+                candidate('b').originalRef,
+                configurationCacheKey(candidate('a').origin, 'robots'),
+                configurationCacheKey(candidate('a').origin, 'tdmrep'),
+            ],
+        ])
+        expect(harness.run.mock.calls[0][0]).toEqual([candidate('a'), candidate('b')])
+        expect(harness.history.writes[0]).toHaveLength(2)
+    })
+
+    it('records distinct origins and registrable domains for the poll batch', async () => {
+        const harness = build()
+        const observeBatch = jest.spyOn(ImageFetchConsumerMetrics, 'observeBatch')
+        const observeBatchDiversity = jest.spyOn(ImageFetchConsumerMetrics, 'observeBatchDiversity')
+        const otherExampleOrigin = candidate('b', {
+            currentUrl: 'https://img.example.com/b.png',
+            host: 'img.example.com',
+            origin: 'https://img.example.com',
+        })
+        const otherRegistrableDomain = candidate('c', {
+            currentUrl: 'https://img.other.net/c.png',
+            host: 'img.other.net',
+            origin: 'https://img.other.net',
+            registrableDomain: 'other.net',
         })
 
-    beforeEach(() => {
-        sightings = new FakeSightings()
-        consumer = build()
+        await harness.consumer.handleBatch(
+            [message([candidate('a'), otherExampleOrigin]), message([otherRegistrableDomain], 'other.net')],
+            NOW_MS
+        )
+
+        expect(observeBatch).toHaveBeenCalledWith(3, 2, expect.any(Number))
+        expect(observeBatchDiversity).toHaveBeenCalledWith([1, 1, 1], [2, 1])
     })
 
-    const hashOf = (key: string): string => key.split(':').pop() as string
+    it('deduplicates one global ref within the batch', async () => {
+        const harness = build()
 
-    it.each([NaN, 0, -1])('refuses to start with an age limit of %p', (maxAgeMs) => {
-        // The knob arrives from env, where a typo parses to NaN. A NaN limit makes every comparison
-        // false, so the lane silently stops shedding a backlog instead of failing.
-        expect(() => new UrlFetchConsumer(sightings, { maxAgeMs, dedupMaxRefs: 10, dryRun: true })).toThrow(
-            'SESSION_RECORDING_ML_IMAGE_FETCH_MAX_AGE_MS'
+        await harness.consumer.handleBatch([message([candidate('a')]), message([candidate('a')])], NOW_MS)
+
+        expect(harness.run.mock.calls[0][0]).toEqual([candidate('a')])
+    })
+
+    it('keeps the most conservative durable state from duplicate jobs', async () => {
+        const harness = build()
+        const stale = candidate('a')
+        const advanced = candidate('a', {
+            currentUrl: 'https://cdn.example.com/moved.png',
+            remainingHops: 7,
+            firstSeenAtMs: NOW_MS - 5_000,
+            fetchCount: 4,
+            republishCount: 3,
+            lastRepublishReason: 'retry',
+        })
+
+        await harness.consumer.handleBatch([message([stale]), message([advanced])], NOW_MS)
+
+        expect(harness.run.mock.calls[0][0]).toEqual([advanced])
+    })
+
+    it('keeps a low-origin-diversity marker from either duplicate job', async () => {
+        const harness = build()
+        const marked = candidate('a', { lowOriginDiversityDeferred: true })
+
+        await harness.consumer.handleBatch([message([candidate('a')]), message([marked])], NOW_MS)
+
+        expect(harness.run.mock.calls[0][0]).toEqual([marked])
+    })
+
+    it('keeps the latest not-before time from duplicate jobs', async () => {
+        const harness = build()
+        const stale = candidate('a')
+        const delayed = candidate('a', {
+            remainingHops: 9,
+            notBeforeMs: NOW_MS + 30_000,
+            republishCount: 1,
+            lastRepublishReason: 'retry',
+        })
+
+        await harness.consumer.handleBatch([message([stale]), message([delayed])], NOW_MS)
+
+        expect(harness.run.mock.calls[0][0]).toEqual([])
+        expect(harness.republish).toHaveBeenCalledWith(
+            expect.objectContaining({ remainingHops: 9, notBeforeMs: NOW_MS + 30_000 }),
+            expect.any(Object),
+            'not_ready',
+            30_000
         )
     })
 
-    it('writes one ledger entry per URL it would fetch', async () => {
-        await consumer.handleBatch([record([url('a'), url('b')])], NOW)
+    it('skips a URL whose crawl-history interval has not ended', async () => {
+        const harness = build()
+        harness.history.items.set(candidate('a').originalRef, {
+            kind: 'url',
+            key: candidate('a').originalRef,
+            nextFetchAtMs: NOW_MS + 1,
+            storageExpiresAtMs: NOW_MS + 1,
+            outcome: 'ok',
+        })
 
-        expect([...sightings.stored.keys()].map(hashOf).sort()).toEqual([hash('a'), hash('b')])
+        await harness.consumer.handleBatch([message([candidate('a'), candidate('b')])], NOW_MS)
+
+        expect(harness.run.mock.calls[0][0]).toEqual([candidate('b')])
     })
 
-    it('does not re-record a URL another pod already reached', async () => {
-        sightings.stored.set(sightingKey(TEAM, hash('a')), NOW - 1000)
+    it('republishes a job that arrives before its durable not-before time', async () => {
+        const harness = build()
+        const early = candidate('a', { notBeforeMs: NOW_MS + 30_000 })
 
-        await consumer.handleBatch([record([url('a'), url('b')])], NOW)
+        await harness.consumer.handleBatch([message([early])], NOW_MS)
 
-        // 'a' keeps the earlier entry rather than being counted and written again, which is what
-        // makes the ledger measure the hit rate instead of the sighting rate.
-        expect(sightings.stored.get(sightingKey(TEAM, hash('a')))).toBe(NOW - 1000)
-        expect(sightings.stored.get(sightingKey(TEAM, hash('b')))).toBe(NOW)
+        expect(harness.run.mock.calls[0][0]).toEqual([])
+        expect(harness.republish).toHaveBeenCalledWith(
+            early,
+            {
+                currentUrl: early.currentUrl,
+                host: early.host,
+                origin: early.origin,
+                registrableDomain: early.registrableDomain,
+            },
+            'not_ready',
+            30_000
+        )
+        expect(harness.history.writes).toEqual([])
     })
 
-    it('collapses a repeated URL inside one batch into a single ledger write', async () => {
-        await consumer.handleBatch([record([url('a')]), record([url('a')]), record([url('a')])], NOW)
+    it('records a terminal refusal when the remaining delay is over one hour', async () => {
+        const harness = build()
+        harness.republish.mockResolvedValue('refused_delay')
+        const early = candidate('a', { notBeforeMs: NOW_MS + 3_600_001 })
 
-        expect([...sightings.stored.keys()]).toEqual([sightingKey(TEAM, hash('a'))])
+        await harness.consumer.handleBatch([message([early])], NOW_MS)
+
+        expect(harness.history.writes[0]).toEqual([
+            expect.objectContaining({ kind: 'url', key: early.originalRef, outcome: DELAY_TOO_LONG }),
+        ])
     })
 
-    it('does not consult the store for a URL this pod already handled', async () => {
-        await consumer.handleBatch([record([url('a')])], NOW)
-        const readsAfterFirst = sightings.reads
+    it('records a terminal refusal when a delayed job has no remaining hops', async () => {
+        const harness = build()
+        const early = candidate('a', { notBeforeMs: NOW_MS + 30_000, remainingHops: 0 })
 
-        await consumer.handleBatch([record([url('a')])], NOW)
+        await harness.consumer.handleBatch([message([early])], NOW_MS)
 
-        expect(sightings.reads).toBe(readsAfterFirst)
+        expect(harness.republish).not.toHaveBeenCalled()
+        expect(harness.history.writes[0]).toEqual([
+            expect.objectContaining({ kind: 'url', key: early.originalRef, outcome: HOPS_EXHAUSTED }),
+        ])
     })
 
-    it('drops a URL older than the age limit without recording it', async () => {
-        const sevenHoursAgo = NOW - 7 * 60 * 60 * 1000
+    it('throws when a not-ready republish delivery fails', async () => {
+        const harness = build()
+        harness.flush.mockResolvedValue({ failedUrls: 1 })
+        const early = candidate('a', { notBeforeMs: NOW_MS + 30_000 })
 
-        await consumer.handleBatch([record([url('a')], { capturedAtMs: sevenHoursAgo })], NOW)
-
-        expect(sightings.stored.size).toBe(0)
+        await expect(harness.consumer.handleBatch([message([early])], NOW_MS)).rejects.toThrow('account for 1 URLs')
+        expect(harness.history.writes).toEqual([])
     })
 
-    it.each([
-        ['an unsupported version', record([url('a')], { v: 2 })],
-        ['a missing kafka key', record([url('a')], { key: null })],
-        ['a body that is not json', message(Buffer.from('{oh no'), 'example.com')],
-        ['an empty value', message(null, 'example.com')],
-    ])('drops %s without throwing', async (_name, message) => {
-        await expect(consumer.handleBatch([message], NOW)).resolves.toBeUndefined()
-
-        expect(sightings.stored.size).toBe(0)
-    })
-
-    it.each([
-        [
-            'a ref belonging to another team',
-            { ref: ref('a', OTHER_TEAM), url: 'https://cdn.example.com/a.png', host: 'cdn.example.com' },
-        ],
-        [
-            'a bytes ref rather than a url ref',
-            { ref: `image:${TEAM}:${hash('a')}`, url: 'https://cdn.example.com/a.png', host: 'cdn.example.com' },
-        ],
-        [
-            'a url whose host contradicts the entry',
-            { ref: ref('a'), url: 'https://evil.example.net/a.png', host: 'cdn.example.com' },
-        ],
-        ['a scheme we never fetch', { ref: ref('a'), url: 'ftp://cdn.example.com/a.png', host: 'cdn.example.com' }],
-    ])('rejects %s while keeping the rest of the record', async (_name, bad) => {
-        await consumer.handleBatch([record([bad as ReturnType<typeof url>, url('good')])], NOW)
-
-        expect([...sightings.stored.keys()].map(hashOf)).toEqual([hash('good')])
-    })
-
-    it('does not mark the pod cache for a URL whose write failed', async () => {
-        sightings.partialWriteFailures.add(sightingKey(TEAM, hash('a')))
-
-        await consumer.handleBatch([record([url('a')])], NOW)
-        const readsAfterFirst = sightings.reads
-        await consumer.handleBatch([record([url('a')])], NOW)
-
-        // The URL is in no durable store, so the next sighting has to reach the store again rather
-        // than be suppressed locally and vanish from the measurement.
-        expect(sightings.reads).toBe(readsAfterFirst + 1)
-    })
-
-    it('rejects a host outside the domain the record is keyed by', async () => {
-        // The key scopes the per-site budget, so a foreign host would spend another site's allowance.
-        await consumer.handleBatch(
-            [record([url('a', 'img.other-site.net'), url('good', 'cdn.example.com')], { key: 'example.com' })],
-            NOW
+    it('records a retry cause after the republish batch is durable', async () => {
+        const harness = build()
+        const retryCause = jest.spyOn(ImageFetchRequestMetrics, 'incRetryCause').mockImplementation()
+        harness.run.mockImplementation((candidates) =>
+            Promise.resolve(
+                candidates.map((item) => ({
+                    candidate: item,
+                    outcome: 'server_error',
+                    finished: false,
+                    lost: false,
+                    configurationUpdates: [],
+                }))
+            )
         )
 
-        expect([...sightings.stored.keys()].map(hashOf)).toEqual([hash('good')])
+        await harness.consumer.handleBatch([message([candidate('a')])], NOW_MS)
+
+        expect(retryCause).toHaveBeenCalledWith('server_error')
     })
 
-    it('drops a record carrying more URLs than any producer sends', async () => {
-        const many = Array.from({ length: 1100 }, (_value, index) => url(`u${index}`))
+    it('does not record a retry cause when the republish batch fails', async () => {
+        const harness = build()
+        const retryCause = jest.spyOn(ImageFetchRequestMetrics, 'incRetryCause').mockImplementation()
+        harness.flush.mockResolvedValue({ failedUrls: 1 })
+        harness.run.mockImplementation((candidates) =>
+            Promise.resolve(
+                candidates.map((item) => ({
+                    candidate: item,
+                    outcome: 'server_error',
+                    finished: false,
+                    lost: false,
+                    configurationUpdates: [],
+                }))
+            )
+        )
 
-        await consumer.handleBatch([record(many)], NOW)
-
-        expect(sightings.stored.size).toBe(0)
+        await expect(harness.consumer.handleBatch([message([candidate('a')])], NOW_MS)).rejects.toThrow(
+            'account for 1 URLs'
+        )
+        expect(retryCause).not.toHaveBeenCalled()
     })
 
-    it('treats a URL as unseen when the store read fails, rather than stalling the partition', async () => {
-        sightings.readFailure = new Error('redis down')
+    it('drops a malformed record without running the fetch pass', async () => {
+        const harness = build()
+        const invalid = message([candidate('a')])
+        invalid.value = Buffer.from('{')
 
-        await expect(consumer.handleBatch([record([url('a')])], NOW)).resolves.toBeUndefined()
+        await expect(harness.consumer.handleBatch([invalid], NOW_MS)).resolves.toBeUndefined()
+        expect(harness.run).not.toHaveBeenCalled()
     })
 
-    it('survives a store write failure', async () => {
-        sightings.writeFailure = new Error('redis down')
+    it('rejects a whole multi-job record when one job belongs to another partition', async () => {
+        const harness = build()
+        const foreign = candidate('foreign', {
+            currentUrl: 'https://img.other.net/foreign.png',
+            host: 'img.other.net',
+            origin: 'https://img.other.net',
+            registrableDomain: 'other.net',
+        })
 
-        await expect(consumer.handleBatch([record([url('a')])], NOW)).resolves.toBeUndefined()
+        await harness.consumer.handleBatch([message([candidate('a'), foreign])], NOW_MS)
+
+        expect(harness.run).not.toHaveBeenCalled()
+        expect(harness.history.readKeys).toEqual([])
+    })
+
+    it('throws when the bulk read fails', async () => {
+        const harness = build()
+        harness.history.readError = new Error('read failed')
+        const observeBatch = jest.spyOn(ImageFetchConsumerMetrics, 'observeBatch')
+        const observeStoreDuration = jest.spyOn(ImageFetchConsumerMetrics, 'observeStoreDuration')
+        const startBatch = jest.spyOn(ImageFetchConsumerMetrics, 'startBatch')
+        const finishBatch = jest.spyOn(ImageFetchConsumerMetrics, 'finishBatch')
+
+        await expect(harness.consumer.handleBatch([message([candidate('a')])], NOW_MS)).rejects.toThrow('read failed')
+        expect(observeBatch).toHaveBeenCalledWith(1, 1, expect.any(Number))
+        expect(observeStoreDuration).toHaveBeenCalledWith('read', 'error', expect.any(Number))
+        expect(startBatch).toHaveBeenCalledTimes(1)
+        expect(finishBatch).toHaveBeenCalledTimes(1)
+    })
+
+    it('throws when the final bulk write fails', async () => {
+        const harness = build()
+        harness.history.writeError = new Error('write failed')
+
+        await expect(harness.consumer.handleBatch([message([candidate('a')])], NOW_MS)).rejects.toThrow('write failed')
+        expect(harness.flush).not.toHaveBeenCalled()
+    })
+
+    it('writes durable state before it flushes buffered republishes', async () => {
+        const harness = build()
+        const order: string[] = []
+        harness.run.mockImplementation((candidates) => {
+            order.push('published')
+            return Promise.resolve(candidates.map((item) => terminal(item)))
+        })
+        const write = harness.history.write.bind(harness.history)
+        harness.history.write = async (items) => {
+            order.push('history')
+            await write(items)
+        }
+        harness.flush.mockImplementation(() => {
+            order.push('republished')
+            return Promise.resolve({ failedUrls: 0 })
+        })
+
+        await harness.consumer.handleBatch([message([candidate('a')])], NOW_MS)
+
+        expect(order).toEqual(['published', 'history', 'republished'])
+    })
+
+    it('throws when the fetch pass reports a lost URL', async () => {
+        const harness = build()
+        harness.run.mockImplementation((candidates) =>
+            Promise.resolve(
+                candidates.map((item) => ({
+                    candidate: item,
+                    outcome: 'timeout',
+                    finished: false,
+                    lost: true,
+                    configurationUpdates: [],
+                }))
+            )
+        )
+
+        await expect(harness.consumer.handleBatch([message([candidate('a')])], NOW_MS)).rejects.toThrow(
+            'account for 1 URLs'
+        )
     })
 })

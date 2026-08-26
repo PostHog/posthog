@@ -55,7 +55,14 @@ pub fn warning_for_capture_error(err: &CaptureError) -> Option<WarningType> {
         // verified token exists, and so never reach the abort path. This is
         // the same drop the nodejs pipeline reports as message_size_too_large
         // when its own produce hits the broker limit.
-        CaptureError::EventTooBig(_) => Some(WarningType::MessageSizeTooLarge),
+        //
+        // `AiEventTooBig` is the AI lane's own per-event ceiling, raised by
+        // `process_events` before anything is sent. Same warning: the customer's
+        // fix is identical either way — send a smaller event. They differ only
+        // in how many events the warning charges, below.
+        CaptureError::EventTooBig(_) | CaptureError::AiEventTooBig(_) => {
+            Some(WarningType::MessageSizeTooLarge)
+        }
 
         // Transport and parse failures surface before a verified token
         // exists, so there is no team to attribute a warning to.
@@ -94,6 +101,11 @@ pub fn warning_for_capture_error(err: &CaptureError) -> Option<WarningType> {
         | CaptureError::ServiceUnavailable(_)
         | CaptureError::BodyReadTimeout
         | CaptureError::InternalError(_) => None,
+
+        // A non-AI event sent to an AI endpoint. The 400 tells whoever made the
+        // call; the warning tells whoever owns the project, who is usually not
+        // the same person and cannot see the response.
+        CaptureError::NonAiEventOnAiLane(_) => Some(WarningType::InvalidAiEvent),
     }
 }
 
@@ -110,6 +122,10 @@ pub fn warning_for_capture_error(err: &CaptureError) -> Option<WarningType> {
 /// would report delivered events as failed. It emits `count = 1` — at least
 /// one event was rejected — matching the sink's per-event
 /// `kafka_message_size` drop metric.
+///
+/// `AiEventTooBig` is not an exception, despite also being a size failure: it
+/// fires before the sink, so nothing was enqueued and the whole batch really
+/// was lost. It takes the full-batch count like every other validation abort.
 pub fn emit_processing_abort_warning(
     emitter: Option<&dyn WarningEmitter>,
     context: &ProcessingContext,
@@ -154,6 +170,7 @@ mod tests {
             historical_migration: false,
             chatty_debug_enabled: false,
             capture_mode: crate::config::CaptureMode::Events,
+            ai_max_event_bytes: 0,
             sdk_attribution: attribution,
         }
     }
@@ -232,7 +249,7 @@ mod tests {
 
     #[test]
     fn abort_warnings_map_only_customer_actionable_errors() {
-        let cases: [(CaptureError, Option<WarningType>); 13] = [
+        let cases: [(CaptureError, Option<WarningType>); 14] = [
             (
                 CaptureError::MissingEventName,
                 Some(WarningType::MissingEventName),
@@ -243,6 +260,10 @@ mod tests {
             ),
             (
                 CaptureError::EventTooBig("too big".to_string()),
+                Some(WarningType::MessageSizeTooLarge),
+            ),
+            (
+                CaptureError::AiEventTooBig("too big".to_string()),
                 Some(WarningType::MessageSizeTooLarge),
             ),
             // Excluded on purpose; see warning_for_capture_error's doc.
@@ -281,6 +302,7 @@ mod tests {
             CaptureError::MissingEventName,
             CaptureError::MissingDistinctId,
             CaptureError::EventTooBig("too big".to_string()),
+            CaptureError::AiEventTooBig("too big".to_string()),
         ];
         let mapped = mapping_errors.iter().filter_map(warning_for_capture_error);
 
@@ -308,7 +330,9 @@ mod tests {
         // the v2 row never reads as a no-op, matching v1's batch-abort
         // convention. EventTooBig charges 1: earlier batch events were
         // already enqueued and typically deliver, so a batch count would
-        // report delivered events as failed.
+        // report delivered events as failed. AiEventTooBig is the same warning
+        // but not the same case: it fires before the sink, nothing was
+        // enqueued, so it charges the batch like any other validation abort.
         let cases = [
             (
                 CaptureError::MissingDistinctId,
@@ -327,6 +351,12 @@ mod tests {
                 WarningType::MessageSizeTooLarge,
                 25u64,
                 1u64,
+            ),
+            (
+                CaptureError::AiEventTooBig("too big".to_string()),
+                WarningType::MessageSizeTooLarge,
+                25u64,
+                25u64,
             ),
         ];
 

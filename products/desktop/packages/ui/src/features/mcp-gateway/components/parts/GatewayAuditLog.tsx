@@ -4,17 +4,19 @@ import type {
 } from "@posthog/api-client/posthog-client";
 import {
   AUDIT_DECISION_LABELS,
+  credentialOwnerLabel,
   formatAuditTime,
 } from "@posthog/core/mcp-gateway/gatewayServers";
+import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
 import {
   gatewayUserName,
   RobotAvatar,
-  UserAvatar,
 } from "@posthog/ui/features/mcp-gateway/components/parts/avatars";
 import {
   AUDIT_PAGE_SIZE,
   useGatewayAudit,
 } from "@posthog/ui/features/mcp-gateway/hooks/useGatewayAudit";
+import { useGatewayConfig } from "@posthog/ui/features/mcp-gateway/hooks/useGatewayConfig";
 import { useServiceAccounts } from "@posthog/ui/features/mcp-gateway/hooks/useServiceAccounts";
 import {
   Badge,
@@ -44,12 +46,18 @@ const DECISION_COLORS: Record<
   blocked: "red",
 };
 
-/** Every tool call routed through the gateway, with how it was decided. */
+/**
+ * Tool calls routed through the gateway, with how each was decided. Admins
+ * see every call in the project; members see calls made through their own
+ * connections, including agent calls that used a connection they shared.
+ * The backend scopes the rows, so this view renders whatever it may see.
+ */
 export function GatewayAuditLog() {
   const [quickFilter, setQuickFilter] = useState<McpAuditQuickFilter>("all");
   const [agentFilter, setAgentFilter] = useState<string>("all");
   const [page, setPage] = useState(0);
 
+  const { isAdmin } = useGatewayConfig();
   const { accounts } = useServiceAccounts();
   const { events, totalCount, auditLoading, counts } = useGatewayAudit({
     quickFilter,
@@ -71,9 +79,9 @@ export function GatewayAuditLog() {
       <Flex direction="column" gap="1">
         <Heading className="font-bold text-2xl">Audit log</Heading>
         <Text color="gray" className="max-w-[620px] text-sm">
-          Every tool call routed through the gateway — each row is one call to a
-          tool on one of your team's MCP servers, and how the gateway decided
-          it.
+          {isAdmin
+            ? "Every tool call routed through the gateway. Each row is one call to a tool on one of your team's MCP servers, and how the gateway decided it."
+            : "Tool calls made through your MCP server connections, including calls from agents you shared them with, and how the gateway decided each one."}
         </Text>
       </Flex>
 
@@ -252,27 +260,37 @@ function AuditRow({ event }: { event: McpAuditEvent }) {
       <Text color="gray" className="text-xs tabular-nums">
         {formatAuditTime(event.created_at)}
       </Text>
-      <Flex align="center" gap="2" className="min-w-0">
-        {agent ? (
-          <RobotAvatar size="sm" />
-        ) : user ? (
-          <UserAvatar user={user} size="sm" />
-        ) : null}
-        <Text truncate className="text-xs">
-          {agent
-            ? agent.name
-            : user
-              ? gatewayUserName(user)
-              : event.actor_label}
-        </Text>
-        <Badge
-          color={agent ? "indigo" : "gray"}
-          variant="soft"
-          size="1"
-          className="uppercase"
-        >
-          {agent ? "agent" : user ? "human" : "deleted"}
-        </Badge>
+      <Flex direction="column" className="min-w-0">
+        <Flex align="center" gap="2" className="min-w-0">
+          {agent ? (
+            <RobotAvatar size="sm" />
+          ) : user ? (
+            <UserAvatar user={user} size="xs" />
+          ) : null}
+          <Text truncate className="text-xs">
+            {agent
+              ? agent.name
+              : user
+                ? gatewayUserName(user)
+                : event.actor_label}
+          </Text>
+          <Badge
+            color={agent ? "indigo" : "gray"}
+            variant="soft"
+            size="1"
+            className="uppercase"
+          >
+            {agent ? "agent" : user ? "human" : "deleted"}
+          </Badge>
+        </Flex>
+        {event.credential_owner && (
+          <Text color="gray" truncate className="text-[11px]">
+            {credentialOwnerLabel(
+              gatewayUserName(event.credential_owner),
+              event.grant_scope,
+            )}
+          </Text>
+        )}
       </Flex>
       <Flex align="baseline" gap="2" className="min-w-0">
         <Text truncate className="font-medium text-xs">

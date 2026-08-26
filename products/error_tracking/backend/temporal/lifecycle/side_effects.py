@@ -38,6 +38,9 @@ class IssueLifecycleSnapshot(EventPropertiesIssueSnapshot, Protocol):
     @property
     def status(self) -> str: ...
 
+    @property
+    def severity(self) -> str | None: ...
+
 
 class IssueLifecycleWorkflowInputs(Protocol):
     @property
@@ -91,6 +94,7 @@ def produce_issue_lifecycle_internal_event(
         "description": inputs.issue.description,
         "issue_description": inputs.issue.description,
         "first_seen": inputs.issue.created_at,
+        "severity": inputs.issue.severity,
         "fingerprint": inputs.fingerprint,
         "exception_timestamp": timestamp.isoformat(),
         "exception_props": event_properties,

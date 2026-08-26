@@ -14,6 +14,7 @@ import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -26,6 +27,7 @@ import { Splotch, SplotchColor } from 'lib/lemon-ui/Splotch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { getEffectiveDateOverride } from 'scenes/dashboard/dashboardUtils'
@@ -389,6 +391,18 @@ export function InsightMeta({
           }
         : undefined
 
+    // Carries the dashboard's filters and variables, so the link opens exactly what the tile shows
+    const insightViewUrl = urls.insightView(
+        short_id,
+        dashboardId,
+        variablesOverride,
+        filtersOverride,
+        tileFiltersOverride
+    )
+    const copyInsightLink = (): void => {
+        void copyToClipboard(urls.absolute(urls.currentProject(insightViewUrl)), 'insight link')
+    }
+
     return (
         <>
             <CardMeta
@@ -404,13 +418,7 @@ export function InsightMeta({
                 popoverTopHeading={popoverTopHeadingEl}
                 content={
                     <InsightMetaContent
-                        link={urls.insightView(
-                            short_id,
-                            dashboardId,
-                            variablesOverride,
-                            filtersOverride,
-                            tileFiltersOverride
-                        )}
+                        link={insightViewUrl}
                         title={name}
                         fallbackTitle={summary}
                         description={insight.description}
@@ -445,14 +453,17 @@ export function InsightMeta({
                         {/* Insight related */}
                         {canViewInsight && (
                             <LemonButton
-                                to={urls.insightView(
-                                    short_id,
-                                    dashboardId,
-                                    variablesOverride,
-                                    filtersOverride,
-                                    tileFiltersOverride
-                                )}
+                                to={insightViewUrl}
                                 fullWidth
+                                sideAction={{
+                                    icon: <IconLink />,
+                                    tooltip: 'Copy link to insight',
+                                    'aria-label': 'Copy link to insight',
+                                    'data-attr': dashboardId
+                                        ? 'copy-insight-link-from-dashboard'
+                                        : 'copy-insight-link-from-card-list-view',
+                                    onClick: copyInsightLink,
+                                }}
                             >
                                 View
                             </LemonButton>

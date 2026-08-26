@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     ExternalWebhookInfo,
     FieldType,
     ResumableSource,
+    VersionDeprecation,
     WebhookCreationResult,
     WebhookDeletionResult,
     WebhookSource,
@@ -42,6 +43,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mailerlite
     DEFAULT_VERSION,
     ENDPOINTS,
     MAILERLITE_ENDPOINTS,
+    MAILERLITE_V1,
     SCHEMA_TO_WEBHOOK_EVENTS,
     SUPPORTED_VERSIONS,
     WEBHOOK_RESOURCE_MAP,
@@ -62,6 +64,14 @@ class MailerLiteSource(
 
     supported_versions = SUPPORTED_VERSIONS
     default_version = DEFAULT_VERSION
+
+    # v1 sends no `X-Version` header, so connect.mailerlite.com serves whatever it treats as
+    # "latest" — the drift the pin exists to stop; v2 pins the documented version date. The vendor
+    # is deprecating v1 with no announced sunset date (`sunset_at=None`), so this is advisory: it
+    # lights up the generic in-product banner. Existing v1 pins are left in place — the vendor still
+    # serves them, and repinning would silently move a customer to a different wire — so the user
+    # repins from the source config when ready.
+    deprecated_versions = (VersionDeprecation(version=MAILERLITE_V1),)
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 

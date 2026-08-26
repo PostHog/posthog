@@ -1,4 +1,4 @@
-import type { TaskChannel } from "@posthog/shared/domain-types";
+import type { TaskChannel, UserBasic } from "@posthog/shared/domain-types";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import {
   TASK_CHANNELS_QUERY_KEY,
@@ -17,7 +17,13 @@ export interface Channel {
   channelType: "public" | "personal";
   /** Whether the current user starred this channel. */
   starred: boolean;
+  /** The repos the space is wired to. Empty where none are. */
+  repositories: string[];
+  /** Who made the space, where the backend knows. */
+  createdBy: UserBasic | null;
 }
+
+const NO_REPOSITORIES: string[] = [];
 
 function toChannel(channel: TaskChannel): Channel {
   return {
@@ -25,6 +31,8 @@ function toChannel(channel: TaskChannel): Channel {
     name: channel.name,
     channelType: channel.channel_type,
     starred: channel.starred,
+    repositories: channel.repositories ?? NO_REPOSITORIES,
+    createdBy: channel.created_by ?? null,
   };
 }
 

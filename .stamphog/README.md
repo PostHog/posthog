@@ -1,8 +1,8 @@
 # .stamphog
 
-Declarative policy for the stamphog PR-approval merge gate (`tools/pr-approval-agent/`).
+Declarative policy for the stamphog PR-approval merge gate (`products/stamphog/packages/pr-approval-agent/`).
 The engine loads these files from the checked-out working tree at run time.
-Engine and policy are vendored into other repos (see the note in `tools/pr-approval-agent/README.md`), so format changes here need those copies re-synced too.
+Engine and policy are vendored into other repos (see the note in the engine's README), so format changes here need those copies re-synced too.
 
 ## What lives here
 
@@ -12,7 +12,7 @@ Engine and policy are vendored into other repos (see the note in `tools/pr-appro
 ## Proposing a policy change
 
 Open a PR that edits these files.
-Stamphog can never auto-approve it: the `stamphog_policy` deny category matches `.stamphog/**`, any `AGENT_APPROVALS.md`, and `tools/pr-approval-agent/**`, so every change to the gate's own policy or engine routes to a human reviewer.
+Stamphog can never auto-approve it: the `stamphog_policy` deny category matches `.stamphog/**`, any `AGENT_APPROVALS.md`, and any `pr-approval-agent/**`, so every change to the gate's own policy or engine routes to a human reviewer.
 The loader also hard-fails if that self-governance entry is ever missing, so it cannot be dropped silently.
 
 ## Per-folder overrides (`AGENT_APPROVALS.md`)

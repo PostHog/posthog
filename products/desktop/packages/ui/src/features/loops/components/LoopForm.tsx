@@ -5,10 +5,12 @@ import {
   Check,
 } from "@phosphor-icons/react";
 import { type LoopSchemas, LoopsApiError } from "@posthog/api-client/loops";
+import { channelDisplayLabel } from "@posthog/core/canvas/channelName";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useBluebirdFlag } from "@posthog/ui/features/feature-flags/useBluebirdFlag";
 import { SettingsOptionSelect } from "@posthog/ui/features/settings/SettingsOptionSelect";
+import { useSandboxEnvironments } from "@posthog/ui/features/settings/sections/environments/useSandboxEnvironments";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
 import { Button } from "@posthog/ui/primitives/Button";
@@ -169,6 +171,29 @@ export function LoopForm({
   const channelsEnabled =
     useSidebarStore((s) => s.channelsEnabled) && bluebirdEnabled;
   const showContextField = channelsEnabled || !!values.contextTarget;
+  const { environments, isLoading: environmentsLoading } =
+    useSandboxEnvironments();
+  const sandboxEnvironmentOptions = useMemo(() => {
+    const options = [
+      { value: "", label: "Default environment" },
+      ...environments.map((environment) => ({
+        value: environment.id,
+        label: environment.name,
+      })),
+    ];
+    if (
+      values.sandboxEnvironmentId &&
+      !environments.some(
+        (environment) => environment.id === values.sandboxEnvironmentId,
+      )
+    ) {
+      options.push({
+        value: values.sandboxEnvironmentId,
+        label: "Unavailable environment",
+      });
+    }
+    return options;
+  }, [environments, values.sandboxEnvironmentId]);
 
   const createLoop = useCreateLoop();
   const updateLoop = useUpdateLoop(loop?.id ?? "");
@@ -433,6 +458,25 @@ export function LoopForm({
                       ? [repository, ...prev.repositories.slice(1)]
                       : prev.repositories.slice(1),
                   }))
+                }
+              />
+            </Field>
+
+            <Field
+              label="Sandbox environment"
+              hint="Applies its environment variables, network access, and image to every run."
+            >
+              <SettingsOptionSelect
+                value={values.sandboxEnvironmentId ?? ""}
+                options={sandboxEnvironmentOptions}
+                disabled={isSubmitting || environmentsLoading}
+                size="lg"
+                ariaLabel="Sandbox environment"
+                placeholder={
+                  environmentsLoading ? "Loading environments…" : undefined
+                }
+                onValueChange={(value) =>
+                  patch({ sandboxEnvironmentId: value || null })
                 }
               />
             </Field>
@@ -980,7 +1024,8 @@ function describeContext(target: LoopContextTargetDraft | null): string {
   if (target.outputs.post_to_feed) outputs.push("feed");
   if (target.outputs.update_context) outputs.push("context.md");
   if (target.outputs.canvas_id) outputs.push("canvas");
+  const targetLabel = channelDisplayLabel(target.name);
   return outputs.length > 0
-    ? `#${target.name} (${outputs.join(", ")})`
-    : `#${target.name}`;
+    ? `${targetLabel} (${outputs.join(", ")})`
+    : targetLabel;
 }

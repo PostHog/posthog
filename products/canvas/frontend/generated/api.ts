@@ -9,13 +9,26 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    CanvasActionInvokeApi,
+    CanvasActionResultApi,
+    CanvasActionsResponseApi,
+    CanvasAgentRequestApi,
+    CanvasAgentRequestResultApi,
     CanvasApi,
     CanvasBuildActionApi,
     CanvasBuildApi,
     CanvasBuildsResponseApi,
     CanvasCreateApi,
+    CanvasErrorReportResultApi,
+    CanvasFixRequestResultApi,
+    CanvasLayoutPatchApi,
+    CanvasLayoutPublishApi,
+    CanvasLayoutPublishResponseApi,
+    CanvasLayoutResponseApi,
     CanvasPromoteApi,
     CanvasPublishCurrentVersionApi,
+    CanvasReportErrorApi,
+    CanvasRequestFixApi,
     CanvasRevertApi,
     CanvasSourceDraftApi,
     CanvasSourceDraftResponseApi,
@@ -23,12 +36,17 @@ import type {
     CanvasSourcePublishApi,
     CanvasSourcePublishResponseApi,
     CanvasSourceResponseApi,
+    CanvasStateEntryApi,
+    CanvasStateResponseApi,
+    CanvasStateSetApi,
     CanvasValidateRequestApi,
     CanvasValidateResponseApi,
     CanvasesBuildsRetrieveParams,
     CanvasesDraftsRetrieveParams,
+    CanvasesLayoutRetrieveParams,
     CanvasesListParams,
     CanvasesSourceRetrieveParams,
+    CanvasesStateRetrieveParams,
     CanvasesVersionsRetrieveParams,
     PaginatedCanvasDraftListApi,
     PaginatedCanvasListApi,
@@ -111,7 +129,7 @@ export const getCanvasesPartialUpdateUrl = (projectId: string, id: string) => {
 }
 
 /**
- * Update canvas metadata (name, author context, pin, generation-task pointer).
+ * Update canvas metadata, including the space it belongs to.
  */
 export const canvasesPartialUpdate = async (
     projectId: string,
@@ -141,6 +159,31 @@ export const canvasesDestroy = async (projectId: string, id: string, options?: R
     return apiMutator<void>(getCanvasesDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getCanvasesActionsInvokeUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/canvases/${id}/actions/invoke/`
+}
+
+/**
+ * Invoke one registered action verb as the viewer.
+ *
+ * The canvas must declare the verb in capabilities.posthog.actions (the
+ * reviewed permission boundary); the write itself runs with the viewer's
+ * own permissions, exactly as if they acted in the app.
+ */
+export const canvasesActionsInvoke = async (
+    projectId: string,
+    id: string,
+    canvasActionInvokeApi: CanvasActionInvokeApi,
+    options?: RequestInit
+): Promise<CanvasActionResultApi> => {
+    return apiMutator<CanvasActionResultApi>(getCanvasesActionsInvokeUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(canvasActionInvokeApi),
     })
 }
 
@@ -289,6 +332,93 @@ export const canvasesEditCreate = async (
     })
 }
 
+export const getCanvasesLayoutRetrieveUrl = (projectId: string, id: string, params?: CanvasesLayoutRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/canvases/${id}/layout/?${stringifiedParams}`
+        : `/api/projects/${projectId}/canvases/${id}/layout/`
+}
+
+/**
+ * Read a grid canvas's layout document and its `current_version_id`.
+ *
+ * Always call this before editing: pass the returned version id as
+ * `expected_current_version_id` on publish/patch so concurrent edits are
+ * not overwritten. A grid canvas with no versions yet returns the
+ * default empty layout with a null version id.
+ */
+export const canvasesLayoutRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: CanvasesLayoutRetrieveParams,
+    options?: RequestInit
+): Promise<CanvasLayoutResponseApi> => {
+    return apiMutator<CanvasLayoutResponseApi>(getCanvasesLayoutRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getCanvasesLayoutPatchCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/canvases/${id}/layout/patch/`
+}
+
+/**
+ * Apply surgical operations to the grid canvas's current layout.
+ *
+ * The default write path for both the editor and agents: add, move,
+ * resize, fill, or remove one placement without resending the layout.
+ * `expected_current_version_id` is mandatory so an agent filling a box
+ * and a user rearranging widgets cannot overwrite each other.
+ */
+export const canvasesLayoutPatchCreate = async (
+    projectId: string,
+    id: string,
+    canvasLayoutPatchApi: CanvasLayoutPatchApi,
+    options?: RequestInit
+): Promise<CanvasLayoutPublishResponseApi> => {
+    return apiMutator<CanvasLayoutPublishResponseApi>(getCanvasesLayoutPatchCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(canvasLayoutPatchApi),
+    })
+}
+
+export const getCanvasesLayoutPublishCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/canvases/${id}/layout/publish/`
+}
+
+/**
+ * Publish a complete layout document as the grid canvas's new head version.
+ *
+ * Layout is data, not code: the new version is live immediately, with no
+ * build. Validation errors reject the publish (400) and leave the canvas
+ * untouched; a stale `expected_current_version_id` is rejected with 409.
+ */
+export const canvasesLayoutPublishCreate = async (
+    projectId: string,
+    id: string,
+    canvasLayoutPublishApi: CanvasLayoutPublishApi,
+    options?: RequestInit
+): Promise<CanvasLayoutPublishResponseApi> => {
+    return apiMutator<CanvasLayoutPublishResponseApi>(getCanvasesLayoutPublishCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(canvasLayoutPublishApi),
+    })
+}
+
 export const getCanvasesPromoteCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/canvases/${id}/promote/`
 }
@@ -359,6 +489,81 @@ export const canvasesPublishCurrentVersionCreate = async (
     })
 }
 
+export const getCanvasesReportErrorCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/canvases/${id}/report_error/`
+}
+
+/**
+ * Report a runtime error observed while rendering a canvas build.
+ *
+ * Files the report in the authoring task's thread (deduped per build and
+ * error type) so the canvas's agent can be asked to fix it. Reports never
+ * start an agent run by themselves — dispatch is `request_fix`. Only the
+ * error class crosses the server; full messages and stacks stay
+ * client-side because rendering sessions can carry viewer data.
+ */
+export const canvasesReportErrorCreate = async (
+    projectId: string,
+    id: string,
+    canvasReportErrorApi: CanvasReportErrorApi,
+    options?: RequestInit
+): Promise<CanvasErrorReportResultApi> => {
+    return apiMutator<CanvasErrorReportResultApi>(getCanvasesReportErrorCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(canvasReportErrorApi),
+    })
+}
+
+export const getCanvasesRequestAgentCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/canvases/${id}/request_agent/`
+}
+
+/**
+ * Route a viewer-approved change request to the canvas's authoring task.
+ */
+export const canvasesRequestAgentCreate = async (
+    projectId: string,
+    id: string,
+    canvasAgentRequestApi: CanvasAgentRequestApi,
+    options?: RequestInit
+): Promise<CanvasAgentRequestResultApi> => {
+    return apiMutator<CanvasAgentRequestResultApi>(getCanvasesRequestAgentCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(canvasAgentRequestApi),
+    })
+}
+
+export const getCanvasesRequestFixCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/canvases/${id}/request_fix/`
+}
+
+/**
+ * Wake the canvas's authoring agent to fix a failing build or runtime error.
+ *
+ * Starts (or signals) an agent run on the authoring task, instructed to
+ * stage the fix as a draft the user reviews and promotes. This is the
+ * human-initiated dispatch step behind error reports; it spends agent
+ * compute, so it never fires automatically, and only the authoring
+ * task's creator may dispatch — the run executes with their credentials.
+ */
+export const canvasesRequestFixCreate = async (
+    projectId: string,
+    id: string,
+    canvasRequestFixApi: CanvasRequestFixApi,
+    options?: RequestInit
+): Promise<CanvasFixRequestResultApi> => {
+    return apiMutator<CanvasFixRequestResultApi>(getCanvasesRequestFixCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(canvasRequestFixApi),
+    })
+}
+
 export const getCanvasesRevertCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/canvases/${id}/revert/`
 }
@@ -413,6 +618,61 @@ export const canvasesSourceRetrieve = async (
     return apiMutator<CanvasSourceResponseApi>(getCanvasesSourceRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getCanvasesStateRetrieveUrl = (projectId: string, id: string, params?: CanvasesStateRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/canvases/${id}/state/?${stringifiedParams}`
+        : `/api/projects/${projectId}/canvases/${id}/state/`
+}
+
+/**
+ * Read the canvas's runtime key-value state (the ph.state store).
+ *
+ * Returns shared entries plus the authenticated user's own user-scoped
+ * entries — never another user's.
+ */
+export const canvasesStateRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: CanvasesStateRetrieveParams,
+    options?: RequestInit
+): Promise<CanvasStateResponseApi> => {
+    return apiMutator<CanvasStateResponseApi>(getCanvasesStateRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getCanvasesStateSetUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/canvases/${id}/state/set/`
+}
+
+/**
+ * Write one key of the canvas's runtime state, or delete it with a null value.
+ */
+export const canvasesStateSet = async (
+    projectId: string,
+    id: string,
+    canvasStateSetApi: CanvasStateSetApi,
+    options?: RequestInit
+): Promise<CanvasStateEntryApi | void> => {
+    return apiMutator<CanvasStateEntryApi | void>(getCanvasesStateSetUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(canvasStateSetApi),
     })
 }
 
@@ -473,5 +733,40 @@ export const canvasesVersionsRetrieve = async (
     return apiMutator<PaginatedCanvasVersionListApi>(getCanvasesVersionsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getCanvasesActionsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/canvases/actions/`
+}
+
+/**
+ * List the action registry: every verb a canvas may declare and invoke.
+ */
+export const canvasesActionsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<CanvasActionsResponseApi> => {
+    return apiMutator<CanvasActionsResponseApi>(getCanvasesActionsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getCanvasesHomeCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/canvases/home/`
+}
+
+/**
+ * Get or provision the caller's home canvas.
+ *
+ * Idempotent: returns the user's existing home canvas, or creates a grid
+ * canvas in their personal channel and points their home preference at
+ * it. The home surface calls this on open.
+ */
+export const canvasesHomeCreate = async (projectId: string, options?: RequestInit): Promise<CanvasApi> => {
+    return apiMutator<CanvasApi>(getCanvasesHomeCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
     })
 }

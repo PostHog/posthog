@@ -1,4 +1,4 @@
-import type { SignalScoutConfigApi } from 'products/signals/frontend/generated/api.schemas'
+import type { SignalScoutConfigApi, SignalScoutRunSummaryApi } from 'products/signals/frontend/generated/api.schemas'
 
 type MockScoutOverrides = Pick<SignalScoutConfigApi, 'id' | 'skill_name' | 'description'> &
     Partial<Omit<SignalScoutConfigApi, 'id' | 'skill_name' | 'description'>>
@@ -21,6 +21,9 @@ function makeMockScout(overrides: MockScoutOverrides): SignalScoutConfigApi {
         status_changed_at: null,
         auto_pause_exempt: false,
         tags: [],
+        mcp_gateway_server_ids: [],
+        source_product: null,
+        source_id: null,
         created_at: '2026-06-11T09:00:00Z',
         ...overrides,
     }
@@ -41,6 +44,40 @@ export const mockScoutConfigs: SignalScoutConfigApi[] = [
         last_run_at: '2026-06-10T12:00:00Z',
     }),
 ]
+
+/** Anchors the mock runs to the same instant the scout stories pin `mockDate` to. */
+const MOCK_NOW_MS = Date.parse('2026-06-11T09:00:00Z')
+const HOUR_MS = 3600000
+
+/**
+ * A run strip for every scout in a fleet: hourly runs ending at the stories' "now", with a
+ * repeating emitted / quiet / failed pattern so the strip shows all three box colors. Scouts get
+ * different run counts on purpose — that's what the right-anchored strip exists to keep comparable.
+ */
+export function mockScoutRuns(configs: SignalScoutConfigApi[]): SignalScoutRunSummaryApi[] {
+    return configs.flatMap((config, configIndex) =>
+        Array.from({ length: 10 + configIndex * 2 }, (_, runIndex) => {
+            const failed = (runIndex + configIndex) % 5 === 0
+            const startedAt = MOCK_NOW_MS - (runIndex + 1) * HOUR_MS
+            return {
+                run_id: `${config.skill_name}-run-${runIndex}`,
+                skill_name: config.skill_name,
+                skill_version: 1,
+                status: failed ? ('failed' as const) : ('completed' as const),
+                created_at: new Date(startedAt).toISOString(),
+                started_at: new Date(startedAt).toISOString(),
+                completed_at: new Date(startedAt + 12 * 60000).toISOString(),
+                task_url: null,
+                summary: failed ? '' : 'Swept the window and found nothing worth filing.',
+                emitted_count: !failed && (runIndex + configIndex) % 4 === 0 ? 1 : 0,
+                emitted_finding_ids: [],
+                emitted_report_ids: [],
+                edited_report_ids: [],
+                metadata: {},
+            }
+        })
+    )
+}
 
 export const mockLargeScoutFleet: SignalScoutConfigApi[] = [
     makeMockScout({

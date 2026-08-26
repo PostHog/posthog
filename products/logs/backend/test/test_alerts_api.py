@@ -11,9 +11,9 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from posthog.cdp.templates.fixtures import template_slack
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.templates.microsoft_teams.template_microsoft_teams import template as template_microsoft_teams
-from posthog.cdp.templates.slack.template_slack import template as template_slack
 from posthog.clickhouse.client import sync_execute
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -86,6 +86,57 @@ class TestLogsAlertAPI(APIBaseTest):
         assert mock_report.call_args.args[2]["config_type"] == "LogsAlertConfig"
         assert mock_report.call_args.args[2]["alert_name"] == "High error rate"
         assert mock_report.call_args.args[2]["threshold_count"] == 10
+
+    @freeze_time("2026-01-01T23:00:00Z")
+    def test_create_with_quiet_hours_defers_next_check(self):
+        data = self._create_via_api(schedule_restriction={"blocked_windows": [{"start": "22:00", "end": "07:00"}]})
+
+        assert data["schedule_restriction"] == {"blocked_windows": [{"start": "22:00", "end": "07:00"}]}
+        assert data["next_check_at"] == "2026-01-02T07:00:00Z"
+
+    @freeze_time("2026-01-01T23:00:00Z")
+    def test_update_with_quiet_hours_defers_next_check(self):
+        created = self._create_via_api()
+
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/",
+            {"schedule_restriction": {"blocked_windows": [{"start": "22:00", "end": "07:00"}]}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["next_check_at"] == "2026-01-02T07:00:00Z"
+
+    def test_enabling_alert_during_quiet_hours_defers_next_check(self):
+        with freeze_time("2026-01-01T16:00:00Z"):
+            created = self._create_via_api(
+                schedule_restriction={"blocked_windows": [{"start": "22:00", "end": "07:00"}]}
+            )
+            self.client.patch(f"{self.base_url}{created['id']}/", {"enabled": False}, format="json")
+
+        with freeze_time("2026-01-01T23:00:00Z"):
+            response = self.client.patch(f"{self.base_url}{created['id']}/", {"enabled": True}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["next_check_at"] == "2026-01-02T07:00:00Z"
+
+    @parameterized.expand(
+        [
+            ("unknown_root_key", {"typo": True}),
+            (
+                "unknown_window_key",
+                {"blocked_windows": [{"start": "22:00", "end": "07:00", "typo": True}]},
+            ),
+        ]
+    )
+    def test_create_rejects_unknown_quiet_hours_keys(self, _name: str, schedule_restriction: dict[str, Any]) -> None:
+        response = self.client.post(
+            self.base_url,
+            self._valid_payload(schedule_restriction=schedule_restriction),
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_list(self):
         self._create_via_api(name="Alert 1")

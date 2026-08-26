@@ -150,6 +150,7 @@ describe('ci-report section helper', () => {
     it.each([
         ['ok', STATUS_EMOJI.ok],
         ['warn', STATUS_EMOJI.warn],
+        ['alert', STATUS_EMOJI.alert],
         ['fail', STATUS_EMOJI.fail],
         ['info', STATUS_EMOJI.info],
         ['unknown-status', STATUS_EMOJI.info],

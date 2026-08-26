@@ -193,12 +193,12 @@ class PostHogTestClient:
         client = Posthog(
             api_key,
             host=self.base_url,
-            _enable_multimodal_capture=True,
+            enable_full_ai_capture=True,
             sync_mode=True,
             debug=True,
         )
         logger.info("Sending %s on the AI lane for distinct_id=%s", event, distinct_id)
-        client._capture_ai(event, distinct_id=distinct_id, properties=properties)
+        client.capture_ai(event, distinct_id=distinct_id, properties=properties)
         client.flush()
         client.shutdown()
 

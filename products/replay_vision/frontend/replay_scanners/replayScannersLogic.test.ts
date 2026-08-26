@@ -2,6 +2,7 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
+import { tagsModel } from '~/models/tagsModel'
 import { initKeaTests } from '~/test/init'
 
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
@@ -40,11 +41,12 @@ function makeScanner(overrides: Partial<ReplayScanner> = {}): ReplayScanner {
         id: 'scanner-1',
         name: 'Confused checkout',
         description: '',
+        tags: [],
         enabled: true,
         sampling_rate: 0.1,
         query: null,
         provider: 'google',
-        model: 'gemini-3.6-flash',
+        model: 'gemini-3.7-flash',
         emits_signals: false,
         scanner_version: 1,
         last_swept_at: '2026-05-12T00:00:00Z',
@@ -65,6 +67,7 @@ describe('replayScannersLogic', () => {
             get: {
                 '/api/projects/:team/vision/scanners/': { results: [], count: 0 },
                 '/api/projects/:team/vision/scanners/creators/': { creators: [] },
+                '/api/projects/:team/tags': [],
             },
             patch: {
                 '/api/projects/:team/vision/scanners/:id/': () => [200, {}],
@@ -111,6 +114,7 @@ describe('replayScannersLogic', () => {
             enabledFilter: [],
             scannerTypeFilter: [],
             createdByFilter: [],
+            tagsFilter: [],
             scannersSort: null,
         }
 
@@ -130,11 +134,13 @@ describe('replayScannersLogic', () => {
                 enabledFilter: ['enabled', 'disabled'],
                 scannerTypeFilter: ['monitor', 'classifier'],
                 createdByFilter: ['1', '42'],
+                tagsFilter: ['checkout', 'billing'],
             })
             expect(params.search).toBe('hello')
             expect(params.enabled).toBe('enabled,disabled')
             expect(params.scanner_type).toBe('monitor,classifier')
             expect(params.created_by).toBe('1,42')
+            expect(params.tags).toBe('checkout,billing')
         })
 
         it('omits an all-whitespace search', () => {
@@ -201,6 +207,29 @@ describe('replayScannersLogic', () => {
             await expectLogic(logic, () => logic.actions.setScannersFilters({ createdByFilter: ['1'] })).toMatchValues({
                 hasActiveFilters: true,
             })
+            await expectLogic(logic, () => logic.actions.setScannersFilters({ createdByFilter: [] })).toMatchValues({
+                hasActiveFilters: false,
+            })
+
+            await expectLogic(logic, () =>
+                logic.actions.setScannersFilters({ tagsFilter: ['checkout'] })
+            ).toMatchValues({
+                hasActiveFilters: true,
+            })
+        })
+    })
+
+    describe('tagOptions', () => {
+        it('drops comma tags from the team-wide list and keeps selected tags visible', async () => {
+            // Let the mount-time loadTags settle first so its mocked empty response can't clobber the fixture.
+            await expectLogic(logic).toFinishAllListeners()
+            tagsModel.actions.loadTagsSuccess(['beta', 'insight,tag'])
+            logic.actions.setScannersFilters({ tagsFilter: ['from-url'] })
+            expect(logic.values.tagOptions).toEqual([
+                { value: 'beta', label: 'beta' },
+                { value: 'from-url', label: 'from-url' },
+            ])
+            await expectLogic(logic).toFinishAllListeners()
         })
     })
 
@@ -210,6 +239,7 @@ describe('replayScannersLogic', () => {
             logic.actions.setScannersFilters({ enabledFilter: ['enabled'] })
             logic.actions.setScannersFilters({ scannerTypeFilter: ['monitor'] })
             logic.actions.setScannersFilters({ createdByFilter: ['1'] })
+            logic.actions.setScannersFilters({ tagsFilter: ['checkout'] })
             await expectLogic(logic).toMatchValues({ hasActiveFilters: true })
 
             await expectLogic(logic, () => logic.actions.clearFilters()).toMatchValues({
@@ -217,6 +247,7 @@ describe('replayScannersLogic', () => {
                 enabledFilter: [],
                 scannerTypeFilter: [],
                 createdByFilter: [],
+                tagsFilter: [],
                 hasActiveFilters: false,
             })
         })
@@ -270,10 +301,19 @@ describe('replayScannersLogic', () => {
         it('writes non-default state into the URL', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setScannersFilters({ enabledFilter: ['enabled'] })
+                logic.actions.setScannersFilters({ tagsFilter: ['checkout', 'billing'] })
                 logic.actions.setScannersFilters({ page: 2 })
             }).toFinishAllListeners()
             expect(router.values.searchParams.enabled).toBe('enabled')
+            expect(router.values.searchParams.tags).toBe('checkout,billing')
             expect(String(router.values.searchParams.page)).toBe('2')
+        })
+
+        it('restores the tags filter from the URL', async () => {
+            await expectLogic(logic, () => {
+                router.actions.push('/replay-vision', { tags: 'checkout,billing' })
+            }).toFinishAllListeners()
+            expect(logic.values.tagsFilter).toEqual(['checkout', 'billing'])
         })
 
         it('omits defaults from the URL', async () => {

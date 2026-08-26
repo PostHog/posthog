@@ -72,13 +72,13 @@ def upstream_auth_header(request: Request) -> str:
     plan-conditioned enforcement), or quota resolution failing open.
     Returns "" when the request carries no token.
     """
-    api_key = request.headers.get("x-api-key")
-    if api_key:
-        # Not a route handler: this builds an outbound header value from the
-        # caller's own credential; nothing is rendered to a response body.
-        # nosemgrep: python.flask.security.audit.directly-returned-format-string.directly-returned-format-string
-        return f"Bearer {api_key.strip()}"
-    return request.headers.get("authorization", "")
+    token = extract_token(request)
+    if token is None:
+        return request.headers.get("authorization", "")
+    # Not a route handler: this builds an outbound header value from the
+    # caller's own credential; nothing is rendered to a response body.
+    # nosemgrep: python.flask.security.audit.directly-returned-format-string.directly-returned-format-string
+    return f"Bearer {token}"
 
 
 class AuthService:

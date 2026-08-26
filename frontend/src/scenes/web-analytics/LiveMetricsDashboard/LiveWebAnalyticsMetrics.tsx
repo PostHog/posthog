@@ -13,7 +13,7 @@ import { useActions, useValues } from 'kea'
 import { ReactNode, useEffect, useMemo, useState } from 'react'
 
 import { IconDrag, IconFilter, IconGlobe, IconPencil, IconX } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDivider, Popover } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDivider, Popover, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { FilterBar } from 'lib/components/FilterBar'
 import { liveUserCountLogic } from 'lib/components/LiveUserCount/liveUserCountLogic'
@@ -30,6 +30,7 @@ import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/country'
 import { LiveEventsFeed, LiveEventsFeedColumn } from 'scenes/activity/live/LiveEventsFeed'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { PathCleaningToggle } from '../PathCleaningToggle'
 import { LIVE_STREAM_OPERATORS, isLiveStreamFilter, webAnalyticsFilterLogic } from '../webAnalyticsFilterLogic'
 import { WebAnalyticsDomainSelector, WebAnalyticsLiveDeviceToggle } from '../WebAnalyticsFilters'
 import { webAnalyticsLogic } from '../webAnalyticsLogic'
@@ -94,9 +95,11 @@ const LiveDashboardFilterRow = ({
     setEditing: (isEditing: boolean) => void
 }): JSX.Element => {
     const [displayFilters, setDisplayFilters] = useState(false)
-    const { rawWebAnalyticsFilters, deviceTypeFilter, validatedDomainFilter } = useValues(webAnalyticsLogic)
-    const { setDeviceTypeFilter, setWebAnalyticsFilters } = useActions(webAnalyticsLogic)
+    const { rawWebAnalyticsFilters, deviceTypeFilter, validatedDomainFilter, isPathCleaningEnabled } =
+        useValues(webAnalyticsLogic)
+    const { setDeviceTypeFilter, setWebAnalyticsFilters, setIsPathCleaningEnabled } = useActions(webAnalyticsLogic)
     const { clearFilters } = useActions(webAnalyticsFilterLogic)
+    const { isRefreshing } = useValues(liveWebAnalyticsMetricsLogic)
 
     const hasDomainFilter = !!validatedDomainFilter && validatedDomainFilter !== 'all'
     const livePropertyFilters = rawWebAnalyticsFilters.filter(isLiveStreamFilter)
@@ -168,6 +171,11 @@ const LiveDashboardFilterRow = ({
             }
             right={
                 <>
+                    {isRefreshing && (
+                        <Tooltip title="Refreshing live data">
+                            <Spinner className="text-lg text-muted" />
+                        </Tooltip>
+                    )}
                     {isEditing ? (
                         <>
                             <LemonButton type="secondary" size="small" onClick={() => resetLayout()}>
@@ -207,6 +215,7 @@ const LiveDashboardFilterRow = ({
                             Filters
                         </LemonButton>
                     </Popover>
+                    <PathCleaningToggle value={isPathCleaningEnabled} onChange={setIsPathCleaningEnabled} />
                     <WebAnalyticsDomainSelector />
                 </>
             }
@@ -404,7 +413,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                         subtitleTooltip="Metrics are shown in your local timezone"
                         isLoading={isLoading}
                     >
-                        <UsersPerMinuteChart data={chartData} />
+                        <UsersPerMinuteChart data={chartData} timezone={timezone} />
                     </LiveChartCard>
                 )
             case 'top_paths':
@@ -482,7 +491,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                         isLoading={isLoading}
                         contentClassName="h-64 md:h-80"
                     >
-                        <BotEventsPerMinuteChart data={chartData} />
+                        <BotEventsPerMinuteChart data={chartData} timezone={timezone} />
                     </LiveChartCard>
                 )
             case 'bot_traffic':

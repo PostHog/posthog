@@ -1,11 +1,11 @@
 import { GitDiffIcon } from "@phosphor-icons/react";
+import { channelDisplayName } from "@posthog/core/canvas/channelName";
 import type { CommandMenuAction } from "@posthog/shared/analytics-events";
 import type { Task, TaskSearchResult } from "@posthog/shared/domain-types";
 import { channelGlyph } from "@posthog/ui/features/canvas/components/channelGlyph";
 import { closeSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import {
   navigateToChannel,
-  navigateToChannelArtifacts,
   navigateToChannelTask,
   navigateToTaskDetail,
 } from "@posthog/ui/router/navigationBridge";
@@ -19,6 +19,9 @@ export type Command = {
   /** Muted trailing detail shown after a middot, e.g. a task's channel. */
   detail?: string;
   detailPrefix?: string;
+  /** Muted second line under the label, where a trailing `detail` would be the
+   * part a long label truncates away. */
+  subtitle?: string;
   keywords?: string;
   icon: ReactNode;
   action: CommandMenuAction;
@@ -26,6 +29,8 @@ export type Command = {
   channelId?: string;
   /** Hotkey string (e.g. "mod+b") shown right-aligned when present. */
   shortcut?: string;
+  /** Running this keeps the palette open (e.g. completing a filter token). */
+  keepOpen?: boolean;
   onRun: () => void;
 };
 
@@ -79,9 +84,15 @@ export function useSearchSections({
       }
 
       const task = result.task_id ? tasksById.get(result.task_id) : undefined;
+      // Remote search answers with the backend's own name, so a channel row is
+      // the one result that has not been through the channel list.
+      const title =
+        result.kind === "channel"
+          ? channelDisplayName(result.title)
+          : result.title;
       items.push({
         id: `search-${result.id}`,
-        label: result.title,
+        label: title,
         detail: result.subtitle || undefined,
         detailPrefix: "",
         keywords: `${remoteQuery} ${result.subtitle} ${Object.values(result.metadata).join(" ")}`,
@@ -89,7 +100,7 @@ export function useSearchSections({
           result.kind === "pull_request" ? (
             <GitDiffIcon size={12} className="text-gray-11" />
           ) : result.kind === "channel" ? (
-            channelGlyph(result.title, {
+            channelGlyph(title, {
               size: 12,
               space: spacesLayout,
               className: "text-muted-foreground",
@@ -115,13 +126,6 @@ export function useSearchSections({
             result.channel_id
           ) {
             navigateToChannel(result.channel_id);
-          } else if (
-            bluebirdEnabled &&
-            result.kind === "artifact" &&
-            result.channel_id &&
-            result.metadata.living === true
-          ) {
-            navigateToChannelArtifacts(result.channel_id);
           } else if (task) {
             // PR matches intentionally open their containing task. Cmd+K is a
             // navigator for Desktop context, not an external-link launcher.

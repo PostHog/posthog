@@ -167,6 +167,21 @@ class TestSafeExposeChError:
         with pytest.raises(Exception, match="Access was denied when reading the provided file"):
             DataWarehouseTable()._safe_expose_ch_error(delta_kernel_error)
 
+    @pytest.mark.parametrize(
+        "raw_message,expected_action",
+        [
+            ("DB::Exception: Access Denied: while reading key: my-data/file.csv, S3 exception", "s3:GetObject"),
+            ("DB::Exception: Could not list objects in bucket my-bucket, S3 exception", "s3:ListBucket"),
+        ],
+    )
+    def test_native_s3_access_denials_name_the_iam_action_to_check(
+        self, raw_message: str, expected_action: str
+    ) -> None:
+        # A self-managed S3 source reads and lists the customer's own bucket, so an access denial
+        # is theirs to fix — name the exact IAM action rather than dead-ending on "access denied".
+        with pytest.raises(Exception, match=expected_action):
+            DataWarehouseTable()._safe_expose_ch_error(ServerException(raw_message, code=499))
+
     def test_delta_kernel_object_store_blip_is_retried_not_blamed_on_the_bucket(self) -> None:
         # ClickHouse's own deltaLake() S3 table function hits the same transient object-store
         # blips as delta-rs (e.g. a dropped connection to our own data-warehouse bucket), just

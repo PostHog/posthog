@@ -4,7 +4,6 @@ import { router } from 'kea-router'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { Alerts } from './views/Alerts'
@@ -15,11 +14,6 @@ export function AlertsScene(): JSX.Element {
 
     return (
         <SceneContent>
-            <SceneTitleSection
-                name="Alerts"
-                description="Monitor insight metrics and get notified when conditions are met."
-                resourceType={{ type: 'inbox' }}
-            />
             <Alerts alertId={alertId} />
         </SceneContent>
     )

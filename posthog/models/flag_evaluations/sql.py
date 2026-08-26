@@ -33,6 +33,11 @@ FLAG_EVALUATIONS_MV_TABLE = f"{FLAG_EVALUATIONS_TABLE}_mv"
 
 FLAG_EVALUATIONS_TTL_DAYS = 90
 
+# The only event this table stores. posthog/models/deletion_targets.py uses it to skip this table
+# for deletion requests that name other events, so a producer writing a second event name here has
+# to update the target's stored_events.
+FLAG_EVALUATIONS_SOURCE_EVENT = "$feature_flag_called"
+
 # Sharding by a distinct_id hash rather than anything team-based: a handful of
 # teams carry most of the volume, and sharding by team would hotspot single
 # shards. sipHash64 matches the events table's Distributed sharding key, so a
@@ -43,8 +48,9 @@ FLAG_EVALUATIONS_SHARDING_KEY = "sipHash64(distinct_id)"
 # The sort key matches the queries we run: per-flag usage over a date range, and
 # uniques within one flag. toDate(timestamp) sits inside it because PARTITION BY
 # is monthly — without it, a one-day query for one flag would read that flag's
-# whole month. flag_key is a materialized column; ClickHouse computes those before
-# it sorts a part, so one can carry a sort key. The trailing hash intentionally
+# whole month. flag_key is a DEFAULT column; ClickHouse fills column defaults at
+# insert, before it sorts a part, so one can carry a sort key, though a key
+# column can never be ALTER UPDATEd, whatever its kind. The trailing hash intentionally
 # differs from the sharding key — cityHash64 is the events table's convention for
 # within-shard ordering — and a MergeTree ORDER BY is immutable once data exists,
 # so the two must not silently move together.
@@ -106,24 +112,36 @@ _FLAG_EVALUATIONS_COLUMNS = _FLAG_EVALUATIONS_COLUMNS_TEMPLATE.format(ts_default
 #
 # $group_0..$group_4 carry the events table's names, types and comment form so
 # group filtering resolves the same columns on both.
-_FLAG_EVALUATIONS_MATERIALIZED_COLUMNS = f"""
-    , $group_0 String MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$group_0')")} COMMENT 'column_materializer::$group_0'
-    , $group_1 String MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$group_1')")} COMMENT 'column_materializer::$group_1'
-    , $group_2 String MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$group_2')")} COMMENT 'column_materializer::$group_2'
-    , $group_3 String MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$group_3')")} COMMENT 'column_materializer::$group_3'
-    , $group_4 String MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$group_4')")} COMMENT 'column_materializer::$group_4'
-    , flag_key String MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$feature_flag')")} COMMENT 'column_materializer::properties::$feature_flag'
-    , response LowCardinality(String) MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$feature_flag_response')")} COMMENT 'column_materializer::properties::$feature_flag_response'
-    , session_id String MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$session_id')")} COMMENT 'column_materializer::properties::$session_id'
-    , request_id String MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$feature_flag_request_id')")} COMMENT 'column_materializer::properties::$feature_flag_request_id'
+#
+# DEFAULT rather than MATERIALIZED, the kind materialize() mints on sharded_events:
+# both compute the expression when an insert omits the column, but only a DEFAULT
+# column accepts ALTER UPDATE, which the events property-removal path relies on to
+# reset extracted values whose source property was erased (see
+# docs/internal/clickhouse-deletion-coverage.md). An UPDATE of properties does not
+# recompute these columns, so a rewrite must reset each affected column in the
+# same mutation. The cost is a footgun MATERIALIZED did not have: an insert that
+# names one of these columns stores the given value even when it contradicts
+# properties. Producers must omit them, which the Kafka path enforces by
+# writable_flag_evaluations not declaring them.
+_FLAG_EVALUATIONS_TYPED_COLUMNS = f"""
+    , $group_0 String DEFAULT {trim_quotes_expr("JSONExtractRaw(properties, '$group_0')")} COMMENT 'column_materializer::$group_0'
+    , $group_1 String DEFAULT {trim_quotes_expr("JSONExtractRaw(properties, '$group_1')")} COMMENT 'column_materializer::$group_1'
+    , $group_2 String DEFAULT {trim_quotes_expr("JSONExtractRaw(properties, '$group_2')")} COMMENT 'column_materializer::$group_2'
+    , $group_3 String DEFAULT {trim_quotes_expr("JSONExtractRaw(properties, '$group_3')")} COMMENT 'column_materializer::$group_3'
+    , $group_4 String DEFAULT {trim_quotes_expr("JSONExtractRaw(properties, '$group_4')")} COMMENT 'column_materializer::$group_4'
+    , flag_key String DEFAULT {trim_quotes_expr("JSONExtractRaw(properties, '$feature_flag')")} COMMENT 'column_materializer::properties::$feature_flag'
+    , response LowCardinality(String) DEFAULT {trim_quotes_expr("JSONExtractRaw(properties, '$feature_flag_response')")} COMMENT 'column_materializer::properties::$feature_flag_response'
+    , session_id String DEFAULT {trim_quotes_expr("JSONExtractRaw(properties, '$session_id')")} COMMENT 'column_materializer::properties::$session_id'
+    , request_id String DEFAULT {trim_quotes_expr("JSONExtractRaw(properties, '$feature_flag_request_id')")} COMMENT 'column_materializer::properties::$feature_flag_request_id'
 """
 
 # A Distributed engine computes nothing, so the read table repeats the same names
 # and types without the expression, which is what lets a query against
 # flag_evaluations select the columns the shards store. The writable table omits
-# them entirely, because rows arrive there without these columns and the shard
-# fills them in.
-_FLAG_EVALUATIONS_PROXY_MATERIALIZED_COLUMNS = """
+# them entirely: carrying the DEFAULT expressions there would compute the values
+# on the ingestion nodes and ship the widened rows over the network, so rows
+# arrive narrow and the shard computes them, matching writable_events.
+_FLAG_EVALUATIONS_PROXY_TYPED_COLUMNS = """
     , $group_0 String COMMENT 'column_materializer::$group_0'
     , $group_1 String COMMENT 'column_materializer::$group_1'
     , $group_2 String COMMENT 'column_materializer::$group_2'
@@ -171,7 +189,7 @@ FLAG_EVALUATIONS_TABLE_SQL = lambda: (
 CREATE TABLE IF NOT EXISTS {FLAG_EVALUATIONS_DATA_TABLE}
 (
     {_FLAG_EVALUATIONS_COLUMNS}
-    {_FLAG_EVALUATIONS_MATERIALIZED_COLUMNS}
+    {_FLAG_EVALUATIONS_TYPED_COLUMNS}
     {_FLAG_EVALUATIONS_INDEXES}
     {KAFKA_COLUMNS_WITH_PARTITION}
 )
@@ -188,12 +206,32 @@ SETTINGS ttl_only_drop_parts = 1
 )
 
 
-def _distributed_table_sql(table_name: str, *, materialized_columns: str = "") -> str:
+def DROP_FLAG_EVALUATIONS_PROXY_TABLES_SQL() -> list[str]:
+    """Drop the two Distributed fronts so a reset recreates them alongside the storage table.
+
+    Recreating the shard while leaving these on an older column list makes inserts silently drop
+    the new column and reads not see it, which fails as a puzzle rather than as a schema error.
+    """
+    return [
+        f"DROP TABLE IF EXISTS {FLAG_EVALUATIONS_TABLE}",
+        f"DROP TABLE IF EXISTS {FLAG_EVALUATIONS_WRITABLE_TABLE}",
+    ]
+
+
+def DROP_FLAG_EVALUATIONS_TABLE_SQL() -> str:
+    # reset_clickhouse_database drops rather than truncates because MutationRunner skips enqueueing
+    # a mutation whose command text already exists on the table, so mutation history left behind by
+    # one test turns a later test's identical delete into a no-op. SYNC so the replica's ZooKeeper
+    # metadata is gone before the table is recreated.
+    return f"DROP TABLE IF EXISTS {FLAG_EVALUATIONS_DATA_TABLE} SYNC"
+
+
+def _distributed_table_sql(table_name: str, *, typed_columns: str = "") -> str:
     return f"""
 CREATE TABLE IF NOT EXISTS {table_name}
 (
     {_FLAG_EVALUATIONS_COLUMNS}
-    {materialized_columns}
+    {typed_columns}
     {KAFKA_COLUMNS_WITH_PARTITION}
 )
 ENGINE = {Distributed(data_table=FLAG_EVALUATIONS_DATA_TABLE, sharding_key=FLAG_EVALUATIONS_SHARDING_KEY)}
@@ -205,7 +243,7 @@ WRITABLE_FLAG_EVALUATIONS_TABLE_SQL = lambda: _distributed_table_sql(FLAG_EVALUA
 
 # Read path on DATA nodes, and the name queries use.
 DISTRIBUTED_FLAG_EVALUATIONS_TABLE_SQL = lambda: _distributed_table_sql(
-    FLAG_EVALUATIONS_TABLE, materialized_columns=_FLAG_EVALUATIONS_PROXY_MATERIALIZED_COLUMNS
+    FLAG_EVALUATIONS_TABLE, typed_columns=_FLAG_EVALUATIONS_PROXY_TYPED_COLUMNS
 )
 
 

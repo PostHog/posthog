@@ -1,23 +1,29 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from django.db.models import Q
 
+import structlog
+
 from products.alerts.backend.scheduling import (
     advance_next_check_at,
     compute_shard_offset_seconds as shared_compute_shard_offset_seconds,
+    parse_blocked_windows_tuples,
+    scan_next_unblocked_utc,
 )
 
+logger = structlog.get_logger(__name__)
+
 __all__ = [
-    "HOIST_BATCHED_ALERT_PREDICATES",
     "MAX_BYTES_TO_READ",
     "SCHEDULE_INTERVAL_SECONDS",
     "advance_next_check_at",
     "compute_shard_offset_seconds",
     "due_alerts_q",
+    "next_allowed_check_at",
 ]
 
 # How often the Temporal schedule fires. Drives shard granularity in
@@ -35,16 +41,6 @@ SCHEDULE_INTERVAL_SECONDS = 60
 # a circular import via `temporal/__init__.py` to activities to alert_check_query.
 MAX_BYTES_TO_READ = int(os.environ.get("LOGS_ALERTING_MAX_BYTES_TO_READ", "5368709120"))
 
-# Hoists the OR of per-alert predicates into the batched alert query's outer
-# WHERE so ClickHouse can prune the scan with them. Results are identical
-# either way; the flag changes only how much data each check reads. Default
-# off for a staged rollout, because a planner regression on the hoisted shape
-# (e.g. pathological KeyCondition analysis on a large OR chain) would hit
-# every batched check at once: enable per environment with
-# LOGS_ALERTING_HOIST_BATCHED_ALERT_PREDICATES=1, then flip this default once
-# both regions have soaked.
-HOIST_BATCHED_ALERT_PREDICATES = os.environ.get("LOGS_ALERTING_HOIST_BATCHED_ALERT_PREDICATES", "0") == "1"
-
 
 def compute_shard_offset_seconds(alert_id: UUID, check_interval_minutes: int) -> int:
     return shared_compute_shard_offset_seconds(
@@ -52,6 +48,33 @@ def compute_shard_offset_seconds(alert_id: UUID, check_interval_minutes: int) ->
         check_interval_minutes,
         schedule_interval_seconds=SCHEDULE_INTERVAL_SECONDS,
     )
+
+
+def next_allowed_check_at(
+    candidate: datetime,
+    *,
+    team_timezone: str,
+    schedule_restriction: dict[str, object] | None,
+) -> datetime:
+    windows = parse_blocked_windows_tuples(schedule_restriction)
+    allowed_at = scan_next_unblocked_utc(candidate, team_timezone, windows)
+    if allowed_at is not None:
+        return allowed_at
+
+    logger.warning(
+        "logs_alert.schedule_restriction.next_allowed_check_at_exceeded_cap",
+        team_timezone=team_timezone,
+    )
+    retry_candidate = candidate.astimezone(UTC) + timedelta(days=1)
+    allowed_at = scan_next_unblocked_utc(retry_candidate, team_timezone, windows)
+    if allowed_at is not None:
+        return allowed_at
+
+    logger.error(
+        "logs_alert.schedule_restriction.next_allowed_check_at_giving_up_after_retry",
+        team_timezone=team_timezone,
+    )
+    return retry_candidate.replace(second=0, microsecond=0)
 
 
 def due_alerts_q(now: datetime, *, broken_state: str, snoozed_state: str) -> Q:

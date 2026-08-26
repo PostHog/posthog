@@ -10,7 +10,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { cn } from 'lib/utils/css-classes'
 import { DashboardFilterBar } from 'scenes/dashboard/DashboardFilters'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
-import { DashboardLogicProps, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { DashboardLoadAction, DashboardLogicProps, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -95,6 +95,7 @@ function DashboardScene({
         canEditDashboard,
         tiles,
         itemsLoading,
+        dashboardLoading,
         layoutEditMode,
         dashboardFailedToLoad,
         accessDeniedToDashboard,
@@ -102,7 +103,7 @@ function DashboardScene({
     } = useValues(dashboardLogic)
     const { layoutZoom } = useValues(dashboardLogic)
     const { currentTeamId } = useValues(teamLogic)
-    const { reportDashboardViewed, abortAnyRunningQuery, setLayoutZoom } = useActions(dashboardLogic)
+    const { reportDashboardViewed, abortAnyRunningQuery, loadDashboard, setLayoutZoom } = useActions(dashboardLogic)
     const { addInsightToDashboardModalVisible } = useValues(addInsightToDashboardLogic)
 
     useAttachedContext(
@@ -153,7 +154,16 @@ function DashboardScene({
             <DashboardPublicAccessBanner dashboard={dashboard} placement={placement} />
 
             {dashboardFailedToLoad ? (
-                <InsightErrorState title="There was an error loading this dashboard" supportOnly />
+                <InsightErrorState
+                    title="There was an error loading this dashboard"
+                    onRetry={
+                        placement === DashboardPlacement.Export
+                            ? undefined
+                            : () => loadDashboard({ action: DashboardLoadAction.Update })
+                    }
+                    retryLoading={dashboardLoading}
+                    placement={placement}
+                />
             ) : !tiles || tiles.length === 0 ? (
                 <EmptyDashboardComponent loading={itemsLoading || !dashboard} canEdit={canEditDashboard} />
             ) : (

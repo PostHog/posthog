@@ -13,12 +13,14 @@ import { universalFiltersLogic } from 'lib/components/UniversalFilters/universal
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator, UniversalFiltersGroup } from '~/types'
 
 import { AlertAdvancedOptions } from 'products/alerts/frontend/components/AlertAdvancedOptions'
 import { AlertDefinitionRow } from 'products/alerts/frontend/components/AlertDefinition'
 import { AlertEditorSection } from 'products/alerts/frontend/components/AlertEditor'
+import { QuietHoursFields } from 'products/alerts/frontend/components/QuietHoursFields'
 import { ServiceFilter } from 'products/logs/frontend/components/LogsViewer/Filters/ServiceFilter'
 import { SeverityLevelsFilter } from 'products/logs/frontend/components/LogsViewer/Filters/SeverityLevelsFilter'
 import { LogsAlertThresholdOperatorEnumApi } from 'products/logs/frontend/generated/api.schemas'
@@ -153,10 +155,12 @@ export function LogsAlertFilters({ filterError }: { filterError?: string }): JSX
 
 export function LogsAlertTrigger(): JSX.Element {
     const { alertForm } = useValues(logsAlertFormLogic)
+    const { timezone } = useValues(teamLogic)
     const { setAlertFormValue } = useActions(logsAlertFormLogic)
     const enabledAdvancedOptionsCount =
         Number(alertForm.evaluationPeriods > 1 || alertForm.datapointsToAlarm > 1) +
-        Number(alertForm.cooldownMinutes > 0)
+        Number(alertForm.cooldownMinutes > 0) +
+        Number(alertForm.scheduleRestriction !== null)
 
     return (
         <div className="space-y-4">
@@ -255,6 +259,12 @@ export function LogsAlertTrigger(): JSX.Element {
                         <span className="text-sm">minutes</span>
                     </div>
                 </LemonField.Pure>
+                <QuietHoursFields
+                    scheduleRestriction={alertForm.scheduleRestriction}
+                    cadenceMinutes={5}
+                    teamTimezone={timezone}
+                    onChange={(next) => setAlertFormValue('scheduleRestriction', next)}
+                />
             </AlertAdvancedOptions>
         </div>
     )

@@ -8,6 +8,7 @@ from posthog.test.base import (
     APIBaseTest,
     BaseTest,
     ClickhouseTestMixin,
+    NewEventsSchemaSnapshotExtension,
     _create_event,
     _create_person,
     flush_persons_and_events,
@@ -66,7 +67,7 @@ class TestEventsPredicatePushdownTransform(BaseTest):
     def _events_schema_snapshot(self):
         self.snapshot.session.pytest_session.config.option.warn_unused_snapshots = True
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            return self.snapshot(name="new_events_schema")
+            return self.snapshot(name="new_events_schema", extension_class=NewEventsSchemaSnapshotExtension)
         return self.snapshot
 
     def _print_select(self, select: str, modifiers: HogQLQueryModifiers | None = None):
@@ -421,10 +422,10 @@ class TestOuterWhereAssignment:
         where = ast.And(exprs=[timestamp_pred, session_pred])
 
         extractor = EventsPredicatePushdownExtractor(joined_table_aliases={"events__session"})
-        inner_where, outer_where = extractor.get_pushdown_predicates(where)
+        split = extractor.get_pushdown_predicates(where)
 
-        assert inner_where is not None
-        assert outer_where is not None
+        assert split.inner_where is not None
+        assert split.outer_where is not None
 
 
 class TestEventsPredicatePushdownTransformUnit:
@@ -1004,7 +1005,7 @@ class _PushdownExecutionTestBase(ClickhouseTestMixin, APIBaseTest):
     def _events_schema_snapshot(self):
         self.snapshot.session.pytest_session.config.option.warn_unused_snapshots = True
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            return self.snapshot(name="new_events_schema")
+            return self.snapshot(name="new_events_schema", extension_class=NewEventsSchemaSnapshotExtension)
         return self.snapshot
 
     def _assert_events_property_source(self, subquery: str, property_name: str, legacy_column: str) -> None:

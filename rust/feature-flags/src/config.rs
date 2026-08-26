@@ -646,9 +646,6 @@ pub struct Config {
     #[envconfig(from = "COOKIELESS_DISABLED", default = "false")]
     pub cookieless_disabled: bool,
 
-    #[envconfig(from = "COOKIELESS_FORCE_STATELESS", default = "false")]
-    pub cookieless_force_stateless: bool,
-
     #[envconfig(from = "COOKIELESS_IDENTIFIES_TTL_SECONDS", default = "345600")]
     pub cookieless_identifies_ttl_seconds: u64,
 
@@ -1105,7 +1102,6 @@ impl Config {
             group_type_cache_ttl_seconds: 300,
             group_type_cache_max_entries: 50_000,
             cookieless_disabled: false,
-            cookieless_force_stateless: false,
             cookieless_identifies_ttl_seconds: 345600,
             cookieless_salt_ttl_seconds: 345600,
             cookieless_redis_host: "localhost".to_string(),
@@ -1224,7 +1220,6 @@ impl Config {
     pub fn get_cookieless_config(&self) -> CookielessConfig {
         CookielessConfig {
             disabled: self.cookieless_disabled,
-            force_stateless_mode: self.cookieless_force_stateless,
             identifies_ttl_seconds: self.cookieless_identifies_ttl_seconds,
             salt_ttl_seconds: self.cookieless_salt_ttl_seconds,
         }

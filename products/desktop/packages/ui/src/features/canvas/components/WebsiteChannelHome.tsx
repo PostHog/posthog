@@ -1,3 +1,4 @@
+import { isPersonalChannel } from "@posthog/core/canvas/channelName";
 import { insertTaskDedup } from "@posthog/core/tasks/taskDelete";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { Task } from "@posthog/shared/domain-types";
@@ -23,15 +24,17 @@ import {
   channelFeedQueryKey,
   useChannelFeed,
 } from "@posthog/ui/features/canvas/hooks/useChannelFeed";
-import {
-  channelCreationMessage,
-  useChannelFeedMessages,
-} from "@posthog/ui/features/canvas/hooks/useChannelFeedMessages";
+import { useChannelFeedMessages } from "@posthog/ui/features/canvas/hooks/useChannelFeedMessages";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useChannelTaskMutations } from "@posthog/ui/features/canvas/hooks/useChannelTasks";
 import { useFolderInstructions } from "@posthog/ui/features/canvas/hooks/useFolderInstructions";
 import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
-import { useThreadPanelStore } from "@posthog/ui/features/canvas/stores/threadPanelStore";
+import { useChannelIntroStore } from "@posthog/ui/features/canvas/stores/channelIntroStore";
+import {
+  type ThreadPanelTab,
+  useThreadPanelStore,
+} from "@posthog/ui/features/canvas/stores/threadPanelStore";
+import { openRightPanelSide } from "@posthog/ui/features/navigation/rightPanelSide";
 import { SuggestedPromptCard } from "@posthog/ui/features/task-detail/components/SuggestedPromptCard";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
@@ -42,10 +45,11 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-// A channel: a Slack-style multiplayer feed. Each member message kicks off a
-// task rendered as a card everyone in the channel sees; the composer stays
-// pinned at the bottom and threads open in a right-hand panel. The channel's
-// artifacts/history/context views stay in the tabs above (ChannelHeader).
+// A channel: a multiplayer feed. Each member message kicks off a task rendered
+// as a card everyone in the channel sees; the composer stays pinned at the top
+// (Twitter-style — new session first, newest cards under it) and threads open
+// in a right-hand panel. The channel's artifacts/history/context views stay in
+// the tabs above (ChannelHeader).
 export function WebsiteChannelHome({ channelId }: { channelId: string }) {
   const spacesLayout = useChannelsLayout();
   const navigate = useNavigate();
@@ -67,16 +71,13 @@ export function WebsiteChannelHome({ channelId }: { channelId: string }) {
   // Marking this channel read lives in ChannelHeader (rendered by every channel
   // surface), so opening Artifacts or CONTEXT.md counts as reading it too.
 
-  // Durable "PostHog agent" rows (CONTEXT.md being built, …).
-  const { messages: feedMessages, isLoading: isLoadingMessages } =
+  // Durable "PostHog agent" rows (CONTEXT.md being built, …). The old chat
+  // feed also injected a synthetic "joined" opener here; the newest-first feed
+  // drops it — the intro header already attributes the channel's creation, and
+  // the opener would dangle at the bottom as the oldest entry.
+  const { messages: systemMessages, isLoading: isLoadingMessages } =
     useChannelFeedMessages(channelId);
   const isLoading = isLoadingChannels || isLoadingFeed || isLoadingMessages;
-  // The Slack-style "joined" opener, derived from the channel row so it renders
-  // (and sorts first) even where the feed endpoint isn't deployed.
-  const systemMessages = useMemo(() => {
-    const creation = channelCreationMessage(channel);
-    return creation ? [creation, ...feedMessages] : feedMessages;
-  }, [channel, feedMessages]);
 
   useSetHeaderContent(
     useMemo(
@@ -191,7 +192,7 @@ export function WebsiteChannelHome({ channelId }: { channelId: string }) {
   const handleOpenFull = useCallback(
     (taskId: string) => {
       void navigate({
-        to: "/website/$channelId/tasks/$taskId",
+        to: "/spaces/$channelId/tasks/$taskId",
         params: { channelId, taskId },
       });
     },
@@ -202,9 +203,19 @@ export function WebsiteChannelHome({ channelId }: { channelId: string }) {
     [handleOpenFull],
   );
 
+  // Under the spaces chrome there is no thread dock to peek into, so the feed
+  // opens the session itself and the right panel carries what the dock used to
+  // — including a chip's tab, which lands on the matching panel side there.
   const handleOpenThread = useCallback(
-    (task: Task) => openThread(channelId, task.id),
-    [channelId, openThread],
+    (task: Task, tab?: ThreadPanelTab) => {
+      if (spacesLayout) {
+        if (tab) openRightPanelSide(tab, task.id);
+        handleOpenFull(task.id);
+        return;
+      }
+      openThread(channelId, task.id, tab ? { tab } : undefined);
+    },
+    [channelId, openThread, spacesLayout, handleOpenFull],
   );
 
   const threadTask = threadTaskId
@@ -213,7 +224,7 @@ export function WebsiteChannelHome({ channelId }: { channelId: string }) {
 
   // The Slack-style intro pinned at the feed's start — public channels only;
   // the personal channel keeps the welcome empty state below.
-  const isPersonal = channel?.channel_type === "personal";
+  const isPersonal = channel ? isPersonalChannel(channel) : false;
   const hasContextMd = (channelContext ?? "").trim().length > 0;
   // An in-flight build is spotted by its plan task in this channel's feed (by
   // title prefix — the only task↔context.md tie until the backend links them),
@@ -233,13 +244,18 @@ export function WebsiteChannelHome({ channelId }: { channelId: string }) {
       : isBuildingContextMd
         ? "building"
         : "none";
+  const introDismissed = useChannelIntroStore(
+    (s) => !!s.dismissedByChannel[channelId],
+  );
+  const dismissIntro = useChannelIntroStore((s) => s.dismissIntro);
   const intro =
-    !isPersonal && channelName && channel ? (
+    !isPersonal && !introDismissed && channelName && channel ? (
       <ChannelIntro
         channel={channel}
         channelName={channelName}
         contextMdState={contextMdState}
         onCreateContextMd={() => setContextMdDialogOpen(true)}
+        onDismiss={() => dismissIntro(channelId)}
       />
     ) : undefined;
 
@@ -288,33 +304,35 @@ export function WebsiteChannelHome({ channelId }: { channelId: string }) {
           isLoading={isLoading}
           emptyState={emptyState}
           intro={intro}
+          composer={
+            <ChannelHomeComposer
+              ref={composerRef}
+              channelId={channelId}
+              channelName={channelName}
+              channelContext={channelContext}
+              channelRepositories={channel?.repositories}
+              channelGithubIntegration={channel?.github_integration}
+              onTaskCreated={onTaskCreated}
+              onPendingStart={addPending}
+              onPendingEnd={removePending}
+            />
+          }
           onOpenTask={handleOpenTask}
           onOpenThread={handleOpenThread}
         />
-        <div className="mx-auto w-full px-4 pt-2 pb-2">
-          <ChannelHomeComposer
-            ref={composerRef}
-            channelId={channelId}
-            channelName={channelName}
-            channelContext={channelContext}
-            channelRepositories={channel?.repositories}
-            channelGithubIntegration={channel?.github_integration}
-            onTaskCreated={onTaskCreated}
-            onPendingStart={addPending}
-            onPendingEnd={removePending}
-          />
-        </div>
       </div>
 
-      {threadTaskId && threadTaskId !== inheritedThreadTaskId && (
-        <ThreadSidebar
-          taskId={threadTaskId}
-          channelId={channelId}
-          task={threadTask}
-          onClose={() => closeThread(channelId)}
-          onOpenFull={() => handleOpenFull(threadTaskId)}
-        />
-      )}
+      {!spacesLayout &&
+        threadTaskId &&
+        threadTaskId !== inheritedThreadTaskId && (
+          <ThreadSidebar
+            taskId={threadTaskId}
+            channelId={channelId}
+            task={threadTask}
+            onClose={() => closeThread(channelId)}
+            onOpenFull={() => handleOpenFull(threadTaskId)}
+          />
+        )}
 
       {channelName && (
         <CreateChannelModal

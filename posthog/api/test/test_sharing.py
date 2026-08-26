@@ -17,10 +17,10 @@ from rest_framework import status
 from rest_framework.exceptions import PermissionDenied
 
 from posthog.api.sharing import (
-    SHARING_RESOURCE_EDIT_CHECKS,
+    SHARING_RESOURCE_ACCESS_CHECKS,
     _assert_every_shareable_resource_is_gated,
     _log_share_password_attempt,
-    check_can_edit_sharing_configuration,
+    check_can_access_sharing_configuration,
     shared_url_as_png,
 )
 from posthog.constants import AvailableFeature
@@ -31,6 +31,7 @@ from posthog.models.share_password import SharePassword
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.dashboards.backend.access import DashboardAccessMethod
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -39,9 +40,7 @@ from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.exports.backend.models.exported_asset import ExportedAsset, get_render_access_token
 from products.notebooks.backend.models import Notebook
-from products.product_analytics.backend.models.insight import Insight
-
-from ee.models.rbac.access_control import AccessControl
+from products.product_analytics.backend.facade.models import Insight
 
 
 def mock_exporter_template(test_func):
@@ -1437,6 +1436,7 @@ class TestExportCacheKeyFlow(APIBaseTest):
 
     insight: Insight
     sharing_config: SharingConfiguration
+    exported_asset: ExportedAsset
 
     @classmethod
     def setUpTestData(cls) -> None:
@@ -1451,41 +1451,33 @@ class TestExportCacheKeyFlow(APIBaseTest):
             insight=cls.insight,
             enabled=True,
         )
+        cls.exported_asset = ExportedAsset.objects.create(
+            team=cls.team,
+            insight=cls.insight,
+            export_format=ExportedAsset.ExportFormat.PNG,
+        )
 
-    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
-    @patch("products.product_analytics.backend.api.insight.QueryCache")
-    @mock_exporter_template
-    def test_cache_keys_parameter_triggers_direct_cache_lookup(self, mock_query_cache_cls, mock_calculate):
-        """Test that cache_keys param causes InsightSerializer to use direct cache lookup and skip calculation."""
-        cached_response = {
-            "results": [{"count": 42}],
-            "cache_key": "expected_cache_key_abc123",
+    def _render_url(self, cache_keys_param: str) -> str:
+        # The render-purpose token the image-export worker mints for browserless.
+        return f"/exporter?token={get_render_access_token(self.exported_asset)}&cache_keys={cache_keys_param}"
+
+    def _own_team_cache_key(self) -> str:
+        return f"cache_{self.team.pk}_abc123"
+
+    @staticmethod
+    def _cached_entry(mock_query_cache_cls: MagicMock, marker: str) -> None:
+        mock_entry = MagicMock()
+        mock_entry.as_full_response.return_value = {
+            "results": [{"count": 42, "note": marker}],
             "last_refresh": "2024-01-01T00:00:00Z",
             "timezone": "UTC",
         }
-        mock_entry = MagicMock()
-        mock_entry.as_full_response.return_value = cached_response
         mock_query_cache_cls.return_value.lookup.return_value.entry = mock_entry
 
-        cache_keys = {str(self.insight.id): "expected_cache_key_abc123"}
-        cache_keys_param = quote(json.dumps(cache_keys))
-
-        response = self.client.get(f"/shared/{self.sharing_config.access_token}?cache_keys={cache_keys_param}")
-
-        assert response.status_code == 200
-        mock_query_cache_cls.assert_called_once_with(
-            team_id=self.insight.team_id, cache_key="expected_cache_key_abc123"
-        )
-        mock_calculate.assert_not_called()
-
-    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
-    @patch("products.product_analytics.backend.api.insight.QueryCache")
-    @mock_exporter_template
-    def test_cache_miss_falls_back_to_normal_calculation(self, mock_query_cache_cls, mock_calculate):
-        """Test that cache miss on expected key falls back to normal calculation."""
+    @staticmethod
+    def _calculated_result(mock_calculate: MagicMock) -> None:
         from posthog.caching.insight_result import InsightResult
 
-        mock_query_cache_cls.return_value.lookup.return_value.entry = None  # Cache miss
         mock_calculate.return_value = InsightResult(
             result=[{"count": 50}],
             cache_key="calculated_cache_key",
@@ -1494,35 +1486,93 @@ class TestExportCacheKeyFlow(APIBaseTest):
             timezone="UTC",
         )
 
-        cache_keys = {str(self.insight.id): "missing_cache_key"}
-        cache_keys_param = quote(json.dumps(cache_keys))
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    @patch("products.product_analytics.backend.presentation.insight.QueryCache")
+    @mock_exporter_template
+    def test_cache_keys_parameter_triggers_direct_cache_lookup(self, mock_query_cache_cls, mock_calculate):
+        """Test that cache_keys param causes InsightSerializer to use direct cache lookup and skip calculation."""
+        self._cached_entry(mock_query_cache_cls, "warmed-by-the-exporter")
 
-        response = self.client.get(f"/shared/{self.sharing_config.access_token}?cache_keys={cache_keys_param}")
+        cache_key = self._own_team_cache_key()
+        cache_keys_param = quote(json.dumps({str(self.insight.id): cache_key}))
+
+        response = self.client.get(self._render_url(cache_keys_param))
 
         assert response.status_code == 200
-        mock_query_cache_cls.assert_called_once_with(team_id=self.insight.team_id, cache_key="missing_cache_key")
+        assert b"warmed-by-the-exporter" in response.content
+        mock_query_cache_cls.assert_called_once_with(team_id=self.insight.team_id, cache_key=cache_key)
+        mock_calculate.assert_not_called()
+
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    @patch("products.product_analytics.backend.presentation.insight.QueryCache")
+    @mock_exporter_template
+    def test_cache_miss_falls_back_to_normal_calculation(self, mock_query_cache_cls, mock_calculate):
+        """Test that cache miss on expected key falls back to normal calculation."""
+        mock_query_cache_cls.return_value.lookup.return_value.entry = None  # Cache miss
+        self._calculated_result(mock_calculate)
+
+        cache_key = self._own_team_cache_key()
+        cache_keys_param = quote(json.dumps({str(self.insight.id): cache_key}))
+
+        response = self.client.get(self._render_url(cache_keys_param))
+
+        assert response.status_code == 200
+        mock_query_cache_cls.assert_called_once_with(team_id=self.insight.team_id, cache_key=cache_key)
         mock_calculate.assert_called_once()
 
     @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
-    @patch("products.product_analytics.backend.api.insight.QueryCache")
+    @patch("products.product_analytics.backend.presentation.insight.QueryCache")
     @mock_exporter_template
     def test_invalid_cache_keys_param_continues_without_it(self, mock_query_cache_cls, mock_calculate):
         """Test that invalid cache_keys parameter is ignored and normal flow continues."""
-        from posthog.caching.insight_result import InsightResult
+        self._calculated_result(mock_calculate)
 
-        mock_calculate.return_value = InsightResult(
-            result=[{"count": 25}],
-            cache_key="normal_cache_key",
-            is_cached=False,
-            last_refresh=None,
-            timezone="UTC",
-        )
-
-        # Pass invalid JSON as cache_keys
-        response = self.client.get(f"/shared/{self.sharing_config.access_token}?cache_keys=not_valid_json")
+        response = self.client.get(self._render_url("not_valid_json"))
 
         assert response.status_code == 200
         # QueryCache should not be constructed since cache_keys parsing failed
+        mock_query_cache_cls.assert_not_called()
+        mock_calculate.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("shared", "/shared/{token}"),
+            ("embedded", "/embedded/{token}"),
+        ]
+    )
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    @patch("products.product_analytics.backend.presentation.insight.QueryCache")
+    @mock_exporter_template
+    def test_public_share_link_cannot_name_the_cache_key_to_read(
+        self, _name: str, path: str, mock_query_cache_cls, mock_calculate
+    ):
+        self._cached_entry(mock_query_cache_cls, "someone-elses-cached-rows")
+        self._calculated_result(mock_calculate)
+
+        cache_keys_param = quote(json.dumps({str(self.insight.id): self._own_team_cache_key()}))
+        url = path.format(token=self.sharing_config.access_token)
+
+        response = self.client.get(f"{url}?cache_keys={cache_keys_param}")
+
+        assert response.status_code == 200
+        assert b"someone-elses-cached-rows" not in response.content
+        mock_query_cache_cls.assert_not_called()
+        mock_calculate.assert_called_once()
+
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    @patch("products.product_analytics.backend.presentation.insight.QueryCache")
+    @mock_exporter_template
+    def test_cache_key_from_another_team_is_not_served(self, mock_query_cache_cls, mock_calculate):
+        self._cached_entry(mock_query_cache_cls, "another-teams-cached-rows")
+        self._calculated_result(mock_calculate)
+
+        foreign_key = f"cache_{self.team.pk + 1}_abc123"
+        cache_keys_param = quote(json.dumps({str(self.insight.id): foreign_key}))
+
+        response = self.client.get(self._render_url(cache_keys_param))
+
+        assert response.status_code == 200
+        assert b"another-teams-cached-rows" not in response.content
         mock_query_cache_cls.assert_not_called()
         mock_calculate.assert_called_once()
 
@@ -1758,7 +1808,7 @@ class TestSharedCohortInlining(APIBaseTest):
 
 class TestSharingResourceEditChecks(APIBaseTest):
     def test_every_shareable_resource_has_an_edit_check(self):
-        assert set(SHARING_RESOURCE_EDIT_CHECKS) == SharingConfiguration.shareable_resource_fields()
+        assert set(SHARING_RESOURCE_ACCESS_CHECKS) == SharingConfiguration.shareable_resource_fields()
 
     @parameterized.expand(
         [
@@ -1767,13 +1817,13 @@ class TestSharingResourceEditChecks(APIBaseTest):
         ]
     )
     def test_assertion_rejects_a_registry_out_of_sync_with_the_model(self, _name, drop_key, add_key):
-        mutated = dict(SHARING_RESOURCE_EDIT_CHECKS)
+        mutated = dict(SHARING_RESOURCE_ACCESS_CHECKS)
         if drop_key:
             mutated.pop(drop_key)
         if add_key:
             mutated[add_key] = None
 
-        with patch.dict("posthog.api.sharing.SHARING_RESOURCE_EDIT_CHECKS", mutated, clear=True):
+        with patch.dict("posthog.api.sharing.SHARING_RESOURCE_ACCESS_CHECKS", mutated, clear=True):
             with self.assertRaises(ImproperlyConfigured):
                 _assert_every_shareable_resource_is_gated()
 
@@ -1790,9 +1840,58 @@ class TestSharingResourceEditChecks(APIBaseTest):
         view = Mock(team=self.team)
 
         with self.assertRaises(PermissionDenied) as caught:
-            check_can_edit_sharing_configuration(view, request, sharing)
+            check_can_access_sharing_configuration(view, request, sharing)
 
         assert "cannot be shared through this endpoint" in str(caught.exception)
+
+
+class TestSharingConfigurationReadAccess(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        owner = User.objects.create_and_join(self.organization, "owner@posthog.com", None)
+        self.dashboard = Dashboard.objects.create(team=self.team, name="Private board", created_by=owner)
+        self.insight = Insight.objects.create(team=self.team, name="Private insight", created_by=owner)
+        SharingConfiguration.objects.create(
+            team=self.team, dashboard=self.dashboard, enabled=True, access_token="dashboard_share_secret"
+        )
+        SharingConfiguration.objects.create(
+            team=self.team, insight=self.insight, enabled=True, access_token="insight_share_secret"
+        )
+
+    @parameterized.expand(
+        [
+            ("dashboard_no_rule", "dashboard", None, status.HTTP_200_OK),
+            ("dashboard_viewer", "dashboard", "viewer", status.HTTP_200_OK),
+            ("dashboard_none", "dashboard", "none", status.HTTP_403_FORBIDDEN),
+            ("insight_no_rule", "insight", None, status.HTTP_200_OK),
+            ("insight_viewer", "insight", "viewer", status.HTTP_200_OK),
+            ("insight_none", "insight", "none", status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_reading_a_share_token_requires_access_to_the_shared_resource(
+        self, _name: str, resource: str, access_level: str | None, expected_status: int
+    ) -> None:
+        target = self.dashboard if resource == "dashboard" else self.insight
+        if access_level:
+            AccessControl.objects.create(
+                team=self.team,
+                resource=resource,
+                resource_id=str(target.id),
+                access_level=access_level,
+                organization_member=self.organization_membership,
+            )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/{resource}s/{target.id}/sharing")
+
+        assert response.status_code == expected_status, response.json()
+        assert (f"{resource}_share_secret" in response.content.decode()) == (expected_status == status.HTTP_200_OK)
 
 
 def _warehouse_ac_flag(key: str, *args, **kwargs) -> bool:
@@ -1915,7 +2014,6 @@ class TestSharingPublishGate(APIBaseTest):
         )
 
     def _deny_warehouse(self) -> None:
-
         AccessControl.objects.create(team=self.team, resource="warehouse_objects", access_level="none")
 
     def _enable_sharing(self, kind: str):
@@ -1966,7 +2064,6 @@ class TestSharingPublishGate(APIBaseTest):
         assert response.json()["enabled"] is True
 
     def test_system_table_denial_blocks_publishing(self):
-
         AccessControl.objects.create(team=self.team, resource="dashboard", access_level="none")
         self.insight.query = {
             "kind": "DataTableNode",
@@ -2014,7 +2111,6 @@ class TestSharingPublishGate(APIBaseTest):
 
     @parameterized.expand([("non_materialized",), ("materialized",)])
     def test_granted_view_over_denied_table_gates_unless_materialized(self, case: str):
-
         inner = DataWarehouseSavedQuery.objects.create(
             team=self.team,
             name="restricted_inner",

@@ -16,8 +16,13 @@ from posthog.api.oauth.cimd import (
     is_cimd_client_id,
     is_cimd_url_blocked,
 )
-from posthog.api.oauth.client_assertion import ClientAssertionError, extract_client_assertion, verify_client_assertion
-from posthog.api.oauth.client_auth import extract_client_credentials, verify_client_secret
+from posthog.api.oauth.client_assertion import (
+    ClientAssertionError,
+    ResolvedClientAssertion,
+    extract_client_assertion,
+    verify_client_assertion,
+)
+from posthog.api.oauth.client_auth import ClientCredentials, extract_client_credentials, verify_client_secret
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, find_oauth_access_token
 from posthog.models.user import User
 
@@ -93,12 +98,12 @@ class ProvisioningAuthentication(BaseAuthentication):
         # 1. A signed assertion identifies and proves a private_key_jwt partner at once.
         assertion = extract_client_assertion(request)
         if assertion is not None:
-            return self._identify_assertion_partner(request, *assertion)
+            return self._identify_assertion_partner(request, assertion)
 
         # 2. So do client credentials, for a partner registered with a secret.
         credentials = extract_client_credentials(request)
         if credentials is not None:
-            return self._identify_client_secret_partner(request, *credentials)
+            return self._identify_client_secret_partner(request, credentials)
 
         # 3. A bare client_id identifies a public client, which relies on PKCE.
         client_id = request.data.get("client_id") or request.query_params.get("client_id")
@@ -124,30 +129,32 @@ class ProvisioningAuthentication(BaseAuthentication):
         capture_auth_event(app, "verification_failed", endpoint=request.path)
         raise AuthenticationFailed(reason)
 
-    def _identify_assertion_partner(self, request: Request, assertion: str, client_id: str) -> OAuthApplication | None:
-        app = self._resolve_partner(client_id)
+    def _identify_assertion_partner(
+        self, request: Request, assertion: ResolvedClientAssertion
+    ) -> OAuthApplication | None:
+        app = self._resolve_partner(assertion.client_id)
         if app is None:
             raise AuthenticationFailed(CLIENT_NOT_REGISTERED_MESSAGE)
         if not app.uses_private_key_jwt_auth:
             self._reject(request, app, "This client does not authenticate with a client assertion")
 
         try:
-            verify_client_assertion(app, assertion)
+            verify_client_assertion(app, assertion.client_assertion)
         except ClientAssertionError as exc:
             self._reject(request, app, str(exc))
 
         return app
 
     def _identify_client_secret_partner(
-        self, request: Request, client_id: str, client_secret: str
+        self, request: Request, credentials: ClientCredentials
     ) -> OAuthApplication | None:
-        app = self._resolve_partner(client_id)
+        app = self._resolve_partner(credentials.client_id)
         if app is None:
             return None
         if not app.uses_client_secret_auth:
             self._reject(request, app, "This client does not authenticate with a client secret")
 
-        if not verify_client_secret(client_secret, app.client_secret or ""):
+        if not verify_client_secret(credentials.client_secret, app.client_secret or ""):
             self._reject(request, app, "Invalid client credentials")
 
         return app

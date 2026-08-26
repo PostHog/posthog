@@ -10,24 +10,36 @@ from typing import Any, Literal
 
 from pydantic import BaseModel
 
+from posthog.dataclasses import frozen
+
 
 @dataclass
 class PostHogSlackInboxOnboardingInputs:
     integration_id: int
 
 
-@dataclass
+@frozen
+class SlackAppForkThreadInputs:
+    """The Slack interactivity payload behind a "Fork to DM" click, verbatim.
+
+    Passed through rather than parsed at the boundary: the webhook's only job is to ack
+    inside Slack's three-second budget, so everything it could read from the payload is
+    read in the activity instead.
+    """
+
+    payload: dict[str, Any]
+
+
+@frozen
 class PostHogCodeSlackMentionWorkflowInputs:
     event: dict[str, Any]
     integration_id: int
     slack_team_id: str
+    # Resolved at routing time: dispatch never reaches this workflow without a
+    # PostHog user, on either the ``app_mention`` or the untagged-reply path.
+    user_id: int
     # Event that dispatched the workflow
     slack_event_id: str | None = None
-    # Resolved at routing time. ``None`` only on in-flight workflow histories
-    # started before this field existed; those fall back to the in-workflow
-    # resolve activity below. Remove the fallback (and this field's optionality)
-    # once the workflow history retention window has elapsed.
-    user_id: int | None = None
     # True when the workflow was started for an untagged thread reply (event type
     # ``message``) rather than an explicit ``app_mention``. The routing layer
     # already verified a ``SlackThreadTaskMapping`` exists before dispatch, but
@@ -35,10 +47,28 @@ class PostHogCodeSlackMentionWorkflowInputs:
     # cleanup), we must NOT fall through to the new-task path — the user never
     # tagged us, so kicking off a brand-new agent run would be wrong.
     untagged_followup: bool = False
+    # True when the thread's author already confirmed this untagged reply from the
+    # ephemeral prompt. The classifier ran before the prompt was posted and the
+    # answer is in, so the run skips both on the way back through.
+    untagged_followup_confirmed: bool = False
     # Slack sets this on the event envelope for Slack Connect channels. It is
     # threaded through to task run state so customer-facing Slack replies remain
     # approval-gated even when a user's internal-write tier is full-auto.
     is_ext_shared_channel: bool = False
+    # Set only on a forked run. The workflow
+    # runs against a DM thread — that pair owns the task, the mapping, the answer
+    # and every follow-up — but reads its `<slack_thread_context>` from the channel
+    # thread the user forked, which these two point at. Unset everywhere else, so
+    # the two pairs coincide and the fork branch is invisible.
+    fork_source_channel: str | None = None
+    fork_source_thread_ts: str | None = None
+    # The message the reader forked from. The context block stops here: what was said
+    # in the thread afterwards is not what they were looking at when they forked.
+    fork_source_message_ts: str | None = None
+    # The forked thread's own task, when it had one. Named in the context block so the
+    # agent can pull that task's runs, logs and artifacts if the question needs more
+    # than the messages.
+    fork_source_task_id: str | None = None
 
 
 def coerce_mention_workflow_inputs(inputs: object) -> PostHogCodeSlackMentionWorkflowInputs:
@@ -145,18 +175,17 @@ class PostHogCodeSlackMentionCommandWorkflowInputs:
     command_prefix: str = "@PostHog"
 
 
-@dataclass
+@frozen
 class PostHogCodeRepoCascadeOutcome:
     """Synchronous fast-path repo resolution before the discovery agent runs.
 
     `auto` → use `repository` directly. `no_repo` → the mentioning user resolves no
     repos, so the mention becomes a repo-less task and the agent decides whether the
     ask needs code. `agent_needed` → there are multiple candidates and no explicit
-    mention. `needs_user_github` is neither emitted nor handled any more; the value
-    stays in the `Literal` only so an old payload still parses.
+    mention.
     """
 
-    mode: Literal["auto", "no_repo", "agent_needed", "needs_user_github"]
+    mode: Literal["auto", "no_repo", "agent_needed"]
     repository: str | None
     reason: str
 

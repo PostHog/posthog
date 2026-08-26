@@ -512,6 +512,7 @@ const AssistantTrendsFilter = z.object({
             'TwoDimensionalHeatmap',
             'BoxPlot',
             'SlopeGraph',
+            'ScatterPlot',
         ])
         .describe(
             'Visualization type. Available values: `ActionsLineGraph` - time-series line chart; most common option, as it shows change over time. `ActionsBar` - time-series bar chart. `ActionsAreaGraph` - time-series area chart. `ActionsLineGraphCumulative` - cumulative time-series line chart; good for cumulative metrics. `BoldNumber` - total value single large number. Use when user explicitly asks for a single output number. You CANNOT use this with breakdown or if the insight has more than one series. `Metric` - single large number with a period-over-period change pill and a sparkline. Like `BoldNumber` but trend-aware; configure it with the `metric*` fields below. Single series, no breakdown. `ActionsBarValue` - total value (NOT time-series) bar chart; good for categorical data. `ActionsPie` - total value pie chart; good for visualizing proportions. `ActionsTable` - total value table; good when using breakdown to list users or other entities. `WorldMap` - total value world map; use when breaking down by country name using property `$geoip_country_name`, and only then.'
@@ -1224,6 +1225,16 @@ const AssistantTrendsActorsQuery = z.object({
         .default(true)
         .optional(),
     kind: z.literal('InsightActorsQuery').default('InsightActorsQuery'),
+    limit: integer
+        .describe('Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped.')
+        .default(100)
+        .optional(),
+    offset: integer
+        .describe(
+            'Number of persons to skip before the returned page. Use it with `limit` to walk the whole result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true, call again with `offset` raised by `limit`.'
+        )
+        .default(0)
+        .optional(),
     series: integer.describe('Series index (0-based) when the source has multiple series.').optional(),
     source: AssistantTrendsQuery.describe('The source insight query whose data point we are drilling into.'),
 })
@@ -1235,6 +1246,16 @@ const AssistantLifecycleActorsQuery = z.object({
         .string()
         .describe("Bucket date for the data point. Must be an ISO date string (YYYY-MM-DD), e.g. '2024-01-15'."),
     kind: z.literal('InsightActorsQuery').default('InsightActorsQuery'),
+    limit: integer
+        .describe('Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped.')
+        .default(100)
+        .optional(),
+    offset: integer
+        .describe(
+            'Number of persons to skip before the returned page. Use it with `limit` to walk the whole result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true, call again with `offset` raised by `limit`.'
+        )
+        .default(0)
+        .optional(),
     source: AssistantLifecycleQuery.describe('The source lifecycle insight query whose bucket we are drilling into.'),
     status: AssistantLifecycleStatus.describe(
         "Lifecycle status to drill into for the given day. Must be one of the bucket names visible in the source's `lifecycleFilter.toggledLifecycles` (defaults to all four when omitted)."
@@ -1248,6 +1269,16 @@ const AssistantPathsActorsQuery = z.object({
         .default(true)
         .optional(),
     kind: z.literal('InsightActorsQuery').default('InsightActorsQuery'),
+    limit: integer
+        .describe('Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped.')
+        .default(100)
+        .optional(),
+    offset: integer
+        .describe(
+            'Number of persons to skip before the returned page. Use it with `limit` to walk the whole result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true, call again with `offset` raised by `limit`.'
+        )
+        .default(0)
+        .optional(),
     source: AssistantPathsQuery.describe('The source paths insight query whose actors we are listing.'),
 })
 
@@ -1258,6 +1289,16 @@ const AssistantRetentionActorsQuery = z.object({
         )
         .optional(),
     kind: z.literal('InsightActorsQuery').default('InsightActorsQuery'),
+    limit: integer
+        .describe('Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped.')
+        .default(100)
+        .optional(),
+    offset: integer
+        .describe(
+            'Number of persons to skip before the returned page. Use it with `limit` to walk the whole cohort: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true, call again with `offset` raised by `limit`.'
+        )
+        .default(0)
+        .optional(),
     source: AssistantRetentionQuery.describe('The source retention insight query whose cohort we are drilling into.'),
 })
 
@@ -1270,6 +1311,16 @@ const AssistantStickinessActorsQuery = z.object({
         "The number of active intervals to drill into — the X-axis value of the stickiness bar. Despite the name, this is an interval **count**, not a date: for a daily insight, `day: 13` lists the users who were active on exactly 13 days within the source's date range."
     ),
     kind: z.literal('InsightActorsQuery').default('InsightActorsQuery'),
+    limit: integer
+        .describe('Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped.')
+        .default(100)
+        .optional(),
+    offset: integer
+        .describe(
+            'Number of persons to skip before the returned page. Use it with `limit` to walk the whole result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true, call again with `offset` raised by `limit`.'
+        )
+        .default(0)
+        .optional(),
     series: integer
         .describe('0-based index of the series to drill into when the source has multiple series. Defaults to 0.')
         .optional(),
@@ -1306,6 +1357,16 @@ const AssistantFunnelsActorsQuery = z.object({
         .default(true)
         .optional(),
     kind: z.literal('FunnelsActorsQuery').default('FunnelsActorsQuery'),
+    limit: integer
+        .describe('Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped.')
+        .default(100)
+        .optional(),
+    offset: integer
+        .describe(
+            'Number of persons to skip before the returned page. Use it with `limit` to walk the whole result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true, call again with `offset` raised by `limit`.'
+        )
+        .default(0)
+        .optional(),
     source: AssistantFunnelsQuery.describe(
         'The source funnel insight query whose step (or trends point) we are drilling into.'
     ),

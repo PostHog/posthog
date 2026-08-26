@@ -26,7 +26,7 @@ from products.exports.backend.models.subscription import (
     get_unsubscribe_token,
     unsubscribe_using_token,
 )
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 class TestSubscriptionScheduling:

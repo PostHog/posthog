@@ -165,7 +165,6 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
     }
 
     if (isAccountsTableQuery(query)) {
-        features.add(QueryFeature.resultIsArrayOfArrays)
         features.add(QueryFeature.displayResponseError)
     }
 

@@ -9,6 +9,7 @@ use capture::event_restrictions::{
     EventRestrictionService, Pipeline, Restriction, RestrictionFilters, RestrictionManager,
     RestrictionScope, RestrictionType,
 };
+use capture::global_rate_limiter::GlobalRateLimiter;
 use capture::quota_limiters::{is_llm_event, CaptureQuotaLimiter, EventInfo};
 use capture::router::router;
 use capture::sinks::Event;
@@ -131,14 +132,21 @@ struct TestClientOptions {
     event_restriction_service: Option<EventRestrictionService>,
     quota_limiter: Option<CaptureQuotaLimiter>,
     ai_gateway_signing_secret: Option<String>,
-    // Opt-in OverflowLimiter wiring. `None` (default) matches production
-    // configs without `OVERFLOW_ENABLED=true` and exercises the no-op branch
-    // of `stamp_overflow_reason`.
-    overflow_limiter: Option<Arc<OverflowLimiter>>,
+    // Opt-in OverflowLimiter wiring, on the AI lane where OTEL spans land.
+    // `None` (default) matches production configs without
+    // `OVERFLOW_ENABLED=true` and exercises the no-op branch of
+    // `stamp_overflow_reason`.
+    ai_events_overflow_limiter: Option<Arc<OverflowLimiter>>,
     // Opt-in warnings emitter. `None` (default) matches deploys without
     // `CAPTURE_INGESTION_WARNINGS_ENABLED` and exercises the no-op branch of
     // every emit site.
     ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
+    // Per-event AI size ceiling. `None` keeps the 960KB the multipart
+    // endpoint enforced before it became configurable.
+    ai_max_event_bytes: Option<u64>,
+    // Opt-in AI byte budget. `None` (default) matches deploys with
+    // `AI_BYTE_LIMIT_PER_SECOND=0`, where setup builds no limiter.
+    ai_byte_rate_limiter: Option<Arc<GlobalRateLimiter>>,
 }
 
 fn make_test_client(sink: &CapturingSink) -> TestClient {
@@ -158,7 +166,7 @@ fn make_test_client_with_options(sink: &CapturingSink, options: TestClientOption
         .unwrap_or_else(|| Arc::new(MockRedisClient::new()));
 
     let mut cfg = DEFAULT_CONFIG.clone();
-    cfg.capture_mode = CaptureMode::Events;
+    cfg.capture_mode = CaptureMode::Ai;
 
     let quota_limiter = options.quota_limiter.unwrap_or_else(|| {
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7))
@@ -176,25 +184,27 @@ fn make_test_client_with_options(sink: &CapturingSink, options: TestClientOption
         TokenDropper::default(),
         options.event_restriction_service,
         None, // recorder_handle
-        CaptureMode::Events,
-        None,                     // concurrency_limit
-        25 * 1024 * 1024,         // event_payload_size_limit
-        false,                    // enable_historical_rerouting
-        1_i64,                    // historical_rerouting_threshold_days
-        false,                    // is_mirror_deploy
-        0.0_f32,                  // verbose_sample_percent
-        26_214_400,               // ai_max_sum_of_parts_bytes
-        None,                     // body_chunk_read_timeout_ms
-        256,                      // body_read_chunk_size_kb
-        10 * 1024 * 1024,         // capture_v1_max_compressed_body_bytes
-        50 * 1024 * 1024,         // capture_v1_max_decompressed_body_bytes
-        options.overflow_limiter, // overflow_limiter
-        None,                     // ai_events_overflow_limiter
-        None,                     // replay_overflow_limiter
-        None,                     // v1_sink_router
-        8,                        // capture_v1_scatter_gather_min_batch
+        CaptureMode::Ai,
+        None,                                          // concurrency_limit
+        25 * 1024 * 1024,                              // event_payload_size_limit
+        false,                                         // enable_historical_rerouting
+        1_i64,                                         // historical_rerouting_threshold_days
+        false,                                         // is_mirror_deploy
+        0.0_f32,                                       // verbose_sample_percent
+        26_214_400,                                    // ai_max_sum_of_parts_bytes
+        options.ai_max_event_bytes.unwrap_or(983_040), // ai_max_event_bytes
+        None,                                          // body_chunk_read_timeout_ms
+        256,                                           // body_read_chunk_size_kb
+        10 * 1024 * 1024,                              // capture_v1_max_compressed_body_bytes
+        50 * 1024 * 1024,                              // capture_v1_max_decompressed_body_bytes
+        None,                                          // overflow_limiter
+        options.ai_events_overflow_limiter,
+        options.ai_byte_rate_limiter,
+        None, // replay_overflow_limiter
+        None, // v1_sink_router
+        8,    // capture_v1_scatter_gather_min_batch
         options.ai_gateway_signing_secret,
-        false,                             // ai_events_overflow_enabled
+        true,                              // ai_events_overflow_enabled
         options.ingestion_warning_emitter, // ingestion_warning_emitter
     );
 
@@ -412,7 +422,7 @@ async fn test_single_span_produces_one_event() {
     assert_eq!(event.event.token, TOKEN);
     assert_eq!(event.event.event, "$ai_generation");
     assert_eq!(event.event.distinct_id, "user-1");
-    assert_eq!(event.metadata.data_type, DataType::AnalyticsMain);
+    assert_eq!(event.metadata.data_type, DataType::AiEvents);
     assert_eq!(event.metadata.event_name, "$ai_generation");
 
     let data = parse_event_data(event);
@@ -844,6 +854,101 @@ async fn test_mixed_requests_only_emit_relevant_ai_spans() {
     let events = sink.get_events().await;
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].event.event, "$ai_generation");
+}
+
+/// A real limiter whose local cache admits a key's first charge and limits
+/// every one after it, so a single multi-span export shows both outcomes.
+///
+/// A threshold of `0` is what makes the second charge exceed the window with no
+/// Redis round trip and no clock, the same seam
+/// `integration_person_processing_matrix` uses for the event limiter. The tick
+/// is parked well past the request so no background sync can race it.
+fn always_limits_after_the_first_span() -> Arc<GlobalRateLimiter> {
+    let mut cfg = DEFAULT_CONFIG.clone();
+    cfg.capture_mode = CaptureMode::Ai;
+    cfg.ai_byte_limit_per_second = 0;
+    cfg.global_rate_limit_tick_interval_ms = 600_000;
+    Arc::new(
+        GlobalRateLimiter::new_ai_bytes(&cfg, vec![Arc::new(MockRedisClient::new())])
+            .expect("failed to build the AI byte limiter"),
+    )
+}
+
+/// The byte budget reaches this endpoint. It builds its events at the handler
+/// and never enters either analytics pipeline, so the charge has to be wired
+/// here or a sender could spend unbounded bytes on `/i/v0/ai/otel` while the
+/// same bytes are capped on the batch paths.
+///
+/// Over-budget spans are shed rather than the export refused, matching the size
+/// ceiling and for the same reason: a collector retries a rejected export.
+#[tokio::test]
+async fn over_budget_spans_are_shed_while_the_export_succeeds() {
+    let sink = CapturingSink::new();
+    let client = make_test_client_with_options(
+        &sink,
+        TestClientOptions {
+            ai_byte_rate_limiter: Some(always_limits_after_the_first_span()),
+            ..Default::default()
+        },
+    );
+
+    let status = send_request_with_client(&client, &make_two_span_request()).await;
+    assert_eq!(status, 200, "the export must still be accepted");
+
+    let events = sink.get_events().await;
+    assert_eq!(
+        events.len(),
+        1,
+        "the first span is admitted on a cold key; the second is over budget"
+    );
+    assert_eq!(events[0].event.event, "$ai_generation");
+}
+
+/// Without a limiter configured, both spans publish — so the test above is
+/// pinning the budget rather than some other filter in the handler.
+#[tokio::test]
+async fn both_spans_publish_when_no_byte_budget_is_configured() {
+    let sink = CapturingSink::new();
+    let client = make_test_client(&sink);
+
+    let status = send_request_with_client(&client, &make_two_span_request()).await;
+    assert_eq!(status, 200);
+    assert_eq!(sink.get_events().await.len(), 2);
+}
+
+/// An oversized span is shed and the export still succeeds, so a collector is
+/// never made to retry a span that can never fit. The warning is the only
+/// feedback channel for that, which is why it is asserted alongside the drop:
+/// without it the customer sees a 200 and silently missing spans.
+#[tokio::test]
+async fn oversized_spans_are_shed_and_warn_while_the_export_succeeds() {
+    let sink = CapturingSink::new();
+    let emitter = Arc::new(CollectingEmitter::default());
+    let client = make_test_client_with_options(
+        &sink,
+        TestClientOptions {
+            ingestion_warning_emitter: Some(emitter.clone()),
+            ai_max_event_bytes: Some(64),
+            ..Default::default()
+        },
+    );
+
+    // A 64-byte ceiling is under the serialized size of even a minimal AI span.
+    let status = send_request_with_client(&client, &make_single_span_request()).await;
+    assert_eq!(status, 200, "the export must still be accepted");
+    assert!(
+        sink.get_events().await.is_empty(),
+        "the oversized span must not reach the sink"
+    );
+
+    let emitted = emitter.emitted();
+    assert_eq!(emitted.len(), 1);
+    assert_eq!(emitted[0].warning, WarningType::MessageSizeTooLarge);
+    assert_eq!(emitted[0].source, CAPTURE_AI_OTEL);
+    assert_eq!(
+        emitted[0].extra_details.get("droppedSpans"),
+        Some(&json!(1))
+    );
 }
 
 // The warning is the only feedback channel for this outcome: the OTLP contract
@@ -1576,10 +1681,9 @@ async fn test_filtered_drop_restriction_rejects_otel_batch() {
 // ============================================================================
 //
 // `otel_handler` bypasses `events::analytics::process_events` and produces
-// `DataType::AnalyticsMain` spans directly, so the shared
-// `stamp_overflow_reason` helper is what preserves OverflowLimiter parity for
-// `capture-ai-prod-us`. These tests exercise the helper end-to-end across the
-// OTEL batch path.
+// `DataType::AiEvents` spans directly, so the shared `stamp_overflow_reason`
+// helper is what preserves OverflowLimiter parity for `capture-ai-prod-us`.
+// These tests exercise the helper end-to-end across the OTEL batch path.
 //
 // Note on OTEL batching semantics: `otel::identity::extract_distinct_id`
 // returns a single distinct_id for the entire request (derived from
@@ -1655,7 +1759,7 @@ async fn test_otel_batch_with_hot_token_stamps_force_limited_on_every_span() {
     let client = make_test_client_with_options(
         &sink,
         TestClientOptions {
-            overflow_limiter: Some(overflow_limiter),
+            ai_events_overflow_limiter: Some(overflow_limiter),
             ..Default::default()
         },
     );
@@ -1677,7 +1781,7 @@ async fn test_otel_batch_with_hot_token_stamps_force_limited_on_every_span() {
             event.metadata.skip_person_processing,
             "span[{i}] ForceLimited implies skip_person_processing"
         );
-        assert_eq!(event.metadata.data_type, DataType::AnalyticsMain);
+        assert_eq!(event.metadata.data_type, DataType::AiEvents);
     }
 }
 
@@ -1698,7 +1802,7 @@ async fn test_otel_batch_rate_limited_key_stamps_overbudget_spans() {
     let client = make_test_client_with_options(
         &sink,
         TestClientOptions {
-            overflow_limiter: Some(overflow_limiter),
+            ai_events_overflow_limiter: Some(overflow_limiter),
             ..Default::default()
         },
     );

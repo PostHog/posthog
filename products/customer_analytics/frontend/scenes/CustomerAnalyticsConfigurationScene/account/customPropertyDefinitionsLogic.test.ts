@@ -166,7 +166,7 @@ describe('customPropertyDefinitionsLogic', () => {
             savedQuery: 'view-1',
             sourceColumn: 'mrr',
             keyColumn: 'org_id',
-            warehouseTable: null,
+            warehouseSource: null,
             columnMappings: [{ column: '', property: '', description: '' }],
             isEnabled: true,
         })
@@ -345,7 +345,7 @@ describe('customPropertyDefinitionsLogic', () => {
         logic.actions.setCustomPropertyFormValues({
             name: 'Plan tier',
             targetType: 'person',
-            warehouseTable: 'table-1',
+            warehouseSource: 'table:table-1',
             keyColumn: 'distinct_id',
             columnMappings: [
                 { column: 'plan', property: 'plan_tier', description: 'The plan tier' },
@@ -372,7 +372,7 @@ describe('customPropertyDefinitionsLogic', () => {
         })
     })
 
-    it('resolves the selected table schema id and serialized column map for the person source', async () => {
+    it('resolves the selected table binding and serialized column map for the person source', async () => {
         useMocks(defaultMocks())
         mountLogic()
         await expectLogic(logic, () => logic.actions.openCreateModal()).toDispatchActions([
@@ -380,17 +380,161 @@ describe('customPropertyDefinitionsLogic', () => {
         ])
         logic.actions.setCustomPropertyFormValues({
             targetType: 'person',
-            warehouseTable: 'table-1',
+            warehouseSource: 'table:table-1',
             columnMappings: [
                 { column: ' plan ', property: ' plan_tier ', description: ' The plan tier ' },
                 { column: 'seats', property: '', description: 'ignored — no property' },
             ],
         })
-        expect(logic.values.selectedWarehouseSchemaId).toBe('schema-1')
+        expect(logic.values.profileSourceBinding).toEqual({ field: 'external_data_schema', id: 'schema-1' })
         // Trims and drops incomplete pairs.
         expect(logic.values.serializedColumnPropertyMap).toEqual({ plan: 'plan_tier' })
         // Descriptions trim and drop alongside their pair; a description without a complete pair is dropped.
         expect(logic.values.serializedColumnDescriptions).toEqual({ plan: 'The plan tier' })
+    })
+
+    describe('mapping every column at once', () => {
+        const openWithColumns = async (formValues: Record<string, any>): Promise<void> => {
+            // oxlint-disable-next-line react-hooks/rules-of-hooks
+            useMocks(defaultMocks())
+            mountLogic()
+            await expectLogic(logic, () => logic.actions.openCreateModal()).toDispatchActions([
+                'loadSavedQueriesSuccess',
+            ])
+            logic.actions.setCustomPropertyFormValues({ targetType: 'person', ...formValues })
+            await expectLogic(logic, () =>
+                logic.actions.loadSelectedTableColumns({ source: 'view:view-1' })
+            ).toDispatchActions(['loadSelectedTableColumnsSuccess'])
+        }
+
+        const mapAll = async (formValues: Record<string, any>): Promise<void> => {
+            await openWithColumns(formValues)
+            logic.actions.mapAllColumns()
+        }
+
+        it('maps every column but the key column, keeping the warehouse names', async () => {
+            // The whole point of the action: a wide table should not have to be mapped by hand, and the
+            // key column must not become a property, since its values identify the person.
+            await mapAll({ keyColumn: 'org_id' })
+
+            expect(logic.values.customPropertyForm.columnMappings).toEqual([
+                { column: 'mrr', property: 'mrr', description: '' },
+            ])
+            expect(logic.values.serializedColumnPropertyMap).toEqual({ mrr: 'mrr' })
+        })
+
+        it('keeps rows the user already started and never duplicates their columns', async () => {
+            // Bulk mapping on top of hand-entered work must not discard a renamed property or map the
+            // same column twice.
+            await mapAll({
+                keyColumn: 'org_id',
+                columnMappings: [{ column: 'mrr', property: 'monthly_revenue', description: '' }],
+            })
+
+            expect(logic.values.customPropertyForm.columnMappings).toEqual([
+                { column: 'mrr', property: 'monthly_revenue', description: '' },
+            ])
+        })
+
+        it('keeps a started row that has a property but no column yet', async () => {
+            // A property typed before its column, or left after a source switch clears columns but keeps
+            // the name, must not be discarded by the bulk map.
+            await mapAll({
+                keyColumn: 'org_id',
+                columnMappings: [{ column: '', property: 'monthly_revenue', description: '' }],
+            })
+
+            expect(logic.values.customPropertyForm.columnMappings).toEqual([
+                { column: '', property: 'monthly_revenue', description: '' },
+                { column: 'mrr', property: 'mrr', description: '' },
+            ])
+        })
+
+        it('offers nothing to map once every column is spoken for', async () => {
+            await mapAll({ keyColumn: 'org_id' })
+            expect(logic.values.mappableColumns).toEqual([])
+        })
+
+        it('never serializes the key column as a property, even after the key changes', async () => {
+            // Bulk mapping excludes whatever key column is set at the time, but the key can change
+            // afterwards. The column_property_map is create-only, so writing the new identifier column as
+            // a property would be unrecoverable, and it must be dropped from the payload.
+            await mapAll({ keyColumn: 'org_id' })
+            expect(logic.values.serializedColumnPropertyMap).toEqual({ mrr: 'mrr' })
+
+            logic.actions.setCustomPropertyFormValue('keyColumn', 'mrr')
+
+            expect(logic.values.serializedColumnPropertyMap).toEqual({})
+        })
+
+        it('leaves the key column mappable until one is chosen', async () => {
+            // The button is gated on this in the modal — without a key column the action would map the
+            // identifier as a property.
+            await openWithColumns({ keyColumn: '' })
+            expect(logic.values.mappableColumns.map((column) => column.name)).toEqual(['org_id', 'mrr'])
+        })
+    })
+
+    it('binds a person source to a materialized view when one is picked', async () => {
+        let sourceBody: Record<string, any> | null = null
+        useMocks({
+            ...defaultMocks(),
+            post: {
+                ...defaultMocks().post,
+                [SOURCES_URL]: async ({ request }) => {
+                    sourceBody = (await request.json()) as Record<string, any>
+                    return buildSource()
+                },
+            },
+        })
+        mountLogic()
+        await expectLogic(logic, () => logic.actions.openCreateModal()).toDispatchActions(['loadSavedQueriesSuccess'])
+        logic.actions.setCustomPropertyFormValues({
+            name: 'Plan tier',
+            targetType: 'person',
+            warehouseSource: 'view:view-1',
+            keyColumn: 'org_id',
+            columnMappings: [{ column: 'mrr', property: 'mrr', description: '' }],
+            isEnabled: true,
+        })
+
+        await expectLogic(logic, () => logic.actions.submitCustomPropertyForm()).toDispatchActions([
+            'submitCustomPropertyFormSuccess',
+        ])
+        // A view binds by its own id under saved_query; sending external_data_schema would 400.
+        expect(sourceBody).toEqual({
+            definition: 'def-2',
+            saved_query: 'view-1',
+            column_property_map: { mrr: 'mrr' },
+            column_descriptions: {},
+            key_column: 'org_id',
+            is_enabled: true,
+        })
+    })
+
+    it('offers synced tables and materialized views in one picker', async () => {
+        useMocks(defaultMocks())
+        mountLogic()
+        // The table loader debounces, so it lands after the saved queries — wait on the later one.
+        await expectLogic(logic, () => logic.actions.openCreateModal()).toDispatchActions([
+            'loadWarehouseTablesSuccess',
+        ])
+        expect(logic.values.warehouseSourceOptions).toEqual([
+            { value: 'table:table-1', label: 'users', kind: 'table' },
+            { value: 'view:view-1', label: 'billing_view', kind: 'view' },
+        ])
+        // A project with views but no synced tables can still map properties.
+        expect(logic.values.hasWarehouseSourceOptions).toBe(true)
+    })
+
+    it("loads a view's columns from the saved query rather than fetching a table", async () => {
+        useMocks(defaultMocks())
+        mountLogic()
+        await expectLogic(logic, () => logic.actions.openCreateModal()).toDispatchActions(['loadSavedQueriesSuccess'])
+        await expectLogic(logic, () =>
+            logic.actions.loadSelectedTableColumns({ source: 'view:view-1' })
+        ).toDispatchActions(['loadSelectedTableColumnsSuccess'])
+        expect(logic.values.selectedTableColumns.map((column) => column.name)).toEqual(['org_id', 'mrr'])
     })
 
     it('follows pagination so warehouse tables past the first page are reachable', async () => {

@@ -8,6 +8,7 @@ from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
+from django.utils import timezone
 
 import structlog
 from django_deprecate_fields import deprecate_field
@@ -20,6 +21,7 @@ from posthog.kafka_client.topics import (
 )
 from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.models.integration import Integration
+from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel, UUIDTModel
 from posthog.storage import object_storage
 
@@ -33,7 +35,12 @@ logger = structlog.get_logger(__name__)
 
 class ErrorTrackingIssueManager(models.Manager):
     def with_first_seen(self):
-        return self.annotate(first_seen=models.Min("fingerprints__first_seen"))
+        first_seen = (
+            ErrorTrackingIssueFingerprintV2.objects.filter(issue_id=models.OuterRef("pk"))
+            .order_by("first_seen")
+            .values("first_seen")[:1]
+        )
+        return self.annotate(first_seen=models.Subquery(first_seen))
 
 
 class ErrorTrackingIssueMergeResult(StrEnum):
@@ -125,6 +132,11 @@ class ErrorTrackingIssue(UUIDTModel):
                 team_id=team_id, target_issue_id=target_issue_id, source_issue_ids=existing_source_issue_ids
             )
             ErrorTrackingIssue.objects.filter(team_id=team_id, id__in=existing_source_issue_ids).delete()
+
+            # Stamp the surviving row so deleting the latest source cannot move the cache watermark backward.
+            ErrorTrackingIssue.objects.filter(team_id=team_id, id=target_issue_id).update(
+                state_updated_at=timezone.now()
+            )
 
             _sync_error_tracking_issue_changes_on_commit(
                 team_id=team_id, issue_ids=[target_issue_id], overrides=overrides
@@ -423,6 +435,20 @@ class ErrorTrackingAssignmentRule(UUIDTModel):
         # constraints = [
         #     models.UniqueConstraint(fields=["team_id", "order_key"], name="unique_order_key_per_team"),
         # ]
+
+
+class ErrorTrackingSeverityRule(TeamScopedRootMixin, UUIDTModel):
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    filters = models.JSONField(null=False, blank=False)
+    bytecode = models.JSONField(null=False, blank=False)
+    severity = models.TextField(choices=ErrorTrackingIssue.Severity)
+    order_key = models.IntegerField(null=False, blank=False)
+    disabled_data = models.JSONField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_errortrackingseverityrule"
 
 
 # A custom grouping rule works as follows:

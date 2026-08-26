@@ -21,6 +21,18 @@ export const HeatmapTypeApi = {
 } as const
 
 /**
+ * * `server` - Server
+ * * `toolbar` - Toolbar
+ */
+export type HeatmapScreenshotResponseSourceEnumApi =
+    (typeof HeatmapScreenshotResponseSourceEnumApi)[keyof typeof HeatmapScreenshotResponseSourceEnumApi]
+
+export const HeatmapScreenshotResponseSourceEnumApi = {
+    Server: 'server',
+    Toolbar: 'toolbar',
+} as const
+
+/**
  * * `processing` - Processing
  * * `completed` - Completed
  * * `failed` - Failed
@@ -123,13 +135,18 @@ export interface HeatmapScreenshotResponseApi {
      */
     data_url?: string | null
     /** Viewport widths (CSS pixels) the screenshot is rendered at. */
-    target_widths?: unknown
+    readonly target_widths: readonly number[]
     /** Render mode: 'screenshot', 'iframe', or 'recording'.
      *
      * * `screenshot` - Screenshot
      * * `iframe` - Iframe
      * * `recording` - Recording */
     type?: HeatmapTypeApi
+    /** How the screenshot was captured: 'server' (rendered headlessly via Browserless) or 'toolbar' (captured client-side from the on-page toolbar, e.g. for pages behind a login).
+     *
+     * * `server` - Server
+     * * `toolbar` - Toolbar */
+    readonly source: HeatmapScreenshotResponseSourceEnumApi
     /** Screenshot generation status: 'processing', 'completed', or 'failed'.
      *
      * * `processing` - Processing
@@ -285,6 +302,39 @@ export interface PatchedSavedHeatmapRequestApi {
     block_consent_modals?: boolean
 }
 
+export interface SavedHeatmapCaptureRequestApi {
+    /** Single screenshot of the page, captured client-side by the toolbar (JPEG or PNG). Max 20MB. Pair with 'width'. Use 'images'/'widths' instead to save several viewport widths on one heatmap. */
+    image?: string
+    /**
+     * Viewport width (CSS pixels) the single 'image' was captured at.
+     * @minimum 100
+     * @maximum 3000
+     */
+    width?: number
+    /**
+     * One screenshot per viewport width, parallel to 'widths' (same length, same order). Lets a single toolbar capture cover the same viewport widths the server renders. At most 16 widths.
+     * @maxItems 16
+     */
+    images?: string[]
+    /**
+     * Viewport widths (CSS pixels) the 'images' were captured at, parallel to 'images'.
+     * @maxItems 16
+     * @items.minimum 100
+     * @items.maximum 3000
+     */
+    widths?: number[]
+    /**
+     * Exact page URL the screenshot was captured on. Wildcards are not allowed; this is stored as both the heatmap URL and its data URL, so the overlay reads aggregate data for this exact URL.
+     * @maxLength 2000
+     */
+    url: string
+    /**
+     * Human-readable label for the saved heatmap. Defaults to the URL when omitted.
+     * @maxLength 400
+     */
+    name?: string
+}
+
 export interface HeatmapPreflightRequestApi {
     /** Exact page URL to probe. Wildcards are not allowed. This is the URL that would be loaded in the live preview iframe, not the data URL used to look up heatmap events. */
     url: string
@@ -343,6 +393,21 @@ export interface HeatmapPrewarmRequestApi {
     url: string
     /** When true, ask the headless browser to dismiss cookie/consent banners before capturing. Must match the value used at creation time for the prewarmed render to be reused. */
     block_consent_modals?: boolean
+}
+
+export interface LlmsTxtFetchRequestApi {
+    /**
+     * Public HTTP or HTTPS URL of the llms.txt file to load.
+     * @maxLength 2048
+     */
+    url: string
+}
+
+export interface LlmsTxtFetchResponseApi {
+    /** UTF-8 contents of the fetched llms.txt file. */
+    content: string
+    /** Final public URL after redirects. */
+    url: string
 }
 
 /**

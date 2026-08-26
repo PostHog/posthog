@@ -10,6 +10,8 @@ from django.core.asgi import get_asgi_application
 # Structlog Import
 import structlog
 
+from posthog.warehouse_source_prewarm import prewarm_warehouse_source_registry
+
 os.environ["DJANGO_SETTINGS_MODULE"] = "posthog.settings"
 # Try to ensure SERVER_GATEWAY_INTERFACE is fresh for the child process
 if "SERVER_GATEWAY_INTERFACE" in os.environ:
@@ -113,6 +115,15 @@ def lifetime_wrapper(func):
                 message_type = message.get("type")
 
                 if message_type == "lifespan.startup":
+                    if settings.WEB_BOT_AUTH_PRIVATE_KEYS_ENV_VAR_PRESENT:
+                        from posthog.web_bot_auth_keys import (  # noqa: PLC0415
+                            validate_configured_web_bot_auth_private_keys_in_background,
+                        )
+
+                        validate_configured_web_bot_auth_private_keys_in_background()
+                    # No-op unless PREWARM_WAREHOUSE_SOURCE_REGISTRY is set; never raises,
+                    # so a broken catalog can't fail startup and trigger a respawn loop.
+                    prewarm_warehouse_source_registry()
                     await send({"type": "lifespan.startup.complete"})
                 elif message_type == "lifespan.shutdown":
                     await send({"type": "lifespan.shutdown.complete"})

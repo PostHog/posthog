@@ -89,6 +89,21 @@ def _normalise_trace_id_filter(log_filter: LogPropertyFilter) -> None:
         log_filter.value = _trace_id_normalise_to_base64(str(log_filter.value))
 
 
+# The `log` filter keys that name a top-level column rather than an attribute, mapped to the facet
+# field that owns each one. Ownership lives here alone: the WHERE loop, the own-facet strip, and
+# column_filter_exprs() all read this mapping, so a key cannot be registered in one and missed in
+# another. A key added here without a translation branch falls through to property_to_expr, which is
+# the right default for a filter that names its own column.
+COLUMN_FILTER_FACET_FIELDS: dict[str, str] = {"severity_level": "severity_text", "service_name": "service_name"}
+
+
+def _has_filter_value(log_filter: LogPropertyFilter) -> bool:
+    value = log_filter.value
+    if isinstance(value, list):
+        return len(value) > 0
+    return value is not None and value != ""
+
+
 def _severity_level_to_expr(log_filter: LogPropertyFilter) -> ast.Expr:
     """Translate a `severity_level` log property filter to a HogQL expression on `severity_text`.
 
@@ -331,6 +346,36 @@ class LogsFilterBuilder:
                 f for f in self.resource_attribute_negative_filters if f.key != self.exclude_resource_attribute
             ]
 
+    def _column_filter_expr(self, log_filter: LogPropertyFilter) -> ast.Expr | None:
+        """Translate a severity_level or service_name filter, or None when it does not apply here.
+
+        A facet must not apply its own filter to its own counts, or selecting a value would zero out
+        every sibling — the same strip `exclude_facet_field` performs for the dedicated fields. A
+        filter with no value yet does not apply either, per the comment below.
+        """
+        facet_field = COLUMN_FILTER_FACET_FIELDS.get(log_filter.key)
+        if facet_field is None or self.exclude_facet_field == facet_field:
+            return None
+        if not _has_filter_value(log_filter):
+            # A severity filter with no value translates to `severity_text IN ()`, which matches
+            # nothing. The search bar writes a filter the moment its key is picked, so a filter the
+            # user has not filled in yet would blank the counts and suggestions they are picking from.
+            return None
+        if log_filter.key == "severity_level":
+            return _severity_level_to_expr(log_filter)
+        return property_to_expr(log_filter, team=self.team)
+
+    def column_filter_exprs(self) -> list[ast.Expr]:
+        """The severity and service filters from `filterGroup`, as exprs on the columns they name.
+
+        Facet counts and the taxonomic key/value suggestions read pre-aggregated tables that carry
+        `service_name` and `severity_text` and nothing else from a log row, so these two filters are
+        the only ones from the group they can apply. Everything else in the group (message, trace ids,
+        log attributes) has no column to match against there.
+        """
+        exprs = [self._column_filter_expr(log_filter) for log_filter in self.log_filters]
+        return [expr for expr in exprs if expr is not None]
+
     def where(self) -> ast.Expr:
         exprs: list[ast.Expr] = []
 
@@ -383,15 +428,12 @@ class LogsFilterBuilder:
 
             if self.log_filters:
                 for log_filter in self.log_filters:
-                    if log_filter.key == "severity_level":
-                        if self.exclude_facet_field != "severity_text":
-                            exprs.append(_severity_level_to_expr(log_filter))
-                        continue
-                    if log_filter.key == "service_name":
-                        # Same own-facet strip as severity: the rail's service exclusions must not
-                        # zero out their own value's count when faceting on service_name.
-                        if self.exclude_facet_field != "service_name":
-                            exprs.append(property_to_expr(log_filter, team=self.team))
+                    if log_filter.key in COLUMN_FILTER_FACET_FIELDS:
+                        # Translated in filter order rather than through column_filter_exprs(), which
+                        # would move these predicates ahead of the others and churn query snapshots.
+                        column_expr = self._column_filter_expr(log_filter)
+                        if column_expr is not None:
+                            exprs.append(column_expr)
                         continue
                     if log_filter.key in ("trace_id", "span_id"):
                         log_filter = log_filter.copy(deep=True)
@@ -649,6 +691,9 @@ class LogsQueryRunnerMixin(QueryRunner):
     def resource_filter(self, *, existing_filters):
         return self._filter_builder.resource_filter(existing_filters=existing_filters)
 
+    def column_filter_exprs(self):
+        return self._filter_builder.column_filter_exprs()
+
 
 # Number of fixed SELECT columns in to_query; custom columns are appended after these,
 # so _calculate maps result[_FIXED_COLUMN_COUNT:] onto the custom column aliases.
@@ -669,7 +714,7 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
         if self.limit_context == LimitContext.EXPORT:
             return True
 
-        from posthog.rbac.user_access_control import UserAccessControlError
+        from products.access_control.backend.facade.user_access_control import UserAccessControlError
 
         raise UserAccessControlError("logs", "viewer")
 

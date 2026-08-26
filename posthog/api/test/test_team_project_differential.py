@@ -184,7 +184,7 @@ FIELD_VALUES: dict[str, Any] = {
     "primary_dashboard": "__PER_TWIN_DASHBOARD__",  # special-cased: a dashboard belonging to each twin
     "live_events_columns": ["event"],
     "recording_domains": ["https://example.com"],
-    "cookieless_server_hash_mode": 1,
+    "cookieless_server_hash_mode": 2,
     "human_friendly_comparison_periods": True,
     "inject_web_apps": True,
     "extra_settings": {"foo": "bar"},

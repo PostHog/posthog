@@ -4,29 +4,38 @@ import {
   CheckIcon,
   CrosshairSimpleIcon,
   FlagIcon,
+  GitPullRequestIcon,
   MagnifyingGlassIcon,
 } from "@phosphor-icons/react";
 import {
   INBOX_PRIORITY_OPTIONS,
   INBOX_SORT_OPTIONS,
-  INBOX_SOURCE_OPTIONS,
   inboxPriorityFilterLabel,
   inboxSortOptionKey,
   inboxSourceFilterLabel,
 } from "@posthog/ui/features/inbox/filterOptions";
+import { useInboxSourceFilterOptions } from "@posthog/ui/features/inbox/hooks/useInboxSourceFilterOptions";
 import { useInboxSignalsFilterStore } from "@posthog/ui/features/inbox/stores/inboxSignalsFilterStore";
 import { Flex, Popover } from "@radix-ui/themes";
-import { type ReactNode, useId } from "react";
+import { type ReactNode, useId, useMemo } from "react";
 
 interface InboxSearchFilterBarProps {
   searchPlaceholder?: string;
+  /** The sectioned inbox filters by PR state; the legacy tabs already are one. */
+  showPrFilter?: boolean;
 }
 
+const PR_FILTER_OPTIONS = [
+  { value: "with_pr", label: "Has a PR" },
+  { value: "without_pr", label: "No PR yet" },
+] as const;
+
 const FILTER_ITEM_CLASS =
-  "flex w-full items-center justify-between rounded-sm px-1.5 py-1 text-left text-[13px] text-gray-12 transition-colors hover:bg-(--gray-3) focus-visible:bg-(--gray-3) focus-visible:outline-none";
+  "flex w-full items-center justify-between rounded-sm px-1.5 py-1 text-left text-[14px] text-gray-12 transition-colors hover:bg-(--gray-3) focus-visible:bg-(--gray-3) focus-visible:outline-none";
 
 export function InboxSearchFilterBar({
   searchPlaceholder = "Search by title or description…",
+  showPrFilter = false,
 }: InboxSearchFilterBarProps) {
   const inputId = useId();
   const searchQuery = useInboxSignalsFilterStore((s) => s.searchQuery);
@@ -48,6 +57,14 @@ export function InboxSearchFilterBar({
   const setPriorityFilter = useInboxSignalsFilterStore(
     (s) => s.setPriorityFilter,
   );
+  const prFilter = useInboxSignalsFilterStore((s) => s.prFilter);
+  const setPrFilter = useInboxSignalsFilterStore((s) => s.setPrFilter);
+
+  const sourceOptions = useInboxSourceFilterOptions(sourceProductFilter);
+  const selectedSources = useMemo(
+    () => new Set(sourceProductFilter),
+    [sourceProductFilter],
+  );
 
   const activeSort = INBOX_SORT_OPTIONS.find(
     (option) =>
@@ -68,7 +85,7 @@ export function InboxSearchFilterBar({
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder={searchPlaceholder}
-          className="min-w-0 flex-1 bg-transparent text-[12.5px] text-gray-12 outline-none placeholder:text-(--gray-9)"
+          className="min-w-0 flex-1 bg-transparent text-[13.5px] text-gray-12 outline-none placeholder:text-(--gray-9)"
         />
       </label>
 
@@ -83,8 +100,8 @@ export function InboxSearchFilterBar({
             active={sourceProductFilter.length === 0}
             onClick={clearSourceProductFilter}
           />
-          {INBOX_SOURCE_OPTIONS.map((option) => {
-            const isActive = sourceProductFilter.includes(option.value);
+          {sourceOptions.map((option) => {
+            const isActive = selectedSources.has(option.value);
             return (
               <button
                 key={option.value}
@@ -104,6 +121,40 @@ export function InboxSearchFilterBar({
           })}
         </Flex>
       </InboxFilterPopover>
+
+      {showPrFilter && (
+        <InboxFilterPopover
+          label="Pull request"
+          value={
+            PR_FILTER_OPTIONS.find((option) => option.value === prFilter)
+              ?.label ?? "All reports"
+          }
+          icon={<GitPullRequestIcon size={13} className="text-gray-10" />}
+          active={prFilter !== "all"}
+        >
+          <div className="flex flex-col">
+            <InboxFilterAnyItem
+              active={prFilter === "all"}
+              onClick={() => setPrFilter("all")}
+            />
+            {PR_FILTER_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                className={FILTER_ITEM_CLASS}
+                onClick={() =>
+                  setPrFilter(prFilter === option.value ? "all" : option.value)
+                }
+              >
+                <span className="truncate">{option.label}</span>
+                {prFilter === option.value ? (
+                  <CheckIcon size={12} className="shrink-0 text-gray-12" />
+                ) : null}
+              </button>
+            ))}
+          </div>
+        </InboxFilterPopover>
+      )}
 
       <InboxFilterPopover
         label="Sort"
@@ -213,7 +264,7 @@ function InboxFilterPopover({
           className="flex h-8 shrink-0 items-center gap-1.5 rounded-(--radius-2) border border-border bg-(--color-panel-solid) px-2.5 transition-colors hover:border-(--gray-6) hover:bg-(--gray-2) focus-visible:outline-none"
         >
           {icon}
-          <span className="max-w-[150px] truncate text-[12.5px] text-gray-12">
+          <span className="max-w-[150px] truncate text-[13.5px] text-gray-12">
             {value}
           </span>
           {active ? (
@@ -226,7 +277,9 @@ function InboxFilterPopover({
         align="start"
         side="bottom"
         sideOffset={6}
-        className="min-w-[220px] p-1.5"
+        // Option lists can outgrow the viewport (sources especially), so the
+        // panel scrolls inside whatever room the popper has below the trigger.
+        className="max-h-[min(22rem,calc(var(--available-height,22rem)-1rem))] min-w-[220px] overflow-y-auto p-1.5"
       >
         {children}
       </Popover.Content>

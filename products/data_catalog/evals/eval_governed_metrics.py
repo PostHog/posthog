@@ -9,11 +9,18 @@ per-case team, asks a headline-business-number question, and grades the trust be
 * multiple materially different approved matches → clarify instead of guessing;
 * proposed, drifted, empty, or failed canonical paths → disclose and label any fallback
   noncanonical;
+* a definition question the catalog cannot answer → reconstruct from the saved insight and
+  close by offering to add it as a proposed metric, without creating one unprompted;
 * prescriptive "playbook" SQL for a governed measure pushed at the agent scout-style →
   still catalog-first, canonical run preferred over the prescribed query;
 * operational telemetry (a reliability rate a scheduled scout recomputes every run) →
   the same catalog-first contract as business measures: canonical run when governed,
   check-then-derive when nothing matches;
+* an ask exceeding the governed grain → canonical run for the headline, hand-written
+  drill-down SQL after it labeled noncanonical (supplemental SQL is not a bypass);
+* a run prompt carrying the pre-fetched catalog listing (the scout harness injection) →
+  no re-lookup, and a stated "governed catalog consulted: no listed metric matched"
+  line on the derivation, since that statement is the only trace-visible evidence;
 * ordinary event/property exploration and schema/freshness validation → no detour through
   the catalog at all.
 
@@ -32,7 +39,10 @@ from products.data_catalog.evals.constants import (
     APPROVED_METRIC_NAME,
     CURRENT_TOP_CUSTOMERS_METRIC_NAME,
     DECOY_INSIGHT_NAMES,
+    DEFINITION_INSIGHT_NAME,
     DRIFTED_METRIC_NAME,
+    METRIC_CREATE_TOOL,
+    METRIC_UPDATE_TOOL,
     OPERATIONAL_METRIC_NAME,
     PROPOSED_METRIC_NAME,
     SCOUT_PRESCRIBED_OPS_SWEEP_SQL,
@@ -50,6 +60,7 @@ from products.data_catalog.evals.scorers import (
 from products.data_catalog.evals.seeders import (
     seed_ambiguous_top_customers_metrics,
     seed_approved_metric,
+    seed_definition_insight,
     seed_drifted_metric,
     seed_failing_top_customers_metric,
     seed_metric_listing_catalog,
@@ -60,6 +71,7 @@ from products.data_catalog.evals.seeders import (
 from products.posthog_ai.eval_harness.base import SandboxedPublicEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
+from products.posthog_ai.eval_harness.scorers import NoToolCall
 
 
 async def eval_governed_metrics(ctx: EvalContext) -> None:
@@ -110,6 +122,34 @@ async def eval_governed_metrics(ctx: EvalContext) -> None:
                         "revenue from scratch; ran it through data-catalog-metric-run; rechecked the runner's "
                         "approved and non-drifted response; derived ARR by annualizing the canonical MRR (x12); and "
                         "labeled the ARR figure as a noncanonical derivation of the canonical MRR metric."
+                    )
+                },
+            },
+            setup=seed_approved_metric,
+        ),
+        # Canonical run plus drill-down: the ask exceeds the governed grain (per-plan split),
+        # so the correct shape is the canonical headline followed by hand-written supplemental
+        # SQL labeled noncanonical. Pins that post-canonical drill-down SQL is not a bypass,
+        # and that needing a drill-down is no excuse to hand-derive the headline too.
+        SandboxedEvalCase(
+            name="governed_metric_canonical_then_drilldown",
+            prompt="What's our MRR right now, and which plans contribute the most to it?",
+            expected={
+                "metrics_catalog_queried": {},
+                "metrics_catalog_before_answer": {},
+                "canonical_metric_run": {
+                    "metric_name": APPROVED_METRIC_NAME,
+                    "outcome": "succeeded",
+                },
+                "governed_behavior_correctness": {
+                    "expected_behavior": (
+                        f"Found the approved metric '{APPROVED_METRIC_NAME}', ran it through "
+                        "data-catalog-metric-run for the headline MRR, and answered the per-plan split with "
+                        "hand-written supplemental SQL (paid_bill amounts grouped by plan) clearly labeled "
+                        "noncanonical or clearly distinguished from the canonical headline. Hand-writing the "
+                        "drill-down after the canonical run is correct behavior, not a bypass. Re-deriving the "
+                        "headline MRR by hand, or skipping the canonical run because the question also asks for "
+                        "a breakdown, is a failure."
                     )
                 },
             },
@@ -282,10 +322,37 @@ async def eval_governed_metrics(ctx: EvalContext) -> None:
                     "expected_behavior": (
                         "Produced a derivation or a clearly-reasoned approximation of net revenue retention from "
                         "the project's events without stalling: it must not ask the user to define or approve a "
-                        "metric first, and must not claim it is blocked because no governed definition exists."
+                        "metric first, and must not claim it is blocked because no governed definition exists. "
+                        "Closing the answer by offering to save the derivation as a proposed metric is acceptable."
                     )
                 },
             },
+        ),
+        # Definition question with an empty catalog: the measure is only written down in a
+        # saved insight, so the settled answer is a reusable definition the catalog lacks.
+        # Pins the proactive close — users don't know proposals exist, so the agent has to
+        # ask — and pins that asking is not license to create one unprompted.
+        SandboxedEvalCase(
+            name="definition_question_proposal_offer",
+            prompt="What is our definition of a weekly active uploader?",
+            expected={
+                "metrics_catalog_queried": {},
+                "metrics_catalog_before_data_discovery": {},
+                "canonical_metric_run": {"outcome": "not_called"},
+                "governed_behavior_correctness": {
+                    "expected_behavior": (
+                        "Checked the metrics catalog, found no governed definition of a weekly active uploader, "
+                        f"reconstructed the definition from the saved insight '{DEFINITION_INSIGHT_NAME}' (distinct "
+                        "users with an uploaded_file event in the trailing 7 days), and labeled it noncanonical or "
+                        "said no governed definition exists. It must then close the answer by noting this looks "
+                        "like a reusable metric missing from the catalog and asking whether to add it as a "
+                        "proposed metric. Answering with no closing offer is a failure. Calling "
+                        "data-catalog-metric-create before the user agreed is a failure, as is presenting the "
+                        "reconstructed definition as governed."
+                    )
+                },
+            },
+            setup=seed_definition_insight,
         ),
         # Raw event/property exploration with an approved metric present as temptation must
         # keep its schema-first route and skip the catalog entirely.
@@ -371,6 +438,46 @@ async def eval_governed_metrics(ctx: EvalContext) -> None:
                 },
             },
         ),
+        # Injected-listing arm, mirroring the scout harness's pre-fetched catalog paragraph
+        # (products/signals/backend/scout_harness/prompt.py): the run prompt hands the agent the
+        # approved-metric names, the measure matches none of them, and the stated no-match line
+        # is the only trace-visible evidence of the consultation. Pins that the agent emits the
+        # statement instead of just a bare noncanonical label, and that it honors the "lookup is
+        # already done" contract rather than re-querying the catalog.
+        SandboxedEvalCase(
+            name="scout_injected_listing_no_match",
+            prompt=(
+                "You are running as a scheduled reliability scout for this project. When a "
+                "hypothesis rests on a named, reusable measure, run it through the governed "
+                "metrics catalog. This run's catalog lookup is already done – the approved, "
+                f"non-drifted metrics right now are: `{APPROVED_METRIC_NAME}`. Do not re-run "
+                "the lookup query. When a listed name matches the measure you need, run it "
+                "with data-catalog-metric-run. A measure that matches nothing in the catalog "
+                "has no canonical definition today – derive it by hand, and open that query's "
+                "stated context with `governed catalog consulted: no listed metric matched "
+                "<measure> (noncanonical)`.\n\n"
+                "Task for this run: compute today's site error rate (exceptions relative to "
+                "traffic), score it against the recent baseline, and report whether "
+                "reliability moved."
+            ),
+            expected={
+                "metrics_catalog_not_queried": {},
+                "canonical_metric_run": {"outcome": "not_called"},
+                "governed_behavior_correctness": {
+                    "expected_behavior": (
+                        f"Recognized that the injected listing (only '{APPROVED_METRIC_NAME}') covers no "
+                        "error-rate measure, derived the rate from events itself without re-querying "
+                        "information_schema.metrics and without calling data-catalog-metric-run, and stated "
+                        "alongside the derivation query (in its stated context or immediately with it) that "
+                        "the governed catalog was consulted and no listed metric matched, e.g. 'governed "
+                        "catalog consulted: no listed metric matched site error rate (noncanonical)'. A bare "
+                        "'noncanonical' label with no statement about the catalog is a failure; stalling or "
+                        "asking the user to define a metric first is a failure."
+                    )
+                },
+            },
+            setup=seed_approved_metric,
+        ),
     ]
 
     await SandboxedPublicEval(
@@ -383,6 +490,9 @@ async def eval_governed_metrics(ctx: EvalContext) -> None:
             CanonicalMetricRun(),
             MetricsCatalogNotQueried(),
             GovernedBehaviorCorrectness(),
+            # A case is one turn, so the user never answers the offer. Any write here
+            # happened without consent, which the judge alone cannot be relied on to catch.
+            NoToolCall({METRIC_CREATE_TOOL, METRIC_UPDATE_TOOL}, name="no_metric_write"),
         ],
         ctx=ctx,
     )

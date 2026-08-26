@@ -7,9 +7,9 @@ use crate::{
     api::{
         self,
         releases::ReleaseBuilder,
-        symbol_sets::{SymbolSetUpload, MAX_FILE_SIZE},
+        symbol_sets::{dedup_uploads_by_chunk_id, SymbolSetUpload, MAX_FILE_SIZE},
     },
-    debug_symbols::{dedup_uploads_by_chunk_id, discover, package_dsym_bundles, report_problems},
+    debug_symbols::{discover, package_dsym_bundles, report_problems},
     sourcemaps::args::{pack_version, ReleaseArgs, UploadConflictArgs},
     utils::git::get_git_info,
 };
@@ -45,7 +45,7 @@ pub fn upload(args: &Args) -> Result<()> {
         conflict,
         include_source,
     } = args;
-    let release_args = release;
+    let release_args = release.resolve_info_plist()?;
 
     let directory = directory.canonicalize().map_err(|e| {
         anyhow!(
@@ -151,6 +151,8 @@ fn merge_uploads_prefer_dsym(
         .partition(|upload| upload.data.len() <= max_file_size);
     preferred_dsyms.extend(native_uploads);
     preferred_dsyms.extend(oversized_dsyms);
+    // Casing must never be normalized here: the SDK matches chunk_ids case-sensitively, per
+    // format, and lowercase ELF ids never collide with uppercase Mach-O ones.
     dedup_uploads_by_chunk_id(preferred_dsyms)
 }
 

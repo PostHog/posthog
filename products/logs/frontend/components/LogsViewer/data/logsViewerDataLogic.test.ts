@@ -66,6 +66,7 @@ describe('logsViewerDataLogic', () => {
 
         it.each([
             ['new query started', 'exact match for NEW_QUERY_STARTED_ERROR_MESSAGE'],
+            ['unmounting component', 'exact match for UNMOUNTING_ERROR_MESSAGE'],
             ['Fetch is aborted', 'Safari abort message'],
             ['The operation was aborted', 'alternative abort message'],
             ['ABORTED', 'uppercase abort'],
@@ -194,15 +195,21 @@ describe('logsViewerDataLogic', () => {
 
     describe('sparklineData selector', () => {
         it.each([
-            ['null', null, { labels: [], dates: [], data: [] }],
-            ['an empty array', [], { labels: [], dates: [], data: [] }],
+            ['null', null, { dates: [], data: [] }],
+            ['an empty array', [], { dates: [], data: [] }],
             [
                 'valid data',
                 [
                     { time: '2024-01-01T00:00:00Z', severity: 'info', count: 5 },
                     { time: '2024-01-01T00:01:00Z', severity: 'error', count: 3 },
                 ],
-                { labels: expect.any(Array), dates: expect.any(Array), data: expect.any(Array) },
+                {
+                    dates: ['2024-01-01T00:00:00Z', '2024-01-01T00:01:00Z'],
+                    data: [
+                        expect.objectContaining({ name: 'error', values: [0, 3] }),
+                        expect.objectContaining({ name: 'info', values: [5, 0] }),
+                    ],
+                },
             ],
         ])('returns correct data when sparkline is %s', async (_, sparklineInput, expected) => {
             logic.actions.setSparkline(sparklineInput as any[] | null)
@@ -372,8 +379,6 @@ describe('logsViewerDataLogic', () => {
         it.each([
             ['setSearchTerm', 'error message'],
             ['setDateRange', { date_from: '-24h', date_to: null }],
-            ['setSeverityLevels', ['error', 'warn']],
-            ['setServiceNames', ['api-server']],
         ])('%s triggers runQuery', async (action, value) => {
             await expectLogic(logic, () => {
                 ;(filtersLogic.actions as any)[action](value)

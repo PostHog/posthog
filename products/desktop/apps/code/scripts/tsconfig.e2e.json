@@ -1,0 +1,9 @@
+{
+  "compilerOptions": {
+    "experimentalDecorators": true,
+    "jsx": "react-jsx",
+    "target": "ES2022",
+    "useDefineForClassFields": false
+  },
+  "include": ["./**/*", "../src/**/*", "../../../packages/**/*"]
+}

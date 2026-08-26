@@ -174,6 +174,24 @@ describe('dataCatalogMetricSceneLogic', () => {
         stubLogic.unmount()
     })
 
+    it('renaming issues the patch against the old name and navigates to the new URL', async () => {
+        ;(dataCatalogMetricsPartialUpdate as jest.Mock).mockResolvedValue(buildMetric({ name: 'wau' }))
+
+        logic.actions.renameMetric('wau')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(dataCatalogMetricsPartialUpdate).toHaveBeenCalledWith('1', 'weekly_active_users', { name: 'wau' })
+        expect(router.values.location.pathname).toContain('/wau')
+    })
+
+    it('renaming to an invalid name issues no request', async () => {
+        logic.actions.renameMetric('has-dash')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(dataCatalogMetricsPartialUpdate).not.toHaveBeenCalled()
+        expect(lemonToast.error).toHaveBeenCalled()
+    })
+
     it('opens the markdown editor once loaded when arriving with ?edit=definition', async () => {
         jest.clearAllMocks()
         ;(dataCatalogMetricsRetrieve as jest.Mock).mockResolvedValue(
@@ -203,6 +221,7 @@ describe('dataCatalogMetricSceneLogic', () => {
         traversalLogic.actions.approveMetric()
         traversalLogic.actions.refreshMetricFromInsight()
         traversalLogic.actions.updateMetric({ definition: { kind: 'HogQLQuery', query: 'SELECT 2' } })
+        traversalLogic.actions.renameMetric('valid_name')
         traversalLogic.actions.deleteMetric()
         traversalLogic.actions.loadRunResult()
         await expectLogic(traversalLogic).toFinishAllListeners()

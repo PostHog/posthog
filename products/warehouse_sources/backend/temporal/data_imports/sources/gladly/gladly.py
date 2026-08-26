@@ -49,6 +49,23 @@ class GladlyRetryableError(Exception):
     pass
 
 
+class GladlyReportHeaderError(Exception):
+    """A report body whose header is missing the columns the stream is keyed on.
+
+    A body that isn't the promised CSV still parses: its first line becomes the
+    header, so the rows come out carrying junk columns or nothing but the injected
+    `_row_id`, and the sync then fails much later with a misleading complaint about
+    the incremental field. Stop at the source instead. Keep the message matching
+    the entry in the source's non-retryable errors.
+    """
+
+    def __init__(self, metric_set: str, missing: list[str], present: list[str]) -> None:
+        super().__init__(
+            f"Gladly report is missing required columns {missing} for metricSet={metric_set}. "
+            f"Columns returned: {present!r:.300}"
+        )
+
+
 class _ResponseByteStream(io.RawIOBase):
     """Read a streaming response body through ``iter_content`` as a binary file.
 
@@ -142,6 +159,23 @@ def _normalize_report_column(name: str) -> str:
     declared primary key and incremental field aligned with the data.
     """
     return re.sub(r"[^a-z0-9]+", "_", name.strip().lower()).strip("_")
+
+
+def _report_csv_lines(stream: io.TextIOBase) -> Iterator[str]:
+    """Yield the report body with any blank lines before the header removed.
+
+    csv.DictReader takes the first line it reads as the header, so a leading blank
+    line becomes a single empty field name and every real column is then dropped
+    from the rows that follow. Lines keep their terminators, so csv still
+    reassembles values that contain a newline inside quotes.
+    """
+    header_seen = False
+    for line in stream:
+        if not header_seen:
+            if not line.strip():
+                continue
+            header_seen = True
+        yield line
 
 
 def _report_row_id(row: dict[str, Any]) -> str:
@@ -384,6 +418,11 @@ def _report_rows(
         logger=logger,
     )
     inject_row_id = config.primary_key == REPORT_ROW_ID_COLUMN
+    # The columns the stream is keyed on. An injected `_row_id` is built from the row
+    # rather than read from the report, so it is never required of the header.
+    required_columns = {incremental_field["field"] for incremental_field in config.incremental_fields}
+    if not inject_row_id:
+        required_columns.add(config.primary_key)
 
     is_first_request = True
     while window_start <= today:
@@ -408,8 +447,20 @@ def _report_rows(
         text_stream = io.TextIOWrapper(
             io.BufferedReader(_ResponseByteStream(response, REPORT_CHUNK_BYTES)), encoding="utf-8-sig", newline=""
         )
-        reader = csv.DictReader(text_stream)
+        reader = csv.DictReader(_report_csv_lines(text_stream))
         columns = {name: _normalize_report_column(name) for name in reader.fieldnames or []}
+        present = sorted({column for column in columns.values() if column})
+        missing = sorted(required_columns.difference(present))
+        # An empty body has no header at all and is a legitimately empty window, so only
+        # a header that parsed and came back wrong is a contract break. Log it before
+        # raising: the exception message is replaced by user guidance on the way to the
+        # customer, so this is the only place the real shape is recorded.
+        if reader.fieldnames and missing:
+            logger.error(
+                f"Gladly: {config.name} report window {window_start} - {window_end} returned a header "
+                f"missing {missing}. Header row: {reader.fieldnames!r:.500}"
+            )
+            raise GladlyReportHeaderError(metric_set, missing, present)
 
         row_count = 0
         chunk: list[dict[str, Any]] = []

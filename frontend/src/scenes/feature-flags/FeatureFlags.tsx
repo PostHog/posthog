@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { combineUrl, router } from 'kea-router'
+import { combineUrl } from 'kea-router'
 import { useEffect, useRef, useState } from 'react'
 
 import { IconArchive, IconLock, IconPlusSmall, IconTrash } from '@posthog/icons'
@@ -9,9 +9,8 @@ import api from 'lib/api'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { BulkUpdateTagsButton } from 'lib/components/BulkActions/BulkUpdateTagsButton'
-import { FeatureFlagHog } from 'lib/components/hedgehogs'
+import { FeedbackSurveyButton } from 'lib/components/FeedbackSurveyButton/FeedbackSurveyButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
@@ -40,7 +39,6 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
 import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -57,6 +55,8 @@ import {
     FeatureFlagType,
 } from '~/types'
 
+import { featureFlagsEmptyState } from 'products/feature_flags/frontend/emptyState/featureFlagsEmptyState'
+
 import { ApprovalsPromoBanner } from './ApprovalsPromoBanner'
 import { BulkCopyFlagsModal, BulkCopyToProjectsButton } from './BulkCopyFlagsModal'
 import { BulkDeleteResultsModal } from './BulkDeleteResultsModal'
@@ -67,6 +67,10 @@ import { FLAGS_PER_PAGE, FeatureFlagsTab, featureFlagsLogic, flagMatchesType } f
 import { BULK_ARCHIVE_MAX_FLAGS, flagSelectionLogic } from './flagSelectionLogic'
 import { OverlayForNewFeatureFlagMenu } from './NewFeatureFlagMenu'
 import ProjectsGrid from './projects-grid/ProjectsGrid'
+
+// "NPS - Feature Flags" in project 2: https://us.posthog.com/project/2/surveys/018bcec8-6cf5-0000-c724-a51a86a4e8b1
+// The survey also self-triggers as a popover on feature flag URLs; this is the on-demand path.
+const FEATURE_FLAGS_NPS_SURVEY_ID = '018bcec8-6cf5-0000-c724-a51a86a4e8b1'
 
 function FlagDescription({ name }: { name: string }): JSX.Element {
     const ref = useRef<HTMLDivElement | null>(null)
@@ -342,6 +346,7 @@ export const scene: SceneExport = {
     component: FeatureFlags,
     logic: featureFlagsLogic,
     productKey: ProductKey.FEATURE_FLAGS,
+    emptyState: featureFlagsEmptyState,
 }
 
 const RUNTIME_LABELS: Record<FeatureFlagEvaluationRuntime, string> = {
@@ -360,14 +365,11 @@ export function OverviewTab({
     nouns?: [string, string]
 }): JSX.Element {
     const { aggregationLabel } = useValues(groupsModel)
-    const { user } = useValues(userLogic)
 
     const flagLogic = featureFlagsLogic({ flagPrefix })
     const { featureFlagsLoading, displayedFlags, pagination, filters, shouldShowEmptyState, filtersChanged } =
         useValues(flagLogic)
     const { setFeatureFlagsFilters } = useActions(flagLogic)
-    const newFeatureFlagUrl = urls.featureFlagTemplates()
-    const isProductIntroVisible = shouldShowEmptyState || !user?.has_seen_product_intro_for?.[ProductKey.FEATURE_FLAGS]
 
     const { currentProjectId } = useValues(projectLogic)
     const { currentOrganization } = useValues(organizationLogic)
@@ -558,19 +560,7 @@ export function OverviewTab({
 
     return (
         <SceneContent>
-            <ProductIntroduction
-                productName="Feature flags"
-                productKey={ProductKey.FEATURE_FLAGS}
-                thingName="feature flag"
-                description="Use feature flags to safely deploy and roll back new features in an easy-to-manage way. Roll variants out to certain groups, a percentage of users, or everyone all at once."
-                docsURL="https://posthog.com/docs/feature-flags/manual"
-                action={() => router.actions.push(newFeatureFlagUrl)}
-                isEmpty={shouldShowEmptyState}
-                customHog={FeatureFlagHog}
-                className={cn('my-0')}
-                mcpSurfaceKey="feature_flags.create"
-            />
-            {!isProductIntroVisible && <ApprovalsPromoBanner />}
+            {!shouldShowEmptyState && <ApprovalsPromoBanner />}
             <PendingApprovalsBanner />
             <div>{filtersSection}</div>
             <BulkDeleteResultsModal />
@@ -779,39 +769,45 @@ export function FeatureFlags(): JSX.Element {
                     type: 'feature_flag',
                 }}
                 actions={
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.FeatureFlag}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
-                        <Shortcut
-                            name="NewFeatureFlag"
-                            keybind={[keyBinds.new]}
-                            intent="New feature flag"
-                            interaction="click"
-                            scope={Scene.FeatureFlags}
+                    <>
+                        <FeedbackSurveyButton
+                            surveyId={FEATURE_FLAGS_NPS_SURVEY_ID}
+                            data-attr="feature-flags-feedback-button"
+                        />
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.FeatureFlag}
+                            minAccessLevel={AccessControlLevel.Editor}
                         >
-                            <LemonButton
-                                type="primary"
-                                to={newFeatureFlagUrl}
-                                data-attr="new-feature-flag"
-                                size="small"
-                                icon={<IconPlusSmall />}
-                                sideAction={{
-                                    dropdown: {
-                                        placement: 'bottom-end',
-                                        className: 'new-feature-flag-overlay',
-                                        actionable: true,
-                                        closeOnClickInside: false,
-                                        overlay: <OverlayForNewFeatureFlagMenu />,
-                                    },
-                                    'data-attr': 'new-feature-flag-dropdown',
-                                }}
-                                tooltip="New feature flag"
+                            <Shortcut
+                                name="NewFeatureFlag"
+                                keybind={[keyBinds.new]}
+                                intent="New feature flag"
+                                interaction="click"
+                                scope={Scene.FeatureFlags}
                             >
-                                New
-                            </LemonButton>
-                        </Shortcut>
-                    </AccessControlAction>
+                                <LemonButton
+                                    type="primary"
+                                    to={newFeatureFlagUrl}
+                                    data-attr="new-feature-flag"
+                                    size="small"
+                                    icon={<IconPlusSmall />}
+                                    sideAction={{
+                                        dropdown: {
+                                            placement: 'bottom-end',
+                                            className: 'new-feature-flag-overlay',
+                                            actionable: true,
+                                            closeOnClickInside: false,
+                                            overlay: <OverlayForNewFeatureFlagMenu />,
+                                        },
+                                        'data-attr': 'new-feature-flag-dropdown',
+                                    }}
+                                    tooltip="New feature flag"
+                                >
+                                    New
+                                </LemonButton>
+                            </Shortcut>
+                        </AccessControlAction>
+                    </>
                 }
             />
             <LemonTabs

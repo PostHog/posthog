@@ -120,7 +120,7 @@ class SubscriptionTriggerType:
 
 
 @dataclasses.dataclass
-class SubscriptionInfo:
+class DueSubscription:
     subscription_id: int
     team_id: int
     distinct_id: str
@@ -306,7 +306,7 @@ class GenerateAIReportResult:
 
 
 @dataclasses.dataclass
-class SubscriptionAbortInfo:
+class DeliveryAbort:
     """Returned by `validate_subscription_for_delivery` when the workflow should abort.
     `failed_recipient` is populated only when this run auto-disabled the sub
     (workflow records FAILED). None means already-disabled — idempotency redispatch."""

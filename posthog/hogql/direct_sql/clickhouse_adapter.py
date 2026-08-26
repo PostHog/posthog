@@ -15,6 +15,8 @@ from posthog.hogql.direct_sql.capability import is_direct_capable
 from posthog.hogql.direct_sql.raw_sql import ensure_single_direct_statement
 from posthog.hogql.errors import ExposedHogQLError
 
+from posthog.dataclasses import frozen
+
 if TYPE_CHECKING:
     from clickhouse_connect.driver.client import Client as ClickHouseClient
 
@@ -198,9 +200,16 @@ def ensure_read_only_raw_clickhouse_statement(sql: str) -> str:
     return sql
 
 
+@frozen
+class CappedClickHouseRows:
+    rows: list
+    column_names: list[str]
+    column_types: list[str]
+
+
 def _fetch_capped_clickhouse_rows(
     client: "ClickHouseClient", sql: str, parameters: dict[str, Any] | None, deadline_seconds: float
-) -> tuple[list, list[str], list[str]]:
+) -> CappedClickHouseRows:
     """Stream rows up to the row cap, raising if the result would exceed it or the deadline passes.
 
     The shared client is configured with ``query_limit=0``, so ``client.query`` would buffer the
@@ -227,7 +236,7 @@ def _fetch_capped_clickhouse_rows(
             if len(rows) > DIRECT_CLICKHOUSE_MAX_ROWS:
                 DIRECT_QUERY_ROW_CAP_EXCEEDED_TOTAL.labels(dialect="clickhouse").inc()
                 raise ExposedHogQLError(DIRECT_CLICKHOUSE_ROW_CAP_ERROR)
-    return rows, column_names, column_types
+    return CappedClickHouseRows(rows=rows, column_names=column_names, column_types=column_types)
 
 
 class ClickHouseAdapter:
@@ -270,6 +279,8 @@ class ClickHouseAdapter:
     def execute(self, request: DirectQueryRequest) -> DirectQueryResult:
         from clickhouse_connect.driver.exceptions import ClickHouseError
 
+        from products.warehouse_sources.backend.facade.source_management import ClickHouseConnectionError
+
         source = request.source
         clickhouse_source, config = self.validate_source_config(source, request.team)
         settings = request.settings
@@ -299,10 +310,16 @@ class ClickHouseAdapter:
                         "max_block_size": DIRECT_CLICKHOUSE_MAX_BLOCK_SIZE,
                     },
                 ) as client:
-                    rows, column_names, column_types = _fetch_capped_clickhouse_rows(
+                    fetch_result = _fetch_capped_clickhouse_rows(
                         client, request.sql, request.values or None, statement_timeout_seconds
                     )
-        except (ClickHouseError, OSError, BaseSSHTunnelForwarderError, ExposedHogQLError) as error:
+        except (
+            ClickHouseError,
+            ClickHouseConnectionError,
+            OSError,
+            BaseSSHTunnelForwarderError,
+            ExposedHogQLError,
+        ) as error:
             span.set_attribute("error_type", error.__class__.__name__)
             if request.debug:
                 return DirectQueryResult(
@@ -310,6 +327,8 @@ class ClickHouseAdapter:
                 )
             raise ExposedHogQLError(clickhouse_error_to_message(error)) from error
 
-        span.set_attribute("row_count", len(rows))
-        types: list[tuple[str, str]] = list(zip(column_names, column_types))
-        return DirectQueryResult(results=[list(row) for row in rows], types=types, print_columns=column_names)
+        span.set_attribute("row_count", len(fetch_result.rows))
+        types: list[tuple[str, str]] = list(zip(fetch_result.column_names, fetch_result.column_types))
+        return DirectQueryResult(
+            results=[list(row) for row in fetch_result.rows], types=types, print_columns=fetch_result.column_names
+        )

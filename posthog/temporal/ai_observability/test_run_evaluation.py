@@ -9,9 +9,10 @@ from unittest.mock import MagicMock, patch
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
 from temporalio import activity
+from temporalio.api.enums.v1 import EventType
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
-from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
 from posthog.api.capture import CaptureInternalError
 from posthog.models import Organization, Team
@@ -32,6 +33,7 @@ from products.ai_observability.backend.models.evaluation_directories import Eval
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 
+from . import run_evaluation as run_evaluation_module
 from .evaluation_errors import (
     MAX_STATUS_REASON_DETAIL_LENGTH,
     require_user_error_spec,
@@ -43,6 +45,7 @@ from .run_evaluation import (
     BooleanEvalResult,
     BooleanWithNAEvalResult,
     EmitEvaluationEventInputs,
+    EmitInternalTelemetryInputs,
     EvaluationActivityResult,
     ExecuteLLMJudgeInputs,
     RunEvaluationInputs,
@@ -148,6 +151,98 @@ def active_key_config(setup_data):
 
 
 class TestRunEvaluationWorkflow:
+    @pytest.mark.asyncio
+    async def test_new_runs_skip_legacy_eval_signal_while_old_history_replays(self, monkeypatch):
+        @activity.defn(name="fetch_evaluation_activity")
+        async def mock_fetch_evaluation(inputs: RunEvaluationInputs) -> dict[str, Any]:
+            return {
+                "id": inputs.evaluation_id,
+                "name": "Boolean evaluation",
+                "evaluation_type": "llm_judge",
+                "evaluation_config": {"prompt": "Is the answer grounded?"},
+                "output_type": "boolean",
+                "output_config": {},
+                "team_id": 1,
+            }
+
+        @activity.defn(name="execute_llm_judge_activity")
+        async def mock_execute_llm_judge(_: ExecuteLLMJudgeInputs) -> EvaluationActivityResult:
+            return {
+                "result_type": "boolean",
+                "verdict": True,
+                "reasoning": "The answer is grounded.",
+                "allows_na": False,
+                "model": "gpt-4.1-mini",
+                "provider": "openai",
+            }
+
+        @activity.defn(name="emit_evaluation_event_activity")
+        async def mock_emit_evaluation_event(_: EmitEvaluationEventInputs) -> None:
+            return
+
+        @activity.defn(name="emit_internal_telemetry_activity")
+        async def mock_emit_internal_telemetry(_: EmitInternalTelemetryInputs) -> None:
+            return
+
+        original_patched = run_evaluation_module.temporalio.workflow.patched
+
+        def legacy_patched(patch_id: str) -> bool:
+            if patch_id == "remove-per-evaluation-signal-2026-08":
+                return False
+            return original_patched(patch_id)
+
+        task_queue = str(uuid.uuid4())
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with Worker(
+                env.client,
+                task_queue=task_queue,
+                workflows=[RunEvaluationWorkflow],
+                activities=[
+                    mock_fetch_evaluation,
+                    mock_execute_llm_judge,
+                    mock_emit_evaluation_event,
+                    mock_emit_internal_telemetry,
+                ],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+            ):
+                monkeypatch.setattr(run_evaluation_module.temporalio.workflow, "patched", legacy_patched)
+                legacy_handle = await env.client.start_workflow(
+                    RunEvaluationWorkflow.run,
+                    RunEvaluationInputs(
+                        evaluation_id="legacy-evaluation",
+                        event_data=create_mock_event_data(team_id=1),
+                    ),
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue,
+                )
+                await legacy_handle.result()
+                legacy_history = await legacy_handle.fetch_history()
+
+                monkeypatch.setattr(run_evaluation_module.temporalio.workflow, "patched", original_patched)
+                new_handle = await env.client.start_workflow(
+                    RunEvaluationWorkflow.run,
+                    RunEvaluationInputs(
+                        evaluation_id="new-evaluation",
+                        event_data=create_mock_event_data(team_id=1),
+                    ),
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue,
+                )
+                await new_handle.result()
+                new_history = await new_handle.fetch_history()
+
+        assert EventType.EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_INITIATED in {
+            event.event_type for event in legacy_history.events
+        }
+        assert EventType.EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_INITIATED not in {
+            event.event_type for event in new_history.events
+        }
+
+        await Replayer(
+            workflows=[RunEvaluationWorkflow],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ).replay_workflow(legacy_history)
+
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
     async def test_fetch_evaluation_activity(self, setup_data):

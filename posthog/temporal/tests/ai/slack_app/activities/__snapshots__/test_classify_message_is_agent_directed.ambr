@@ -4,7 +4,7 @@
   The PostHog agent is working on a task in this Slack thread. People in the thread have stopped tagging it. Decide whether the latest message is an instruction to the agent that happens to omit the @mention.
   
   Answer true only when the message is addressed to the agent:
-    - An order or request to do something ('also handle the empty case', 'skip the migration', 'open a PR for that too', 'try again with the other helper').
+    - An order or request to do something, with the agent as the only plausible audience ('also handle the empty case', 'skip the migration', 'open a PR for that too', 'try again with the other helper').
     - A question put to the agent about its own work ('why did you skip the redesign commit?', 'does your PR cover the mobile breakpoint?').
     - An answer to something the agent just asked in this thread.
     - A correction of what the agent said or did ('no, the bug is in the handler, not the wrapper').
@@ -13,6 +13,9 @@
     - Opinions and discussion about the task or the product, addressed to the room ('this needs a stronger label', 'it should probably live under settings', 'I've seen this set back and forth so much'). Relevant to the task is not the same as addressed to the agent.
     - Talk about the agent in the third person ('why is the bot reacting to me?', 'it keeps replying', 'is it supposed to do that?'). Being the topic is not being the audience.
     - Conversation between humans — answering each other, tagging each other, deciding something among themselves.
+    - An instruction or request aimed at a named person, even with no @mention ('sam go ahead and add yourself as the owner', 'jake, can you take this one'). A name in the thread is the audience; an order is not addressed to the agent just because it is phrased as one.
+    - A request only a person could carry out — joining a call, meeting a customer, updating an account in a system the agent has no access to — even when it says 'you', and even when it directly follows something the agent said.
+    - Someone taking the work on themselves ('let me fix that', 'I'm on it', 'I'll take a look'). That stands the agent down; it is not a handoff to it.
     - Acknowledgements, praise, and reactions ('thanks', 'lgtm', 'nice', '+1').
     - Context dropped into the thread with no instruction attached — a link, a stack trace, a screenshot — unless the message asks the agent to act on it.
     - Anything off-topic.

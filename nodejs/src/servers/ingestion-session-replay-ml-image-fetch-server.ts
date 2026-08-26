@@ -1,34 +1,140 @@
-import { initializePrometheusLabels } from '~/common/api/router'
-import { KAFKA_SESSION_REPLAY_IMAGE_FETCH } from '~/common/config/kafka-topics'
-import { KafkaConsumer, KafkaConsumerConfig } from '~/common/kafka/consumer/consumer-v1'
-import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
-import { logger } from '~/common/utils/logger'
-import { UrlFetchConsumer } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/url-fetch-consumer'
-import { UrlSightings } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/url-sightings'
-import { resolveMlMirrorRedisConnection } from '~/ingestion/pipelines/sessionreplay/ml-mirror/config'
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
+import { NodeHttpHandler } from '@smithy/node-http-handler'
 
-import { RedisPool } from '../types'
+import { initializePrometheusLabels } from '~/common/api/router'
+import {
+    KAFKA_SESSION_REPLAY_IMAGE_FETCH,
+    KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1H,
+    KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1M,
+    KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_10M,
+    KAFKA_SESSION_REPLAY_IMAGE_SCRUB,
+} from '~/common/config/kafka-topics'
+import { KafkaConsumerV2, KafkaConsumerV2Config } from '~/common/kafka/consumer/consumer-v2'
+import { KafkaProducerWrapper } from '~/common/kafka/producer'
+import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
+import { logger } from '~/common/utils/logger'
+import { SessionReplayProducerName } from '~/ingestion/pipelines/sessionreplay/config'
+import {
+    ConfigurationPolicyService,
+    HttpConfigurationFetcher,
+} from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/configuration-policy'
+import { DynamoDBCrawlHistory } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/dynamodb-crawl-history'
+import { FetchRunner } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/fetch-runner'
+import { FrontierPublisher } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/frontier-publisher'
+import { HostBudget } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/host-budget'
+import { HttpImageFetcher } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/image-fetcher'
+import { OriginRequestScheduler } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/origin-request-scheduler'
+import { assertUrlPolicyLoaded } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/politeness-key'
+import { UrlFetchConsumer } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/url-fetch-consumer'
+import { createWebBotAuthRequestSigner } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/web-bot-auth'
+import { createProducerRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/producer-registry'
+import { INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER } from '~/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
+
 import { CleanupResources, NodeServer, ServerLifecycle } from './base-server'
 import {
     IngestionSessionReplayMlMirrorServerConfig,
     buildMlMirrorServerConfig,
 } from './ingestion-session-replay-ml-mirror-server'
 
-// The poll loop only heartbeats between batches, so a slow batch is refreshed from inside it. Must
-// stay under CONSUMER_MAX_HEARTBEAT_INTERVAL_MS (30s), which binds long before max.poll.interval.ms.
-const BATCH_HEARTBEAT_INTERVAL_MS = 10_000
-
 /**
  * How long the store may spend on one batch, well inside Kafka's max.poll.interval.ms of 300s.
  *
- * That is the bound that matters rather than the health check, because the heartbeat above keeps the
- * health check satisfied through a long batch. A batch that passes the poll interval gets the
- * partition revoked mid-batch and replayed by a pod that will be just as slow, so the lane sheds the
- * rest of a batch instead.
+ * The poll interval binds rather than the health check, because the heartbeat above keeps the health
+ * check satisfied through a long batch. A batch that passes the poll interval loses the partition
+ * mid-batch to a pod that will be just as slow, so the lane sheds the rest of the batch instead.
  */
 const STORE_BATCH_BUDGET_MS = 50_000
 
-export function buildImageFetchConsumerConfig(config: IngestionSessionReplayMlMirrorServerConfig): KafkaConsumerConfig {
+/** Matches MAX_URL_LEN in the crate, which is what the collector applied to the first candidate. */
+const MAX_REDIRECT_URL_LENGTH = 2048
+
+/** The addon holds a 15 MB native library and `index.ts` imports every server, so it loads on first use. */
+let anonymizer: typeof import('@posthog/replay-anonymizer') | undefined
+function getAnonymizer(): typeof import('@posthog/replay-anonymizer') {
+    if (!anonymizer) {
+        anonymizer = require('@posthog/replay-anonymizer') as typeof import('@posthog/replay-anonymizer')
+        if (typeof anonymizer.isPublicHost !== 'function') {
+            throw new Error('the replay-anonymizer addon has no isPublicHost: rebuild index.node')
+        }
+    }
+    return anonymizer
+}
+
+export function buildFrontierPublisher(
+    producer: KafkaProducerWrapper,
+    maxConcurrentImagePublishes: number
+): FrontierPublisher {
+    return new FrontierPublisher(producer, {
+        frontierTopic: KAFKA_SESSION_REPLAY_IMAGE_FETCH,
+        scrubTopic: KAFKA_SESSION_REPLAY_IMAGE_SCRUB,
+        delayTiers: [
+            { topic: KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1M, delayMs: 60_000, metricTopic: 'retry_1m' },
+            { topic: KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_10M, delayMs: 600_000, metricTopic: 'retry_10m' },
+            { topic: KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1H, delayMs: 3_600_000, metricTopic: 'retry_1h' },
+        ],
+        maxConcurrentImagePublishes,
+        maxConcurrentRepublishes: maxConcurrentImagePublishes,
+    })
+}
+
+export function buildFetchRunner(
+    config: IngestionSessionReplayMlMirrorServerConfig,
+    publisher: FrontierPublisher
+): FetchRunner {
+    const webBotAuthSigner = createWebBotAuthRequestSigner(config.WEB_BOT_AUTH_PRIVATE_KEYS)
+    const budget = new HostBudget({
+        requestsPerSecond: config.SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_REQUESTS_PER_SECOND,
+        burst: config.SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_BURST,
+        maxConcurrent: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_REGISTRABLE_DOMAIN,
+        breakerFailures: config.SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_BREAKER_FAILURES,
+        breakerCooldownMs: config.SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_BREAKER_COOLDOWN_MS,
+        breakerMaxCooldownMs: config.SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_BREAKER_MAX_COOLDOWN_MS,
+        maxTrackedRegistrableDomains: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_TRACKED_REGISTRABLE_DOMAINS,
+        maxTrackedOrigins: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_TRACKED_ORIGINS,
+    })
+    const scheduler = new OriginRequestScheduler(budget, config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IN_FLIGHT_REQUESTS)
+    const configurationPolicy = new ConfigurationPolicyService(
+        new HttpConfigurationFetcher(
+            webBotAuthSigner,
+            scheduler,
+            config.SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_TIMEOUT_MS
+        )
+    )
+    return new FetchRunner(
+        new HttpImageFetcher(
+            {
+                maxUrlLength: MAX_REDIRECT_URL_LENGTH,
+                // The crate's rule, so a redirect target meets the check the collector already applied
+                // to the first candidate rather than a second answer to the same question.
+                isPublicHost: (host) => getAnonymizer().isPublicHost(host),
+            },
+            webBotAuthSigner
+        ),
+        budget,
+        scheduler,
+        configurationPolicy,
+        {
+            maxConcurrentPerRegistrableDomain:
+                config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_REGISTRABLE_DOMAIN,
+            maxInFlightRequests: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IN_FLIGHT_REQUESTS,
+            lowOriginDiversityMinimumRequestSlots:
+                config.SESSION_RECORDING_ML_IMAGE_FETCH_LOW_ORIGIN_DIVERSITY_MINIMUM_REQUEST_SLOTS,
+            lowOriginDiversityRepublishThreshold:
+                config.SESSION_RECORDING_ML_IMAGE_FETCH_LOW_ORIGIN_DIVERSITY_REPUBLISH_THRESHOLD,
+            lowOriginDiversityProgress: config.SESSION_RECORDING_ML_IMAGE_FETCH_LOW_ORIGIN_DIVERSITY_PROGRESS,
+            batchBudgetMs: config.SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_BUDGET_MS,
+            maxBytes: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES,
+            requestTimeoutMs: config.SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_TIMEOUT_MS,
+            maxRedirects: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_REDIRECTS,
+            seenTtlSeconds: config.AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS,
+        },
+        publisher
+    )
+}
+
+export function buildImageFetchConsumerConfig(
+    config: IngestionSessionReplayMlMirrorServerConfig
+): KafkaConsumerV2Config {
     return {
         topic: KAFKA_SESSION_REPLAY_IMAGE_FETCH,
         groupId: config.SESSION_RECORDING_ML_IMAGE_FETCH_GROUP_ID,
@@ -43,14 +149,12 @@ export function buildImageFetchConsumerConfig(config: IngestionSessionReplayMlMi
  *
  * It has its own deployment because it waits on network IO and wants many small pods, where the
  * scrub sidecar it feeds uses CPU and ML models and wants few large ones.
- *
- * The lane starts in dry run and sends no request. See
- * `SESSION_RECORDING_ML_IMAGE_FETCH_DRY_RUN`.
  */
 export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
     readonly lifecycle: ServerLifecycle
     private config: IngestionSessionReplayMlMirrorServerConfig
-    private sightingPool?: RedisPool
+    private crawlHistoryClient?: DynamoDBClient
+    private producerRegistry?: KafkaProducerRegistry<SessionReplayProducerName>
 
     constructor(config: Partial<IngestionSessionReplayMlMirrorServerConfig> = {}) {
         this.config = buildMlMirrorServerConfig(config)
@@ -70,44 +174,62 @@ export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
 
     private async startServices(): Promise<void> {
         initializePrometheusLabels(this.config.INGESTION_PIPELINE, this.config.INGESTION_LANE)
+        // Here rather than on the first record. The parser calls into this addon for every URL, and
+        // it must answer with a reason rather than raise, so a build that shipped without the addon
+        // has to stop the pod at startup instead.
+        assertUrlPolicyLoaded()
 
-        // Before anything connects: a cleared flag is a configuration mistake, and this lane has no
-        // request path yet, so it would report itself as fetching while downloading nothing.
         const dryRun = this.config.SESSION_RECORDING_ML_IMAGE_FETCH_DRY_RUN
-        if (!dryRun) {
-            throw new Error('SESSION_RECORDING_ML_IMAGE_FETCH_DRY_RUN cannot be cleared yet: this lane cannot fetch')
-        }
 
-        // The ml-mirror's instance, which is deliberately not the cluster that serves the primary
-        // replay lane: this store holds one key per distinct image URL, and its eviction pressure
-        // must not be able to reach the lane that gates replay ingestion.
-        const connection = resolveMlMirrorRedisConnection(this.config)
-        if (!connection) {
-            throw new Error('SESSION_RECORDING_ML_REDIS_HOST must be set for the image-fetch consumer')
+        const tableName = this.config.AI_RESEARCH_IMAGE_FETCH_DYNAMODB_TABLE
+        if (!tableName) {
+            throw new Error('AI_RESEARCH_IMAGE_FETCH_DYNAMODB_TABLE must be set for the image-fetch consumer')
         }
-        const redisTimeoutMs = this.config.SESSION_RECORDING_ML_IMAGE_FETCH_REDIS_TIMEOUT_MS
-        this.sightingPool = createRedisPoolFromConfig({
-            // The lane's own command timeout, not the mirror's 200ms: one round trip here carries a
-            // whole chunk of keys rather than a single per-session command.
-            connection: { ...connection, options: { ...connection.options, commandTimeout: redisTimeoutMs } },
-            poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
-            poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
-            acquireTimeoutMillis: redisTimeoutMs,
+        const dynamoDBTimeoutMs = this.config.AI_RESEARCH_IMAGE_FETCH_DYNAMODB_TIMEOUT_MS
+        if (!Number.isFinite(dynamoDBTimeoutMs) || dynamoDBTimeoutMs <= 0) {
+            throw new Error(
+                `AI_RESEARCH_IMAGE_FETCH_DYNAMODB_TIMEOUT_MS must be a positive number, got ${dynamoDBTimeoutMs}`
+            )
+        }
+        this.crawlHistoryClient = new DynamoDBClient({
+            region: this.config.SESSION_RECORDING_V2_S3_REGION || 'us-east-1',
+            endpoint: this.config.SESSION_RECORDING_DYNAMODB_ENDPOINT,
+            maxAttempts: 5,
+            requestHandler: new NodeHttpHandler(),
         })
-        const sightings = new UrlSightings(this.sightingPool, redisTimeoutMs, STORE_BATCH_BUDGET_MS)
+        const crawlHistory = new DynamoDBCrawlHistory(
+            this.crawlHistoryClient,
+            tableName,
+            dynamoDBTimeoutMs,
+            STORE_BATCH_BUDGET_MS
+        )
+        await crawlHistory.validateAccess(Date.now())
 
-        const fetchConsumer = new UrlFetchConsumer(sightings, {
-            maxAgeMs: this.config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_AGE_MS,
-            dedupMaxRefs: this.config.SESSION_RECORDING_ML_IMAGE_FETCH_DEDUP_MAX_REFS,
-            dryRun,
-        })
+        // Built even in dry run, so the wiring is exercised by every start rather than only by the
+        // one that clears the flag.
+        this.producerRegistry = await createProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(this.config)
+        const publisher = buildFrontierPublisher(
+            this.producerRegistry.getProducer(INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER),
+            this.config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_PENDING_PUBLISHES
+        )
+
+        const fetchConsumer = new UrlFetchConsumer(
+            crawlHistory,
+            publisher,
+            {
+                seenTtlSeconds: this.config.AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS,
+                dryRun,
+            },
+            buildFetchRunner(this.config, publisher)
+        )
         logger.info('🌐', 'ml_image_fetch_started', { dryRun })
 
-        const consumer = new KafkaConsumer(buildImageFetchConsumerConfig(this.config))
-        await consumer.connect((messages) => {
-            const heartbeat = setInterval(() => consumer.heartbeat(), BATCH_HEARTBEAT_INTERVAL_MS)
-            return fetchConsumer.handleBatch(messages, Date.now()).finally(() => clearInterval(heartbeat))
+        const maximumRecordBytes = this.config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES + 64 * 1024
+        const consumer = new KafkaConsumerV2(buildImageFetchConsumerConfig(this.config), {
+            'fetch.message.max.bytes': maximumRecordBytes,
+            'max.partition.fetch.bytes': maximumRecordBytes,
         })
+        await consumer.connect((messages) => fetchConsumer.handleBatch(messages, Date.now()))
 
         this.lifecycle.services.push({
             id: 'session-replay-ml-image-fetch',
@@ -119,7 +241,11 @@ export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
     private getCleanupResources(): CleanupResources {
         return {
             kafkaProducers: [],
-            redisPools: this.sightingPool ? [this.sightingPool] : [],
+            redisPools: [],
+            additionalCleanup: async () => {
+                this.crawlHistoryClient?.destroy()
+                await this.producerRegistry?.disconnectAll()
+            },
         }
     }
 }

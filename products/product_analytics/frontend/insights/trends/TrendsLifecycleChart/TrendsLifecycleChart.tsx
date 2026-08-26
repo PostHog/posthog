@@ -6,6 +6,7 @@ import type { ChartLegendConfig, PointClickData, TooltipContext } from '@posthog
 
 import { useChartConfig, useChartTheme, useDateRangeZoom } from 'lib/charts/hooks'
 import { getBarColorFromStatus } from 'lib/colors'
+import { useChartLegendSeriesMenu } from 'lib/components/ChartLegendSeriesMenu/useChartLegendSeriesMenu'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -74,9 +75,17 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
     // Lifecycle statuses all share the same resultCustomizationKey (same action.order), so
     // useInsightsLegendConfig can't distinguish them — build the config inline and let the
     // chart manage toggle state internally.
+    const legendRenderItem = useChartLegendSeriesMenu({ surface: 'lifecycle', seriesCount: indexedResults.length })
     const legendConfig = useMemo<ChartLegendConfig>(
-        () => buildBaseLegendConfig({ show: !!showLegend, legendPosition, canEditInsight, inSharedMode }),
-        [showLegend, legendPosition, canEditInsight, inSharedMode]
+        () =>
+            buildBaseLegendConfig({
+                show: !!showLegend,
+                legendPosition,
+                canEditInsight,
+                inSharedMode,
+                renderItem: legendRenderItem,
+            }),
+        [showLegend, legendPosition, canEditInsight, inSharedMode, legendRenderItem]
     )
 
     const isStacked = lifecycleFilter?.stacked ?? true

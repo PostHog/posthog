@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 4 enabled ops
+ * PostHog API - MCP 5 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -469,7 +469,7 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
                                         .union([zod.boolean(), zod.null()])
                                         .optional()
                                         .describe(
-                                            'Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false.'
+                                            "Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC, whose denominator is this goal's conversions — its count, or its unique converters under dau math. That equals new customers only for a once-per-person moment: a repeatable event such as a monthly payment counts every time and understates cost per customer, and dedup under dau is per result row, so someone converting under two sources counts twice at channel level. Defaults to false."
                                         ),
                                     counts_as_revenue: zod
                                         .union([zod.boolean(), zod.null()])
@@ -1109,7 +1109,7 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
                                         .union([zod.boolean(), zod.null()])
                                         .optional()
                                         .describe(
-                                            'Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false.'
+                                            "Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC, whose denominator is this goal's conversions — its count, or its unique converters under dau math. That equals new customers only for a once-per-person moment: a repeatable event such as a monthly payment counts every time and understates cost per customer, and dedup under dau is per result row, so someone converting under two sources counts twice at channel level. Defaults to false."
                                         ),
                                     counts_as_revenue: zod
                                         .union([zod.boolean(), zod.null()])
@@ -1741,7 +1741,7 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
                                         .union([zod.boolean(), zod.null()])
                                         .optional()
                                         .describe(
-                                            'Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false.'
+                                            "Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC, whose denominator is this goal's conversions — its count, or its unique converters under dau math. That equals new customers only for a once-per-person moment: a repeatable event such as a monthly payment counts every time and understates cost per customer, and dedup under dau is per result row, so someone converting under two sources counts twice at channel level. Defaults to false."
                                         ),
                                     counts_as_revenue: zod
                                         .union([zod.boolean(), zod.null()])
@@ -2649,6 +2649,27 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
         web_analytics_pre_aggregated_tables_enabled: zod.boolean().nullish(),
     })
     .describe('Mixin for serializers to add user access control fields')
+
+export const ProductEnablementCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const ProductEnablementCreateBody = /* @__PURE__ */ zod.object({
+    products: zod
+        .array(
+            zod
+                .enum(['conversations', 'error_tracking', 'session_replay'])
+                .describe(
+                    '\* `conversations` - conversations\n\* `error_tracking` - error_tracking\n\* `session_replay` - session_replay'
+                )
+        )
+        .min(1)
+        .describe('Products to turn on for this project, each enabled with server-owned conservative defaults.'),
+})
 
 /**
  * Retrieve a user's profile and settings. Pass `@me` as the UUID to fetch the authenticated user; non-staff callers may only access their own account.

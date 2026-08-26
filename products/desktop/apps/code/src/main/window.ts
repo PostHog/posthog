@@ -109,6 +109,28 @@ export function saveWindowState(window: BrowserWindow): void {
 }
 
 let mainWindow: BrowserWindow | null = null;
+let trpcIpcHandler: ReturnType<typeof createIPCHandler> | null = null;
+
+/**
+ * Serves the host tRPC router to a secondary window (the quick-ask panel).
+ * No-op until the main window creates the handler. `allowedPaths` narrows
+ * the window to a route allowlist: auxiliary windows get only the procedures
+ * they need, never the full privileged router.
+ */
+export function attachWindowToTrpc(
+  window: BrowserWindow,
+  allowedPaths?: (path: string) => boolean,
+): void {
+  trpcIpcHandler?.attachWindow(window, { allowedPaths });
+}
+
+const mainWindowClosedListeners = new Set<() => void>();
+
+/** Runs when the main window closes. Lets auxiliary windows (quick ask) tear
+ * down so `window-all-closed` app-quit behavior is preserved. */
+export function onMainWindowClosed(listener: () => void): void {
+  mainWindowClosedListeners.add(listener);
+}
 
 export function focusMainWindow(reason: string): void {
   if (mainWindow) {
@@ -334,7 +356,7 @@ export function createWindow(): void {
     .get<ElectronMainWindow>(MAIN_WINDOW_SERVICE)
     .setMainWindowGetter(() => mainWindow);
 
-  createIPCHandler({
+  trpcIpcHandler = createIPCHandler({
     router: trpcRouter,
     windows: [mainWindow],
     createContext: async () => ({ container }),
@@ -343,6 +365,13 @@ export function createWindow(): void {
       trpcLog.error(`${type} '${path ?? "<unknown>"}' failed (${error.code})`, {
         message: error.message,
         cause: error.cause instanceof Error ? error.cause.stack : error.cause,
+      });
+    },
+    onNavigationCleanup: ({ webContentsId, url, aborted }) => {
+      trpcLog.info("Main-frame navigation committed", {
+        webContentsId,
+        url,
+        abortedOperations: aborted,
       });
     },
   });
@@ -376,5 +405,8 @@ export function createWindow(): void {
       saveTimeout = null;
     }
     mainWindow = null;
+    for (const listener of mainWindowClosedListeners) {
+      listener();
+    }
   });
 }

@@ -33,6 +33,14 @@ def unwrap_temporal_cause(exc: BaseException) -> ApplicationError | None:
     return current if isinstance(current, ApplicationError) else None
 
 
+def resolve_failure_type(exc: BaseException) -> str:
+    """Temporal rebuilds a remote failure as a bare ApplicationError with the real class name on `.type`."""
+    failure_type = getattr(exc, "type", None)
+    if isinstance(failure_type, str) and failure_type:
+        return failure_type
+    return type(exc).__name__
+
+
 def resolve_exception_class(exc: BaseException) -> str:
     cause: BaseException = unwrap_temporal_cause(exc) or exc
     return getattr(cause, "type", None) or type(cause).__name__

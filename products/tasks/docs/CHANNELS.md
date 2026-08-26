@@ -104,12 +104,37 @@ membership without adding permissions to Task.
 - A task controller can move a task by updating `channel` to a public or owned private space. Existing callers can still clear `channel` for legacy compatibility.
 - `TaskSerializer` / `TaskDetailDTO` emit `channel`.
 - `GET /tasks/?channel=<uuid>` filters the list to a channel's feed.
+- `POST /tasks/{task_id}/handoff/ {user}`: hand a task off to a colleague. The
+  requester must own the task; the target must have access to the project and not
+  be the current owner. Ownership (`created_by`)
+  moves to the recipient, so they drive the task afterwards and future runs
+  resolve GitHub authorship and notification recipients from them. A task in a
+  private `#me` space (or with no channel) moves into the recipient's `#me`, so a
+  handoff never strands a task the recipient can't open; a task in a shared space
+  stays there. All task runs must be terminal and every sandbox session must be
+  closed before a handoff. The handoff rotates the task's server-owned ownership
+  version, revokes task-bound sandbox OAuth tokens, and makes runs from the old
+  ownership version read-only. The recipient must start a fresh run. The handoff
+  also clears the stored GitHub user-integration preference and any borrowed MCP
+  credential owner, posts a system `task_handed_off` announcement into the task's
+  thread, and notifies the recipient.
 
 ### Canvas endpoints
 
 - Project members can create and read Canvases in public channels.
 - Only a Canvas creator can change Canvas metadata or source.
 - Any project member can queue a build for the current source version through `publish-current-version`.
+
+Task sandboxes use the authenticated OAuth token user for the creator boundary across public and personal spaces:
+
+| Canvas space | Token user                    | Read | Write |
+| ------------ | ----------------------------- | ---- | ----- |
+| Public       | Canvas creator                | Yes  | Yes   |
+| Public       | Another user or no token user | Yes  | No    |
+| Personal     | Canvas creator                | Yes  | Yes   |
+| Personal     | Another user or no token user | No   | No    |
+
+An exact task-to-Canvas link does not grant additional write access. Canvas creation remains limited to the bound task's space.
 
 ### `/api/projects/{id}/tasks/{task_id}/thread_messages/`
 

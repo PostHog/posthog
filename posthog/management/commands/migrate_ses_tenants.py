@@ -1,5 +1,6 @@
 import logging
 from collections.abc import Iterable
+from dataclasses import dataclass
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
@@ -14,6 +15,15 @@ from posthog.models.integration import Integration
 logger = logging.getLogger(__name__)
 
 
+# Mutable on purpose: the counters are incremented in place throughout the migration loop
+@dataclass(frozen=False)
+class SesTenantMigrationCounts:
+    tenants: int = 0
+    associations_ok: int = 0
+    tenant_failures: int = 0
+    association_failures: int = 0
+
+
 def _batched(iterable: Iterable, size: int) -> Iterable[list]:
     batch: list = []
     for item in iterable:
@@ -25,15 +35,14 @@ def _batched(iterable: Iterable, size: int) -> Iterable[list]:
         yield batch
 
 
-def migrate_ses_tenants(team_ids: list[int], domains: list[str], dry_run: bool = False) -> dict[str, int]:
+def migrate_ses_tenants(team_ids: list[int], domains: list[str], dry_run: bool = False) -> SesTenantMigrationCounts:
     """
     Ensure existing SES email identities have SES Tenants and Tenant Resource Associations
     (the identity plus every configuration set sends reference).
 
-    Idempotent. Returns counts so callers can tell a complete pass from a partial one:
-    {"tenants": ..., "associations_ok": ..., "tenant_failures": ..., "association_failures": ...}.
+    Idempotent. Returns counts so callers can tell a complete pass from a partial one.
     """
-    counts = {"tenants": 0, "associations_ok": 0, "tenant_failures": 0, "association_failures": 0}
+    counts = SesTenantMigrationCounts()
     if team_ids and domains:
         print("Please provide either team_ids or domains, not both")  # noqa: T201
         return counts
@@ -87,7 +96,7 @@ def migrate_ses_tenants(team_ids: list[int], domains: list[str], dry_run: bool =
     except (ClientError, BotoCoreError) as e:
         logger.exception("Failed to get AWS account id for SES tenant association: %s", e)
         print("Error determining AWS account ID. Aborting.")  # noqa: T201
-        counts["tenant_failures"] = len(pairs)
+        counts.tenant_failures = len(pairs)
         return counts
 
     for batch in _batched(pairs, 50):
@@ -114,9 +123,9 @@ def migrate_ses_tenants(team_ids: list[int], domains: list[str], dry_run: bool =
             except (ClientError, BotoCoreError) as e:
                 logger.exception("Error creating SES tenant '%s': %s", tenant_name, e)
                 print(f"Error creating tenant '{tenant_name}': {e}")  # noqa: T201
-                counts["tenant_failures"] += 1
+                counts.tenant_failures += 1
                 continue
-            counts["tenants"] += 1
+            counts.tenants += 1
 
             # Associate the identity plus the configuration sets sends reference — an attributed
             # send fails unless EVERY resource it uses is associated with the tenant.
@@ -140,7 +149,7 @@ def migrate_ses_tenants(team_ids: list[int], domains: list[str], dry_run: bool =
                                 print(f"Association already exists for '{resource_arn}' and tenant '{tenant_name}'")  # noqa: T201
                             else:
                                 raise
-                    counts["associations_ok"] += 1
+                    counts.associations_ok += 1
                 except (ClientError, BotoCoreError) as e:
                     logger.exception(
                         "Error creating SES tenant_resource_association for '%s' on '%s': %s",
@@ -149,7 +158,7 @@ def migrate_ses_tenants(team_ids: list[int], domains: list[str], dry_run: bool =
                         e,
                     )
                     print(f"Error creating tenant_resource_association for '{resource_arn}' on '{tenant_name}': {e}")  # noqa: T201
-                    counts["association_failures"] += 1
+                    counts.association_failures += 1
                     continue
 
     return counts
@@ -186,12 +195,12 @@ class Command(BaseCommand):
         counts = migrate_ses_tenants(team_ids=team_ids, domains=domains, dry_run=dry_run)
 
         self.stdout.write(
-            f"Summary: {counts['tenants']} tenants processed, "
-            f"{counts['associations_ok']} associations ensured, "
-            f"{counts['tenant_failures']} tenant failures, "
-            f"{counts['association_failures']} association failures"
+            f"Summary: {counts.tenants} tenants processed, "
+            f"{counts.associations_ok} associations ensured, "
+            f"{counts.tenant_failures} tenant failures, "
+            f"{counts.association_failures} association failures"
         )
-        failures = counts["tenant_failures"] + counts["association_failures"]
+        failures = counts.tenant_failures + counts.association_failures
         if failures:
             # Non-zero exit: an incomplete pass must not read as a successful rollout step —
             # tenants missing an association fail attributed sends. Rerun for the logged tenants.

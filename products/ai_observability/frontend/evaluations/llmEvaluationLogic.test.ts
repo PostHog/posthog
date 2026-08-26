@@ -5,10 +5,10 @@ import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { ActivityScope } from '~/types'
 
 import type { TestHogResponseApi } from '../generated/api.schemas'
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
-import { EVALUATION_SUMMARY_MAX_RUNS } from './constants'
 import { evaluationReportLogic } from './evaluationReportLogic'
 import { DEFAULT_HOG_SOURCE, llmEvaluationLogic } from './llmEvaluationLogic'
 import { llmEvaluationsLogic } from './llmEvaluationsLogic'
@@ -241,7 +241,11 @@ describe('llmEvaluationLogic', () => {
                 },
                 '/api/projects/:teamId/evaluations/:id/': mockEvaluation,
                 '/api/environments/:teamId/llm_analytics/models/': {
-                    models: [{ id: 'gpt-5-mini' }, { id: 'gpt-5' }],
+                    models: [
+                        { id: 'gpt-5-mini', provider: 'openai' },
+                        { id: 'gpt-5', provider: 'openai' },
+                    ],
+                    providers: [{ provider: 'openai', model_count: 2, requires_provider_key: false }],
                 },
             },
         })
@@ -600,6 +604,31 @@ return result`,
             })
         })
 
+        describe('sidePanelContext', () => {
+            it('scopes the side panel to this evaluation once it loads', async () => {
+                logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
+                logic.mount()
+
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+                await expectLogic(logic).toMatchValues({
+                    sidePanelContext: {
+                        activity_scope: ActivityScope.EVALUATION,
+                        activity_item_id: 'eval-123',
+                        access_control_resource: 'evaluation',
+                        access_control_resource_id: 'eval-123',
+                    },
+                })
+            })
+
+            it('stays null while creating a new evaluation', async () => {
+                logic = llmEvaluationLogic({ evaluationId: 'new' })
+                logic.mount()
+
+                await expectLogic(logic).toMatchValues({ sidePanelContext: null })
+            })
+        })
+
         describe('modelSelectionRequired', () => {
             beforeEach(() => {
                 logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
@@ -911,151 +940,36 @@ return result`,
         })
     })
 
-    describe('evaluation summary', () => {
+    describe('runs filtering', () => {
         beforeEach(() => {
             logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
             logic.mount()
         })
 
-        describe('evaluationSummaryFilter', () => {
+        describe('evaluationRunsFilter', () => {
             it('defaults to all', async () => {
-                expect(logic.values.evaluationSummaryFilter).toBe('all')
+                expect(logic.values.evaluationRunsFilter).toBe('all')
             })
 
-            it('updates when setEvaluationSummaryFilter is called', async () => {
-                logic.actions.setEvaluationSummaryFilter('pass', 'all')
+            it('updates when setEvaluationRunsFilter is called', async () => {
+                logic.actions.setEvaluationRunsFilter('pass', 'all')
 
                 await expectLogic(logic).toMatchValues({
-                    evaluationSummaryFilter: 'pass',
-                })
-            })
-
-            it('clears evaluationSummary when filter changes', async () => {
-                // Simulate having a summary
-                logic.actions.generateEvaluationSummarySuccess({
-                    overall_assessment: 'Test',
-                    pass_patterns: [],
-                    fail_patterns: [],
-                    na_patterns: [],
-                    recommendations: [],
-                    statistics: { total_analyzed: 10, pass_count: 5, fail_count: 3, na_count: 2 },
-                })
-
-                await expectLogic(logic).toMatchValues({
-                    evaluationSummary: expect.objectContaining({ overall_assessment: 'Test' }),
-                })
-
-                logic.actions.setEvaluationSummaryFilter('fail', 'all')
-
-                await expectLogic(logic).toMatchValues({
-                    evaluationSummary: null,
+                    evaluationRunsFilter: 'pass',
                 })
             })
         })
 
         describe('sentiment evaluation filters', () => {
             it('defaults to all for boolean evaluations', async () => {
-                expect(logic.values.evaluationSummaryFilter).toBe('all')
+                expect(logic.values.evaluationRunsFilter).toBe('all')
             })
 
             it('defaults to negative for sentiment evaluations', async () => {
                 logic.actions.loadEvaluationSuccess(mockSentimentEvaluation)
 
                 await expectLogic(logic).toMatchValues({
-                    evaluationSummaryFilter: 'negative',
-                })
-            })
-        })
-
-        describe('runsToSummarizeCount', () => {
-            it('returns 0 when no runs', async () => {
-                expect(logic.values.runsToSummarizeCount).toBe(0)
-            })
-
-            it('counts all completed runs when filter is all', async () => {
-                logic.actions.loadEvaluationRunsSuccess(mockRuns)
-
-                await expectLogic(logic).toMatchValues({
-                    runsToSummarizeCount: 3,
-                })
-            })
-
-            it('counts only passing runs when filter is pass', async () => {
-                logic.actions.loadEvaluationRunsSuccess(mockRuns)
-                logic.actions.setEvaluationSummaryFilter('pass', 'all')
-
-                await expectLogic(logic).toMatchValues({
-                    runsToSummarizeCount: 1,
-                })
-            })
-
-            it('counts only failing runs when filter is fail', async () => {
-                logic.actions.loadEvaluationRunsSuccess(mockRuns)
-                logic.actions.setEvaluationSummaryFilter('fail', 'all')
-
-                await expectLogic(logic).toMatchValues({
-                    runsToSummarizeCount: 1,
-                })
-            })
-
-            it('counts only N/A runs when filter is na', async () => {
-                logic.actions.loadEvaluationRunsSuccess(mockRuns)
-                logic.actions.setEvaluationSummaryFilter('na', 'all')
-
-                await expectLogic(logic).toMatchValues({
-                    runsToSummarizeCount: 1,
-                })
-            })
-
-            it(`caps count at ${EVALUATION_SUMMARY_MAX_RUNS}`, async () => {
-                const manyRuns = Array.from({ length: EVALUATION_SUMMARY_MAX_RUNS + 50 }, (_, i) => ({
-                    ...mockRuns[0],
-                    id: `run-${i}`,
-                    generation_id: `gen-${i}`,
-                }))
-                logic.actions.loadEvaluationRunsSuccess(manyRuns)
-
-                await expectLogic(logic).toMatchValues({
-                    runsToSummarizeCount: EVALUATION_SUMMARY_MAX_RUNS,
-                })
-            })
-        })
-
-        describe('summaryExpanded', () => {
-            it('defaults to true', async () => {
-                expect(logic.values.summaryExpanded).toBe(true)
-            })
-
-            it('toggles on toggleSummaryExpanded', async () => {
-                logic.actions.toggleSummaryExpanded()
-
-                await expectLogic(logic).toMatchValues({
-                    summaryExpanded: false,
-                })
-
-                logic.actions.toggleSummaryExpanded()
-
-                await expectLogic(logic).toMatchValues({
-                    summaryExpanded: true,
-                })
-            })
-
-            it('expands on generateEvaluationSummarySuccess', async () => {
-                logic.actions.toggleSummaryExpanded() // collapse
-
-                await expectLogic(logic).toMatchValues({ summaryExpanded: false })
-
-                logic.actions.generateEvaluationSummarySuccess({
-                    overall_assessment: 'Test',
-                    pass_patterns: [],
-                    fail_patterns: [],
-                    na_patterns: [],
-                    recommendations: [],
-                    statistics: { total_analyzed: 10, pass_count: 5, fail_count: 3, na_count: 2 },
-                })
-
-                await expectLogic(logic).toMatchValues({
-                    summaryExpanded: true,
+                    evaluationRunsFilter: 'negative',
                 })
             })
         })
@@ -1071,7 +985,7 @@ return result`,
 
             it('returns only passing runs when filter is pass', async () => {
                 logic.actions.loadEvaluationRunsSuccess(mockRuns)
-                logic.actions.setEvaluationSummaryFilter('pass', 'all')
+                logic.actions.setEvaluationRunsFilter('pass', 'all')
 
                 await expectLogic(logic).toMatchValues({
                     filteredEvaluationRuns: [expect.objectContaining({ id: 'run-1', result: true })],
@@ -1080,7 +994,7 @@ return result`,
 
             it('returns only failing runs when filter is fail', async () => {
                 logic.actions.loadEvaluationRunsSuccess(mockRuns)
-                logic.actions.setEvaluationSummaryFilter('fail', 'all')
+                logic.actions.setEvaluationRunsFilter('fail', 'all')
 
                 await expectLogic(logic).toMatchValues({
                     filteredEvaluationRuns: [expect.objectContaining({ id: 'run-2', result: false })],
@@ -1089,7 +1003,7 @@ return result`,
 
             it('returns only N/A runs when filter is na', async () => {
                 logic.actions.loadEvaluationRunsSuccess(mockRuns)
-                logic.actions.setEvaluationSummaryFilter('na', 'all')
+                logic.actions.setEvaluationRunsFilter('na', 'all')
 
                 await expectLogic(logic).toMatchValues({
                     filteredEvaluationRuns: [expect.objectContaining({ id: 'run-3', result: null })],
@@ -1107,11 +1021,10 @@ return result`,
                     skipped: true,
                 }
                 logic.actions.loadEvaluationRunsSuccess([...mockRuns, skippedRun])
-                logic.actions.setEvaluationSummaryFilter('fail', 'all')
+                logic.actions.setEvaluationRunsFilter('fail', 'all')
 
                 await expectLogic(logic).toMatchValues({
                     filteredEvaluationRuns: [expect.objectContaining({ id: 'run-2' })],
-                    runsToSummarizeCount: 1,
                 })
             })
 
@@ -1131,7 +1044,7 @@ return result`,
                     },
                 ]
                 logic.actions.loadEvaluationRunsSuccess(runsWithFailed)
-                logic.actions.setEvaluationSummaryFilter('pass', 'all')
+                logic.actions.setEvaluationRunsFilter('pass', 'all')
 
                 await expectLogic(logic).toMatchValues({
                     filteredEvaluationRuns: [expect.objectContaining({ id: 'run-1' })],
@@ -1150,7 +1063,7 @@ return result`,
             it('returns only completed sentiment runs matching the selected filter', async () => {
                 logic.actions.loadEvaluationSuccess(mockSentimentEvaluation)
                 logic.actions.loadEvaluationRunsSuccess(mockSentimentRuns)
-                logic.actions.setEvaluationSummaryFilter('positive', 'negative')
+                logic.actions.setEvaluationRunsFilter('positive', 'negative')
 
                 await expectLogic(logic).toMatchValues({
                     filteredEvaluationRuns: [expect.objectContaining({ id: 'run-positive' })],
@@ -1160,24 +1073,10 @@ return result`,
             it('returns all sentiment runs when the all filter is selected', async () => {
                 logic.actions.loadEvaluationSuccess(mockSentimentEvaluation)
                 logic.actions.loadEvaluationRunsSuccess(mockSentimentRuns)
-                logic.actions.setEvaluationSummaryFilter('all', 'negative')
+                logic.actions.setEvaluationRunsFilter('all', 'negative')
 
                 await expectLogic(logic).toMatchValues({
                     filteredEvaluationRuns: mockSentimentRuns,
-                })
-            })
-        })
-
-        describe('runsLookup', () => {
-            it('creates lookup by generation_id', async () => {
-                logic.actions.loadEvaluationRunsSuccess(mockRuns)
-
-                await expectLogic(logic).toMatchValues({
-                    runsLookup: {
-                        'gen-1': expect.objectContaining({ id: 'run-1' }),
-                        'gen-2': expect.objectContaining({ id: 'run-2' }),
-                        'gen-3': expect.objectContaining({ id: 'run-3' }),
-                    },
                 })
             })
         })

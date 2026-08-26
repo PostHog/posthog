@@ -31,6 +31,7 @@ import { isString } from 'lib/utils/guards'
 import { pluralize } from 'lib/utils/strings'
 import {
     getAccountCustomPropertyDefinitionIcon,
+    getAccountFieldDefinitionIcon,
     getEventDefinitionIcon,
     getEventMetadataDefinitionIcon,
     getPersonPropertyDefinitionIcon,
@@ -536,8 +537,17 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             getPopoverHeader: () => 'Revenue analytics properties',
         },
         {
-            name: 'Custom properties',
-            searchPlaceholder: 'custom properties',
+            name: 'Account fields',
+            searchPlaceholder: 'account fields',
+            type: TaxonomicFilterGroupType.AccountFields,
+            getIcon: getAccountFieldDefinitionIcon,
+            getName: (option: PropertyDefinition) => option.name,
+            getValue: (option: PropertyDefinition) => option.id,
+            getPopoverHeader: () => 'Account field',
+        },
+        {
+            name: 'Account custom properties',
+            searchPlaceholder: 'account custom properties',
             type: TaxonomicFilterGroupType.AccountCustomProperties,
             // Mirrors the legacy taxonomicFilterLogic group: account custom property definitions
             // are per-team API data, so the options come from the consumer via `optionsFromProp` —

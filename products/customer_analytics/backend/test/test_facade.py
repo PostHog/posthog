@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 from django.apps import apps
 from django.db import models
 from django.test import SimpleTestCase
+from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -15,8 +16,8 @@ from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.tag import Tag
 from posthog.models.tagged_item import TaggedItem
-from posthog.rbac.user_access_control import UserAccessControl
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.customer_analytics.backend.facade import (
     api as facade,
     contracts,
@@ -35,7 +36,7 @@ from products.customer_analytics.backend.models.account import AccountProperties
 from products.customer_analytics.backend.models.team_scoped_test_base import TeamScopedTestMixin
 from products.customer_analytics.backend.test.factories import create_account
 from products.notebooks.backend.models import Notebook, ResourceNotebook
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 class TestCustomerAnalyticsFacade(BaseTest):
@@ -90,7 +91,8 @@ class TestCustomerAnalyticsFacade(BaseTest):
         assert facade.get_account_ref_by_slack_channel_id(self.team.id, "C123") is None
 
     def test_get_account_context_data_bundles_tags_and_notes(self):
-        account = create_account(team_id=self.team.id, name="Acme Corp", external_id="acme-123")
+        ignored_at = timezone.now()
+        account = create_account(team_id=self.team.id, name="Acme Corp", external_id="acme-123", ignored_at=ignored_at)
         tag = Tag.objects.create(name="enterprise", team_id=self.team.id)
         TaggedItem.objects.create(tag=tag, account=account)
         notebook = Notebook.objects.create(
@@ -107,6 +109,7 @@ class TestCustomerAnalyticsFacade(BaseTest):
 
         assert isinstance(data, contracts.AccountContextData)
         assert data.name == "Acme Corp"
+        assert data.ignored_at == ignored_at
         assert data.tags == ["enterprise"]
         assert data.notes == [contracts.AccountNote(title="Q3 recap", short_id=notebook.short_id)]
 
@@ -146,6 +149,18 @@ class TestCustomerAnalyticsFacade(BaseTest):
         assert isinstance(rows[0], contracts.AccountRef)
         assert isinstance(rows[0].id, str)
 
+    def test_search_accounts_excludes_ignored_by_default(self):
+        create_account(team_id=self.team.id, name="Acme Tracked")
+        create_account(team_id=self.team.id, name="Acme Ignored", ignored_at=timezone.now())
+
+        default_rows, default_count = facade.search_accounts(self.team.id, "acme", self._uac(), limit=10)
+        all_rows, all_count = facade.search_accounts(self.team.id, "acme", self._uac(), limit=10, include_ignored=True)
+
+        assert [row.name for row in default_rows] == ["Acme Tracked"]
+        assert default_count == 1
+        assert {row.name for row in all_rows} == {"Acme Tracked", "Acme Ignored"}
+        assert all_count == 2
+
     def test_list_accounts_newest_first_with_count(self):
         create_account(team_id=self.team.id, name="First")
         create_account(team_id=self.team.id, name="Second")
@@ -154,6 +169,22 @@ class TestCustomerAnalyticsFacade(BaseTest):
 
         assert count == 2
         assert {r.name for r in rows} == {"First", "Second"}
+
+    def test_list_accounts_excludes_ignored_by_default(self):
+        create_account(team_id=self.team.id, name="Tracked")
+        create_account(team_id=self.team.id, name="Ignored", ignored_at=timezone.now())
+
+        default_rows, default_count = facade.list_accounts(
+            self.team.id, offset=0, limit=10, user_access_control=self._uac()
+        )
+        all_rows, all_count = facade.list_accounts(
+            self.team.id, offset=0, limit=10, user_access_control=self._uac(), include_ignored=True
+        )
+
+        assert [row.name for row in default_rows] == ["Tracked"]
+        assert default_count == 1
+        assert {row.name for row in all_rows} == {"Tracked", "Ignored"}
+        assert all_count == 2
 
     # -- External account API (CDP worker) --------------------------------
 
@@ -175,6 +206,7 @@ class TestCustomerAnalyticsFacade(BaseTest):
         assert result.id == str(account.id)
         assert result.external_id == "acme-1"
         assert result.name == "Acme Corp"
+        assert result.ignored_at is None
         assert result.tags == ["enterprise"]
         assert result.properties == account.properties.model_dump(mode="json")
         assert result.properties["stripe_customer_id"] == "cus_1"
@@ -854,7 +886,7 @@ class AccountUpdateWriteTest(TeamScopedTestMixin, BaseTest):
                 allow_matching_updates=True,
             )
 
-        mock_send_task.assert_called_once_with(
+        mock_send_task.assert_any_call(
             "customer_analytics.rematch_account_meetings",
             kwargs={"team_id": self.team.pk, "account_id": str(account.id)},
         )

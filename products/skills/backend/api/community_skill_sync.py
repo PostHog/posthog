@@ -11,8 +11,14 @@ from rest_framework.serializers import ValidationError as DRFValidationError
 from posthog.egress.github.transport import github_request
 
 from ..models.community_skills import CommunitySkill, CommunitySkillFile, CommunitySkillTrustTier
-from .skill_serializers import RESERVED_SKILL_NAMES, SKILL_NAME_PATTERN, validate_skill_file_path
-from .skill_services import MAX_SKILL_BODY_BYTES, MAX_SKILL_FILE_BYTES, MAX_SKILL_FILE_COUNT
+from .skill_serializers import validate_skill_file_path
+from .skill_services import (
+    MAX_SKILL_BODY_BYTES,
+    MAX_SKILL_FILE_BYTES,
+    MAX_SKILL_FILE_COUNT,
+    RESERVED_SKILL_NAMES,
+    SKILL_NAME_PATTERN,
+)
 
 logger = structlog.get_logger(__name__)
 

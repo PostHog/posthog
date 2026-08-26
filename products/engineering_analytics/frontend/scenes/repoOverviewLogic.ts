@@ -38,34 +38,17 @@ export interface repoOverviewLogicValues {
     activityTruncated: boolean
     attentionPrs: PullRequestRow[]
     costByWorkflow: CostShareRow[]
-    costPerMergeSeries: {
-        interval: 'day' | 'hour' | 'week'
-        labels: string[]
-        values: number[]
-    } | null
     draftCount: number
     jobsAvailable: boolean
-    openToMergeSeries: {
-        labels: string[]
-        values: number[]
-    } | null
     otherCostWorkflowCount: number
     overview: RepoOverviewApi | null
     overviewDefaultBranch: string
     overviewFailed: boolean
     overviewLoading: boolean
-    passRateSeries: {
-        labels: string[]
-        values: number[]
-    } | null
     prPreviewCount: number
     repoActivity: WorkflowRunActivityApi
     repoActivityFailed: boolean
     repoActivityLoading: boolean
-    timeToGreenSeries: {
-        labels: string[]
-        values: number[]
-    } | null
     workflowPreviewCount: number
 }
 
@@ -120,23 +103,6 @@ export interface repoOverviewLogicMeta {
         draftCount: (pullRequests: PullRequestRow[]) => number
         costByWorkflow: (workflowHealth: WorkflowHealthRow[]) => CostShareRow[]
         otherCostWorkflowCount: (workflowHealth: WorkflowHealthRow[]) => number
-        costPerMergeSeries: (overview: RepoOverviewApi | null) => {
-            interval: 'day' | 'hour' | 'week'
-            labels: string[]
-            values: number[]
-        } | null
-        timeToGreenSeries: (overview: RepoOverviewApi | null) => {
-            labels: string[]
-            values: number[]
-        } | null
-        passRateSeries: (overview: RepoOverviewApi | null) => {
-            labels: string[]
-            values: number[]
-        } | null
-        openToMergeSeries: (overview: RepoOverviewApi | null) => {
-            labels: string[]
-            values: number[]
-        } | null
     }
 }
 
@@ -180,6 +146,9 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
                     await engineeringAnalyticsRepoOverview(projectId(), {
                         date_from: values.dateFrom ?? undefined,
                         date_to: values.dateTo ?? undefined,
+                        // The hub renders window-vs-previous comparisons from the headline
+                        // aggregates; skipping the chart series skips their query cost too.
+                        include_series: false,
                         source_id: values.sourceId ?? undefined,
                         repo: values.scopeRepo ?? undefined,
                     }),
@@ -310,99 +279,6 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
                     0,
                     workflowHealth.filter((row) => (row.estimatedCostUsd ?? 0) > 0).length - TOP_COST_WORKFLOWS
                 ),
-        ],
-        // Cost-per-merged-PR trend for the Cost section — the "is CI spend per shipped change creeping
-        // up" chart. The backend delivers a trailing rolling ratio, so a null only means the whole
-        // trailing window shipped nothing; plotted as 0 to keep the axis anchored. Null when the series
-        // is empty (job source unsynced), so the section falls back to its existing empty state.
-        // Labels stay ISO — the quill time-series chart owns tick/tooltip date formatting.
-        costPerMergeSeries: [
-            (s) => [s.overview],
-            (
-                overview: RepoOverviewApi | null
-            ): { values: number[]; labels: string[]; interval: 'hour' | 'day' | 'week' } | null => {
-                const series = overview?.cost_series ?? []
-                const firstData = series.findIndex((bucket) => bucket.cost_per_merge_usd != null)
-                if (firstData === -1) {
-                    return null
-                }
-                const granularity = overview?.cost_series_granularity
-                return {
-                    values: series.map((bucket) => bucket.cost_per_merge_usd ?? 0),
-                    labels: series.map((bucket) => bucket.bucket_start),
-                    interval: granularity === 'hour' ? 'hour' : granularity === 'week' ? 'week' : 'day',
-                }
-            },
-        ],
-        // Time-to-green trend (median success-only PR CI duration) in minutes. Empty buckets carry the last
-        // known value forward — a gap means "no new PR run to time", not 0 min, so zero-filling would draw a
-        // false dip. Trimmed to start at the first bucket with data so the line doesn't open on flat zeros.
-        // Null when no bucket has a successful PR run, so the card shows its own empty state.
-        timeToGreenSeries: [
-            (s) => [s.overview],
-            (overview: RepoOverviewApi | null): { values: number[]; labels: string[] } | null => {
-                const series = overview?.time_to_green_series ?? []
-                const firstData = series.findIndex((bucket) => bucket.p50_seconds != null)
-                if (firstData === -1) {
-                    return null
-                }
-                const fmt = overview?.time_to_green_series_granularity === 'hour' ? 'MMM D HH:mm' : 'MMM D'
-                const trimmed = series.slice(firstData)
-                let last = 0
-                const values = trimmed.map((bucket) => {
-                    if (bucket.p50_seconds != null) {
-                        last = Math.round((bucket.p50_seconds / 60) * 10) / 10
-                    }
-                    return last
-                })
-                return { values, labels: trimmed.map((bucket) => dayjs(bucket.bucket_start).format(fmt)) }
-            },
-        ],
-        // Pass-rate trend (0-1). Empty buckets carry the last known value forward so a gap (no completed
-        // run) draws no false dip to zero; trimmed to start at the first bucket with data. Null when no
-        // bucket has a completed run, so the card shows its own empty state.
-        passRateSeries: [
-            (s) => [s.overview],
-            (overview: RepoOverviewApi | null): { values: number[]; labels: string[] } | null => {
-                const series = overview?.success_rate_series ?? []
-                const firstData = series.findIndex((bucket) => bucket.success_rate != null)
-                if (firstData === -1) {
-                    return null
-                }
-                const fmt = overview?.success_rate_series_granularity === 'hour' ? 'MMM D HH:mm' : 'MMM D'
-                const trimmed = series.slice(firstData)
-                let last = 0
-                const values = trimmed.map((bucket) => {
-                    if (bucket.success_rate != null) {
-                        last = bucket.success_rate
-                    }
-                    return last
-                })
-                return { values, labels: trimmed.map((bucket) => dayjs(bucket.bucket_start).format(fmt)) }
-            },
-        ],
-        // Time-to-merge trend in seconds (median open→merge, bots/drafts excluded). Same carry-forward +
-        // trim as time-to-green: a gap means "nothing merged", not instant merges, so zero-filling would
-        // draw a false dip. Null when no bucket had a qualifying merge.
-        openToMergeSeries: [
-            (s) => [s.overview],
-            (overview: RepoOverviewApi | null): { values: number[]; labels: string[] } | null => {
-                const series = overview?.open_to_merge_series ?? []
-                const firstData = series.findIndex((bucket) => bucket.p50_seconds != null)
-                if (firstData === -1) {
-                    return null
-                }
-                const fmt = overview?.open_to_merge_series_granularity === 'hour' ? 'MMM D HH:mm' : 'MMM D'
-                const trimmed = series.slice(firstData)
-                let last = 0
-                const values = trimmed.map((bucket) => {
-                    if (bucket.p50_seconds != null) {
-                        last = bucket.p50_seconds
-                    }
-                    return last
-                })
-                return { values, labels: trimmed.map((bucket) => dayjs(bucket.bucket_start).format(fmt)) }
-            },
         ],
     }),
 

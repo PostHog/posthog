@@ -11,6 +11,9 @@ import {
   Text,
 } from "@posthog/quill";
 import { ArtifactRefChip } from "@posthog/ui/features/editor/components/ArtifactRefChip";
+import { EvidenceRefChip } from "@posthog/ui/features/editor/components/EvidenceRefChip";
+import { githubRefChipFor } from "@posthog/ui/features/editor/components/githubRefChipFor";
+import { MessageChartCard } from "@posthog/ui/features/editor/components/MessageChartCard";
 import {
   markOpenLinkDestination,
   parseOpenFence,
@@ -25,11 +28,20 @@ import {
 import { HighlightedCode } from "@posthog/ui/primitives/HighlightedCode";
 import { useCopy } from "@posthog/ui/primitives/useCopy";
 import { parseArtifactLink } from "@posthog/ui/utils/artifactLinks";
+import {
+  CHART_BLOCK_MARKER,
+  chartBlockKey,
+  isGeneratedChartBlock,
+  parseChartBlock,
+} from "@posthog/ui/utils/chartBlocks";
+import { parseEvidenceLink } from "@posthog/ui/utils/evidenceLinks";
+import { remarkObjectTags } from "@posthog/ui/utils/remarkObjectTags";
 import { IconButton } from "@radix-ui/themes";
 import { memo, type ReactNode, useMemo } from "react";
-import Markdown, { type Components } from "react-markdown";
-import rehypeSanitize from "rehype-sanitize";
+import Markdown, { type Components, defaultUrlTransform } from "react-markdown";
+import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
+import type { PluggableList } from "unified";
 
 const PENDING_LINK_DESTINATION = "#posthog-streaming-link";
 
@@ -83,6 +95,14 @@ const components: Components = {
         </output>
       );
     }
+    const evidenceTarget = parseEvidenceLink(href);
+    if (evidenceTarget) {
+      return (
+        <EvidenceRefChip target={evidenceTarget}>{children}</EvidenceRefChip>
+      );
+    }
+    const githubChip = githubRefChipFor(href, children);
+    if (githubChip) return githubChip;
     const link = (
       <a
         href={href}
@@ -115,9 +135,19 @@ const components: Components = {
     </ol>
   ),
   li: ({ children }) => <li className="text-sm">{children}</li>,
-  code: ({ className, children }) => {
+  code: ({ className, children, node }) => {
     const text = String(children).replace(/\n$/, "");
-    const match = /language-(\w+)/.exec(className ?? "");
+    const match = /language-([\w-]+)/.exec(className ?? "");
+    // Block-display object tags normalize to posthog-chart code nodes (see
+    // remarkObjectTags); they render as chart cards, not code. Dispatch
+    // requires the plugin's private AST marker so a hand-authored fence stays
+    // inert. Malformed or half-streamed specs render nothing rather than raw
+    // JSON.
+    if (isGeneratedChartBlock(node)) {
+      const spec = parseChartBlock(text);
+      if (!spec) return null;
+      return <MessageChartCard spec={spec} blockKey={chartBlockKey(text)} />;
+    }
     // Fenced blocks (carry a language, or span multiple lines) render as a boxed, copyable
     // block; short inline spans stay inline. `pre` below is a passthrough so the box lives here,
     // where the raw code string is in hand.
@@ -183,19 +213,56 @@ const components: Components = {
   td: ({ children }) => <TableCell>{children}</TableCell>,
 };
 
-const remarkPlugins = [remarkGfm];
-const rehypePlugins = [rehypeSanitize];
+// The internal `evidence:` hrefs never reach the DOM (the `a` component
+// renders them as chips), but they must survive react-markdown's default
+// transform, which empties unknown protocols.
+function chatUrlTransform(value: string, key: string): string {
+  if (key === "href" && value.startsWith("evidence:")) return value;
+  return defaultUrlTransform(value);
+}
+
+const remarkPlugins: PluggableList = [remarkGfm];
+const objectTagRemarkPlugins: PluggableList = [remarkGfm, remarkObjectTags];
+// The default sanitize schema, plus what remarkObjectTags emits: the internal
+// `evidence:` reference links (they never reach the DOM as hrefs; the `a`
+// component renders them as chips) and the private marker on generated chart
+// code nodes (unforgeable from text, since raw HTML is never parsed here).
+const rehypePlugins: PluggableList = [
+  [
+    rehypeSanitize,
+    {
+      ...defaultSchema,
+      attributes: {
+        ...defaultSchema.attributes,
+        code: [...(defaultSchema.attributes?.code ?? []), CHART_BLOCK_MARKER],
+      },
+      protocols: {
+        ...defaultSchema.protocols,
+        href: [...(defaultSchema.protocols?.href ?? []), "evidence"],
+      },
+    },
+  ],
+];
+
+interface ChatMarkdownProps {
+  content: string;
+  /** See MarkdownRenderer: only trusted agent-authored surfaces may enable
+   *  object tags, because they execute authenticated queries. */
+  renderObjectTags?: boolean;
+}
 
 export const ChatMarkdown = memo(function ChatMarkdown({
   content,
-}: {
-  content: string;
-}) {
+  renderObjectTags = false,
+}: ChatMarkdownProps) {
   return (
     <div className="flex flex-col gap-3 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
       <Markdown
-        remarkPlugins={remarkPlugins}
+        remarkPlugins={
+          renderObjectTags ? objectTagRemarkPlugins : remarkPlugins
+        }
         rehypePlugins={rehypePlugins}
+        urlTransform={renderObjectTags ? chatUrlTransform : defaultUrlTransform}
         components={components}
       >
         {content}
@@ -216,9 +283,8 @@ export const ChatMarkdown = memo(function ChatMarkdown({
  */
 export const ChatStreamingMarkdown = memo(function ChatStreamingMarkdown({
   content,
-}: {
-  content: string;
-}) {
+  renderObjectTags,
+}: ChatMarkdownProps) {
   const blocks = useMemo(() => splitMarkdownBlocks(content), [content]);
   const lastIndex = blocks.length - 1;
 
@@ -231,7 +297,10 @@ export const ChatStreamingMarkdown = memo(function ChatStreamingMarkdown({
           return (
             <div key={key} className="flex flex-col gap-3">
               {openFence.before.trim() ? (
-                <ChatMarkdown content={openFence.before} />
+                <ChatMarkdown
+                  content={openFence.before}
+                  renderObjectTags={renderObjectTags}
+                />
               ) : null}
               <ChatCodeBlock code={openFence.code}>
                 <code className="font-mono text-xs">{openFence.code}</code>
@@ -247,6 +316,7 @@ export const ChatStreamingMarkdown = memo(function ChatStreamingMarkdown({
                 ? markOpenLinkDestination(block, PENDING_LINK_DESTINATION)
                 : block
             }
+            renderObjectTags={renderObjectTags}
           />
         );
       })}

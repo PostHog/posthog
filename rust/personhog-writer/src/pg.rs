@@ -219,10 +219,13 @@ async fn run_upsert(
 
 fn classify_error(e: &sqlx::Error) -> WriteErrorKind {
     match e {
-        sqlx::Error::Io(_)
-        | sqlx::Error::PoolTimedOut
-        | sqlx::Error::PoolClosed
-        | sqlx::Error::WorkerCrashed => WriteErrorKind::Transient,
+        // Waiting on our own pool is backpressure, not database failure —
+        // classified apart so the writer retries without escalating.
+        sqlx::Error::PoolTimedOut => WriteErrorKind::Saturation,
+
+        sqlx::Error::Io(_) | sqlx::Error::PoolClosed | sqlx::Error::WorkerCrashed => {
+            WriteErrorKind::Transient
+        }
 
         sqlx::Error::Database(db_err) => {
             if let Some(code) = db_err.code() {
@@ -347,10 +350,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn classify_pool_timeout_as_transient() {
+    fn classify_pool_timeout_as_saturation() {
         assert!(matches!(
             classify_error(&sqlx::Error::PoolTimedOut),
-            WriteErrorKind::Transient
+            WriteErrorKind::Saturation
         ));
     }
 
