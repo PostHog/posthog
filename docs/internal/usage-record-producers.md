@@ -32,8 +32,15 @@ Measured locally: two identical batches landing in separate parts read as 6 rows
 | `cdp`            | `cdp_billable_invocations` | invocations | `event:{eventUuid}` / `flow:{invocationId}:{actionStepCount}:{kind}` / `webhook:{invocationId}` | CDP consumers         |
 | `feature-flags`  | `feature_flag_requests`    | requests    | fresh UUIDv7 per flush                                                                          | feature flags service |
 
-Every producer reads one env var, `USAGE_INGESTION_REPORT_TEAMS`: `''` reports nothing, `*` every team, `1,2` those teams.
-Each producer above is its own deployment, so one name still rolls out per producer, set in that service's config.
+Every producer reads the same four env vars, and each one is its own deployment, so one name still rolls out per producer from that service's own config.
+
+| Env var                        | Default          | Meaning                                                                                                |
+| ------------------------------ | ---------------- | ------------------------------------------------------------------------------------------------------ |
+| `USAGE_INGESTION_REPORT_TEAMS` | `''`             | `''` reports nothing, `*` every team, `1,2` those teams.                                               |
+| `USAGE_INGESTION_ADDR`         | `''` outside dev | `host:port` of the gateway. Empty also reports nothing.                                                |
+| `USAGE_INGESTION_TLS`          | `false`          | Plaintext in-cluster. The flags service refuses `true` at startup, because its tonic build has no TLS. |
+| `USAGE_INGESTION_TIMEOUT_MS`   | `5000`           | Per attempt, not per batch. The flags sender retries a transient failure three times.                  |
+
 Empty is the default everywhere, so nothing reports until it is set.
 There is deliberately no percentage option: sampling a share of a team's events would bill that team a fraction of what it used.
 
@@ -182,7 +189,7 @@ Then point a producer at it and turn its team matcher on:
 
 ```sh
 USAGE_INGESTION_ADDR=localhost:7143 USAGE_INGESTION_REPORT_TEAMS='*' ./bin/start
-FLAGS_USAGE_INGESTION_URL=http://localhost:7143 USAGE_INGESTION_REPORT_TEAMS='*' cargo run -p feature-flags
+USAGE_INGESTION_ADDR=localhost:7143 USAGE_INGESTION_REPORT_TEAMS='*' cargo run -p feature-flags
 ```
 
 Records land within one flush interval:

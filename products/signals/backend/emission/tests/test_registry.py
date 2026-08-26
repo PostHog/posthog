@@ -1,5 +1,7 @@
 import pytest
 
+from django.db.models import Field
+
 from pydantic import ValidationError
 
 from products.signals.backend.emission.fetchers.data_warehouse import data_warehouse_record_fetcher
@@ -11,6 +13,7 @@ from products.signals.backend.emission.registry import (
     is_signal_emission_registered,
     register_signal_source,
 )
+from products.signals.backend.models import SignalSourceConfig
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 _BASE_FIELDS = {
@@ -157,6 +160,17 @@ class TestSignalSourceTableConfigValidation:
         assert config.description_summarization_threshold_chars is None
 
 
+# Captured at import, before the _clean_registry fixture can touch it.
+_REGISTERED_IDENTITIES = sorted({(c.source_product, c.source_type) for c in _SIGNAL_TABLE_CONFIGS.values()})
+
+
+def _field_choices(field_name: str) -> set[str]:
+    # The field's own choices are what ModelSerializer turns into the ChoiceField the API validates.
+    field = SignalSourceConfig._meta.get_field(field_name)
+    assert isinstance(field, Field)
+    return {value for value, _label in field.choices or ()}
+
+
 class TestAutoRegistered:
     @pytest.mark.parametrize(
         "source_type,schema_name",
@@ -173,3 +187,14 @@ class TestAutoRegistered:
         assert config is not None
         assert config.partition_field is not None
         assert config.record_fetcher is not None
+
+    # Emission is gated on a SignalSourceConfig row, so an identity the config model doesn't accept
+    # can never be enabled: the toggle posts it and the serializer rejects it with 400 invalid_choice.
+    @pytest.mark.parametrize(
+        "source_product,source_type",
+        _REGISTERED_IDENTITIES,
+        ids=[f"{product}-{source_type}" for product, source_type in _REGISTERED_IDENTITIES],
+    )
+    def test_registered_identity_is_an_enableable_config_choice(self, source_product: str, source_type: str) -> None:
+        assert source_product in _field_choices("source_product")
+        assert source_type in _field_choices("source_type")

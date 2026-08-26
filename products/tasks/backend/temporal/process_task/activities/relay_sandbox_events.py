@@ -19,7 +19,7 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.common.utils import close_db_connections
 
-from products.tasks.backend.logic.services.agent_command import validate_sandbox_url
+from products.tasks.backend.logic.services.agent_command import sandbox_transport_token, validate_sandbox_url
 from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
 from products.tasks.backend.logic.services.permission_broker import (
     parse_permission_request,
@@ -58,6 +58,19 @@ TERMINAL_NOTIFICATION_METHODS = frozenset(
 )
 
 FINAL_MESSAGE_MAX_CHARS = 20_000
+
+
+def _sanitize_httpx_error(e: httpx.HTTPStatusError) -> str:
+    """str(e) without the request URL's query string.
+
+    The relayed request carries the sandbox transport token (the account-wide
+    Hogland bearer, for hogland runs) as a query param. httpx's default error
+    message embeds the full request URL, so logging str(e) verbatim would copy
+    that credential into application logs on every 5xx from the sandbox.
+    """
+    url = e.request.url
+    redacted_url = url.copy_with(query=b"redacted") if url.query else url
+    return f"Server error '{e.response.status_code}' for url '{redacted_url}'"
 
 
 class FinalMessageTracker:
@@ -152,8 +165,11 @@ async def _relay_sandbox_events(input: RelaySandboxEventsInput, *, finalize_stre
         "Authorization": f"Bearer {connection_token}",
         "Accept": "text/event-stream",
     }
+    transport_token, token_param = sandbox_transport_token(task_run.state, input.sandbox_url)
     params: dict[str, str] = {}
-    if input.sandbox_connect_token:
+    if transport_token:
+        params[token_param] = transport_token
+    elif input.sandbox_connect_token:
         params["_modal_connect_token"] = input.sandbox_connect_token
 
     events_url = f"{input.sandbox_url.rstrip('/')}/events"
@@ -572,7 +588,7 @@ async def _relay_loop(
                     "relay_sandbox_events_http_error",
                     run_id=run_id,
                     status_code=status,
-                    error=str(e),
+                    error=_sanitize_httpx_error(e),
                     reconnect_count=reconnect_count,
                 )
                 await asyncio.sleep(min(reconnect_count * 2, 10))
@@ -816,11 +832,11 @@ def _is_end_of_turn(event_data: dict) -> bool:
 async def _emit_agentsh_events(sandbox_id: str, run_id: str, last_ts_ns: list[int]) -> None:
     """Read recent agentsh network events and emit as debug console logs."""
     from products.tasks.backend.logic.services.agentsh import build_audit_query_command
-    from products.tasks.backend.logic.services.sandbox import Sandbox
+    from products.tasks.backend.logic.services.sandbox import get_sandbox_class_for_sandbox_id
     from products.tasks.backend.temporal.observability import emit_agent_log
 
     try:
-        sandbox = Sandbox.get_by_id(sandbox_id)
+        sandbox = get_sandbox_class_for_sandbox_id(sandbox_id).get_by_id(sandbox_id)
         result = await asyncio.to_thread(
             sandbox.execute,
             build_audit_query_command(since_ns=last_ts_ns[0]),
