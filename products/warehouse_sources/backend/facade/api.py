@@ -43,6 +43,7 @@ from products.warehouse_sources.backend.models.table import DataWarehouseTable a
 # Framework-free helper transforms — re-exported as the public helper surface.
 from products.warehouse_sources.backend.models.util import (
     clickhouse_columns_to_dwh_columns,
+    get_view_or_table_by_name as _get_view_or_table_by_name,
     motherduck_columns_to_dwh_columns,
     mysql_column_to_dwh_column,
     mysql_columns_to_dwh_columns,
@@ -67,6 +68,7 @@ __all__ = [
     "source_locations_for_tables",
     "get_table",
     "get_queryable_table",
+    "resolve_object_by_name",
     "list_tables_for_source",
     "list_jobs_for_source",
     "list_column_statistics",
@@ -329,6 +331,27 @@ def get_queryable_table(table_id: UUID, team_id: int) -> contracts.DataWarehouse
     # raw_objects skips the eager schema prefetch/joins objects does -- the mapper only reads scalars.
     table = _DataWarehouseTable.raw_objects.queryable().filter(id=table_id, team_id=team_id).first()
     return _to_table(table) if table is not None else None
+
+
+def resolve_object_by_name(team_id: int, name: str) -> contracts.WarehouseObjectRef | None:
+    """The warehouse table or saved query a query reaches under this name, else None.
+
+    Resolves the dotted source forms (``stripe.charges``) the same way a query does, and skips
+    soft-deleted rows and orphans of a deleted source. None means the name reaches neither, so it
+    carries no object-level access control -- a PostHog table such as ``events``, or nothing at all.
+
+    For a caller recording what a query read: the identity survives the name being freed and taken
+    by something else, which is what makes it usable as evidence later.
+    """
+    resolved = _get_view_or_table_by_name(team_id, name)
+    if resolved is None:
+        return None
+    kind = (
+        contracts.WAREHOUSE_OBJECT_TABLE
+        if isinstance(resolved, _DataWarehouseTable)
+        else contracts.WAREHOUSE_OBJECT_VIEW
+    )
+    return contracts.WarehouseObjectRef(kind=kind, id=resolved.id)
 
 
 def list_tables_for_source(source_id: UUID, team_id: int) -> list[contracts.DataWarehouseTable]:

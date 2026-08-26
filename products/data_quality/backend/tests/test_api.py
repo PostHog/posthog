@@ -94,6 +94,9 @@ class TestDataQualityCheckAPI(APIBaseTest):
             team=self.team, name=name, query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
         )
 
+    def _pinned(self, *views: DataWarehouseSavedQuery) -> list[dict[str, str]]:
+        return [{"subject_type": str(SubjectType.VIEW), "subject_uuid": str(view.id)} for view in views]
+
     def test_the_whole_surface_is_gated_on_the_feature_flag(self) -> None:
         with patch(FLAG, return_value=False):
             assert self.client.get(f"{self.url}/").status_code == status.HTTP_403_FORBIDDEN
@@ -516,12 +519,12 @@ class TestDataQualityCheckAPI(APIBaseTest):
         check_runs = self.client.get(f"{base}/{mine.id}/check_runs/")
         assert [row["subject_name"] for row in check_runs.json()] == ["orders"]
 
-    @parameterized.expand([("snapshotted", True), ("recorded before snapshots", False)])
-    def test_editing_a_check_does_not_unlock_the_history_it_used_to_read(self, _name: str, snapshotted: bool) -> None:
+    @parameterized.expand([("pinned", True), ("recorded before pinning", False)])
+    def test_editing_a_check_does_not_unlock_the_history_it_used_to_read(self, _name: str, pinned: bool) -> None:
         # Authorizing history against the definition the check carries *now* lets a member point a
         # check that reads the denied "orders" at something harmless and then read what it recorded:
-        # the compiled query, the failed-row count and the observed value. A run with no snapshot
-        # has no definition to judge, so it is judged by its type rather than by the edited check.
+        # the compiled query, the failed-row count and the observed value. A run that pinned no
+        # references is judged by its type rather than by the edited check.
         allowed = self._make_view("customers")
         reads_orders = {"query": "SELECT 1 FROM orders"}
         check = DataQualityCheck.objects.for_team(self.team.id).create(
@@ -541,7 +544,8 @@ class TestDataQualityCheckAPI(APIBaseTest):
             subject_uuid=allowed.id,
             subject_name="customers",
             check_type=CheckType.CUSTOM_SQL,
-            check_config=reads_orders if snapshotted else None,
+            check_config=reads_orders,
+            referenced_subjects=self._pinned(self.view) if pinned else None,
             check_fingerprint=check.fingerprint,
             status=CheckRunStatus.FAILED,
             failed_row_count=3,
@@ -670,9 +674,9 @@ class TestDataQualityCheckAPI(APIBaseTest):
         suite = DataQualitySuiteRun.objects.for_team(self.team.id).create(
             team=self.team, trigger="manual", subject_type=SubjectType.VIEW, subject_uuid=allowed.id
         )
-        for check_type, config, name in (
-            (CheckType.NOT_NULL, {}, "reads_only_the_parent"),
-            (CheckType.CUSTOM_SQL, {"query": "SELECT 1 FROM orders"}, "reads_the_denied_view"),
+        for check_type, config, name, referenced in (
+            (CheckType.NOT_NULL, {}, "reads_only_the_parent", []),
+            (CheckType.CUSTOM_SQL, {"query": "SELECT 1 FROM orders"}, "reads_the_denied_view", self._pinned(self.view)),
         ):
             check = DataQualityCheck.objects.for_team(self.team.id).create(
                 team=self.team,
@@ -694,6 +698,7 @@ class TestDataQualityCheckAPI(APIBaseTest):
                 subject_name="customers",
                 check_type=check_type,
                 check_config=config,
+                referenced_subjects=referenced,
                 check_fingerprint=check.fingerprint,
                 status=CheckRunStatus.FAILED,
                 failed_row_count=3,
@@ -724,13 +729,13 @@ class TestDataQualityCheckAPI(APIBaseTest):
         assert sorted(row["check_type"] for row in response.json()) == sorted(expected_types)
 
     def test_a_run_whose_definition_is_unknown_is_judged_by_its_type(self) -> None:
-        # Predating the config snapshot, so there is no definition to read. A type that cannot reach
-        # past its own subject read only the parent this surface already authorized; one that can is
-        # withheld, since the current definition is not evidence of what the run executed.
+        # Predating the pinned references, so there is nothing recorded to judge. A type that cannot
+        # reach past its own subject read only the parent this surface already authorized; one that
+        # can is withheld, since the current definition is not evidence of what the run executed.
         allowed = self._make_view("customers")
         suite = self._suite_with_two_runs(allowed)
         DataQualityCheckRun.objects.for_team(self.team.id).filter(suite_run=suite).update(
-            check_config=None, quality_check=None
+            check_config=None, referenced_subjects=None, quality_check=None
         )
         self._deny_the_view()
 
@@ -741,9 +746,9 @@ class TestDataQualityCheckAPI(APIBaseTest):
 
     @parameterized.expand([("relationships",), ("custom_sql",)])
     def test_deleting_a_referenced_subject_does_not_hand_its_history_over(self, check_type: str) -> None:
-        # Deletion takes the denial with it: a relationships target stops resolving so its name never
-        # reaches the match, and a custom_sql name is still parsed but the denial set is rebuilt from
-        # the objects that still exist. Either way the run stops looking like it read anything denied.
+        # Deletion takes the denial with it: the denial set is rebuilt from the objects that still
+        # exist, so a deleted subject stops looking denied. The run pinned what it read, and an
+        # identity that no longer resolves is no proof the caller was allowed it.
         allowed = self._make_view("customers")
         config: dict = (
             {"query": "SELECT 1 FROM orders"}
@@ -772,6 +777,7 @@ class TestDataQualityCheckAPI(APIBaseTest):
             subject_name="customers",
             check_type=check_type,
             check_config=config,
+            referenced_subjects=self._pinned(self.view),
             check_fingerprint=check.fingerprint,
             status=CheckRunStatus.FAILED,
             failed_row_count=3,
@@ -788,6 +794,65 @@ class TestDataQualityCheckAPI(APIBaseTest):
         assert suite_runs.status_code == status.HTTP_200_OK
         assert suite_runs.json() == []
         assert history.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_reusing_a_deleted_subjects_name_does_not_hand_its_history_over(self) -> None:
+        # Deleting a view frees its name, so a member can create their own "orders" and make the name
+        # resolve for them again. Judged by name, the run that read the denied "orders" would then
+        # read as harmless and hand over its compiled query and failed-row count.
+        allowed = self._make_view("customers")
+        reads_orders = {"query": "SELECT 1 FROM orders"}
+        suite = DataQualitySuiteRun.objects.for_team(self.team.id).create(
+            team=self.team, trigger="manual", subject_type=SubjectType.VIEW, subject_uuid=allowed.id
+        )
+        DataQualityCheckRun.objects.for_team(self.team.id).create(
+            team=self.team,
+            suite_run=suite,
+            subject_type=SubjectType.VIEW,
+            subject_uuid=allowed.id,
+            subject_name="customers",
+            check_type=CheckType.CUSTOM_SQL,
+            check_config=reads_orders,
+            referenced_subjects=self._pinned(self.view),
+            check_fingerprint=uuid4().hex,
+            status=CheckRunStatus.FAILED,
+            failed_row_count=3,
+            compiled_query="SELECT * FROM orders",
+        )
+        self._deny_the_view()
+        self.view.delete()
+        self._make_view("orders")
+
+        response = self.client.get(f"{self._suite_runs_url(allowed.id)}/{suite.id}/check_runs/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == []
+
+    def test_a_run_that_read_an_allowed_subject_stays_visible_to_a_restricted_member(self) -> None:
+        # Failing closed on identity must not swallow the history a restricted member may read: the
+        # run pinned a view they are allowed, so being denied a different one changes nothing here.
+        allowed = self._make_view("customers")
+        suite = DataQualitySuiteRun.objects.for_team(self.team.id).create(
+            team=self.team, trigger="manual", subject_type=SubjectType.VIEW, subject_uuid=allowed.id
+        )
+        DataQualityCheckRun.objects.for_team(self.team.id).create(
+            team=self.team,
+            suite_run=suite,
+            subject_type=SubjectType.VIEW,
+            subject_uuid=allowed.id,
+            subject_name="customers",
+            check_type=CheckType.CUSTOM_SQL,
+            check_config={"query": "SELECT 1 FROM customers"},
+            referenced_subjects=self._pinned(allowed),
+            check_fingerprint=uuid4().hex,
+            status=CheckRunStatus.FAILED,
+            failed_row_count=3,
+        )
+        self._deny_the_view()
+
+        response = self.client.get(f"{self._suite_runs_url(allowed.id)}/{suite.id}/check_runs/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["check_type"] for row in response.json()] == [CheckType.CUSTOM_SQL]
 
     @parameterized.expand(
         [

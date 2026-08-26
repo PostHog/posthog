@@ -28,10 +28,12 @@ from ..logic.notifications import notify_materialization_blocked
 from ..logic.registry import UnknownCheckTypeError, list_check_types
 from ..logic.serialization import compute_fingerprint, from_config_entry, to_config_entry
 from ..logic.subject_access import (
+    PinnedSubject,
     ReferencedSubjects,
     check_type_reads_beyond_subject,
     denied_subject_names,
     is_subject_denied,
+    pinned_subjects,
     referenced_subject_names,
     referenced_subjects,
     unconfirmable_subject_names,
@@ -46,6 +48,7 @@ __all__ = [
     "CheckStatusRow",
     "CheckTypeInfo",
     "CompiledCheck",
+    "PinnedSubject",
     "ReferencedSubjects",
     "SubjectKey",
     "SubjectLocation",
@@ -65,6 +68,7 @@ __all__ = [
     "is_subject_denied",
     "list_check_types",
     "notify_materialization_blocked",
+    "pinned_subjects",
     "quality_audit_mode",
     "referenced_subject_names",
     "referenced_subjects",

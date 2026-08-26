@@ -7,7 +7,6 @@ serialize the result. Nothing here runs a check -- every trigger hands off to Te
 a suite-run handle to poll.
 """
 
-import json
 from collections import defaultdict
 from collections.abc import Callable
 from typing import ClassVar, cast
@@ -164,31 +163,47 @@ class _QualityGatedViewSet(TeamAndOrgViewSetMixin):
             raise PermissionDenied("You don't have access to a table or view this check reads.")
 
     def _readable_runs(self, runs: list[DataQualityCheckRun]) -> list[DataQualityCheckRun]:
-        """Drop the runs whose definition read a subject the caller cannot be shown to be allowed.
-
-        Judged from the definition each run executed, never the one its check carries now, so editing
-        a check cannot retroactively expose or hide its history. A run predating the config snapshot
-        has no definition to judge, so it falls back to its type: one that cannot read past its own
-        subject read only the parent this surface already authorized, and anything that can is
-        withheld.
-        """
+        """Drop the runs that read a subject the caller cannot be shown to be allowed."""
         if not self._can_be_object_denied():
             return runs
-        verdicts: dict[str, bool] = {}
-        readable = []
-        for run in runs:
-            if run.check_config is None:
-                if not api.check_type_reads_beyond_subject(run.check_type):
-                    readable.append(run)
-                continue
-            # One verdict per definition: a suite re-runs the same checks, and resolving a
-            # relationships target costs a query.
-            cache_key = f"{run.check_type}:{json.dumps(run.check_config, sort_keys=True, default=str)}"
-            if cache_key not in verdicts:
-                verdicts[cache_key] = self._reads_unreadable_subject(run.check_type, run.check_config)
-            if not verdicts[cache_key]:
-                readable.append(run)
-        return readable
+        return [run for run in runs if self._run_is_readable(run)]
+
+    def _run_is_readable(self, run: DataQualityCheckRun) -> bool:
+        """Whether every subject this run read is one the caller may read now.
+
+        Judged from the identities the run pinned as it executed, never from the definition its
+        check carries now, so editing a check cannot retroactively expose the history it used to
+        read -- and never from names, which a deleted object frees for anyone to take.
+
+        A run that pinned nothing predates that recording. It falls back to its type: one that
+        cannot read past its own subject read only the parent this surface already authorized, and
+        anything that can is withheld, since there is no longer evidence of what it reached.
+        """
+        pinned = api.pinned_subjects(run.referenced_subjects)
+        if pinned is None:
+            return not api.check_type_reads_beyond_subject(run.check_type)
+        return all(self._pinned_subject_is_readable(subject) for subject in pinned)
+
+    def _pinned_subject_is_readable(self, subject: api.PinnedSubject) -> bool:
+        # Memoized per request: a suite re-runs the same checks over the same subjects, and each
+        # resolution costs a query.
+        cache: dict[tuple[str, str], bool] = getattr(self, "_pinned_subject_cache", {})
+        self._pinned_subject_cache = cache
+        key = (subject.subject_type, subject.subject_uuid)
+        if key not in cache:
+            cache[key] = self._resolves_to_a_readable_subject(subject)
+        return cache[key]
+
+    def _resolves_to_a_readable_subject(self, subject: api.PinnedSubject) -> bool:
+        try:
+            ref = api.resolve_subject(self.team.id, subject.subject_type, subject.subject_uuid)
+        except ValueError:
+            return False
+        # A subject that no longer resolves took its denial with it, so nothing left can show the
+        # caller was allowed the object this run read.
+        if not ref.exists:
+            return False
+        return not api.is_subject_denied(ref.name, self._denied_subject_names())
 
 
 class _SubjectScopedViewSet(_QualityGatedViewSet):
