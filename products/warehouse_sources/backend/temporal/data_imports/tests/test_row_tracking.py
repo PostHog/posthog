@@ -77,6 +77,32 @@ class TestRowTrackingRedisUnavailable(BaseTest):
         unreachable_client.hset.assert_not_called()
         mock_capture_exception.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_setup_row_tracking_does_not_raise_when_redis_rejects_writes(self):
+        # A successful ping doesn't guarantee the following command succeeds - e.g. Redis
+        # can refuse writes (MISCONF) if it can't persist an RDB snapshot to disk. That
+        # must fail open like the unreachable-at-ping case above, not crash the sync.
+        read_only_client = mock.AsyncMock()
+        read_only_client.ping.return_value = True
+        read_only_client.hset.side_effect = redis_exceptions.ResponseError(
+            "MISCONF Redis is configured to save RDB snapshots, but it's currently "
+            "unable to persist to disk. Commands that may modify the data set are "
+            "disabled, because this instance is configured to report errors during "
+            "writes if RDB snapshotting fails (stop-writes-on-bgsave-error option). "
+            "Please check the Redis logs for details about the RDB error."
+        )
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.row_tracking.get_async_client",
+                return_value=read_only_client,
+            ),
+            override_settings(DATA_WAREHOUSE_REDIS_HOST="localhost", DATA_WAREHOUSE_REDIS_PORT="6379"),
+        ):
+            await setup_row_tracking(self.team.pk, str(uuid.uuid4()))
+
+        read_only_client.expire.assert_not_called()
+
 
 @pytest.mark.timeout(600)
 @mock.patch(
