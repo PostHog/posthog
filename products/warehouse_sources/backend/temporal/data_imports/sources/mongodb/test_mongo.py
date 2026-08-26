@@ -796,19 +796,36 @@ class TestMongoMissingId(SimpleTestCase):
     """A view whose pipeline drops _id yields documents with no _id. The sync must fail with a
     targeted error naming the collection, not a bare KeyError."""
 
-    def _collection_with_fields(self, field_names: list[str]) -> MagicMock:
+    def _collection_with_probe(self, probe: dict[str, Any] | None) -> MagicMock:
         coll = MagicMock()
-        coll.aggregate.return_value = [{"_id": name, "types": ["string"]} for name in field_names]
+        coll.find_one.return_value = probe
         return coll
 
-    def test_primary_keys_returns_id_when_inferred(self):
-        assert _get_primary_keys(self._collection_with_fields(["_id", "name"]), "users") == ["_id"]
+    @parameterized.expand(
+        [
+            # A plain collection, or a view that keeps _id, is accepted.
+            ("has_id", {"_id": ObjectId()}, False),
+            # find_one returns None for an empty namespace, which must not be rejected.
+            ("empty_namespace", None, False),
+            # projection={"_id": 1} on an _id-less view yields {}, which is rejected.
+            ("no_id", {}, True),
+        ]
+    )
+    def test_primary_keys_probes_one_document(self, _name: str, probe: dict[str, Any] | None, should_reject: bool):
+        collection = self._collection_with_probe(probe)
+        if should_reject:
+            with self.assertRaises(ValueError) as ctx:
+                _get_primary_keys(collection, "orders_summary")
+            assert "orders_summary" in str(ctx.exception)
+        else:
+            assert _get_primary_keys(collection, "users") == ["_id"]
+        # The probe reads one document; it must never fall back to the full schema-inference scan.
+        collection.aggregate.assert_not_called()
 
-    def test_primary_keys_rejects_namespace_without_id(self):
-        with self.assertRaises(ValueError) as ctx:
-            _get_primary_keys(self._collection_with_fields(["name", "email"]), "orders_summary")
-
-        assert "orders_summary" in str(ctx.exception)
+    def test_primary_keys_defers_to_read_loop_on_probe_failure(self):
+        collection = MagicMock()
+        collection.find_one.side_effect = ServerSelectionTimeoutError("boom")
+        assert _get_primary_keys(collection, "users") == ["_id"]
 
     def test_read_loop_rejects_document_without_id(self):
         # The fake collection has no aggregate(), so schema inference falls back and the read-loop

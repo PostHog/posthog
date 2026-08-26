@@ -538,12 +538,18 @@ def get_collection_names(config: MongoDBSourceConfig, team_id: int) -> list[str]
 
 
 def _get_primary_keys(collection: Collection, collection_name: str) -> list[str] | None:
-    # A plain collection always has _id, but a view can drop it. Reject an _id-less namespace here,
-    # at schema inference time, so the sync fails fast with a clear error instead of raising a bare
-    # KeyError mid-read. The schema fallback keeps _id, so an inference that errors defers to the
-    # read-loop guard rather than blocking the sync.
-    schema_fields = {field_name for field_name, _ in _get_schema_from_query(collection)}
-    if "_id" not in schema_fields:
+    # A plain collection always has _id, but a view can drop it. Probe one document to reject an
+    # _id-less namespace here, at sync setup, so the sync fails fast with a clear error instead of a
+    # bare KeyError mid-read. A single-document probe answers whether _id exists, so this runs on
+    # every sync without the full schema-inference scan that reads up to SCHEMA_INFERENCE_LIMIT
+    # documents. projection={"_id": 1} returns {"_id": ...} when _id exists and {} when it does not,
+    # because an _id-less view projects to an empty document. An empty namespace (find_one returns
+    # None) or a probe failure defers to the read-loop guard rather than blocking the sync.
+    try:
+        probe = collection.find_one({}, projection={"_id": 1}, max_time_ms=SCHEMA_INFERENCE_TIMEOUT_MS)
+    except Exception:
+        return ["_id"]
+    if probe is not None and "_id" not in probe:
         raise ValueError(_missing_id_error(collection_name))
     return ["_id"]
 
