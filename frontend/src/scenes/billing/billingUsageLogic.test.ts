@@ -81,10 +81,26 @@ describe('getBillingUsageError', () => {
             getBillingUsageError({
                 code: BILLING_USAGE_QUERY_TOO_LARGE_CODE,
                 detail: 'Select a product.',
+                team_id_options: [123, 456],
             })
         ).toEqual({
             code: BILLING_USAGE_QUERY_TOO_LARGE_CODE,
             detail: 'Select a product.',
+            team_id_options: [123, 456],
+        })
+    })
+
+    it('accepts billing error_message responses', () => {
+        expect(
+            getBillingUsageError({
+                code: BILLING_USAGE_QUERY_TOO_LARGE_CODE,
+                error_message: 'Select a product.',
+                team_id_options: [123],
+            })
+        ).toEqual({
+            code: BILLING_USAGE_QUERY_TOO_LARGE_CODE,
+            detail: 'Select a product.',
+            team_id_options: [123],
         })
     })
 
@@ -114,7 +130,11 @@ describe('billingUsageLogic loader', () => {
                 '/api/billing': () => [200, billingJson],
                 '/api/billing/usage/': () => [
                     400,
-                    { code: BILLING_USAGE_QUERY_TOO_LARGE_CODE, detail: 'Select a product.' },
+                    {
+                        code: BILLING_USAGE_QUERY_TOO_LARGE_CODE,
+                        detail: 'Select a product.',
+                        team_id_options: [987654],
+                    },
                 ],
             },
         })
@@ -133,7 +153,10 @@ describe('billingUsageLogic loader', () => {
         expect(logic.values.billingUsageError).toEqual({
             code: BILLING_USAGE_QUERY_TOO_LARGE_CODE,
             detail: 'Select a product.',
+            team_id_options: [987654],
         })
+        expect(logic.values.billingUsageResponse?.team_id_options).toEqual([987654])
+        expect(logic.values.teamOptions).toContainEqual({ key: '987654', label: 'ID: 987654 (deleted)' })
         expect(toastErrorSpy).not.toHaveBeenCalled()
     })
 })
