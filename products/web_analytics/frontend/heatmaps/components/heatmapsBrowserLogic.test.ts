@@ -49,7 +49,7 @@ describe('heatmapsBrowserLogic', () => {
             expect(message).toContain(expected)
         })
 
-        it('reports a non-2xx and points to the header a WAF can allow', () => {
+        it('reports a non-2xx and points to the screenshot background that carries the header', () => {
             const message = preflightBannerMessage({
                 ...base,
                 framing: 'unknown',
@@ -61,6 +61,9 @@ describe('heatmapsBrowserLogic', () => {
             expect(message).toContain('local_rate_limited')
             // The published fix is the header, not an IP allowlist that cannot match the render service.
             expect(message).toContain('X-PostHog-Heatmap-Screenshot: 1')
+            // The live preview cannot send the header, so the guidance must point at the screenshot
+            // background that does, not tell the user to retry the iframe.
+            expect(message).toContain('screenshot background')
             expect(message).not.toContain('firewall rules')
             expect(message).not.toContain('embedding')
         })
