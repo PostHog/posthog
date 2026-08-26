@@ -1,1 +1,1 @@
-0304_logs34_pattern_columns
+0304_logs_retention_days
