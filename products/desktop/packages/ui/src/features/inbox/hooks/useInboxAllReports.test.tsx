@@ -88,7 +88,10 @@ function reportsCountParams(): SignalReportsQueryParams | undefined {
   return undefined;
 }
 
-function renderCounts(options?: { withReportsCount?: boolean }) {
+function renderCounts(options?: {
+  enabled?: boolean;
+  withReportsCount?: boolean;
+}) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -128,5 +131,11 @@ describe("useInboxAllReports", () => {
     });
     expect(result.current.counts.reports).toBe(0);
     expect(reportsCountParams()).toBeUndefined();
+  });
+
+  it("does not request reports when its surface is unavailable", () => {
+    renderCounts({ enabled: false, withReportsCount: true });
+
+    expect(mockGetSignalReports).not.toHaveBeenCalled();
   });
 });
