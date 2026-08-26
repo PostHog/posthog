@@ -8,7 +8,7 @@ import posthog from 'posthog-js'
 import { LemonDialog, Link, lemonToast } from '@posthog/lemon-ui'
 
 import api, { getJSONOrNull } from 'lib/api'
-import { FEATURE_FLAGS, FeatureFlagKey, OrganizationMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonBannerAction } from 'lib/lemon-ui/LemonBanner/LemonBanner'
 import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
@@ -1498,10 +1498,6 @@ export const billingLogic = kea<billingLogicType>([
                     if (x.percentage_usage < 1 || !x.usage_key) {
                         return false
                     }
-                    const hideProductFlag = `billing_hide_product_${x.type}`
-                    if (values.featureFlags[hideProductFlag as FeatureFlagKey] === true) {
-                        return false
-                    }
                     if (isBillingAlertDismissed(values.currentOrganizationId, x.type, billingPeriodEnd)) {
                         return false
                     }
@@ -1541,10 +1537,6 @@ export const billingLogic = kea<billingLogicType>([
             const productsApproachingLimit =
                 values.billing.products?.filter((x: BillingProductV2Type) => {
                     if (x.percentage_usage <= ALLOCATION_THRESHOLD_ALERT || x.percentage_usage >= 1) {
-                        return false
-                    }
-                    const hideProductFlag = `billing_hide_product_${x.type}`
-                    if (values.featureFlags[hideProductFlag as FeatureFlagKey] === true) {
                         return false
                     }
                     if (

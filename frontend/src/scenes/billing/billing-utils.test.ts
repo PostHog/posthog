@@ -1,8 +1,11 @@
+import { BillingProductV2AddonType, BillingProductV2Type } from '~/types'
+
 import {
     buildSpendTrackingProperties,
     filterSpendUsageTypes,
     getSpendTypeOptions,
     getUsageTypeOptions,
+    isAddonVisible,
 } from './billing-utils'
 
 describe('getUsageTypeOptions', () => {
@@ -43,5 +46,14 @@ describe('getUsageTypeOptions', () => {
             ])
         ).toEqual(['event_count_in_period'])
         expect(filterSpendUsageTypes(['sandbox_compute_cpu_millicore_seconds_in_period'])).toEqual([])
+    })
+})
+
+describe('isAddonVisible', () => {
+    it('keeps an addon visible even when a billing_hide_addon flag is set', () => {
+        // The generic hide-flag mechanism was removed. A stray hide flag must no longer suppress an addon.
+        const product = { type: 'product_analytics' } as BillingProductV2Type
+        const addon = { type: 'group_analytics', inclusion_only: false } as BillingProductV2AddonType
+        expect(isAddonVisible(product, addon, { billing_hide_addon_group_analytics: true })).toBe(true)
     })
 })

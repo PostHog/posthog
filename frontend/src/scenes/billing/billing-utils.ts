@@ -581,12 +581,6 @@ export const isAddonVisible = (
         return false
     }
 
-    // Filter out addons that are hidden by feature flag
-    const hideAddonFlag = `billing_hide_addon_${addon.type}`
-    if (featureFlags[hideAddonFlag]) {
-        return false
-    }
-
     return true
 }
 
