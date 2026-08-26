@@ -1679,6 +1679,11 @@
         "params": [],
         "scope": "project"
     },
+    "webAnalyticsAgents": {
+        "template": "/web/agents",
+        "params": [],
+        "scope": "project"
+    },
     "webAnalyticsBotAnalytics": {
         "template": "/web/bots",
         "params": [],
