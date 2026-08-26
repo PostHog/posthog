@@ -24,6 +24,9 @@ jobs:
         name: Verify agent release build
         runs-on: ubuntu-latest
         timeout-minutes: 30
+        # Skipped on trunk-merge/** heads: merge-queue PRs are ephemeral and every
+        # constituent PR already ran this in full.
+        if: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
         defaults:
             run:
                 working-directory: products/desktop
