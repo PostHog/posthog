@@ -71,6 +71,7 @@ import type {
     QuickFilterType,
     RecordingOrder,
     RecordingsQuery,
+    ResolvedDateRangeResponse,
     RevenueAnalyticsConfig,
     SharingConfigurationSettings,
     TileFilters,
@@ -2641,6 +2642,7 @@ export interface InsightModel extends Cacheable, WithAccessControl {
     query_status?: QueryStatus
     is_cached?: boolean
     filter_override_context?: InsightFilterOverrideContextApi | null
+    resolved_date_range?: ResolvedDateRangeResponse | null
     /** Only used when creating objects */
     _create_in_folder?: string | null
 }
@@ -6619,6 +6621,8 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
      */
     enabled_columns?: string[] | null
     available_columns?: { name: string; data_type?: string; is_nullable?: boolean }[]
+    /** Exact source identifiers are available for sources that project columns upstream. */
+    source_column_metadata_available?: boolean
     /**
      * Predicates ANDed onto the source query so only matching rows sync.
      * `null` means "sync all rows". Applied on the next sync — not retroactive.
@@ -6639,6 +6643,7 @@ export interface ExternalDataSchemaSourceSummary {
     access_method?: ExternalDataSource['access_method']
     supports_column_selection?: boolean
     supports_row_filters?: boolean
+    requires_exact_column_metadata?: boolean
     user_access_level: AccessControlLevel | null
     /** The source's effective vendor API version — what schemas without an override sync on */
     api_version?: string | null
@@ -6937,6 +6942,7 @@ export type RawBatchExportRun = {
         | 'ContinuedAsNew'
         | 'Failed'
         | 'FailedRetryable'
+        | 'FailedBilling'
         | 'Terminated'
         | 'TimedOut'
         | 'Running'
@@ -6959,6 +6965,7 @@ export type BatchExportRun = {
         | 'ContinuedAsNew'
         | 'Failed'
         | 'FailedRetryable'
+        | 'FailedBilling'
         | 'Terminated'
         | 'TimedOut'
         | 'Running'

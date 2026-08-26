@@ -2585,19 +2585,35 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             "customer_analytics": read("customer_analytics_config", lambda: self.team.customer_analytics_config),
         }
 
-    def _get_property_access_restrictions(self) -> list[tuple[str, int]] | None:
-        """Returns a sorted list of restricted (property_name, type) pairs for the current user, or None if no restrictions.
+    def _get_property_access_restrictions(self) -> list[dict[str, str | int | None]] | None:
+        """Returns sorted restricted property metadata for the current user, or None if unrestricted.
 
         The underlying ``get_restricted_properties_for_team`` memoizes per request,
         so rendering a dashboard with N insights issues one PropertyAccessControl
         lookup per (team, user) pair instead of N.
         """
-        from products.access_control.backend.property_access_control import get_restricted_properties_for_team
+        from products.access_control.backend.property_access_control import (
+            get_restricted_properties_with_group_type_index_for_team,
+        )
 
-        restricted = get_restricted_properties_for_team(user=self.user, team=self.team)
+        restricted = get_restricted_properties_with_group_type_index_for_team(user=self.user, team=self.team)
         if not restricted:
             return None
-        return sorted(restricted)
+        return [
+            {
+                "name": restriction.name,
+                "property_type": restriction.property_type,
+                "group_type_index": restriction.group_type_index,
+            }
+            for restriction in sorted(
+                restricted,
+                key=lambda restriction: (
+                    restriction.name,
+                    restriction.property_type,
+                    restriction.group_type_index if restriction.group_type_index is not None else -1,
+                ),
+            )
+        ]
 
     def get_cache_key(self) -> str:
         return generate_cache_key(self.team.pk, f"query_{bytes.decode(to_json(self.get_cache_payload()))}")

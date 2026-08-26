@@ -28,7 +28,14 @@ export class ScrubContractError extends Error {}
 export class ScrubPoisoned extends Error {
     constructor(
         message: string,
-        readonly detail: { reason: ScrubWaitReason; lastError: string; attempts: number; waitedMs: number }
+        readonly detail: {
+            reason: ScrubWaitReason
+            lastError: string
+            attempts: number
+            waitedMs: number
+            elapsedMs: number
+            rejectedMs: number
+        }
     ) {
         super(message)
     }
@@ -66,7 +73,7 @@ const POISON_MIN_FAILURES = 12
 export const POISON_MIN_OTHER_SUCCESSES = 3
 
 /**
- * Accumulated backoff after which a sidecar that keeps answering is taken at its word.
+ * Time spent on rejected requests and their backoffs before a sidecar is taken at its word.
  *
  * The success test cannot be satisfied when nothing else is succeeding, and the images in a batch
  * are chosen by whoever produced them: fill one with content the sidecar rejects and no peer is left
@@ -77,14 +84,15 @@ export const POISON_MIN_OTHER_SUCCESSES = 3
  * constraint rather than a preference. A batch cannot return while one of its images is in flight,
  * so a threshold above the lease can never be reached: the group fences the pod first, the partition
  * moves, and its new owner repeats the same work and is fenced in turn. The gate would be dead code
- * and the images would circle the fleet. This counts backoff only, and real elapsed time is longer,
- * so the margin below the lease has to be generous rather than exact.
+ * and the images would circle the fleet. Request time counts because a wedged worker consumes most
+ * of the lease before each backoff starts. Busy, timeout, and transport intervals stay outside this
+ * budget because they do not blame the image.
  *
  * The trade is deliberate. A sidecar broken for this long parks images rather than holding them,
  * which keeps every byte, is loud in the dead-letter counter, and is replayable, against a silent
  * stall that holds a shared partition hostage and moves nothing.
  */
-export const POISON_MAX_WAITED_MS = 120_000
+export const POISON_MAX_REJECTED_MS = 120_000
 
 const BACKOFF_BASE_MS = 100
 /**
@@ -168,7 +176,8 @@ export class ScrubClient {
         // minute of a process that has already finished shutting down.
         private readonly sleep: (ms: number) => Promise<void> = (ms) =>
             new Promise((resolve) => setTimeout(resolve, ms).unref()),
-        private readonly random: () => number = Math.random
+        private readonly random: () => number = Math.random,
+        private readonly now: () => number = () => performance.now()
     ) {
         this.url = new URL('/scrub', baseUrl)
     }
@@ -187,7 +196,9 @@ export class ScrubClient {
      * The caller hanging up raises [[ScrubAborted]], which belongs to shutdown rather than to load.
      */
     public async scrub(bytes: Buffer, signal?: AbortSignal, ref?: string): Promise<Buffer | null> {
+        const startedAtMs = this.now()
         let waitedMs = 0
+        let rejectedMs = 0
         let stuckReports = 0
         let blamableFailures = 0
         const successesAtStart = this.successes
@@ -197,6 +208,7 @@ export class ScrubClient {
             }
             let reason: ScrubWaitReason
             let detail: string
+            const attemptStartedAtMs = this.now()
             try {
                 const { status, body } = await this.post(bytes, signal)
                 if (status === 200 && body.length > 0) {
@@ -235,19 +247,21 @@ export class ScrubClient {
             // sidecar being unreachable, which is true of every image at once.
             if (reason === 'rejected') {
                 blamableFailures += 1
+                rejectedMs += this.now() - attemptStartedAtMs
             }
             const sidecarProvenHealthy = this.successes - successesAtStart >= POISON_MIN_OTHER_SUCCESSES
-            const waitedTooLong = waitedMs >= POISON_MAX_WAITED_MS
+            const rejectedTooLong = reason === 'rejected' && rejectedMs >= POISON_MAX_REJECTED_MS
             if (
                 this.deadLetters &&
-                blamableFailures >= POISON_MIN_FAILURES &&
-                (sidecarProvenHealthy || waitedTooLong)
+                ((blamableFailures >= POISON_MIN_FAILURES && sidecarProvenHealthy) || rejectedTooLong)
             ) {
                 throw new ScrubPoisoned(`sidecar cannot process this image: ${detail}`, {
                     reason,
                     lastError: detail,
                     attempts: attempt + 1,
                     waitedMs,
+                    elapsedMs: this.now() - startedAtMs,
+                    rejectedMs,
                 })
             }
             const delayMs = backoffMs(attempt, reason, this.random)
@@ -266,10 +280,15 @@ export class ScrubClient {
                     detail,
                     attempts: attempt + 1,
                     waitedMs,
+                    elapsedMs: this.now() - startedAtMs,
                     bytes: bytes.length,
                 })
             }
+            const waitStartedAtMs = this.now()
             await this.waitOrAbort(delayMs, signal)
+            if (reason === 'rejected') {
+                rejectedMs += this.now() - waitStartedAtMs
+            }
         }
     }
 
