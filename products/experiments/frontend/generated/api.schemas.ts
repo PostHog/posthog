@@ -59,7 +59,7 @@ export const FeatureFlagFilterPropertyGenericSchemaOperatorEnumApi = {
 export interface FeatureFlagFilterPropertyGenericSchemaApi {
     /** Property key used in this feature flag condition. */
     key: string
-    /** Property filter type. Common values are 'person' and 'cohort'.
+    /** Property filter type. Set it on every property, and pair 'group' with group_type_index to target a group type.
      *
      * * `cohort` - cohort
      * * `person` - person
@@ -71,7 +71,7 @@ export interface FeatureFlagFilterPropertyGenericSchemaApi {
      */
     cohort_name?: string | null
     /**
-     * Group type index when using group-based filters.
+     * Group type index that a 'group' property targets. Match the aggregation_group_type_index on its condition set.
      * @nullable
      */
     group_type_index?: number | null
@@ -110,7 +110,7 @@ export const ExistenceOperatorEnumApi = {
 export interface FeatureFlagFilterPropertyExistsSchemaApi {
     /** Property key used in this feature flag condition. */
     key: string
-    /** Property filter type. Common values are 'person' and 'cohort'.
+    /** Property filter type. Set it on every property, and pair 'group' with group_type_index to target a group type.
      *
      * * `cohort` - cohort
      * * `person` - person
@@ -122,7 +122,7 @@ export interface FeatureFlagFilterPropertyExistsSchemaApi {
      */
     cohort_name?: string | null
     /**
-     * Group type index when using group-based filters.
+     * Group type index that a 'group' property targets. Match the aggregation_group_type_index on its condition set.
      * @nullable
      */
     group_type_index?: number | null
@@ -151,7 +151,7 @@ export const DateOperatorEnumApi = {
 export interface FeatureFlagFilterPropertyDateSchemaApi {
     /** Property key used in this feature flag condition. */
     key: string
-    /** Property filter type. Common values are 'person' and 'cohort'.
+    /** Property filter type. Set it on every property, and pair 'group' with group_type_index to target a group type.
      *
      * * `cohort` - cohort
      * * `person` - person
@@ -163,7 +163,7 @@ export interface FeatureFlagFilterPropertyDateSchemaApi {
      */
     cohort_name?: string | null
     /**
-     * Group type index when using group-based filters.
+     * Group type index that a 'group' property targets. Match the aggregation_group_type_index on its condition set.
      * @nullable
      */
     group_type_index?: number | null
@@ -206,7 +206,7 @@ export const FeatureFlagFilterPropertySemverSchemaOperatorEnumApi = {
 export interface FeatureFlagFilterPropertySemverSchemaApi {
     /** Property key used in this feature flag condition. */
     key: string
-    /** Property filter type. Common values are 'person' and 'cohort'.
+    /** Property filter type. Set it on every property, and pair 'group' with group_type_index to target a group type.
      *
      * * `cohort` - cohort
      * * `person` - person
@@ -218,7 +218,7 @@ export interface FeatureFlagFilterPropertySemverSchemaApi {
      */
     cohort_name?: string | null
     /**
-     * Group type index when using group-based filters.
+     * Group type index that a 'group' property targets. Match the aggregation_group_type_index on its condition set.
      * @nullable
      */
     group_type_index?: number | null
@@ -253,7 +253,7 @@ export const FeatureFlagFilterPropertyMultiContainsSchemaOperatorEnumApi = {
 export interface FeatureFlagFilterPropertyMultiContainsSchemaApi {
     /** Property key used in this feature flag condition. */
     key: string
-    /** Property filter type. Common values are 'person' and 'cohort'.
+    /** Property filter type. Set it on every property, and pair 'group' with group_type_index to target a group type.
      *
      * * `cohort` - cohort
      * * `person` - person
@@ -265,7 +265,7 @@ export interface FeatureFlagFilterPropertyMultiContainsSchemaApi {
      */
     cohort_name?: string | null
     /**
-     * Group type index when using group-based filters.
+     * Group type index that a 'group' property targets. Match the aggregation_group_type_index on its condition set.
      * @nullable
      */
     group_type_index?: number | null
@@ -313,7 +313,7 @@ export interface FeatureFlagFilterPropertyCohortInSchemaApi {
      */
     cohort_name?: string | null
     /**
-     * Group type index when using group-based filters.
+     * Group type index that a 'group' property targets. Match the aggregation_group_type_index on its condition set.
      * @nullable
      */
     group_type_index?: number | null
@@ -359,7 +359,7 @@ export interface FeatureFlagFilterPropertyFlagEvaluatesSchemaApi {
      */
     cohort_name?: string | null
     /**
-     * Group type index when using group-based filters.
+     * Group type index that a 'group' property targets. Match the aggregation_group_type_index on its condition set.
      * @nullable
      */
     group_type_index?: number | null

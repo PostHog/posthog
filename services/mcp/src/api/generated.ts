@@ -33203,7 +33203,7 @@ export namespace Schemas {
     export interface FeatureFlagFilterPropertyGenericSchema {
       /** Property key used in this feature flag condition. */
       key: string;
-      /** Property filter type. Common values are 'person' and 'cohort'.
+      /** Property filter type. Set it on every property, and pair 'group' with group_type_index to target a group type.
        *
        * * `cohort` - cohort
        * * `person` - person
@@ -33215,7 +33215,7 @@ export namespace Schemas {
          */
       cohort_name?: string | null;
       /**
-         * Group type index when using group-based filters.
+         * Group type index that a 'group' property targets. Match the aggregation_group_type_index on its condition set.
          * @nullable
          */
       group_type_index?: number | null;
@@ -33243,7 +33243,7 @@ export namespace Schemas {
     export interface FeatureFlagFilterPropertyExistsSchema {
       /** Property key used in this feature flag condition. */
       key: string;
-      /** Property filter type. Common values are 'person' and 'cohort'.
+      /** Property filter type. Set it on every property, and pair 'group' with group_type_index to target a group type.
        *
        * * `cohort` - cohort
        * * `person` - person
@@ -33255,7 +33255,7 @@ export namespace Schemas {
          */
       cohort_name?: string | null;
       /**
-         * Group type index when using group-based filters.
+         * Group type index that a 'group' property targets. Match the aggregation_group_type_index on its condition set.
          * @nullable
          */
       group_type_index?: number | null;
@@ -33271,7 +33271,7 @@ export namespace Schemas {
     export interface FeatureFlagFilterPropertyDateSchema {
       /** Property key used in this feature flag condition. */
       key: string;
-      /** Property filter type. Common values are 'person' and 'cohort'.
+      /** Property filter type. Set it on every property, and pair 'group' with group_type_index to target a group type.
        *
        * * `cohort` - cohort
        * * `person` - person
@@ -33283,7 +33283,7 @@ export namespace Schemas {
          */
       cohort_name?: string | null;
       /**
-         * Group type index when using group-based filters.
+         * Group type index that a 'group' property targets. Match the aggregation_group_type_index on its condition set.
          * @nullable
          */
       group_type_index?: number | null;
@@ -33326,7 +33326,7 @@ export namespace Schemas {
     export interface FeatureFlagFilterPropertySemverSchema {
       /** Property key used in this feature flag condition. */
       key: string;
-      /** Property filter type. Common values are 'person' and 'cohort'.
+      /** Property filter type. Set it on every property, and pair 'group' with group_type_index to target a group type.
        *
        * * `cohort` - cohort
        * * `person` - person
@@ -33338,7 +33338,7 @@ export namespace Schemas {
          */
       cohort_name?: string | null;
       /**
-         * Group type index when using group-based filters.
+         * Group type index that a 'group' property targets. Match the aggregation_group_type_index on its condition set.
          * @nullable
          */
       group_type_index?: number | null;
@@ -33373,7 +33373,7 @@ export namespace Schemas {
     export interface FeatureFlagFilterPropertyMultiContainsSchema {
       /** Property key used in this feature flag condition. */
       key: string;
-      /** Property filter type. Common values are 'person' and 'cohort'.
+      /** Property filter type. Set it on every property, and pair 'group' with group_type_index to target a group type.
        *
        * * `cohort` - cohort
        * * `person` - person
@@ -33385,7 +33385,7 @@ export namespace Schemas {
          */
       cohort_name?: string | null;
       /**
-         * Group type index when using group-based filters.
+         * Group type index that a 'group' property targets. Match the aggregation_group_type_index on its condition set.
          * @nullable
          */
       group_type_index?: number | null;
@@ -33433,7 +33433,7 @@ export namespace Schemas {
          */
       cohort_name?: string | null;
       /**
-         * Group type index when using group-based filters.
+         * Group type index that a 'group' property targets. Match the aggregation_group_type_index on its condition set.
          * @nullable
          */
       group_type_index?: number | null;
@@ -33479,7 +33479,7 @@ export namespace Schemas {
          */
       cohort_name?: string | null;
       /**
-         * Group type index when using group-based filters.
+         * Group type index that a 'group' property targets. Match the aggregation_group_type_index on its condition set.
          * @nullable
          */
       group_type_index?: number | null;
