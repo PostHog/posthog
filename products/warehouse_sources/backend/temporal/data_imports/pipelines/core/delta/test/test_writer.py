@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     SchemaColumnTypeChangedException,
     evolve_pyarrow_schema,
     first_per_pk_table,
+    pyarrow_schema_from_arrow_exportable,
     realign_decimal_buffers,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
@@ -290,6 +291,71 @@ class TestNullabilityDriftGuardOrder:
                 primary_keys=["id"],
             )
         assert result is not None
+
+
+class TestLyingBatchNullability:
+    """A source can declare a column NOT NULL and still send nulls in it (SQL sources build the
+    batch schema from the source database's own is_nullable metadata). Every delta path rejects
+    such a batch, so the writer has to correct the claim before any of them sees it."""
+
+    def _lying_batch(self) -> pa.Table:
+        return pa.table(
+            {"id": [1, 2], "v": [None, 5]},
+            schema=pa.schema(
+                [
+                    pa.field("id", pa.int64(), nullable=False),
+                    pa.field("v", pa.int64(), nullable=False),
+                ]
+            ),
+        )
+
+    @pytest.mark.asyncio
+    async def test_first_sync_creates_the_table_with_nullability_matching_its_data(self, tmp_path: Path) -> None:
+        # Without the correction write_deltalake raises DeltaError ("declared as non-nullable but
+        # contains null values") and the very first sync of the table fails.
+        delta_path = str(tmp_path / "table")
+        table_ref = make_local_table_ref(delta_path)
+
+        await DeltaWriter(table_ref).write(
+            data=self._lying_batch(),
+            write_type="incremental",
+            should_overwrite_table=False,
+            primary_keys=["id"],
+        )
+
+        stored = deltalake.DeltaTable(delta_path)
+        stored_schema = pyarrow_schema_from_arrow_exportable(stored.schema())
+        assert {field.name: field.nullable for field in stored_schema} == {"id": False, "v": True}
+        assert sorted(stored.to_pyarrow_table().column("v").to_pylist(), key=lambda x: (x is not None, x)) == [None, 5]
+
+    @pytest.mark.asyncio
+    async def test_incremental_merge_accepts_nulls_the_stored_column_allows(self, tmp_path: Path) -> None:
+        # Without the correction delta-rs panics inside create_merge_builder (a pyo3
+        # PanicException, not a DeltaError), so the merge cannot even be planned.
+        delta_path = str(tmp_path / "table")
+        deltalake.write_deltalake(
+            delta_path,
+            pa.table(
+                {"id": [1, 2], "v": [9, 9]},
+                schema=pa.schema(
+                    [
+                        pa.field("id", pa.int64(), nullable=False),
+                        pa.field("v", pa.int64(), nullable=True),
+                    ]
+                ),
+            ),
+        )
+        table_ref = make_local_table_ref(delta_path)
+
+        await DeltaWriter(table_ref).write(
+            data=self._lying_batch(),
+            write_type="incremental",
+            should_overwrite_table=False,
+            primary_keys=["id"],
+        )
+
+        stored = deltalake.DeltaTable(delta_path).to_pyarrow_table().to_pydict()
+        assert dict(zip(stored["id"], stored["v"])) == {1: None, 2: 5}
 
 
 class TestLegacyDltTableReconciliation:

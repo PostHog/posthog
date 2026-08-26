@@ -34,6 +34,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     observe_and_project_table,
     observed_schema_metadata_columns,
     raise_on_nullability_drift,
+    relax_batch_nullability,
     restrict_schema_to_columns,
     source_uses_delta_write_column_selection,
     table_from_py_list,
@@ -1056,6 +1057,66 @@ def test_raise_on_nullability_drift_permits_valid_batches(
     delta_schema = deltalake.Schema.from_arrow(pa.schema(delta_fields))
 
     raise_on_nullability_drift(pa_table, delta_schema)
+
+
+@pytest.mark.parametrize(
+    "fields, columns, expected_nullable",
+    [
+        # The source declared the column NOT NULL but sent a null in it, so the claim is corrected.
+        (
+            [pa.field("id", pa.int64(), nullable=False), pa.field("v", pa.int64(), nullable=False)],
+            {"id": [1, 2], "v": [None, 5]},
+            {"id": False, "v": True},
+        ),
+        # No nulls arrived, so the source's NOT NULL claim is true and stands.
+        (
+            [pa.field("id", pa.int64(), nullable=False), pa.field("v", pa.int64(), nullable=False)],
+            {"id": [1, 2], "v": [4, 5]},
+            {"id": False, "v": False},
+        ),
+        # The column is already nullable, so there is nothing to correct.
+        (
+            [pa.field("id", pa.int64(), nullable=False), pa.field("v", pa.int64(), nullable=True)],
+            {"id": [1, 2], "v": [None, 5]},
+            {"id": False, "v": True},
+        ),
+        # Only the column that holds nulls is relaxed; its neighbours keep their declared nullability.
+        (
+            [
+                pa.field("id", pa.int64(), nullable=False),
+                pa.field("v", pa.int64(), nullable=False),
+                pa.field("name", pa.string(), nullable=False),
+            ],
+            {"id": [1, 2], "v": [None, 5], "name": ["a", "b"]},
+            {"id": False, "v": True, "name": False},
+        ),
+    ],
+)
+def test_relax_batch_nullability_corrects_only_columns_that_hold_nulls(
+    fields: list[pa.Field], columns: dict[str, list], expected_nullable: dict[str, bool]
+):
+    pa_table = pa.table(columns, schema=pa.schema(fields))
+
+    relaxed = relax_batch_nullability(pa_table)
+
+    assert {field.name: field.nullable for field in relaxed.schema} == expected_nullable
+    assert relaxed.to_pydict() == pa_table.to_pydict()
+    assert relaxed.schema.types == pa_table.schema.types
+
+
+def test_relax_batch_nullability_keeps_schema_metadata():
+    # The observed-column metadata rides on the schema, so rebuilding the schema must carry it over
+    # or the batch loses the column observations the sync persists.
+    metadata: dict[bytes | str, bytes | str] = {b"ph_observed_columns": b"[]"}
+    pa_table = pa.table(
+        {"v": [None, 5]},
+        schema=pa.schema([pa.field("v", pa.int64(), nullable=False)], metadata=metadata),
+    )
+
+    relaxed = relax_batch_nullability(pa_table)
+
+    assert relaxed.schema.field("v").nullable is True
+    assert relaxed.schema.metadata == metadata
 
 
 def test_evolve_pyarrow_schema_with_struct_containing_datetime_and_decimal():
