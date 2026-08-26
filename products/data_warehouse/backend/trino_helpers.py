@@ -9,8 +9,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from django.db.models import Q
-
 import structlog
 
 from products.data_warehouse.backend.direct_trino import (
@@ -22,6 +20,7 @@ from products.data_warehouse.backend.direct_trino import (
 )
 from products.warehouse_sources.backend.facade.models import (
     ExternalDataSource,
+    get_schemas_for_direct_reconciliation,
     trino_column_to_dwh_column,
     trino_columns_to_dwh_columns,
 )
@@ -174,17 +173,16 @@ def reconcile_trino_schemas(
     """Persist `schema_metadata` on every Trino row + (direct mode only) upsert its
     live-query `DataWarehouseTable`. Returns stale schema names that got soft-deleted (direct
     only)."""
-    from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
     is_direct = source.is_direct_query
     source_schema_names = [s.name for s in source_schemas]
     default_catalog = get_default_trino_catalog(source)
-    schema_models = {
-        s.name: s
-        for s in ExternalDataSchema.objects.filter(team_id=team_id, source_id=source.id, deleted=False).select_related(
-            "table"
-        )
-    }
+    active_schemas, stale_schemas = get_schemas_for_direct_reconciliation(
+        source_id=source.id,
+        team_id=team_id,
+        current_schema_names=source_schema_names,
+    )
+    schema_models = {schema.name: schema for schema in active_schemas}
 
     schema_models_by_location: dict[TrinoSourceLocation, ExternalDataSchema] = {}
     for schema_model in schema_models.values():
@@ -281,15 +279,7 @@ def reconcile_trino_schemas(
         return []
 
     stale_names: list[str] = []
-    stale = (
-        ExternalDataSchema.objects.filter(
-            Q(team_id=team_id, source_id=source.id),
-            Q(deleted=False) | Q(table__deleted=False),
-        )
-        .exclude(name__in=source_schema_names)
-        .select_related("table")
-    )
-    for s in stale:
+    for s in stale_schemas:
         hide_direct_trino_table(s.table)
         if not s.deleted:
             s.soft_delete()

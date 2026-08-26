@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from products.warehouse_sources.backend.facade.models import ExternalDataSource
+from products.warehouse_sources.backend.facade.models import ExternalDataSource, create_datawarehousetable
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.table import DataWarehouseTable
@@ -50,7 +50,7 @@ def upsert_direct_trino_table(
     }
 
     if existing_table is None:
-        return DataWarehouseTable.objects.create(
+        return create_datawarehousetable(
             name=schema_name,
             format=DataWarehouseTable.TableFormat.Parquet,
             team_id=source.team_id,

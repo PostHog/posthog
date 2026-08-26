@@ -1102,9 +1102,13 @@ def get_table_by_schema_id(schema_id: str, team_id: int):
     return ExternalDataSchema.objects.get(id=schema_id, team_id=team_id).table
 
 
-@database_sync_to_async
-def acreate_datawarehousetable(**kwargs):
+def create_datawarehousetable(**kwargs: Any) -> DataWarehouseTable:
     return DataWarehouseTable.objects.create(**kwargs)
+
+
+@database_sync_to_async
+def acreate_datawarehousetable(**kwargs: Any) -> DataWarehouseTable:
+    return create_datawarehousetable(**kwargs)
 
 
 @database_sync_to_async
