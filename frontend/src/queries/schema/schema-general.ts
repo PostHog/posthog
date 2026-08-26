@@ -4222,6 +4222,17 @@ export interface LogsAlertFilters {
     filterGroup?: PropertyGroupFilter
 }
 
+/**
+ * Filter criteria for a tracing alert configuration, matched against `trace_spans`.
+ * At least one of `serviceNames`, `errorOnly`, or `filterGroup` must be set on a
+ * live (enabled=true) alert.
+ */
+export interface TracingAlertFilters {
+    serviceNames?: string[]
+    errorOnly?: boolean
+    filterGroup?: PropertyGroupFilter
+}
+
 export interface LogsQuery extends DataNode<LogsQueryResponse> {
     kind: NodeKind.LogsQuery
     dateRange: DateRange

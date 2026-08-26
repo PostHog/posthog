@@ -53123,6 +53123,25 @@
             "required": ["results"],
             "type": "object"
         },
+        "TracingAlertFilters": {
+            "additionalProperties": false,
+            "description": "Filter criteria for a tracing alert configuration, matched against `trace_spans`. At least one of `serviceNames`, `errorOnly`, or `filterGroup` must be set on a live (enabled=true) alert.",
+            "properties": {
+                "errorOnly": {
+                    "type": "boolean"
+                },
+                "filterGroup": {
+                    "$ref": "#/definitions/PropertyGroupFilter"
+                },
+                "serviceNames": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "type": "object"
+        },
         "TrendsAlertConfig": {
             "additionalProperties": false,
             "properties": {

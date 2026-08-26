@@ -14,7 +14,7 @@ import {
 import {
     LogsAlertConfigurationApi,
     LogsAlertEventApi,
-    LogsAlertEventKindEnumApi,
+    AlertEventKindEnumApi,
     LogsAlertThresholdOperatorEnumApi,
 } from 'products/logs/frontend/generated/api.schemas'
 
@@ -40,7 +40,7 @@ function getHistoryThresholds(alert: LogsAlertConfigurationApi): AlertEvaluation
 
 function getHistoryPoints(events: LogsAlertEventApi[]): AlertEvaluationHistoryPoint[] {
     return events
-        .filter((event) => event.kind === LogsAlertEventKindEnumApi.Check && event.result_count !== null)
+        .filter((event) => event.kind === AlertEventKindEnumApi.Check && event.result_count !== null)
         .sort((left, right) => left.created_at.localeCompare(right.created_at))
         .map((event) => ({
             label: dayjs(event.created_at).format('MMM D, HH:mm'),
@@ -124,20 +124,20 @@ interface EventDescription {
 }
 
 const CONTROL_PLANE_DESCRIPTIONS: Record<
-    Exclude<LogsAlertEventKindEnumApi, typeof LogsAlertEventKindEnumApi.Check>,
+    Exclude<AlertEventKindEnumApi, typeof AlertEventKindEnumApi.Check>,
     Pick<EventDescription, 'label' | 'type'>
 > = {
-    [LogsAlertEventKindEnumApi.Reset]: { label: 'Reset', type: 'primary' },
-    [LogsAlertEventKindEnumApi.Enable]: { label: 'Enabled', type: 'success' },
-    [LogsAlertEventKindEnumApi.Disable]: { label: 'Disabled', type: 'muted' },
-    [LogsAlertEventKindEnumApi.Snooze]: { label: 'Snoozed', type: 'highlight' },
-    [LogsAlertEventKindEnumApi.Unsnooze]: { label: 'Unsnoozed', type: 'highlight' },
-    [LogsAlertEventKindEnumApi.ThresholdChange]: { label: 'Threshold changed', type: 'completion' },
-    [LogsAlertEventKindEnumApi.BrokenConfig]: { label: 'Broken config', type: 'caution' },
+    [AlertEventKindEnumApi.Reset]: { label: 'Reset', type: 'primary' },
+    [AlertEventKindEnumApi.Enable]: { label: 'Enabled', type: 'success' },
+    [AlertEventKindEnumApi.Disable]: { label: 'Disabled', type: 'muted' },
+    [AlertEventKindEnumApi.Snooze]: { label: 'Snoozed', type: 'highlight' },
+    [AlertEventKindEnumApi.Unsnooze]: { label: 'Unsnoozed', type: 'highlight' },
+    [AlertEventKindEnumApi.ThresholdChange]: { label: 'Threshold changed', type: 'completion' },
+    [AlertEventKindEnumApi.BrokenConfig]: { label: 'Broken config', type: 'caution' },
 }
 
 function describeEvent(event: LogsAlertEventApi): EventDescription {
-    if (event.kind !== LogsAlertEventKindEnumApi.Check) {
+    if (event.kind !== AlertEventKindEnumApi.Check) {
         return { ...CONTROL_PLANE_DESCRIPTIONS[event.kind], detail: formatTransition(event) }
     }
     if (event.error_message && event.state_after === 'broken') {
@@ -177,7 +177,7 @@ function LogsAlertEventDetails({ event }: { event: LogsAlertEventApi }): JSX.Ele
             <dd className="font-mono">
                 {event.state_before} → {event.state_after}
             </dd>
-            {event.kind === LogsAlertEventKindEnumApi.Check ? (
+            {event.kind === AlertEventKindEnumApi.Check ? (
                 <>
                     <dt className="text-muted">Breached</dt>
                     <dd className="font-mono">{event.threshold_breached ? 'yes' : 'no'}</dd>

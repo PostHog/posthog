@@ -1,6 +1,7 @@
 from posthog.api.routing import RouterRegistry
 
 from products.tracing.backend.presentation.views import SpansViewSet
+from products.tracing.backend.presentation.views_alerts_api import TracingAlertViewSet
 from products.tracing.backend.presentation.views_api import TracingViewViewSet
 
 
@@ -15,5 +16,11 @@ def register_routes(routers: RouterRegistry) -> None:
         r"tracing/views",
         TracingViewViewSet,
         "project_tracing_views",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"tracing/alerts",
+        TracingAlertViewSet,
+        "project_tracing_alerts",
         ["team_id"],
     )
