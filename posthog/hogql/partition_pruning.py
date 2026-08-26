@@ -27,6 +27,9 @@ EVENTS_PARTITION_KEY = "toYYYYMM(timestamp)"
 UNPRUNED_SCAN_MESSAGE = "No filter on events.timestamp, so this reads your full event history."
 UNPRUNED_SCAN_FIX = "Add WHERE timestamp > now() - INTERVAL 30 DAY to read a recent time range."
 
+# The bound the quick fix writes. It matches the interval named in UNPRUNED_SCAN_FIX.
+_BOUND_EXPRESSION = "now() - INTERVAL 30 DAY"
+
 # Wrappers that keep the ordering of `timestamp`, so a bound on the wrapped expression still bounds
 # `toYYYYMM(timestamp)` and prunes partitions. Mirrors the allowlist that helpers/timestamp_visitor.py
 # uses for the same reasoning. A non-monotonic wrapper such as toDayOfWeek must stay out: a bound on it
@@ -72,11 +75,22 @@ _BOUNDING_COMPARE_OPS = frozenset(
 
 
 @frozen
+class QueryTextEdit:
+    """A replacement in the query source, as offsets into the text the query was parsed from."""
+
+    start: int
+    end: int
+    text: str
+
+
+@frozen
 class UnprunedEventsScan:
     """An `events` scan that no timestamp bound in scope can narrow to a subset of partitions."""
 
     start: int | None
     end: int | None
+    # Empty when the query shape has no unambiguous place to write the bound.
+    bound_edits: tuple[QueryTextEdit, ...] = ()
 
 
 def find_unpruned_events_scans(query: ast.SelectQuery | ast.SelectSetQuery) -> list[UnprunedEventsScan]:
@@ -124,7 +138,13 @@ def _collect_scans(
         table = join.table
         if isinstance(table, ast.Field):
             if not bounded_here and not capped_here and _is_events_table(table, shadowed):
-                scans.append(UnprunedEventsScan(start=table.start, end=table.end))
+                scans.append(
+                    UnprunedEventsScan(
+                        start=table.start,
+                        end=table.end,
+                        bound_edits=_bound_edits(node, join.alias),
+                    )
+                )
         elif isinstance(table, ast.SelectQuery | ast.SelectSetQuery):
             _collect_scans(table, bounded=bounded_here, capped=capped_here, shadowed=shadowed, scans=scans)
         join = join.next_join
@@ -134,6 +154,44 @@ def _collect_scans(
     # correlated subquery and a wrong warning costs more than a missed one.
     for subquery in _nested_select_queries(node):
         _collect_scans(subquery, bounded=bounded_here, capped=False, shadowed=shadowed, scans=scans)
+
+
+def _bound_edits(query: ast.SelectQuery, table_alias: str | None) -> tuple[QueryTextEdit, ...]:
+    """Edits that add a timestamp bound to `query`, or nothing when the shape makes that ambiguous."""
+    column = f"{table_alias}.timestamp" if table_alias else "timestamp"
+    predicate = f"{column} > {_BOUND_EXPRESSION}"
+
+    if query.where is not None:
+        if query.where.start is None or query.where.end is None:
+            return ()
+        # The existing condition gets parentheses because appending `AND x` to `a OR b` binds to `b`
+        # alone, which changes which rows match.
+        return (
+            QueryTextEdit(start=query.where.start, end=query.where.start, text="("),
+            QueryTextEdit(start=query.where.end, end=query.where.end, text=f") AND {predicate}"),
+        )
+
+    # PREWHERE and ARRAY JOIN sit between the FROM clause and the WHERE clause, so a WHERE written at
+    # the insertion point below would land in front of them.
+    if query.prewhere is not None or query.array_join_list:
+        return ()
+
+    insert_at = _join_chain_end(query.select_from)
+    if insert_at is None:
+        return ()
+    return (QueryTextEdit(start=insert_at, end=insert_at, text=f" WHERE {predicate}"),)
+
+
+def _join_chain_end(join: ast.JoinExpr | None) -> int | None:
+    """The offset just past the FROM clause, including any join constraint that trails the table."""
+    ends: list[int] = []
+    while join is not None:
+        if join.end is not None:
+            ends.append(join.end)
+        if join.constraint is not None and join.constraint.end is not None:
+            ends.append(join.constraint.end)
+        join = join.next_join
+    return max(ends) if ends else None
 
 
 def _is_events_table(table: ast.Field, shadowed: frozenset[str]) -> bool:

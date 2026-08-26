@@ -28612,6 +28612,42 @@
             },
             "type": "object"
         },
+        "HogQLFixAction": {
+            "additionalProperties": false,
+            "description": "A quick fix the editor can apply. Unlike `HogQLNotice.fix`, its edits are not confined to the marked range.",
+            "properties": {
+                "edits": {
+                    "description": "Applied together as a single undoable edit.",
+                    "items": {
+                        "$ref": "#/definitions/HogQLFixEdit"
+                    },
+                    "type": "array"
+                },
+                "title": {
+                    "description": "Shown as the quick-fix title.",
+                    "type": "string"
+                }
+            },
+            "required": ["title", "edits"],
+            "type": "object"
+        },
+        "HogQLFixEdit": {
+            "additionalProperties": false,
+            "description": "One replacement in the query text, as offsets into the query the notice came from.",
+            "properties": {
+                "end": {
+                    "$ref": "#/definitions/integer"
+                },
+                "start": {
+                    "$ref": "#/definitions/integer"
+                },
+                "text": {
+                    "type": "string"
+                }
+            },
+            "required": ["start", "end", "text"],
+            "type": "object"
+        },
         "HogQLMathType": {
             "const": "hogql",
             "type": "string"
@@ -28748,6 +28784,9 @@
                 },
                 "fix": {
                     "type": "string"
+                },
+                "fix_action": {
+                    "$ref": "#/definitions/HogQLFixAction"
                 },
                 "message": {
                     "type": "string"

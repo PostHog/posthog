@@ -9,7 +9,7 @@ import { subscriptions } from 'kea-subscriptions'
 // JS context, and that's exactly what happens on auto-reload when the new script chunks are loaded. Unfortunately
 // esbuild doesn't support manual chunks as of 2023, so we can't just put Monaco in its own chunk, which would prevent
 // re-importing. As for @monaco-editor/react, it does some lazy loading and doesn't have this problem.
-import { MarkerSeverity, editor } from 'monaco-editor'
+import { type IRange, MarkerSeverity, editor } from 'monaco-editor'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -31,9 +31,16 @@ import { getContextSourceQuery } from './sourceQueryUtils'
 const METADATA_LANGUAGES = [HogLanguage.hog, HogLanguage.hogQL, HogLanguage.hogQLExpr, HogLanguage.hogTemplate]
 const VIM_COMMAND_HISTORY_LIMIT = 50
 
+export interface ModelMarkerFixAction {
+    title: string
+    /** Ranges are resolved against the editor model, so they already carry the metadata query offset. */
+    edits: { range: IRange; text: string }[]
+}
+
 export interface ModelMarker extends editor.IMarkerData {
     hogQLFix?: string
     hogQLAIFixPrompt?: string
+    hogQLFixAction?: ModelMarkerFixAction
     start: number
     end: number
 }
@@ -226,6 +233,24 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                             hogQLFix: error.fix?.startsWith('ai_prompt:') ? undefined : error.fix,
                             hogQLAIFixPrompt: error.fix?.startsWith('ai_prompt:')
                                 ? error.fix.slice('ai_prompt:'.length)
+                                : undefined,
+                            hogQLFixAction: error.fix_action
+                                ? {
+                                      title: error.fix_action.title,
+                                      edits: error.fix_action.edits.map((edit) => {
+                                          const editStart = model!.getPositionAt(edit.start + markerOffset)
+                                          const editEnd = model!.getPositionAt(edit.end + markerOffset)
+                                          return {
+                                              range: {
+                                                  startLineNumber: editStart.lineNumber,
+                                                  startColumn: editStart.column,
+                                                  endLineNumber: editEnd.lineNumber,
+                                                  endColumn: editEnd.column,
+                                              },
+                                              text: edit.text,
+                                          }
+                                      }),
+                                  }
                                 : undefined,
                         }
                     }

@@ -749,11 +749,27 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
     user_modified_filters?: Record<string, any>
 }
 
+/** One replacement in the query text, as offsets into the query the notice came from. */
+export interface HogQLFixEdit {
+    start: integer
+    end: integer
+    text: string
+}
+
+/** A quick fix the editor can apply. Unlike `HogQLNotice.fix`, its edits are not confined to the marked range. */
+export interface HogQLFixAction {
+    /** Shown as the quick-fix title. */
+    title: string
+    /** Applied together as a single undoable edit. */
+    edits: HogQLFixEdit[]
+}
+
 export interface HogQLNotice {
     start?: integer
     end?: integer
     message: string
     fix?: string
+    fix_action?: HogQLFixAction
 }
 
 export enum QueryIndexUsage {

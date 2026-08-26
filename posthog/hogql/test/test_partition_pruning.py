@@ -3,7 +3,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from posthog.hogql.parser import parse_select
-from posthog.hogql.partition_pruning import find_unpruned_events_scans
+from posthog.hogql.partition_pruning import UnprunedEventsScan, find_unpruned_events_scans
 
 
 class TestFindUnprunedEventsScans(SimpleTestCase):
@@ -60,3 +60,61 @@ class TestFindUnprunedEventsScans(SimpleTestCase):
 
         self.assertEqual(len(scans), 1)
         self.assertEqual(query[scans[0].start : scans[0].end], "events")
+
+
+class TestUnprunedScanQuickFix(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "no where clause",
+                "SELECT count() FROM events",
+                "SELECT count() FROM events WHERE timestamp > now() - INTERVAL 30 DAY",
+            ),
+            (
+                "existing where clause",
+                "SELECT count() FROM events WHERE event = 'x'",
+                "SELECT count() FROM events WHERE (event = 'x') AND timestamp > now() - INTERVAL 30 DAY",
+            ),
+            (
+                "or keeps its own grouping",
+                "SELECT count() FROM events WHERE a = 1 OR b = 2",
+                "SELECT count() FROM events WHERE (a = 1 OR b = 2) AND timestamp > now() - INTERVAL 30 DAY",
+            ),
+            (
+                "clause after the from",
+                "SELECT count() FROM events GROUP BY event",
+                "SELECT count() FROM events WHERE timestamp > now() - INTERVAL 30 DAY GROUP BY event",
+            ),
+            (
+                "join writes past the constraint and qualifies the column",
+                "SELECT count() FROM events e JOIN persons p ON e.person_id = p.id GROUP BY e.event",
+                "SELECT count() FROM events e JOIN persons p ON e.person_id = p.id"
+                " WHERE e.timestamp > now() - INTERVAL 30 DAY GROUP BY e.event",
+            ),
+            (
+                "subquery holding the scan",
+                "SELECT count() FROM (SELECT * FROM events)",
+                "SELECT count() FROM (SELECT * FROM events WHERE timestamp > now() - INTERVAL 30 DAY)",
+            ),
+            ("prewhere has no unambiguous insertion point", "SELECT count() FROM events PREWHERE event = 'x'", None),
+        ]
+    )
+    def test_quick_fix_edits(self, _name: str, query: str, expected: str | None) -> None:
+        [scan] = find_unpruned_events_scans(parse_select(query))
+
+        if expected is None:
+            self.assertEqual(scan.bound_edits, ())
+            return
+
+        fixed = _apply_edits(query, scan)
+        self.assertEqual(fixed, expected)
+        parse_select(fixed)
+        self.assertEqual(find_unpruned_events_scans(parse_select(fixed)), [])
+
+
+def _apply_edits(query: str, scan: UnprunedEventsScan) -> str:
+    text, offset = query, 0
+    for edit in sorted(scan.bound_edits, key=lambda edit: edit.start):
+        text = text[: edit.start + offset] + edit.text + text[edit.end + offset :]
+        offset += len(edit.text) - (edit.end - edit.start)
+    return text

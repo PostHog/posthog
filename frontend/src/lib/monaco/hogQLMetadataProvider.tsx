@@ -50,6 +50,26 @@ export const hogQLMetadataProvider: () => languages.CodeActionProvider = () => (
                         })
                     }
                     if (
+                        rawMarker.hogQLFixAction &&
+                        // if ranges overlap
+                        rawMarker.start <= end &&
+                        rawMarker.end >= start
+                    ) {
+                        quickFixes.push({
+                            title: rawMarker.hogQLFixAction.title,
+                            diagnostics: [rawMarker],
+                            kind: 'quickfix',
+                            edit: {
+                                edits: rawMarker.hogQLFixAction.edits.map((fixEdit) => ({
+                                    resource: model.uri,
+                                    textEdit: { range: fixEdit.range, text: fixEdit.text },
+                                    versionId: undefined,
+                                })),
+                            },
+                            isPreferred: true,
+                        })
+                    }
+                    if (
                         rawMarker.hogQLAIFixPrompt &&
                         // if ranges overlap
                         rawMarker.start <= end &&

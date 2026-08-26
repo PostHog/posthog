@@ -1,7 +1,7 @@
 from collections import defaultdict
 from dataclasses import dataclass
 
-from posthog.schema import HogQLNotice
+from posthog.schema import HogQLFixAction, HogQLFixEdit, HogQLNotice
 
 from posthog.hogql import ast
 from posthog.hogql.partition_pruning import UNPRUNED_SCAN_FIX, UNPRUNED_SCAN_MESSAGE, find_unpruned_events_scans
@@ -65,6 +65,17 @@ class UnprunedEventsScanHeuristic(MetadataHeuristic):
                     start=scan.start,
                     end=scan.end,
                     message=f"{UNPRUNED_SCAN_MESSAGE} {UNPRUNED_SCAN_FIX}",
+                    fix_action=(
+                        HogQLFixAction(
+                            title="Add a time range",
+                            edits=[
+                                HogQLFixEdit(start=edit.start, end=edit.end, text=edit.text)
+                                for edit in scan.bound_edits
+                            ],
+                        )
+                        if scan.bound_edits
+                        else None
+                    ),
                 )
             )
         return warnings
