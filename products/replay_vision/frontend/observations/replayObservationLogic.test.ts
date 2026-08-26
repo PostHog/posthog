@@ -55,29 +55,29 @@ describe('replayObservationLogic', () => {
         sceneLogic?.unmount()
     })
 
-    // A one-off "Summarize this recording" scan mints an inline scanner, and the scanner endpoints refuse
-    // to serve it. Linking to one anyway 404s and drops the reader on the vision empty state, so both the
-    // breadcrumb and the post-retry hand-off must point at the recording instead.
+    // A one-off "Summarize this recording" scan mints an inline scanner the scanner endpoints refuse to
+    // serve, so a back button aimed at it 404s and drops the reader on the vision empty state. Both ways
+    // off this page — going back, and retrying — must land on the recording instead.
     test.each([
         {
             origin: 'configured' as const,
-            crumbScannerId: 'scanner-9',
             destination: '/replay-vision/scanner-9',
             leadsTo: 'the scanner page',
         },
         {
             origin: 'inline' as const,
-            crumbScannerId: null,
             destination: '/replay/sess-1',
             leadsTo: 'the recording',
         },
-    ])('$origin scanner observations lead to $leadsTo', async ({ origin, crumbScannerId, destination }) => {
+    ])('$origin scanner observations lead back to $leadsTo', async ({ origin, destination }) => {
         scannerOrigin = origin
         const logic = replayObservationLogic({ id: 'obs-1' })
         logic.mount()
         try {
             await expectLogic(logic).toDispatchActions(['loadObservationSuccess'])
-            expect(sceneLogic.values.scannerContext.scannerId).toBe(crumbScannerId)
+            // The scene's back button follows the second-to-last crumb, so that's what "back" means here.
+            const { breadcrumbs } = sceneLogic.values
+            expect(breadcrumbs[breadcrumbs.length - 2].path).toBe(destination)
 
             await expectLogic(logic, () => logic.actions.retryObservation()).toDispatchActions([
                 'retryObservationSuccess',

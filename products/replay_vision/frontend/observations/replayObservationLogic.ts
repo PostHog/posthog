@@ -5,6 +5,8 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { Breadcrumb } from '~/types'
+
 import { visionObservationsRetrieve } from '../generated/api'
 import {
     type ReplayObservationApi,
@@ -50,6 +52,29 @@ export function neighborFilterParams(searchParams: Record<string, unknown>): Vis
  */
 export function hasScannerPage(observation: Pick<ReplayObservationApi, 'scanner_origin'>): boolean {
     return observation.scanner_origin === ScannerOriginEnumApi.Configured
+}
+
+/**
+ * The crumb the observation page's back button returns to.
+ *
+ * A configured scanner owns its observations and has a page listing them, so back goes there. A one-off
+ * scan is owned by the recording it was run from — that's where the person started, and the only place
+ * its result is listed — so back goes to the recording instead.
+ */
+export function observationParentBreadcrumb(observation: ReplayObservationApi): Breadcrumb {
+    if (hasScannerPage(observation)) {
+        return {
+            key: `scanner-${observation.scanner_id}`,
+            name: observation.scanner_snapshot?.name || 'Scanner',
+            path: urls.replayVision(observation.scanner_id),
+        }
+    }
+    return {
+        key: `recording-${observation.session_id}`,
+        name: 'Recording',
+        path: urls.replaySingle(observation.session_id),
+        iconType: 'session_replay',
+    }
 }
 
 /** Canonical link to an observation's detail page, carrying list filters so prev/next honors them. */
@@ -165,14 +190,9 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
                         neighborFilterParams(router.values.searchParams)
                     )
                     actions.loadObservationSuccess(response)
-                    // Link the breadcrumb to the parent scanner so "back" returns to the scanner, not the vision home.
-                    // Inline scanners are throwaways minted for a one-off scan — they're unnamed and the detail
-                    // endpoint doesn't serve them, so a crumb pointing at one 404s and ejects the reader to the
-                    // vision empty state. Those observations get no scanner crumb.
-                    replayObservationSceneLogic().actions.setScannerContext(
-                        hasScannerPage(response) ? response.scanner_id : null,
-                        response.scanner_snapshot?.name ?? null
-                    )
+                    // Point the breadcrumb at whatever owns this observation, so "back" returns there
+                    // instead of the vision home.
+                    replayObservationSceneLogic().actions.setParentBreadcrumb(observationParentBreadcrumb(response))
                 } catch (error: any) {
                     // Only toast the initial load — background poll retries would otherwise spam one toast per tick.
                     if (!values.observation) {
