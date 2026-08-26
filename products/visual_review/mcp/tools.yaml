@@ -24,13 +24,13 @@ tools:
             idempotent: true
         title: Visual review snapshot overview
         description: >
-            Every snapshot identity in a repo that has a current baseline, keyed by run type plus identifier. Each
-            entry carries how often it was tolerated over the last 30 and 90 days, whether it is quarantined, how many
-            times its committed baseline has moved, and its recent average diff. Use this to answer "what does this
-            suite cover" and "which snapshots drift", and as the denominator behind the flakiness tool, which reports
-            only the subset with something wrong. Anchored on the latest default-branch run per run type, so it
-            describes what a run would compare against right now rather than any single run. Capped, which sets
-            `truncated`. Takes no filter parameters: filter the returned entries yourself.
+            Every snapshot identity in a repo that has a current baseline, keyed by run type plus identifier. Each entry
+            carries how often it was tolerated over the last 30 and 90 days, whether it is quarantined, how many times
+            its committed baseline has moved, and its recent average diff. Use this to answer "what does this suite
+            cover" and "which snapshots drift", and as the denominator behind the flakiness tool, which reports only the
+            subset with something wrong. Anchored on the latest default-branch run per run type, so it describes what a
+            run would compare against right now rather than any single run. Capped, which sets `truncated`. Takes no
+            filter parameters: filter the returned entries yourself.
         feature_flag: visual-review
     visual-review-repos-create:
         operation: visual_review_repos_create
@@ -47,11 +47,11 @@ tools:
         title: Visual review flakiness overview
         description: >
             Snapshots in a repo whose rendering cannot be trusted: those that recently rendered differently from their
-            baseline on the default branch, and those under an active quarantine. This is the triage view, and it is
-            far smaller than the baselines universe, so start here when asked why a suite is unreliable, which
-            snapshots to quarantine, or which quarantines to lift. `totals` covers the whole population even when the
-            entry list is capped, so read counts from there rather than by counting entries. Takes no filter
-            parameters: filter the returned entries yourself.
+            baseline on the default branch, and those under an active quarantine. This is the triage view, and it is far
+            smaller than the baselines universe, so start here when asked why a suite is unreliable, which snapshots to
+            quarantine, or which quarantines to lift. `totals` covers the whole population even when the entry list is
+            capped, so read counts from there rather than by counting entries. Takes no filter parameters: filter the
+            returned entries yourself.
         feature_flag: visual-review
     visual-review-repos-list:
         operation: visual_review_repos_list
@@ -92,9 +92,9 @@ tools:
         description: >
             Quarantined snapshot identifiers in a repo, with the reason, who opened it, when, when it expires, and the
             run whose failure prompted it. A quarantined snapshot is still captured, classified and diffed; it is only
-            excluded when a run decides pass or fail. Returns active entries by default. Pass `identifier` for that
-            one identifier's full history including expired entries, which is how you tell a long-standing mute from
-            one somebody opened this morning. Pass `run_type` to narrow to one kind of run.
+            excluded when a run decides pass or fail. Returns active entries by default. Pass `identifier` for that one
+            identifier's full history including expired entries, which is how you tell a long-standing mute from one
+            somebody opened this morning. Pass `run_type` to narrow to one kind of run.
         feature_flag: visual-review
     visual-review-repos-retrieve:
         operation: visual_review_repos_retrieve
@@ -137,11 +137,10 @@ tools:
         list: true
         title: List runs in a visual review repo
         description: >
-            Runs belonging to one repo. Prefer this over `visual-review-runs-list` whenever you know the repo: that
-            tool spans every repo in the project and cannot be narrowed to one, so its results mix repos together.
-            Filter by `review_state` to triage, or `search` for a free-text match over branch, commit SHA, run type
-            and PR number. For a specific PR, commit or branch, use `visual-review-runs-list`, which takes those
-            filters.
+            Runs belonging to one repo. Prefer this over `visual-review-runs-list` whenever you know the repo: that tool
+            spans every repo in the project and cannot be narrowed to one, so its results mix repos together. Filter by
+            `review_state` to triage, or `search` for a free-text match over branch, commit SHA, run type and PR number.
+            For a specific PR, commit or branch, use `visual-review-runs-list`, which takes those filters.
         feature_flag: visual-review
     visual-review-repos-snapshots-list:
         operation: visual_review_repos_snapshots_list
