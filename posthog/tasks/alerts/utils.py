@@ -151,10 +151,14 @@ def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> 
     "there was nothing to send" apart from "sending failed".
     """
 
+    log_properties = dict(properties)
+    if "insight_chart_url" in log_properties:
+        # The chart URL embeds a bearer token, so logs must not carry a usable credential.
+        log_properties["insight_chart_url"] = "[redacted]"
     logger.info(
         "Triggering internal event for alert destinations/hog functions",
         alert_id=alert.id,
-        properties=properties,
+        properties=log_properties,
     )
 
     props = {

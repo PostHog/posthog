@@ -1,7 +1,7 @@
 """Public Python interface for creating and retrieving one-off exports."""
 
 from collections.abc import Collection
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from django.conf import settings
 from django.http.response import HttpResponseBase
@@ -164,11 +164,18 @@ def render_png_export(
     created_by: User,
     export_context: dict | None = None,
     insight_id: int | None = None,
+    is_system: bool = False,
+    expires_after: datetime | None = None,
 ) -> tuple[ExportedAsset, bytes | None]:
     """Render a PNG export synchronously and return the asset together with its content bytes.
 
     Blocks until the export workflow finishes (typically a few seconds). On failure the
     returned bytes are None and ``asset.exception`` carries the error.
+
+    ``is_system`` marks the asset as created by an internal process, which excludes it from
+    the user's export listings and the per-team export quota. ``expires_after`` overrides
+    the format's default TTL; pass it when the render backs a short-lived delivery URL so
+    the stored bytes do not outlive their only consumer by months.
     """
     if created_by is None:
         # Access control below resolves against created_by; a principal-less render would
@@ -192,6 +199,9 @@ def render_png_export(
         export_format=ExportedAsset.ExportFormat.PNG,
         export_context=export_context,
         insight_id=insight_id,
+        is_system=is_system,
+        # None keeps the model's format-default TTL (see ExportedAsset.save).
+        expires_after=expires_after,
     )
 
     async def _run() -> None:
