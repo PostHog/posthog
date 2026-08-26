@@ -235,9 +235,11 @@ export function AccessResolutionPreview(): JSX.Element {
                 <div>
                     <h4 className="mb-2">Resource-level access</h4>
                     <LemonTable
+                        id="access-resolution-resource"
                         columns={resourceColumns}
                         dataSource={resourceChanges}
                         rowKey={(change) => `${change.resource}-${change.subject.type}-${change.subject.id}`}
+                        pagination={{ pageSize: 50, hideOnSinglePage: true }}
                     />
                 </div>
             )}
@@ -245,11 +247,13 @@ export function AccessResolutionPreview(): JSX.Element {
                 <div>
                     <h4 className="mb-2">Objects with their own access rules</h4>
                     <LemonTable
+                        id="access-resolution-object"
                         columns={objectColumns}
                         dataSource={objectChanges}
                         rowKey={(change) =>
                             `${change.resource}-${change.object_id}-${change.subject.type}-${change.subject.id}`
                         }
+                        pagination={{ pageSize: 20, hideOnSinglePage: true }}
                     />
                 </div>
             )}
