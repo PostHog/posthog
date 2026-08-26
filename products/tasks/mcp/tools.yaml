@@ -707,3 +707,6 @@ tools:
     tasks-warm-create:
         operation: tasks_warm_create
         enabled: false
+    tasks-warm-resume-create:
+        operation: tasks_warm_resume_create
+        enabled: false
