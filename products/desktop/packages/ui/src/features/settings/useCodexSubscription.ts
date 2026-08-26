@@ -28,6 +28,22 @@ export function shouldShowCodexSubscriptionControls(input: {
   return input.flagEnabled && input.adapter === "codex";
 }
 
+// The status query has no placeholder data, so `status` is undefined while it
+// loads or after an error. Treat only a confirmed signed-out account as needing
+// connection; otherwise a connected user sees the "not connected" notice on every
+// cold mount until the status lands.
+export function codexNeedsConnection(input: {
+  flagEnabled: boolean;
+  subscriptionOn: boolean;
+  status: CodexSubscriptionStatus | undefined;
+}): boolean {
+  return (
+    input.flagEnabled &&
+    input.subscriptionOn &&
+    input.status?.appLoggedIn === false
+  );
+}
+
 export function effectiveCodexModelAccess(input: {
   flagEnabled: boolean;
   subscriptionOn: boolean;
@@ -117,7 +133,11 @@ export function useCodexSubscription(): CodexSubscription {
     subscriptionOn,
     status,
     loggedIn,
-    needsConnection: flagEnabled && subscriptionOn && !loggedIn,
+    needsConnection: codexNeedsConnection({
+      flagEnabled,
+      subscriptionOn,
+      status,
+    }),
     setSubscriptionOn: (on) =>
       applyCodexModelAccess(
         on ? "own-subscription" : "posthog-gateway",

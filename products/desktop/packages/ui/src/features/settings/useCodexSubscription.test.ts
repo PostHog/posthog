@@ -1,8 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
+  codexNeedsConnection,
   effectiveCodexModelAccess,
   shouldShowCodexSubscriptionControls,
 } from "./useCodexSubscription";
+
+const status = (appLoggedIn: boolean) => ({
+  cliInstalled: false,
+  credentialFilePresent: false,
+  appLoggedIn,
+});
 
 describe("codex subscription gating", () => {
   it.each([
@@ -83,5 +90,35 @@ describe("codex subscription gating", () => {
     ],
   ])("%s", (_name, input, expected) => {
     expect(effectiveCodexModelAccess(input)).toBe(expected);
+  });
+
+  it.each([
+    [
+      "unknown status while loading is not treated as signed out",
+      { flagEnabled: true, subscriptionOn: true, status: undefined },
+      false,
+    ],
+    [
+      "confirmed signed out needs connection",
+      { flagEnabled: true, subscriptionOn: true, status: status(false) },
+      true,
+    ],
+    [
+      "signed in does not need connection",
+      { flagEnabled: true, subscriptionOn: true, status: status(true) },
+      false,
+    ],
+    [
+      "subscription off never needs connection",
+      { flagEnabled: true, subscriptionOn: false, status: status(false) },
+      false,
+    ],
+    [
+      "flag off never needs connection",
+      { flagEnabled: false, subscriptionOn: true, status: status(false) },
+      false,
+    ],
+  ])("%s", (_name, input, expected) => {
+    expect(codexNeedsConnection(input)).toBe(expected);
   });
 });
