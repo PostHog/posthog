@@ -1058,10 +1058,10 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                     lemonToast.success(`Deleted ${displayName}`)
                     // The scout's own page (and any finding deep link under it) has nothing left to show
                     // once it is gone.
-                    const scoutPath = urls.inboxScout(config.skill_name)
+                    const scoutPath = urls.selfDrivingScout(config.skill_name)
                     const { pathname } = router.values.location
                     if (pathname.endsWith(scoutPath) || pathname.includes(`${scoutPath}/`)) {
-                        router.actions.push(urls.inbox('scouts'))
+                        router.actions.push(urls.selfDriving('scouts'))
                     }
                 } catch (error: any) {
                     captureScoutAction({

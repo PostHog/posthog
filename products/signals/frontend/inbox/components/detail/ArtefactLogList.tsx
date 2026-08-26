@@ -260,7 +260,10 @@ function RelatedReportBody({ content }: { content: RelatedToContent }): JSX.Elem
         return null
     }
     return (
-        <Link to={urls.inboxReport('reports', content.report_id)} className="inline-flex items-center gap-1 text-xs">
+        <Link
+            to={urls.selfDrivingReport('reports', content.report_id)}
+            className="inline-flex items-center gap-1 text-xs"
+        >
             Open report <IconExternal className="size-3" />
         </Link>
     )

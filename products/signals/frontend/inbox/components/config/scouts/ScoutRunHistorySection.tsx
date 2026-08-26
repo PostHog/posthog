@@ -153,7 +153,7 @@ const ScoutRunRow = memo(function ScoutRunRow({
                             {authoredReportIds.map((reportId) => (
                                 <Link
                                     key={reportId}
-                                    to={urls.inboxReport('reports', reportId)}
+                                    to={urls.selfDrivingReport('reports', reportId)}
                                     className="flex items-center gap-1 font-medium shrink-0"
                                     onClick={() => captureOpenLinkedReport(skillName, reportId, 'authored')}
                                 >
@@ -163,7 +163,7 @@ const ScoutRunRow = memo(function ScoutRunRow({
                             {editedReportIds.map((reportId) => (
                                 <Link
                                     key={reportId}
-                                    to={urls.inboxReport('reports', reportId)}
+                                    to={urls.selfDrivingReport('reports', reportId)}
                                     className="flex items-center gap-1 font-medium shrink-0"
                                     onClick={() => captureOpenLinkedReport(skillName, reportId, 'edited')}
                                 >

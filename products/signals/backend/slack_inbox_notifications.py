@@ -378,7 +378,7 @@ def _build_message_blocks(
         {
             "type": "button",
             "text": {"type": "plain_text", "text": "Review in PostHog", "emoji": True},
-            "url": f"{settings.SITE_URL}/project/{report.team_id}/inbox/reports/{report.id}",
+            "url": f"{settings.SITE_URL}/project/{report.team_id}/self-driving/reports/{report.id}",
         }
     ]
     blocks.append({"type": "actions", "elements": action_elements})

@@ -112,7 +112,7 @@ class TestScoutSlackDelivery(BaseTest):
         assert "<!here>" not in section
         assert "&lt;!channel&gt;" in section
         assert call["blocks"][-1]["elements"][0]["url"] == (
-            f"{settings.SITE_URL}/project/{self.team.id}/inbox/scouts/signals-scout-error-tracking/checkout%2F500s"
+            f"{settings.SITE_URL}/project/{self.team.id}/self-driving/scouts/signals-scout-error-tracking/checkout%2F500s"
         )
         assert fake_client.chat_postMessage.call_count == 1
 
@@ -151,7 +151,7 @@ class TestScoutSlackDelivery(BaseTest):
         assert "&lt;!channel&gt;" in section
         assert "<https://example.com/trace|trace>" in section
         assert call["blocks"][-1]["elements"][0]["url"] == (
-            f"{settings.SITE_URL}/project/{self.team.id}/inbox/reports/{report.id}"
+            f"{settings.SITE_URL}/project/{self.team.id}/self-driving/reports/{report.id}"
         )
         reply = fake_client.chat_postMessage.call_args_list[1].kwargs
         assert reply["thread_ts"] == "1785418710.000200"
@@ -196,7 +196,7 @@ class TestScoutSlackDelivery(BaseTest):
         assert "&lt;!channel&gt;" in section
         assert "failed for many users" not in section
         assert call["blocks"][-1]["elements"][0]["url"] == (
-            f"{settings.SITE_URL}/project/{self.team.id}/inbox/reports/{report.id}"
+            f"{settings.SITE_URL}/project/{self.team.id}/self-driving/reports/{report.id}"
         )
 
     def test_enqueue_omits_edit_note_kwarg_when_unset(self) -> None:

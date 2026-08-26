@@ -16,7 +16,7 @@ export function ScoutLink({ skillName, className }: { skillName: string; classNa
         return null
     }
     return (
-        <Link to={urls.inboxScout(skillName)} className={className} onClick={(e) => e.stopPropagation()}>
+        <Link to={urls.selfDrivingScout(skillName)} className={className} onClick={(e) => e.stopPropagation()}>
             {name}
         </Link>
     )

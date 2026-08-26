@@ -179,7 +179,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 })
                 actions.clearUseCase()
                 actions.reportOnboardingCompleted(setup.primaryProduct, SELF_DRIVING_ONBOARDING_EVENT_PROPS)
-                router.actions.push(urls.inbox())
+                router.actions.push(urls.selfDriving())
             } catch {
                 lemonToast.error("Couldn't finish onboarding. Please try again.")
             } finally {

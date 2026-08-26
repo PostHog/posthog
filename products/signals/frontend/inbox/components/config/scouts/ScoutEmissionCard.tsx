@@ -78,7 +78,7 @@ export const ScoutEmissionCard = memo(function ScoutEmissionCard({
             extra: { severity: emission.severity },
         })
         void copyToClipboard(
-            `${window.location.origin}${addProjectIdIfMissing(urls.inboxScout(skillName, emission.finding_id))}`,
+            `${window.location.origin}${addProjectIdIfMissing(urls.selfDrivingScout(skillName, emission.finding_id))}`,
             'signal link'
         )
     }
@@ -151,7 +151,7 @@ export const ScoutEmissionCard = memo(function ScoutEmissionCard({
 
                 {report && (
                     <Link
-                        to={urls.inboxReport('reports', report.id)}
+                        to={urls.selfDrivingReport('reports', report.id)}
                         className="mt-2 inline-flex max-w-full items-center gap-1 rounded bg-primary-highlight px-2 py-0.5 text-xs font-medium text-primary"
                         onClick={() =>
                             captureScoutAction({
@@ -173,7 +173,7 @@ export const ScoutEmissionCard = memo(function ScoutEmissionCard({
                         <MonoId label="Signal" value={emission.finding_id} />
                         {showScout && (
                             <Link
-                                to={urls.inboxScout(skillName)}
+                                to={urls.selfDrivingScout(skillName)}
                                 className="flex items-center gap-1 font-medium shrink-0"
                             >
                                 View {prettifyScoutSkillName(skillName)} <IconArrowRight className="size-3" />

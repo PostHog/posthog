@@ -371,7 +371,7 @@ export function AIObservabilitySelfDriving(): JSX.Element {
                         signals
                     </Link>
                     : agents investigate what changed, and reports land in your{' '}
-                    <Link to={urls.inbox()} target="_blank" targetBlankIcon>
+                    <Link to={urls.selfDriving()} target="_blank" targetBlankIcon>
                         inbox
                     </Link>
                     , where one click turns a finding into a pull request.{' '}

@@ -56,7 +56,7 @@ export function ScoutsRosterTable({ compact }: { compact: boolean }): JSX.Elemen
                     if ((event.target as HTMLElement).closest('a, button')) {
                         return
                     }
-                    router.actions.push(urls.inboxScout(row.config.skill_name))
+                    router.actions.push(urls.selfDrivingScout(row.config.skill_name))
                 },
             })}
             columns={[

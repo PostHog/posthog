@@ -27,7 +27,7 @@ export function ScoutNameCell({
     return (
         <div className="flex flex-col gap-0.5 py-0.5">
             <div className="flex items-center gap-2">
-                <Link to={urls.inboxScout(config.skill_name)} subtle className="truncate text-sm font-medium">
+                <Link to={urls.selfDrivingScout(config.skill_name)} subtle className="truncate text-sm font-medium">
                     {prettifyScoutSkillName(config.skill_name)}
                 </Link>
                 {config.auto_pause_exempt && group === 'watching' && (

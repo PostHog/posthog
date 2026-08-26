@@ -54,7 +54,7 @@ def post_report_findings_to_tickets(team: Team, report_id: str, signals: list[di
     if not SignalReport.objects.filter(id=report_id, team_id=team.pk).exists():
         return 0
 
-    body = _note_body(f"{settings.SITE_URL}/project/{team.pk}/inbox/{report_id}")
+    body = _note_body(f"{settings.SITE_URL}/project/{team.pk}/self-driving/{report_id}")
 
     posted = 0
     for ticket_id in ticket_ids:

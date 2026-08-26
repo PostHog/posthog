@@ -201,9 +201,7 @@ def build_scout_slack_message(emission: SignalScoutEmission) -> tuple[list[dict]
 
     skill_segment = quote(emission.scout_run.skill_name, safe="")
     finding_segment = quote(emission.finding_id, safe="")
-    finding_url = (
-        f"{settings.SITE_URL.rstrip('/')}/project/{emission.team_id}/inbox/scouts/{skill_segment}/{finding_segment}"
-    )
+    finding_url = f"{settings.SITE_URL.rstrip('/')}/project/{emission.team_id}/self-driving/scouts/{skill_segment}/{finding_segment}"
     blocks.append(
         {
             "type": "actions",
@@ -269,7 +267,7 @@ def _report_header(report: SignalReport) -> str:
 
 
 def _report_link_block(report: SignalReport) -> dict:
-    report_url = f"{settings.SITE_URL.rstrip('/')}/project/{report.team_id}/inbox/reports/{report.id}"
+    report_url = f"{settings.SITE_URL.rstrip('/')}/project/{report.team_id}/self-driving/reports/{report.id}"
     return {
         "type": "actions",
         "elements": [

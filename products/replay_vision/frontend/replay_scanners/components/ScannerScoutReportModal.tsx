@@ -74,7 +74,7 @@ export function ScannerScoutReportModal({
                 openedReport && (
                     <LemonButton
                         type="secondary"
-                        to={urls.inboxReport('reports', openedReport.report_id)}
+                        to={urls.selfDrivingReport('reports', openedReport.report_id)}
                         data-attr="vision-scout-report-open-inbox"
                     >
                         Open in inbox

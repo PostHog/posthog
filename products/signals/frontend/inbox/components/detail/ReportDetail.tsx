@@ -347,7 +347,7 @@ export function InboxDetailFrame({
     const displayTitle = displayConventionalCommitTitle(report.title, 'Untitled report')
     // Absolute URL to this report – seeded into the Discuss prompt so the agent can open and read
     // the report directly.
-    const reportUrl = `${window.location.origin}${addProjectIdIfMissing(urls.inboxReport(tab, report.id))}`
+    const reportUrl = `${window.location.origin}${addProjectIdIfMissing(urls.selfDrivingReport(tab, report.id))}`
 
     // Secondary actions as data so the same set renders inline as buttons on wide layouts and as a
     // standard `LemonMenu` on narrow ones; the primary action stays inline either way.
@@ -443,7 +443,7 @@ export function InboxDetailFrame({
                     type="tertiary"
                     size="small"
                     icon={<IconArrowLeft />}
-                    to={backOverride ?? urls.inbox(tab)}
+                    to={backOverride ?? urls.selfDriving(tab)}
                     className="-ml-2 w-fit"
                 >
                     {backOverride ? 'Back' : INBOX_TAB_LABEL[tab]}

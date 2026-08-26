@@ -194,7 +194,7 @@ function ScoutTroopWidget(): JSX.Element {
             loading={scoutConfigs === null}
             status={hasAny ? `${enabledCount} on patrol` : 'No scouts running'}
             description="Scheduled agents that sweep this project on a cadence and report signals."
-            to={urls.inbox('scouts')}
+            to={urls.selfDriving('scouts')}
         />
     )
 }

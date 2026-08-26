@@ -52,7 +52,7 @@ function ScoutsSubsectionLink(): JSX.Element {
                     ? 'Manage the scouts sweeping this project.'
                     : `${enabledCount} of ${scoutConfigs.length} scouts on patrol.`}
             </span>
-            <LemonButton type="secondary" size="small" to={urls.inbox('scouts')}>
+            <LemonButton type="secondary" size="small" to={urls.selfDriving('scouts')}>
                 Open scouts
             </LemonButton>
         </div>

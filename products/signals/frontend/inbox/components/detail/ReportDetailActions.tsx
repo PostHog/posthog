@@ -90,7 +90,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
         // (the report leaves Reports/Pull requests and joins Archived), then return to the list.
         onArchived: () => {
             reportArchived()
-            router.actions.push(urls.inbox(activeTab))
+            router.actions.push(urls.selfDriving(activeTab))
         },
     })
 
@@ -102,7 +102,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
         onRefunded: () => {
             reportArchived()
             if (!staysPutOnRefund) {
-                router.actions.push(urls.inbox(activeTab))
+                router.actions.push(urls.selfDriving(activeTab))
             } else {
                 // These reports stay on this page, so refetch: the fresh copy carries `refund`,
                 // which surfaces the Refunded badge and drops Refund from the actions.
@@ -131,7 +131,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
         if (archivedList) {
             // The list logic fires the `restore` analytics; just drive navigation here.
             archivedList.actions.restoreReport(report.id)
-            router.actions.push(urls.inbox(activeTab))
+            router.actions.push(urls.selfDriving(activeTab))
             return
         }
         // Fallback for a deep-linked detail with no mounted Archived list (e.g. cold load).
@@ -140,7 +140,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
             await api.signalReports.setState(report.id, { state: 'potential' })
             captureInboxReportAction({ report, actionType: 'restore', surface: 'detail_pane' })
             lemonToast.success('Report restored to inbox')
-            router.actions.push(urls.inbox(activeTab))
+            router.actions.push(urls.selfDriving(activeTab))
         } catch (error: any) {
             lemonToast.error(error?.detail || error?.message || 'Failed to restore report')
         } finally {

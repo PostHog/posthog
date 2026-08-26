@@ -6,21 +6,21 @@ import { FileSystemIconType, ProductItemCategory } from '~/queries/schema/schema
 import { ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
-    name: 'Inbox',
+    name: 'Self-driving',
     scenes: {},
     routes: {},
     urls: {},
     treeItemsNew: [],
     treeItemsProducts: [
         {
-            path: 'Inbox',
+            path: 'Self-driving',
             intents: [],
             category: ProductItemCategory.TOOLS,
             iconType: 'inbox' as FileSystemIconType,
-            href: urls.inbox(),
+            href: urls.selfDriving(),
             flag: FEATURE_FLAGS.PRODUCT_AUTONOMY,
-            sceneKey: 'Inbox',
-            sceneKeys: ['Inbox'],
+            sceneKey: 'SelfDriving',
+            sceneKeys: ['SelfDriving'],
         },
     ],
 }

@@ -45,7 +45,7 @@ export interface Capability {
 export const CODE_CAPABILITY = {
     key: 'code',
     label: 'Code',
-    to: urls.inbox(),
+    to: urls.selfDriving(),
     beta: true as const,
 }
 

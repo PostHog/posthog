@@ -52,7 +52,7 @@ export function ScoutSummaryRow({
                 <div className="flex items-center gap-2">
                     <Tooltip title={config.description || undefined}>
                         <Link
-                            to={urls.inboxScout(config.skill_name)}
+                            to={urls.selfDrivingScout(config.skill_name)}
                             subtle
                             className="truncate text-sm font-medium min-w-[6rem]"
                         >
@@ -77,7 +77,7 @@ export function ScoutSummaryRow({
                     <LemonButton
                         size="small"
                         icon={<IconArrowUpRight />}
-                        to={urls.inboxScout(config.skill_name)}
+                        to={urls.selfDrivingScout(config.skill_name)}
                         aria-label={`Open the ${config.skill_name} scout`}
                     />
                 </Tooltip>

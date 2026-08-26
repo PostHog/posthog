@@ -113,7 +113,7 @@ def test_build_message_blocks_includes_recipient_and_open_in_posthog_button() ->
     buttons = blocks[3]["elements"]
     assert len(buttons) == 1
     assert buttons[0]["text"]["text"] == "Review in PostHog"
-    assert buttons[0]["url"] == f"{settings.SITE_URL}/project/42/inbox/reports/report-uuid"
+    assert buttons[0]["url"] == f"{settings.SITE_URL}/project/42/self-driving/reports/report-uuid"
     assert text == "Report (P1): Checkout errors spiked"
 
 
@@ -335,7 +335,7 @@ def test_dispatch_sends_to_configured_reviewer(org_and_team):
     assert blocks[1]["text"]["text"].startswith("*❗ P1 · Error tracking*")
     assert "👤 Suggested reviewers: <@U_REVIEWER>" in blocks[2]["elements"][0]["text"]
     assert all("<@" not in t for t in _plain_text_block_texts(blocks))
-    assert blocks[3]["elements"][0]["url"] == f"{settings.SITE_URL}/project/{team.id}/inbox/reports/{report.id}"
+    assert blocks[3]["elements"][0]["url"] == f"{settings.SITE_URL}/project/{team.id}/self-driving/reports/{report.id}"
 
 
 @pytest.mark.django_db
