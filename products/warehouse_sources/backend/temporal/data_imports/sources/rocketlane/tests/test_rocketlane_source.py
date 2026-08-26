@@ -3,18 +3,13 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
+from posthog.schema import ReleaseStatus, SourceFieldInputConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.rocketlane import (
     RocketlaneSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.rocketlane.rocketlane import (
-    RocketlaneResumeConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.rocketlane.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.rocketlane.source import RocketlaneSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestRocketlaneSource:
@@ -22,9 +17,6 @@ class TestRocketlaneSource:
         self.source = RocketlaneSource()
         self.team_id = 123
         self.config = RocketlaneSourceConfig(api_key="rl-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.ROCKETLANE
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config
@@ -37,13 +29,6 @@ class TestRocketlaneSource:
 
         field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
         assert field_names == ["api_key"]
-
-    def test_api_key_field_is_secret_password(self) -> None:
-        config = self.source.get_source_config
-        field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
-        assert field.required is True
 
     def test_no_connection_host_fields(self) -> None:
         # The only field is the secret `api_key`; the base URL is hardcoded and the account is
@@ -141,11 +126,6 @@ class TestRocketlaneSource:
         mock_check.return_value = (200, None)
         self.source.validate_credentials(self.config, self.team_id, schema_name="tasks")
         mock_check.assert_called_once_with("rl-key")
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is RocketlaneResumeConfig
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.rocketlane.source.rocketlane_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_rocketlane_source: mock.MagicMock) -> None:

@@ -2235,7 +2235,7 @@
         "feature_flag": "warehouse-person-properties"
     },
     "dashboard-create": {
-        "description": "Create a new dashboard. Provide a name and optional description, tags, and pinned status. Can also create from a template or duplicate an existing dashboard. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight. To add widget tiles after creation, see dashboard-widget-catalog-list for available widget types and dashboard-widgets-batch-add to add them.",
+        "description": "Create a new dashboard. Provide a name and optional description, tags, and pinned status. Can also create from a template or duplicate an existing dashboard. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight. To add widget tiles after creation, see dashboard-widget-catalog-list for available widget types and dashboard-widgets-batch-add to add them.\nA dashboard is the right artifact for a set of metrics someone will check repeatedly over time — monitoring, weekly or monthly tracking, team overviews, launch and health boards. It is the wrong one for a deep dive: an investigation with a narrative, intermediate steps, and a conclusion belongs in a notebook (`search notebooks-`), which interleaves prose with executable SQL and Python cells. When a deep dive turns up a few metrics worth tracking, save those as insights rather than reshaping the analysis into a dashboard.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Create dashboard",
@@ -5285,7 +5285,7 @@
         }
     },
     "file-download-batch-exports-create": {
-        "description": "Start an on-demand batch export that prepares downloadable files for events, persons, or sessions. Provide data_interval_start and data_interval_end as ISO 8601 datetimes; the interval must be at most one week. For events, include and exclude filter event names. Use file-download-batch-exports-retrieve with the returned id to poll until status is Completed, then follow the downloading-batch-export-files skill to download the files through the existing REST download endpoint.",
+        "description": "Start an on-demand batch export that prepares downloadable files for events, persons, sessions, or the results of a HogQL query. For events, persons and sessions, provide data_interval_start and data_interval_end as ISO 8601 datetimes; the interval must be at most one week, and for events, include and exclude filter event names. The hogql model is in closed beta and is enabled per team: it takes a hogql_query instead of a data interval, and returns a permission error naming HogQL batch exports when the team does not have it enabled, in which case tell the user they can contact PostHog support to request access. Limit hogql_query with a WHERE clause to export only the data the user asked for, because user queries run under stricter resource limits than the other models. Use file-download-batch-exports-retrieve with the returned id to poll until status is Completed, then follow the downloading-batch-export-files skill to download the files through the existing REST download endpoint.",
         "category": "Data pipelines",
         "feature": "batch_exports",
         "summary": "Start file download export",
@@ -8034,7 +8034,7 @@
         }
     },
     "notebooks-add-cell": {
-        "description": "Add a cell to a markdown notebook. SQL and Python cells run immediately: the call waits up to ~45s and returns the result — columns, a capped row preview, stdout/stderr (a Python cell's logs and tracebacks), and error — so you can look at the output and decide the next step (fix, or proceed). If the status comes back 'running', poll notebooks-run-cell-result with the run_id. A cell that reads other cells' dataframes references them by dataframe_name; those cells must have completed a run first, so add cells in dependency order. SQL cells are always HogQL: queries against PostHog or data warehouse tables run on ClickHouse, and a SQL cell that references a Python-created dataframe runs on the notebook's local engine automatically — any local dataframe is queryable by name, same syntax. The first Python cell can take longer while the notebook's sandbox kernel starts. component cells add other node types: Query, Image, Embed, Latex, FeatureFlag, Survey, Experiment, Person, Cohort, Recording, RecordingPlaylist. Pass a short title on every cell you add, describing what that cell shows — it renders in the cell header and is what a reader skims instead of the code.",
+        "description": "Add a cell to a markdown notebook. SQL and Python cells run immediately: the call waits up to ~45s and returns the result — columns, a capped row preview, stdout/stderr (a Python cell's logs and tracebacks), and error — so you can look at the output and decide the next step (fix, or proceed). If the status comes back 'running', poll notebooks-run-cell-result with the run_id. A cell that reads other cells' dataframes references them by dataframe_name; those cells must have completed a run first, so add cells in dependency order. SQL cells are always HogQL: queries against PostHog or data warehouse tables run on ClickHouse, and a SQL cell that references a Python-created dataframe runs on the notebook's local engine automatically — any local dataframe is queryable by name, same syntax. The first Python cell can take longer while the notebook's sandbox kernel starts. Run analysis Python here rather than in a runtime the user can't see — dataframe work, statistics, clustering, forecasting, plotting — so the code and its output stay visible and re-runnable beside the result; the sandbox has pandas, numpy, scipy, scikit-learn, and matplotlib. component cells add other node types: Query, Image, Embed, Latex, FeatureFlag, Survey, Experiment, Person, Cohort, Recording, RecordingPlaylist. Pass a short title on every cell you add, describing what that cell shows — it renders in the cell header and is what a reader skims instead of the code. A notebook holds at most 50 cells; past that the call fails, so start a new notebook rather than retrying.",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "Add a cell to a notebook; SQL/Python cells run immediately.",
@@ -8080,10 +8080,10 @@
         "feature_flag_behavior": "disable"
     },
     "notebooks-create-markdown": {
-        "description": "Create a notebook for deep, step-by-step data analysis: query PostHog and connected data warehouse data with SQL (HogQL), or analyze with Python code. SQL and Python cells can also read and query dataframes fetched or created by upstream cells in the notebook. Run a cell, read its result, decide the next step; add markdown cells to explain and summarize findings, and embed saved insights. Give it a title and optionally an initial markdown body. Returns the notebook_id to use with notebooks-add-cell.",
+        "description": "Create a notebook for deep, step-by-step data analysis: query PostHog and connected data warehouse data with SQL (HogQL), or analyze with Python code. SQL and Python cells can also read and query dataframes fetched or created by upstream cells in the notebook. Run a cell, read its result, decide the next step; add markdown cells to explain and summarize findings, and embed saved insights. Give it a title and optionally an initial markdown body. Returns the notebook_id to use with notebooks-add-cell. This is the default artifact for an analysis with a narrative — a deep dive, a one-off investigation, a 'why did X change' — where the reader needs the reasoning and caveats, not just a number; a dashboard is for metrics tracked repeatedly over time. Reach for a notebook without being asked whenever the work needs Python, so the code, its output, and its errors are visible to the user next to the result instead of running where they can't see them.",
         "category": "Notebooks",
         "feature": "notebooks",
-        "summary": "Create a markdown notebook for executable cells.",
+        "summary": "Create a markdown notebook for deep-dive analysis with SQL and Python cells.",
         "title": "Create markdown notebook",
         "required_scopes": ["notebook:write"],
         "feature_flag": "revamped-py-notebooks",
@@ -9823,7 +9823,7 @@
         }
     },
     "scout-scratchpad-remember": {
-        "description": "Upsert a scratchpad entry keyed on `(team, key)` — re-using a key updates the existing entry in place, so this is an upsert rather than a strict create. Keys are stable identities: key off *what* you're tracking, not *when* you saw it — never embed dates, timestamps, or run ids (that mints a new row every run and defeats dedupe). For run state, use one fixed key and keep the timestamp in `content`. Write `content` as Markdown — humans read these entries directly, so structured Markdown (headings, bullets, inline code for ids) is far easier to skim than a wall of prose. Optionally pass `run_id` to record which run wrote it.",
+        "description": "Upsert a scratchpad entry keyed on `(team, key)` — re-using a key updates the existing entry in place, so this is an upsert rather than a strict create. Keys are stable identities: key off *what* you're tracking, not *when* you saw it — never embed dates, timestamps, or run ids (that mints a new row every run and defeats dedupe). For run state, use one fixed key and keep the timestamp in `content`. Write `content` as Markdown — humans read these entries directly, so structured Markdown (headings, bullets, inline code for ids) is far easier to skim than a wall of prose. Optionally pass `run_id` to record which run wrote it. Optionally pass `expires_at` when the memory is only true for a while (a cooldown, a window you're watching) so it retires itself instead of waiting for a `scout-scratchpad-forget` you may never make. Each write carries the whole entry, so omitting `expires_at` on a later write clears an expiry set earlier.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Remember a scratchpad entry",
@@ -9837,7 +9837,7 @@
         }
     },
     "scout-scratchpad-search": {
-        "description": "Return `SignalScratchpad` entries for this project, newest first. Pass `text` for a case-insensitive substring match on the entry's `content` and `key`. Pass `date_from` / `date_to` (ISO-8601, inclusive lower / exclusive upper bound on `updated_at`) to scope to a window — set `date_to` to the `updated_at` of the oldest entry from the prior page to walk past the cap. Pass `keys_only=true` to scan which memories exist without pulling their (potentially large) bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation/dedupe scan from returning every entry's full prose. Results capped at 1000.",
+        "description": "Return `SignalScratchpad` entries for this project, newest first. Pass `text` for a case-insensitive substring match on the entry's `content` and `key`. Pass `date_from` / `date_to` (ISO-8601, inclusive lower / exclusive upper bound on `updated_at`) to scope to a window — set `date_to` to the `updated_at` of the oldest entry from the prior page to walk past the cap. Entries whose `expires_at` has passed are excluded unless `include_expired=true`. Pass `keys_only=true` to scan which memories exist without pulling their (potentially large) bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation/dedupe scan from returning every entry's full prose. Results capped at 1000.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Search the scout scratchpad",
@@ -10410,53 +10410,8 @@
             "readOnlyHint": false
         }
     },
-    "stamphog-digest-channels-create": {
-        "description": "Route an audience's daily merged-PR digest to a Slack channel. Requires `audience_key`, `slack_integration_id` (must be a Slack integration belonging to this team), and `slack_channel_id`.",
-        "category": "Stamphog",
-        "feature": "stamphog",
-        "summary": "Create stamphog digest channel",
-        "title": "Create stamphog digest channel",
-        "required_scopes": ["stamphog:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        },
-        "feature_flag": "stamphog"
-    },
-    "stamphog-digest-channels-delete": {
-        "description": "Disable a digest channel by id. This keeps the row as a disabled tombstone (so auto-provisioning can't recreate and re-post it) rather than hard-deleting it — equivalent to `stamphog-digest-channels-update` with `enabled: false`.",
-        "category": "Stamphog",
-        "feature": "stamphog",
-        "summary": "Delete stamphog digest channel",
-        "title": "Delete stamphog digest channel",
-        "required_scopes": ["stamphog:write"],
-        "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        },
-        "feature_flag": "stamphog"
-    },
-    "stamphog-digest-channels-list": {
-        "description": "List Slack destinations for the daily merged-PR digest in this project. Each channel is keyed by `audience_key` (e.g. a repo or team bucket) and reports how it was resolved (manual, name match, repo policy config) and whether it's currently enabled.",
-        "category": "Stamphog",
-        "feature": "stamphog",
-        "summary": "List stamphog digest channels",
-        "title": "List stamphog digest channels",
-        "required_scopes": ["stamphog:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        },
-        "feature_flag": "stamphog"
-    },
     "stamphog-digest-runs-list": {
-        "description": "List posted (or attempted) daily digest runs, newest first. Filter by `digest_channel` to see a single channel's history. Each run reports its status, how many merged PRs it summarized, and the Slack message timestamp it posted to. The rendered summary text itself lives only in the Slack post.",
+        "description": "List posted (or attempted) daily digest runs, newest first. Each run reports the audience it drained (a team slug, or `repo:owner/name`), the Slack channel it went to and why routing chose that channel, its status, how many merged PRs it summarized, and the Slack message timestamp. Filter by `slack_channel_id` to see one channel's history. The rendered summary text lives only in the Slack post.",
         "category": "Stamphog",
         "feature": "stamphog",
         "summary": "List stamphog digest runs",
@@ -10754,7 +10709,7 @@
         }
     },
     "subscriptions-deliveries-list": {
-        "description": "List delivery history for a subscription — one row per send attempt. Each entry includes status (starting, completed, failed, skipped), trigger_type (scheduled, manual, target_change), and timestamps (created_at, finished_at). Filter with status=failed to quickly surface failed deliveries. Results are cursor-paginated newest first. content_snapshot, recipient_results, and error are excluded to avoid leaking recipient identifiers or upstream response bodies that may contain tokens / PII. ai_report (the full report markdown) and ai_report_diagnostics (per-query debug detail) are also excluded here to keep list responses small — fetch a single delivery with subscriptions-deliveries-retrieve to read the report.",
+        "description": "List delivery history for a subscription — one row per send attempt. Each entry includes status (starting, completed, failed, skipped), trigger_type (scheduled, manual, target_change), and timestamps (created_at, finished_at). Filter with status=failed to quickly surface failed deliveries. Results are cursor-paginated newest first. content_snapshot, recipient_results, and error are excluded to avoid leaking recipient identifiers or upstream response bodies that may contain tokens / PII. ai_report (the full report markdown), ai_report_prompt (the prompt it was generated from), and ai_report_diagnostics (per-query debug detail) are also excluded here to keep list responses small — fetch a single delivery with subscriptions-deliveries-retrieve to read the report and its prompt.",
         "category": "Subscriptions",
         "feature": "subscriptions",
         "summary": "List subscription deliveries",
@@ -10866,7 +10821,7 @@
         }
     },
     "survey-get": {
-        "description": "Get a specific survey by ID. Returns the survey configuration including questions, targeting, and scheduling details.",
+        "description": "Get a specific survey by ID. Returns its questions, targeting flag — including current property targeting rules under targeting_flag.filters — and scheduling details. To change targeting, use targeting_flag_filters with survey-update.",
         "category": "Surveys",
         "feature": "surveys",
         "summary": "Get a specific survey by ID.",

@@ -15,6 +15,7 @@ import {
 } from "react";
 import { useConnectivity } from "../../../hooks/useConnectivity";
 import { toast } from "../../../primitives/toast";
+import { spendStopMessage, useSpendStop } from "../../billing/useSpendStop";
 import { useChannelWikiContext } from "../../context-wiki/hooks/useContextWiki";
 import { useContextLayerFlag } from "../../feature-flags/useContextLayerFlag";
 import { useFeatureFlag } from "../../feature-flags/useFeatureFlag";
@@ -33,14 +34,10 @@ import {
   type AgentAdapter,
   useSettingsStore,
 } from "../../settings/settingsStore";
-import {
-  type WorkspaceMode,
-  WorkspaceModeSelect,
-} from "../../task-detail/components/WorkspaceModeSelect";
-import { useCloudModeEnabled } from "../../task-detail/hooks/useCloudModeEnabled";
+import { WorkspaceModeSelect } from "../../task-detail/components/WorkspaceModeSelect";
 import { usePreviewConfig } from "../../task-detail/hooks/usePreviewConfig";
+import { useResolvedWorkspaceMode } from "../../task-detail/hooks/useResolvedWorkspaceMode";
 import { useTaskCreation } from "../../task-detail/hooks/useTaskCreation";
-import { resolveWorkspaceModePreference } from "../../task-detail/hooks/workspaceModePreference";
 import { useUpdateTaskChannelRepositories } from "../hooks/useTaskChannels";
 import {
   resolveTaskRepositoryDraft,
@@ -122,9 +119,6 @@ export const ChannelHomeComposer = forwardRef<
     setLastUsedAgentRuntime,
     lastUsedPiModel,
     setLastUsedPiModel,
-    lastUsedWorkspaceMode,
-    setLastUsedWorkspaceMode,
-    setLastUsedLocalWorkspaceMode,
     allowBypassPermissions,
     defaultInitialTaskMode,
     lastUsedInitialTaskMode,
@@ -163,21 +157,15 @@ export const ChannelHomeComposer = forwardRef<
     );
   }, [flagsLoaded, lastUsedAgentRuntime, piHarnessEnabled]);
 
-  const cloudModeEnabled = useCloudModeEnabled();
-  const { hasGithubIntegration } = useUserRepositoryIntegration();
+  const { hasGithubIntegration, isLoadingIntegrations } =
+    useUserRepositoryIntegration();
 
-  // Repo-less channel tasks only run local or cloud (worktree needs a repo), so
-  // collapse any lingering worktree preference down to local for the initial pick.
-  const [workspaceMode, setWorkspaceModeState] = useState<WorkspaceMode>(() =>
-    resolveWorkspaceModePreference({
-      preferredMode:
-        preferredWorkspaceMode ??
-        (lastUsedWorkspaceMode === "cloud" ? "cloud" : "local"),
-      cloudModeEnabled,
-      hasGithubIntegration,
-      lastUsedLocalWorkspaceMode: "local",
-    }),
-  );
+  const { workspaceMode, setWorkspaceMode } = useResolvedWorkspaceMode({
+    hasGithubIntegration,
+    isLoadingIntegrations,
+    allowWorktree: false,
+    preferredMode: preferredWorkspaceMode,
+  });
   const [selectedCloudEnvId, setSelectedCloudEnvId] = useState<string | null>(
     null,
   );
@@ -199,14 +187,6 @@ export const ChannelHomeComposer = forwardRef<
     channelGithubIntegration,
   );
   const updateChannelRepositories = useUpdateTaskChannelRepositories();
-  const setWorkspaceMode = useCallback(
-    (mode: WorkspaceMode) => {
-      setWorkspaceModeState(mode);
-      setLastUsedWorkspaceMode(mode);
-      if (mode !== "cloud") setLastUsedLocalWorkspaceMode(mode);
-    },
-    [setLastUsedWorkspaceMode, setLastUsedLocalWorkspaceMode],
-  );
 
   const {
     modeOption,
@@ -417,6 +397,7 @@ export const ChannelHomeComposer = forwardRef<
   );
 
   const isBusy = isCreatingTask;
+  const spendStop = useSpendStop();
 
   return (
     <div className="relative flex w-full flex-col">
@@ -487,7 +468,11 @@ export const ChannelHomeComposer = forwardRef<
           isBusy ||
           !isOnline ||
           (runtime === "pi" ? isPiConfigLoading : isLoading) ||
-          (runtime === "pi" && !currentPiModel)
+          (runtime === "pi" && !currentPiModel) ||
+          spendStop !== null
+        }
+        submitTooltipOverride={
+          spendStop ? spendStopMessage(spendStop) : undefined
         }
         modeOption={runtime === "pi" ? undefined : modeOption}
         onModeChange={runtime === "pi" ? undefined : handleModeChange}

@@ -23,8 +23,9 @@ interface UseAuthenticatedInfiniteQueryOptions<TData, TPageParam> {
     | ((query: unknown) => number | false | undefined);
   refetchIntervalInBackground?: boolean;
   staleTime?: number;
+  /** Forwarded to tanstack; pass `keepPreviousData` to hold the shown pages across a key change. */
   placeholderData?: (
-    previous: InfiniteData<TData, TPageParam> | undefined,
+    previousData: InfiniteData<TData, TPageParam> | undefined,
   ) => InfiniteData<TData, TPageParam> | undefined;
 }
 

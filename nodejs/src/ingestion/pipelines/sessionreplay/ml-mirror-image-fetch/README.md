@@ -191,6 +191,8 @@ XMP is an opt-out for that image when it has one of these values:
 
 **3.22** The lane uses separate cache entries for robots.txt, tdmrep.json, and each URL crawl result. A robots.txt or tdmrep.json success, absence, or valid refusal has a 24-hour TTL. An unreachable result without a cached version has a 1-hour TTL. A terminal URL result has a minimum TTL of 30 days. If the response's explicit freshness lifetime is longer, the entry uses that longer TTL.
 
+**3.23** A retained configuration body must be valid UTF-8. If the 500KiB robots.txt prefix ends inside a UTF-8 code point, the lane discards that incomplete code point. Any other invalid UTF-8 makes the configuration file unreachable.
+
 ### 4. Web Bot Auth
 
 **4.1** Our User Agent starts with `PostHogImageFetcherBot` and contains a link to https://posthog.com/docs/ai-research/image-fetcher-bot. An example value is `PostHogImageFetcherBot/1.0 (+https://posthog.com/docs/ai-research/image-fetcher-bot)`
@@ -225,7 +227,7 @@ key at `https://us.posthog.com/.well-known/http-message-signatures-directory`, a
 
 **5.2** Requests in flight to one registrable domain never exceed the registrable-domain limit during steady-state ownership. A bounded exception applies during the Kafka rebalance window described below.
 
-**5.3** Requests to one registrable domain never exceed the rate its token bucket allows during steady-state ownership. The same bounded rebalance exception applies.
+**5.3** A positive configured request rate enables a token bucket for each registrable domain. The default zero value disables this rate limit and uses only the active-request limit. The same bounded rebalance exception applies when the token bucket is enabled.
 
 **5.4** A redirect is not a way around any limit. Each image request counts against the registrable-domain budget of its target and the crawl delay of its target origin. The lane follows a configuration redirect only when its target has the same registrable domain. Each followed configuration request counts against that shared registrable-domain budget.
 
@@ -233,7 +235,7 @@ key at `https://us.posthog.com/.well-known/http-message-signatures-directory`, a
 
 **5.6** There is no global handling of concurrent request limits. The Kafka topic is partitioned by registrable domain, using both the ICANN and private sections of the Public Suffix List. All origins under one registrable domain therefore go to one partition. One pod normally holds the shared registrable-domain request budget and the separate policy and crawl-delay state for each origin.
 
-**5.7** On partition revocation, the consumer stops starting work for the revoked partitions and drains their active batch before it unassigns them. If the drain exceeds Kafka's rebalance timeout, Kafka can assign the partition to a new pod while the old pod finishes its active requests. During this exceptional window, one old owner and one new owner can each apply the registrable-domain limit and token bucket. The pod limit still applies independently to each pod. The lane does not use a distributed lease to close this window.
+**5.7** On partition revocation, the consumer stops starting work for the revoked partitions and drains their active batch before it unassigns them. If the drain exceeds Kafka's rebalance timeout, Kafka can assign the partition to a new pod while the old pod finishes its active requests. During this exceptional window, one old owner and one new owner can each apply the registrable-domain limit and an enabled token bucket. The pod limit still applies independently to each pod. The lane does not use a distributed lease to close this window.
 
 **5.8** In-flight concurrency limits apply to all external URL fetches (e.g. `robots.txt` files), not just images. It does not apply to internal services like DynamoDB or Kafka.
 
@@ -245,13 +247,13 @@ key at `https://us.posthog.com/.well-known/http-message-signatures-directory`, a
 | ------------------------------------------ | ------------------------------------------------- | ---------- |
 | Requests in flight                         | pod                                               | 300        |
 | Requests in flight per registrable domain  | registrable domain                                | 6          |
-| Requests per second per registrable domain | registrable domain                                | 1, burst 5 |
+| Requests per second per registrable domain | registrable domain                                | disabled   |
 | Hop budget                                 | one original URL, across every message it becomes | 10         |
 | Redirects followed without republishing    | one fetch                                         | 3          |
 | Response bytes, compressed                 | one response                                      | 20 MiB     |
 | Request timeout                            | one URL, redirects included                       | 10 seconds |
-| Pass deadline                              | one pass                                          | 20 seconds |
-| Pass wall time, worst case                 | one pass                                          | 30 seconds |
+| Pass deadline                              | one pass                                          | 40 seconds |
+| Pass wall time, worst case                 | one pass                                          | 50 seconds |
 | Registrable domains tracked                | pod                                               | 20,000     |
 | Origins tracked                            | pod                                               | 20,000     |
 | Crawl history entry                        | one URL                                           | 30 days    |
@@ -260,14 +262,14 @@ key at `https://us.posthog.com/.well-known/http-message-signatures-directory`, a
 
 | State                                                                    | Key                  | Location                                                     |
 | ------------------------------------------------------------------------ | -------------------- | ------------------------------------------------------------ |
-| Active requests, token bucket, back-off, and circuit breaker             | Registrable domain   | Memory on the pod that owns the Kafka partition              |
+| Active requests, optional token bucket, back-off, and circuit breaker    | Registrable domain   | Memory on the pod that owns the Kafka partition              |
 | Crawl delay and scheduled request count                                  | Origin               | Memory on the pod that owns the registrable-domain partition |
 | Configuration request coalescing lock                                    | Origin and file type | Memory on the pod that owns the registrable-domain partition |
 | robots.txt and tdmrep.json results                                       | Origin and file type | DynamoDB, with an optional hot cache in pod memory           |
 | URL crawl history and HTTP cache metadata                                | Global canonical URL | DynamoDB                                                     |
 | Original ref, current URL, remaining image hops, and earliest retry time | One URL job          | Kafka record                                                 |
 
-**5.12** Request rate, burst, active-request count, transient back-off, `Retry-After`, and circuit-breaker state use the registrable domain as their key. Configuration policy and `Crawl-delay` use the origin as their key. No request-control state uses the provider domain as its key.
+**5.12** A configured request rate, burst, active-request count, transient back-off, `Retry-After`, and circuit-breaker state use the registrable domain as their key. Configuration policy and `Crawl-delay` use the origin as their key. No request-control state uses the provider domain as its key.
 
 **5.13** The pod limits both its registrable-domain runtime map and its origin runtime map to 20,000 entries because both key sets are unbounded.
 
@@ -275,7 +277,7 @@ key at `https://us.posthog.com/.well-known/http-message-signatures-directory`, a
 
 - The registrable domain has no active request or pending request grant.
 - The registrable domain has no active back-off or breaker.
-- The registrable domain's token bucket is full.
+- The registrable domain's token bucket is disabled or full.
 
 The pod can evict an origin entry only when all these conditions apply:
 
@@ -286,6 +288,16 @@ The pod can evict an origin entry only when all these conditions apply:
 Removing an eligible entry cannot permit an earlier request.
 
 **5.15** If either map is full and has no eligible entry, the pod does not make the request. It sends the job to the 1-minute delay topic. The record names `origin_map_full` or `registrable_domain_map_full` as the reason.
+
+**5.16** Before scheduling a pass, the lane deduplicates jobs by global canonical URL ref. It keeps the most conservative hop, retry, and timing state for each ref.
+
+**5.17** The pass queue groups jobs first by registrable domain and then by origin. It assigns capped proportional concurrency targets at both levels. It starts with each queue's share of the deduplicated pass and the available parent capacity. It caps the target at the queue's job count and the registrable-domain limit. It redistributes unused capacity until no eligible queue exceeds either cap.
+
+**5.18** The queue selects the registrable domain that is furthest below its concurrency target. It uses the waiting job count and then insertion order as tie-breakers. It applies the same rule to origins within the selected registrable domain. The pod and registrable-domain limits still apply.
+
+**5.19** The queue calculates remaining request capacity from active and waiting jobs. It applies the configured registrable-domain and pod limits. The defaults are 6 and 300. If fewer than 48 request slots remain, low-origin-diversity mode can start. More than 50 canonical URL jobs must still be eligible for a diversity deferral. The pass processes 8 more jobs for forward progress. It then republishes each eligible job in the waiting tail to the frontier without reducing the hop budget. Low-origin-diversity mode remains active for the rest of that pass.
+
+This rule lets later Kafka records add domain and origin diversity when the current pass cannot use enough pod capacity. A job can receive this zero-wait diversity deferral once. A previously deferred job proceeds normally, subject to the pass deadline. This bound prevents a persistent dominant origin or one long run from creating a fast republish cycle without progress.
 
 ### 6. Smokescreen
 
@@ -319,7 +331,7 @@ Removing an eligible entry cannot permit an earlier request.
 
 **7.9** The lane respects every `Crawl-delay` field line in the selected robots.txt group for `PostHogImageFetcherBot`. It accepts a non-negative decimal number of seconds, ignores invalid values, and uses the greatest valid value.
 
-**7.10** `Crawl-delay` is the minimum interval between the start times of two image requests to the same origin. The 1-request-per-second interval applies across the registrable domain. A request must satisfy both limits.
+**7.10** `Crawl-delay` is the minimum interval between the start times of two image requests to the same origin. An origin without this field has no start-time interval. A positive configured request rate can also apply across the registrable domain. A request must satisfy every enabled limit.
 
 **7.11** Back-off, `Retry-After`, and an open circuit breaker apply to every image URL queued for the registrable domain. `Crawl-delay` applies only to image URLs queued for the origin that published it. The lane uses the latest applicable not-before time.
 
@@ -376,7 +388,7 @@ built from a redirect target matches no recording.
 
 **10.3** The consumer completes durable work in this order:
 
-1. It publishes any image or delayed retry to its destination Kafka topic and waits for the delivery acknowledgement.
+1. It publishes each image and every frontier or delay record to its destination Kafka topic and waits for the delivery acknowledgement.
 2. It writes all required crawl-history changes to DynamoDB.
 3. It returns from the batch so that the input fetch-topic offset can be stored.
 
@@ -386,7 +398,7 @@ A terminal refusal has no destination Kafka record, so it starts at step 2. A de
 
 ```json
 {
-  "v": 1,
+  "v": 2,
   "jobs": [
     {
       "originalRef": "imageurl:<hash>",
@@ -402,7 +414,7 @@ A terminal refusal has no destination Kafka record, so it starts at step 2. A de
 }
 ```
 
-`v` is the integer `1`. `jobs` contains 1 to 1,000 entries, and the decoded JSON record cannot exceed 512 KiB. `originalRef` is the ref calculated for the URL first seen in the replay. `currentUrl` is the next URL to request after any redirects. `remainingHops`, `notBeforeMs`, `firstSeenAtMs`, `fetchCount`, and `republishCount` are non-negative safe integers. `firstSeenAtMs` is the Unix time when the producer first collected the URL. `fetchCount` counts image HTTP requests, and `republishCount` counts frontier and delay-topic republishes. `lastRepublishReason` is `null`, `redirect`, `retry`, `not_ready`, `pass_deadline`, `origin_map_full`, or `registrable_domain_map_full`.
+`v` is the integer `2`. The parser also accepts the two version `1` shapes that preceded this schema, so records already in a topic drain across an upgrade. `jobs` contains 1 to 1,000 entries, and the decoded JSON record cannot exceed 512 KiB. `originalRef` is the ref calculated for the URL first seen in the replay. `currentUrl` is the next URL to request after any redirects. `remainingHops`, `notBeforeMs`, `firstSeenAtMs`, `fetchCount`, and `republishCount` are non-negative safe integers. `firstSeenAtMs` is the Unix time when the producer first collected the URL. `fetchCount` counts image HTTP requests, and `republishCount` counts frontier and delay-topic republishes. `lastRepublishReason` is `null`, `redirect`, `retry`, `not_ready`, `pass_deadline`, `origin_map_full`, or `registrable_domain_map_full`. The optional boolean `lowOriginDiversityDeferred` records that the job has already received its one zero-wait diversity deferral.
 
 The parser ignores unknown fields so that a producer can add optional data without breaking an older consumer. It rejects a missing field, an invalid field type or value, an unsupported version, or a record whose jobs do not all match the Kafka key. It derives the current origin and registrable domain from `currentUrl` with the shared URL-policy implementation. It uses `originalRef` as the crawl-history key so that a redirect result completes the URL that the recording referenced.
 
@@ -410,6 +422,12 @@ The parser ignores unknown fields so that a producer can add optional data witho
 
 **10.6** A systematic error like not being able to reach Kafka or DynamoDB should throw. We should not drop messages in
 that scenario.
+
+**10.7** A redirect, pass-deadline deferral, and low-origin-diversity deferral have no required wait. The lane publishes them to the frontier with `notBeforeMs` set to `0`. A retry, an early `notBeforeMs`, or a full runtime-state map uses the smallest delay topic that satisfies its required wait.
+
+**10.8** Before Kafka delivery, the lane groups republished jobs by destination topic and the current URL's registrable domain. It packs each group into records of no more than 1,000 jobs and no more than 512 KiB. It sends records up to the configured pending-publish limit and waits for every started delivery acknowledgement. After one delivery fails, it starts no more records from that batch. It also stops starting deliveries 200 seconds after the poll batch began. This leaves time for in-flight delivery callbacks, the final crawl-history write, and offset handling before Kafka's 300-second poll limit. A record contains only one registrable domain and uses that registrable domain as its Kafka key.
+
+A fetch batch can publish more frontier records than it consumed. This can occur when URLs from one source-domain record redirect to several target registrable domains. It can also occur when the added durable state makes a republished record reach a wire limit earlier than its input record. The lane must preserve those target-domain keys and wire limits. It must not send a zero-wait redirect to a delay topic only to keep the record count unchanged.
 
 ### 11. Metrics
 
@@ -435,11 +453,13 @@ that scenario.
 
 **11.5** The provider domain is the effective top-level domain plus one when only the ICANN section is active. For example, it is `posthog.com` for `app.posthog.com` and `vercel.app` for `myapp.vercel.app`. This document does not use the ambiguous term `root domain`.
 
-**11.6** Every metric label defined by this lane uses a fixed set of values. HTTP responses use `2xx`, `3xx`, `4xx`, `5xx`, or `other`. Republish destinations use `frontier` or `delay`. Unexpected scrub source formats use `other`. No label defined by this lane contains a registrable domain, provider domain, origin, host, URL, image ref, team, project, Kafka topic, exception message, or other external value.
+**11.6** Every metric label defined by this lane uses a fixed set of values. HTTP responses use `2xx`, `3xx`, `4xx`, `5xx`, or `other`. Republish destination classes use `frontier` or `delay`. Republish topic classes use `frontier`, `retry_1m`, `retry_10m`, or `retry_1h`. Unexpected scrub source formats use `other`. No label defined by this lane contains a configured Kafka topic name, registrable domain, provider domain, origin, host, URL, image ref, team, project, exception message, or other external value.
 
-**11.7** The lane counts republishes by reason and bounded destination class. It counts transient retry causes as `timeout`, `error`, `rate_limited`, or `server_error`. It also counts republish failures, crawl-history keys affected by failed operations, and retry records by outcome.
+**11.7** The lane counts republished URLs by reason and bounded destination class. For each used topic class in a fetch batch, it observes the number of Kafka record delivery attempts, the number of attempted registrable-domain keys, and the wall time from topic-class scheduling until all started delivery attempts settle. It also observes total republish flush wall time and counts batches that reached the republish finalization deadline.
 
-**11.8** The lane observes completed poll batch duration, active batch age, crawl-history operation duration, scheduler waits by `origin_crawl_delay`, `registrable_domain_rate`, or `request_capacity`, and URL age at ingestion. The pass-budget saturation ratio is `pass_deadline` republishes divided by completed URLs plus all republishes.
+It counts transient retry causes as `timeout`, `error`, `rate_limited`, or `server_error`. It also counts republish failures, crawl-history keys affected by failed operations, and retry records by outcome.
+
+**11.8** The lane observes completed poll batch duration, active batch age, distinct origins and registrable domains per poll batch, crawl-history operation duration, scheduler waits by `origin_crawl_delay`, `registrable_domain_rate`, or `request_capacity`, and URL age at ingestion. For deduplicated canonical URL jobs, it observes the URL share held by the top 1, 5, and 10 origins and registrable domains. It also observes the inverse Simpson effective count for both scopes. At fetch-pass start, it observes the request slots that the queue can use immediately and their ratio to the pod request limit. It counts passes that enter low-origin-diversity mode and observes the origins, canonical URL jobs, and request slots that remain at entry. The pass-budget saturation ratio is `pass_deadline` republishes divided by completed URLs plus all republishes.
 
 **11.9** Alerts use frontier-topic lag, pass-budget saturation, active batch age, delivery failures, and invalid frontier or retry input. Durable log alerts cover one-shot failures that can stop a pod before Prometheus scrapes its counters. Requirement 16.6 still prohibits alerts on delay-topic lag.
 

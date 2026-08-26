@@ -106,12 +106,42 @@ Rendering and the GitHub calls are in `community_publish_services.py`.
 
 | Setting                                   | Effect                                                                              |
 | ----------------------------------------- | ----------------------------------------------------------------------------------- |
-| `COMMUNITY_SKILLS_GITHUB_INSTALLATION_ID` | Installation of the GitHub App that opens the PRs. Empty (the default) returns 503. |
+| `COMMUNITY_SKILLS_GITHUB_APP_CLIENT_ID`   | Client id of the publisher App, and the issuer of the App JWT that mints the token. |
+| `COMMUNITY_SKILLS_GITHUB_APP_PRIVATE_KEY` | PEM the App JWT is signed with. Escaped newlines are restored before signing.       |
+| `COMMUNITY_SKILLS_GITHUB_INSTALLATION_ID` | Installation of that App on the publish repo. Empty (the default) returns 503.      |
 | `COMMUNITY_SKILLS_GITHUB_REPO`            | Bare repo name to publish into. The owner comes from the installation's account.    |
+
+Publishing runs as its own dedicated GitHub App, installed on the publish repo alone. It does not
+fall back to the core `GITHUB_APP_*` App, which is installed across the whole PostHog org: a
+dedicated App cannot reach another repository whatever the publish path asks it for. One App serves
+every region, so the client id and the installation id hold the same value everywhere and only the
+private key is per-region. Any of the three being empty keeps publishing off.
 
 `COMMUNITY_SKILLS_GITHUB_REPO` is publish-only. The hourly catalog sync reads `registry.json` from the
 repo pinned in `community_skill_sync.py`, so pointing this setting elsewhere sends pull requests to a
 repo the sync never reads back.
+
+### The App and its privileges
+
+Registering and installing the App is manual org-admin work in the GitHub UI. Nothing in
+`posthog-cloud-infra` manages App installations, and the env values land through `PostHog/charts`
+(`shared/posthog-django/common.prod-us.yaml` and `common.prod-eu.yaml`, next to the
+`STAMPHOG_GITHUB_APP_*` block, with the private key in `secret_env`). Least privilege is held at
+three layers, and only the last one is code:
+
+1. **App registration.** The App declares `Contents: write`, `Pull requests: write`, and
+   `Metadata: read`, and nothing else. No webhook, no user-authorization flow, so it has no client
+   secret and no webhook secret. Private, owned by the PostHog org. This is the ceiling on anything
+   the App can ever do.
+2. **Installation.** Installed with "Only select repositories" and the publish repo as the one
+   selection. This caps the repo scope, and is why the core `GITHUB_APP_*` App cannot serve here.
+3. **Token mint.** `PUBLISHER_TOKEN_PERMISSIONS` in `community_publish_services.py` requests an
+   installation token holding exactly those three permissions on `COMMUNITY_SKILLS_GITHUB_REPO`
+   alone. GitHub only lets a token request narrow what the two layers above granted, so a later
+   over-grant in the UI still cannot reach a publish.
+
+Keep the three in step: a permission the App does not declare makes the token mint fail with a 422
+rather than a scoped token, which the publish path reports as a gateway error.
 
 ### Repo writes
 
@@ -127,9 +157,31 @@ The target repo is public, so a failed publish must not leave anything behind:
 - Content becomes public at the branch write, before the pull request that moderates it. Confirming
   that with the user is a UI concern, and it gates enabling the flag rather than shipping this code.
 
-Errors surface as `400` (invalid payload), `404` (unknown skill), `502` (GitHub refused a step), or
-`503` when the instance has no `COMMUNITY_SKILLS_GITHUB_INSTALLATION_ID` configured. The 503 is the
-fail-safe that keeps publishing off until the GitHub App is installed.
+### Who can publish
+
+Publishing a skill is restricted to that skill's own owners (`LLMSkillOwner`), on top of the access
+`AccessControlPermission` already requires. `CommunityPublishOwnerPermission` enforces it.
+
+Ownership is an audit claim on top of editor access, not a separate authorization boundary. Any
+member with edit access to a skill can add themselves as an owner through `PATCH name/<slug>`, so
+publishing means an editor took ownership of that skill explicitly, and the `LLMSkillOwner` row
+records who did and when. Reach across skills is closed by the object-level check on every
+`name/<slug>` action, not by ownership. Owner rows are filtered by current project access rather
+than deleted when access goes away, so a member who regains access is an owner again; that is
+equivalent to them adding themselves back, and it keeps a skill whose owners all left readable as
+"owned, nobody current" rather than as unowned.
+
+A skill with no current owners is publishable by nobody, and answers `403`. Owners leave the set when
+a member loses project access, and a skill can be created with an explicit empty owner list, so the
+alternative is a fallback to edit access for exactly the skills that have nobody to answer for them.
+Adding an owner is the remedy. There is no exemption for project or organization admins; an admin who
+wants to publish adds themselves as an owner first.
+
+Errors surface as `400` (invalid payload), `403` (the requester does not own the skill, or it has no
+owners), `404` (unknown skill), `502` (GitHub refused a step), or `503` when the instance has no
+publisher App configured. The 503 is the fail-safe that keeps publishing off until the GitHub App is
+installed. A private key that cannot sign is a 503 too: it is a deployment nobody can retry their way
+out of, so it must not read as GitHub being down.
 
 The three are kept apart on purpose, because each sends the publisher somewhere different. The skill
 is rendered before GitHub is touched, so a skill that has to be edited answers `400` even while the

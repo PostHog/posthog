@@ -282,6 +282,14 @@ LOOP_FIRE_TOTAL = Counter(
     labelnames=["reason"],
 )
 
+# reason is one of: created, replayed, gate_blocked, rate_capped, team_rate_capped,
+# limit_reached, owner_ineligible, a fixed, code-defined set, safe as a label.
+WORKFLOW_TASK_CREATE_TOTAL = Counter(
+    "posthog_tasks_workflow_task_create_total",
+    'Workflow "Create AI task" action outcomes',
+    labelnames=["reason"],
+)
+
 LOOP_AUTO_PAUSED_TOTAL = Counter(
     "posthog_tasks_loop_auto_paused_total",
     "Loops auto-paused after exceeding the consecutive-failure threshold",
@@ -289,6 +297,15 @@ LOOP_AUTO_PAUSED_TOTAL = Counter(
 
 CodeUsageGateOutcome = Literal["checked_allowed", "checked_blocked", "fail_open", "org_deactivated"]
 ComputeQuotaOutcome = Literal["checked_allowed", "checked_blocked", "fail_open"]
+DesktopAccessOutcome = Literal[
+    "allowed",
+    "legacy_allowed",
+    "legacy_denied",
+    "startup_plan",
+    "prepaid_credits",
+    "override",
+    "resolution_failure",
+]
 
 # outcome: checked_allowed/checked_blocked when the LLM gateway answered the usage check,
 # fail_open when a gateway/token error let the run proceed unchecked (see LOOPS.md Security:
@@ -303,6 +320,12 @@ CODE_USAGE_GATE_CHECK_TOTAL = Counter(
 COMPUTE_QUOTA_CHECK_TOTAL = Counter(
     "posthog_tasks_compute_quota_check_total",
     "Compute quota-check outcomes for billable PostHog Desktop runs",
+    labelnames=["outcome"],
+)
+
+DESKTOP_ACCESS_DECISIONS_TOTAL = Counter(
+    "posthog_tasks_desktop_access_decisions_total",
+    "PostHog Desktop access decisions by bounded outcome",
     labelnames=["outcome"],
 )
 
@@ -598,9 +621,17 @@ def observe_loop_fire(*, reason: str) -> None:
     LOOP_FIRE_TOTAL.labels(reason=reason).inc()
 
 
+def observe_workflow_task_create(*, reason: str) -> None:
+    WORKFLOW_TASK_CREATE_TOTAL.labels(reason=reason).inc()
+
+
 def observe_loop_auto_paused() -> None:
     LOOP_AUTO_PAUSED_TOTAL.inc()
 
 
 def observe_code_usage_gate_check(*, outcome: CodeUsageGateOutcome) -> None:
     CODE_USAGE_GATE_CHECK_TOTAL.labels(outcome=outcome).inc()
+
+
+def observe_desktop_access_decision(*, outcome: DesktopAccessOutcome) -> None:
+    DESKTOP_ACCESS_DECISIONS_TOTAL.labels(outcome=outcome).inc()

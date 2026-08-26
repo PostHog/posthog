@@ -1,4 +1,4 @@
-import { BellIcon, GearSix } from "@phosphor-icons/react";
+import { BellIcon, GearSix, MagnifyingGlass } from "@phosphor-icons/react";
 import {
   Button,
   cn,
@@ -12,6 +12,7 @@ import {
 } from "@posthog/quill";
 import { DESKTOP_HOME_FLAG, LOOPS_FLAG } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import { useOpenBrowserTab } from "@posthog/ui/features/browser-tabs/useOpenBrowserTab";
 import { ActivityHoverCard } from "@posthog/ui/features/canvas/components/ActivityHoverCard";
 import {
   pickRailDestination,
@@ -21,9 +22,14 @@ import {
 } from "@posthog/ui/features/canvas/components/railDestinations";
 import { useRailPane } from "@posthog/ui/features/canvas/hooks/useRailSurface";
 import { useTaskActivity } from "@posthog/ui/features/canvas/hooks/useTaskActivity";
+import {
+  formatHotkey,
+  SHORTCUTS,
+} from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useCommandCenterActiveCount } from "@posthog/ui/features/command-center/useCommandCenterActiveCount";
 import { useContextLayerFlag } from "@posthog/ui/features/feature-flags/useContextLayerFlag";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { useSpacesTabs } from "@posthog/ui/features/feature-flags/useSpacesTabs";
 import { useSupportFlag } from "@posthog/ui/features/feature-flags/useSupportFlag";
 import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAllReports";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
@@ -36,8 +42,10 @@ import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { useSupportMyOpenCount } from "@posthog/ui/features/support/hooks/useSupportMyOpenCount";
 import { CountBadge } from "@posthog/ui/primitives/CountBadge";
 import { track } from "@posthog/ui/shell/analytics";
+import { useCommandMenuStore } from "@posthog/ui/shell/commandMenuStore";
 import {
   type ComponentPropsWithRef,
+  type MouseEventHandler,
   type ReactElement,
   type ReactNode,
   useState,
@@ -47,6 +55,8 @@ const INBOX_REFETCH_INTERVAL_MS = 60_000;
 
 const ICON_BADGE_CLASS =
   "-top-1 -right-1 absolute h-3.5 min-w-3.5 w-auto px-1 font-semibold text-[9px] ring-2 ring-chrome";
+const NOTIFICATION_DOT_CLASS =
+  "top-0 right-0 absolute ring-2 ring-chrome size-2 bg-primary rounded-full";
 
 function NavIcon({
   icon,
@@ -60,7 +70,7 @@ function NavIcon({
   label: string;
   shortcut?: string;
   isActive: boolean;
-  onClick: () => void;
+  onClick: MouseEventHandler<HTMLButtonElement>;
   badge?: ReactNode;
 }) {
   return (
@@ -73,7 +83,7 @@ function NavIcon({
             aria-label={label}
             data-selected={isActive || undefined}
             onClick={onClick}
-            className="group relative shrink-0 text-muted-foreground data-selected:bg-fill-selected data-selected:text-foreground"
+            className="group relative shrink-0 pl-0 text-muted-foreground data-selected:bg-fill-selected data-selected:text-foreground"
           >
             {icon}
             {badge}
@@ -153,7 +163,7 @@ function ActivityNavItem({
 }: {
   isActive: boolean;
   badge: ReactNode;
-  onClick: () => void;
+  onClick: MouseEventHandler<HTMLButtonElement>;
 }) {
   const bell = (
     <NavButton
@@ -162,6 +172,7 @@ function ActivityNavItem({
       isActive={isActive}
       onClick={onClick}
       badge={badge}
+      className="pl-0"
     />
   );
 
@@ -178,6 +189,8 @@ export function NavRail() {
   const loopsEnabled = useFeatureFlag(LOOPS_FLAG, import.meta.env.DEV);
   const contextEnabled = useContextLayerFlag();
   const supportEnabled = useSupportFlag();
+  const tabsEnabled = useSpacesTabs();
+  const openBrowserTab = useOpenBrowserTab();
 
   const { counts: inboxCounts } = useInboxAllReports({
     ignoreFilters: true,
@@ -195,6 +208,7 @@ export function NavRail() {
   // The route is the only thing that says where you are, so the rail cannot
   // light a destination the screen isn't on.
   const railPane = useRailPane();
+  const toggleCommandMenu = useCommandMenuStore((s) => s.toggle);
   const navItemOverrides = useSidebarStore((s) => s.navItemOverrides);
   const navItemOrder = useSidebarStore((s) => s.navItemOrder);
   const destinations = visibleRailDestinations({
@@ -207,33 +221,55 @@ export function NavRail() {
   });
   const settingsVisible = isNavItemVisible(navItemOverrides, "configure");
 
-  const pick = (destination: RailDestination) => () => {
-    track(ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED, {
-      item: destination.analyticsId,
-      in_more: false,
-      layout: "channels",
-    });
-    pickRailDestination(destination, railPane);
-  };
+  const pick =
+    (destination: RailDestination): MouseEventHandler<HTMLButtonElement> =>
+    (event) => {
+      track(ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED, {
+        item: destination.analyticsId,
+        in_more: false,
+        layout: "channels",
+      });
+      if (tabsEnabled && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault();
+        openBrowserTab(destination.href);
+        return;
+      }
+      pickRailDestination(destination, railPane);
+    };
 
   return (
     // One provider for the whole rail: the tooltip skip window is provider
     // state, so isolated providers never share it.
     <TooltipProvider delay={400}>
       <div
-        className="flex h-full shrink-0 flex-col items-center gap-1.5 bg-chrome py-2"
+        data-testid="nav-rail"
+        className="relative z-[60] flex h-full shrink-0 flex-col items-center gap-1.5 bg-chrome py-2"
         style={{ width: NAV_RAIL_WIDTH }}
       >
         {destinations.map((destination) => {
           const { pane, label, Icon, count, countTone } = destination;
           const isActive = railPane === pane;
-          const badge = (
-            <CountBadge
-              count={count?.(counts) ?? 0}
-              tone={countTone}
-              className={ICON_BADGE_CLASS}
-            />
-          );
+          const destinationCount = count?.(counts) ?? 0;
+          const usesNotificationDot = pane === "activity" || pane === "inbox";
+          let badge: ReactNode;
+          if (usesNotificationDot) {
+            badge =
+              destinationCount > 0 ? (
+                <span
+                  data-slot="dot"
+                  className={NOTIFICATION_DOT_CLASS}
+                  aria-hidden
+                />
+              ) : null;
+          } else {
+            badge = (
+              <CountBadge
+                count={destinationCount}
+                tone={countTone}
+                className={ICON_BADGE_CLASS}
+              />
+            );
+          }
           const onClick = pick(destination);
 
           if (pane === "activity") {
@@ -249,7 +285,13 @@ export function NavRail() {
           return (
             <NavIcon
               key={pane}
-              icon={<Icon size={16} weight={isActive ? "fill" : "regular"} />}
+              icon={
+                <Icon
+                  className={pane === "spaces" ? "size-5" : undefined}
+                  size={pane === "spaces" ? 20 : 16}
+                  weight={isActive ? "fill" : "regular"}
+                />
+              }
               label={label}
               shortcut={destination.shortcut}
               isActive={isActive}
@@ -259,6 +301,13 @@ export function NavRail() {
           );
         })}
         <div className="mt-auto flex flex-col items-center gap-1.5">
+          <NavIcon
+            icon={<MagnifyingGlass size={16} />}
+            label="Search"
+            shortcut={formatHotkey(SHORTCUTS.COMMAND_MENU)}
+            isActive={false}
+            onClick={toggleCommandMenu}
+          />
           {settingsVisible && (
             <NavIcon
               icon={<GearSix size={16} />}

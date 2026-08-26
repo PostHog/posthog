@@ -69,6 +69,14 @@ export type MlMirrorConfig = {
      * the anonymizer collects no URLs until then.
      */
     SESSION_RECORDING_ML_URL_PRODUCER_ENABLED: boolean
+    /**
+     * Read crawl history before the mirror sends URLs to Kafka.
+     *
+     * Read failures publish every candidate, so the lookup cannot lose fetch work.
+     */
+    SESSION_RECORDING_ML_URL_CRAWL_HISTORY_PRECHECK_ENABLED: boolean
+    /** Bounds one producer-side crawl-history read. */
+    SESSION_RECORDING_ML_URL_CRAWL_HISTORY_PRECHECK_TIMEOUT_MS: number
 
     // US-only, PEM, multiple keys allowed (comma-separated)
     WEB_BOT_AUTH_PRIVATE_KEYS: string
@@ -83,11 +91,11 @@ export type MlMirrorConfig = {
     /** TTL on each DynamoDB crawl-history entry, which sets the recrawl interval. */
     AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS: number
 
-    /** Requests one registrable domain receives from one pod each second. */
+    /** Optional steady request rate for one registrable domain. Zero uses the concurrency limit only. */
     SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_REQUESTS_PER_SECOND: number
-    /** Tokens one idle registrable domain can retain. */
+    /** Tokens one idle registrable domain can retain when the steady request rate is enabled. */
     SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_BURST: number
-    /** Also the worker count for one registrable domain. */
+    /** Also the worker count for one registrable domain or origin. */
     SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_REGISTRABLE_DOMAIN: number
     /**
      * Requests this pod holds open across every registrable domain at once.
@@ -100,6 +108,12 @@ export type MlMirrorConfig = {
      * scale with it too. Raise the pod's memory before you raise this.
      */
     SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IN_FLIGHT_REQUESTS: number
+    /** Low-diversity mode starts when the remaining request capacity is lower than this value. */
+    SESSION_RECORDING_ML_IMAGE_FETCH_LOW_ORIGIN_DIVERSITY_MINIMUM_REQUEST_SLOTS: number
+    /** Low-diversity mode starts only when more than this many undeferred canonical URL jobs remain. */
+    SESSION_RECORDING_ML_IMAGE_FETCH_LOW_ORIGIN_DIVERSITY_REPUBLISH_THRESHOLD: number
+    /** Canonical URL jobs fetched in low-diversity mode before the remaining undeferred jobs return to Kafka. */
+    SESSION_RECORDING_ML_IMAGE_FETCH_LOW_ORIGIN_DIVERSITY_PROGRESS: number
     /** Image bodies waiting for Kafka delivery. This must fit inside the producer byte queue. */
     SESSION_RECORDING_ML_IMAGE_FETCH_MAX_PENDING_PUBLISHES: number
     /**
@@ -213,6 +227,8 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCER_ENABLED: false,
         SESSION_RECORDING_ML_URL_COLLECTION_ENABLED: false,
         SESSION_RECORDING_ML_URL_PRODUCER_ENABLED: false,
+        SESSION_RECORDING_ML_URL_CRAWL_HISTORY_PRECHECK_ENABLED: true,
+        SESSION_RECORDING_ML_URL_CRAWL_HISTORY_PRECHECK_TIMEOUT_MS: 500,
         WEB_BOT_AUTH_PRIVATE_KEYS: '',
         SESSION_RECORDING_ML_IMAGE_FETCH_DRY_RUN: true,
         SESSION_RECORDING_ML_IMAGE_FETCH_GROUP_ID: 'session-replay-ml-image-fetch',
@@ -220,12 +236,15 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         AI_RESEARCH_IMAGE_FETCH_DYNAMODB_TABLE: '',
         AI_RESEARCH_IMAGE_FETCH_DYNAMODB_TIMEOUT_MS: 5_000,
         AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS: 30 * 24 * 60 * 60,
-        SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_REQUESTS_PER_SECOND: 1,
-        SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_BURST: 5,
+        SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_REQUESTS_PER_SECOND: 0,
+        SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_BURST: 6,
         SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_REGISTRABLE_DOMAIN: 6,
         SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IN_FLIGHT_REQUESTS: 300,
+        SESSION_RECORDING_ML_IMAGE_FETCH_LOW_ORIGIN_DIVERSITY_MINIMUM_REQUEST_SLOTS: 48,
+        SESSION_RECORDING_ML_IMAGE_FETCH_LOW_ORIGIN_DIVERSITY_REPUBLISH_THRESHOLD: 50,
+        SESSION_RECORDING_ML_IMAGE_FETCH_LOW_ORIGIN_DIVERSITY_PROGRESS: 8,
         SESSION_RECORDING_ML_IMAGE_FETCH_MAX_PENDING_PUBLISHES: 100,
-        SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_BUDGET_MS: 20_000,
+        SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_BUDGET_MS: 40_000,
         SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES: 20 * 1024 * 1024,
         SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_TIMEOUT_MS: 10_000,
         SESSION_RECORDING_ML_IMAGE_FETCH_MAX_REDIRECTS: 3,

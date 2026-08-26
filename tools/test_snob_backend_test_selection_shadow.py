@@ -81,30 +81,37 @@ class TestSnobBackendTestSelectionShadow(unittest.TestCase):
             self.assertEqual(["products/feature_flags/backend/test/test_api.py"], result.tests)
 
     def test_ast_selection_matches_posthog_api_test_by_filename(self) -> None:
-        selection = _load_selection_module()
+        with tempfile.TemporaryDirectory() as root:
+            tmp_path = Path(root)
+            selection = _load_selection_module()
+            selection.REPO_ROOT = tmp_path
 
-        result = selection.ast_select_tests(
-            ["posthog/api/project.py"],
-            {
-                "posthog/api/test/test_project.py": selection.TestFeatures(
-                    path="posthog/api/test/test_project.py",
-                    imports_api_client=True,
-                    api_tokens=("project",),
-                ),
-                "posthog/api/test/test_user.py": selection.TestFeatures(
-                    path="posthog/api/test/test_user.py",
-                    imports_api_client=True,
-                    api_tokens=("user",),
-                ),
-            },
-        )
+            neighbor = tmp_path / "posthog" / "api" / "test" / "test_project.py"
+            neighbor.parent.mkdir(parents=True)
+            neighbor.touch()
 
-        self.assertIn("conventional_neighbors", result.groups)
-        self.assertIn("posthog_api_route_tokens", result.groups)
-        # same-app fallback includes all tests under posthog/api/
-        self.assertIn("same_app:posthog/api", result.groups)
-        self.assertIn("posthog/api/test/test_project.py", result.tests)
-        self.assertIn("posthog/api/test/test_user.py", result.tests)
+            result = selection.ast_select_tests(
+                ["posthog/api/project.py"],
+                {
+                    "posthog/api/test/test_project.py": selection.TestFeatures(
+                        path="posthog/api/test/test_project.py",
+                        imports_api_client=True,
+                        api_tokens=("project",),
+                    ),
+                    "posthog/api/test/test_user.py": selection.TestFeatures(
+                        path="posthog/api/test/test_user.py",
+                        imports_api_client=True,
+                        api_tokens=("user",),
+                    ),
+                },
+            )
+
+            self.assertIn("conventional_neighbors", result.groups)
+            self.assertIn("posthog_api_route_tokens", result.groups)
+            # same-app fallback includes all tests under posthog/api/
+            self.assertIn("same_app:posthog/api", result.groups)
+            self.assertIn("posthog/api/test/test_project.py", result.tests)
+            self.assertIn("posthog/api/test/test_user.py", result.tests)
 
     def test_snob_selection_filters_to_python_files(self) -> None:
         selection = _load_selection_module()
@@ -281,17 +288,25 @@ class TestSnobBackendTestSelectionShadow(unittest.TestCase):
 
         self.assertTrue(result.full_run_reasons, f"{path} selected nothing and forced no full run")
 
-    def test_segments_for_test_file_mirrors_matrix_partition(self) -> None:
+    @parameterized.expand(
+        [
+            ("core", "posthog/models/test_a.py", {"core"}),
+            # POE patterns run in both the Core matrix and the person-on-events matrix.
+            ("poe_runs_in_core_too", "posthog/clickhouse/test_b.py", {"core", "poe"}),
+            ("temporal", "posthog/temporal/tests/test_c.py", {"temporal"}),
+            # The Temporal invocation runs the product suites alongside posthog/temporal.
+            ("temporal_signals_emission", "products/signals/backend/emission/test_c.py", {"temporal"}),
+            # Explicitly ignored by the Core invocation, and not a draft-narrowable matrix.
+            ("core_ignored_dags", "posthog/dags/test_e.py", set()),
+            ("core_ignored_repo_invariants", "posthog/test/repo_invariants/test_f.py", set()),
+            # Product/turbo tests are not part of any draft-narrowable Django matrix.
+            ("turbo_product", "products/warehouse_sources/backend/test_d.py", set()),
+        ]
+    )
+    def test_segments_for_test_file_mirrors_matrix_partition(self, _name: str, path: str, expected: set[str]) -> None:
         selection = _load_selection_module()
 
-        self.assertEqual(selection.segments_for_test_file("posthog/models/test_a.py"), frozenset({"core"}))
-        # POE patterns run in both the Core matrix and the person-on-events matrix.
-        self.assertEqual(selection.segments_for_test_file("posthog/clickhouse/test_b.py"), frozenset({"core", "poe"}))
-        self.assertEqual(selection.segments_for_test_file("posthog/temporal/tests/test_c.py"), frozenset({"temporal"}))
-        # Explicitly ignored by the Core invocation, and not a draft-narrowable matrix.
-        self.assertEqual(selection.segments_for_test_file("posthog/dags/test_e.py"), frozenset())
-        # Product/turbo tests are not part of any draft-narrowable Django matrix.
-        self.assertEqual(selection.segments_for_test_file("products/warehouse_sources/backend/test_d.py"), frozenset())
+        self.assertEqual(selection.segments_for_test_file(path), frozenset(expected))
 
     def test_narrowable_baseline_excludes_turbo_product_tests(self) -> None:
         selection = _load_selection_module()
