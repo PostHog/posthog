@@ -45,6 +45,8 @@ from posthog.temporal.common.schedule import (
 )
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
+from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus, ExternalDataSchemaSyncType
+
 if TYPE_CHECKING:
     from posthog.models import Team
 
@@ -415,7 +417,7 @@ def is_any_external_data_schema_paused(team_id: int) -> bool:
 
     return (
         ExternalDataSchema.objects.exclude(deleted=True)
-        .filter(team_id=team_id, status=ExternalDataSchema.Status.PAUSED)
+        .filter(team_id=team_id, status=ExternalDataSchemaStatus.PAUSED)
         .exists()
     )
 
@@ -517,7 +519,7 @@ def sync_cdc_extraction_schedule(source: ExternalDataSource, create: bool = Fals
     cdc_schemas = list(
         ExternalDataSchema.objects.filter(
             source=source,
-            sync_type=ExternalDataSchema.SyncType.CDC,
+            sync_type=ExternalDataSchemaSyncType.CDC,
             should_sync=True,
         )
         .exclude(deleted=True)
