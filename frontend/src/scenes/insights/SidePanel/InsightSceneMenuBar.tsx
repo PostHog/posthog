@@ -148,7 +148,7 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
     const showEditMenu = true // duplicate always available
     const showCreateEndpoint =
         isSavedInsight && !getAccessControlDisabledReason(AccessControlResourceType.Endpoint, AccessControlLevel.Editor)
-    const showCreateMetric = !!featureFlags[FEATURE_FLAGS.PRODUCT_DATA_CATALOG] && isSavedInsight
+    const showCreateMetric = isSavedInsight
     const showAddToNotebook = isSavedInsight
     const showCreateMenu =
         showCreateEndpoint ||
