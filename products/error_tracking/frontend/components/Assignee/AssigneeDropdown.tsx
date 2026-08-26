@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useMemo, useRef } from 'react'
 
 import { IconPlusSmall, IconSearch, IconX } from '@posthog/icons'
-import { Link } from '@posthog/lemon-ui'
 
 import {
     Button,
@@ -26,7 +26,7 @@ import { urls } from 'scenes/urls'
 import { ErrorTrackingIssueAssignee } from '~/queries/schema/schema-general'
 
 import { AssigneeIconDisplay, AssigneeLabelDisplay } from './AssigneeDisplay'
-import { Assignee, assigneeSelectLogic } from './assigneeSelectLogic'
+import { Assignee, assigneeSelectLogic, RoleAssignee, UserAssignee } from './assigneeSelectLogic'
 
 const CREATE_ROLE_VALUE = '__create-role__'
 const LOADING_ROLES_VALUE = '__loading-roles__'
@@ -45,7 +45,6 @@ export interface AssigneeDropdownProps {
     open: boolean
     onOpenChange: (open: boolean) => void
     trigger: JSX.Element
-    nativeButton: boolean
 }
 
 function optionValue(assignee: NonNullable<Assignee>): string {
@@ -62,19 +61,22 @@ export function AssigneeDropdown({
     open,
     onOpenChange,
     trigger,
-    nativeButton,
 }: AssigneeDropdownProps): JSX.Element {
-    const { search, filteredRoles, filteredMembers, rolesLoading, membersLoading } = useValues(assigneeSelectLogic)
+    const { search, filteredRoles, myRoles, filteredMembers, me, rolesLoading, membersLoading } =
+        useValues(assigneeSelectLogic)
     const { setSearch } = useActions(assigneeSelectLogic)
     const triggerRef = useRef<HTMLButtonElement>(null)
 
     const { groups, optionByValue } = useMemo(() => {
-        const roles: NonNullable<Assignee>[] = filteredRoles.map((role) => ({
+        const roles: RoleAssignee[] = filteredRoles.map((role) => ({
             id: role.id,
             type: 'role',
             role,
         }))
-        const users: NonNullable<Assignee>[] = filteredMembers.map((member) => ({
+        const myRoleIds = new Set(myRoles.map((role) => role.id))
+        const myRoleOptions = roles.filter((role) => myRoleIds.has(role.id))
+        const otherRoleOptions = roles.filter((role) => !myRoleIds.has(role.id))
+        const users: UserAssignee[] = filteredMembers.map((member) => ({
             id: member.user.id,
             type: 'user',
             user: member.user,
@@ -85,10 +87,11 @@ export function AssigneeDropdown({
             options.set(optionValue(option), option)
         }
 
-        const roleItems = roles.map(optionValue)
+        const myRoleItems = myRoleOptions.map(optionValue)
+        const roleItems = otherRoleOptions.map(optionValue)
         if (rolesLoading) {
             roleItems.push(LOADING_ROLES_VALUE)
-        } else if (roleItems.length === 0 && !search) {
+        } else if (roles.length === 0 && !search) {
             roleItems.push(CREATE_ROLE_VALUE)
         }
 
@@ -99,14 +102,16 @@ export function AssigneeDropdown({
 
         return {
             groups: [
+                { value: 'My roles', items: myRoleItems },
                 { value: 'Roles', items: roleItems },
                 { value: 'Users', items: userItems },
             ].filter((group) => group.items.length > 0),
             optionByValue: options,
         }
-    }, [filteredMembers, filteredRoles, membersLoading, rolesLoading, search])
+    }, [filteredMembers, filteredRoles, membersLoading, myRoles, rolesLoading, search])
 
     const selectedValue = assignee ? `${assignee.type}:${assignee.id}` : null
+    const isAssignedToMe = assignee?.type === 'user' && assignee.id === me?.user.id
 
     return (
         <Combobox
@@ -138,7 +143,11 @@ export function AssigneeDropdown({
                 }
             }}
             onValueChange={(value: string | null) => {
-                if (!value || value === CREATE_ROLE_VALUE || value.startsWith('__loading-')) {
+                if (!value || value.startsWith('__loading-')) {
+                    return
+                }
+                if (value === CREATE_ROLE_VALUE) {
+                    router.actions.push(urls.settings('organization-roles'))
                     return
                 }
                 const option = optionByValue.get(value)
@@ -147,17 +156,17 @@ export function AssigneeDropdown({
                 }
             }}
         >
-            <ComboboxTrigger ref={triggerRef} nativeButton={nativeButton} render={trigger} aria-label="Assignee" />
+            <ComboboxTrigger ref={triggerRef} render={trigger} aria-label="Assignee" />
             <ComboboxContent
                 anchor={triggerRef}
                 align="start"
-                className="w-60 [&_[data-slot=combobox-input-group-wrapper]]:border-b-0"
+                className="w-56 [&_[data-slot=combobox-input-group-wrapper]]:border-b-0"
             >
                 <ComboboxInput
                     placeholder="Search assignees"
                     autoFocus
                     showTrigger={false}
-                    className="[&_input]:text-sm"
+                    className="h-7 [&_input]:text-sm"
                 >
                     <InputGroupAddon align="inline-start">
                         <IconSearch className="size-3" />
@@ -167,26 +176,12 @@ export function AssigneeDropdown({
                 <ComboboxList>
                     {(group: AssigneeOptionGroup) => (
                         <ComboboxGroup key={group.value} items={group.items}>
-                            <ComboboxLabel className="text-sm font-medium normal-case tracking-normal text-muted-foreground">
-                                {group.value}
-                            </ComboboxLabel>
+                            <ComboboxLabel className="py-1">{group.value}</ComboboxLabel>
                             <ComboboxCollection>
                                 {(value: string) => {
                                     if (value === CREATE_ROLE_VALUE) {
                                         return (
-                                            <ComboboxItem
-                                                key={value}
-                                                value={value}
-                                                className={OPTION_CLASS_NAME}
-                                                render={
-                                                    <Button
-                                                        left
-                                                        nativeButton={false}
-                                                        className="min-w-0 aria-selected:bg-fill-selected"
-                                                        render={<Link to={urls.settings('organization-roles')} />}
-                                                    />
-                                                }
-                                            >
+                                            <ComboboxItem key={value} value={value} className={OPTION_CLASS_NAME}>
                                                 <IconPlusSmall className="size-3" />
                                                 Create role
                                             </ComboboxItem>
@@ -224,18 +219,37 @@ export function AssigneeDropdown({
                         </ComboboxGroup>
                     )}
                 </ComboboxList>
-                {assignee ? (
-                    <ComboboxListFooter className="mx-0 mt-0 border-t-0 bg-transparent before:hidden">
-                        <Button
-                            variant="default"
-                            size="sm"
-                            left
-                            className="w-full text-sm text-muted-foreground"
-                            onClick={() => onChange(null)}
-                        >
-                            <IconX className="size-3" />
-                            Remove assignee
-                        </Button>
+                {me || assignee ? (
+                    <ComboboxListFooter className="mx-0 mt-0 bg-transparent before:hidden">
+                        <div className="flex flex-col gap-0.5">
+                            {me && !isAssignedToMe ? (
+                                <Button
+                                    variant="default"
+                                    size="default"
+                                    left
+                                    className="w-full gap-1.5 text-sm font-medium text-foreground"
+                                    onClick={() => onChange({ type: 'user', id: me.user.id })}
+                                >
+                                    <AssigneeIconDisplay
+                                        assignee={{ type: 'user', id: me.user.id, user: me.user }}
+                                        size="xsmall"
+                                    />
+                                    Assign to me
+                                </Button>
+                            ) : null}
+                            {assignee ? (
+                                <Button
+                                    variant="default"
+                                    size="default"
+                                    left
+                                    className="w-full gap-1.5 text-sm font-medium text-foreground"
+                                    onClick={() => onChange(null)}
+                                >
+                                    <IconX className="size-3" />
+                                    Remove assignee
+                                </Button>
+                            ) : null}
+                        </div>
                     </ComboboxListFooter>
                 ) : null}
             </ComboboxContent>

@@ -134,12 +134,11 @@ export function ErrorTrackingIssueListRow({
                         <AssigneeSelect
                             assignee={issue.assignee}
                             onChange={(assignee) => updateIssueAssignee(issue.id, assignee)}
-                            nativeButton={false}
                         >
                             {(anyAssignee) => (
-                                <div
+                                <button
+                                    type="button"
                                     className="ml-1 flex cursor-pointer items-center rounded p-[0.1rem] text-xs text-secondary hover:bg-fill-button-tertiary-hover"
-                                    role="button"
                                 >
                                     <AssigneeIconDisplay assignee={anyAssignee} size="xsmall" />
                                     <AssigneeLabelDisplay
@@ -149,7 +148,7 @@ export function ErrorTrackingIssueListRow({
                                         placeholder="Unassigned"
                                     />
                                     <IconChevronDown />
-                                </div>
+                                </button>
                             )}
                         </AssigneeSelect>
                     ) : (
