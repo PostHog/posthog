@@ -1635,6 +1635,18 @@ export interface eventUsageLogicActions {
     reportInviteMembersButtonClicked: () => {
         value: true
     }
+    reportOrganizationSwitcherOpened: () => {
+        value: true
+    }
+    reportProjectSwitcherOpened: () => {
+        value: true
+    }
+    reportOrganizationSwitched: (organizationId: string) => {
+        organizationId: string
+    }
+    reportProjectSwitched: (teamId: number) => {
+        teamId: number
+    }
     reportMCPHintDismissed: (
         dismissType: 'all' | 'surface',
         surfaceKey?: string
@@ -2827,6 +2839,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportFeatureFlagScheduleSuccess: true,
         reportFeatureFlagScheduleFailure: (error) => ({ error }),
         reportInviteMembersButtonClicked: true,
+        reportOrganizationSwitcherOpened: true,
+        reportProjectSwitcherOpened: true,
+        reportOrganizationSwitched: (organizationId: string) => ({ organizationId }),
+        reportProjectSwitched: (teamId: number) => ({ teamId }),
         reportDashboardLoadingTime: (loadingMilliseconds: number, dashboardId: number) => ({
             loadingMilliseconds,
             dashboardId,
@@ -4141,6 +4157,18 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportInviteMembersButtonClicked: () => {
             posthog.capture('invite members button clicked')
+        },
+        reportOrganizationSwitcherOpened: () => {
+            posthog.capture('organization switcher opened')
+        },
+        reportProjectSwitcherOpened: () => {
+            posthog.capture('project switcher opened')
+        },
+        reportOrganizationSwitched: ({ organizationId }) => {
+            posthog.capture('organization switched', { organization_id: organizationId })
+        },
+        reportProjectSwitched: ({ teamId }) => {
+            posthog.capture('project switched', { team_id: teamId })
         },
         reportTeamSettingChange: ({ name, value }) => {
             posthog.capture(`${name} team setting updated`, {

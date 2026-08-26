@@ -12,6 +12,7 @@ import { preflightLogic } from 'lib/logic/preflightLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { MenuSeparator } from 'lib/ui/Menus/Menus'
 import { cn } from 'lib/utils/css-classes'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -46,6 +47,7 @@ export function OrgSwitcher({ dialog = true }: { dialog?: boolean }): JSX.Elemen
     const { currentOrganization } = useValues(organizationLogic)
     const { otherOrganizations } = useValues(userLogic)
     const { updateCurrentOrganization } = useActions(userLogic)
+    const { reportOrganizationSwitched } = useActions(eventUsageLogic)
     const { closeOrgSwitcher, setAccountMenuOpen } = useActions(newAccountMenuLogic)
     const [searchValue, setSearchValue] = useState('')
     const inputRef = useRef<HTMLInputElement>(null!)
@@ -116,6 +118,7 @@ export function OrgSwitcher({ dialog = true }: { dialog?: boolean }): JSX.Elemen
                 )
                 closeOrgSwitcher()
             } else if (!item.isCurrent && !item.isDisabled) {
+                reportOrganizationSwitched(item.org.id)
                 closeOrgSwitcher()
                 updateCurrentOrganization(item.org.id)
             }
@@ -123,6 +126,7 @@ export function OrgSwitcher({ dialog = true }: { dialog?: boolean }): JSX.Elemen
         [
             closeOrgSwitcher,
             updateCurrentOrganization,
+            reportOrganizationSwitched,
             guardAvailableFeature,
             showCreateOrganizationModal,
             setAccountMenuOpen,

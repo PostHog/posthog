@@ -56,7 +56,8 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
     const { isCloudOrDev } = useValues(preflightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { showInviteModal } = useActions(inviteLogic)
-    const { reportInviteMembersButtonClicked } = useActions(eventUsageLogic)
+    const { reportInviteMembersButtonClicked, reportOrganizationSwitcherOpened, reportProjectSwitcherOpened } =
+        useActions(eventUsageLogic)
     const { logout } = useActions(userLogic)
     const { currentTeam } = useValues(teamLogic)
     const { isAccountMenuOpen } = useValues(newAccountMenuLogic)
@@ -166,12 +167,14 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                 <DropdownMenuSeparator />
 
                                 {isAuthenticatedTeam(currentTeam) && (
-                                    <Menu.SubmenuRoot>
+                                    <Menu.SubmenuRoot onOpenChange={(open) => open && reportProjectSwitcherOpened()}>
                                         <Menu.SubmenuTrigger
                                             openOnHover={false}
                                             render={
                                                 <ButtonPrimitive
                                                     menuItem
+                                                    tooltip="Switch project"
+                                                    tooltipPlacement="right"
                                                     data-attr="new-account-menu-all-projects-button"
                                                 >
                                                     <div className="Lettermark bg-[var(--color-bg-fill-button-tertiary-active)] size-4 dark:text-tertiary text-[8px]">
@@ -183,7 +186,8 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                                         {currentTeam ? projectNameWithoutFirstEmoji : 'Select project'}
                                                     </span>
                                                     {hasPendingInvites && <PendingInviteDot className="mr-0.5" />}
-                                                    <MenuOpenIndicator intent="sub" className="ml-auto" />
+                                                    <span className="ml-auto text-xxs text-tertiary">Switch</span>
+                                                    <MenuOpenIndicator intent="sub" />
                                                 </ButtonPrimitive>
                                             }
                                         />
@@ -265,12 +269,14 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                     )}
                                 </Label>
                                 <DropdownMenuSeparator />
-                                <Menu.SubmenuRoot>
+                                <Menu.SubmenuRoot onOpenChange={(open) => open && reportOrganizationSwitcherOpened()}>
                                     <Menu.SubmenuTrigger
                                         openOnHover={false}
                                         render={
                                             <ButtonPrimitive
                                                 menuItem
+                                                tooltip="Switch organization"
+                                                tooltipPlacement="right"
                                                 data-attr="new-account-menu-all-organizations-button"
                                             >
                                                 {currentOrganization ? (
@@ -288,7 +294,8 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                                         ? currentOrganization.name
                                                         : 'Select organization'}
                                                 </span>
-                                                <MenuOpenIndicator intent="sub" className="ml-auto" />
+                                                <span className="ml-auto text-xxs text-tertiary">Switch</span>
+                                                <MenuOpenIndicator intent="sub" />
                                             </ButtonPrimitive>
                                         }
                                     />

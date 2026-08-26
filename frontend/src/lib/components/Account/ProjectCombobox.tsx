@@ -10,6 +10,7 @@ import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimi
 import { Combobox } from 'lib/ui/Combobox/Combobox'
 import { Label } from 'lib/ui/Label/Label'
 import { MenuSeparator } from 'lib/ui/Menus/Menus'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getProjectSwitchTargetUrl } from 'lib/utils/kea-router'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
@@ -28,6 +29,7 @@ export function ProjectCombobox(): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
     const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
     const { pendingInvites } = useValues(pendingInvitesLogic)
+    const { reportProjectSwitched } = useActions(eventUsageLogic)
 
     if (!isAuthenticatedTeam(currentTeam)) {
         return null
@@ -112,6 +114,7 @@ export function ProjectCombobox(): JSX.Element | null {
                                             tooltip={`Switch to project: ${team.name}`}
                                             tooltipPlacement="right"
                                             to={relativeOtherProjectPath}
+                                            onClick={() => reportProjectSwitched(team.id)}
                                             data-attr="tree-navbar-project-dropdown-other-project-button"
                                         >
                                             <IconBlank />
