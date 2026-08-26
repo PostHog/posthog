@@ -376,8 +376,13 @@ export function FeatureFlagReleaseConditions({
                                             aggregationTargetName(group.aggregation_group_type_index)
                                         )}
                                     </b>{' '}
-                                    properties are available here. Person properties like email aren't shown. To filter
-                                    by person properties, change "Match by" above to <b>User</b>.
+                                    properties are available here. Person properties like email aren't shown.
+                                    {!hideMatchOptions && (
+                                        <>
+                                            {' '}
+                                            To filter by person properties, change "Match by" above to <b>User</b>.
+                                        </>
+                                    )}
                                 </LemonBanner>
                             )}
                             <PropertyFilters
