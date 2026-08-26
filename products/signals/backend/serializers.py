@@ -14,6 +14,7 @@ from products.signals.backend import contracts
 from products.signals.backend.billing import REFUND_INELIGIBILITY_REASONS, refund_ineligibility_reason
 from products.signals.backend.contracts import DEFAULT_NOT_ACTIONABLE_KEY, STEERING_KEY, STEERING_MAX_LENGTH
 from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
+from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus
 
 from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES
 from .daily_limit import reports_generated_today, team_day_start
@@ -105,16 +106,16 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
             .exclude(source__deleted=True)
             .values_list("status", flat=True)
         )
-        if ExternalDataSchema.Status.RUNNING in statuses:
+        if ExternalDataSchemaStatus.RUNNING in statuses:
             return "running"
         # One failing repo outranks its siblings' success, so a broken repo is never hidden.
         if statuses & {
-            ExternalDataSchema.Status.FAILED,
-            ExternalDataSchema.Status.BILLING_LIMIT_REACHED,
-            ExternalDataSchema.Status.BILLING_LIMIT_TOO_LOW,
+            ExternalDataSchemaStatus.FAILED,
+            ExternalDataSchemaStatus.BILLING_LIMIT_REACHED,
+            ExternalDataSchemaStatus.BILLING_LIMIT_TOO_LOW,
         }:
             return "failed"
-        if ExternalDataSchema.Status.COMPLETED in statuses:
+        if ExternalDataSchemaStatus.COMPLETED in statuses:
             return "completed"
         return None
 

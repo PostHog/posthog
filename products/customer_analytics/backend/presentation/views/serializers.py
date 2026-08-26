@@ -992,9 +992,12 @@ class AccountOrganizationMemberSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = OrganizationMembership
-        fields = ["id", "user"]
-        read_only_fields = ["id", "user"]
-        extra_kwargs = {"id": {"help_text": "Organization membership ID."}}
+        fields = ["id", "user", "level"]
+        read_only_fields = ["id", "user", "level"]
+        extra_kwargs = {
+            "id": {"help_text": "Organization membership ID."},
+            "level": {"help_text": "Organization access level: member, admin, or owner."},
+        }
 
 
 class AccountNotebookSerializer(DataclassSerializer):
