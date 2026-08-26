@@ -120,6 +120,7 @@ function TracingSceneContents(): JSX.Element {
     const operationsViewEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_OPERATIONS_VIEW]
     const facetRailEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_FACET_RAIL]
     const heatmapEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_LATENCY_HEATMAP]
+    const alertingEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_ALERTING]
 
     // Resolved aggregation window (ms) — turns span counts into a request rate.
     // Use sparklineWindowMs which correctly resolves relative date strings (e.g. '-1h').
@@ -169,6 +170,11 @@ function TracingSceneContents(): JSX.Element {
                 }}
                 actions={
                     <>
+                        {alertingEnabled && (
+                            <LemonButton to={urls.tracingAlerts()} type="secondary" size="small">
+                                Alerts
+                            </LemonButton>
+                        )}
                         <LemonButton size="small" type="secondary" icon={<IconFeedback />} onClick={onFeedbackClick}>
                             Feedback
                         </LemonButton>

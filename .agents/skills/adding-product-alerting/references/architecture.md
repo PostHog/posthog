@@ -4,18 +4,20 @@ Use this reference to decide where code belongs before editing it.
 
 ## Layer map
 
-| Layer                       | Location                                                     | Owns                                                                                                                                                   |
-| --------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Pure lifecycle decisions    | `products/alerts/backend/state_machine.py`                   | State transitions, policy decisions, and notification actions                                                                                          |
-| Shared alert infrastructure | `products/alerts/backend/`                                   | Scheduling math, destination configuration and persistence, internal-event delivery, email transport, insight alert models/API, and insight evaluation |
-| Product adapter             | `products/<name>/backend/`                                   | Domain evaluation, model snapshots, the single mutator, event payloads, allowed destinations, due queries, history, and orchestration                  |
-| Shared alert creation UI    | `frontend/src/lib/components/Alerting/AlertWizard/`          | Reusable HogFunction destination, trigger, and configuration flow                                                                                      |
-| Shared product alert UI     | `products/alerts/frontend/components/`                       | Container-agnostic editor layout, definition primitives, advanced options, destination editor, schedule presentation, and evaluation chart             |
-| Product UI                  | `products/<name>/frontend/` or `frontend/src/scenes/<name>/` | Form logic, API calls, product fields, normalized adapters, entry points, detail tables, and wizard configuration                                      |
+| Layer                       | Location                                                     | Owns                                                                                                                                                                                                                   |
+| --------------------------- | ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Pure lifecycle decisions    | `products/alerts/backend/state_machine.py`                   | State transitions, policy decisions, and notification actions                                                                                                                                                          |
+| Shared alert infrastructure | `products/alerts/backend/`                                   | Scheduling math, destination configuration and persistence, internal-event delivery, email transport, insight alert models/API, insight evaluation, and alert-check error classification (`alert_error_classifier.py`) |
+| Product adapter             | `products/<name>/backend/`                                   | Domain evaluation, model snapshots, the single mutator, event payloads, allowed destinations, due queries, history, and orchestration                                                                                  |
+| Shared alert creation UI    | `frontend/src/lib/components/Alerting/AlertWizard/`          | Reusable HogFunction destination, trigger, and configuration flow                                                                                                                                                      |
+| Shared product alert UI     | `products/alerts/frontend/components/`                       | Container-agnostic editor layout, definition primitives, advanced options, destination editor, schedule presentation, and evaluation chart                                                                             |
+| Product UI                  | `products/<name>/frontend/` or `frontend/src/scenes/<name>/` | Form logic, API calls, product fields, normalized adapters, entry points, detail tables, and wizard configuration                                                                                                      |
 
 `products/logs` is the reference adopter for fixed-cadence scheduling, HogFunction destinations, delivery rollback, product-owned Temporal orchestration, and the shared product alert editor components.
 
-Logs and insight alerts both adapt their product state to the shared lifecycle engine. Insight alerts are the reference adopter for calendar anchors, weekend skipping, and email delivery. Both products use shared schedule restrictions for quiet hours. Each product keeps its model, due query, and scheduling persistence. The evaluation package is shared across insight query kinds, but it is not a generic evaluator for unrelated products.
+`products/tracing` is a third adopter of the lifecycle engine, the scheduling helpers, and the shared frontend editor components — read its `alert_state_machine.py`, `alert_check_query.py`/`alert_utils.py`, and `frontend/alerting/` for a second worked example alongside logs'. It has not adopted the destination or delivery contract: it produces internal events but has no HogFunction destinations wired up yet, so it is not a reference for the destination or delivery sections below.
+
+Logs, insight, and tracing alerts all adapt their product state to the shared lifecycle engine. Insight alerts are the reference adopter for calendar anchors, weekend skipping, and email delivery. All three products use shared schedule restrictions for quiet hours. Each product keeps its model, due query, and scheduling persistence. The evaluation package is shared across insight query kinds, but it is not a generic evaluator for unrelated products.
 
 ## Frontend contract
 
@@ -45,7 +47,7 @@ Read [frontend-alerting.md](frontend-alerting.md) before adding or extending a p
 - Control-plane helpers such as `apply_enable`, `apply_disable`, `apply_snooze`, and `apply_threshold_change` return `ControlPlaneOutcome`.
 - `NotificationAction` tells the product which event to deliver.
 
-The product converts its model to a snapshot and applies the outcome through one local `apply_outcome` function. Extend `.semgrep/rules/security/alert-state-must-go-through-state-machine.yaml` when another product adopts this contract.
+The product converts its model to a snapshot and applies the outcome through one local `apply_outcome` function. Extend `.semgrep/rules/security/alert-state-must-go-through-state-machine.yaml` when another product adopts this contract — logs, insight, and tracing are already covered.
 
 Error behavior is load-bearing:
 

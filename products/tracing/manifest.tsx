@@ -27,10 +27,20 @@ export const manifest: ProductManifest = {
             description: 'Latency distribution and sample traces for a single operation.',
             iconType: 'tracing',
         },
+        TracingAlerts: {
+            name: 'Alerts',
+            import: () => import('./frontend/alerting/TracingAlertsScene'),
+            projectBased: true,
+            layout: 'app-container',
+            activityScope: 'Tracing',
+            description: 'Get notified when traces cross a threshold you define.',
+            iconType: 'tracing',
+        },
     },
     routes: {
         '/tracing': ['Tracing', 'tracing'],
         '/tracing/operation': ['TracingOperation', 'tracingOperation'],
+        '/tracing/alerts': ['TracingAlerts', 'tracingAlerts'],
     },
     redirects: {},
     urls: {
@@ -47,6 +57,7 @@ export const manifest: ProductManifest = {
                 name: spanName,
                 ...(dateRange ? { dateRange: JSON.stringify(dateRange) } : {}),
             }).url,
+        tracingAlerts: (): string => '/tracing/alerts',
     },
     fileSystemTypes: {},
     treeItemsNew: [],

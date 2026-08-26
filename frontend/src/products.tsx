@@ -244,6 +244,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/slack-task-context': ['SlackTaskContext', 'slackTaskContext'],
     '/tracing': ['Tracing', 'tracing'],
     '/tracing/operation': ['TracingOperation', 'tracingOperation'],
+    '/tracing/alerts': ['TracingAlerts', 'tracingAlerts'],
     '/user_research': ['UserInterviews', 'userInterviews'],
     '/user_research/:topicId/response/:responseId': ['UserInterviewResponse', 'userInterviewResponse'],
     '/user_research/:id': ['UserInterview', 'userInterview'],
@@ -939,6 +940,14 @@ export const productConfiguration: Record<string, any> = {
         description: 'Latency distribution and sample traces for a single operation.',
         iconType: 'tracing',
     },
+    TracingAlerts: {
+        name: 'Alerts',
+        projectBased: true,
+        layout: 'app-container',
+        activityScope: 'Tracing',
+        description: 'Get notified when traces cross a threshold you define.',
+        iconType: 'tracing',
+    },
     UserInterviews: {
         name: 'User research',
         projectBased: true,
@@ -1491,6 +1500,7 @@ export const productUrls = {
             name: spanName,
             ...(dateRange ? { dateRange: JSON.stringify(dateRange) } : {}),
         }).url,
+    tracingAlerts: (): string => '/tracing/alerts',
     userInterviews: (): string => '/user_research',
     userInterview: (id: string): string => `/user_research/${id}`,
     userInterviewResponse: (topicId: string, responseId: string): string =>
@@ -2567,7 +2577,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         flag: FEATURE_FLAGS.TRACING,
         tags: ['beta'],
         sceneKey: 'Tracing',
-        sceneKeys: ['Tracing', 'TracingOperation'],
+        sceneKeys: ['Tracing', 'TracingOperation', 'TracingAlerts'],
     },
     {
         path: 'User research',
