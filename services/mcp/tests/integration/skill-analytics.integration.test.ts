@@ -132,25 +132,25 @@ describe.skipIf(!API_TOKEN)('skill read reaches PostHog with $mcp_skill_name', (
 
         // Exactly the shape an agent sends: single-exec mode, skill name inside the command.
         const command = `call skill-get {"skill_name":"${SKILL}","body_offset":0}`
-        console.log(`\n→ MCP tools/call   exec   ${command}`)
+        console.info(`\n→ MCP tools/call   exec   ${command}`)
 
         const result: any = await executor.handleToolCall({ name: 'exec', arguments: { command } }, state)
         const text: string = result?.content?.[0]?.text ?? ''
 
-        console.log(`← ${API_HOST} returned ${text.length} chars, isError=${result?.isError ?? false}`)
+        console.info(`← ${API_HOST} returned ${text.length} chars, isError=${result?.isError ?? false}`)
 
         // `trackToolCall` is fired with `void` and awaits async context lookups, so the
         // capture lands after the handler returns. Let it settle before flushing.
         await new Promise((r) => setTimeout(r, 1500))
         await getPostHogClient().flush()
         await new Promise((r) => setTimeout(r, 1000))
-        console.log(`  sink received ${captured.length} event(s): ${captured.map((e) => e.event).join(', ')}`)
+        console.info(`  sink received ${captured.length} event(s): ${captured.map((e) => e.event).join(', ')}`)
 
         const toolCall = captured.find((e) => e.event === '$mcp_tool_call')
         const props = toolCall?.properties ?? {}
 
-        console.log('\n── $mcp_tool_call as PostHog ingestion would receive it ──')
-        console.log(
+        console.info('\n── $mcp_tool_call as PostHog ingestion would receive it ──')
+        console.info(
             JSON.stringify(
                 Object.fromEntries(
                     Object.entries(props).filter(([k]) =>
@@ -168,13 +168,13 @@ describe.skipIf(!API_TOKEN)('skill read reaches PostHog with $mcp_skill_name', (
                 2
             )
         )
-        console.log(`\n✓ $mcp_skill_name = ${JSON.stringify(props.$mcp_skill_name)}\n`)
+        console.info(`\n✓ $mcp_skill_name = ${JSON.stringify(props.$mcp_skill_name)}\n`)
 
         // The skill really came back from the API, not from a fixture or an error path.
         expect(result?.isError ?? false).toBe(false)
         expect(text.length).toBeGreaterThan(500)
 
-        expect(toolCall).toBeDefined()
+        expect(toolCall).not.toBeUndefined()
         expect(props.$mcp_tool_name).toBe('skill-get')
         expect(props.$mcp_skill_name).toBe(SKILL)
         expect(props.$mcp_skill_body_offset).toBe(0)
