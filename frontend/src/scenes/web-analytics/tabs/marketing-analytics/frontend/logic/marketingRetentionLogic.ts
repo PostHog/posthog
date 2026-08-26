@@ -108,7 +108,7 @@ export interface marketingRetentionLogicMeta {
             excludeUnattributed: boolean,
             onlyNewUsers: boolean,
             newUserLookbackDays: number,
-            returnGoalId: 'any-visit',
+            returnGoalId: string,
             dateFilter: {
                 dateFrom: string | null
                 dateTo: string | null
