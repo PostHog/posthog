@@ -48,7 +48,7 @@ on:
                 required: false
                 default: ''
             ref:
-                description: 'PostHog ref/SHA to render the skills from (blank = this workflow''s checkout ref, i.e. master on schedule)'
+                description: "PostHog ref/SHA to render the skills from (blank = this workflow's checkout ref, i.e. master on schedule)"
                 required: false
                 default: ''
     schedule:
