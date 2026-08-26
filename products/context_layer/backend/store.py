@@ -60,6 +60,12 @@ class ContextLayerStoreError(Exception):
     pass
 
 
+class DependencyUnavailableError(ContextLayerStoreError):
+    """A binary the store shells out to (git) is missing from the host, so no
+    read or write can run. Maps to HTTP 503 so the API fails cleanly instead of
+    an unhandled 500."""
+
+
 class RepoNotFoundError(ContextLayerStoreError):
     """The organization has no context layer repo (no config row or no bundle)."""
 
@@ -213,7 +219,7 @@ def _run_git(args: list[str], cwd: Path, stdin_text: str | None = None) -> str:
             timeout=GIT_TIMEOUT_SECONDS,
         )
     except FileNotFoundError as err:
-        raise ContextLayerStoreError("git binary is not available") from err
+        raise DependencyUnavailableError("git binary is not available") from err
     if result.returncode != 0:
         raise ContextLayerStoreError(f"git {args[0]} failed: {result.stderr.strip()}")
     return result.stdout.strip()

@@ -36,7 +36,7 @@ class TestRunGit(SimpleTestCase):
         with patch.object(
             store.subprocess, "run", side_effect=FileNotFoundError(2, "No such file or directory", "git")
         ):
-            with self.assertRaises(store.ContextLayerStoreError):
+            with self.assertRaises(store.DependencyUnavailableError):
                 store._run_git(["status"], cwd=Path("/tmp"))
 
 

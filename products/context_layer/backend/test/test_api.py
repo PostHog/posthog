@@ -239,6 +239,15 @@ class TestContextLayerAPI(APIBaseTest):
             response = self.client.post(f"{self.base_url}/enable/")
         assert response.status_code == 429
 
+    def test_enable_returns_503_when_git_binary_is_missing(self, _flag) -> None:
+        # A host without git makes every store write shell out to a missing
+        # binary. The endpoint must map that to a clean 503, not an unhandled 500.
+        with patch.object(
+            store.subprocess, "run", side_effect=FileNotFoundError(2, "No such file or directory", "git")
+        ):
+            response = self.client.post(f"{self.base_url}/enable/")
+        assert response.status_code == 503, response.content
+
     def test_endpoints_404_before_enablement(self, _flag) -> None:
         assert self.client.get(f"{self.base_url}/tree/").status_code == 404
         assert self.client.get(f"{self.base_url}/status/").status_code == 404
