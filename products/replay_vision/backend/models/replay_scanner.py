@@ -284,6 +284,7 @@ class ReplayScanner(UUIDModel):
     )
     admission_credits_since_refresh = models.PositiveIntegerField(
         default=0,
+        db_default=0,
         help_text="Credits admitted since the last admission-budget refresh. Every refresh resets this to the admitting cost, or to zero on a refusal.",
     )
 
