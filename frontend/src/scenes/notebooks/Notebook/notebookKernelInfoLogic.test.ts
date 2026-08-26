@@ -5,6 +5,11 @@ import { initKeaTests } from '~/test/init'
 import { notebookKernelInfoLogic } from './notebookKernelInfoLogic'
 import type { NotebookLogicMode } from './notebookLogic'
 
+const setHidden = (hidden: boolean): void => {
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden })
+    document.dispatchEvent(new Event('visibilitychange'))
+}
+
 describe('notebookKernelInfoLogic', () => {
     let kernelStatusSpy: jest.SpyInstance
     let logic: ReturnType<typeof notebookKernelInfoLogic.build> | undefined
@@ -20,6 +25,7 @@ describe('notebookKernelInfoLogic', () => {
     afterEach(() => {
         logic?.unmount()
         logic = undefined
+        setHidden(false)
         jest.useRealTimers()
         kernelStatusSpy.mockRestore()
     })
@@ -109,5 +115,33 @@ describe('notebookKernelInfoLogic', () => {
 
         // One fewer than a full window, because the mount request itself is already counted out.
         expect(kernelStatusSpy).toHaveBeenCalledTimes(callsPerMount - 1)
+    })
+
+    test('stays stopped when the tab returns after the kea store was replaced', async () => {
+        logic = notebookKernelInfoLogic({ shortId: 'hidden-tab-01890abc', mode: 'notebook' })
+        logic.mount()
+        await jest.advanceTimersByTimeAsync(30_000)
+        expect(kernelStatusSpy.mock.calls.length).toBeGreaterThan(1)
+
+        initKeaTests()
+        // The reset already dropped the logic, so the afterEach unmount has nothing to do.
+        logic = undefined
+        kernelStatusSpy.mockClear()
+
+        // The plugin keeps every manager in a module-level set, so the reset leaves this one
+        // registered. Going hidden and back reruns its setup, which has to stay inert instead of
+        // reading `values` from a store without this logic's path. The plugin catches a throwing
+        // setup and logs it, so the log is what separates an inert rerun from a reading one.
+        const consoleErrorSpy = jest.spyOn(console, 'error')
+        try {
+            setHidden(true)
+            setHidden(false)
+            await jest.advanceTimersByTimeAsync(30_000)
+
+            expect(kernelStatusSpy).not.toHaveBeenCalled()
+            expect(consoleErrorSpy.mock.calls.flat().join(' ')).not.toContain('Disposable setup failed')
+        } finally {
+            consoleErrorSpy.mockRestore()
+        }
     })
 })

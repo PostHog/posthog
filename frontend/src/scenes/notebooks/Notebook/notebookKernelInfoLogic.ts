@@ -558,19 +558,25 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
         if (props.mode && props.mode !== 'notebook') {
             return
         }
+        // Replacing the kea context drops this logic's path from the store without unmounting it,
+        // so the disposable never runs its cleanup and the timer survives. Storybook does that on
+        // every story mount. Reading `values` after it either throws "Can not find path" or, once
+        // something else mounts at the same path, reads a store this loop no longer belongs to.
+        // Captured out here rather than inside the setup, because the plugin holds every manager
+        // in a module-level set and reruns setup when the tab becomes visible. A context read
+        // inside the setup would be the context of that rerun, which compares equal to itself and
+        // guards nothing.
+        const mountedIn = getContext()
+        const isLive = (): boolean => getContext() === mountedIn
         actions.loadKernelInfo()
         cache.disposables.add(() => {
-            // Replacing the kea context drops this logic's path from the store without unmounting
-            // it, so the disposable never runs its cleanup and the timer survives. Storybook does
-            // that on every story mount. Reading `values` from a tick that outlived its context
-            // either throws "Can not find path" or, once the next story mounts a logic at the same
-            // path, reads a store this timer no longer belongs to.
-            const mountedIn = getContext()
-            const isLive = (): boolean => getContext() === mountedIn
             // Reschedules itself rather than using setInterval, because a starting kernel is
             // polled five times more often than a settled one.
             let timeoutId = 0
             const scheduleRefresh = (): void => {
+                if (!isLive()) {
+                    return
+                }
                 timeoutId = window.setTimeout(
                     () => {
                         if (!isLive()) {
@@ -584,11 +590,7 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
                     values.isStarting ? 2000 : 10000
                 )
             }
-            // The plugin holds every manager in a module-level set and reruns setup when the tab
-            // becomes visible, so this setup can also run after the context went away.
-            if (isLive()) {
-                scheduleRefresh()
-            }
+            scheduleRefresh()
             return () => clearTimeout(timeoutId)
         }, 'kernelInfoRefresh')
     }),
