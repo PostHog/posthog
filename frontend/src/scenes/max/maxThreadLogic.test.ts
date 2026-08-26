@@ -39,7 +39,7 @@ import { EnhancedToolCall, TOOL_DEFINITIONS } from './max-constants'
 import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
-import { MAX_DASHBOARD_CONTEXT_WAIT_MS, maxThreadLogic } from './maxThreadLogic'
+import { MAX_DASHBOARD_CONTEXT_WAIT_MS, maxThreadLogic, onEventImplementation } from './maxThreadLogic'
 import { MaxContextType } from './maxTypes'
 import {
     MOCK_CONVERSATION,
@@ -1448,6 +1448,58 @@ describe('maxThreadLogic', () => {
                 // The reconnect carries null content — the message is not sent a second time.
                 expect(streamSpy.mock.calls[1][0]).toEqual(
                     expect.objectContaining({ conversation: MOCK_CONVERSATION_ID, content: null })
+                )
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('disarms the replay-clear when a reconnect ends without an event, keeping the next turn thread', async () => {
+            jest.useFakeTimers()
+            try {
+                // Pre-existing visible history from an earlier turn.
+                logic.actions.setConversation(MOCK_IN_PROGRESS_CONVERSATION)
+                logic.actions.setThread([
+                    {
+                        type: AssistantMessageType.Human,
+                        content: 'earlier question',
+                        id: 'human-earlier',
+                        status: 'completed',
+                    },
+                ] as any)
+
+                // First send resolves, then the stream drops with a network error, so recovery
+                // reconnects with null content. That reconnect returns an empty stream, so no replay
+                // event ever consumes the armed thread-clear.
+                jest.spyOn(api.conversations, 'stream')
+                    .mockResolvedValueOnce({
+                        body: { getReader: () => ({ read: () => Promise.reject(new TypeError('Failed to fetch')) }) },
+                    } as unknown as Response)
+                    .mockResolvedValueOnce({
+                        body: { getReader: () => ({ read: () => Promise.resolve({ done: true, value: undefined }) }) },
+                    } as unknown as Response)
+
+                logic.actions.streamConversation(
+                    { content: 'hello', conversation: MOCK_CONVERSATION_ID, agent_mode: null },
+                    0
+                )
+                await jest.advanceTimersByTimeAsync(1100)
+
+                // The first event of a later, unrelated turn must not wipe the earlier history.
+                await onEventImplementation(
+                    AssistantEventType.Conversation,
+                    JSON.stringify(MOCK_IN_PROGRESS_CONVERSATION),
+                    {
+                        actions: logic.actions,
+                        values: logic.values,
+                        props: logic.props,
+                        agentMode: null,
+                        cache: logic.cache,
+                    }
+                )
+
+                expect(logic.values.threadRaw).toEqual(
+                    expect.arrayContaining([expect.objectContaining({ content: 'earlier question' })])
                 )
             } finally {
                 jest.useRealTimers()

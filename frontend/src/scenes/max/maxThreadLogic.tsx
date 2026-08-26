@@ -1638,6 +1638,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     }
                 }
             }
+            // A reconnect returns early, so reaching here means no replay is pending. Clear
+            // clearThreadOnReplay in case a failed or empty replay left it set, to stop it from
+            // wiping the thread on the next unrelated turn's first event.
+            cache.clearThreadOnReplay = false
             actions.decrActiveStreamingThreads()
             if (values.isAnotherAgenticIterationScheduled) {
                 // Continue generation after applying tool - null message in askMax "just resume generation with current context"
