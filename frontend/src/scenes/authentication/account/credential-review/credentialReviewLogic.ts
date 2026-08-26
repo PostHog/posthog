@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { getRelativeNextPath } from 'lib/utils/url'
+import { getRelativeNextPath, isBackendOnlyPath } from 'lib/utils/url'
 import { passkeySettingsLogic } from 'scenes/settings/user/passkeySettingsLogic'
 import { personalAPIKeysLogic } from 'scenes/settings/user/personalAPIKeysLogic'
 import { urls } from 'scenes/urls'
@@ -68,8 +68,17 @@ export const credentialReviewLogic = kea<credentialReviewLogicType>([
             userLogic.actions.loadUser()
             // Return the user to where they were headed before the interstitial, falling
             // back to the project home page.
-            const nextPath = getRelativeNextPath(router.values.searchParams.next, window.location)
-            router.actions.replace(nextPath || urls.projectHomepage())
+            const destination =
+                getRelativeNextPath(router.values.searchParams.next, window.location) || urls.projectHomepage()
+            // Backend-only routes (like the OAuth consent screen) are served by Django and need the
+            // server-injected page context, so a client-side replace would land on a broken screen.
+            // Send the user there with a full page navigation, using replace so the interstitial
+            // stays out of history like the redirect that brought them here.
+            if (isBackendOnlyPath(destination)) {
+                window.location.replace(destination)
+                return
+            }
+            router.actions.replace(destination)
         },
     })),
     afterMount(({ actions }) => {

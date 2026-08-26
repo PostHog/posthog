@@ -48,4 +48,34 @@ describe('credentialReviewLogic', () => {
 
         expect(router.values.location.pathname).toBe('/project/997/home')
     })
+
+    describe('backend-only destinations', () => {
+        const originalLocation = window.location
+        let replaceSpy: jest.Mock
+
+        beforeEach(() => {
+            replaceSpy = jest.fn()
+            Object.defineProperty(window, 'location', {
+                value: { origin: 'http://localhost', replace: replaceSpy },
+                configurable: true,
+            })
+        })
+
+        afterEach(() => {
+            Object.defineProperty(window, 'location', { value: originalLocation, configurable: true })
+        })
+
+        it('does a full page navigation for a backend-only next like the OAuth consent screen', async () => {
+            router.actions.push('/account/credential-review', { next: '/oauth/authorize?client_id=abc' })
+
+            await expectLogic(logic, () => {
+                logic.actions.markComplete()
+            }).toFinishAllListeners()
+
+            // A client-side replace would mount the OAuth scene without the server-injected
+            // application metadata and render "No application found".
+            expect(replaceSpy).toHaveBeenCalledWith('/oauth/authorize?client_id=abc')
+            expect(router.values.location.pathname).toBe('/account/credential-review')
+        })
+    })
 })
