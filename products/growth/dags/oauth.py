@@ -76,6 +76,14 @@ def clear_expired_oauth_tokens(context: dagster.OpExecutionContext) -> None:
             {
                 "revoked": Q(revoked__lt=retention_cutoff),
                 "expired_via_access_token": Q(access_token__expires__lt=refresh_token_expiry_cutoff),
+                # Revoking an access token deletes the row, and this side of the OneToOne is
+                # SET_NULL, so a refresh token can lose the join the query above reaches it by
+                # while staying valid: validate_refresh_token never compares against created.
+                "expired_orphaned": Q(
+                    access_token__isnull=True,
+                    revoked__isnull=True,
+                    created__lt=refresh_token_expiry_cutoff,
+                ),
             },
         ),
         (
