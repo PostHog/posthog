@@ -14,6 +14,13 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
  *   POSTHOG_PERSONAL_API_KEY=... npx vitest run \
  *     tests/integration/skill-analytics.integration.test.ts \
  *     --config vitest.integration.config.mts
+ *
+ * Run by hand, not by CI. It reads `POSTHOG_PERSONAL_API_KEY` rather than the
+ * `TEST_`-prefixed variables the CI integration job supplies, so it always skips
+ * there. That is deliberate: it names one skill on one real instance, which is a
+ * fact about that project rather than about this code, so asserting it in CI would
+ * fail against the e2e stack and add a network dependency to a suite that has none.
+ * The wiring itself is covered by the unit and hono suites, which do run in CI.
  */
 
 const API_TOKEN = process.env.POSTHOG_PERSONAL_API_KEY
