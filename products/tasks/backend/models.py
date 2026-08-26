@@ -3005,6 +3005,12 @@ class SandboxSession(TeamScopedRootMixin, UUIDModel):
     vm_runtime = models.BooleanField(
         default=False, help_text="Modal VM runtime rather than gVisor (billed differently)"
     )
+    sandbox_backend = models.CharField(
+        max_length=32,
+        null=True,
+        blank=True,
+        help_text="Provider backend (e.g. hogland); NULL for Modal. Hogland's TTL is idle, not absolute",
+    )
 
     # Resource shape at creation, already clamped by SandboxConfig. Limits are what the
     # sandbox may consume — raw usage metrics derive from these; the burstable request
