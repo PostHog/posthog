@@ -9,7 +9,7 @@ from rest_framework import status
 from posthog.clickhouse.client import sync_execute
 
 from products.metrics.backend.metric_names_query_runner import MetricNamesQueryRunner
-from products.metrics.backend.tests._seeder import seed_metric
+from products.metrics.backend.tests._seeder import seed_metric_event
 
 
 def _seed_point(
@@ -20,7 +20,7 @@ def _seed_point(
     timestamp: dt.datetime,
     metric_type: str = "gauge",
 ) -> None:
-    seed_metric(team_id=team_id, metric_name=metric_name, points=[(timestamp, value)], metric_type=metric_type)
+    seed_metric_event(team_id=team_id, metric_name=metric_name, points=[(timestamp, value)], metric_type=metric_type)
 
 
 class TestMetricNamesQueryRunner(ClickhouseTestMixin, APIBaseTest):
@@ -28,7 +28,8 @@ class TestMetricNamesQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def setUp(self):
         super().setUp()
-        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        sync_execute("TRUNCATE TABLE IF EXISTS metric_series1")
+        sync_execute("TRUNCATE TABLE IF EXISTS metric_samples1")
 
     def test_rejects_out_of_range_limit(self):
         with self.assertRaises(ValueError):
@@ -130,7 +131,8 @@ class TestMetricsValuesAPI(ClickhouseTestMixin, APIBaseTest):
 
     def setUp(self):
         super().setUp()
-        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        sync_execute("TRUNCATE TABLE IF EXISTS metric_series1")
+        sync_execute("TRUNCATE TABLE IF EXISTS metric_samples1")
 
     def test_values_requires_authentication(self):
         self.client.logout()

@@ -10,7 +10,7 @@ from rest_framework import status
 from posthog.clickhouse.client import sync_execute
 
 from products.metrics.backend.facade.api import characterize_metric_anomaly
-from products.metrics.backend.tests._seeder import seed_metric
+from products.metrics.backend.tests._seeder import seed_metric, seed_metric_event
 
 
 class TestCharacterizeAnomaly(ClickhouseTestMixin, APIBaseTest):
@@ -19,6 +19,8 @@ class TestCharacterizeAnomaly(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
         sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        sync_execute("TRUNCATE TABLE IF EXISTS metric_series1")
+        sync_execute("TRUNCATE TABLE IF EXISTS metric_samples1")
         # 20-minute window: minutes 0-9 baseline (steady ~10), minutes 10-19
         # anomaly (jumps to ~100 from minute 12).
         self.start = (timezone.now() - dt.timedelta(hours=1)).replace(second=0, microsecond=0)
@@ -41,6 +43,12 @@ class TestCharacterizeAnomaly(ClickhouseTestMixin, APIBaseTest):
             metric_type="gauge",
             points=[(self.start + dt.timedelta(minutes=m), 5.0) for m in range(20)],
             labels={"shard": "b"},
+        )
+        seed_metric_event(
+            team_id=self.team.id,
+            metric_name="queue_depth",
+            metric_type="gauge",
+            points=[(self.start, 10.0)],
         )
 
     def _characterize(self, **overrides):
@@ -155,6 +163,12 @@ class TestCharacterizeAnomaly(ClickhouseTestMixin, APIBaseTest):
             metric_type="sum",
             is_monotonic=True,
             points=[(self.start + dt.timedelta(minutes=m), float(m * 60)) for m in range(20)],
+        )
+        seed_metric_event(
+            team_id=self.team.id,
+            metric_name="reqs_total",
+            metric_type="sum",
+            points=[(self.start, 0.0)],
         )
         report = self._characterize(metric_name="reqs_total")
         self.assertEqual(report.aggregation, "rate")

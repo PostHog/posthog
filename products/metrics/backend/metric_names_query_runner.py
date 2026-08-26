@@ -1,10 +1,12 @@
 """Distinct metric names for a team's picker UI.
 
-Queries `posthog.metrics` directly rather than `metric_attributes`: `metric_name`
-is a top-level column on the source table with a `set(100)` skip index
-(`idx_metric_name_set`) purpose-built for this lookup. Materialising it into
-the attributes table would require a new MV with negligible upside given the
-cardinality (10s — low 100s of distinct names per team).
+Queries `posthog.metric_series` (one row per unique metric + label-set) rather
+than the raw `posthog.metrics` datapoint table. The picker only needs the set
+of names, and `metric_series` holds one row per series instead of one per data
+point, so the scan is proportional to series count rather than emission volume.
+`metric_name` is the second column of the series table's ORDER BY and
+`last_seen` records recency directly, so both the grouping and the ordering
+follow the table's own layout.
 
 Surfaces `metric_type` alongside the name so the viewer can hint at the
 type-appropriate default aggregation (gauge -> avg, counter/sum -> sum, etc.)
@@ -42,23 +44,21 @@ class MetricNamesQueryRunner:
         self.lookback = lookback
 
     def run(self) -> list[dict[str, Any]]:
-        # ILIKE on metric_name uses the bloom filter side of the skip index;
-        # any() on metric_type collapses to the single canonical type per
-        # name (a metric name shouldn't change type — if it does, we get the
-        # most-recent answer ClickHouse picks, which is fine for a picker).
+        # any() on metric_type collapses to the single canonical type per name
+        # (a metric name shouldn't change type — if it does, we get whichever
+        # answer ClickHouse picks, which is fine for a picker).
         query = parse_select(
             """
                 SELECT
                     metric_name AS name,
-                    any(metric_type) AS metric_type,
-                    max(timestamp) AS last_seen
-                FROM posthog.metrics
-                WHERE timestamp > now() - {lookback}
+                    any(metric_type) AS metric_type
+                FROM posthog.metric_series
+                WHERE last_seen > now() - {lookback}
                   AND metric_name ILIKE {search_pattern}
                 GROUP BY metric_name
                 ORDER BY
                     lower(metric_name) = lower({exact}) DESC,
-                    last_seen DESC
+                    max(last_seen) DESC
                 LIMIT {limit}
             """,
             placeholders={
