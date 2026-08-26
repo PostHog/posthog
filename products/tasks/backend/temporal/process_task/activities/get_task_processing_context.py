@@ -21,6 +21,7 @@ from products.tasks.backend.constants import (
     MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG,
     OVERLAP_CLONE_BOOT_FEATURE_FLAG,
     PR_BABYSIT_SNAPSHOT_FEATURE_FLAG,
+    PR_LOOP_ENABLED_STATE_KEY,
     RTK_DISABLED_FEATURE_FLAG,
     SANDBOX_EVENT_INGEST_FEATURE_FLAG,
     SANDBOX_ROTATION_FEATURE_FLAG,
@@ -1068,6 +1069,10 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         or False
     )  # Ensure we get a boolean value even if the flag is missing
     emit_agent_log(run_id, "debug", f"pr_loop_enabled: {pr_loop_enabled} for this task run")
+    try:
+        TaskRun.update_state_atomic(task_run.id, updates={PR_LOOP_ENABLED_STATE_KEY: pr_loop_enabled})
+    except Exception as e:
+        log_with_activity_context("pr_loop_enabled_stamp_failed", run_id=run_id, error=str(e))
     pi_persistent_streaming = task.runtime == Task.Runtime.PI and not is_slack_interaction_state(state)
     sandbox_event_ingest_override = state.get("sandbox_event_ingest_enabled")
     if pi_persistent_streaming and not isinstance(sandbox_event_ingest_override, bool):
