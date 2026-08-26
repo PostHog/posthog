@@ -6,15 +6,12 @@ import sys
 import json
 import subprocess
 from collections import defaultdict
-from typing import TYPE_CHECKING, cast
+from typing import cast
 
 import click
 
 from .matcher import compile_pattern, normalize_path
-from .resolver import OWNERS_FILENAME, PRODUCT_FILENAME, OwnersResolver, read_stdin_paths, resolution_to_wire
-
-if TYPE_CHECKING:
-    from .resolver import Purpose
+from .resolver import OWNERS_FILENAME, PRODUCT_FILENAME, OwnersResolver, Purpose, read_stdin_paths, resolution_to_wire
 from .schema import is_simple_owners_file, normalize_product_owners
 
 
@@ -37,7 +34,7 @@ def _read_paths(paths: tuple[str, ...]) -> list[str]:
 )
 @click.argument("paths", nargs=-1)
 def cmd_resolve(as_json: bool, purpose: str, paths: tuple[str, ...]) -> None:
-    resolver = OwnersResolver(purpose=cast("Purpose", purpose))
+    resolver = OwnersResolver(purpose=cast(Purpose, purpose))
     targets = _read_paths(paths)
     result = {normalize_path(path): resolution_to_wire(resolver.resolve(path)) for path in targets}
     if as_json:

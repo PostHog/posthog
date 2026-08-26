@@ -166,16 +166,16 @@ export function editWorkflowBlock() {
     return { type: 'context', elements: [{ type: 'mrkdwn', text: `<${editUrl}|edit this workflow>` }] }
 }
 
-export async function postToSlack(blocks, text, threadTs = null) {
+export async function postToSlack(blocks, text, { threadTs, channel = SLACK_CHANNEL } = {}) {
     const res = await fetch('https://slack.com/api/chat.postMessage', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json; charset=utf-8', Authorization: `Bearer ${SLACK_BOT_TOKEN}` },
         body: JSON.stringify({
-            channel: SLACK_CHANNEL,
+            channel,
             blocks,
             text, // notification fallback
             unfurl_links: false,
-            ...(threadTs ? { thread_ts: threadTs } : {}),
+            thread_ts: threadTs || undefined,
         }),
     })
     const data = await res.json()

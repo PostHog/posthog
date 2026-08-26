@@ -150,9 +150,6 @@ class OwnersResolver:
     with ``repo_root`` for testing). Parsed files are cached per directory.
     """
 
-    # Class-level so subclasses that replace __init__ (fmt's in-memory simulator) keep it.
-    purpose: Purpose = DEFAULT_PURPOSE
-
     def __init__(self, repo_root: Path | None = None, purpose: Purpose = DEFAULT_PURPOSE) -> None:
         self.repo_root = (repo_root or _git_repo_root()).resolve()
         self.purpose = purpose

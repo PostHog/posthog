@@ -395,30 +395,17 @@ describe('weekly flaky report', () => {
     })
 
     it('groups shadow digests by owning team and drops teams it cannot route', () => {
-        const items = [
-            { runner: 'pytest', selector: 'a.py::test_one', failed_run_count: 1 },
-            { runner: 'pytest', selector: 'a.py::test_two', failed_run_count: 2 },
-            { runner: 'jest', selector: 'b.test.ts::renders', failed_run_count: 3 },
-            { runner: 'pytest', selector: 'orphan.py::test_orphan', failed_run_count: 4 },
-            { runner: 'pytest', selector: 'silenced.py::test_silenced', failed_run_count: 5 },
-        ]
-        const owners = {
-            'a.py': { owner: 'team-devex', slack: '#team-devex' },
-            'b.test.ts': { owner: 'team-replay', slack: '#team-replay' },
-            'orphan.py': { owner: 'unowned', slack: null },
+        const row = (name) => [{ type: 'raw_text', text: name }]
+        const entries = [
+            { owner: 'team-devex', slack: '#team-devex', row: row('test_one') },
+            { owner: 'team-devex', slack: '#team-devex', row: row('test_two') },
+            { owner: 'team-replay', slack: '#team-replay', row: row('renders') },
+            { owner: 'unowned', slack: null, row: row('test_orphan') },
             // notifications: false, owned but the team declared no automation channel.
-            'silenced.py': { owner: 'team-quiet', slack: null },
-        }
-        const ownerFor = (item) => ({ repoPath: null, ...owners[item.selector.split('::')[0]] })
-        const runnerReports = [
-            {
-                candidates: items,
-                extrasFor: () => ({ runsRescued: null, evidence: [] }),
-                statusFor: () => null,
-            },
+            { owner: 'team-quiet', slack: null, row: row('test_silenced') },
         ]
 
-        const digests = buildTeamDigests(runnerReports, ownerFor)
+        const digests = buildTeamDigests(entries)
 
         assert.deepEqual(
             digests.map(({ owner, channel, rows }) => [owner, channel, rows.length]),

@@ -391,25 +391,51 @@ function tableRows(items, ownerFor, extrasFor, statusFor = () => null) {
     })
 }
 
-// Shadow mode for per-team routing: the per-team slices are built exactly as a live
-// rollout would build them, but posted as thread replies under the channel digest,
-// labeled with the channel they would go to. Validates attribution and volume per
-// team before any team channel receives a message.
-function buildTeamDigests(runnerReports, ownerFor) {
+// Shadow mode for per-team routing: the per-team slices carry the same rows as the
+// channel digest, but posted as thread replies under it, labeled with the channel
+// they would go to. Validates attribution and volume per team before any team
+// channel receives a message. Takes [{owner, slack, row}] and groups by owner.
+function buildTeamDigests(entries) {
     const byOwner = new Map()
-    for (const { candidates, extrasFor, statusFor } of runnerReports) {
-        for (const item of candidates) {
-            const { owner, slack } = ownerFor(item)
-            if (owner === 'unowned' || !slack) {
-                continue
-            }
-            if (!byOwner.has(owner)) {
-                byOwner.set(owner, { owner, channel: slack, rows: [] })
-            }
-            byOwner.get(owner).rows.push(...tableRows([item], ownerFor, extrasFor, statusFor))
+    for (const { owner, slack, row } of entries) {
+        if (owner === 'unowned' || !slack) {
+            continue
         }
+        if (!byOwner.has(owner)) {
+            byOwner.set(owner, { owner, channel: slack, rows: [] })
+        }
+        byOwner.get(owner).rows.push(row)
     }
     return [...byOwner.values()].sort((a, b) => b.rows.length - a.rows.length)
+}
+
+function flakyTable(rows) {
+    return {
+        type: 'table',
+        column_settings: [
+            { align: 'left' },
+            { align: 'left' },
+            { align: 'left' },
+            { align: 'left' },
+            { align: 'right' },
+            { align: 'right' },
+            { align: 'right' },
+            { align: 'left' },
+        ],
+        rows: [
+            [
+                cell('test'),
+                cell('runner'),
+                cell('owner'),
+                cell('quarantined'),
+                cell('PRs'),
+                cell('rescued'),
+                cell('fails'),
+                cell('logs'),
+            ],
+            ...rows,
+        ],
+    }
 }
 
 function buildShadowBlocks({ owner, channel, rows }) {
@@ -421,32 +447,7 @@ function buildShadowBlocks({ owner, channel, rows }) {
                 text: `*${owner.replace(/^team-/, '')}* _(shadow: would post to ${channel})_`,
             },
         },
-        {
-            type: 'table',
-            column_settings: [
-                { align: 'left' },
-                { align: 'left' },
-                { align: 'left' },
-                { align: 'left' },
-                { align: 'right' },
-                { align: 'right' },
-                { align: 'right' },
-                { align: 'left' },
-            ],
-            rows: [
-                [
-                    cell('test'),
-                    cell('runner'),
-                    cell('owner'),
-                    cell('quarantined'),
-                    cell('PRs'),
-                    cell('rescued'),
-                    cell('fails'),
-                    cell('logs'),
-                ],
-                ...rows,
-            ],
-        },
+        flakyTable(rows),
     ]
 }
 
@@ -460,32 +461,7 @@ function buildBlocks(now, rows) {
                 text: `*Weekly flaky tests - ${dateLabel}* _(CI, last 7 days, up to ${TOP_N} per runner)_`,
             },
         },
-        {
-            type: 'table',
-            column_settings: [
-                { align: 'left' },
-                { align: 'left' },
-                { align: 'left' },
-                { align: 'left' },
-                { align: 'right' },
-                { align: 'right' },
-                { align: 'right' },
-                { align: 'left' },
-            ],
-            rows: [
-                [
-                    cell('test'),
-                    cell('runner'),
-                    cell('owner'),
-                    cell('quarantined'),
-                    cell('PRs'),
-                    cell('rescued'),
-                    cell('fails'),
-                    cell('logs'),
-                ],
-                ...rows,
-            ],
-        },
+        flakyTable(rows),
     ]
     const editBlock = editWorkflowBlock()
     if (editBlock) {
@@ -509,11 +485,16 @@ async function main() {
         return
     }
     const ownerFor = resolveOwners(reportCandidates, toRepoPaths)
-    const rows = runnerReports.flatMap(({ candidates, extrasFor, statusFor }) =>
-        tableRows(candidates, ownerFor, extrasFor, statusFor)
+    // Rendered once; the channel table and the per-team slices share the same rows.
+    const entries = runnerReports.flatMap(({ candidates, extrasFor, statusFor }) => {
+        const reportRows = tableRows(candidates, ownerFor, extrasFor, statusFor)
+        return candidates.map((item, index) => ({ ...ownerFor(item), row: reportRows[index] }))
+    })
+    const blocks = buildBlocks(
+        now,
+        entries.map(({ row }) => row)
     )
-    const blocks = buildBlocks(now, rows)
-    const teamDigests = buildTeamDigests(runnerReports, ownerFor)
+    const teamDigests = buildTeamDigests(entries)
     if (DRY_RUN) {
         console.info(JSON.stringify(blocks, null, 2))
         console.info(JSON.stringify(teamDigests.map(buildShadowBlocks), null, 2))
@@ -532,7 +513,7 @@ async function main() {
         }
         // A failed slice must not sink the slices behind it; the digest itself already landed.
         try {
-            await postToSlack(buildShadowBlocks(digest), `Flaky tests owned by ${digest.owner}`, digestTs)
+            await postToSlack(buildShadowBlocks(digest), `Flaky tests owned by ${digest.owner}`, { threadTs: digestTs })
             postedSlices += 1
         } catch (err) {
             console.warn(`shadow digest for ${digest.owner} failed: ${err.message}`)
