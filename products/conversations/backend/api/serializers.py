@@ -1,11 +1,13 @@
 """Serializers for Conversations API."""
 
+import uuid
 from typing import Any
 from urllib.parse import urlparse
 
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
+from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import on_permitted_recording_domain
 from posthog.models import Team
 from posthog.security.url_validation import has_ambiguous_authority
@@ -45,6 +47,40 @@ class TicketAssignmentSerializer(serializers.ModelSerializer):
         if obj.role_id and obj.role:
             return {"name": obj.role.name}
         return None
+
+
+MAX_PRESENCE_TICKET_IDS = 100
+
+
+class TicketPresenceQuerySerializer(serializers.Serializer):
+    ticket_ids = serializers.CharField(
+        help_text=f"Comma-separated ticket UUIDs to look up viewers for (max {MAX_PRESENCE_TICKET_IDS})."
+    )
+
+    def validate_ticket_ids(self, value: str) -> list[str]:
+        candidates = [raw.strip() for raw in value.split(",") if raw.strip()]
+        if not candidates or len(candidates) > MAX_PRESENCE_TICKET_IDS:
+            raise serializers.ValidationError(f"Provide between 1 and {MAX_PRESENCE_TICKET_IDS} ticket ids")
+        try:
+            return list(dict.fromkeys(str(uuid.UUID(candidate)) for candidate in candidates))
+        except ValueError:
+            raise serializers.ValidationError("ticket_ids must be comma-separated UUIDs")
+
+
+class TicketViewersSerializer(serializers.Serializer):
+    viewers = UserBasicSerializer(
+        many=True,
+        read_only=True,
+        help_text="Other team members who currently have this ticket open, most recently active first.",
+    )
+
+
+class TicketPresenceMapSerializer(serializers.Serializer):
+    viewers = serializers.DictField(
+        child=UserBasicSerializer(many=True),
+        read_only=True,
+        help_text="Ticket UUID to the other team members currently viewing it. Tickets nobody is viewing are omitted.",
+    )
 
 
 class WidgetAuthSerializer(serializers.Serializer):

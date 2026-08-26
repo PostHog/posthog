@@ -957,6 +957,11 @@ export interface TicketErrorApi {
     error_type?: string
 }
 
+export interface TicketViewersApi {
+    /** Other team members who currently have this ticket open, most recently active first. */
+    readonly viewers: readonly UserBasicApi[]
+}
+
 /**
  * Payload for posting a reply or internal note to a ticket.
  */
@@ -1068,6 +1073,16 @@ export interface ComposeTicketResponseApi {
     id: string
     /** Human-readable ticket number. */
     ticket_number: number
+}
+
+/**
+ * Ticket UUID to the other team members currently viewing it. Tickets nobody is viewing are omitted.
+ */
+export type TicketPresenceMapApiViewers = { [key: string]: UserBasicApi[] }
+
+export interface TicketPresenceMapApi {
+    /** Ticket UUID to the other team members currently viewing it. Tickets nobody is viewing are omitted. */
+    readonly viewers: TicketPresenceMapApiViewers
 }
 
 /**
@@ -1482,6 +1497,14 @@ export type ConversationsTicketsMessagesListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type ConversationsTicketsPresenceRetrieveParams = {
+    /**
+     * Comma-separated ticket UUIDs to look up viewers for (max 100).
+     * @minLength 1
+     */
+    ticket_ids: string
 }
 
 export type ConversationsViewsListParams = {

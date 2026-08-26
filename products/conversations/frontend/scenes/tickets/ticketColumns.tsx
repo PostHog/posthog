@@ -13,6 +13,7 @@ import { ChannelsTag, getChannelThreadUrl } from '../../components/Channels/Chan
 import { IdentityBadge } from '../../components/IdentityBadge/IdentityBadge'
 import { SlaDisplay } from '../../components/SlaDisplay'
 import { TicketPreviewPopover } from '../../components/TicketPreview/TicketPreviewPopover'
+import { TicketViewersCell } from '../../components/TicketViewers/TicketViewersCell'
 import {
     type Ticket,
     aiTriageProcessingLabel,
@@ -229,9 +230,12 @@ const TICKET_COLUMNS: Record<TicketColumnKey, TicketColumnDefinition> = {
             title: 'Assignee',
             key: 'assignee',
             render: (_, ticket) => (
-                <AssigneeResolver assignee={ticket.assignee ?? null}>
-                    {({ assignee }) => <AssigneeDisplay assignee={assignee} size="small" />}
-                </AssigneeResolver>
+                <div className="flex items-center gap-2">
+                    <AssigneeResolver assignee={ticket.assignee ?? null}>
+                        {({ assignee }) => <AssigneeDisplay assignee={assignee} size="small" />}
+                    </AssigneeResolver>
+                    <TicketViewersCell ticketId={ticket.id} />
+                </div>
             ),
         },
     },

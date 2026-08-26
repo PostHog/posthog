@@ -82736,6 +82736,16 @@ export namespace Schemas {
     }
 
     /**
+     * Ticket UUID to the other team members currently viewing it. Tickets nobody is viewing are omitted.
+     */
+    export type TicketPresenceMapViewers = {[key: string]: UserBasic[]};
+
+    export interface TicketPresenceMap {
+      /** Ticket UUID to the other team members currently viewing it. Tickets nobody is viewing are omitted. */
+      readonly viewers: TicketPresenceMapViewers;
+    }
+
+    /**
      * Payload for posting a reply or internal note to a ticket.
      */
     export interface TicketReplyRequest {
@@ -82748,6 +82758,11 @@ export namespace Schemas {
       is_private?: boolean;
       /** Optional TipTap rich content JSON for formatted messages. */
       rich_content?: unknown;
+    }
+
+    export interface TicketViewers {
+      /** Other team members who currently have this ticket open, most recently active first. */
+      readonly viewers: readonly UserBasic[];
     }
 
     export interface TopPage {
@@ -87984,6 +87999,14 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type ConversationsTicketsPresenceRetrieveParams = {
+    /**
+     * Comma-separated ticket UUIDs to look up viewers for (max 100).
+     * @minLength 1
+     */
+    ticket_ids: string;
     };
 
     export type ConversationsViewsListParams = {

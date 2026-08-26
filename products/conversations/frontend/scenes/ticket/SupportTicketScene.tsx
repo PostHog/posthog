@@ -30,6 +30,7 @@ import { ChatView } from '../../components/Chat/ChatView'
 import { IdentityBadge } from '../../components/IdentityBadge/IdentityBadge'
 import { SlaDisplay } from '../../components/SlaDisplay'
 import { TicketTags } from '../../components/TicketTags'
+import { TicketViewers } from '../../components/TicketViewers/TicketViewers'
 import { type TicketPriority, type TicketStatus, priorityOptions, statusOptionsWithoutAll } from '../../types'
 import { AIPanel } from './AIPanel'
 import { ExceptionsPanel } from './ExceptionsPanel'
@@ -77,6 +78,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
     const logic = supportTicketSceneLogic({ id: ticketId || 'new' })
     const {
         ticket,
+        ticketViewers,
         person,
         ticketLoading,
         status,
@@ -222,8 +224,11 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
             <SceneTitleSection
                 name={`Ticket: ${ticket?.ticket_number?.toString() || ticket?.id || ''}`}
                 nameSuffix={
-                    ticket && ticket.identity_verified !== true ? (
-                        <IdentityBadge verified={ticket.identity_verified} />
+                    ticket ? (
+                        <span className="flex items-center gap-2">
+                            {ticket.identity_verified !== true && <IdentityBadge verified={ticket.identity_verified} />}
+                            <TicketViewers viewers={ticketViewers} also />
+                        </span>
                     ) : undefined
                 }
                 description=""

@@ -20,6 +20,7 @@ import type {
     ConversationsListParams,
     ConversationsTicketsListParams,
     ConversationsTicketsMessagesListParams,
+    ConversationsTicketsPresenceRetrieveParams,
     ConversationsViewsListParams,
     MessageApi,
     MessageMinimalApi,
@@ -35,8 +36,10 @@ import type {
     SandboxOpenApi,
     TicketApi,
     TicketMessageApi,
+    TicketPresenceMapApi,
     TicketReplyRequestApi,
     TicketViewApi,
+    TicketViewersApi,
     ZendeskImportJobApi,
     ZendeskImportStartApi,
 } from './api.schemas'
@@ -497,6 +500,24 @@ export const conversationsTicketsNotesDestroy = async (
     })
 }
 
+export const getConversationsTicketsPresenceCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/conversations/tickets/${id}/presence/`
+}
+
+/**
+ * Record that the caller has this ticket open and return who else does.
+ */
+export const conversationsTicketsPresenceCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TicketViewersApi> => {
+    return apiMutator<TicketViewersApi>(getConversationsTicketsPresenceCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getConversationsTicketsReplyCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/conversations/tickets/${id}/reply/`
 }
@@ -605,6 +626,39 @@ export const conversationsTicketsComposeCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(composeTicketApi),
+    })
+}
+
+export const getConversationsTicketsPresenceRetrieveUrl = (
+    projectId: string,
+    params: ConversationsTicketsPresenceRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/conversations/tickets/presence/?${stringifiedParams}`
+        : `/api/projects/${projectId}/conversations/tickets/presence/`
+}
+
+/**
+ * Who else currently has each of the given tickets open.
+ */
+export const conversationsTicketsPresenceRetrieve = async (
+    projectId: string,
+    params: ConversationsTicketsPresenceRetrieveParams,
+    options?: RequestInit
+): Promise<TicketPresenceMapApi> => {
+    return apiMutator<TicketPresenceMapApi>(getConversationsTicketsPresenceRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

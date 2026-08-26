@@ -4,7 +4,7 @@ import json
 import time
 import uuid
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any, cast
 
 from django.db import transaction
 from django.db.models import Q, QuerySet, Sum
@@ -23,15 +23,17 @@ from rest_framework import (
 from rest_framework.decorators import action
 from rest_framework.exceptions import MethodNotAllowed, ValidationError
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.person import get_person_name
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
-from posthog.models import OrganizationMembership
+from posthog.models import OrganizationMembership, User
 from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
 from posthog.models.comment import Comment
 from posthog.models.person.person import Person
@@ -42,7 +44,12 @@ from posthog.rate_limit import ComposeTicketBurstThrottle, ComposeTicketSustaine
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
-from products.conversations.backend.api.serializers import TicketAssignmentSerializer
+from products.conversations.backend.api.serializers import (
+    TicketAssignmentSerializer,
+    TicketPresenceMapSerializer,
+    TicketPresenceQuerySerializer,
+    TicketViewersSerializer,
+)
 from products.conversations.backend.api.ticket_filters import (
     AI_TRIAGE_FILTER_VALUES,
     apply_ticket_filters,
@@ -64,15 +71,21 @@ from products.conversations.backend.metrics import TICKET_SEARCH_DURATION_SECOND
 from products.conversations.backend.models import EmailChannel, EmailChannelKind, Ticket, TicketAssignment, TicketView
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Status
 from products.conversations.backend.person_lookup import _get_persons_by_email
+from products.conversations.backend.presence import get_ticket_viewers, record_ticket_presence
 
 from ee.models.rbac.role import Role
 
 from .. import reply_dedupe
 
-if TYPE_CHECKING:
-    from posthog.models import User
-
 logger = structlog.get_logger(__name__)
+
+
+def _resolve_users(user_ids: list[int]) -> list[User]:
+    """One query for all ids, returned in the caller's order."""
+    if not user_ids:
+        return []
+    users_by_id = {user.id: user for user in User.objects.filter(id__in=user_ids)}
+    return [users_by_id[uid] for uid in user_ids if uid in users_by_id]
 
 
 class TicketErrorSerializer(serializers.Serializer):
@@ -410,7 +423,7 @@ NOTE_MESSAGE_ID_PARAM = OpenApiParameter(
 )
 class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "ticket"
-    scope_object_read_actions = ["list", "retrieve", "unread_count", "messages"]
+    scope_object_read_actions = ["list", "retrieve", "unread_count", "messages", "presence", "presence_heartbeat"]
     # "create" stays listed so a ticket:write token reaches the create() override below and
     # gets a clear 405 (pointing to the SDK), rather than a misleading "not supported" 403.
     scope_object_write_actions = [
@@ -1081,6 +1094,51 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             set_cached_unread_count(team_id, count)
 
         return Response({"count": count})
+
+    @extend_schema(parameters=[TICKET_ID_PARAM], request=None, responses={200: TicketViewersSerializer})
+    @action(detail=True, methods=["post"], url_path="presence")
+    def presence_heartbeat(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Record that the caller has this ticket open and return who else does."""
+        ticket = self.get_object()
+        user = cast("User", request.user)
+        ticket_id = str(ticket.id)
+        record_ticket_presence(self.team_id, ticket_id, user.id)
+        viewer_ids = [uid for uid in get_ticket_viewers(self.team_id, [ticket_id]).get(ticket_id, []) if uid != user.id]
+        return Response(TicketViewersSerializer({"viewers": _resolve_users(viewer_ids)}).data)
+
+    @validated_request(
+        query_serializer=TicketPresenceQuerySerializer,
+        responses={200: OpenApiResponse(response=TicketPresenceMapSerializer)},
+    )
+    @action(detail=False, methods=["get"], url_path="presence")
+    def presence(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        """Who else currently has each of the given tickets open."""
+        user = cast("User", request.user)
+        ticket_ids: list[str] = request.validated_query_data["ticket_ids"]
+
+        # Batch actions skip the list-level access filter, so restrict explicitly as unread_count does.
+        queryset = Ticket.objects.filter(team_id=self.team_id, id__in=ticket_ids)
+        uac = self.user_access_control
+        if bool(uac.blocked_resource_ids_by_scope.get("ticket")) or not uac.has_resource_access("ticket"):
+            queryset = uac.filter_queryset_by_access_level(queryset)
+        visible_ids = [str(ticket_id) for ticket_id in queryset.values_list("id", flat=True)]
+
+        viewer_ids_by_ticket = {
+            ticket_id: [uid for uid in viewer_ids if uid != user.id]
+            for ticket_id, viewer_ids in get_ticket_viewers(self.team_id, visible_ids).items()
+        }
+        users_by_id = {
+            resolved.id: resolved
+            for resolved in _resolve_users(
+                list({uid for viewer_ids in viewer_ids_by_ticket.values() for uid in viewer_ids})
+            )
+        }
+        viewers = {
+            ticket_id: [users_by_id[uid] for uid in viewer_ids if uid in users_by_id]
+            for ticket_id, viewer_ids in viewer_ids_by_ticket.items()
+        }
+        viewers = {ticket_id: ticket_viewers for ticket_id, ticket_viewers in viewers.items() if ticket_viewers}
+        return Response(TicketPresenceMapSerializer({"viewers": viewers}).data)
 
     @extend_schema(
         parameters=[TICKET_ID_PARAM],

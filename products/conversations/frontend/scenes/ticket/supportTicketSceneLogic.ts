@@ -51,6 +51,7 @@ import {
 import {
     conversationsTicketsNotesDestroy,
     conversationsTicketsNotesPartialUpdate,
+    conversationsTicketsPresenceCreate,
 } from 'products/conversations/frontend/generated/api'
 import { getCommentsCreateUrl } from 'products/platform_features/frontend/generated/api'
 import { signalsReportsList } from 'products/signals/frontend/generated/api'
@@ -61,6 +62,7 @@ import type { FeatureFlagsSet } from '../../../../../frontend/src/lib/logic/feat
 import type { TeamPublicType, TeamType } from '../../../../../frontend/src/types'
 import { assigneeSelectLogic } from '../../components/Assignee'
 import type { Assignee, TicketAssignee } from '../../components/Assignee'
+import type { TicketViewer } from '../../components/TicketViewers/ticketPresence'
 import { supportTicketCounterLogic } from '../../supportTicketCounterLogic'
 import { priorityOptions } from '../../types'
 import type {
@@ -75,6 +77,8 @@ import { conversationsDraftModeLogic } from '../settings/conversationsDraftModeL
 import { supportTicketsSceneLogic } from '../tickets/supportTicketsSceneLogic'
 
 const MESSAGE_POLL_INTERVAL = 5000 // 5 seconds
+/** Three heartbeats fit in the server's presence TTL, so one lost request doesn't drop the viewer. */
+const PRESENCE_HEARTBEAT_INTERVAL = 10_000
 /** Discussions ride the message timer at 1/4 the rate, so ~20s. */
 const DISCUSSION_POLL_EVERY_N_TICKS = 4
 /** Must not exceed the server's replay window, or recovery could adopt a message from an older send. */
@@ -273,6 +277,7 @@ export interface supportTicketSceneLogicValues {
     ticket: Ticket | null
     ticketLoading: boolean
     ticketUpdating: boolean
+    ticketViewers: TicketViewer[]
     unsavedTicketChanges: string[]
 }
 
@@ -416,6 +421,9 @@ export interface supportTicketSceneLogicActions {
         richContent: Record<string, unknown> | null
         statusAfterSend: TicketStatus | undefined
     }
+    sendPresenceHeartbeat: () => {
+        value: true
+    }
     setAssignee: (assignee: TicketAssignee) => {
         assignee: TicketAssignee
     }
@@ -466,6 +474,9 @@ export interface supportTicketSceneLogicActions {
     }
     setTicketUpdating: (updating: boolean) => {
         updating: boolean
+    }
+    setTicketViewers: (viewers: TicketViewer[]) => {
+        viewers: TicketViewer[]
     }
     startEditingMessage: (message: ChatMessage) => {
         message: ChatMessage
@@ -522,11 +533,7 @@ export interface supportTicketSceneLogicMeta {
             unsavedTicketChanges: string[]
         ) => boolean
         hasPendingWork: (hasUnsavedChanges: boolean, editingMessageId: string | null) => boolean
-        chatMessages: (
-            messages: CommentType[],
-            ticket: Ticket | null,
-            featureFlags: FeatureFlagsSet // featureFlagLogic
-        ) => ChatMessage[]
+        chatMessages: (messages: CommentType[], ticket: Ticket | null, featureFlags: FeatureFlagsSet) => ChatMessage[]
         eventsQuery: (ticket: Ticket | null) => DataTableNode | null
         exceptionsQuery: (ticket: Ticket | null) => DataTableNode | null
         latestAiMessage: (chatMessages: ChatMessage[]) => ChatMessage | null
@@ -564,6 +571,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
     actions({
         loadTicket: true,
         setTicket: (ticket: Ticket | null) => ({ ticket }),
+        sendPresenceHeartbeat: true,
+        setTicketViewers: (viewers: TicketViewer[]) => ({ viewers }),
         setTicketLoading: (loading: boolean) => ({ loading }),
         incrementUnreadCustomerCount: true,
         updateTicket: true,
@@ -750,6 +759,13 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         ],
     })),
     reducers({
+        ticketViewers: [
+            [] as TicketViewer[],
+            {
+                setTicketViewers: (_, { viewers }) => viewers,
+                setTicket: () => [],
+            },
+        ],
         ticket: [
             null as Ticket | null,
             {
@@ -1138,6 +1154,21 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         ],
     }),
     listeners(({ actions, values, props, cache }) => ({
+        sendPresenceHeartbeat: async () => {
+            // Always the UUID: props.id may be the ticket number from the URL.
+            const ticketId = values.ticket?.id
+            if (!ticketId) {
+                return
+            }
+            try {
+                const response = await conversationsTicketsPresenceCreate(String(getCurrentTeamId()), ticketId)
+                if (values.ticket?.id === ticketId) {
+                    actions.setTicketViewers([...response.viewers])
+                }
+            } catch {
+                // Presence is a hint. The next heartbeat retries on its own.
+            }
+        },
         loadTicket: async () => {
             if (values.editingMessageId) {
                 actions.cancelEditingMessage()
@@ -1158,6 +1189,13 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
 
                 actions.setTicket(ticket)
                 actions.loadMessages()
+
+                // Pausing on hidden tabs is deliberate: a backgrounded ticket drops off teammates' queues.
+                cache.disposables.add(() => {
+                    actions.sendPresenceHeartbeat()
+                    const intervalId = setInterval(() => actions.sendPresenceHeartbeat(), PRESENCE_HEARTBEAT_INTERVAL)
+                    return () => clearInterval(intervalId)
+                }, 'presenceHeartbeat')
 
                 impersonationNoticeLogic.findMounted()?.actions.setTicketContext({
                     ticketId: ticket.id,
