@@ -10,7 +10,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { signalsReportsRefundCreate } from 'products/signals/frontend/generated/api'
 
 import { captureInboxReportAction, InboxReportActionSurface } from '../../inboxAnalytics'
-import { SignalReport } from '../../types'
+import { SignalReport, SignalReportStatus } from '../../types'
 import { openRefundReportDialog } from '../shell/RefundReportDialog'
 
 // Copy per backend `refund_ineligibility_reason`. `already_refunded` / `billing_exempt` never
@@ -67,6 +67,10 @@ export function useReportRefund({
         event.stopPropagation()
         openRefundReportDialog({
             reportTitle: report.title,
+            // A merged PR resolved the report? The refund leaves it in Resolved instead of dismissing
+            // it (the `resolved_via_merged_pr` branch in the refund endpoint), so the copy must not
+            // promise a dismissal.
+            staysResolved: report.status === SignalReportStatus.RESOLVED && report.implementation_pr_merged === true,
             onConfirm: async ({ reason, note }) => {
                 if (isRefunding || currentTeamId == null) {
                     return
