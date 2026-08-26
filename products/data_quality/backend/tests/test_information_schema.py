@@ -214,6 +214,36 @@ class TestInformationSchemaDataQuality(ClickhouseTestMixin, APIBaseTest):
 
         assert rows == []
 
+    def test_a_run_whose_subject_was_recreated_under_the_same_name_stays_hidden(self) -> None:
+        # Deleting a warehouse object frees its name for anyone to take. Matched by the names in its
+        # definition, the run that read the original would be served here the moment something the
+        # caller can read answers to that name -- with its failed-row count over the original's rows.
+        original = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="orders_original", query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
+        )
+        original_id = original.id
+        original.delete()
+        reader = self._check(
+            subject_name="customers",
+            saved_query_id=uuid4(),
+            check_type=CheckType.CUSTOM_SQL,
+            column_name="",
+            config={"query": "SELECT 1 FROM orders"},
+        )
+        self._run_for(
+            reader,
+            check_config=reader.config,
+            referenced_subjects=[{"subject_type": str(SubjectType.VIEW), "subject_uuid": str(original_id)}],
+        )
+
+        # A denial the caller still has, so the gate engages: an empty denied set skips it entirely.
+        rows = self._query(
+            "SELECT subject_name FROM system.information_schema.data_quality_check_runs",
+            context=self._context(denied_tables={"secrets"}),
+        )
+
+        assert rows == []
+
     def test_the_tables_are_absent_when_the_catalog_flag_is_off(self) -> None:
         with patch("products.data_quality.backend.facade.flags.is_data_quality_checks_enabled", return_value=False):
             listing = self._query(

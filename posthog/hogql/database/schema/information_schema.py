@@ -1126,17 +1126,22 @@ def _data_quality_checks(context: "HogQLContext", allowed: Optional[frozenset[st
 
 
 def _without_denied_runs(team_id: int, runs: Any, denied: set[str]) -> Any:
-    """Exclude, in SQL, every run whose definition read a subject the caller is denied.
+    """Exclude, in SQL, every run that read a subject the caller is denied.
 
-    A run is judged on the definition it executed, snapshotted on the row, so editing a check cannot
-    rewrite what its history discloses. A referencing run that predates the snapshot has no
-    definition left to judge, so it is withheld rather than assumed harmless.
+    A run is judged on the identities it pinned as it executed, by the same rule the REST routes
+    apply, so the two surfaces cannot come to different answers about the same run. Editing a check
+    therefore cannot rewrite what its history discloses, and deleting a subject cannot free its name
+    for something else to answer for it. A referencing run that pinned nothing predates the
+    recording and is withheld rather than assumed harmless.
     """
     from products.data_quality.backend.facade import api as data_quality  # noqa: PLC0415
 
     subjects = set(runs.values_list("subject_type", "subject_uuid", "subject_name").distinct())
+    recordings = list(runs.values_list("check_type", "referenced_subjects").distinct())
     current_names = data_quality.resolve_subject_names(
-        team_id, [(subject_type, subject_uuid) for subject_type, subject_uuid, _ in subjects]
+        team_id,
+        [(subject_type, subject_uuid) for subject_type, subject_uuid, _ in subjects]
+        + data_quality.pinned_subject_refs(recorded for _, recorded in recordings),
     )
     blocked_subjects = [
         subject_uuid
@@ -1146,16 +1151,19 @@ def _without_denied_runs(team_id: int, runs: Any, denied: set[str]) -> Any:
     if blocked_subjects:
         runs = runs.exclude(subject_uuid__in=blocked_subjects)
 
-    referencing = list(data_quality.referencing_check_types())
-    blocked_definitions = Q()
-    for check_type, config in (
-        runs.filter(check_type__in=referencing).values_list("check_type", "check_config").distinct()
-    ):
-        if config is not None and data_quality.check_reads_denied_subject(team_id, check_type, config, denied):
-            blocked_definitions |= Q(check_type=check_type, check_config=config)
-    if blocked_definitions:
-        runs = runs.exclude(blocked_definitions)
-    return runs.exclude(check_config__isnull=True, check_type__in=referencing)
+    blocked_recordings = Q()
+    for check_type, recorded in recordings:
+        if not data_quality.run_reads_unreadable_subject(check_type, recorded, current_names, denied):
+            continue
+        # A JSONField compares None against JSON null, not against the SQL NULL a run without a
+        # recording stores, so the two cases cannot share one lookup.
+        if recorded is None:
+            blocked_recordings |= Q(check_type=check_type, referenced_subjects__isnull=True)
+        else:
+            blocked_recordings |= Q(check_type=check_type, referenced_subjects=recorded)
+    if blocked_recordings:
+        runs = runs.exclude(blocked_recordings)
+    return runs
 
 
 def _data_quality_check_runs(context: "HogQLContext", allowed: Optional[frozenset[str]]) -> list[list[Any]]:

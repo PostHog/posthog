@@ -7,7 +7,9 @@ history, or health rollup -- those carry the compiled ``config``, failed-row cou
 values, which together act as a count oracle over rows the member cannot read directly.
 """
 
+from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, Any, Optional
+from uuid import UUID
 
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.schema.information_schema import _references_denied_table
@@ -15,6 +17,7 @@ from posthog.hogql.database.schema.information_schema import _references_denied_
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 
+from ..facade.enums import SubjectType
 from .registry import all_specs, get_spec
 from .spec import CheckTypeSpec
 from .subjects import resolve_subject, resolve_subject_by_name
@@ -157,7 +160,9 @@ def pinned_subjects(recorded: Any) -> list[PinnedSubject] | None:
     """The identities a run recorded, or None when it recorded nothing judgeable.
 
     A malformed entry reads as nothing recorded rather than as an empty list, so a run whose
-    recording cannot be trusted falls back to the same type-based rule as one predating it."""
+    recording cannot be trusted falls back to the same type-based rule as one predating it. An
+    entry is only judgeable if it can be resolved, so the type and the id are validated here rather
+    than left to raise on whichever surface reads the column."""
     if not isinstance(recorded, list):
         return None
     subjects = []
@@ -167,8 +172,53 @@ def pinned_subjects(recorded: Any) -> list[PinnedSubject] | None:
         subject_type, subject_uuid = entry.get(_SUBJECT_TYPE_KEY), entry.get(_SUBJECT_UUID_KEY)
         if not isinstance(subject_type, str) or not isinstance(subject_uuid, str):
             return None
+        if not _is_resolvable(subject_type, subject_uuid):
+            return None
         subjects.append(PinnedSubject(subject_type=subject_type, subject_uuid=subject_uuid))
     return subjects
+
+
+def pinned_subject_refs(recordings: Iterable[Any]) -> list[tuple[str, str]]:
+    """Every identity across these recordings, for one bulk name resolution over a page of runs."""
+    return [
+        (subject.subject_type, subject.subject_uuid)
+        for recorded in recordings
+        for subject in pinned_subjects(recorded) or []
+    ]
+
+
+def run_reads_unreadable_subject(
+    check_type: str, recorded: Any, current_names: Mapping[tuple[str, str], str], denied: set[str]
+) -> bool:
+    """Whether a recorded run read a subject the caller cannot be shown to be allowed.
+
+    The one test every surface serving run history applies, so the REST routes and the
+    ``information_schema`` loaders cannot come to different answers about the same run. Judged from
+    the identities the run pinned as it executed: never from the definition its check carries now,
+    which an edit rewrites, and never from names, which deleting an object frees for anyone to take.
+
+    A subject missing from ``current_names`` no longer resolves, and took its denial with it, so
+    nothing left can show the caller was allowed it. A run that pinned nothing predates the
+    recording and is judged by its type instead: one that cannot read past its own subject read only
+    the subject this surface already authorized, and anything that can is withheld.
+    """
+    pinned = pinned_subjects(recorded)
+    if pinned is None:
+        return check_type_reads_beyond_subject(check_type)
+    return any(
+        (name := current_names.get((subject.subject_type, subject.subject_uuid))) is None
+        or is_subject_denied(name, denied)
+        for subject in pinned
+    )
+
+
+def _is_resolvable(subject_type: str, subject_uuid: str) -> bool:
+    try:
+        SubjectType(subject_type)
+        UUID(subject_uuid)
+    except ValueError:
+        return False
+    return True
 
 
 def _pin_name(team_id: int, name: str) -> PinnedSubject | None:

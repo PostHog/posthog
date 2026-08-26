@@ -48,6 +48,18 @@ from .serializers import (
 
 _RECENT_RUNS_LIMIT = 50
 
+# An empty Q() matches every row, so an exclusion built by ORing clauses has to start from one that
+# matches none, or a page with nothing to withhold would withhold all of it.
+_MATCHES_NOTHING = Q(pk__in=[])
+
+
+def _matches_recording(check_type: str, recorded: list | None) -> Q:
+    # A JSONField compares None against JSON null, not against the SQL NULL a run without a
+    # recording stores, so the two cases cannot share one lookup.
+    if recorded is None:
+        return Q(check_type=check_type, referenced_subjects__isnull=True)
+    return Q(check_type=check_type, referenced_subjects=recorded)
+
 
 class _QualityGatedViewSet(TeamAndOrgViewSetMixin):
     """The gating every data quality surface shares, whether or not it is nested under a subject.
@@ -183,63 +195,42 @@ class _QualityGatedViewSet(TeamAndOrgViewSetMixin):
         }
 
     def _denied_definitions(self, runs: QuerySet[DataQualityCheckRun]) -> Q:
-        """Match the runs whose executed definition read a subject the caller is denied.
+        """Match the runs that read a subject the caller is denied.
 
-        Only the types that can read past their own subject are considered, and each distinct
-        definition is judged once, so the scan stays small however long the history is. A referencing
-        run recorded before the config snapshot has no definition left to judge and is matched too,
-        since what it read cannot be established.
+        Keyed on the identities each run pinned, so the suites reporting on it are withheld by the
+        same rule the routes serving it apply. Each distinct recording is judged once and every
+        identity in the page resolves in one pass, so the scan stays small however long the history
+        is. A referencing run that pinned nothing is matched too, since what it read cannot be
+        established.
         """
-        referencing = list(api.referencing_check_types())
-        matched = Q(check_config__isnull=True, check_type__in=referencing)
-        definitions = runs.filter(check_type__in=referencing).values_list("check_type", "check_config").distinct()
-        for check_type, config in definitions:
-            if config is not None and self._reads_unreadable_subject(check_type, config):
-                matched |= Q(check_type=check_type, check_config=config)
+        recordings = list(runs.values_list("check_type", "referenced_subjects").distinct())
+        current_names = api.resolve_subject_names(
+            self.team_id, api.pinned_subject_refs(recorded for _, recorded in recordings)
+        )
+        denied = self._denied_subject_names()
+        matched = _MATCHES_NOTHING
+        for check_type, recorded in recordings:
+            if api.run_reads_unreadable_subject(check_type, recorded, current_names, denied):
+                matched |= _matches_recording(check_type, recorded)
         return matched
 
     def _readable_runs(self, runs: list[DataQualityCheckRun]) -> list[DataQualityCheckRun]:
-        """Drop the runs that read a subject the caller cannot be shown to be allowed."""
+        """Drop the runs that read a subject the caller cannot be shown to be allowed.
+
+        Every identity in the page resolves in one pass rather than one query per run, since a
+        suite re-runs the same checks over the same subjects.
+        """
         if not self._can_be_object_denied():
             return runs
-        return [run for run in runs if self._run_is_readable(run)]
-
-    def _run_is_readable(self, run: DataQualityCheckRun) -> bool:
-        """Whether every subject this run read is one the caller may read now.
-
-        Judged from the identities the run pinned as it executed, never from the definition its
-        check carries now, so editing a check cannot retroactively expose the history it used to
-        read -- and never from names, which a deleted object frees for anyone to take.
-
-        A run that pinned nothing predates that recording. It falls back to its type: one that
-        cannot read past its own subject read only the parent this surface already authorized, and
-        anything that can is withheld, since there is no longer evidence of what it reached.
-        """
-        pinned = api.pinned_subjects(run.referenced_subjects)
-        if pinned is None:
-            return not api.check_type_reads_beyond_subject(run.check_type)
-        return all(self._pinned_subject_is_readable(subject) for subject in pinned)
-
-    def _pinned_subject_is_readable(self, subject: api.PinnedSubject) -> bool:
-        # Memoized per request: a suite re-runs the same checks over the same subjects, and each
-        # resolution costs a query.
-        cache: dict[tuple[str, str], bool] = getattr(self, "_pinned_subject_cache", {})
-        self._pinned_subject_cache = cache
-        key = (subject.subject_type, subject.subject_uuid)
-        if key not in cache:
-            cache[key] = self._resolves_to_a_readable_subject(subject)
-        return cache[key]
-
-    def _resolves_to_a_readable_subject(self, subject: api.PinnedSubject) -> bool:
-        try:
-            ref = api.resolve_subject(self.team.id, subject.subject_type, subject.subject_uuid)
-        except ValueError:
-            return False
-        # A subject that no longer resolves took its denial with it, so nothing left can show the
-        # caller was allowed the object this run read.
-        if not ref.exists:
-            return False
-        return not api.is_subject_denied(ref.name, self._denied_subject_names())
+        current_names = api.resolve_subject_names(
+            self.team_id, api.pinned_subject_refs(run.referenced_subjects for run in runs)
+        )
+        denied = self._denied_subject_names()
+        return [
+            run
+            for run in runs
+            if not api.run_reads_unreadable_subject(run.check_type, run.referenced_subjects, current_names, denied)
+        ]
 
 
 class _SubjectScopedViewSet(_QualityGatedViewSet):

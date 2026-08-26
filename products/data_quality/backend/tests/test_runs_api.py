@@ -60,17 +60,21 @@ class TestDataQualityRunAPI(APIBaseTest):
             return self.client.post(self.url, body, format="json")
 
     def _deny_orders(self) -> None:
+        self._deny(self.orders)
+
+    def _deny(self, *views: DataWarehouseSavedQuery) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
         self.organization.save(update_fields=["available_product_features"])
-        AccessControl.objects.create(
-            team=self.team,
-            resource="warehouse_view",
-            resource_id=str(self.orders.id),
-            organization_member=self.organization_membership,
-            access_level="none",
-        )
+        for view in views:
+            AccessControl.objects.create(
+                team=self.team,
+                resource="warehouse_view",
+                resource_id=str(view.id),
+                organization_member=self.organization_membership,
+                access_level="none",
+            )
         warehouse_ac = patch(
             "posthog.hogql.database.database.feature_enabled_or_false",
             side_effect=lambda name, *a, **k: name == "hogql-warehouse-access-control",
@@ -184,7 +188,33 @@ class TestDataQualityRunAPI(APIBaseTest):
 
     def test_history_withholds_a_suite_whose_run_read_a_denied_subject(self) -> None:
         # The run sits on the allowed subject, so its own uuid clears the filter. What it read is in
-        # the definition it executed, and the counters report on those rows too.
+        # the identities it pinned, and the counters report on those rows too.
+        suite_run = self._suite_reading(self.orders)
+        self._check(self.orders)
+        self._deny_orders()
+
+        listed = self.client.get(self.url)
+
+        assert [row["id"] for row in listed.json()["results"]] == []
+        assert self.client.get(f"{self.url}{suite_run.id}/").status_code == status.HTTP_404_NOT_FOUND
+
+    def test_history_withholds_a_suite_whose_subject_was_recreated_under_the_same_name(self) -> None:
+        # Deleting "orders" frees its name, so a member can create their own and make the name resolve
+        # for them again. Matched by name, the suite reporting on the run that read the original would
+        # list, carrying its counters over rows the member still cannot read.
+        secrets = self._make_view("secrets")
+        suite_run = self._suite_reading(self.orders)
+        self._deny(self.orders, secrets)
+        self.orders.delete()
+        self._make_view("orders")
+
+        listed = self.client.get(self.url)
+
+        assert [row["id"] for row in listed.json()["results"]] == []
+        assert self.client.get(f"{self.url}{suite_run.id}/").status_code == status.HTTP_404_NOT_FOUND
+
+    def _suite_reading(self, read: DataWarehouseSavedQuery) -> DataQualitySuiteRun:
+        """A suite whose one run sits on the allowed "customers" but read another subject."""
         suite_run = DataQualitySuiteRun.objects.for_team(self.team.id).create(team=self.team, trigger="manual")
         DataQualityCheckRun.objects.for_team(self.team.id).create(
             team=self.team,
@@ -193,17 +223,12 @@ class TestDataQualityRunAPI(APIBaseTest):
             subject_uuid=self.customers.id,
             subject_name="customers",
             check_type=CheckType.CUSTOM_SQL,
-            check_config={"query": "SELECT 1 FROM orders"},
+            check_config={"query": f"SELECT 1 FROM {read.name}"},
+            referenced_subjects=[{"subject_type": str(SubjectType.VIEW), "subject_uuid": str(read.id)}],
             check_fingerprint=uuid4().hex,
             status=CheckRunStatus.FAILED,
         )
-        self._check(self.orders)
-        self._deny_orders()
-
-        listed = self.client.get(self.url)
-
-        assert [row["id"] for row in listed.json()["results"]] == []
-        assert self.client.get(f"{self.url}{suite_run.id}/").status_code == status.HTTP_404_NOT_FOUND
+        return suite_run
 
     def _sweep_covering(self, view: DataWarehouseSavedQuery) -> DataQualitySuiteRun:
         """A multi-subject sweep whose counters include one check run against this view."""
