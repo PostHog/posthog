@@ -3,9 +3,10 @@
 Artifacts are untrusted user content, so they are served from a dedicated
 origin (``CANVAS_ARTIFACT_ORIGIN``) that fails closed: in production the view
 refuses to answer on any other Host, keeping user code off the application
-origin. Access is capability-based — a signed, time-boxed token minted for the
+origin. Access is capability-based: a signed token minted for the
 authenticated client is the only credential, so the artifact origin itself
-holds no cookies or sessions.
+holds no cookies or sessions. Every request re-authorizes against the live
+build row, so deleting the canvas or its build revokes outstanding URLs.
 
 Integrity is verified when artifacts are written and again when they are read
 from object storage. The manifest hash is also used as the response ETag.
@@ -28,10 +29,14 @@ from products.canvas.backend.contract import artifact_csp
 from products.canvas.backend.models import CanvasBuild
 
 ARTIFACT_TOKEN_SALT = "posthog.canvas.artifact.v1"
-# Tokens embed a coarse time bucket instead of a per-second timestamp, so the
-# artifact URL for a build is stable within a bucket (the iframe src doesn't
-# churn on every lifecycle poll) while still expiring: a token is accepted for
-# its own bucket and the next one, i.e. between one and two hours.
+# Minted tokens carry no expiry claim, because the URL for a build must stay
+# byte-stable: the assets are served with `max-age=31536000, immutable`, and the
+# browser HTTP cache is keyed by URL, so any time component in the token forces
+# a full re-download of the artifact (up to the 12 MB size cap) every time it
+# rolls over. Liveness is enforced per request against the build row instead.
+# A token carrying a `bucket` claim is still honored for its original window
+# (its own bucket and the next one, i.e. between one and two hours), so URLs
+# held by open clients keep working.
 ARTIFACT_TOKEN_BUCKET_SECONDS = 3600
 
 
@@ -56,9 +61,8 @@ def create_canvas_artifact_token(build: CanvasBuild) -> str | None:
         return None
     if not (settings.DEBUG or settings.TEST) and (len(keys[0]) < 32 or _configured_artifact_host() is None):
         return None
-    bucket = int(time.time() // ARTIFACT_TOKEN_BUCKET_SECONDS)
     return signing.Signer(key=keys[0], salt=ARTIFACT_TOKEN_SALT).sign_object(
-        {"team_id": build.team_id, "canvas_id": str(build.canvas_id), "build_id": str(build.id), "bucket": bucket},
+        {"team_id": build.team_id, "canvas_id": str(build.canvas_id), "build_id": str(build.id)},
         compress=True,
     )
 
@@ -85,13 +89,17 @@ def create_canvas_artifact_url(build: CanvasBuild, artifact_path: str) -> str | 
 
 
 def _read_token(token: str) -> dict[str, Any]:
-    current_bucket = int(time.time() // ARTIFACT_TOKEN_BUCKET_SECONDS)
     for key in settings.CANVAS_ARTIFACT_SIGNING_KEYS:
         try:
             value = signing.Signer(key=key, salt=ARTIFACT_TOKEN_SALT).unsign_object(token)
         except signing.BadSignature:
             continue
-        if isinstance(value, dict) and value.get("bucket") in (current_bucket, current_bucket - 1):
+        if not isinstance(value, dict):
+            continue
+        if "bucket" not in value:
+            return value
+        current_bucket = int(time.time() // ARTIFACT_TOKEN_BUCKET_SECONDS)
+        if value["bucket"] in (current_bucket, current_bucket - 1):
             return value
     raise Http404
 

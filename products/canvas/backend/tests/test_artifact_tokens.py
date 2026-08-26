@@ -7,6 +7,8 @@ from django.core import signing
 from django.http import Http404
 from django.test import RequestFactory, SimpleTestCase, override_settings
 
+from parameterized import parameterized
+
 from products.canvas.backend.artifacts import (
     ARTIFACT_TOKEN_SALT,
     _read_token,
@@ -17,8 +19,6 @@ from products.canvas.backend.artifacts import (
 
 
 def _claims(**overrides):
-    # _read_token only accepts a token whose bucket is the current or previous
-    # one, so mint through the real code path rather than hard-coding a bucket.
     return {
         "team_id": 1,
         "canvas_id": "00000000-0000-0000-0000-000000000001",
@@ -155,6 +155,42 @@ class TestCanvasArtifactTokens(SimpleTestCase):
             self.assertIsNone(create_canvas_artifact_token(MagicMock()))
         with override_settings(CANVAS_ARTIFACT_ORIGIN="https://usercontent.example/path"):
             self.assertIsNone(create_canvas_artifact_token(MagicMock()))
+
+    @override_settings(CANVAS_ARTIFACT_SIGNING_KEYS=["a-signing-key-at-least-32-bytes-long"])
+    def test_artifact_urls_are_stable_across_token_buckets(self) -> None:
+        # The browser HTTP cache is keyed by URL and artifacts are served
+        # immutable, so a time component in the token would force a full
+        # artifact re-download every time it rolls over.
+        build = MagicMock(
+            team_id=1, canvas_id="00000000-0000-0000-0000-000000000001", id="00000000-0000-0000-0000-000000000002"
+        )
+        now = time.time()
+        with patch("products.canvas.backend.artifacts.time.time", return_value=now):
+            first = create_canvas_artifact_url(build, "index.html")
+        with patch("products.canvas.backend.artifacts.time.time", return_value=now + 3 * 3600):
+            second = create_canvas_artifact_url(build, "index.html")
+            token = (second or "").split("/canvas-artifacts/")[1].split("/")[0]
+            claims = _read_token(token)
+
+        self.assertIsNotNone(first)
+        self.assertEqual(first, second)
+        self.assertEqual(claims["build_id"], "00000000-0000-0000-0000-000000000002")
+
+    @parameterized.expand([(0, True), (-1, True), (-2, False)])
+    @override_settings(CANVAS_ARTIFACT_SIGNING_KEYS=["a-signing-key-at-least-32-bytes-long"])
+    def test_bucketed_tokens_expire_after_their_window(self, offset: int, accepted: bool) -> None:
+        now = time.time()
+        bucket = int(now // 3600) + offset
+        token = signing.Signer(key="a-signing-key-at-least-32-bytes-long", salt=ARTIFACT_TOKEN_SALT).sign_object(
+            _claims(bucket=bucket), compress=True
+        )
+
+        with patch("products.canvas.backend.artifacts.time.time", return_value=now):
+            if accepted:
+                self.assertEqual(_read_token(token)["bucket"], bucket)
+            else:
+                with self.assertRaises(Http404):
+                    _read_token(token)
 
     @override_settings(CANVAS_ARTIFACT_SIGNING_KEYS=["a-signing-key-at-least-32-bytes-long"])
     def test_url_round_trips_through_read_token(self) -> None:
