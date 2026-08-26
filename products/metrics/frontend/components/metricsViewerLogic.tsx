@@ -39,6 +39,7 @@ import type { MetricNameItem } from './metricNamePickerLogic'
 import type { MetricsChartSeries } from './metricsSeries'
 
 export type MetricAggregation = 'sum' | 'avg' | 'count' | 'p95' | 'rate' | 'increase'
+export const METRIC_AGGREGATIONS: MetricAggregation[] = ['sum', 'avg', 'count', 'p95', 'rate', 'increase']
 
 export type MetricsViewerSeries = _MetricSeriesApi
 
@@ -51,7 +52,7 @@ export interface MetricsAnomalyBadge {
     onsetTime: string | null
 }
 
-const DEFAULT_AGGREGATION: MetricAggregation = 'sum'
+export const DEFAULT_AGGREGATION: MetricAggregation = 'sum'
 
 // Aggregation applied automatically when a metric of this type is selected.
 // Cumulative counters (OTel type 'sum') summed raw give meaningless ever-growing
@@ -65,7 +66,7 @@ export const RECOMMENDED_AGGREGATION_BY_TYPE: Record<string, MetricAggregation> 
     summary: 'p95',
     exponential_histogram: 'p95',
 }
-const DEFAULT_DATE_FROM = '-1h'
+export const DEFAULT_DATE_FROM = '-1h'
 export const NEW_QUERY_STARTED_ERROR_MESSAGE = 'A new metrics query started, canceling the previous one'
 
 // A superseded or unmounted request rejects with an abort, not a real failure — never surface it as an error.

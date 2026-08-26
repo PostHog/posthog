@@ -6,6 +6,7 @@
     },
     "dependencies": {
         "@posthog/quill-charts": "workspace:*",
+        "fast-equals": "catalog:",
         "kea": "catalog:",
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",
