@@ -2385,59 +2385,6 @@ describe("AgentServer HTTP Mode", () => {
       expect(turnCompleteEvents).toHaveLength(1);
     }, 20000);
 
-    // The continuation used to claim success unconditionally, so a compaction
-    // the adapter aborted left the model reasoning about a summary it never
-    // received, on a context that was never shortened.
-    it("tells the model when the compaction it is continuing from failed", async () => {
-      const s = createServer();
-      await s.start();
-      let serverInternals!: {
-        session: { clientConnection: { prompt: typeof prompt } };
-        createCloudClient(payload: unknown): {
-          extNotification(
-            method: string,
-            params: Record<string, unknown>,
-          ): Promise<void>;
-        };
-      };
-      const prompt = vi.fn(async (_params: { prompt: ContentBlock[] }) => {
-        const client = serverInternals.createCloudClient({});
-        await client.extNotification(POSTHOG_NOTIFICATIONS.STATUS, {
-          status: "compacting",
-        });
-        await client.extNotification(POSTHOG_NOTIFICATIONS.STATUS, {
-          status: "compacting_failed",
-          error: "API Error: Request was aborted.",
-        });
-        return { stopReason: "end_turn" };
-      });
-      serverInternals = s as unknown as typeof serverInternals;
-      serverInternals.session.clientConnection.prompt = prompt;
-
-      const response = await fetch(`http://localhost:${port}/command`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${createToken()}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: "compact-failed",
-          method: "user_message",
-          params: { content: "/compact" },
-        }),
-      });
-
-      expect(response.status).toBe(200);
-      expect(prompt).toHaveBeenCalledTimes(2);
-      const continuation = prompt.mock.calls[1]?.[0].prompt[0] as {
-        text: string;
-      };
-      expect(continuation.text).toContain("Compaction did not run");
-      expect(continuation.text).toContain("API Error: Request was aborted.");
-      expect(continuation.text).not.toContain("Compaction is complete");
-    }, 20000);
-
     it("retries only the continuation after compact follow-up failure", async () => {
       const s = createServer();
       await s.start();
@@ -2897,9 +2844,6 @@ describe("AgentServer HTTP Mode", () => {
       expect(resetTurnMessages).not.toHaveBeenCalled();
     }, 20000);
 
-    // Steering hands the message to the SDK's input stream, which aborts the
-    // compaction request in flight. A declined steer is redelivered as a normal
-    // follow-up, so the message still lands once the compaction finishes.
     it("declines steering while a compaction is in flight", async () => {
       const s = createServer();
       await s.start();

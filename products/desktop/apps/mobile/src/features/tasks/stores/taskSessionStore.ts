@@ -188,11 +188,6 @@ function analyzeEntries(
         | undefined;
       if (params?.status === "compacting") {
         compacting = !params.isComplete;
-      } else if (params?.status === "compacting_failed") {
-        // A failed compaction emits no compact boundary, so this is the only
-        // signal that clears the flag. Left set, steering stays blocked and
-        // the queue flush never runs again for this session.
-        compacting = false;
       }
     }
     if (method === "_posthog/compact_boundary") {
