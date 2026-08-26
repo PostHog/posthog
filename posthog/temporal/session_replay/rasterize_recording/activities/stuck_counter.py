@@ -42,6 +42,11 @@ async def bump_stuck_counter_activity(inputs: BumpStuckCounterInput) -> None:
     key = _stuck_key(inputs.team_id, inputs.session_id)
     amount = STUCK_SESSION_THRESHOLD if inputs.killed_worker else 1
     ttl = _KILLED_WORKER_TTL_SECONDS if inputs.killed_worker else _STUCK_TTL_SECONDS
+    # Never shorten: an ordinary bump landing inside a killed-worker quarantine (an on-demand scan
+    # bypasses the gate) must not downgrade the 24h TTL back to the 2h window.
+    remaining = await redis_client.ttl(key)
+    if remaining is not None and remaining > ttl:
+        ttl = remaining
     async with redis_client.pipeline(transaction=False) as pipe:
         pipe.incrby(key, amount)
         pipe.expire(key, ttl)

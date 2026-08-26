@@ -102,10 +102,12 @@ export async function rasterizeRecording(
         const blockProxy = new BlockProxy(cfg, log)
         const blockCount = await blockProxy.fetchBlocks(input)
         const compressedBytes = blockProxy.totalCompressedBytes
-        // compressedBytes feeds the cap below and its tuning: query this line to see what sizes
-        // renders survive before tightening MAX_RECORDING_COMPRESSED_BYTES.
         log.info({ blockCount, compressedBytes }, 'block listing fetched')
-        if (compressedBytes > cfg.maxRecordingCompressedBytes) {
+        if (!Number.isFinite(compressedBytes)) {
+            // A malformed listing yields NaN, and NaN > cap is false: the gate would switch off
+            // silently. Fail open, but visibly.
+            log.warn({ blockCount }, 'block listing has non-numeric byte ranges; size gate skipped')
+        } else if (compressedBytes > cfg.maxRecordingCompressedBytes) {
             // Fail permanently before loading: oversized recordings run the pod into its memory
             // limit, and the kernel kill takes the healthy renders on the pod down with it.
             throw new RasterizationError(

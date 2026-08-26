@@ -15,13 +15,19 @@ from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counte
 
 @parameterized.expand(
     [
-        (False, 1, _STUCK_TTL_SECONDS),
-        (True, STUCK_SESSION_THRESHOLD, _KILLED_WORKER_TTL_SECONDS),
+        # (killed_worker, remaining_ttl, expected_amount, expected_ttl)
+        (False, -2, 1, _STUCK_TTL_SECONDS),
+        (True, -2, STUCK_SESSION_THRESHOLD, _KILLED_WORKER_TTL_SECONDS),
+        # An ordinary bump inside a killed-worker quarantine must not downgrade the longer TTL.
+        (False, _KILLED_WORKER_TTL_SECONDS - 60, 1, _KILLED_WORKER_TTL_SECONDS - 60),
     ]
 )
 @pytest.mark.asyncio
-async def test_bump_stuck_counter_pipelines_incrby_and_expire(killed_worker, expected_amount, expected_ttl):
+async def test_bump_stuck_counter_pipelines_incrby_and_expire(
+    killed_worker, remaining_ttl, expected_amount, expected_ttl
+):
     redis_client = MagicMock()
+    redis_client.ttl = AsyncMock(return_value=remaining_ttl)
     pipeline = MagicMock()
     pipeline.incrby = MagicMock()
     pipeline.expire = MagicMock()
