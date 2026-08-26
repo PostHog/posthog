@@ -1,3 +1,4 @@
+import { CostManagementSettings } from "@posthog/ui/features/cost-management/CostManagementSettings";
 import { McpServersView } from "@posthog/ui/features/mcp-servers/components/McpServersView";
 import { AdvancedSettings } from "@posthog/ui/features/settings/sections/AdvancedSettings";
 import { AgentsSettings } from "@posthog/ui/features/settings/sections/AgentsSettings";
@@ -47,6 +48,10 @@ const SETTINGS_PAGES: Record<SettingsCategory, SettingsPageDefinition> = {
   general: defineSettingsPage("General", GeneralSettings),
   notifications: defineSettingsPage("Notifications", NotificationsSettings),
   "plan-usage": defineSettingsPage("Plan & usage", PlanUsageSettings),
+  "cost-management": defineSettingsPage(
+    "Cost management",
+    CostManagementSettings,
+  ),
   workspaces: defineSettingsPage("Workspaces", WorkspacesSettings),
   worktrees: defineSettingsPage("Worktrees", WorktreesSettings),
   environments: defineSettingsPage("Environments", EnvironmentsSettings),

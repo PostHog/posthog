@@ -68,6 +68,7 @@ export interface RailDestination {
   countTone?: CountBadgeTone;
   enabled?: (flags: {
     home: boolean;
+    inbox: boolean;
     loops: boolean;
     context: boolean;
   }) => boolean;
@@ -190,6 +191,7 @@ export const RAIL_DESTINATIONS: readonly RailDestination[] = [
     onPick: navigateToInbox,
     shortcut: formatHotkey(SHORTCUTS.INBOX),
     count: (counts) => counts.inbox,
+    enabled: (flags) => flags.inbox,
   },
   {
     pane: "command-center",
@@ -230,18 +232,20 @@ export function visibleRailDestinations({
   overrides,
   order,
   home,
+  inbox,
   loops,
   context,
 }: {
   overrides: NavItemOverrides;
   order: readonly CustomizableNavItemId[];
   home: boolean;
+  inbox: boolean;
   loops: boolean;
   context: boolean;
 }): readonly RailDestination[] {
   const shown = RAIL_DESTINATIONS.filter(
     ({ customizableId, enabled }) =>
-      (enabled?.({ home, loops, context }) ?? true) &&
+      (enabled?.({ home, inbox, loops, context }) ?? true) &&
       (!customizableId || isNavItemVisible(overrides, customizableId)),
   );
   if (order.length === 0) return shown;

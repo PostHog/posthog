@@ -76,6 +76,7 @@ import { deserializeKafkaMessage } from '../ingestion/api/kafka-message-converte
 import { IngestBatchRequest, IngestBatchResponse } from '../ingestion/api/types'
 import { EventFilterManagerComponent } from '../ingestion/common/event-filters'
 import { createFeatureFlagCalledDedupService } from '../ingestion/common/feature-flag-called-dedup/feature-flag-called-dedup-service'
+import { createFlagEvaluationsService } from '../ingestion/common/flag-evaluations/flag-evaluations-service'
 import { MainLaneOverflowRedirect } from '../ingestion/common/overflow-redirect/main-lane-overflow-redirect'
 import { OverflowLaneOverflowRedirect } from '../ingestion/common/overflow-redirect/overflow-lane-overflow-redirect'
 import { OverflowRedirectService } from '../ingestion/common/overflow-redirect/overflow-redirect-service'
@@ -485,6 +486,7 @@ export class IngestionApiServer implements NodeServer {
             this.featureFlagCalledDedupRedisPool,
             this.config
         )
+        const flagEvaluationsService = createFlagEvaluationsService(this.config)
 
         const joinedPipelineDeps: JoinedIngestionPipelineDeps = {
             personsStore,
@@ -501,6 +503,7 @@ export class IngestionApiServer implements NodeServer {
             overflowRedirectService,
             overflowLaneTTLRefreshService,
             featureFlagCalledDedupService,
+            flagEvaluationsService,
             teamManager,
             cookielessManager: this.cookielessManager,
             groupTypeManager,

@@ -71,19 +71,48 @@ describe("ActivityRow", () => {
     );
 
     const title = screen.getByText("Tell me a joke");
-    const metadata = screen.getByText("just now · Agent completed · Personal");
+    const metadata = screen.getByText("just now · Agent finished in");
+    const spaceBadge = screen.getByText("Personal").closest(".quill-badge");
     expect(title.compareDocumentPosition(metadata)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
+    expect(spaceBadge).toHaveClass("quill-badge--variant-default");
     const row = title.closest("button");
+    expect(row).toHaveAccessibleName(
+      "Tell me a joke just now · Agent finished in Personal",
+    );
     expect(row?.querySelector(".quill-avatar")).toHaveClass(
       "bg-primary",
       "text-primary-foreground",
+      "size-4",
     );
     expect(row).not.toHaveClass("bg-primary/10");
     expect(row).not.toHaveClass("outline-primary/20");
     expect(screen.queryByTitle("New activity")).not.toBeInTheDocument();
   });
+
+  it.each([
+    { label: "unread", isUnread: true, hasActionPadding: true },
+    { label: "read", isUnread: false, hasActionPadding: false },
+  ])(
+    "reserves trailing room for a compact $label row only when it has a read action",
+    ({ isUnread, hasActionPadding }) => {
+      render(
+        <ActivityRow
+          item={item({ isUnread })}
+          onMarkRead={vi.fn()}
+          onActivate={vi.fn()}
+          blockedTaskIds={NO_BLOCKED_TASKS}
+          compact
+        />,
+      );
+
+      const row = screen.getByText("Say hello").closest("button");
+      expect(row).toHaveClass("py-1.5");
+      expect(row).not.toHaveClass("pr-10");
+      expect(row?.classList.contains("pr-8")).toBe(hasActionPadding);
+    },
+  );
 
   it("opens an activity mention at its exact comment thread", () => {
     const activity = item({

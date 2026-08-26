@@ -117,9 +117,11 @@ import {
   getUserShellExecutesSinceLastPrompt,
   hasSessionPromptEvent,
   hasSessionPromptEventForTaskRun,
+  isSteerPromptParams,
   isTurnCompleteEvent,
   normalizePromptToBlocks,
   promptReferencesAbsoluteFolder,
+  selectEchoedOptimisticItemIds,
   shellExecutesToContextBlocks,
 } from "./sessionEvents";
 import { selectSessionsToEvict } from "./sessionEviction";
@@ -367,6 +369,8 @@ export interface SessionTrpc {
 export interface ISessionStore {
   setSession(session: AgentSession): void;
   removeSession(taskRunId: string): void;
+  setTaskStarting?(taskId: string): void;
+  clearTaskStarting?(taskId: string): void;
   updateSession(taskRunId: string, updates: Partial<AgentSession>): void;
   appendEvents(
     taskRunId: string,
@@ -426,6 +430,7 @@ export interface ISessionStore {
   ): void;
   clearOptimisticItems(taskRunId: string): void;
   clearTailOptimisticItems(taskRunId: string): void;
+  removeOptimisticItems(taskRunId: string, ids: string[]): void;
   replaceOptimisticWithEvent(taskRunId: string, event: AcpMessage): void;
   getSessionByTaskId(taskId: string): AgentSession | undefined;
   getSessions(): Record<string, AgentSession>;
@@ -1911,8 +1916,12 @@ export class SessionService {
     // Check for existing connected session
     const existingSession = this.d.store.getSessionByTaskId(taskId);
     if (existingSession?.status === "connected") {
+      this.d.store.clearTaskStarting?.(taskId);
       this.d.log.info("Already connected to task", { taskId });
       return;
+    }
+    if (task.latest_run?.environment !== "cloud") {
+      this.d.store.setTaskStarting?.(taskId);
     }
     if (existingSession?.status === "connecting") {
       this.d.log.info("Session already in connecting state", { taskId });
@@ -3255,11 +3264,11 @@ export class SessionService {
    * guard ignores it without needing a marker here.
    */
   private isSteerMessage(msg: AcpMessage["message"]): boolean {
-    if (isJsonRpcRequest(msg) && msg.method === "session/prompt") {
-      const params = msg.params as { _meta?: { steer?: boolean } } | undefined;
-      return params?._meta?.steer === true;
-    }
-    return false;
+    return (
+      isJsonRpcRequest(msg) &&
+      msg.method === "session/prompt" &&
+      isSteerPromptParams(msg.params)
+    );
   }
 
   private finalizeTurnContent(
@@ -4966,11 +4975,15 @@ export class SessionService {
       });
 
       if (!result.success) {
+        if (result.status === 409 && !options?.steer) {
+          this.d.store.clearTailOptimisticItems(session.taskRunId);
+          return this.resumeCloudRun(session, normalizedPrompt);
+        }
         throw new Error(result.error ?? "Failed to send cloud command");
       }
 
       const commandResult = result.result as
-        | { queued?: boolean; steered?: boolean; stopReason?: string }
+        | { queued?: boolean; stopReason?: string }
         | undefined;
       const stopReason = commandResult?.queued
         ? "queued"
@@ -5232,6 +5245,7 @@ export class SessionService {
       runtimeOptions = getCloudRuntimeOptions(session, previousRun);
 
       try {
+        this.markTaskCreationInFlight(session.taskId);
         // Backend derives the snapshot from resumeFromRunId and restores the sandbox.
         updatedTask = await authCredentials.client.runTaskInCloud(
           session.taskId,
@@ -5271,11 +5285,13 @@ export class SessionService {
         throw error;
       }
     } catch (error) {
+      this.clearTaskCreationInFlight(session.taskId);
       rollbackOptimisticPrompt();
       throw error;
     }
     const newRun = updatedTask.latest_run;
     if (!newRun?.id) {
+      this.clearTaskCreationInFlight(session.taskId);
       rollbackOptimisticPrompt();
       throw new Error("Failed to create resume run");
     }
@@ -8219,6 +8235,12 @@ export class SessionService {
 
   public markTaskCreationInFlight(taskId: string): void {
     this.taskCreationMarks.set(taskId, Date.now());
+    this.d.store.setTaskStarting?.(taskId);
+  }
+
+  private clearTaskCreationInFlight(taskId: string): void {
+    this.taskCreationMarks.delete(taskId);
+    this.d.store.clearTaskStarting?.(taskId);
   }
 
   private isTaskCreationInFlight(taskId: string): boolean {
@@ -8227,7 +8249,7 @@ export class SessionService {
     const expired =
       Date.now() - markedAt > SessionService.TASK_CREATION_IN_FLIGHT_TTL_MS;
     if (expired) {
-      this.taskCreationMarks.delete(taskId);
+      this.clearTaskCreationInFlight(taskId);
       return false;
     }
     return true;
@@ -9119,6 +9141,22 @@ export class SessionService {
     }
   }
 
+  private clearEchoedTailOptimisticItems(
+    taskRunId: string,
+    events: AcpMessage[],
+  ): void {
+    const session = this.getSessionByRunId(taskRunId);
+    if (!session?.optimisticItems.length) return;
+    const echoed = selectEchoedOptimisticItemIds(
+      session.optimisticItems,
+      events,
+      session.processedLineCount ?? 0,
+    );
+    if (echoed.length > 0) {
+      this.d.store.removeOptimisticItems(taskRunId, echoed);
+    }
+  }
+
   private appendCloudTailEvents(
     taskRunId: string,
     entries: StoredLogEntry[],
@@ -9131,9 +9169,7 @@ export class SessionService {
       startEntryIndex,
     });
     if (events.length === 0) return;
-    if (hasSessionPromptEvent(events)) {
-      this.d.store.clearTailOptimisticItems(taskRunId);
-    }
+    this.clearEchoedTailOptimisticItems(taskRunId, events);
     const existingEvents = this.getSessionByRunId(taskRunId)?.events;
     const keptEvents = existingEvents
       ? dropEventsCoveredByTail(existingEvents, taskRunId, startEntryIndex)
@@ -9179,9 +9215,7 @@ export class SessionService {
         ? reconcileLiveEventsWithHydratedEvents(liveRunEvents, events)
         : []),
     ];
-    if (hasSessionPromptEvent(events)) {
-      this.d.store.clearTailOptimisticItems(taskRunId);
-    }
+    this.clearEchoedTailOptimisticItems(taskRunId, events);
     this.cloudRunIdleTracker.delete(taskRunId);
     // The reconciled log is the complete chain, so any hydration window is
     // gone; resetting the window start also trips loadOlderCloudTranscript's
@@ -9206,9 +9240,7 @@ export class SessionService {
       taskRunId,
       startEntryIndex: windowStart,
     });
-    if (hasSessionPromptEvent(events)) {
-      this.d.store.clearTailOptimisticItems(taskRunId);
-    }
+    this.clearEchoedTailOptimisticItems(taskRunId, events);
     this.cloudRunIdleTracker.delete(taskRunId);
     // Moving the window start also trips loadOlderCloudTranscript's
     // stale-window guard if a prepend was in flight, instead of duplicating

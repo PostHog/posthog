@@ -352,7 +352,7 @@ export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
             {
                 loadElementStats: async (_, breakpoint) => {
                     await breakpoint(150)
-                    // heatmapDataLogic's href gets clobbered to '' by onIframeLoad in this scene,
+                    // heatmapDataLogic's href is shared and driven by the browser data-URL flow,
                     // so the replay payload's URL is the stable source of truth here
                     const url = values.replayIframeData?.url?.trim()
                     if (!url) {

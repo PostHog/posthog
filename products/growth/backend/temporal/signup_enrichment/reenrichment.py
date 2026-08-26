@@ -1,17 +1,22 @@
 """Scheduled re-enrichment sweep for orgs whose V0.5 evaluation produced no score.
 
-~25% of matched signups are empty-shell Harmonic profiles at signup (insufficient_data) and
-a further ~5% aren't matched at all (not_found) — mostly brand-new companies that accrete
-enrichment data over weeks, plus late Harmonic indexing (the enrich mutation seeds async
-enrichment). The +4h recheck is too early for either. This sweep re-runs the standard
-enrichment (fresh fetch, archive, transform, score) for those orgs on a 30–90-day window:
+Measured on prod-us 2026-08-24 over 14,848 scored orgs: 40.8% of matched signups are
+empty-shell Harmonic profiles (insufficient_data) and 0.9% aren't matched at all (not_found)
+— mostly brand-new companies that accrete enrichment data over weeks, plus late Harmonic
+indexing (the enrich mutation seeds async enrichment). The +4h recheck is too early for
+either. This sweep re-runs the standard enrichment (fresh fetch, archive, transform, score)
+for those orgs on a 30–90-day window:
 
 - **30 days minimum** since the org's last sweep *attempt* (stamped on `OrganizationEnrichment.data`
   before the org reaches the provider, so a raised Harmonic error still counts): an org is
   retried at most every 30 days, and an unrelated fetch row from another command can't move
-  this clock.
+  this clock. An org the sweep has never attempted has no stamp, so its own last fetch stands
+  in for one — without that it would be swept the morning after signup.
 - **90 days maximum** since the org's first fetch: retries self-terminate (~2 per org) — an
   org still empty after two spaced retries stays at its honest status.
+
+An org that Harmonic indexes after day 90 is never revisited. That is a deliberate ceiling,
+not a backoff: `icp_reenrichment_attempt_count` is recorded but nothing reads it.
 
 Runs as a Temporal Schedule (see the init_icp_reenrichment_schedule command) because the
 Harmonic key lives on the workers only. Selection re-checks the kill switch and region on
@@ -93,7 +98,7 @@ async def select_reenrichment_candidates_activity(inputs: IcpReenrichmentSweepIn
     run without touching Temporal state.
     """
     from django.conf import settings  # noqa: PLC0415 — heavy imports kept off the workflow module path
-    from django.db.models import Min, Q  # noqa: PLC0415
+    from django.db.models import Max, Min, Q  # noqa: PLC0415
 
     from asgiref.sync import sync_to_async  # noqa: PLC0415
 
@@ -138,15 +143,27 @@ async def select_reenrichment_candidates_activity(inputs: IcpReenrichmentSweepIn
         first_fetches = (
             OrganizationEnrichmentFetch.objects.filter(organization_id__in=attempt_eligible.keys())
             .values("organization_id")
-            .annotate(first_fetch=Min("fetched_at"))
+            .annotate(first_fetch=Min("fetched_at"), latest_fetch=Max("fetched_at"))
             .filter(first_fetch__gt=first_fetch_cutoff)
         )
+
+        # A never-attempted org has no stamp for the 30-day minimum to measure, so without this
+        # it is swept the morning after signup — the same too-early lookup the +4h recheck just
+        # made. Its own last fetch stands in. Orgs that carry a stamp keep using it: the stamp
+        # exists so an unrelated fetch row (a backfill) cannot move their retry clock.
+        never_attempted_ids = {org_id for org_id, stamp in attempt_eligible.items() if stamp is None}
+        fetch_cutoff = now - dt.timedelta(days=MIN_DAYS_SINCE_LAST_ATTEMPT)
+        due_rows = [
+            row
+            for row in first_fetches
+            if str(row["organization_id"]) not in never_attempted_ids or row["latest_fetch"] <= fetch_cutoff
+        ]
 
         # Oldest-attempted-first, with never-attempted (None) sorting ahead of any
         # timestamp — an org the sweep hasn't touched yet is due before one it retried
         # last month.
         ordered_org_ids = sorted(
-            (str(row["organization_id"]) for row in first_fetches),
+            (str(row["organization_id"]) for row in due_rows),
             key=lambda organization_id: attempt_eligible[organization_id] or "",
         )[: cap * _SELECTION_OVERFETCH_MULTIPLIER]
 

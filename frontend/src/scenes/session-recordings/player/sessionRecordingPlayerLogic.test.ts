@@ -18,6 +18,7 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { ExporterFormat, RecordingSegment, RecordingSnapshot } from '~/types'
 
 import { analysisNudgeLogic } from 'products/replay_vision/frontend/logics/analysisNudgeLogic'
+import { isUsableHeatmapUrl } from 'products/web_analytics/frontend/heatmaps/replayIframeData'
 
 import { deletedRecordingsLogic } from '../deletedRecordingsLogic'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
@@ -90,6 +91,19 @@ describe('findNewEvents', () => {
         const currentEvents = current.map((ts) => makeEvent(ts))
         const result = findNewEvents(allSnapshots, currentEvents)
         expect(result.map((e) => e.timestamp)).toEqual(expected)
+    })
+})
+
+describe('isUsableHeatmapUrl', () => {
+    it.each([
+        [undefined, false],
+        ['', false],
+        ['   ', false],
+        // mobile snapshots with no captured href resolve to the literal 'unknown'
+        ['unknown', false],
+        ['https://example.com/pricing', true],
+    ] as const)('isUsableHeatmapUrl(%s) → %s', (input, expected) => {
+        expect(isUsableHeatmapUrl(input)).toBe(expected)
     })
 })
 

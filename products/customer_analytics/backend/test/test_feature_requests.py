@@ -11,6 +11,7 @@ from posthog.models import OrganizationMembership, Team, UploadedMedia, User
 from posthog.models.organization import AvailableFeature
 from posthog.models.scoping import team_scope
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.customer_analytics.backend.models import (
     FeatureRequest,
     FeatureRequestAccountLink,
@@ -19,8 +20,6 @@ from products.customer_analytics.backend.models import (
     FeatureRequestProductArea,
 )
 from products.customer_analytics.backend.test.factories import create_account
-
-from ee.models.rbac.access_control import AccessControl
 
 
 class _EvidenceResponse(TypedDict):
