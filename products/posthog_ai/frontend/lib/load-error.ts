@@ -17,14 +17,13 @@ export function apiErrorReason(errorObject: unknown): string | null {
 }
 
 /** Best-effort human message for a failed load: explicit `error` string first, then the
- * `ApiError` reason, then a plain `Error.message`, else a generic fallback. */
+ * `ApiError` detail/statusText, then a plain `Error.message`, else a generic fallback. */
 export function loadErrorMessage(error: string, errorObject: unknown): string {
     if (error) {
         return error
     }
-    const reason = apiErrorReason(errorObject)
-    if (reason) {
-        return reason
+    if (errorObject instanceof ApiError && (errorObject.detail || errorObject.statusText)) {
+        return errorObject.detail || errorObject.statusText || 'Something went wrong.'
     }
     if (errorObject instanceof Error && errorObject.message) {
         return errorObject.message
