@@ -630,7 +630,7 @@ def run_merge_files(input_files: list[Path], output_file: Path, replace_prefix: 
     """Merge mode: outlier-merge already-merged per-segment files into one output.
 
     Fails loudly if no inputs survive — silently emitting an empty file would
-    let a botched timing-update workflow commit an empty .test_durations to
+    let a botched timing-update workflow publish an empty .test_durations to
     master, wiping the sharding signal everywhere downstream.
     """
     sources: list[dict[str, float]] = []
