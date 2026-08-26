@@ -1,6 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { makeDelay } from 'lib/utils/async'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -62,5 +61,4 @@ export default meta
 
 type Story = StoryObj<{}>
 
-// Small delay to ensure charts render completely
-export const ExperimentStoppedWithConclusion: Story = { play: makeDelay(500) }
+export const ExperimentStoppedWithConclusion: Story = {}
