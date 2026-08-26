@@ -52,6 +52,13 @@ from products.tasks.backend.exceptions import (
     SnapshotFileLimitExceededError,
     SnapshotTimeoutError,
 )
+from products.tasks.backend.logic.services.cpu_billing import (
+    CPU_BILLING_SAMPLER_PATH as CPU_BILLING_SAMPLER_PATH,
+    CPU_BILLING_STATE_PATH,
+    build_sampler_start_command,
+    compute_billed_cpu_usage_usec,
+    parse_cpu_stat_usage_usec,
+)
 from products.tasks.backend.logic.services.local_packages import (
     LocalPackage,
     get_local_package_runtime_dependencies,
@@ -95,8 +102,6 @@ STREAMLIT_MODAL_APP_NAME = "posthog-sandbox-streamlit"
 # a snapshot baked under the default app.
 SELF_DRIVING_MODAL_APP_NAME = "posthog-sandbox-self-driving"
 
-CPU_BILLING_STATE_PATH = "/tmp/posthog-cpu-billing.state"
-CPU_BILLING_SAMPLER_PATH = "/usr/local/bin/posthog-cpu-billing-sampler"
 
 SANDBOX_BASE_IMAGE = "ghcr.io/posthog/posthog-sandbox-base"
 SANDBOX_NOTEBOOK_IMAGE = "ghcr.io/posthog/posthog-sandbox-notebook"
@@ -1374,11 +1379,8 @@ class ModalSandbox(AgentServerLaunchMixin):
             cpu_stat = self._sandbox.filesystem.read_text("/sys/fs/cgroup/cpu.stat")
         except Exception:
             cpu_stat = None
-        if cpu_stat is not None:
-            for line in cpu_stat.splitlines():
-                key, _, value = line.partition(" ")
-                if key == "usage_usec":
-                    return int(value)
+        if cpu_stat is not None and (usage := parse_cpu_stat_usage_usec(cpu_stat)) is not None:
+            return usage
         try:
             cpuacct_usage = self._sandbox.filesystem.read_text("/sys/fs/cgroup/cpuacct/cpuacct.usage")
             if cpuacct_usage.strip():
@@ -1387,34 +1389,19 @@ class ModalSandbox(AgentServerLaunchMixin):
             pass
         return None
 
+    def _cpu_billing_request_cores(self) -> float:
+        return self.config.effective_cpu_request_cores if self.config.burstable_resources else self.config.cpu_cores
+
     def start_cpu_billing_sampler(self) -> bool:
-        request_cores = (
-            self.config.effective_cpu_request_cores if self.config.burstable_resources else self.config.cpu_cores
-        )
-        command = (
-            f"rm -f {shlex.quote(CPU_BILLING_STATE_PATH)}; "
-            f"setsid {shlex.quote(CPU_BILLING_SAMPLER_PATH)} "
-            f"{shlex.quote(CPU_BILLING_STATE_PATH)} {shlex.quote(str(request_cores))} "
-            ">/dev/null 2>&1 </dev/null & "
-            f"for _ in $(seq 1 50); do [ -f {shlex.quote(CPU_BILLING_STATE_PATH)} ] && exit 0; sleep 0.02; done; exit 1"
-        )
-        result = self.execute(command, timeout_seconds=10)
+        result = self.execute(build_sampler_start_command(self._cpu_billing_request_cores()), timeout_seconds=10)
         return result.exit_code == 0
 
     def read_billed_cpu_usage_usec(self) -> int | None:
-        values = self._sandbox.filesystem.read_text(CPU_BILLING_STATE_PATH).split()
-        if len(values) != 3:
-            return None
-        billed_usec, previous_cpu, previous_time = (int(value) for value in values)
+        state_text = self._sandbox.filesystem.read_text(CPU_BILLING_STATE_PATH)
         current_cpu = self.read_cpu_usage_usec()
         if current_cpu is None:
             return None
-        elapsed_ns = max(0, time.time_ns() - previous_time)
-        request_cores = (
-            self.config.effective_cpu_request_cores if self.config.burstable_resources else self.config.cpu_cores
-        )
-        floor_usec = round(request_cores * elapsed_ns / 1000)
-        return billed_usec + max(current_cpu - previous_cpu, floor_usec)
+        return compute_billed_cpu_usage_usec(state_text, current_cpu, self._cpu_billing_request_cores(), time.time_ns())
 
     def is_running(self) -> bool:
         return self.get_status() == SandboxStatus.RUNNING

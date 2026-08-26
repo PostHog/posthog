@@ -76,6 +76,15 @@ export namespace Schemas {
       window?: AIWindowConfig;
     }
 
+    export interface AIReportChart {
+      /** Id of the rendered PNG export backing this chart. */
+      export_asset_id: number;
+      /** Chart caption, taken from the plan step it illustrates. */
+      title: string;
+      /** Index of the plan step this chart came from. */
+      step_index: number;
+    }
+
     export interface AIReportQueryDiagnostic {
       /** What this query step was meant to compute. */
       description: string;
@@ -13598,8 +13607,8 @@ export namespace Schemas {
 
     export interface BillingAlertDestinationChanges {
       /**
-         * @items.minItems 4
-         * @items.maxItems 4
+         * @items.minItems 1
+         * @items.maxItems 100
          */
       delete?: string[][];
       create?: BillingAlertDestinationCreateData[];
@@ -13732,8 +13741,8 @@ export namespace Schemas {
     export interface BillingAlertDeleteDestination {
       /**
          * HogFunction IDs to delete as one atomic destination group.
-         * @minItems 4
-         * @maxItems 4
+         * @minItems 1
+         * @maxItems 100
          */
       hog_function_ids: string[];
     }
@@ -21150,6 +21159,11 @@ export namespace Schemas {
       readonly last_run_at: string | null;
       /** Outcome of the newest run: passed, failed, errored, skipped, or empty if never run. */
       readonly last_status: string;
+      /**
+         * When the check last passed, so a failing check can say how long it has been failing. Null means it has not passed within the run retention window.
+         * @nullable
+         */
+      readonly last_succeeded_at: string | null;
       /** sha256 of the subject, type, column, and config. Re-creating the same check upserts. */
       readonly fingerprint: string;
       /** Whether a human ('user') or an agent ('ai_generated') authored this check.
@@ -21178,6 +21192,12 @@ export namespace Schemas {
       readonly updated_at: string | null;
     }
 
+    /**
+     * Config this run executed, snapshotted so an edit to the check cannot rewrite history. Null for runs recorded before snapshots existed -- unknown, not 'same as the check has now'.
+     * @nullable
+     */
+    export type DataQualityCheckRunCheckConfig = { [key: string]: unknown } | null;
+
     export interface DataQualityCheckRun {
       readonly id: string;
       /**
@@ -21200,6 +21220,16 @@ export namespace Schemas {
        * * `custom_sql` - custom_sql */
       readonly check_type: CheckTypeEnum;
       readonly column_name: string;
+      /**
+         * Config this run executed, snapshotted so an edit to the check cannot rewrite history. Null for runs recorded before snapshots existed -- unknown, not 'same as the check has now'.
+         * @nullable
+         */
+      readonly check_config: DataQualityCheckRunCheckConfig;
+      /** Severity this run was judged at. Null for runs recorded before snapshots existed.
+       *
+       * * `error` - error
+       * * `warn` - warn */
+      readonly check_severity: DataQualityCheckSeverityEnum | null;
       /** passed, failed, errored, or skipped. */
       readonly status: string;
       /**
@@ -21250,6 +21280,136 @@ export namespace Schemas {
     export interface DataQualityGateConfig {
       /** When true, a materialization whose error-severity checks fail is not published; the previous version keeps serving and downstream models are skipped. */
       gate_materialization_on_checks: boolean;
+    }
+
+    /**
+     * Type-specific configuration, validated against the check type's JSON schema.
+     */
+    export type DataQualityOverviewCheckConfig = { [key: string]: unknown };
+
+    /**
+     * A check plus where its subject can be opened, for the project-wide list.
+     *
+     * The per-subject surfaces already know their parent; only this one lists checks across every
+     * table and view, so only this one needs to say where each subject lives. The ids are resolved
+     * for a whole page at once and handed in through ``subject_locations`` in the context.
+     */
+    export interface DataQualityOverviewCheck {
+      readonly id: string;
+      /**
+         * Optional identifier-safe handle, unique per project. Omit to address the check by id.
+         * @maxLength 128
+         * @pattern ^[A-Za-z][A-Za-z0-9_]*$
+         */
+      name?: string;
+      /** Why this check exists and what a failure means. */
+      description?: string;
+      /** Kind of catalog object being checked: 'table' (a synced warehouse table) or 'view' (a saved query).
+       *
+       * * `table` - table
+       * * `view` - view */
+      readonly subject_type: SubjectTypeEnum;
+      /**
+         * Id of the table or view being checked -- the parent resource in the URL.
+         * @nullable
+         */
+      readonly subject_uuid: string | null;
+      /** Queryable name of the subject, refreshed on every run. */
+      readonly subject_name: string;
+      /** 'orphaned' once the subject stops resolving. Orphaned checks are skipped, not deleted. */
+      readonly subject_status: string;
+      /**
+         * Column the check applies to. Omit for table-scoped types like row_count.
+         * @maxLength 400
+         */
+      column_name?: string;
+      /** Which assertion to make. Determines the shape of config; see /check_types/.
+       *
+       * * `not_null` - not_null
+       * * `unique` - unique
+       * * `accepted_values` - accepted_values
+       * * `relationships` - relationships
+       * * `row_count` - row_count
+       * * `freshness` - freshness
+       * * `custom_sql` - custom_sql */
+      check_type: CheckTypeEnum;
+      /** Type-specific configuration, validated against the check type's JSON schema. */
+      config?: DataQualityOverviewCheckConfig;
+      /** 'error' failures mark the subject failing and notify; 'warn' failures only surface.
+       *
+       * * `error` - error
+       * * `warn` - warn */
+      severity?: DataQualityCheckSeverityEnum;
+      /** Disabled checks are never run by any trigger. */
+      enabled?: boolean;
+      /** Free-form string labels for grouping and filtering. */
+      tags?: string[];
+      /**
+         * Email of the human accountable for this check, or null.
+         * @nullable
+         */
+      readonly owner: string | null;
+      /**
+         * When the check last executed.
+         * @nullable
+         */
+      readonly last_run_at: string | null;
+      /** Outcome of the newest run: passed, failed, errored, skipped, or empty if never run. */
+      readonly last_status: string;
+      /**
+         * When the check last passed, so a failing check can say how long it has been failing. Null means it has not passed within the run retention window.
+         * @nullable
+         */
+      readonly last_succeeded_at: string | null;
+      /** sha256 of the subject, type, column, and config. Re-creating the same check upserts. */
+      readonly fingerprint: string;
+      /** Whether a human ('user') or an agent ('ai_generated') authored this check.
+       *
+       * * `user` - user
+       * * `ai_generated` - ai_generated */
+      created_source?: CreatedSourceEnum;
+      /**
+         * Model that generated the check, if AI-authored.
+         * @maxLength 128
+         */
+      ai_model?: string;
+      /**
+         * AI author's confidence in the check, 0-1.
+         * @minimum 0
+         * @maximum 1
+         * @nullable
+         */
+      confidence?: number | null;
+      /** AI author's reasoning, surfaced as review context. */
+      reasoning?: string;
+      /** User who first created this check. */
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+      /**
+         * Data modeling node of the view this check audits, or null when it is on no DAG or the subject is a table.
+         * @nullable
+         */
+      readonly subject_node_id: string | null;
+      /**
+         * Warehouse source of the table this check audits, or null when the subject is a view.
+         * @nullable
+         */
+      readonly subject_source_id: string | null;
+      /**
+         * Warehouse source schema of the table this check audits, or null when the subject is a view.
+         * @nullable
+         */
+      readonly subject_schema_id: string | null;
+    }
+
+    /**
+     * What to run in a project-wide suite run.
+     */
+    export interface DataQualityRunRequest {
+      /** Ids of the checks to run. Omit to run every enabled check in the project. */
+      check_ids?: string[];
     }
 
     /**
@@ -39071,6 +39231,89 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `unstable` - unstable
+     * * `settled` - settled
+     * * `clean` - clean
+     */
+    export type FlakinessStateEnum = typeof FlakinessStateEnum[keyof typeof FlakinessStateEnum];
+
+
+    export const FlakinessStateEnum = {
+      Unstable: 'unstable',
+      Settled: 'settled',
+      Clean: 'clean',
+    } as const;
+
+    export interface FlakinessEntry {
+      /** Distinct alternate hashes the classifier can still match for this snapshot's current baseline. Reads as how many different images this snapshot is currently allowed to produce. Resets when the baseline moves, because tolerations recorded against an old baseline hash can never match again. */
+      variant_count: number;
+      /**
+         * Last default-branch run that rendered one of those variants. This is not when a variant was first recorded: a snapshot can cycle through variants it already recorded without adding a new one, and that case still flakes on every run. Null when no run matched one.
+         * @nullable
+         */
+      last_flaked_at?: string | null;
+      /**
+         * Mean fraction of pixels that differed across those variants. Separates sub-pixel noise from a small but real rendering change.
+         * @nullable
+         */
+      avg_diff_percentage?: number | null;
+      /**
+         * Days since the first default-branch run that compared against the current baseline, which is when that baseline took effect. Context for `variant_count`: the same count against a four-day-old baseline is far worse than against a six-month-old one.
+         * @nullable
+         */
+      baseline_age_days?: number | null;
+      /** Variants recorded per day over the last 30 days, oldest first. Always that length, so a fixed time axis can be rendered. */
+      daily_variant_counts: number[];
+      /**
+         * Index into `daily_variant_counts` where the baseline moved. Null when it moved before the window opened, which is the common case.
+         * @nullable
+         */
+      baseline_moved_day_index?: number | null;
+      /** `unstable` when a run rendered a variant inside the recency window, new or already known, `settled` when variants exist against this baseline but none recently, `clean` when none exist. A `clean` entry is always a quarantined one, because an unquarantined snapshot with no variants is not listed at all.
+       *
+       * * `unstable` - unstable
+       * * `settled` - settled
+       * * `clean` - clean */
+      flakiness_state: FlakinessStateEnum;
+      /** True when an active quarantine has run out, is about to, or covers a snapshot that no longer produces variants. All three mean a human has to extend it or lift it. */
+      needs_decision: boolean;
+      /** Active quarantine details when `is_quarantined` is true. Null otherwise. */
+      quarantine?: BaselineQuarantineSummary | null;
+      identifier: string;
+      run_type: string;
+      /** @nullable */
+      browser: string | null;
+      /** @nullable */
+      thumbnail_hash: string | null;
+      /** @nullable */
+      width: number | null;
+      /** @nullable */
+      height: number | null;
+      is_quarantined: boolean;
+    }
+
+    export type FlakinessTotalsByRunType = {[key: string]: number};
+
+    export interface FlakinessTotals {
+      /** Identifiers with an entry in `entries`. */
+      listed: number;
+      /** Identifiers with a current baseline, listed or not. The denominator that says how much of the repo renders consistently. */
+      tracked: number;
+      by_run_type: FlakinessTotalsByRunType;
+      unstable: number;
+      settled: number;
+      quarantined: number;
+      needs_decision: number;
+    }
+
+    export interface FlakinessOverview {
+      entries: FlakinessEntry[];
+      totals: FlakinessTotals;
+      truncated: boolean;
+      generated_at: string;
+    }
+
+    /**
      * * `confirmed_flake` - CONFIRMED_FLAKE
      * * `suspected_regression` - SUSPECTED_REGRESSION
      * * `quarantined` - QUARANTINED
@@ -46408,6 +46651,128 @@ export namespace Schemas {
       readonly updated_at: string | null;
     }
 
+    export interface LogsAlertDestinationConfig {
+      hog_function_ids: string[];
+      /** Notification destination type.
+       *
+       * * `slack` - slack
+       * * `webhook` - webhook
+       * * `teams` - teams */
+      type: NotificationDestinationTypeEnum;
+      /** Whether every HogFunction in the group is enabled, so the destination notifies for all alert event kinds. This is the stored setting: a destination PostHog stopped delivering to after repeated failures still reads as true. */
+      enabled: boolean;
+      slack_workspace_id?: number;
+      slack_channel_id?: string;
+      /** Webhook endpoint reduced to scheme and host. The path, query and userinfo carry the secret. */
+      webhook_url?: string;
+    }
+
+    /**
+     * One alert, with the destinations attached to it. The list endpoint leaves them out:
+     * reading a destination pulls its stored inputs, which run to several KB per row.
+     */
+    export interface LogsAlertConfigurationDetail {
+      /** Unique identifier for this alert. */
+      readonly id: string;
+      /**
+         * Human-readable name for this alert. Defaults to 'Untitled alert' on create when omitted.
+         * @maxLength 255
+         */
+      name?: string;
+      /** Whether the alert is actively being evaluated. Disabling resets the state to not_firing. */
+      enabled?: boolean;
+      /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false). */
+      filters?: LogsAlertFilters;
+      /**
+         * Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100. Use 0 with the 'above' operator to fire on any matching log.
+         * @minimum 0
+         */
+      threshold_count?: number;
+      /** Whether the alert fires when the count is above or below the threshold.
+       *
+       * * `above` - Above
+       * * `below` - Below */
+      threshold_operator?: LogsAlertThresholdOperatorEnum;
+      /** Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60. */
+      window_minutes?: number;
+      /** How often the alert is evaluated, in minutes. Server-managed. */
+      readonly check_interval_minutes: number;
+      /** Current alert state: not_firing, firing, pending_resolve, errored, or snoozed. Server-managed.
+       *
+       * * `not_firing` - Not firing
+       * * `firing` - Firing
+       * * `pending_resolve` - Pending resolve
+       * * `errored` - Errored
+       * * `snoozed` - Snoozed
+       * * `broken` - Broken */
+      readonly state: LogsAlertConfigurationStateEnum;
+      /**
+         * Total number of check periods in the sliding evaluation window for firing (M in N-of-M).
+         * @minimum 1
+         * @maximum 10
+         */
+      evaluation_periods?: number;
+      /**
+         * How many periods within the evaluation window must breach the threshold to fire (N in N-of-M).
+         * @minimum 1
+         * @maximum 10
+         */
+      datapoints_to_alarm?: number;
+      /**
+         * Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.
+         * @minimum 0
+         */
+      cooldown_minutes?: number;
+      /** Blocked local time windows when the alert must not run. Times use the project timezone. Null disables quiet hours. */
+      schedule_restriction?: AlertScheduleRestriction | null;
+      /**
+         * ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.
+         * @nullable
+         */
+      snooze_until?: string | null;
+      /**
+         * When the next evaluation is scheduled. Server-managed.
+         * @nullable
+         */
+      readonly next_check_at: string | null;
+      /**
+         * When the last notification was sent. Server-managed.
+         * @nullable
+         */
+      readonly last_notified_at: string | null;
+      /**
+         * When the alert was last evaluated. Server-managed.
+         * @nullable
+         */
+      readonly last_checked_at: string | null;
+      /** Number of consecutive evaluation failures. Resets on success. Server-managed. */
+      readonly consecutive_failures: number;
+      /**
+         * Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertEvent without denormalization so retention-aware cleanup rules stay the only source of truth.
+         * @nullable
+         */
+      readonly last_error_message: string | null;
+      /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. Drives the 'Last 24h' status bar on the alert list. */
+      readonly state_timeline: readonly LogsAlertStateInterval[];
+      /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
+      readonly destination_types: readonly NotificationDestinationTypeEnum[];
+      /**
+         * When the alert was first enabled. Null means the alert is still in draft state.
+         * @nullable
+         */
+      readonly first_enabled_at: string | null;
+      /** When the alert was created. */
+      readonly created_at: string;
+      readonly created_by: UserBasic;
+      /**
+         * When the alert was last modified.
+         * @nullable
+         */
+      readonly updated_at: string | null;
+      /** This alert's notification destinations, one entry per destination. Each carries the HogFunction IDs that delete it as a group, and its configuration with credential-bearing URL components removed. */
+      readonly destinations: readonly LogsAlertDestinationConfig[];
+    }
+
     export interface LogsAlertCreateDestination {
       /** Notification destination type.
        *
@@ -46429,7 +46794,6 @@ export namespace Schemas {
       /**
          * HogFunction IDs to delete as one atomic destination group.
          * @minItems 1
-         * @maxItems 4
          */
       hog_function_ids: string[];
     }
@@ -50530,6 +50894,172 @@ export namespace Schemas {
       version_markers: ObservationVersionMarker[];
     }
 
+    /**
+     * * `pending` - Pending
+     * * `running` - Running
+     * * `succeeded` - Succeeded
+     * * `failed` - Failed
+     * * `ineligible` - Ineligible
+     */
+    export type ObservationStatusEnum = typeof ObservationStatusEnum[keyof typeof ObservationStatusEnum];
+
+
+    export const ObservationStatusEnum = {
+      Pending: 'pending',
+      Running: 'running',
+      Succeeded: 'succeeded',
+      Failed: 'failed',
+      Ineligible: 'ineligible',
+    } as const;
+
+    /**
+     * Mirrors `temporal.types.ScannerSnapshot` for OpenAPI generation.
+     */
+    export interface ScannerSnapshot {
+      /** Scanner name at run time. */
+      name: string;
+      /** Scanner type (monitor, classifier, scorer, summarizer) at run time.
+       *
+       * * `monitor` - Monitor
+       * * `classifier` - Classifier
+       * * `scorer` - Scorer
+       * * `summarizer` - Summarizer */
+      scanner_type: ScannerTypeEnum;
+      /** The `ReplayScanner.scanner_version` value at the moment the workflow ran. */
+      scanner_version: number;
+      /** Concrete model that ran the observation; historical rows may carry since-retired model ids. */
+      model: string;
+      /** Concrete provider that ran the observation; historical rows may carry since-retired providers. */
+      provider: string;
+      /** Whether the observation was run with Signal emission enabled. */
+      emits_signals: boolean;
+      /** Scanner-type-specific configuration at run time (prompt, tags, scale, etc.). */
+      scanner_config: unknown;
+    }
+
+    /**
+     * Mirrors `temporal.types.ScannerResult` for OpenAPI generation.
+     */
+    export interface ScannerResult {
+      /** Validated scanner output. Shape depends on `scanner_snapshot.scanner_type`; always carries `confidence` and `scanner_type`. */
+      model_output: unknown;
+      /**
+         * Number of PostHog Signals emitted from this observation.
+         * @minimum 0
+         */
+      signals_count: number;
+    }
+
+    /**
+     * * `schedule` - Schedule
+     * * `on_demand` - On demand
+     * * `retry` - Retry
+     * * `backfill` - Backfill
+     */
+    export type ObservationTriggerEnum = typeof ObservationTriggerEnum[keyof typeof ObservationTriggerEnum];
+
+
+    export const ObservationTriggerEnum = {
+      Schedule: 'schedule',
+      OnDemand: 'on_demand',
+      Retry: 'retry',
+      Backfill: 'backfill',
+    } as const;
+
+    /**
+     * The team's shared judgement on whether the scanner scored this session correctly.
+     */
+    export interface ReplayObservationLabel {
+      /** True if the scanner scored this session correctly, false if not. */
+      is_correct: boolean;
+      /**
+         * Optional written context on the rating, for thumbs-up and thumbs-down alike: what the scanner got right or wrong, or what it should have concluded.
+         * @maxLength 5000
+         */
+      feedback?: string;
+    }
+
+    export interface ReplayObservation {
+      readonly id: string;
+      /** The scanner that produced this observation. */
+      readonly scanner_id: string;
+      /** Session recording id this scanner was applied to. */
+      readonly session_id: string;
+      /** Observation status (pending, running, succeeded, failed, ineligible).
+       *
+       * * `pending` - Pending
+       * * `running` - Running
+       * * `succeeded` - Succeeded
+       * * `failed` - Failed
+       * * `ineligible` - Ineligible */
+      readonly status: ObservationStatusEnum;
+      /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events / no_snapshots. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / infra_transient / internal_error / orphaned. */
+      readonly error_reason: string;
+      /** Temporal workflow id for progress queries and debugging. Empty until the workflow starts. */
+      readonly workflow_id: string;
+      /** Frozen view of the scanner at run time; scanner edits do not retroactively mutate this observation. */
+      readonly scanner_snapshot: ScannerSnapshot | null;
+      /** Result data persisted on success; null until the observation succeeds. */
+      readonly scanner_result: ScannerResult | null;
+      /** Whether this observation came from the schedule, an on-demand request, a retry of a failed or ineligible observation, or a historical backfill.
+       *
+       * * `schedule` - Schedule
+       * * `on_demand` - On demand
+       * * `retry` - Retry
+       * * `backfill` - Backfill */
+      readonly triggered_by: ObservationTriggerEnum;
+      /** User who triggered an on-demand observation; null for scheduled observations. */
+      readonly triggered_by_user: UserBasic | null;
+      /**
+         * Backfill that dispatched this observation; null for live, on-demand, and retry triggers.
+         * @nullable
+         */
+      readonly backfill_id: string | null;
+      /**
+         * Distinct id of the person in the recorded session (the subject being watched); null if unknown.
+         * @nullable
+         */
+      readonly distinct_id: string | null;
+      /**
+         * Email of the person in the recorded session (the subject being watched, not the user who triggered the observation), captured at scan time. Null when the session had no identified person.
+         * @nullable
+         */
+      readonly recording_subject_email: string | null;
+      /**
+         * Id of the preceding sibling observation for the same scanner (prev/next nav), honoring any list filters and ordering passed to retrieve; only set on retrieve, null at the start of the set.
+         * @nullable
+         */
+      readonly previous_observation_id: string | null;
+      /**
+         * Id of the following sibling observation for the same scanner (prev/next nav), honoring any list filters and ordering passed to retrieve; only set on retrieve, null at the end of the set.
+         * @nullable
+         */
+      readonly next_observation_id: string | null;
+      /** The team's shared label on this observation (correct/incorrect + feedback), or null if unlabeled. */
+      readonly label: ReplayObservationLabel | null;
+      /** @nullable */
+      started_at?: string | null;
+      /** @nullable */
+      completed_at?: string | null;
+      readonly created_at: string;
+    }
+
+    export interface ObservationSearchResult {
+      /** The matching observation. */
+      observation: ReplayObservation;
+      /** Cosine distance between the search text and the observation's closest embedding. Lower is a closer match. Only comparable to other results in the same response. */
+      distance: number;
+      /** Excerpt of the observation text that best matched the search, truncated. Empty for observations analyzed before excerpts were stored. */
+      matched_content: string;
+    }
+
+    export interface ObservationSearchResponse {
+      /** Matching observations, most relevant first. */
+      results: ObservationSearchResult[];
+      /** True when more matches may exist beyond `results`, so the response is a top slice rather than everything that matched. */
+      truncated: boolean;
+    }
+
     export interface ObservationStatusCounts {
       /** Total observations in the filtered set. */
       total: number;
@@ -50608,40 +51138,6 @@ export namespace Schemas {
       /** Summarizer-type facet aggregates; null when the scanner is not a summarizer. */
       summarizer: SummarizerStats | null;
     }
-
-    /**
-     * * `pending` - Pending
-     * * `running` - Running
-     * * `succeeded` - Succeeded
-     * * `failed` - Failed
-     * * `ineligible` - Ineligible
-     */
-    export type ObservationStatusEnum = typeof ObservationStatusEnum[keyof typeof ObservationStatusEnum];
-
-
-    export const ObservationStatusEnum = {
-      Pending: 'pending',
-      Running: 'running',
-      Succeeded: 'succeeded',
-      Failed: 'failed',
-      Ineligible: 'ineligible',
-    } as const;
-
-    /**
-     * * `schedule` - Schedule
-     * * `on_demand` - On demand
-     * * `retry` - Retry
-     * * `backfill` - Backfill
-     */
-    export type ObservationTriggerEnum = typeof ObservationTriggerEnum[keyof typeof ObservationTriggerEnum];
-
-
-    export const ObservationTriggerEnum = {
-      Schedule: 'schedule',
-      OnDemand: 'on_demand',
-      Retry: 'retry',
-      Backfill: 'backfill',
-    } as const;
 
     /**
      * 200 from POST /vision/scanners/{id}/observe/ - nothing started, the answer already exists.
@@ -51922,6 +52418,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: DataQualityCheck[];
+    }
+
+    export interface PaginatedDataQualityOverviewCheckList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: DataQualityOverviewCheck[];
     }
 
     export interface PaginatedDataQualitySuiteRunList {
@@ -53345,122 +53850,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: Reminder[];
-    }
-
-    /**
-     * Mirrors `temporal.types.ScannerSnapshot` for OpenAPI generation.
-     */
-    export interface ScannerSnapshot {
-      /** Scanner name at run time. */
-      name: string;
-      /** Scanner type (monitor, classifier, scorer, summarizer) at run time.
-       *
-       * * `monitor` - Monitor
-       * * `classifier` - Classifier
-       * * `scorer` - Scorer
-       * * `summarizer` - Summarizer */
-      scanner_type: ScannerTypeEnum;
-      /** The `ReplayScanner.scanner_version` value at the moment the workflow ran. */
-      scanner_version: number;
-      /** Concrete model that ran the observation; historical rows may carry since-retired model ids. */
-      model: string;
-      /** Concrete provider that ran the observation; historical rows may carry since-retired providers. */
-      provider: string;
-      /** Whether the observation was run with Signal emission enabled. */
-      emits_signals: boolean;
-      /** Scanner-type-specific configuration at run time (prompt, tags, scale, etc.). */
-      scanner_config: unknown;
-    }
-
-    /**
-     * Mirrors `temporal.types.ScannerResult` for OpenAPI generation.
-     */
-    export interface ScannerResult {
-      /** Validated scanner output. Shape depends on `scanner_snapshot.scanner_type`; always carries `confidence` and `scanner_type`. */
-      model_output: unknown;
-      /**
-         * Number of PostHog Signals emitted from this observation.
-         * @minimum 0
-         */
-      signals_count: number;
-    }
-
-    /**
-     * The team's shared judgement on whether the scanner scored this session correctly.
-     */
-    export interface ReplayObservationLabel {
-      /** True if the scanner scored this session correctly, false if not. */
-      is_correct: boolean;
-      /**
-         * Optional written context on the rating, for thumbs-up and thumbs-down alike: what the scanner got right or wrong, or what it should have concluded.
-         * @maxLength 5000
-         */
-      feedback?: string;
-    }
-
-    export interface ReplayObservation {
-      readonly id: string;
-      /** The scanner that produced this observation. */
-      readonly scanner_id: string;
-      /** Session recording id this scanner was applied to. */
-      readonly session_id: string;
-      /** Observation status (pending, running, succeeded, failed, ineligible).
-       *
-       * * `pending` - Pending
-       * * `running` - Running
-       * * `succeeded` - Succeeded
-       * * `failed` - Failed
-       * * `ineligible` - Ineligible */
-      readonly status: ObservationStatusEnum;
-      /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events / no_snapshots. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / infra_transient / internal_error / orphaned. */
-      readonly error_reason: string;
-      /** Temporal workflow id for progress queries and debugging. Empty until the workflow starts. */
-      readonly workflow_id: string;
-      /** Frozen view of the scanner at run time; scanner edits do not retroactively mutate this observation. */
-      readonly scanner_snapshot: ScannerSnapshot | null;
-      /** Result data persisted on success; null until the observation succeeds. */
-      readonly scanner_result: ScannerResult | null;
-      /** Whether this observation came from the schedule, an on-demand request, a retry of a failed or ineligible observation, or a historical backfill.
-       *
-       * * `schedule` - Schedule
-       * * `on_demand` - On demand
-       * * `retry` - Retry
-       * * `backfill` - Backfill */
-      readonly triggered_by: ObservationTriggerEnum;
-      /** User who triggered an on-demand observation; null for scheduled observations. */
-      readonly triggered_by_user: UserBasic | null;
-      /**
-         * Backfill that dispatched this observation; null for live, on-demand, and retry triggers.
-         * @nullable
-         */
-      readonly backfill_id: string | null;
-      /**
-         * Distinct id of the person in the recorded session (the subject being watched); null if unknown.
-         * @nullable
-         */
-      readonly distinct_id: string | null;
-      /**
-         * Email of the person in the recorded session (the subject being watched, not the user who triggered the observation), captured at scan time. Null when the session had no identified person.
-         * @nullable
-         */
-      readonly recording_subject_email: string | null;
-      /**
-         * Id of the preceding sibling observation for the same scanner (prev/next nav), honoring any list filters and ordering passed to retrieve; only set on retrieve, null at the start of the set.
-         * @nullable
-         */
-      readonly previous_observation_id: string | null;
-      /**
-         * Id of the following sibling observation for the same scanner (prev/next nav), honoring any list filters and ordering passed to retrieve; only set on retrieve, null at the end of the set.
-         * @nullable
-         */
-      readonly next_observation_id: string | null;
-      /** The team's shared label on this observation (correct/incorrect + feedback), or null if unlabeled. */
-      readonly label: ReplayObservationLabel | null;
-      /** @nullable */
-      started_at?: string | null;
-      /** @nullable */
-      completed_at?: string | null;
-      readonly created_at: string;
     }
 
     export interface PaginatedReplayObservationList {
@@ -55041,6 +55430,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly ai_report_diagnostics: readonly AIReportQueryDiagnostic[] | null;
+      /**
+         * Charts rendered for this report, in the order they were delivered. Empty when the report had no charts. Null for non-AI deliveries and for deliveries recorded before charts existed.
+         * @nullable
+         */
+      readonly ai_report_charts: readonly AIReportChart[] | null;
       /**
          * The subscription's prompt as it was when this report was generated. Null for older deliveries and non-AI deliveries.
          * @nullable
@@ -58756,6 +59150,11 @@ export namespace Schemas {
       readonly last_run_at?: string | null;
       /** Outcome of the newest run: passed, failed, errored, skipped, or empty if never run. */
       readonly last_status?: string;
+      /**
+         * When the check last passed, so a failing check can say how long it has been failing. Null means it has not passed within the run retention window.
+         * @nullable
+         */
+      readonly last_succeeded_at?: string | null;
       /** sha256 of the subject, type, column, and config. Re-creating the same check upserts. */
       readonly fingerprint?: string;
       /** Whether a human ('user') or an agent ('ai_generated') authored this check.
@@ -64778,6 +65177,28 @@ export namespace Schemas {
     }
 
     /**
+     * * `default` - default
+     * * `acceptEdits` - acceptEdits
+     * * `plan` - plan
+     * * `bypassPermissions` - bypassPermissions
+     * * `auto` - auto
+     * * `read-only` - read-only
+     * * `full-access` - full-access
+     */
+    export type TaskRunBootstrapCreateRequestInitialPermissionModeEnum = typeof TaskRunBootstrapCreateRequestInitialPermissionModeEnum[keyof typeof TaskRunBootstrapCreateRequestInitialPermissionModeEnum];
+
+
+    export const TaskRunBootstrapCreateRequestInitialPermissionModeEnum = {
+      Default: 'default',
+      AcceptEdits: 'acceptEdits',
+      Plan: 'plan',
+      BypassPermissions: 'bypassPermissions',
+      Auto: 'auto',
+      ReadOnly: 'read-only',
+      FullAccess: 'full-access',
+    } as const;
+
+    /**
      * Request body for creating or updating a task.
      *
      * Field required/default semantics match the ``Task`` model. The view passes
@@ -64883,6 +65304,16 @@ export namespace Schemas {
        * * `max` - max
        * * `ultracode` - ultracode */
       reasoning_effort?: ReasoningEffortEnum | null;
+      /** Selected agent permission mode. Write-only; used only to reuse a warm Run booted on the same mode. Omit to reuse a warm Run whatever mode it booted on.
+       *
+       * * `default` - default
+       * * `acceptEdits` - acceptEdits
+       * * `plan` - plan
+       * * `bypassPermissions` - bypassPermissions
+       * * `auto` - auto
+       * * `read-only` - read-only
+       * * `full-access` - full-access */
+      initial_permission_mode?: TaskRunBootstrapCreateRequestInitialPermissionModeEnum | null;
       /**
          * First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.
          * @nullable
@@ -81015,6 +81446,16 @@ export namespace Schemas {
        * * `max` - max
        * * `ultracode` - ultracode */
       reasoning_effort?: ReasoningEffortEnum | null;
+      /** Selected agent permission mode. Write-only; used only to reuse a warm Run booted on the same mode. Omit to reuse a warm Run whatever mode it booted on.
+       *
+       * * `default` - default
+       * * `acceptEdits` - acceptEdits
+       * * `plan` - plan
+       * * `bypassPermissions` - bypassPermissions
+       * * `auto` - auto
+       * * `read-only` - read-only
+       * * `full-access` - full-access */
+      initial_permission_mode?: TaskRunBootstrapCreateRequestInitialPermissionModeEnum | null;
       /**
          * First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.
          * @nullable
@@ -81431,28 +81872,6 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `default` - default
-     * * `acceptEdits` - acceptEdits
-     * * `plan` - plan
-     * * `bypassPermissions` - bypassPermissions
-     * * `auto` - auto
-     * * `read-only` - read-only
-     * * `full-access` - full-access
-     */
-    export type TaskRunBootstrapCreateRequestInitialPermissionModeEnum = typeof TaskRunBootstrapCreateRequestInitialPermissionModeEnum[keyof typeof TaskRunBootstrapCreateRequestInitialPermissionModeEnum];
-
-
-    export const TaskRunBootstrapCreateRequestInitialPermissionModeEnum = {
-      Default: 'default',
-      AcceptEdits: 'acceptEdits',
-      Plan: 'plan',
-      BypassPermissions: 'bypassPermissions',
-      Auto: 'auto',
-      ReadOnly: 'read-only',
-      FullAccess: 'full-access',
-    } as const;
-
-    /**
      * Request body for creating a task run without starting execution yet.
      */
     export interface TaskRunBootstrapCreateRequest {
@@ -81557,6 +81976,8 @@ export namespace Schemas {
          * @nullable
          */
       reason?: string | null;
+      /** Cancel only while the run is still a warm sandbox awaiting its first message. A run that has since received one is left alone and returned unchanged. Set this when handing a warm sandbox back, so a release that races a submit cannot stop the run that submit started. */
+      only_if_awaiting_first_message?: boolean;
     }
 
     /**
@@ -82419,6 +82840,16 @@ export namespace Schemas {
        * * `max` - max
        * * `ultracode` - ultracode */
       reasoning_effort?: ReasoningEffortEnum | null;
+      /** Selected agent permission mode. Write-only; used only to reuse a warm Run booted on the same mode. Omit to reuse a warm Run whatever mode it booted on.
+       *
+       * * `default` - default
+       * * `acceptEdits` - acceptEdits
+       * * `plan` - plan
+       * * `bypassPermissions` - bypassPermissions
+       * * `auto` - auto
+       * * `read-only` - read-only
+       * * `full-access` - full-access */
+      initial_permission_mode?: TaskRunBootstrapCreateRequestInitialPermissionModeEnum | null;
       /**
          * First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.
          * @nullable
@@ -83716,6 +84147,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `user_created` - user_created
+     * * `posthog_ai` - posthog_ai
+     */
+    export type WarmTaskRequestOriginProductEnum = typeof WarmTaskRequestOriginProductEnum[keyof typeof WarmTaskRequestOriginProductEnum];
+
+
+    export const WarmTaskRequestOriginProductEnum = {
+      UserCreated: 'user_created',
+      PosthogAi: 'posthog_ai',
+    } as const;
+
+    /**
      * Request body for warming a full idling Run while composing a Code-app cloud task.
      *
      * Collection-level: no task exists yet at typing time. The warmer births a draft Task and an
@@ -83776,6 +84219,21 @@ export namespace Schemas {
          * @nullable
          */
       custom_image_id?: string | null;
+      /** Product the warm Run is for. Fixed when the sandbox boots — it selects the OAuth app, the quota gate, the warm-pool budget, and PR authorship — so a submit only reuses a warm born under the same origin. Defaults to the Code app.
+       *
+       * * `user_created` - user_created
+       * * `posthog_ai` - posthog_ai */
+      origin_product?: WarmTaskRequestOriginProductEnum;
+      /** Permission mode to boot the agent session on. Read at session construction, so it cannot be changed once the sandbox is warm — a submit selecting a different mode falls through to a cold Run. Omit to take the runtime's default.
+       *
+       * * `default` - default
+       * * `acceptEdits` - acceptEdits
+       * * `plan` - plan
+       * * `bypassPermissions` - bypassPermissions
+       * * `auto` - auto
+       * * `read-only` - read-only
+       * * `full-access` - full-access */
+      initial_permission_mode?: TaskRunBootstrapCreateRequestInitialPermissionModeEnum | null;
     }
 
     /**
@@ -83785,6 +84243,50 @@ export namespace Schemas {
       /** Id of the draft Task birthed for the warm Run. */
       task_id: string;
       /** Id of the idling warm Run. The normal create+run path reuses and activates it on submit. */
+      run_id: string;
+    }
+
+    /**
+     * Request body for warming a successor to an existing terminal task run.
+     */
+    export interface WarmTaskResumeRequest {
+      /** ID of the task's latest terminal run whose snapshot and conversation should be resumed. */
+      resume_from_run_id: string;
+      /** Agent runtime adapter to start before the next message is submitted.
+       *
+       * * `claude` - claude
+       * * `codex` - codex */
+      runtime_adapter?: RuntimeAdapterEnum;
+      /** LLM model to start before the next message is submitted. */
+      model?: string;
+      /** Reasoning effort to apply when the warmed successor receives its first message.
+       *
+       * * `low` - low
+       * * `medium` - medium
+       * * `high` - high
+       * * `xhigh` - xhigh
+       * * `max` - max
+       * * `ultracode` - ultracode */
+      reasoning_effort?: ReasoningEffortEnum;
+      /** Initial permission mode for the warmed successor's agent session.
+       *
+       * * `default` - default
+       * * `acceptEdits` - acceptEdits
+       * * `plan` - plan
+       * * `bypassPermissions` - bypassPermissions
+       * * `auto` - auto
+       * * `read-only` - read-only
+       * * `full-access` - full-access */
+      initial_permission_mode?: TaskRunBootstrapCreateRequestInitialPermissionModeEnum;
+    }
+
+    /**
+     * Response for a successfully warmed successor run on an existing task.
+     */
+    export interface WarmTaskResumeResponse {
+      /** ID of the existing task being resumed. */
+      task_id: string;
+      /** ID of the idling successor run that submit will activate. */
       run_id: string;
     }
 
@@ -88944,6 +89446,28 @@ export namespace Schemas {
     saved_query_id?: string;
     };
 
+    export type DataQualityChecksListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type DataQualityRunsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type DataWarehouseCheckDatabaseNameRetrieveParams = {
     /**
      * Database name to check
@@ -93791,6 +94315,11 @@ export namespace Schemas {
      */
     limit?: number;
     /**
+     * Comma-separated services to narrow the list to, e.g. `service=web,worker`. Omit for every service. Send it empty to select only series whose sender did not set `service.name`. A service name containing a comma cannot be selected.
+     * @maxLength 1024
+     */
+    service?: string;
+    /**
      * Substring filter (case-insensitive) applied to metric names.
      * @maxLength 255
      */
@@ -95988,6 +96517,43 @@ export namespace Schemas {
     verdict?: string;
     };
 
+    export type VisionObservationsSearchRetrieveParams = {
+    /**
+     * Maximum number of results (default 20, at most 50).
+     * @minimum 1
+     * @maximum 50
+     */
+    limit?: number;
+    /**
+     * Keep only scorer observations with a score at or below this value.
+     */
+    max_score?: number;
+    /**
+     * Keep only scorer observations with a score at or above this value.
+     */
+    min_score?: number;
+    /**
+     * Natural-language description of what to find, e.g. 'users confused by the pricing page'.
+     * @minLength 1
+     * @maxLength 2000
+     */
+    q: string;
+    /**
+     * Search a single scanner's observations. Defaults to every scanner you can read.
+     */
+    scanner_id?: string;
+    /**
+     * Comma-separated classifier tags to keep. Matching is case- and format-insensitive. Unlike `verdict`, tags are not validated against a fixed list, so an unknown tag matches nothing.
+     * @minLength 1
+     */
+    tags?: string;
+    /**
+     * Comma-separated monitor verdicts to keep, e.g. `yes,inconclusive`.
+     * @minLength 1
+     */
+    verdict?: string;
+    };
+
     export type VisionScannersListParams = {
     /**
      * Filter to scanners created by the given user IDs (comma-separated).
@@ -96277,6 +96843,13 @@ export namespace Schemas {
     offset?: number;
     /**
      * Filter by run type
+     */
+    run_type?: string;
+    };
+
+    export type VisualReviewReposThumbnailsRetrieveParams = {
+    /**
+     * Narrow the lookup to one run type. The same identifier under two run types is two different images, so omit this only when the caller shows one run type.
      */
     run_type?: string;
     };
