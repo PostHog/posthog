@@ -41,8 +41,14 @@ enum AckMode {
     AckExceptSeq(u64),
 }
 
-/// Manual mode: the test sends (seq, accepted) acks through this.
-type ManualAcks = Arc<Mutex<Option<mpsc::UnboundedReceiver<(u64, u32)>>>>;
+/// Manual mode: the test drives the worker's acks through this.
+#[derive(Clone, Copy)]
+enum ManualAck {
+    Ok { seq: u64, accepted: u32 },
+    Nack(u64),
+}
+
+type ManualAcks = Arc<Mutex<Option<mpsc::UnboundedReceiver<ManualAck>>>>;
 
 struct MockWorker {
     mode: AckMode,
@@ -77,14 +83,23 @@ impl WorkerIngest for MockWorker {
             if let Some(mut manual) = manual {
                 let tx = tx.clone();
                 tokio::spawn(async move {
-                    while let Some((seq, accepted)) = manual.recv().await {
-                        let _ = tx.send(Ok(IngestStreamResponse {
-                            msg: Some(ingest_stream_response::Msg::Ack(SubBatchAck {
+                    while let Some(ack) = manual.recv().await {
+                        let ack = match ack {
+                            ManualAck::Ok { seq, accepted } => SubBatchAck {
                                 seq,
                                 status: SubBatchStatus::Ok as i32,
                                 accepted,
                                 error: String::new(),
-                            })),
+                            },
+                            ManualAck::Nack(seq) => SubBatchAck {
+                                seq,
+                                status: SubBatchStatus::Failed as i32,
+                                accepted: 0,
+                                error: "poisoned".to_string(),
+                            },
+                        };
+                        let _ = tx.send(Ok(IngestStreamResponse {
+                            msg: Some(ingest_stream_response::Msg::Ack(ack)),
                         }));
                     }
                 });
@@ -180,7 +195,7 @@ struct MockHandle {
 
 async fn start_mock(
     mode: AckMode,
-    manual: Option<mpsc::UnboundedReceiver<(u64, u32)>>,
+    manual: Option<mpsc::UnboundedReceiver<ManualAck>>,
 ) -> MockHandle {
     let received = Arc::new(Mutex::new(Vec::new()));
     let hellos = Arc::new(Mutex::new(Vec::new()));
@@ -272,19 +287,134 @@ async fn out_of_order_acks_resolve_the_right_sends() {
     let second = transport.begin_send(&url, "batch-2", vec![msg("d2", 3)], false);
 
     // Wait until both are on the wire, then ack seq 2 before seq 1 with
-    // distinct counts — each pending must get its own.
+    // distinct counts — each pending must get its own, and the later one
+    // must not resolve ahead of the earlier one.
+    wait_for_received(&mock, 2).await;
+    ack_tx
+        .send(ManualAck::Ok {
+            seq: 2,
+            accepted: 1,
+        })
+        .unwrap();
+    let second = tokio::spawn(second.wait());
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(
+        !second.is_finished(),
+        "a later ack must wait for every earlier seq"
+    );
+    ack_tx
+        .send(ManualAck::Ok {
+            seq: 1,
+            accepted: 2,
+        })
+        .unwrap();
+    assert_eq!(first.wait().await.expect("first ack"), 2);
+    assert_eq!(second.await.unwrap().expect("second ack"), 1);
+}
+
+async fn wait_for_received(mock: &MockHandle, count: usize) {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
-    while mock.received.lock().await.len() < 2 {
+    while mock.received.lock().await.len() < count {
         assert!(
             tokio::time::Instant::now() < deadline,
             "sub-batches never reached the worker"
         );
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
-    ack_tx.send((2, 1)).unwrap();
-    assert_eq!(second.wait().await.expect("second ack"), 1);
-    ack_tx.send((1, 2)).unwrap();
-    assert_eq!(first.wait().await.expect("first ack"), 2);
+}
+
+#[tokio::test]
+async fn a_failure_fences_a_later_sub_batch_the_worker_already_acked() {
+    // Regression: with more than one un-acked sub-batch, the worker may ack
+    // seq 2 before seq 1. If seq 2 resolved on its own ack, its caller would
+    // release its keys and never replay it, while seq 1's later failure
+    // stashed only seq 1 — the older messages would replay after the newer
+    // ones. A failure must fence the acked-but-unresolved tail too.
+    let (ack_tx, ack_rx) = mpsc::unbounded_channel();
+    let mock = start_mock(AckMode::Manual, Some(ack_rx)).await;
+    let transport = GrpcTransport::new(
+        GrpcPort::Fixed(mock.addr.port()),
+        2,
+        Duration::from_secs(30),
+    );
+    let url = worker_url(mock.addr);
+
+    let first = transport.begin_send(&url, "batch-1", vec![msg("d1", 1)], false);
+    let second = transport.begin_send(&url, "batch-2", vec![msg("d1", 2)], false);
+    wait_for_received(&mock, 2).await;
+
+    ack_tx
+        .send(ManualAck::Ok {
+            seq: 2,
+            accepted: 1,
+        })
+        .unwrap();
+    let second = tokio::spawn(second.wait());
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(!second.is_finished(), "seq 2 must wait for seq 1");
+
+    ack_tx.send(ManualAck::Nack(1)).unwrap();
+    let first_err = first.wait().await.expect_err("nacked send must fail");
+    assert_eq!(first_err.messages[0].offset, 1);
+    assert!(matches!(first_err.error, TransportError::LaneFailed(_)));
+    let second_err = second
+        .await
+        .unwrap()
+        .expect_err("an acked send behind a failure must fence with it");
+    assert_eq!(
+        second_err.messages[0].offset, 2,
+        "messages come back for deferral"
+    );
+}
+
+#[tokio::test]
+async fn sends_enqueued_during_a_fence_are_fenced_until_the_callers_stash() {
+    // Regression: a fence resolves its sends before their callers stash the
+    // messages. In that gap the consumer loop can still enqueue a fenced
+    // key's next group; if the next stream sent it, it would reach the worker
+    // ahead of the stashed older group. The lane must keep fencing until
+    // every fenced caller drops its guard.
+    let mock = start_mock(AckMode::NackSeq(1), None).await;
+    let transport = GrpcTransport::new(
+        GrpcPort::Fixed(mock.addr.port()),
+        1,
+        Duration::from_secs(30),
+    );
+    let url = worker_url(mock.addr);
+
+    let first = transport.begin_send(&url, "batch-1", vec![msg("d1", 1)], false);
+    let first_err = first.wait().await.expect_err("nacked send must fail");
+    let guard = first_err
+        .fence_guard
+        .expect("a fenced send carries a guard");
+
+    // Enqueued while the fence is unacknowledged: fails without riding a
+    // stream.
+    let second = transport.begin_send(&url, "batch-2", vec![msg("d1", 2)], false);
+    let second_err = tokio::time::timeout(Duration::from_secs(2), second.wait())
+        .await
+        .expect("a send during a fence must fail promptly")
+        .expect_err("a send during a fence must fail");
+    assert_eq!(second_err.messages[0].offset, 2);
+    assert!(matches!(second_err.error, TransportError::LaneFailed(_)));
+    assert_eq!(mock.received.lock().await.len(), 1);
+
+    // Both callers stashed: the lane resumes and the next send reaches the
+    // worker on a fresh stream.
+    drop(guard);
+    drop(second_err);
+    let third = transport.begin_send(&url, "batch-3", vec![msg("d1", 3)], false);
+    let _ = tokio::time::timeout(Duration::from_secs(5), third.wait())
+        .await
+        .expect("the lane must resume once the fence is released");
+    let batch_ids: Vec<_> = mock
+        .received
+        .lock()
+        .await
+        .iter()
+        .map(|s| s.batch_id.clone())
+        .collect();
+    assert_eq!(batch_ids, vec!["batch-1", "batch-3"]);
 }
 
 #[tokio::test]

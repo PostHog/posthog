@@ -18,6 +18,7 @@ use crate::debug_recorder::{record_if, DebugEventKind, DebugRecorder, PartitionO
 use crate::discovery::DiscoveryMode;
 use crate::dispatcher::{Dispatcher, EagerFlush, KeyOffset, SubBatch};
 use crate::order_sentinel::{CommitSentinel, OffsetSpan, SentinelContext};
+use crate::transport::SendError;
 use crate::transports::{PendingSend, Transport};
 use crate::types::SerializedKafkaMessage;
 use crate::worker_registry::WorkerId;
@@ -585,8 +586,15 @@ impl IngestionConsumer {
                 // A busy worker is backpressure, not a fault: re-route the work
                 // but keep it off the worker's health, so passive health tracks
                 // real faults.
-                let is_fault = !send_err.error.is_backpressure();
-                dispatcher.defer_failed(&batch_id, send_err.messages);
+                let SendError {
+                    error,
+                    messages,
+                    fence_guard,
+                } = send_err;
+                let is_fault = !error.is_backpressure();
+                dispatcher.defer_failed(&batch_id, messages);
+                // Stashed: let the lane stop fencing new arrivals.
+                drop(fence_guard);
                 dispatcher.eager_flush_failed(&batch_id);
                 dispatcher.on_sub_batch_resolved(&worker, message_count, &routing_keys, true, true);
                 dispatcher.record_send_outcome(&worker, is_fault);
@@ -773,8 +781,15 @@ impl IngestionConsumer {
                         // Backpressure (a busy worker) is transient, not a fault:
                         // re-route the work but do not count it against the
                         // worker's health, so passive health tracks real faults.
-                        let is_fault = !send_err.error.is_backpressure();
-                        dispatcher.defer_failed(&bid, send_err.messages);
+                        let SendError {
+                            error,
+                            messages,
+                            fence_guard,
+                        } = send_err;
+                        let is_fault = !error.is_backpressure();
+                        dispatcher.defer_failed(&bid, messages);
+                        // Stashed: let the lane stop fencing new arrivals.
+                        drop(fence_guard);
                         dispatcher.on_sub_batch_resolved(
                             &worker,
                             message_count,

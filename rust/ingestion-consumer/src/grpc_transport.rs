@@ -7,14 +7,26 @@
 //! decided (the consumer loop, right after assignment) — and hands back a
 //! [`PendingLaneSend`] the caller awaits like an HTTP response.
 //!
+//! **Acks resolve in send order.** The worker acks sub-batches as they
+//! complete, out of order. The lane records each ack in its ledger and
+//! resolves only the consecutive acked prefix, so a send never succeeds
+//! while an earlier one is still open: if that earlier one then fails, the
+//! later one is still in the ledger and fences with it, instead of having
+//! already released its keys and left the older messages to replay after
+//! the newer ones.
+//!
 //! **Failure fences the whole lane.** A nack, stream break, or connect
 //! failure resolves every queued and un-acked item, in enqueue order, with a
 //! [`SendError`] carrying the messages back — the callers' existing
 //! `defer_failed` path then stashes them, and the dispatcher's outstanding
 //! counts hold all newer work for those keys until the failed groups are
-//! retried (oldest first) and acked. Nothing for a fenced key can leapfrog
-//! the failure, because everything for it was either in the ledger or the
-//! queue, and both fail together in order.
+//! retried (oldest first) and acked. Each fenced send also carries a
+//! [`FenceGuard`]; the lane keeps fencing every new arrival until all guards
+//! are dropped, which closes the gap between a send resolving and its
+//! caller stashing, where the consumer loop could otherwise enqueue a fenced
+//! key's next group and the next stream would send it first. Nothing for a
+//! fenced key can leapfrog the failure, because everything for it was either
+//! in the ledger, the queue, or fenced on arrival.
 //!
 //! Backpressure: the queue is unbounded (so enqueue stays synchronous and
 //! ordered) but the lane keeps at most `max_unacked` sub-batches un-acked on
@@ -39,7 +51,7 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::{error, info, warn};
 
 use crate::readiness;
-use crate::transport::{SendError, TransportError};
+use crate::transport::{FenceGuard, SendError, TransportError};
 use crate::types::SerializedKafkaMessage;
 
 /// An enqueued sub-batch awaiting its ack; resolves like an HTTP send.
@@ -57,6 +69,7 @@ impl PendingLaneSend {
             Err(_) => Err(SendError {
                 error: TransportError::LaneClosed,
                 messages: Vec::new(),
+                fence_guard: None,
             }),
         }
     }
@@ -150,6 +163,7 @@ impl GrpcTransport {
             let _ = item.reply.send(Err(SendError {
                 error: TransportError::LaneClosed,
                 messages: item.messages,
+                fence_guard: None,
             }));
         }
         PendingLaneSend { rx }
@@ -211,6 +225,9 @@ struct LedgerEntry {
     /// watchdog fences on the oldest entry's deadline, so a stuck sub-batch
     /// times out even while its siblings keep acking.
     deadline: tokio::time::Instant,
+    /// The worker's accepted count once acked. The entry stays in the ledger
+    /// until every earlier entry is acked too, so a fence still reaches it.
+    acked: Option<u32>,
 }
 
 struct LaneRunner {
@@ -236,12 +253,13 @@ impl LaneRunner {
                     info!(worker = %self.worker_url, "Lane queue closed, exiting");
                     return;
                 }
-                StreamEnd::Failed(fenced) => {
+                StreamEnd::Failed(fence) => {
                     counter!(
                         "ingestion_consumer_lane_teardowns_total",
                         "worker" => self.worker_url.clone(),
                     )
                     .increment(1);
+                    let fenced = fence.settle(&mut queue).await;
                     if fenced > 0 {
                         counter!(
                             "ingestion_consumer_lane_fenced_sub_batches_total",
@@ -416,6 +434,7 @@ impl LaneRunner {
                         seq,
                         item,
                         deadline,
+                        acked: None,
                     });
                     return self.fence(None, &mut ledger, queue, "stream closed mid-send");
                 }
@@ -423,6 +442,7 @@ impl LaneRunner {
                     seq,
                     item,
                     deadline,
+                    acked: None,
                 });
                 gauge!("ingestion_consumer_lane_ledger_depth", "worker" => self.worker_url.clone())
                     .set(ledger.len() as f64);
@@ -432,11 +452,12 @@ impl LaneRunner {
             // ack-progress watchdog bounds how long the oldest un-acked
             // sub-batch may sit unacked. Each entry carries its own deadline,
             // armed when it was sent, so the watchdog keys on the oldest (front)
-            // entry: a stuck sub-batch fences even while its siblings keep
-            // acking — the per-send bound the HTTP timeout it replaces gave. A
-            // worker that stops acking (saturated by other consumers, wedged,
-            // half-dead network) becomes a fence — and so a defer-and-reroute —
-            // rather than a silent forever-wait.
+            // entry, which is never acked (acked prefixes pop at once): a stuck
+            // sub-batch fences even while its siblings keep acking — the
+            // per-send bound the HTTP timeout it replaces gave. A worker that
+            // stops acking (saturated by other consumers, wedged, half-dead
+            // network) becomes a fence — and so a defer-and-reroute — rather
+            // than a silent forever-wait.
             let ack = if ledger.is_empty() {
                 match queue.recv().await {
                     Some(item) => {
@@ -525,20 +546,30 @@ impl LaneRunner {
                         );
                         return self.fence_with(true, None, &mut ledger, queue, "worker busy");
                     }
-                    let Some(position) = ledger.iter().position(|e| e.seq == response.seq) else {
+                    let Some(entry) = ledger
+                        .iter_mut()
+                        .find(|e| e.seq == response.seq && e.acked.is_none())
+                    else {
                         warn!(worker = %self.worker_url, seq = response.seq, "Ack for unknown seq — fencing lane");
                         return self.fence(None, &mut ledger, queue, "unknown ack seq");
                     };
-                    let entry = ledger.remove(position).expect("position in bounds");
+                    entry.acked = Some(response.accepted);
                     counter!(
                         "ingestion_consumer_transport_requests_total",
                         "worker" => self.worker_url.clone(),
                         "status" => "ok"
                     )
                     .increment(1);
+                    // Resolve only the acked prefix: a later ack waits for
+                    // every earlier seq, so a failure ahead of it still fences
+                    // it instead of letting it release its keys first.
+                    while ledger.front().is_some_and(|e| e.acked.is_some()) {
+                        let entry = ledger.pop_front().expect("front is present");
+                        let accepted = entry.acked.expect("front is acked");
+                        let _ = entry.item.reply.send(Ok(accepted));
+                    }
                     gauge!("ingestion_consumer_lane_ledger_depth", "worker" => self.worker_url.clone())
                         .set(ledger.len() as f64);
-                    let _ = entry.item.reply.send(Ok(response.accepted));
                 }
                 Some(Ok(None)) => {
                     return if ledger.is_empty() && pending_first.is_none() {
@@ -584,29 +615,15 @@ impl LaneRunner {
         queue: &mut mpsc::UnboundedReceiver<LaneItem>,
         reason: &'static str,
     ) -> StreamEnd {
-        let mut fenced = 0usize;
-        let fail = |item: LaneItem| {
-            let error = if retriable {
-                TransportError::LaneBusy(reason)
-            } else {
-                TransportError::LaneFailed(reason)
-            };
-            let _ = item.reply.send(Err(SendError {
-                error,
-                messages: item.messages,
-            }));
-        };
+        let mut fence = Fence::new(retriable, reason);
         for entry in ledger.drain(..) {
-            fail(entry.item);
-            fenced += 1;
+            fence.fail(entry.item);
         }
         if let Some(item) = pending_first {
-            fail(item);
-            fenced += 1;
+            fence.fail(item);
         }
         while let Ok(item) = queue.try_recv() {
-            fail(item);
-            fenced += 1;
+            fence.fail(item);
         }
         counter!(
             "ingestion_consumer_transport_requests_total",
@@ -616,15 +633,86 @@ impl LaneRunner {
         .increment(1);
         gauge!("ingestion_consumer_lane_ledger_depth", "worker" => self.worker_url.clone())
             .set(0.0);
-        StreamEnd::Failed(fenced)
+        StreamEnd::Failed(fence)
+    }
+}
+
+/// A fence in progress. Every fenced send carries a [`FenceGuard`]; until all
+/// of them are dropped the lane fails each new arrival too, so a send
+/// enqueued before the fenced messages are stashed cannot ride the next
+/// stream ahead of them.
+struct Fence {
+    retriable: bool,
+    reason: &'static str,
+    released_tx: mpsc::UnboundedSender<()>,
+    released_rx: mpsc::UnboundedReceiver<()>,
+    /// Guards handed out and not yet dropped.
+    outstanding: usize,
+    fenced: usize,
+}
+
+impl Fence {
+    fn new(retriable: bool, reason: &'static str) -> Self {
+        let (released_tx, released_rx) = mpsc::unbounded_channel();
+        Self {
+            retriable,
+            reason,
+            released_tx,
+            released_rx,
+            outstanding: 0,
+            fenced: 0,
+        }
+    }
+
+    fn fail(&mut self, item: LaneItem) {
+        let error = if self.retriable {
+            TransportError::LaneBusy(self.reason)
+        } else {
+            TransportError::LaneFailed(self.reason)
+        };
+        self.outstanding += 1;
+        self.fenced += 1;
+        // A caller that already dropped its receiver drops the guard here,
+        // which releases it at once.
+        let _ = item.reply.send(Err(SendError {
+            error,
+            messages: item.messages,
+            fence_guard: Some(FenceGuard::new(self.released_tx.clone())),
+        }));
+    }
+
+    /// Fail arrivals until every fenced caller has dropped its guard. Returns
+    /// how many sends the fence failed in total.
+    async fn settle(mut self, queue: &mut mpsc::UnboundedReceiver<LaneItem>) -> usize {
+        while self.outstanding > 0 {
+            // Releases first: a caller drops its guard before it can enqueue
+            // again, so a release already waiting must not lose to the send
+            // that followed it and fence that send for nothing.
+            tokio::select! {
+                biased;
+                released = self.released_rx.recv() => {
+                    if released.is_some() {
+                        self.outstanding -= 1;
+                    }
+                }
+                item = queue.recv() => match item {
+                    Some(item) => self.fail(item),
+                    // Queue closed: nothing more can arrive, and the runner
+                    // exits on its next receive.
+                    None => break,
+                },
+            }
+        }
+        self.fenced
     }
 }
 
 enum StreamEnd {
     /// The transport dropped the queue sender — worker removed or shutdown.
     QueueClosed,
-    /// The stream broke; this many outstanding sub-batches were fenced.
-    Failed(usize),
+    /// The stream broke; the fence holds what was resolved as failed and
+    /// keeps fencing until those callers have stashed their messages.
+    Failed(Fence),
     /// The stream ended cleanly with nothing outstanding.
     Idle,
 }

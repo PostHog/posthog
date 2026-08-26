@@ -282,12 +282,14 @@ impl HttpTransport {
                     return Err(SendError {
                         error: TransportError::PayloadTooLarge(String::new()),
                         messages: reassemble(sent, messages, queue),
+                        fence_guard: None,
                     });
                 }
                 ChunkOutcome::Failed { error, messages } => {
                     return Err(SendError {
                         error,
                         messages: reassemble(sent, messages, queue),
+                        fence_guard: None,
                     });
                 }
             }
@@ -563,6 +565,34 @@ fn split_by_size(
 pub struct SendError {
     pub error: TransportError,
     pub messages: Vec<SerializedKafkaMessage>,
+    /// Set on a fenced lane send. Hold it until `messages` are stashed: the
+    /// lane keeps fencing new arrivals until every guard from that fence is
+    /// dropped, so nothing enqueued before the stash lands can reach the
+    /// worker ahead of the fenced groups on the next stream.
+    pub fence_guard: Option<FenceGuard>,
+}
+
+/// Tells a fencing lane that one fenced send's messages are stashed.
+pub struct FenceGuard {
+    released: tokio::sync::mpsc::UnboundedSender<()>,
+}
+
+impl FenceGuard {
+    pub(crate) fn new(released: tokio::sync::mpsc::UnboundedSender<()>) -> Self {
+        Self { released }
+    }
+}
+
+impl Drop for FenceGuard {
+    fn drop(&mut self) {
+        let _ = self.released.send(());
+    }
+}
+
+impl std::fmt::Debug for FenceGuard {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("FenceGuard")
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
