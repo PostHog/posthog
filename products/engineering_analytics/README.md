@@ -104,7 +104,7 @@ Shortening ready-for-review-to-merge is the headline metric this serves.
 The warehouse snapshots overwrite state on update, so transition timing is unrecoverable from them.
 Immutable lifecycle events are the only thing the deferred events destination is for.
 Deploys left that deferral: unlike the snapshots, `github_deployment_statuses` is an append-oriented, webhook-fed status history (one row per transition), so DORA reads don't need the events destination.
-Change failure rate and time-to-restore still lack an incident link, so they ship as honest deploy-status proxies (`metric_quality: partial`).
+Change failure rate and time-to-restore still lack an incident link, so they ship as honest deploy-status proxies — the caveat rides in the field docs (`failed_deployment_share`, `median_failed_deploy_to_next_success_seconds`), the aggregate-endpoint pattern; a typed `metric_quality` field is reserved for deep tools like `pr_lifecycle`.
 
 ## Locked decisions
 
