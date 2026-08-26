@@ -159,7 +159,7 @@ rm /tmp/rustup-init
 for tool in cargo rustc rustup rustfmt cargo-fmt cargo-clippy clippy-driver; do
     printf '%s\n' \
         '#!/bin/sh' \
-        'export RUSTUP_HOME="${RUSTUP_HOME:-/opt/rust/rustup}" CARGO_HOME="${CARGO_HOME:-/opt/rust/cargo}" CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-/opt/rust/target}"' \
+        'export RUSTUP_HOME="${RUSTUP_HOME:-/opt/rust/rustup}" CARGO_HOME="${CARGO_HOME:-/opt/rust/cargo}" CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-/opt/rust/target}" CFLAGS="${CFLAGS:--g0}"' \
         "exec /opt/rust/cargo/bin/$tool \"\$@\"" > "/usr/local/bin/$tool"
     chmod +x "/usr/local/bin/$tool"
 done
