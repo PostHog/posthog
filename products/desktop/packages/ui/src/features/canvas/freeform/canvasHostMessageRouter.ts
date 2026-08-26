@@ -12,6 +12,7 @@ const EXTERNAL_OPEN_MIN_INTERVAL_MS = 1_000;
 // a runaway loop must not be able to pile up unbounded concurrent requests,
 // ship oversized payloads, or hold a request slot forever.
 const MAX_CONCURRENT_DATA_REQUESTS = 8;
+const MAX_QUEUED_DATA_REQUESTS = 64;
 const MAX_DATA_REQUEST_BYTES = 64 * 1024;
 const DATA_REQUEST_TIMEOUT_MS = 30_000;
 const REPLAYABLE_SHORTCUT_KEYS = new Set([
@@ -93,6 +94,28 @@ export function createCanvasHostMessageRouter(
 ): (message: CanvasToHostMessage) => Promise<void> {
   let lastExternalOpen = 0;
   let activeDataRequests = 0;
+  const queuedDataRequests: Array<() => void> = [];
+
+  const acquireDataRequestSlot = (): Promise<boolean> => {
+    if (activeDataRequests < MAX_CONCURRENT_DATA_REQUESTS) {
+      activeDataRequests += 1;
+      return Promise.resolve(true);
+    }
+    if (queuedDataRequests.length >= MAX_QUEUED_DATA_REQUESTS) {
+      return Promise.resolve(false);
+    }
+    return new Promise((resolve) => {
+      queuedDataRequests.push(() => {
+        activeDataRequests += 1;
+        resolve(true);
+      });
+    });
+  };
+
+  const releaseDataRequestSlot = (): void => {
+    activeDataRequests -= 1;
+    queuedDataRequests.shift()?.();
+  };
 
   return async (message) => {
     switch (message.type) {
@@ -121,10 +144,7 @@ export function createCanvasHostMessageRouter(
         // starve the canvas's ordinary reads/writes. Its own bound is the
         // host's single-flight guard (one request awaiting approval at a time).
         const holdsSlot = message.method !== "agentRequest";
-        if (
-          (holdsSlot && activeDataRequests >= MAX_CONCURRENT_DATA_REQUESTS) ||
-          !isBoundedPayload(message.payload)
-        ) {
+        if (!isBoundedPayload(message.payload)) {
           options.post({
             channel: "posthog-canvas",
             type: "data-response",
@@ -134,7 +154,16 @@ export function createCanvasHostMessageRouter(
           });
           break;
         }
-        if (holdsSlot) activeDataRequests += 1;
+        if (holdsSlot && !(await acquireDataRequestSlot())) {
+          options.post({
+            channel: "posthog-canvas",
+            type: "data-response",
+            id: message.id,
+            ok: false,
+            error: "Canvas data request exceeds runtime limits",
+          });
+          break;
+        }
         try {
           const call = options
             .callbacks()
@@ -172,7 +201,7 @@ export function createCanvasHostMessageRouter(
             error: error instanceof Error ? error.message : String(error),
           });
         } finally {
-          if (holdsSlot) activeDataRequests -= 1;
+          if (holdsSlot) releaseDataRequestSlot();
         }
         break;
       }

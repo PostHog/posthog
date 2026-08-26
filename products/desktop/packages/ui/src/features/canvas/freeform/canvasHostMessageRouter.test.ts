@@ -185,4 +185,85 @@ describe("createCanvasHostMessageRouter", () => {
       true,
     );
   });
+
+  it("queues data requests when all concurrency slots are active", async () => {
+    const post = vi.fn();
+    const resolvers: Array<(value: unknown) => void> = [];
+    const onDataRequest = vi.fn(
+      () =>
+        new Promise<unknown>((resolve) => {
+          resolvers.push(resolve);
+        }),
+    );
+    const route = createCanvasHostMessageRouter({
+      post,
+      callbacks: () => ({ onDataRequest }),
+      hasUserActivation: () => false,
+      openExternal: vi.fn(),
+    });
+
+    const requests = Array.from({ length: 10 }, (_, i) =>
+      route({
+        channel: "posthog-canvas",
+        type: "data-request",
+        id: `query-${i}`,
+        method: "stateGet",
+        payload: { scope: "user", key: `k${i}` },
+      }),
+    );
+
+    await vi.waitFor(() => expect(onDataRequest).toHaveBeenCalledTimes(8));
+    expect(post).not.toHaveBeenCalled();
+
+    resolvers[0]?.(null);
+    await vi.waitFor(() => expect(onDataRequest).toHaveBeenCalledTimes(9));
+    resolvers[1]?.(null);
+    await vi.waitFor(() => expect(onDataRequest).toHaveBeenCalledTimes(10));
+
+    for (const resolve of resolvers) resolve(null);
+    await Promise.all(requests);
+
+    expect(post).toHaveBeenCalledTimes(10);
+    expect(post.mock.calls.every(([message]) => message.ok === true)).toBe(
+      true,
+    );
+  });
+
+  it("rejects data requests when the bounded queue is full", async () => {
+    const post = vi.fn();
+    let releaseRequests: () => void = () => {};
+    const pendingRequest = new Promise<void>((resolve) => {
+      releaseRequests = resolve;
+    });
+    const onDataRequest = vi.fn(() => pendingRequest);
+    const route = createCanvasHostMessageRouter({
+      post,
+      callbacks: () => ({ onDataRequest }),
+      hasUserActivation: () => false,
+      openExternal: vi.fn(),
+    });
+    const message = (id: number) => ({
+      channel: "posthog-canvas" as const,
+      type: "data-request" as const,
+      id: `query-${id}`,
+      method: "stateGet" as const,
+      payload: { scope: "user", key: `k${id}` },
+    });
+
+    const accepted = Array.from({ length: 72 }, (_, i) => route(message(i)));
+    await route(message(72));
+
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(post).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "query-72",
+        ok: false,
+        error: "Canvas data request exceeds runtime limits",
+      }),
+    );
+
+    releaseRequests();
+    await Promise.all(accepted);
+    expect(onDataRequest).toHaveBeenCalledTimes(72);
+  });
 });
