@@ -17,10 +17,11 @@ from products.product_analytics.backend.facade.models import Insight
 
 class AnnotationSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
-    # Soft-deleted parents are accepted here because the frontend echoes both FKs back on every
-    # write, so a project-scoped annotation whose dashboard was deleted would otherwise be
-    # impossible to edit or delete. validate() still rejects a write whose own scope points at a
-    # soft-deleted parent.
+    # Soft-deleted parents resolve here because the frontend echoes both FKs back on every write. A
+    # project-scoped annotation whose dashboard was deleted would otherwise be impossible to edit or
+    # delete. Only the pointer the annotation already stores may be echoed. Every other deleted
+    # parent answers as if it does not exist. validate() then rejects a write whose own scope points
+    # at a soft-deleted parent.
     dashboard_id = serializers.IntegerField(
         required=False,
         allow_null=True,
@@ -104,6 +105,13 @@ class AnnotationSerializer(serializers.ModelSerializer):
         # Normalise blank strings to None so the DB has a single canonical "no emoji" state.
         return value or None
 
+    def validate_dashboard_item(self, value: Insight | None) -> Insight | None:
+        # A deleted insight answers exactly as an unknown one does unless the annotation already
+        # points at it, so a guessed ID cannot report back its name.
+        if value is not None and value.deleted and value.pk != getattr(self.instance, "dashboard_item_id", None):
+            self.fields["dashboard_item"].fail("does_not_exist", pk_value=value.pk)
+        return value
+
     def update(self, instance: Annotation, validated_data: dict[str, Any]) -> Annotation:
         instance.team_id = self.context["team_id"]
         return super().update(instance, validated_data)
@@ -124,7 +132,11 @@ class AnnotationSerializer(serializers.ModelSerializer):
                 dashboard = Dashboard.objects_including_soft_deleted.filter(
                     id=attrs["dashboard_id"], team_id=team.id
                 ).first()
-                if dashboard is None:
+                # A deleted dashboard answers exactly as an unknown one does unless the annotation
+                # already points at it, so a guessed ID cannot report back its name.
+                if dashboard is None or (
+                    dashboard.deleted and dashboard.id != getattr(self.instance, "dashboard_id", None)
+                ):
                     raise serializers.ValidationError({"dashboard_id": "Dashboard not found."})
         elif self.instance is not None:
             dashboard = self.instance.dashboard

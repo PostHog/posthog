@@ -744,22 +744,29 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         assert response.json()["attr"] == "dashboard_item"
         assert response.json()["code"] == "does_not_exist"
 
-    @parameterized.expand(
-        [
-            ("insight", Annotation.Scope.INSIGHT, "dashboard_item"),
-            ("dashboard", Annotation.Scope.DASHBOARD, "dashboard_id"),
-        ]
-    )
-    def test_creating_an_annotation_scoped_to_a_soft_deleted_parent_returns_400(
-        self, parent_kind: str, scope: str, attr: str
-    ) -> None:
+    def _create_soft_deleted_parent(self, parent_kind: str) -> Insight | Dashboard:
+        name = f"Soft deleted {parent_kind}"
         parent: Insight | Dashboard = (
-            Insight.objects.create(team=self.team, name="My Insight")
+            Insight.objects.create(team=self.team, name=name)
             if parent_kind == "insight"
-            else Dashboard.objects.create(team=self.team, name="My Dashboard")
+            else Dashboard.objects.create(team=self.team, name=name)
         )
         parent.deleted = True
         parent.save()
+        return parent
+
+    @parameterized.expand(
+        [
+            ("insight_scope", "insight", Annotation.Scope.INSIGHT, "dashboard_item"),
+            ("dashboard_scope", "dashboard", Annotation.Scope.DASHBOARD, "dashboard_id"),
+            ("project_scope_insight_pointer", "insight", Annotation.Scope.PROJECT, "dashboard_item"),
+            ("project_scope_dashboard_pointer", "dashboard", Annotation.Scope.PROJECT, "dashboard_id"),
+        ]
+    )
+    def test_creating_an_annotation_pointing_at_a_soft_deleted_parent_returns_400(
+        self, _name: str, parent_kind: str, scope: str, attr: str
+    ) -> None:
+        parent = self._create_soft_deleted_parent(parent_kind)
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/annotations/",
@@ -773,6 +780,34 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == attr
+        assert parent.name not in response.content.decode()
+
+    @parameterized.expand(
+        [
+            ("insight", "dashboard_item"),
+            ("dashboard", "dashboard_id"),
+        ]
+    )
+    def test_repointing_an_annotation_at_an_unrelated_soft_deleted_parent_returns_400(
+        self, parent_kind: str, attr: str
+    ) -> None:
+        parent = self._create_soft_deleted_parent(parent_kind)
+        annotation = Annotation.objects.create(
+            organization=self.organization,
+            team=self.team,
+            created_by=self.user,
+            content="Rolled out the new checkout",
+            scope=Annotation.Scope.PROJECT,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/annotations/{annotation.id}/",
+            {attr: parent.id},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == attr
+        assert parent.name not in response.content.decode()
 
     def test_creating_annotation_with_insight_from_same_team(self) -> None:
         insight = Insight.objects.create(team=self.team, name="My Insight")
