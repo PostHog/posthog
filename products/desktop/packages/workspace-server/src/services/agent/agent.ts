@@ -14,6 +14,7 @@ import {
 } from "@agentclientprotocol/sdk";
 import {
   detectRtkBinary,
+  findOnPath,
   isMcpToolReadOnly,
   isNotification,
   POSTHOG_METHODS,
@@ -21,6 +22,10 @@ import {
 } from "@posthog/agent";
 import type { McpToolApprovals } from "@posthog/agent/adapters/claude/mcp/tool-metadata";
 import { hydrateSessionJsonl } from "@posthog/agent/adapters/claude/session/jsonl-hydration";
+import {
+  type CodexLoginSession,
+  startCodexChatgptLogin,
+} from "@posthog/agent/adapters/codex-app-server/subscription-login";
 import {
   getContextWindowOptions,
   getFastModeOptions,
@@ -69,6 +74,7 @@ import {
   type BedrockGatewayVariant,
   buildCloudTaskConfigOptions,
   type CloudRegion,
+  type CodexModelAccess,
   type ExecutionMode,
   isAuthError,
   resolveCloudInitialPermissionMode,
@@ -87,7 +93,16 @@ import type { ProcessTrackingService } from "../process-tracking/process-trackin
 import { loadSessionEnvOverrides } from "../session-env/loader";
 import { isScratchPath } from "../workspace/scratch";
 import type { AgentAuthAdapter, McpToolInstallations } from "./auth-adapter";
-import { cleanupCodexHome, prepareCodexHome } from "./codex-home";
+import {
+  cleanupCodexHome,
+  getCodexSubscriptionHomeDir,
+  prepareCodexHome,
+} from "./codex-home";
+import {
+  clearSubscriptionLogin,
+  detectCodexSubscriptionStatus,
+  hasSubscriptionLogin,
+} from "./codex-subscription";
 import { prepareContextWiki } from "./context-wiki";
 import { discoverExternalPlugins } from "./discover-plugins";
 import {
@@ -107,6 +122,7 @@ import type {
 import {
   AgentServiceEvent,
   type AgentServiceEvents,
+  type CodexSubscriptionStatus,
   type Credentials,
   type EffortLevel,
   type InterruptReason,
@@ -272,6 +288,8 @@ interface SessionConfig {
   /** The agent's session ID (for resume - SDK session ID for Claude, Codex's session ID for Codex) */
   sessionId?: string;
   adapter?: Adapter;
+  /** Codex-only. "own-subscription" runs on the user's own ChatGPT login. */
+  codexModelAccess?: CodexModelAccess;
   /** Permission mode to use for the session */
   permissionMode?: string;
   /** Custom instructions injected into the system prompt */
@@ -504,6 +522,51 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
   private getCodexBinaryPath(): string {
     const binary = process.platform === "win32" ? "codex.exe" : "codex";
     return this.bundledResources.resolve(`.vite/build/codex-acp/${binary}`);
+  }
+
+  /** In-flight ChatGPT sign-in; its app-server hosts the OAuth callback. */
+  private codexLogin?: CodexLoginSession;
+
+  getCodexSubscriptionStatus(): CodexSubscriptionStatus {
+    return detectCodexSubscriptionStatus({
+      env: process.env,
+      homeDir: homedir(),
+      subscriptionHomeDir: getCodexSubscriptionHomeDir(
+        this.storagePaths.appDataPath,
+      ),
+      findOnPath,
+    });
+  }
+
+  /**
+   * Starts Codex's own ChatGPT sign-in inside the app's subscription
+   * CODEX_HOME and returns the OAuth URL for the renderer to open. Completion
+   * is observable through getCodexSubscriptionStatus().appLoggedIn.
+   */
+  async startCodexSubscriptionLogin(): Promise<{ authUrl: string }> {
+    this.codexLogin?.cancel();
+    const codexHome = getCodexSubscriptionHomeDir(
+      this.storagePaths.appDataPath,
+    );
+    await fs.promises.mkdir(codexHome, { recursive: true });
+    const login = await startCodexChatgptLogin({
+      binaryPath: this.getCodexBinaryPath(),
+      codexHome,
+    });
+    this.codexLogin = login;
+    void login.completed.then((loggedIn) => {
+      if (this.codexLogin === login) this.codexLogin = undefined;
+      this.log.info("Codex subscription login finished", { loggedIn });
+    });
+    return { authUrl: login.authUrl };
+  }
+
+  async signOutCodexSubscription(): Promise<void> {
+    this.codexLogin?.cancel();
+    this.codexLogin = undefined;
+    await clearSubscriptionLogin(
+      getCodexSubscriptionHomeDir(this.storagePaths.appDataPath),
+    );
   }
 
   /**
@@ -929,12 +992,23 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
         "skills",
       );
 
+      // Own-subscription only applies once a ChatGPT login is stored in the
+      // app's subscription home; otherwise the session stays on the gateway
+      // so it still runs. Never falls back to the user's own ~/.codex.
+      let codexSubscription =
+        adapter === "codex" &&
+        config.codexModelAccess === "own-subscription" &&
+        hasSubscriptionLogin(
+          getCodexSubscriptionHomeDir(this.storagePaths.appDataPath),
+        );
+
       let codexHome: string | undefined;
       if (adapter === "codex") {
         try {
           codexHome = await prepareCodexHome({
             appDataPath: this.storagePaths.appDataPath,
             taskRunId,
+            subscription: codexSubscription,
             bundledSkillsDir,
             log: this.log,
           });
@@ -944,11 +1018,15 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
           this.log.warn("Failed to prepare codex home", {
             error: err instanceof Error ? err.message : String(err),
           });
+          // Without the subscription home, codex would read ~/.codex and race
+          // the user's own CLI login — run on the gateway instead.
+          codexSubscription = false;
         }
       }
 
       const acpConnection = await agent.run(taskId, taskRunId, {
         adapter,
+        codexModelAccess: codexSubscription ? "own-subscription" : undefined,
         gatewayUrl: proxyUrl,
         contextWiki: contextWiki ?? undefined,
         codexBinaryPath:
@@ -1750,6 +1828,8 @@ For git operations while detached:
 
   @preDestroy()
   async cleanupAll(): Promise<void> {
+    this.codexLogin?.cancel();
+    this.codexLogin = undefined;
     for (const { handle } of this.idleTimeouts.values()) clearTimeout(handle);
     this.idleTimeouts.clear();
     const sessionIds = Array.from(this.sessions.keys());
@@ -2211,6 +2291,8 @@ For git operations while detached:
       logUrl: "logUrl" in params ? params.logUrl : undefined,
       sessionId: "sessionId" in params ? params.sessionId : undefined,
       adapter: "adapter" in params ? params.adapter : undefined,
+      codexModelAccess:
+        "codexModelAccess" in params ? params.codexModelAccess : undefined,
       permissionMode:
         "permissionMode" in params ? params.permissionMode : undefined,
       customInstructions:

@@ -122,6 +122,18 @@ describe("buildAppServerArgs", () => {
     },
   );
 
+  it("emits no gateway provider without apiBaseUrl, so codex uses its own login", () => {
+    const args = buildAppServerArgs({
+      binaryPath: "/bundle/codex",
+      codexHome: "/appdata/codex-home-subscription",
+    });
+
+    expect(args.some((arg) => arg.startsWith("model_provider"))).toBe(false);
+    expect(args.some((arg) => arg.includes("POSTHOG_GATEWAY_API_KEY"))).toBe(
+      false,
+    );
+  });
+
   it("keeps codex credential stores on files so the bundled binary never triggers keychain prompts", () => {
     const args = buildAppServerArgs({ binaryPath: "/bundle/codex" });
 
@@ -235,6 +247,31 @@ describe("spawnCodexAppServerProcess", () => {
       restoreEnv("ELECTRON_RUN_AS_NODE", saved.runAsNode);
       restoreEnv("ELECTRON_NO_ASAR", saved.noAsar);
       restoreEnv("PATH", saved.path);
+    }
+  });
+
+  it("sets POSTHOG_GATEWAY_API_KEY only when an apiKey is given", () => {
+    const saved = process.env.POSTHOG_GATEWAY_API_KEY;
+    delete process.env.POSTHOG_GATEWAY_API_KEY;
+    mockSpawn.mockReturnValue(fakeChild() as never);
+    try {
+      spawnCodexAppServerProcess({
+        binaryPath: BINARY_PATH,
+        logger: silentLogger,
+      });
+      const subscriptionEnv = mockSpawn.mock.lastCall?.[2]
+        .env as NodeJS.ProcessEnv;
+      expect(subscriptionEnv.POSTHOG_GATEWAY_API_KEY).toBeUndefined();
+
+      spawnCodexAppServerProcess({
+        binaryPath: BINARY_PATH,
+        apiKey: "phk",
+        logger: silentLogger,
+      });
+      const gatewayEnv = mockSpawn.mock.lastCall?.[2].env as NodeJS.ProcessEnv;
+      expect(gatewayEnv.POSTHOG_GATEWAY_API_KEY).toBe("phk");
+    } finally {
+      restoreEnv("POSTHOG_GATEWAY_API_KEY", saved);
     }
   });
 

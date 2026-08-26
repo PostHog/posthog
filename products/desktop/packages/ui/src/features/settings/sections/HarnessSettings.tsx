@@ -1,6 +1,7 @@
 import { ArrowSquareOut, Check, Copy, Warning } from "@phosphor-icons/react";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
 import { SettingRow } from "@posthog/ui/features/settings/SettingRow";
+import { CodexSubscriptionSettings } from "@posthog/ui/features/settings/sections/CodexSubscriptionSettings";
 import { PermissionsSettings } from "@posthog/ui/features/settings/sections/PermissionsSettings";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
@@ -160,6 +161,8 @@ export function HarnessSettings() {
       <Text className="mb-2 block border-gray-6 border-t pt-4 font-medium text-sm">
         Codex
       </Text>
+
+      <CodexSubscriptionSettings />
 
       <SettingRow
         label="MCP servers"

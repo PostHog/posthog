@@ -15,6 +15,7 @@ vi.mock("node:os", async (importOriginal) => {
 import {
   cleanupCodexHome,
   getCodexHomeDir,
+  getCodexSubscriptionHomeDir,
   prepareCodexHome,
   stripMcpServers,
 } from "./codex-home";
@@ -200,6 +201,35 @@ describe("prepareCodexHome", () => {
     await expect(
       cleanupCodexHome(appDataPath, taskRunId),
     ).resolves.toBeUndefined();
+  });
+
+  it("builds a persistent subscription home that per-run cleanup never removes", async () => {
+    await createSkill(bundledSkillsDir, "query-data");
+
+    const codexHome = await prepareCodexHome({
+      appDataPath,
+      taskRunId,
+      subscription: true,
+      bundledSkillsDir,
+      log: noopLog,
+    });
+
+    expect(codexHome).toBe(getCodexSubscriptionHomeDir(appDataPath));
+    expect(existsSync(path.join(codexHome, "skills", "query-data"))).toBe(true);
+
+    // The stored ChatGPT login must survive every session cleanup.
+    await writeFile(path.join(codexHome, "auth.json"), "{}");
+    await cleanupCodexHome(appDataPath, taskRunId);
+    expect(existsSync(path.join(codexHome, "auth.json"))).toBe(true);
+
+    // A later session refresh rebuilds skills without touching the login.
+    await prepareCodexHome({
+      appDataPath,
+      subscription: true,
+      bundledSkillsDir,
+      log: noopLog,
+    });
+    expect(existsSync(path.join(codexHome, "auth.json"))).toBe(true);
   });
 
   it("rejects an unsafe taskRunId instead of escaping the codex-home dir", async () => {

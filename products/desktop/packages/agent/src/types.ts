@@ -1,5 +1,6 @@
 import type {
   Adapter,
+  CodexModelAccess,
   GitHandoffCheckpoint,
   HandoffLocalGitState as GitHandoffLocalGitState,
   PostHogAPIConfig,
@@ -68,6 +69,11 @@ export interface TaskExecutionOptions {
   adapter?: Adapter;
   model?: string;
   gatewayUrl?: string;
+  /**
+   * Codex-only. "own-subscription" spawns codex without gateway config so it
+   * authenticates with the user's own ChatGPT login from CODEX_HOME.
+   */
+  codexModelAccess?: CodexModelAccess;
   codexBinaryPath?: string;
   codexHome?: string;
   reasoningEffort?: EffortLevel;

@@ -24,6 +24,7 @@ import {
   type AgentSession,
   type BedrockGatewayVariant,
   type CloudRegion,
+  type CodexModelAccess,
   classifyGatewayLimitError,
   type ExecutionMode,
   flattenSelectOptions,
@@ -511,6 +512,7 @@ export interface SessionServiceDeps {
     spokenNotifications?: boolean;
     spokenNarrationEnabled?: boolean;
     bedrockGatewayVariant?: BedrockGatewayVariant;
+    codexModelAccess?: CodexModelAccess;
   };
   usageLimit: { show: (...args: any[]) => any };
   readonly addDirectoryDialog: { open: boolean };
@@ -2288,12 +2290,14 @@ export class SessionService {
         rtkEnabledLocal,
         spokenNarrationEnabled,
         bedrockGatewayVariant,
+        codexModelAccess,
       } = this.d.settings;
       const result = await this.d.trpc.agent.reconnect.mutate({
         taskId,
         taskRunId,
         repoPath,
         rtkEnabled: rtkEnabledLocal,
+        codexModelAccess,
         spokenNarration: spokenNarrationEnabled === true,
         bedrockGatewayVariant,
         apiHost: auth.apiHost,
@@ -2645,6 +2649,7 @@ export class SessionService {
       rtkEnabledLocal,
       spokenNarrationEnabled,
       bedrockGatewayVariant,
+      codexModelAccess,
     } = this.d.settings;
     const preferredModel = model ?? this.d.DEFAULT_GATEWAY_MODEL;
     const result = await this.d.trpc.agent.start.mutate({
@@ -2655,6 +2660,7 @@ export class SessionService {
       projectId: auth.projectId,
       permissionMode: executionMode,
       adapter,
+      codexModelAccess,
       customInstructions: startCustomInstructions || undefined,
       rtkEnabled: rtkEnabledLocal,
       spokenNarration: spokenNarrationEnabled === true,

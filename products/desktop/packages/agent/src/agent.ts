@@ -117,12 +117,26 @@ export class Agent {
             task_execution_environment: "local" as const,
           };
 
+    const codexSubscription =
+      options.adapter === "codex" &&
+      options.codexModelAccess === "own-subscription";
+
     let codexModels: ModelInfo[] | undefined;
     let sanitizedModel =
       options.model && !isBlockedModelId(options.model)
         ? options.model
         : undefined;
-    if (options.adapter === "codex" && gatewayConfig) {
+    if (codexSubscription) {
+      // No gateway model list applies; codex's own model/list drives the
+      // picker. A non-OpenAI id here is the host's gateway default leaking in.
+      const looksOpenAi =
+        sanitizedModel?.startsWith("gpt-") ||
+        sanitizedModel?.startsWith("openai/") ||
+        sanitizedModel?.includes("codex");
+      if (!looksOpenAi) {
+        sanitizedModel = DEFAULT_CODEX_MODEL;
+      }
+    } else if (options.adapter === "codex" && gatewayConfig) {
       const models = await fetchModelsList({
         gatewayUrl: gatewayConfig.gatewayUrl,
         authToken: gatewayConfig.apiKey,
@@ -191,25 +205,31 @@ export class Agent {
       claudeGatewayEnv,
       contextWiki: options.contextWiki,
       codexOptions:
-        options.adapter === "codex" && gatewayConfig
+        options.adapter === "codex" && (codexSubscription || gatewayConfig)
           ? {
               cwd: options.repositoryPath,
-              apiBaseUrl: `${gatewayConfig.gatewayUrl}/v1`,
-              apiKey: gatewayConfig.apiKey,
+              // Without gateway config, spawn.ts emits no model_provider and
+              // codex authenticates with its own login from CODEX_HOME.
+              ...(!codexSubscription && gatewayConfig
+                ? {
+                    apiBaseUrl: `${gatewayConfig.gatewayUrl}/v1`,
+                    apiKey: gatewayConfig.apiKey,
+                    httpHeaders: taskId
+                      ? {
+                          ...buildPosthogPropertyHeaderRecord({
+                            ...attribution,
+                            $ai_session_id: taskId,
+                          }),
+                          ...buildPosthogUserHeaderRecord(userNode),
+                        }
+                      : buildPosthogUserHeaderRecord(userNode),
+                  }
+                : {}),
               binaryPath: options.codexBinaryPath,
               codexHome: options.codexHome,
               model: sanitizedModel,
               reasoningEffort: options.reasoningEffort,
               developerInstructions: options.developerInstructions,
-              httpHeaders: taskId
-                ? {
-                    ...buildPosthogPropertyHeaderRecord({
-                      ...attribution,
-                      $ai_session_id: taskId,
-                    }),
-                    ...buildPosthogUserHeaderRecord(userNode),
-                  }
-                : buildPosthogUserHeaderRecord(userNode),
               additionalDirectories: options.additionalDirectories,
             }
           : undefined,

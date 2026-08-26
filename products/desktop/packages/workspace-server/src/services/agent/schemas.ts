@@ -42,6 +42,12 @@ export const sessionConfigSchema = z.object({
 
 export type SessionConfig = z.infer<typeof sessionConfigSchema>;
 
+/** How Codex sessions authenticate for model calls. See {@link CodexModelAccess} in @posthog/shared. */
+export const codexModelAccessSchema = z.enum([
+  "posthog-gateway",
+  "own-subscription",
+]);
+
 // Sized for personalization synced from an AGENTS.md/CLAUDE.md file, which
 // can be far larger than the 2000-char hand-typed settings field. Kept equal
 // to OsService's truncation length (USER_AGENT_INSTRUCTIONS_MAX_LENGTH) or a
@@ -64,6 +70,12 @@ export const startSessionInput = z.object({
   autoProgress: z.boolean().optional(),
   runMode: z.enum(["local", "cloud"]).optional(),
   adapter: z.enum(["claude", "codex"]).optional(),
+  /**
+   * Codex-only. "own-subscription" runs the session on the user's own ChatGPT
+   * login instead of the PostHog gateway. Falls back to the gateway when no
+   * login is stored. Absent means gateway.
+   */
+  codexModelAccess: codexModelAccessSchema.optional(),
   additionalDirectories: z.array(z.string()).optional(),
   customInstructions: customInstructionsField,
   /**
@@ -254,6 +266,8 @@ export const reconnectSessionInput = z.object({
   logUrl: z.string().optional(),
   sessionId: z.string().optional(),
   adapter: z.enum(["claude", "codex"]).optional(),
+  /** See startSessionInput.codexModelAccess. */
+  codexModelAccess: codexModelAccessSchema.optional(),
   /** Additional directories Claude can access beyond cwd (for worktree support) */
   additionalDirectories: z.array(z.string()).optional(),
   permissionMode: z.string().optional(),
@@ -280,6 +294,28 @@ export const rtkStatusOutput = z.object({
 });
 
 export type RtkStatus = z.infer<typeof rtkStatusOutput>;
+
+/**
+ * Whether this host can run Codex on the user's own ChatGPT subscription.
+ * All fields come from existence checks; no credential is ever read.
+ */
+export const codexSubscriptionStatusOutput = z.object({
+  /** A `codex` binary is on the user's PATH. */
+  cliInstalled: z.boolean(),
+  /** `~/.codex/auth.json` exists (the user signed into their own Codex CLI). */
+  credentialFilePresent: z.boolean(),
+  /** The app's subscription CODEX_HOME holds a completed ChatGPT login. */
+  appLoggedIn: z.boolean(),
+});
+
+export type CodexSubscriptionStatus = z.infer<
+  typeof codexSubscriptionStatusOutput
+>;
+
+/** ChatGPT OAuth URL from Codex's own login flow, for the browser to open. */
+export const codexSubscriptionLoginOutput = z.object({
+  authUrl: z.string(),
+});
 
 // Set config option input (for Codex reasoning level, etc.)
 export const setConfigOptionInput = z.object({
