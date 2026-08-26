@@ -171,6 +171,17 @@ export function SQLEditor({
         }
     })
 
+    // The SQL/BI view toggle and the sidebar "Query" action tear the editor widget down and
+    // rebuild it while this scene stays mounted. Nothing else clears the cached reference, so the
+    // logic keeps a disposed editor as a prop. Drop it the instant Monaco disposes it.
+    useEffect(() => {
+        if (!editor) {
+            return
+        }
+        const disposable = editor.onDidDispose(() => setMonacoAndEditor(null))
+        return () => disposable.dispose()
+    }, [editor])
+
     const logic = sqlEditorLogic({
         tabId: tabId || '',
         mode,
