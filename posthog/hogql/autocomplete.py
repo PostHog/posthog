@@ -59,7 +59,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
-from products.product_analytics.backend.facade.models import InsightVariable
+from products.product_analytics.backend.facade.api import insight_variables_for_team
 
 from common.hogvm.python.stl import STL
 from common.hogvm.python.stl.bytecode import BYTECODE_STL
@@ -896,9 +896,7 @@ def get_hogql_autocomplete(
                 if node.chain[0] == MATCH_ANY_CHARACTER or (
                     "variables".startswith(str(node.chain[0])) and len(node.chain) == 1
                 ):
-                    insight_variables = InsightVariable.objects.filter(
-                        team_id=team.pk,
-                    ).order_by("name")
+                    insight_variables = insight_variables_for_team(team.pk)
                     code_names = [f"variables.{n.code_name}" for n in insight_variables if n.code_name]
                     extend_responses(
                         keys=code_names,
@@ -907,9 +905,7 @@ def get_hogql_autocomplete(
                         details=["Variable"] * len(code_names),
                     )
                 elif len(node.chain) > 1 and node.chain[0] == "variables":
-                    insight_variables = InsightVariable.objects.filter(
-                        team_id=team.pk,
-                    ).order_by("name")
+                    insight_variables = insight_variables_for_team(team.pk)
                     code_names = [n.code_name for n in insight_variables if n.code_name]
                     extend_responses(
                         keys=code_names,
