@@ -26,12 +26,17 @@ function describeOccurrence(occurrence: ScheduleOccurrence): string {
             ? `add a condition at ${addedRolloutPercentage}% rollout`
             : 'add a condition'
     }
-    return pluralize(occurrence.projected.variantCount ?? 0, 'variant')
+    return `switch to ${pluralize(occurrence.projected.variantCount ?? 0, 'variant')}`
 }
 
 function markerLabel(occurrence: ScheduleOccurrence): string {
     if (occurrence.operation === ScheduledChangeOperationType.UpdateStatus) {
         return occurrence.projected.active ? 'On' : 'Off'
+    }
+    // A condition change reaches this label only when its projected rollout is unknown, which the
+    // step line cannot plot. Without this branch it borrows the variant wording and reads "0 variants".
+    if (occurrence.operation === ScheduledChangeOperationType.AddReleaseCondition) {
+        return 'Condition'
     }
     return pluralize(occurrence.projected.variantCount ?? 0, 'variant')
 }
@@ -241,7 +246,7 @@ export function ScheduleTimeline({
                                         fontSize={9}
                                         fill="var(--color-text-secondary)"
                                     >
-                                        {rollout}%
+                                        {rollout}%{blocked ? ' (needs approval)' : ''}
                                     </text>
                                 </>
                             ) : (

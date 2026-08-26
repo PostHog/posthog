@@ -43,14 +43,26 @@ describe('ScheduleTimeline', () => {
     })
 
     it.each([
-        { name: 'this year, without the year', timestamp: '2099-08-26T10:22:00Z', expected: 'Aug 26, 10:22 AM' },
-        { name: 'a later year, with the year', timestamp: '2100-08-26T10:22:00Z', expected: 'Aug 26, 2100 10:22 AM' },
-    ])('renders a summary line without a chart for one occurrence $name', ({ timestamp, expected }) => {
+        { name: 'this year, without the year', overrides: {}, expected: 'Next: enabled on Aug 26, 10:22 AM' },
+        {
+            name: 'a later year, with the year',
+            overrides: { timestamp: '2100-08-26T10:22:00Z' },
+            expected: 'Next: enabled on Aug 26, 2100 10:22 AM',
+        },
+        {
+            name: 'a variant change, with a verb',
+            overrides: {
+                operation: ScheduledChangeOperationType.UpdateVariants,
+                projected: { active: true, rolloutPercentage: 50, variantCount: 3 },
+            },
+            expected: 'Next: switch to 3 variants on Aug 26, 10:22 AM',
+        },
+    ])('summarizes one occurrence without a chart: $name', ({ overrides, expected }) => {
         const { container } = render(
-            <ScheduleTimeline occurrences={[occurrence({ timestamp })]} currentRolloutPercentage={10} timezone="UTC" />
+            <ScheduleTimeline occurrences={[occurrence(overrides)]} currentRolloutPercentage={10} timezone="UTC" />
         )
 
-        expect(screen.getByText(`Next: enabled on ${expected}`)).toBeInTheDocument()
+        expect(screen.getByText(expected)).toBeInTheDocument()
         expect(container.querySelector('svg')).not.toBeInTheDocument()
     })
 
@@ -112,7 +124,31 @@ describe('ScheduleTimeline', () => {
         // level it already serves.
         expect(dashed[0].getAttribute('d')).toMatch(/^M [\d.]+ [\d.]+ V [\d.]+$/)
         expect(dashed[0].getAttribute('opacity')).toEqual('0.5')
+        // Dash and opacity alone leave a touch user with no way to read the blocked state.
+        expect(screen.getByText('75% (needs approval)')).toBeInTheDocument()
         // Nested in the marker's <g>, so RTL's ByTitle query does not reach it.
         expect(container.querySelector('g > title')?.textContent).toEqual('Needs approval')
+    })
+
+    it('labels a condition change whose projected rollout is unknown', () => {
+        // A flag with no condition sets, and a payload that carries none either, leaves the
+        // projection null. The step line cannot plot that, so the marker falls back to a label.
+        render(
+            <ScheduleTimeline
+                occurrences={[
+                    occurrence(),
+                    occurrence({
+                        timestamp: '2099-08-28T10:22:00Z',
+                        operation: ScheduledChangeOperationType.AddReleaseCondition,
+                        projected: { active: true, rolloutPercentage: null, variantCount: null },
+                    }),
+                ]}
+                currentRolloutPercentage={null}
+                timezone="UTC"
+            />
+        )
+
+        expect(screen.getByText('Condition')).toBeInTheDocument()
+        expect(screen.queryByText('0 variants')).not.toBeInTheDocument()
     })
 })
