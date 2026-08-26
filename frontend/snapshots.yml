@@ -5553,9 +5553,9 @@ snapshots:
     replay-tabs-home-failure--not-found--light:
         hash: v1.k794b7964.68ea14164788313df082ab6a0376077a82369dbdb3365ce8427640ad453aa9d6.laeHUCIfmZ8CHubdHCTK_PaLsSGS3XkBTsQRSma6qoE
     replay-tabs-home-filters-banner--product-analytics-over-limit--dark:
-        hash: v1.k794b7964.3382cb9fbf56647bce20e824f37190da01c7e832174672c646a328301637e1fa.ZpMkQP_H9a6yc7qYnEIHtAxfN4jHWRPD4virSf2vGIA
+        hash: v1.k794b7964.6419b76d333a64f252a9fe748e5126f24a45c5ef281ee5f244bee651d8732d5b.uq-8FJ0MflN3hPv_ZAsPCd6wVw2NpRKB_UZUBKyLOb8
     replay-tabs-home-filters-banner--product-analytics-over-limit--light:
-        hash: v1.k794b7964.e823d52c061aef0eab23e4b0571a4984943c45287c8ba261120cdf04e250e159.mkuxfj4jLQSeTxcvoBtZsyh1m_7-3pWLo39IaakQcGo
+        hash: v1.k794b7964.0119a627014451bb9c8930ca63913f0f92dfe56fc31415b84c815508dcde9b7a.P68BvqI6ZaeBJA3VqL_eybiB4wfcC0rA9Z8UXH3uXDw
     replay-tabs-home-filters-banner--product-analytics-under-limit--dark:
         hash: v1.k794b7964.9621e94ace22f6b0c839d8f7890e3cdf4aa9951c7bfee8f2a089e46a5f7f977a.dZbjaDtE-CMiMTkhTxV1u5NVSvEugAeaZ5oBS64HcH4
     replay-tabs-home-filters-banner--product-analytics-under-limit--light:
