@@ -13,6 +13,17 @@ import type {
     AcknowledgeCelebrationRequestApi,
     AcknowledgeCelebrationResponseApi,
     ApplyPathCleaningSuggestionResponseApi,
+    ContentAutopilotExportResponseApi,
+    ContentAutopilotMeasurementApi,
+    ContentAutopilotProposalApi,
+    ContentAutopilotProposalEditRequestApi,
+    ContentAutopilotPullRequestRequestApi,
+    ContentAutopilotPullRequestResponseApi,
+    ContentAutopilotRunApi,
+    ContentAutopilotRunStartRequestApi,
+    ContentAutopilotSiteDiscoveryRequestApi,
+    ContentAutopilotSiteDiscoveryResponseApi,
+    ContentAutopilotSiteProfileApi,
     GeneratePathCleaningSuggestionResponseApi,
     HeatmapEventsResponseApi,
     HeatmapPreflightRequestApi,
@@ -25,7 +36,12 @@ import type {
     HeatmapsResponseApi,
     LlmsTxtFetchRequestApi,
     LlmsTxtFetchResponseApi,
+    PaginatedContentAutopilotMeasurementListApi,
+    PaginatedContentAutopilotProposalListApi,
+    PaginatedContentAutopilotRunListApi,
+    PaginatedContentAutopilotSiteProfileListApi,
     PaginatedWebAnalyticsFilterPresetListApi,
+    PatchedContentAutopilotSiteProfileApi,
     PatchedSavedHeatmapRequestApi,
     PatchedWebAnalyticsFilterPresetApi,
     PreviewPathCleaningSuggestionResponseApi,
@@ -36,6 +52,10 @@ import type {
     SavedHeatmapListResponseApi,
     SavedHeatmapRequestApi,
     SavedListParams,
+    WebAnalyticsContentAutopilotMeasurementsListParams,
+    WebAnalyticsContentAutopilotProfilesListParams,
+    WebAnalyticsContentAutopilotProposalsListParams,
+    WebAnalyticsContentAutopilotRunsListParams,
     WebAnalyticsFilterPresetApi,
     WebAnalyticsFilterPresetsListParams,
     WebAnalyticsRecapParams,
@@ -559,6 +579,433 @@ export const webAnalyticsAchievementsRecordVisit = async (
     return apiMutator<RecordVisitResponseApi>(getWebAnalyticsAchievementsRecordVisitUrl(projectId), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getWebAnalyticsContentAutopilotMeasurementsListUrl = (
+    projectId: string,
+    params?: WebAnalyticsContentAutopilotMeasurementsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/web_analytics_content_autopilot_measurements/?${stringifiedParams}`
+        : `/api/projects/${projectId}/web_analytics_content_autopilot_measurements/`
+}
+
+export const webAnalyticsContentAutopilotMeasurementsList = async (
+    projectId: string,
+    params?: WebAnalyticsContentAutopilotMeasurementsListParams,
+    options?: RequestInit
+): Promise<PaginatedContentAutopilotMeasurementListApi> => {
+    return apiMutator<PaginatedContentAutopilotMeasurementListApi>(
+        getWebAnalyticsContentAutopilotMeasurementsListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getWebAnalyticsContentAutopilotMeasurementsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/web_analytics_content_autopilot_measurements/${id}/`
+}
+
+export const webAnalyticsContentAutopilotMeasurementsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ContentAutopilotMeasurementApi> => {
+    return apiMutator<ContentAutopilotMeasurementApi>(
+        getWebAnalyticsContentAutopilotMeasurementsRetrieveUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getWebAnalyticsContentAutopilotProfilesListUrl = (
+    projectId: string,
+    params?: WebAnalyticsContentAutopilotProfilesListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/web_analytics_content_autopilot_profiles/?${stringifiedParams}`
+        : `/api/projects/${projectId}/web_analytics_content_autopilot_profiles/`
+}
+
+export const webAnalyticsContentAutopilotProfilesList = async (
+    projectId: string,
+    params?: WebAnalyticsContentAutopilotProfilesListParams,
+    options?: RequestInit
+): Promise<PaginatedContentAutopilotSiteProfileListApi> => {
+    return apiMutator<PaginatedContentAutopilotSiteProfileListApi>(
+        getWebAnalyticsContentAutopilotProfilesListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getWebAnalyticsContentAutopilotProfilesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/web_analytics_content_autopilot_profiles/`
+}
+
+export const webAnalyticsContentAutopilotProfilesCreate = async (
+    projectId: string,
+    contentAutopilotSiteProfileApi: NonReadonly<ContentAutopilotSiteProfileApi>,
+    options?: RequestInit
+): Promise<ContentAutopilotSiteProfileApi> => {
+    return apiMutator<ContentAutopilotSiteProfileApi>(getWebAnalyticsContentAutopilotProfilesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(contentAutopilotSiteProfileApi),
+    })
+}
+
+export const getWebAnalyticsContentAutopilotProfilesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/web_analytics_content_autopilot_profiles/${id}/`
+}
+
+export const webAnalyticsContentAutopilotProfilesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ContentAutopilotSiteProfileApi> => {
+    return apiMutator<ContentAutopilotSiteProfileApi>(
+        getWebAnalyticsContentAutopilotProfilesRetrieveUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getWebAnalyticsContentAutopilotProfilesUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/web_analytics_content_autopilot_profiles/${id}/`
+}
+
+export const webAnalyticsContentAutopilotProfilesUpdate = async (
+    projectId: string,
+    id: string,
+    contentAutopilotSiteProfileApi: NonReadonly<ContentAutopilotSiteProfileApi>,
+    options?: RequestInit
+): Promise<ContentAutopilotSiteProfileApi> => {
+    return apiMutator<ContentAutopilotSiteProfileApi>(getWebAnalyticsContentAutopilotProfilesUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(contentAutopilotSiteProfileApi),
+    })
+}
+
+export const getWebAnalyticsContentAutopilotProfilesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/web_analytics_content_autopilot_profiles/${id}/`
+}
+
+export const webAnalyticsContentAutopilotProfilesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedContentAutopilotSiteProfileApi?: NonReadonly<PatchedContentAutopilotSiteProfileApi>,
+    options?: RequestInit
+): Promise<ContentAutopilotSiteProfileApi> => {
+    return apiMutator<ContentAutopilotSiteProfileApi>(
+        getWebAnalyticsContentAutopilotProfilesPartialUpdateUrl(projectId, id),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedContentAutopilotSiteProfileApi),
+        }
+    )
+}
+
+export const getWebAnalyticsContentAutopilotProfilesDiscoverUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/web_analytics_content_autopilot_profiles/discover/`
+}
+
+/**
+ * Inspects a public site for its canonical origin, name, and sitemap URLs.
+ * @summary Discover content autopilot site settings
+ */
+export const webAnalyticsContentAutopilotProfilesDiscover = async (
+    projectId: string,
+    contentAutopilotSiteDiscoveryRequestApi: ContentAutopilotSiteDiscoveryRequestApi,
+    options?: RequestInit
+): Promise<ContentAutopilotSiteDiscoveryResponseApi> => {
+    return apiMutator<ContentAutopilotSiteDiscoveryResponseApi>(
+        getWebAnalyticsContentAutopilotProfilesDiscoverUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(contentAutopilotSiteDiscoveryRequestApi),
+        }
+    )
+}
+
+export const getWebAnalyticsContentAutopilotProposalsListUrl = (
+    projectId: string,
+    params?: WebAnalyticsContentAutopilotProposalsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/web_analytics_content_autopilot_proposals/?${stringifiedParams}`
+        : `/api/projects/${projectId}/web_analytics_content_autopilot_proposals/`
+}
+
+export const webAnalyticsContentAutopilotProposalsList = async (
+    projectId: string,
+    params?: WebAnalyticsContentAutopilotProposalsListParams,
+    options?: RequestInit
+): Promise<PaginatedContentAutopilotProposalListApi> => {
+    return apiMutator<PaginatedContentAutopilotProposalListApi>(
+        getWebAnalyticsContentAutopilotProposalsListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getWebAnalyticsContentAutopilotProposalsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/web_analytics_content_autopilot_proposals/${id}/`
+}
+
+export const webAnalyticsContentAutopilotProposalsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ContentAutopilotProposalApi> => {
+    return apiMutator<ContentAutopilotProposalApi>(getWebAnalyticsContentAutopilotProposalsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWebAnalyticsContentAutopilotProposalsEditUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/web_analytics_content_autopilot_proposals/${id}/edit/`
+}
+
+/**
+ * Saves reviewed Markdown and its canonical delivery package without publishing it.
+ * @summary Edit a content proposal
+ */
+export const webAnalyticsContentAutopilotProposalsEdit = async (
+    projectId: string,
+    id: string,
+    contentAutopilotProposalEditRequestApi: ContentAutopilotProposalEditRequestApi,
+    options?: RequestInit
+): Promise<ContentAutopilotProposalApi> => {
+    return apiMutator<ContentAutopilotProposalApi>(getWebAnalyticsContentAutopilotProposalsEditUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(contentAutopilotProposalEditRequestApi),
+    })
+}
+
+export const getWebAnalyticsContentAutopilotProposalsExportUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/web_analytics_content_autopilot_proposals/${id}/export/`
+}
+
+/**
+ * Returns validated Markdown and structured JSON without publishing it.
+ * @summary Export a content proposal
+ */
+export const webAnalyticsContentAutopilotProposalsExport = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ContentAutopilotExportResponseApi> => {
+    return apiMutator<ContentAutopilotExportResponseApi>(
+        getWebAnalyticsContentAutopilotProposalsExportUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
+}
+
+export const getWebAnalyticsContentAutopilotProposalsRegenerateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/web_analytics_content_autopilot_proposals/${id}/regenerate/`
+}
+
+/**
+ * Returns a proposal to generation while keeping its previous result inspectable in history.
+ * @summary Regenerate a content proposal
+ */
+export const webAnalyticsContentAutopilotProposalsRegenerate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ContentAutopilotProposalApi> => {
+    return apiMutator<ContentAutopilotProposalApi>(
+        getWebAnalyticsContentAutopilotProposalsRegenerateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
+}
+
+export const getWebAnalyticsContentAutopilotProposalsRejectUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/web_analytics_content_autopilot_proposals/${id}/reject/`
+}
+
+/**
+ * Rejects a proposal without changing the public site or repository.
+ * @summary Reject a content proposal
+ */
+export const webAnalyticsContentAutopilotProposalsReject = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ContentAutopilotProposalApi> => {
+    return apiMutator<ContentAutopilotProposalApi>(getWebAnalyticsContentAutopilotProposalsRejectUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getWebAnalyticsContentAutopilotProposalsOpenPullRequestUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/web_analytics_content_autopilot_proposals/open_pull_request/`
+}
+
+/**
+ * Commits approved files to a content-only branch and opens a pull request. It never merges.
+ * @summary Open a content pull request
+ */
+export const webAnalyticsContentAutopilotProposalsOpenPullRequest = async (
+    projectId: string,
+    contentAutopilotPullRequestRequestApi: ContentAutopilotPullRequestRequestApi,
+    options?: RequestInit
+): Promise<ContentAutopilotPullRequestResponseApi> => {
+    return apiMutator<ContentAutopilotPullRequestResponseApi>(
+        getWebAnalyticsContentAutopilotProposalsOpenPullRequestUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(contentAutopilotPullRequestRequestApi),
+        }
+    )
+}
+
+export const getWebAnalyticsContentAutopilotRunsListUrl = (
+    projectId: string,
+    params?: WebAnalyticsContentAutopilotRunsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/web_analytics_content_autopilot_runs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/web_analytics_content_autopilot_runs/`
+}
+
+export const webAnalyticsContentAutopilotRunsList = async (
+    projectId: string,
+    params?: WebAnalyticsContentAutopilotRunsListParams,
+    options?: RequestInit
+): Promise<PaginatedContentAutopilotRunListApi> => {
+    return apiMutator<PaginatedContentAutopilotRunListApi>(
+        getWebAnalyticsContentAutopilotRunsListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getWebAnalyticsContentAutopilotRunsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/web_analytics_content_autopilot_runs/${id}/`
+}
+
+export const webAnalyticsContentAutopilotRunsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ContentAutopilotRunApi> => {
+    return apiMutator<ContentAutopilotRunApi>(getWebAnalyticsContentAutopilotRunsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWebAnalyticsContentAutopilotRunsCancelUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/web_analytics_content_autopilot_runs/${id}/cancel/`
+}
+
+/**
+ * Stops a pending or generating run without creating content writes.
+ * @summary Cancel a content autopilot run
+ */
+export const webAnalyticsContentAutopilotRunsCancel = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ContentAutopilotRunApi> => {
+    return apiMutator<ContentAutopilotRunApi>(getWebAnalyticsContentAutopilotRunsCancelUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getWebAnalyticsContentAutopilotRunsStartUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/web_analytics_content_autopilot_runs/start/`
+}
+
+/**
+ * Captures the current profile and creates one pending on-demand content research run.
+ * @summary Start a content autopilot run
+ */
+export const webAnalyticsContentAutopilotRunsStart = async (
+    projectId: string,
+    contentAutopilotRunStartRequestApi: ContentAutopilotRunStartRequestApi,
+    options?: RequestInit
+): Promise<ContentAutopilotRunApi> => {
+    return apiMutator<ContentAutopilotRunApi>(getWebAnalyticsContentAutopilotRunsStartUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(contentAutopilotRunStartRequestApi),
     })
 }
 

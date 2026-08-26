@@ -1,6 +1,12 @@
 from posthog.api.routing import RouterRegistry
 
 from products.web_analytics.backend.api import WebAnalyticsViewSet
+from products.web_analytics.backend.api.content_autopilot import (
+    ContentAutopilotMeasurementViewSet,
+    ContentAutopilotProposalViewSet,
+    ContentAutopilotRunViewSet,
+    ContentAutopilotSiteProfileViewSet,
+)
 from products.web_analytics.backend.api.heatmaps_api import (
     HeatmapScreenshotViewSet,
     HeatmapViewSet,
@@ -28,6 +34,30 @@ def register_routes(routers: RouterRegistry) -> None:
         ["team_id"],
     )
     routers.projects.register(r"web_analytics", WebAnalyticsViewSet, "project_web_analytics", ["team_id"])
+    routers.projects.register(
+        r"web_analytics_content_autopilot_profiles",
+        ContentAutopilotSiteProfileViewSet,
+        "project_web_analytics_content_autopilot_profiles",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"web_analytics_content_autopilot_runs",
+        ContentAutopilotRunViewSet,
+        "project_web_analytics_content_autopilot_runs",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"web_analytics_content_autopilot_proposals",
+        ContentAutopilotProposalViewSet,
+        "project_web_analytics_content_autopilot_proposals",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"web_analytics_content_autopilot_measurements",
+        ContentAutopilotMeasurementViewSet,
+        "project_web_analytics_content_autopilot_measurements",
+        ["team_id"],
+    )
     routers.projects.register(
         r"web_analytics_achievements",
         WebAnalyticsAchievementsViewSet,

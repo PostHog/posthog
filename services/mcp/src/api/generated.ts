@@ -18610,6 +18610,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `standard` - Standard
+     * * `lower` - Lower
+     */
+    export type ConfidenceEnum = typeof ConfidenceEnum[keyof typeof ConfidenceEnum];
+
+
+    export const ConfidenceEnum = {
+      Standard: 'standard',
+      Lower: 'lower',
+    } as const;
+
+    /**
      * * `boolean` - boolean
      * * `number` - number
      * * `string` - string
@@ -18723,6 +18735,498 @@ export namespace Schemas {
     export interface ConnectionTokenResponse {
       /** JWT token for authenticating with the sandbox */
       token: string;
+    }
+
+    export interface ContentAutopilotError {
+      /** Stable machine-readable error code. */
+      error_code: string;
+      /** Error explanation suitable for the review workspace. */
+      message: string;
+      /** Whether the failed step can be retried. */
+      retryable: boolean;
+    }
+
+    /**
+     * * `poor_ctr` - Poor click-through rate
+     * * `content_gap` - Content gap
+     * * `organic_decline` - Organic decline
+     * * `ai_visibility_gap` - AI visibility gap
+     * * `site_hygiene` - Site hygiene
+     */
+    export type OpportunityKindEnum = typeof OpportunityKindEnum[keyof typeof OpportunityKindEnum];
+
+
+    export const OpportunityKindEnum = {
+      PoorCtr: 'poor_ctr',
+      ContentGap: 'content_gap',
+      OrganicDecline: 'organic_decline',
+      AiVisibilityGap: 'ai_visibility_gap',
+      SiteHygiene: 'site_hygiene',
+    } as const;
+
+    export interface ContentAutopilotMetric {
+      /** Google Search impressions in the period. */
+      impressions?: number;
+      /** Google Search clicks in the period. */
+      clicks?: number;
+      /** Google Search click-through rate. */
+      click_through_rate?: number;
+      /** Average Google Search position. */
+      average_position?: number;
+      /** PostHog visitors in the period. */
+      visitors?: number;
+      /** Visits referred by AI assistants. */
+      ai_referrals?: number;
+      /** Requests from recognized AI crawlers. */
+      crawler_requests?: number;
+      /** Engaged visitors divided by visitors. */
+      engagement_rate?: number;
+      /** Configured conversions in the period. */
+      conversions?: number;
+    }
+
+    export interface ContentAutopilotEvidence {
+      /** Reason the opportunity was selected.
+       *
+       * * `poor_ctr` - Poor click-through rate
+       * * `content_gap` - Content gap
+       * * `organic_decline` - Organic decline
+       * * `ai_visibility_gap` - AI visibility gap
+       * * `site_hygiene` - Site hygiene */
+      opportunity_kind: OpportunityKindEnum;
+      /** Plain-language explanation of the supporting evidence. */
+      explanation: string;
+      /** Page supported by this evidence. */
+      page_url?: string;
+      /** Search query supported by this evidence. */
+      query?: string;
+      /** Observed metrics supporting the opportunity. */
+      metrics?: ContentAutopilotMetric;
+    }
+
+    export interface ContentAutopilotFrontmatterEntry {
+      /** Frontmatter field name. */
+      key: string;
+      /** Serialized frontmatter value. */
+      value: string;
+    }
+
+    export interface ContentAutopilotPackage {
+      /** Repository-relative Markdown or MDX file path. */
+      file_path: string;
+      /** Content title. */
+      title: string;
+      /** Search description or summary. */
+      description: string;
+      /** URL slug. */
+      slug: string;
+      /** Validated Markdown body. */
+      markdown: string;
+      /** Ordered frontmatter entries. */
+      frontmatter: ContentAutopilotFrontmatterEntry[];
+      /** Validated same-origin internal links included in the content. */
+      internal_links: string[];
+      /** Portable source notes included with the export. */
+      source_notes: string[];
+    }
+
+    export interface ContentAutopilotExportResponse {
+      /** Suggested export filename. */
+      filename: string;
+      /** Validated Markdown content. */
+      markdown: string;
+      /** Structured JSON package for a CMS adapter. */
+      content_package: ContentAutopilotPackage;
+    }
+
+    /**
+     * * `generating` - Generating
+     * * `ready_for_review` - Ready for review
+     * * `rejected` - Rejected
+     * * `exported` - Exported
+     * * `pr_opened` - Pull request opened
+     * * `published` - Published
+     * * `measuring` - Measuring
+     * * `completed` - Completed
+     * * `failed` - Failed
+     */
+    export type LifecycleStatusEnum = typeof LifecycleStatusEnum[keyof typeof LifecycleStatusEnum];
+
+
+    export const LifecycleStatusEnum = {
+      Generating: 'generating',
+      ReadyForReview: 'ready_for_review',
+      Rejected: 'rejected',
+      Exported: 'exported',
+      PrOpened: 'pr_opened',
+      Published: 'published',
+      Measuring: 'measuring',
+      Completed: 'completed',
+      Failed: 'failed',
+    } as const;
+
+    export interface ContentAutopilotSource {
+      /** Public source URL used for factual claims. */
+      url: string;
+      /** Source page title. */
+      title: string;
+      /** Claims in the proposal supported by this source. */
+      supported_claims: string[];
+    }
+
+    export interface ContentAutopilotValidationCheck {
+      /** Stable identifier for the validation gate. */
+      check_key: string;
+      /** Human-readable validation name. */
+      label: string;
+      /** Whether the proposal passed this validation. */
+      passed: boolean;
+      /** Validation result and any action needed. */
+      message: string;
+      /** Whether failure prevents delivery. */
+      blocking: boolean;
+    }
+
+    export interface ContentAutopilotValidationReport {
+      /** Whether every blocking validation passed. */
+      passed: boolean;
+      /** Factual, brand, intent, originality, linking, crawlability, and schema checks. */
+      checks: ContentAutopilotValidationCheck[];
+    }
+
+    export interface ContentAutopilotGenerationHistoryEntry {
+      /** When this generation attempt was archived. */
+      archived_at: string;
+      /** Proposal state when this attempt was archived.
+       *
+       * * `generating` - Generating
+       * * `ready_for_review` - Ready for review
+       * * `rejected` - Rejected
+       * * `exported` - Exported
+       * * `pr_opened` - Pull request opened
+       * * `published` - Published
+       * * `measuring` - Measuring
+       * * `completed` - Completed
+       * * `failed` - Failed */
+      lifecycle_status: LifecycleStatusEnum;
+      /** Markdown produced by this generation attempt. */
+      proposed_markdown: string;
+      /** Delivery package produced by this attempt. */
+      content_package: ContentAutopilotPackage;
+      /** Sources used by this attempt. */
+      source_ledger: ContentAutopilotSource[];
+      /** Validation result for this attempt. */
+      validation_report: ContentAutopilotValidationReport;
+    }
+
+    /**
+     * * `pending` - Pending
+     * * `improved` - Improved
+     * * `inconclusive` - Inconclusive
+     * * `declined` - Declined
+     */
+    export type OutcomeClassificationEnum = typeof OutcomeClassificationEnum[keyof typeof OutcomeClassificationEnum];
+
+
+    export const OutcomeClassificationEnum = {
+      Pending: 'pending',
+      Improved: 'improved',
+      Inconclusive: 'inconclusive',
+      Declined: 'declined',
+    } as const;
+
+    export interface ContentAutopilotMeasurement {
+      readonly id: string;
+      /** Proposal being measured. */
+      readonly proposal_id: string;
+      /** Metrics captured before publication. */
+      baseline: ContentAutopilotMetric;
+      /** Metrics captured 28 days after publication. */
+      day_28: ContentAutopilotMetric;
+      /** Metrics captured 56 days after publication. */
+      day_56: ContentAutopilotMetric;
+      /** Site-wide metrics over the same windows. */
+      site_wide_controls: ContentAutopilotMetric;
+      /** Improved, inconclusive, declined, or pending.
+       *
+       * * `pending` - Pending
+       * * `improved` - Improved
+       * * `inconclusive` - Inconclusive
+       * * `declined` - Declined */
+      readonly outcome_classification: OutcomeClassificationEnum;
+      /** Whether another page change overlapped the measurement window. */
+      readonly is_confounded: boolean;
+      /** @nullable */
+      readonly baseline_at: string | null;
+      /** @nullable */
+      readonly day_28_at: string | null;
+      /** @nullable */
+      readonly day_56_at: string | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    /**
+     * * `new_content` - New content
+     * * `page_improvement` - Page improvement
+     */
+    export type ProposalTypeEnum = typeof ProposalTypeEnum[keyof typeof ProposalTypeEnum];
+
+
+    export const ProposalTypeEnum = {
+      NewContent: 'new_content',
+      PageImprovement: 'page_improvement',
+    } as const;
+
+    /**
+     * * `not_delivered` - Not delivered
+     * * `delivering` - Delivering
+     * * `delivered` - Delivered
+     * * `failed` - Failed
+     */
+    export type DeliveryStateEnum = typeof DeliveryStateEnum[keyof typeof DeliveryStateEnum];
+
+
+    export const DeliveryStateEnum = {
+      NotDelivered: 'not_delivered',
+      Delivering: 'delivering',
+      Delivered: 'delivered',
+      Failed: 'failed',
+    } as const;
+
+    export interface ContentAutopilotProposal {
+      readonly id: string;
+      /** Run that generated this proposal. */
+      readonly run_id: string;
+      /** New article or bounded page improvement.
+       *
+       * * `new_content` - New content
+       * * `page_improvement` - Page improvement */
+      readonly proposal_type: ProposalTypeEnum;
+      /** Review, delivery, publication, and measurement lifecycle status.
+       *
+       * * `generating` - Generating
+       * * `ready_for_review` - Ready for review
+       * * `rejected` - Rejected
+       * * `exported` - Exported
+       * * `pr_opened` - Pull request opened
+       * * `published` - Published
+       * * `measuring` - Measuring
+       * * `completed` - Completed
+       * * `failed` - Failed */
+      readonly lifecycle_status: LifecycleStatusEnum;
+      /** Review title for this proposal. */
+      readonly title: string;
+      /** Primary query or topic targeted by this proposal. */
+      readonly target_query: string;
+      /** Existing or intended public URL. */
+      readonly target_url: string;
+      /** Intended reader. */
+      readonly audience: string;
+      /** Reader need this proposal addresses. */
+      readonly search_intent: string;
+      /** Opportunity statement without a guaranteed forecast. */
+      readonly expected_outcome: string;
+      /** Performance evidence for this proposal. */
+      evidence: ContentAutopilotEvidence[];
+      /** Public sources supporting factual claims. */
+      source_ledger: ContentAutopilotSource[];
+      /** Blocking and advisory validation results. */
+      validation_report: ContentAutopilotValidationReport;
+      /** Previous generation attempts retained for review. */
+      generation_history: ContentAutopilotGenerationHistoryEntry[];
+      /** Canonical package used by every delivery adapter. */
+      content_package: ContentAutopilotPackage;
+      /** Existing content for page-improvement diffs. */
+      readonly original_markdown: string;
+      /** Full proposed Markdown after edits. */
+      readonly proposed_markdown: string;
+      /** Current export or pull-request delivery state.
+       *
+       * * `not_delivered` - Not delivered
+       * * `delivering` - Delivering
+       * * `delivered` - Delivered
+       * * `failed` - Failed */
+      readonly delivery_state: DeliveryStateEnum;
+      /** Export filename or GitHub branch reference. */
+      readonly delivery_reference: string;
+      /** Created GitHub pull request URL. */
+      readonly pull_request_url: string;
+      /** Verified public URL after publication. */
+      readonly live_url: string;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    export interface ContentAutopilotProposalEditRequest {
+      /** Edited Markdown to save for review. */
+      proposed_markdown: string;
+      /** Updated canonical delivery package. */
+      content_package: ContentAutopilotPackage;
+    }
+
+    export interface ContentAutopilotPullRequestRequest {
+      /**
+         * One new article or up to five page improvements from the same run.
+         * @minItems 1
+         * @maxItems 5
+         */
+      proposal_ids: string[];
+    }
+
+    export interface ContentAutopilotPullRequestResponse {
+      /** Created GitHub pull request URL. */
+      pull_request_url: string;
+      /** Created content branch. */
+      branch: string;
+    }
+
+    /**
+     * * `pending` - Pending
+     * * `generating` - Generating
+     * * `ready_for_review` - Ready for review
+     * * `completed` - Completed
+     * * `canceled` - Canceled
+     * * `failed` - Failed
+     */
+    export type ContentAutopilotRunRunStatusEnum = typeof ContentAutopilotRunRunStatusEnum[keyof typeof ContentAutopilotRunRunStatusEnum];
+
+
+    export const ContentAutopilotRunRunStatusEnum = {
+      Pending: 'pending',
+      Generating: 'generating',
+      ReadyForReview: 'ready_for_review',
+      Completed: 'completed',
+      Canceled: 'canceled',
+      Failed: 'failed',
+    } as const;
+
+    export interface ContentAutopilotSnapshot {
+      /** When the run inputs were captured. */
+      captured_at?: string;
+      /** Site domain used for the run. */
+      domain?: string;
+      /** Whether Search Console data was available. */
+      search_console_connected?: boolean;
+      /** Confidence level based on the available data sources.
+       *
+       * * `standard` - Standard
+       * * `lower` - Lower */
+      confidence?: ConfidenceEnum;
+    }
+
+    export interface ContentAutopilotRun {
+      readonly id: string;
+      /** Site profile used by this run. */
+      readonly profile_id: string;
+      /** Current durable workflow status.
+       *
+       * * `pending` - Pending
+       * * `generating` - Generating
+       * * `ready_for_review` - Ready for review
+       * * `completed` - Completed
+       * * `canceled` - Canceled
+       * * `failed` - Failed */
+      readonly run_status: ContentAutopilotRunRunStatusEnum;
+      /** Immutable inputs captured at run start. */
+      input_snapshot: ContentAutopilotSnapshot;
+      /** Ranked opportunities selected for generation. */
+      selected_opportunities: ContentAutopilotEvidence[];
+      /** Inspectable workflow errors and retryability. */
+      errors: ContentAutopilotError[];
+      /** Temporal workflow identifier for this run. */
+      readonly workflow_id: string;
+      /**
+         * User who explicitly started this run.
+         * @nullable
+         */
+      readonly triggered_by_id: number | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+      /** @nullable */
+      readonly started_at: string | null;
+      /** @nullable */
+      readonly completed_at: string | null;
+    }
+
+    export interface ContentAutopilotRunStartRequest {
+      /** Site profile to research. */
+      profile_id: string;
+    }
+
+    export interface ContentAutopilotSiteDiscoveryRequest {
+      /** Public site URL to inspect for onboarding defaults. */
+      domain: string;
+    }
+
+    export interface ContentAutopilotSiteDiscoveryResponse {
+      /** Site name inferred from the homepage or hostname. */
+      name: string;
+      /** Normalized site origin. */
+      domain: string;
+      /** Detected sitemap URLs or an editable conventional suggestion. */
+      source_urls: string[];
+      /** Editable same-origin path boundaries. */
+      content_boundaries: string[];
+      /** Whether at least one sitemap was verified. */
+      sitemap_detected: boolean;
+      /** Non-blocking discovery warnings. */
+      warnings: string[];
+    }
+
+    /**
+     * * `export_only` - Export only
+     * * `github` - GitHub
+     */
+    export type DeliveryModeEnum = typeof DeliveryModeEnum[keyof typeof DeliveryModeEnum];
+
+
+    export const DeliveryModeEnum = {
+      ExportOnly: 'export_only',
+      Github: 'github',
+    } as const;
+
+    export interface ContentAutopilotSiteProfile {
+      readonly id: string;
+      /**
+         * Name used to identify this site in the workspace.
+         * @maxLength 255
+         */
+      name?: string;
+      /**
+         * Authorized site origin for this profile.
+         * @maxLength 2048
+         */
+      domain: string;
+      /** Public sitemap and factual source URLs used to build the site profile. */
+      source_urls: string[];
+      /** Same-origin URL path prefixes allowed for research. */
+      content_boundaries: string[];
+      /** Brand, terminology, and editorial rules applied to every proposal. */
+      brand_rules: string[];
+      /** Whether to use connected Google Search Console data. */
+      search_console_enabled?: boolean;
+      /** Deliver approved work as exports or GitHub pull requests.
+       *
+       * * `export_only` - Export only
+       * * `github` - GitHub */
+      delivery_mode?: DeliveryModeEnum;
+      /**
+         * GitHub repository in owner/name format.
+         * @maxLength 512
+         */
+      github_repository?: string;
+      /**
+         * Base branch for content pull requests.
+         * @maxLength 255
+         */
+      base_branch?: string;
+      /** Repository directories where approved content may be written. */
+      content_directories: string[];
+      /** Rule mapping public URLs to repository file paths. */
+      url_to_file_convention?: string;
+      readonly created_at: string;
+      readonly updated_at: string;
     }
 
     /**
@@ -53479,6 +53983,42 @@ export namespace Schemas {
       results: CommunitySkillList[];
     }
 
+    export interface PaginatedContentAutopilotMeasurementList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ContentAutopilotMeasurement[];
+    }
+
+    export interface PaginatedContentAutopilotProposalList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ContentAutopilotProposal[];
+    }
+
+    export interface PaginatedContentAutopilotRunList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ContentAutopilotRun[];
+    }
+
+    export interface PaginatedContentAutopilotSiteProfileList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ContentAutopilotSiteProfile[];
+    }
+
     export interface PaginatedConversationMinimalList {
       count: number;
       /** @nullable */
@@ -60125,6 +60665,49 @@ export namespace Schemas {
       readonly completed_at?: string | null;
       /** @nullable */
       source_comment?: string | null;
+    }
+
+    export interface PatchedContentAutopilotSiteProfile {
+      readonly id?: string;
+      /**
+         * Name used to identify this site in the workspace.
+         * @maxLength 255
+         */
+      name?: string;
+      /**
+         * Authorized site origin for this profile.
+         * @maxLength 2048
+         */
+      domain?: string;
+      /** Public sitemap and factual source URLs used to build the site profile. */
+      source_urls?: string[];
+      /** Same-origin URL path prefixes allowed for research. */
+      content_boundaries?: string[];
+      /** Brand, terminology, and editorial rules applied to every proposal. */
+      brand_rules?: string[];
+      /** Whether to use connected Google Search Console data. */
+      search_console_enabled?: boolean;
+      /** Deliver approved work as exports or GitHub pull requests.
+       *
+       * * `export_only` - Export only
+       * * `github` - GitHub */
+      delivery_mode?: DeliveryModeEnum;
+      /**
+         * GitHub repository in owner/name format.
+         * @maxLength 512
+         */
+      github_repository?: string;
+      /**
+         * Base branch for content pull requests.
+         * @maxLength 255
+         */
+      base_branch?: string;
+      /** Repository directories where approved content may be written. */
+      content_directories?: string[];
+      /** Rule mapping public URLs to repository file paths. */
+      url_to_file_convention?: string;
+      readonly created_at?: string;
+      readonly updated_at?: string;
     }
 
     export type PatchedConversationMessagesItem = { [key: string]: unknown };
@@ -99240,6 +99823,62 @@ export namespace Schemas {
      * Lookback window in days (1–90). Defaults to 7.
      */
     days?: number;
+    };
+
+    export type WebAnalyticsContentAutopilotMeasurementsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type WebAnalyticsContentAutopilotProfilesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type WebAnalyticsContentAutopilotProposalsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Only return proposals for this site profile.
+     */
+    profile_id?: string;
+    /**
+     * Only return proposals from this content run.
+     */
+    run_id?: string;
+    };
+
+    export type WebAnalyticsContentAutopilotRunsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Only return runs for this site profile.
+     */
+    profile_id?: string;
     };
 
     export type WebAnalyticsFilterPresetsListParams = {

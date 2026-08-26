@@ -251,6 +251,215 @@ export const WebAnalyticsAchievementsRecordInteractionBody = /* @__PURE__ */ zod
         ),
 })
 
+export const webAnalyticsContentAutopilotProfilesCreateBodyNameMax = 255
+
+export const webAnalyticsContentAutopilotProfilesCreateBodyDomainMax = 2048
+
+export const webAnalyticsContentAutopilotProfilesCreateBodyGithubRepositoryMax = 512
+
+export const webAnalyticsContentAutopilotProfilesCreateBodyBaseBranchMax = 255
+
+export const WebAnalyticsContentAutopilotProfilesCreateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(webAnalyticsContentAutopilotProfilesCreateBodyNameMax)
+        .optional()
+        .describe('Name used to identify this site in the workspace.'),
+    domain: zod
+        .url()
+        .max(webAnalyticsContentAutopilotProfilesCreateBodyDomainMax)
+        .describe('Authorized site origin for this profile.'),
+    source_urls: zod
+        .array(zod.url())
+        .describe('Public sitemap and factual source URLs used to build the site profile.'),
+    content_boundaries: zod.array(zod.string()).describe('Same-origin URL path prefixes allowed for research.'),
+    brand_rules: zod.array(zod.string()).describe('Brand, terminology, and editorial rules applied to every proposal.'),
+    search_console_enabled: zod.boolean().optional().describe('Whether to use connected Google Search Console data.'),
+    delivery_mode: zod
+        .enum(['export_only', 'github'])
+        .describe('\* `export_only` - Export only\n\* `github` - GitHub')
+        .optional()
+        .describe(
+            'Deliver approved work as exports or GitHub pull requests.\n\n\* `export_only` - Export only\n\* `github` - GitHub'
+        ),
+    github_repository: zod
+        .string()
+        .max(webAnalyticsContentAutopilotProfilesCreateBodyGithubRepositoryMax)
+        .optional()
+        .describe('GitHub repository in owner\/name format.'),
+    base_branch: zod
+        .string()
+        .max(webAnalyticsContentAutopilotProfilesCreateBodyBaseBranchMax)
+        .optional()
+        .describe('Base branch for content pull requests.'),
+    content_directories: zod
+        .array(zod.string())
+        .describe('Repository directories where approved content may be written.'),
+    url_to_file_convention: zod.string().optional().describe('Rule mapping public URLs to repository file paths.'),
+})
+
+export const webAnalyticsContentAutopilotProfilesUpdateBodyNameMax = 255
+
+export const webAnalyticsContentAutopilotProfilesUpdateBodyDomainMax = 2048
+
+export const webAnalyticsContentAutopilotProfilesUpdateBodyGithubRepositoryMax = 512
+
+export const webAnalyticsContentAutopilotProfilesUpdateBodyBaseBranchMax = 255
+
+export const WebAnalyticsContentAutopilotProfilesUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(webAnalyticsContentAutopilotProfilesUpdateBodyNameMax)
+        .optional()
+        .describe('Name used to identify this site in the workspace.'),
+    domain: zod
+        .url()
+        .max(webAnalyticsContentAutopilotProfilesUpdateBodyDomainMax)
+        .describe('Authorized site origin for this profile.'),
+    source_urls: zod
+        .array(zod.url())
+        .describe('Public sitemap and factual source URLs used to build the site profile.'),
+    content_boundaries: zod.array(zod.string()).describe('Same-origin URL path prefixes allowed for research.'),
+    brand_rules: zod.array(zod.string()).describe('Brand, terminology, and editorial rules applied to every proposal.'),
+    search_console_enabled: zod.boolean().optional().describe('Whether to use connected Google Search Console data.'),
+    delivery_mode: zod
+        .enum(['export_only', 'github'])
+        .describe('\* `export_only` - Export only\n\* `github` - GitHub')
+        .optional()
+        .describe(
+            'Deliver approved work as exports or GitHub pull requests.\n\n\* `export_only` - Export only\n\* `github` - GitHub'
+        ),
+    github_repository: zod
+        .string()
+        .max(webAnalyticsContentAutopilotProfilesUpdateBodyGithubRepositoryMax)
+        .optional()
+        .describe('GitHub repository in owner\/name format.'),
+    base_branch: zod
+        .string()
+        .max(webAnalyticsContentAutopilotProfilesUpdateBodyBaseBranchMax)
+        .optional()
+        .describe('Base branch for content pull requests.'),
+    content_directories: zod
+        .array(zod.string())
+        .describe('Repository directories where approved content may be written.'),
+    url_to_file_convention: zod.string().optional().describe('Rule mapping public URLs to repository file paths.'),
+})
+
+export const webAnalyticsContentAutopilotProfilesPartialUpdateBodyNameMax = 255
+
+export const webAnalyticsContentAutopilotProfilesPartialUpdateBodyDomainMax = 2048
+
+export const webAnalyticsContentAutopilotProfilesPartialUpdateBodyGithubRepositoryMax = 512
+
+export const webAnalyticsContentAutopilotProfilesPartialUpdateBodyBaseBranchMax = 255
+
+export const WebAnalyticsContentAutopilotProfilesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(webAnalyticsContentAutopilotProfilesPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Name used to identify this site in the workspace.'),
+    domain: zod
+        .url()
+        .max(webAnalyticsContentAutopilotProfilesPartialUpdateBodyDomainMax)
+        .optional()
+        .describe('Authorized site origin for this profile.'),
+    source_urls: zod
+        .array(zod.url())
+        .optional()
+        .describe('Public sitemap and factual source URLs used to build the site profile.'),
+    content_boundaries: zod
+        .array(zod.string())
+        .optional()
+        .describe('Same-origin URL path prefixes allowed for research.'),
+    brand_rules: zod
+        .array(zod.string())
+        .optional()
+        .describe('Brand, terminology, and editorial rules applied to every proposal.'),
+    search_console_enabled: zod.boolean().optional().describe('Whether to use connected Google Search Console data.'),
+    delivery_mode: zod
+        .enum(['export_only', 'github'])
+        .describe('\* `export_only` - Export only\n\* `github` - GitHub')
+        .optional()
+        .describe(
+            'Deliver approved work as exports or GitHub pull requests.\n\n\* `export_only` - Export only\n\* `github` - GitHub'
+        ),
+    github_repository: zod
+        .string()
+        .max(webAnalyticsContentAutopilotProfilesPartialUpdateBodyGithubRepositoryMax)
+        .optional()
+        .describe('GitHub repository in owner\/name format.'),
+    base_branch: zod
+        .string()
+        .max(webAnalyticsContentAutopilotProfilesPartialUpdateBodyBaseBranchMax)
+        .optional()
+        .describe('Base branch for content pull requests.'),
+    content_directories: zod
+        .array(zod.string())
+        .optional()
+        .describe('Repository directories where approved content may be written.'),
+    url_to_file_convention: zod.string().optional().describe('Rule mapping public URLs to repository file paths.'),
+})
+
+/**
+ * Inspects a public site for its canonical origin, name, and sitemap URLs.
+ * @summary Discover content autopilot site settings
+ */
+export const WebAnalyticsContentAutopilotProfilesDiscoverBody = /* @__PURE__ */ zod.object({
+    domain: zod.url().describe('Public site URL to inspect for onboarding defaults.'),
+})
+
+/**
+ * Saves reviewed Markdown and its canonical delivery package without publishing it.
+ * @summary Edit a content proposal
+ */
+export const WebAnalyticsContentAutopilotProposalsEditBody = /* @__PURE__ */ zod.object({
+    proposed_markdown: zod.string().describe('Edited Markdown to save for review.'),
+    content_package: zod
+        .object({
+            file_path: zod.string().describe('Repository-relative Markdown or MDX file path.'),
+            title: zod.string().describe('Content title.'),
+            description: zod.string().describe('Search description or summary.'),
+            slug: zod.string().describe('URL slug.'),
+            markdown: zod.string().describe('Validated Markdown body.'),
+            frontmatter: zod
+                .array(
+                    zod.object({
+                        key: zod.string().describe('Frontmatter field name.'),
+                        value: zod.string().describe('Serialized frontmatter value.'),
+                    })
+                )
+                .describe('Ordered frontmatter entries.'),
+            internal_links: zod
+                .array(zod.url())
+                .describe('Validated same-origin internal links included in the content.'),
+            source_notes: zod.array(zod.string()).describe('Portable source notes included with the export.'),
+        })
+        .describe('Updated canonical delivery package.'),
+})
+
+/**
+ * Commits approved files to a content-only branch and opens a pull request. It never merges.
+ * @summary Open a content pull request
+ */
+export const webAnalyticsContentAutopilotProposalsOpenPullRequestBodyProposalIdsMax = 5
+
+export const WebAnalyticsContentAutopilotProposalsOpenPullRequestBody = /* @__PURE__ */ zod.object({
+    proposal_ids: zod
+        .array(zod.uuid())
+        .min(1)
+        .max(webAnalyticsContentAutopilotProposalsOpenPullRequestBodyProposalIdsMax)
+        .describe('One new article or up to five page improvements from the same run.'),
+})
+
+/**
+ * Captures the current profile and creates one pending on-demand content research run.
+ * @summary Start a content autopilot run
+ */
+export const WebAnalyticsContentAutopilotRunsStartBody = /* @__PURE__ */ zod.object({
+    profile_id: zod.uuid().describe('Site profile to research.'),
+})
+
 export const webAnalyticsFilterPresetsCreateBodyNameMax = 400
 
 export const WebAnalyticsFilterPresetsCreateBody = /* @__PURE__ */ zod.object({
