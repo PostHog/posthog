@@ -97,6 +97,28 @@ describe('expandScheduleOccurrences', () => {
         ])
     })
 
+    it.each([
+        {
+            name: 'a condition set with no rollout percentage as 100%',
+            groups: [{ properties: [], rollout_percentage: null, variant: null }],
+            expected: 100,
+        },
+        { name: 'no condition sets as unknown', groups: [], expected: null },
+    ])('reads $name', ({ groups, expected }) => {
+        // Null means the set matches all of its targets. Coercing it to 0 would floor the step
+        // line and describe a scheduled condition as a 0% rollout.
+        const schedules = [
+            change({
+                payload: { operation: ScheduledChangeOperationType.AddReleaseCondition, value: { groups } },
+            }),
+        ]
+
+        const occurrences = expandScheduleOccurrences(schedules, flag({ filters: { groups, multivariate: null } }), NOW)
+
+        expect(occurrences[0].addedRolloutPercentage).toEqual(expected)
+        expect(occurrences[0].projected.rolloutPercentage).toEqual(expected)
+    })
+
     it('expands a fixed-interval recurring schedule up to its end date', () => {
         const schedules = [
             change({

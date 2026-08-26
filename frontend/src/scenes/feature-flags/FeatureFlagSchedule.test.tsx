@@ -177,6 +177,28 @@ describe('FeatureFlagSchedule', () => {
         [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/scheduled_changes`]: () => [200, { results: schedules }],
     })
 
+    it('gives a viewer without edit rights the banner and no way into the form', async () => {
+        // Three separate conditions gate what this user sees: the banner, the collapsed-form
+        // button, and the form itself. A regression in any one of them hands a viewer a form whose
+        // submit the API rejects.
+        useMocks({ get: schedulesMock([makeScheduledChange({})]) })
+        const featureFlag = buildFeatureFlag({ active: false, rolloutPercentage: 100 })
+        renderWithSchedules()
+        // One schedule collapses the form, so the button's own can_edit check is what hides it here.
+        await screen.findByText('Active & upcoming')
+        // Set can_edit last. The mount loads a flag of its own, and that response would overwrite
+        // an earlier value during the await above.
+        act(() => {
+            featureFlagLogic(logicProps).actions.setFeatureFlag({ ...featureFlag, can_edit: false })
+        })
+
+        expect(screen.getByText(/You don't have the necessary permissions/)).toBeInTheDocument()
+        expect(document.querySelector('[data-attr="feature-flag-open-schedule-form"]')).not.toBeInTheDocument()
+        expect(
+            screen.queryByText('Automatically change flag properties at a future point in time.')
+        ).not.toBeInTheDocument()
+    })
+
     it('collapses the creation form behind a button when schedules exist, and toggles via the button and close', async () => {
         useMocks({ get: schedulesMock([makeScheduledChange({})]) })
         renderWithSchedules()
