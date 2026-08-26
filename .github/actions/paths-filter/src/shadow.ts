@@ -21,6 +21,19 @@ import {File} from './file'
 // `HEAD^1..HEAD` is the pull request's own changes and matches the API.
 
 const MERGE_REF_FETCH_DEPTH = 2
+const POSTHOG_HOST = 'https://us.i.posthog.com'
+const EVENT_NAME = 'paths_filter_shadow_compared'
+
+// A change-detection job is on the critical path of every workflow, so the whole
+// comparison gets a wall-clock budget and gives up rather than holding the job to
+// its timeout-minutes. The git-level low-speed settings cover a stalled transfer;
+// the budget covers everything else.
+const BUDGET_MS = 20000
+const CAPTURE_TIMEOUT_MS = 5000
+const LIST_CAP = 50
+
+// The API caps pulls/{n}/files at this many entries and says nothing when it truncates.
+const API_FILE_CAP = 3000
 
 type Verdict = 'match' | 'mismatch' | 'unavailable'
 
@@ -62,20 +75,13 @@ async function scratchRepo(): Promise<string> {
 // The workspace remote carries no credentials of its own: actions/checkout keeps the
 // token in an http.extraheader the scratch repository does not inherit. A private
 // remote therefore reports unavailable rather than comparing against a partial fetch.
-async function originUrl(): Promise<string> {
+function originUrl(): string {
   const server = process.env.GITHUB_SERVER_URL
   const repo = process.env.GITHUB_REPOSITORY
-  if (server && repo) {
-    return `${server}/${repo}`
-  }
-  const remote = await getExecOutput('git', ['remote', 'get-url', 'origin'], {
-    ignoreReturnCode: true,
-    silent: true
-  })
-  if (remote.exitCode !== 0 || !remote.stdout.trim()) {
+  if (!server || !repo) {
     throw new Error('cannot resolve origin url')
   }
-  return remote.stdout.trim()
+  return `${server}/${repo}`
 }
 
 // The merge ref is not guaranteed to be present or current: GitHub recomputes it
@@ -83,14 +89,17 @@ async function originUrl(): Promise<string> {
 // rejects a stale ref rather than reading it as this pull request's changes.
 async function localChangedFiles(pr: PullRequest): Promise<string[]> {
   const gitDir = await scratchRepo()
-  const url = await originUrl()
 
   const fetched = await git(gitDir, [
+    '-c',
+    'http.lowSpeedLimit=1000',
+    '-c',
+    'http.lowSpeedTime=10',
     'fetch',
     '--no-tags',
     '--filter=blob:none',
     `--depth=${MERGE_REF_FETCH_DEPTH}`,
-    url,
+    originUrl(),
     `refs/pull/${pr.number}/merge`
   ])
   if (fetched.code !== 0) {
@@ -106,7 +115,8 @@ async function localChangedFiles(pr: PullRequest): Promise<string[]> {
   }
 
   // --no-renames so a rename arrives as a delete plus an add, which is the shape
-  // the API path builds by hand from `previous_filename`.
+  // the API path builds by hand from `previous_filename`. -z because git quotes a
+  // path holding a newline or a non-ASCII byte in the default format.
   const diff = await git(gitDir, ['diff', '--no-renames', '--name-only', '-z', 'FETCH_HEAD^1', 'FETCH_HEAD'])
   if (diff.code !== 0) {
     throw new Error('diff failed')
@@ -123,14 +133,22 @@ function compare(apiFiles: File[], gitFiles: string[]): ShadowResult {
     verdict: onlyInApi.length === 0 && onlyInGit.length === 0 ? 'match' : 'mismatch',
     apiCount: api.size,
     gitCount: local.size,
-    onlyInApi: onlyInApi.slice(0, 20),
-    onlyInGit: onlyInGit.slice(0, 20)
+    onlyInApi: onlyInApi.slice(0, LIST_CAP),
+    onlyInGit: onlyInGit.slice(0, LIST_CAP)
   }
+}
+
+function budgeted<T>(work: Promise<T>, ms: number): Promise<T> {
+  let timer: NodeJS.Timeout
+  const expiry = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`exceeded ${ms}ms budget`)), ms)
+  })
+  return Promise.race([work, expiry]).finally(() => clearTimeout(timer)) as Promise<T>
 }
 
 export async function compareWithMergeCommit(apiFiles: File[], pr: PullRequest): Promise<ShadowResult> {
   try {
-    return compare(apiFiles, await localChangedFiles(pr))
+    return compare(apiFiles, await budgeted(localChangedFiles(pr), BUDGET_MS))
   } catch (error) {
     return {
       verdict: 'unavailable',
@@ -140,22 +158,81 @@ export async function compareWithMergeCommit(apiFiles: File[], pr: PullRequest):
   }
 }
 
+// Without this the only record of a divergence is a log line in one job of one run,
+// which is unreadable at the volume that makes the comparison worth running.
+// Forks get no secrets, so the token is absent there and the capture is skipped.
+async function capture(result: ShadowResult, pr: PullRequest, durationMs: number): Promise<void> {
+  const apiKey = process.env.PATHS_FILTER_SHADOW_POSTHOG_TOKEN
+  if (!apiKey) {
+    return
+  }
+  const repo = process.env.GITHUB_REPOSITORY || null
+  const headRef = pr.head?.ref ?? null
+  const properties = {
+    repo,
+    verdict: result.verdict,
+    reason: result.reason ?? null,
+    api_count: result.apiCount,
+    git_count: result.gitCount ?? null,
+    only_in_api: result.onlyInApi ?? [],
+    only_in_git: result.onlyInGit ?? [],
+    // pulls/{n}/files truncates silently, so record both sides of the tell: what the
+    // API returned, and what the pull request payload says it should have been.
+    api_truncated: result.apiCount >= API_FILE_CAP,
+    pr_changed_files: typeof pr.changed_files === 'number' ? pr.changed_files : null,
+    pr_number: pr.number,
+    head_sha: pr.head?.sha ?? null,
+    head_ref: headRef,
+    base_ref: pr.base?.ref ?? null,
+    // Queue branches carry the cumulative batch diff and page far more than a human
+    // pull request, so they are the population worth reading separately.
+    branch_class: headRef?.startsWith('trunk-merge/') ? 'trunk-merge' : 'pull-request',
+    is_fork: pr.head?.repo?.full_name !== repo,
+    duration_ms: durationMs,
+    workflow: process.env.GITHUB_WORKFLOW || null,
+    job: process.env.GITHUB_JOB || null,
+    run_id: process.env.GITHUB_RUN_ID || null,
+    run_attempt: process.env.GITHUB_RUN_ATTEMPT || null
+  }
+  const res = await fetch(`${POSTHOG_HOST}/capture/`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      api_key: apiKey,
+      event: EVENT_NAME,
+      distinct_id: repo || 'paths-filter-shadow',
+      properties
+    }),
+    signal: AbortSignal.timeout(CAPTURE_TIMEOUT_MS)
+  })
+  if (!res.ok) {
+    throw new Error(`capture ${res.status}`)
+  }
+}
+
 // Never throws: the filter's real answer is already computed by the time this runs,
 // so nothing here is worth failing a CI job over.
 export async function report(apiFiles: File[], pr: PullRequest): Promise<void> {
   try {
     core.startGroup('Shadow: merge-commit change detection')
+    const startedAt = Date.now()
     const result = await compareWithMergeCommit(apiFiles, pr)
-    if (result.verdict === 'match') {
-      core.info(`shadow: match (${result.apiCount} files)`)
-    } else if (result.verdict === 'unavailable') {
-      core.info(`shadow: unavailable (${result.reason})`)
-    } else {
+    const durationMs = Date.now() - startedAt
+
+    if (result.verdict === 'mismatch') {
       core.warning(
         `shadow: MISMATCH api=${result.apiCount} git=${result.gitCount} ` +
           `onlyInApi=${JSON.stringify(result.onlyInApi)} onlyInGit=${JSON.stringify(result.onlyInGit)}`
       )
+    } else if (result.verdict === 'unavailable') {
+      core.info(`shadow: unavailable (${result.reason}) in ${durationMs}ms`)
+    } else {
+      core.info(`shadow: match (${result.apiCount} files) in ${durationMs}ms`)
     }
+
+    await capture(result, pr, durationMs).catch(error => {
+      core.info(`shadow: capture skipped (${error instanceof Error ? error.message : String(error)})`)
+    })
   } catch (error) {
     core.info(`shadow: skipped (${error instanceof Error ? error.message : String(error)})`)
   } finally {
