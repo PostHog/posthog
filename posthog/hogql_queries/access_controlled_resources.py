@@ -70,6 +70,28 @@ def queried_access_controlled_resources(query, team: "Team") -> Optional[set[str
     if getattr(query, "kind", None) == "AccountsTableQuery":
         return _with_fallback_parents({"account"})
 
+    if getattr(query, "kind", None) == "AccountsQuery":
+        expressions = [
+            *(getattr(query, "select", None) or []),
+            *(getattr(query, "metrics", None) or []),
+            *(getattr(query, "orderBy", None) or []),
+        ]
+        filter_expression = getattr(query, "filterExpression", None)
+        if filter_expression:
+            expressions.append(filter_expression)
+        try:
+            fields = [
+                field
+                for expression in expressions
+                for field in GetFieldsTraverser(parse_select(f"SELECT {expression}")).fields
+            ]
+        except BaseHogQLError:
+            return None
+        scopes = {"account"}
+        if any(any(str(segment) in _ACCOUNT_COMMUNICATION_LAZY_FIELDS for segment in field.chain) for field in fields):
+            scopes.add("ticket")
+        return _with_fallback_parents(scopes)
+
     # Raw HogQL is the only query that references system.* and warehouse tables by name
     if getattr(query, "kind", None) == "HogQLQuery":
         sql = getattr(query, "query", None)
