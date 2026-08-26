@@ -46,6 +46,24 @@ describe("PostHogAPIClient", () => {
     expect(mockFetch).toHaveBeenCalledTimes(2);
   });
 
+  // The lookup gates session start, so a stalled socket must degrade to null
+  // rather than hang. The bound is what makes the best-effort catch reachable.
+  it("bounds the user-node lookup and returns null when it times out", async () => {
+    const client = new PostHogAPIClient({
+      apiUrl: "https://app.posthog.com",
+      getApiKey: vi.fn().mockResolvedValue("token"),
+      projectId: 1,
+    });
+    mockFetch.mockRejectedValue(
+      new DOMException("The operation was aborted.", "TimeoutError"),
+    );
+
+    await expect(client.getUserNode()).resolves.toBeNull();
+
+    const init = mockFetch.mock.calls[0]?.[1] as RequestInit | undefined;
+    expect(init?.signal).toBeInstanceOf(AbortSignal);
+  });
+
   it("loads policies for managed MCP servers and keeps unmanaged servers", async () => {
     const client = new PostHogAPIClient({
       apiUrl: "https://app.posthog.com",

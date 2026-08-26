@@ -6,6 +6,7 @@ import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/typ
 import { metricsOverviewRetrieve, metricsValuesRetrieve } from '../generated/api'
 import type { _MetricsOverviewResponseApi } from '../generated/api.schemas'
 import { metricsSceneLogic } from '../metricsSceneLogic'
+import { metricNamePickerLogic } from './metricNamePickerLogic'
 import { metricsOverviewLogic } from './metricsOverviewLogic'
 import { metricsViewerLogic } from './metricsViewerLogic'
 
@@ -68,20 +69,26 @@ describe('metricsOverviewLogic', () => {
     // the query goes out unfiltered. These assert `queryFilters` — what actually reaches
     // the API — including the "unknown" row, whose service_name is empty.
     it.each([
-        ['a named service', 'api', { key: 'service_name', op: 'eq', value: 'api' }],
-        ['the unknown service', '', { key: 'service_name', op: 'regex', value: '^$' }],
-    ])('viewService sends a service filter for %s and switches tab', async (_name, serviceName, expected) => {
-        logic = metricsOverviewLogic()
-        logic.mount()
+        ['a named service', 'api', { key: 'service_name', op: 'eq', value: 'api' }, ['api']],
+        ['the unknown service', '', { key: 'service_name', op: 'regex', value: '^$' }, ['']],
+    ])(
+        'viewService sends a service filter for %s, scopes the picker, and switches tab',
+        async (_name, serviceName, expected, pickerServices) => {
+            logic = metricsOverviewLogic()
+            logic.mount()
 
-        await expectLogic(logic, () => {
-            logic.actions.viewService(serviceName as string)
-        }).toDispatchActions([
-            metricsViewerLogic.actionTypes.setFilterGroup,
-            metricsSceneLogic.actionTypes.setActiveTab,
-        ])
+            await expectLogic(logic, () => {
+                logic.actions.viewService(serviceName as string)
+            }).toDispatchActions([
+                metricsViewerLogic.actionTypes.setFilterGroup,
+                metricsSceneLogic.actionTypes.setActiveTab,
+            ])
 
-        expect(metricsSceneLogic.values.activeTab).toBe('viewer')
-        expect(metricsViewerLogic.values.queryFilters).toEqual([expected])
-    })
+            expect(metricsSceneLogic.values.activeTab).toBe('viewer')
+            expect(metricsViewerLogic.values.queryFilters).toEqual([expected])
+            // The landing promise: the viewer the user arrives at offers only the
+            // metrics that service reports, not every metric in the project.
+            expect(metricNamePickerLogic.values.services).toEqual(pickerServices)
+        }
+    )
 })

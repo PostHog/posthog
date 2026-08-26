@@ -115,6 +115,39 @@ class TestLogValuesAttributesTimezones(ClickhouseTestMixin, APIBaseTest):
 
         self.assertGreater(len(results), 0, "Should return at least one result")
 
+    @parameterized.expand(
+        [
+            ("the service the values live under", "argo-rollouts", True),
+            ("another service", "cdp-api", False),
+        ]
+    )
+    def test_log_values_query_scoped_by_service_in_group(self, _name, service, expects_results):
+        # The viewer keeps its service selection in filterGroup, so these suggestions have to read it
+        # from there: otherwise a scoped viewer offers values that exist only in other services.
+        query_params = {
+            "dateRange": '{"date_from": "2025-12-16T09:00:00Z", "date_to": "2025-12-16T11:00:00Z"}',
+            "key": "level",
+            "attribute_type": "log",
+            "value": "DE",
+            "filterGroup": json.dumps(
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [{"key": "service_name", "type": "log", "operator": "exact", "value": [service]}],
+                        }
+                    ],
+                }
+            ),
+        }
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/logs/values", query_params)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results) > 0, expects_results)
+
     def test_log_values_query_with_value_filter_no_matches(self):
         query_params = {
             "dateRange": '{"date_from": "2025-12-16T09:00:00Z", "date_to": "2025-12-16T11:00:00Z"}',

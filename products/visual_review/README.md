@@ -133,12 +133,21 @@ Developers can also manually tolerate a snapshot from the UI.
 **Quarantine** — known-flaky identifiers can be quarantined per repo and run type.
 Quarantined snapshots are still captured and diffed but excluded from gating.
 
+**Flakiness tab** — surfaces the tolerated-hash data, which is otherwise written and never read.
+A snapshot is scored on how many alternate hashes the classifier can still match for its current baseline, so the score resets when the baseline moves.
+`unstable` means it rendered one of those variants within the last week, `settled` means it carries variants but has not rendered one recently, and `clean` means it has none and is only listed because it is quarantined.
+Open quarantines appear in the same list, with extend and lift on the row, and `needs a decision` flags one that has run out, is about to, or now covers a snapshot that stopped producing variants.
+
+Recency comes from the runs that rendered a variant, not from when the variant was first recorded.
+A snapshot can keep cycling through variants it already recorded without ever adding a new one, and that case still fails to render the same way twice.
+
 **Known gaps:**
 
 - Frontend error toast swallows structured error codes (`sha_mismatch`, `stale_run`) instead of showing tailored messages
 
 **Not yet built:**
 
+- Auto-release of a quarantine whose snapshot has gone clean (the flakiness tab flags it, a human still decides)
 - Retention / cleanup of old runs and artifacts
 - Server-side thumbnailing for the snapshot strip
 - Webhook-driven run creation (currently CLI-initiated only)
