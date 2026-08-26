@@ -59,9 +59,14 @@ class TestListGithubSourcesAccessControl(BaseTest):
         )
         assert [source.id for source in visible] == [str(mine.id)]
 
-        # An explicit object grant survives the fail-closed guard.
+        # An explicit object grant survives the fail-closed guard. Only member and role grants count
+        # as grants in the filter; a default ("everyone") object row does not.
         AccessControl.objects.create(
-            team=self.team, resource="external_data_source", resource_id=str(theirs.id), access_level="editor"
+            team=self.team,
+            resource="external_data_source",
+            resource_id=str(theirs.id),
+            access_level="editor",
+            organization_member=self.organization_membership,
         )
         visible = list_github_sources(
             team=self.team, user_access_control=UserAccessControl(user=self.user, team=self.team)
