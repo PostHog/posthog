@@ -29,7 +29,10 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.dataclasses import frozen
 from posthog.models import PropertyDefinition, Team, User
 
-from products.access_control.backend.property_access_control import get_restricted_property_names
+from products.access_control.backend.property_access_control import (
+    get_restricted_properties_for_team,
+    get_restricted_property_names,
+)
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
     LazyComputationTable,
@@ -590,7 +593,25 @@ class ConversionGoalProcessor:
         # per-user masking. When any is restricted for THIS user, fall back to the masked direct path.
         if self._precompute_properties_restricted_for_user():
             return False
+        if self._test_account_filters_restricted_for_user():
+            return False
         return True
+
+    def _test_account_filters_restricted_for_user(self) -> bool:
+        """True when dropping test accounts inside the precompute could leak a property this user can't read.
+
+        The precompute evaluates the team's test-account rules with no user attached, so those rules are
+        compared against real values rather than masked ones. Someone denied a property that a rule reads
+        could otherwise toggle the filter and diff the aggregates to learn how many rows match it.
+
+        Deliberately coarse: it asks whether the user has any restriction at all, rather than which
+        properties the rules name. Reading those names means walking arbitrary filter trees, including
+        nested groups and cohorts, and a miss there fails open. Over-refusing only costs this user the
+        precompute on a filtered read, and the direct path it falls back to masks correctly.
+        """
+        if not self.filter_test_accounts or not self.team.test_account_filters:
+            return False
+        return bool(get_restricted_properties_for_team(team_id=self.team.pk, user=self.user))
 
     def _precompute_materialized_event_properties(self) -> set[str]:
         """Event property names the precompute path resolves into scalar columns of the preagg table."""
