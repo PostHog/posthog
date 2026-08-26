@@ -67,6 +67,8 @@ const mockTrpcOs = vi.hoisted(() => ({
 const mockSessionStoreSetters = vi.hoisted(() => ({
   setSession: vi.fn(),
   removeSession: vi.fn(),
+  setTaskStarting: vi.fn(),
+  clearTaskStarting: vi.fn(),
   updateSession: vi.fn(),
   updateCloudStatus: vi.fn(),
   appendEvents: vi.fn(),
@@ -7755,6 +7757,9 @@ describe("SessionService", () => {
       );
 
       expect(result.stopReason).toBe("queued");
+      expect(mockSessionStoreSetters.setTaskStarting).toHaveBeenCalledWith(
+        "task-123",
+      );
       expect(mockAuthenticatedClient.runTaskInCloud).toHaveBeenCalledWith(
         "task-123",
         "feature/codex-run",
