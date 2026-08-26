@@ -126,6 +126,13 @@ export type Session = BaseSession & {
    * cancel and the other swap path refuse during it, and a second swap is
    * rejected — the swap must never be raced. */
   querySwap?: Promise<void>;
+  /** Tracks whether we're inside a compaction. The SDK emits the terminal
+   * `status` (compact_result success/failed) twice for a single failed
+   * compaction, and the two messages are indistinguishable, so we report the
+   * outcome only while a compaction is in progress, then clear this. A fresh
+   * `compacting` status sets it again, so every distinct compaction (e.g.
+   * repeated auto-compactions in a long turn) is still shown. */
+  compacting?: boolean;
   cancelController?: AbortController;
   forceCancelTimer?: ReturnType<typeof setTimeout>;
   emitRawSDKMessages: boolean | SDKMessageFilter[];
