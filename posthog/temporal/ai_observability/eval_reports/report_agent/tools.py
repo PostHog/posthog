@@ -11,7 +11,7 @@ import re
 import json
 import time
 import random
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Annotated, Literal, TypeVar
 
@@ -122,6 +122,20 @@ def _remember_returned_target_ids(state: dict, target_ids: list[object]) -> None
 def _is_allowlisted(state: dict, allowlist_key: str, value: str) -> bool:
     allowlist = state.get(allowlist_key)
     return isinstance(allowlist, list) and value in allowlist
+
+
+def _handled_ids(state: dict) -> set[str]:
+    """Return every target ID this run's queries returned, across both allowlists.
+
+    The agent state and the finished agent result are the same mapping, so the
+    in-loop guard and the final validation key on one definition of a handled ID.
+    """
+    handled: set[str] = set()
+    for allowlist_key in (TRACE_ID_ALLOWLIST_KEY, SESSION_ID_ALLOWLIST_KEY):
+        allowlist = state.get(allowlist_key)
+        if isinstance(allowlist, list):
+            handled.update(value for value in allowlist if isinstance(value, str))
+    return handled
 
 
 def _report_run_target_filter(evaluation_target: str) -> Q:
@@ -1493,6 +1507,16 @@ def _dead_backticked_ids(text: str, citations: list[Citation], handled_ids: set[
     return dead
 
 
+def _dead_backticked_ids_across(texts: Iterable[str], citations: list[Citation], handled_ids: set[str]) -> list[str]:
+    """Return the dead backticked IDs found in any of `texts`, in first-seen order."""
+    dead: list[str] = []
+    for text in texts:
+        for token in _dead_backticked_ids(text, citations, handled_ids):
+            if token not in dead:
+                dead.append(token)
+    return dead
+
+
 @tool
 def add_section(
     state: Annotated[dict, InjectedState],
@@ -1528,6 +1552,14 @@ def add_section(
         return (
             f"Error: maximum of {MAX_REPORT_SECTIONS} sections reached. "
             "Merge your content into existing sections rather than fragmenting further."
+        )
+    dead = _dead_backticked_ids_across((clean_title, clean_content), state["report"].citations, _handled_ids(state))
+    if dead:
+        preview = ", ".join(f"`{token}`" for token in dead[:3])
+        return (
+            f"Error: the following backticked IDs will not render as citation links: {preview}. "
+            "Cite each generation, trace, or session with add_citation, then use one pair of backticks around the exact cited ID. "
+            "Run IDs from list_recent_report_runs cannot be cited. Name a prior run by its period and remove the backticks."
         )
     state["report"].sections.append(ReportSection(title=clean_title, content=clean_content))
     return f"Section {len(state['report'].sections)}/{MAX_REPORT_SECTIONS} added: {clean_title!r} ({len(clean_content)} chars)"

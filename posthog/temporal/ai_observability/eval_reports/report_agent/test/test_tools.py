@@ -619,12 +619,42 @@ class TestAddSection(SimpleTestCase):
         titles = [s.title for s in state["report"].sections]
         self.assertEqual(titles, ["First", "Second", "Third"])
 
-    def test_appends_section_backticking_an_uncited_id(self):
-        # add_section no longer guards; the dead-ID check runs once at validation time
-        # over the final citations, so the agent may draft before it cites.
+    @parameterized.expand(
+        [
+            # A run_id from list_recent_report_runs is a canonical UUID but not citable.
+            (
+                "uncited_uuid_in_content",
+                "Summary",
+                "Steady since run `{id}`.",
+                [],
+                "0195f0a1-2b3c-7d4e-8f90-1a2b3c4d5e6f",
+            ),
+            # An opaque handled ID is invisible to a UUID-shaped regex, so the in-loop
+            # guard only catches it while it reads the run's allowlists.
+            ("uncited_handled_id_in_content", "Summary", "See `{id}`.", ["chat_thread_9f2b1a"], "chat_thread_9f2b1a"),
+            (
+                "uncited_handled_id_in_title",
+                "Regression in `{id}`",
+                "A finding.",
+                ["chat_thread_9f2b1a"],
+                "chat_thread_9f2b1a",
+            ),
+        ]
+    )
+    def test_rejects_section_with_a_dead_backticked_id(
+        self, _name: str, title: str, content: str, session_allowlist: list[str], dead_id: str
+    ) -> None:
         state = _state_with_empty_report()
-        run_id = "0195f0a1-2b3c-7d4e-8f90-1a2b3c4d5e6f"
-        result = _add_section_fn(state=state, title="Summary", content=f"Steady since run `{run_id}`.")
+        state["session_id_allowlist"] = session_allowlist
+        result = _add_section_fn(state=state, title=title.format(id=dead_id), content=content.format(id=dead_id))
+        self.assertIn("Error", result)
+        self.assertIn(dead_id, result)
+        self.assertEqual(state["report"].sections, [])
+
+    def test_allows_section_when_backticked_id_is_cited(self):
+        state = _state_with_empty_report()
+        state["report"].citations.append(Citation(generation_id=_VALID_GEN_ID, trace_id=_VALID_TRACE_ID))
+        result = _add_section_fn(state=state, title="Summary", content=f"See `{_VALID_GEN_ID}` for the regression.")
         self.assertNotIn("Error", result)
         self.assertEqual(len(state["report"].sections), 1)
 
