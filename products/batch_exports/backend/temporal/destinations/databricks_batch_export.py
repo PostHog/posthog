@@ -89,6 +89,7 @@ DatabricksField = tuple[str, str]
 
 # Common operation timeouts (seconds)
 ONE_MINUTE = 60
+TWO_MINUTES = 2 * 60
 FIVE_MINUTES = 5 * 60
 THIRTY_MINUTES = 30 * 60
 ONE_HOUR = 60 * 60
@@ -357,10 +358,14 @@ class DatabricksClient:
                 enable_telemetry=False,
                 # Per-RPC, not per-query — long queries poll via repeated status RPCs.
                 _socket_timeout=ONE_MINUTE,
-                _retry_stop_after_attempts_count=2,
+                # The SDK floors each retry wait at `_retry_delay_max` and skips the retry if that
+                # wait would exceed `_retry_stop_after_attempts_duration`, so the delay must stay
+                # under the budget.
+                _retry_delay_max=10,
+                _retry_stop_after_attempts_count=4,
                 # Cap the SDK's synchronous retry loop so a cancelled caller doesn't leave
                 # the worker thread polling for ~15 minutes (the SDK's 900s default).
-                _retry_stop_after_attempts_duration=ONE_MINUTE,
+                _retry_stop_after_attempts_duration=TWO_MINUTES,
                 session_configuration=(
                     {"STATEMENT_TIMEOUT": str(int(self.statement_timeout_seconds))}
                     if self.statement_timeout_seconds is not None
