@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from functools import partial
 from typing import cast
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from freezegun import freeze_time
@@ -15,6 +15,7 @@ from posthog.dags.deletes import (
     MonthlyCleanupConfig,
     PendingDeletesDictionary,
     PendingDeletesTable,
+    StagedDictionary,
     cleanup_old_events_by_partition,
     deletes_job,
     find_partitions_to_cleanup,
@@ -675,3 +676,62 @@ def test_monthly_old_events_cleanup_job(cluster: ClickhouseCluster):
 
     events_after = cluster.any_host(count_all_events).result()
     assert events_after == len(recent_events)
+
+
+def _insert_pending_deletes(table: PendingDeletesTable, client: Client) -> None:
+    client.execute(
+        table.populate_query,
+        [
+            {
+                "id": i,
+                "deletion_type": int(DeletionType.Person),
+                "key": str(UUID(int=i)),
+                "group_type_index": None,
+                "created_at": datetime(2026, 8, 26, 10, 11, 12),
+                "delete_verified_at": None,
+                "created_by_id": None,
+                "team_id": 99999,
+            }
+            for i in range(5)
+        ],
+    )
+
+
+@pytest.mark.django_db
+def test_a_staged_dictionary_holds_the_same_rows_as_the_source_table(cluster: ClickhouseCluster):
+    # A cluster with its own Keeper can never join the source table's replica set, so it loads the
+    # dictionary from a staged object instead, and the run is gated on both sides checksumming
+    # alike. That gate only means something if the staged copy round-trips every column exactly:
+    # a type Parquet does not preserve would make two correct clusters look like they disagree.
+    table = PendingDeletesTable(timestamp=datetime(2026, 8, 26, 10, 11, 12))
+    dictionary = PendingDeletesDictionary(source=table)
+    create = partial(dictionary.create, shards=1, max_execution_time=0, max_memory_usage=0)
+
+    try:
+        cluster.any_host(table.create).result()
+        cluster.any_host(partial(_insert_pending_deletes, table)).result()
+
+        cluster.any_host(create).result()
+        from_source_table = cluster.any_host(dictionary.load).result()
+
+        staged = dictionary.staged(f"test_{uuid4()}")
+        cluster.any_host(partial(staged.export, source_query=dictionary.query)).result()
+        cluster.any_host(dictionary.drop).result()
+        cluster.any_host(partial(create, query=staged.query)).result()
+        from_staged_object = cluster.any_host(dictionary.load).result()
+
+        assert from_staged_object == from_source_table
+    finally:
+        cluster.any_host(dictionary.drop).result()
+        cluster.any_host(table.drop).result()
+
+
+def test_staged_dictionary_escapes_quotes_inside_a_column_type() -> None:
+    # DateTime64(6, 'UTC') carries single quotes, and the structure is itself a quoted SQL literal,
+    # so an unescaped copy terminates the literal early and the s3() call fails to parse.
+    staged = StagedDictionary(
+        key="run/adhoc.parquet",
+        columns="team_id, uuid, created_at",
+        structure="team_id Int64, uuid UUID, created_at DateTime64(6, 'UTC')",
+    )
+    assert "DateTime64(6, \\'UTC\\')" in staged.query
