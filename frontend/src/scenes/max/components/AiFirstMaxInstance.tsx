@@ -19,6 +19,7 @@ import { MaxThreadLogicProps, maxThreadLogic } from '../maxThreadLogic'
 import { phaiAiComposerSeedLogic } from '../phaiAiComposerSeedLogic'
 import { Thread } from '../Thread'
 import { MaxNotConfigured } from './MaxNotConfigured'
+import { MaybePhaiLegacyNudge } from './MaybePhaiLegacyNudge'
 import { PhaiViewToggle } from './PhaiViewToggle'
 import { SidebarQuestionInputWithSuggestions } from './SidebarQuestionInputWithSuggestions'
 import { ThreadAutoScroller } from './ThreadAutoScroller'
@@ -128,6 +129,7 @@ export function AiFirstMaxInstance({ tabId }: AiFirstMaxInstanceProps): JSX.Elem
                 <BindLogic logic={maxThreadLogic} props={threadProps}>
                     <div className="flex flex-col grow overflow-hidden">
                         <ChatHeader conversationId={conversationId} tabId={tabId} />
+                        <MaybePhaiLegacyNudge panelId={tabId} />
                         {isMaxAvailable ? (
                             <ChatArea
                                 threadVisible={threadVisible}

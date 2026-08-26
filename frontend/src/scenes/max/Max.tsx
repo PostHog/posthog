@@ -32,6 +32,7 @@ import { runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
 import { AiFirstMaxInstance } from './components/AiFirstMaxInstance'
 import { AnimatedBackButton } from './components/AnimatedBackButton'
 import { MaxNotConfigured } from './components/MaxNotConfigured'
+import { MaybePhaiLegacyNudge } from './components/MaybePhaiLegacyNudge'
 import { MAX_SIDE_PANEL_ID, PhaiSidePanelChat } from './components/PhaiSidePanelChat'
 import { PhaiViewToggle } from './components/PhaiViewToggle'
 import { SidebarQuestionInput } from './components/SidebarQuestionInput'
@@ -89,7 +90,8 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
     // identity we bind: a tabId identifies a scene tab (or a Storybook instance rendered with side
     // panel chrome), while the real side panel — which has no tabId — binds the side panel panelId.
     // Folding the presentational flag into the key would hijack tabbed instances.
-    const logicProps: MaxLogicProps = { panelId: tabId ?? SIDE_PANEL_PANEL_ID }
+    const panelId = tabId ?? SIDE_PANEL_PANEL_ID
+    const logicProps: MaxLogicProps = { panelId }
     const {
         threadVisible,
         conversationHistoryVisible,
@@ -132,6 +134,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
     ) : (
         <BindLogic logic={maxLogic} props={logicProps}>
             <BindLogic logic={maxThreadLogic} props={threadProps}>
+                {effectivePhaiView === 'legacy' && <MaybePhaiLegacyNudge panelId={panelId} />}
                 {effectivePhaiView === 'new' ? (
                     // Side panel only shows the new composer + thread viewer — the tasks list lives on /ai.
                     <PhaiSidePanelChat />

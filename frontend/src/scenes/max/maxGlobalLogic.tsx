@@ -2,6 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, redu
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import type { LocationChangedPayload } from 'kea-router/lib/types'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -391,6 +392,14 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        setPhaiViewMode: ({ mode }) => {
+            // The adoption spine: every crossing between the legacy chat and the new PostHog AI, whichever
+            // affordance caused it. Nudge-driven switches are identifiable by the nudge's own clicked event.
+            posthog.capture('posthog ai view switched', {
+                to: mode,
+                conversation_id: values.currentConversationId,
+            })
+        },
         askSidePanelMax: ({ prompt }) => {
             newInternalTab(urls.ai(undefined, prompt))
         },
