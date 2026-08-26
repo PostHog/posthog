@@ -1557,6 +1557,9 @@ export interface featureFlagLogicActions {
     setScheduleFormExpanded: (expanded: boolean) => {
         expanded: boolean
     }
+    resetScheduleFormExpanded: () => {
+        value: true
+    }
     setSchedulePayload: (
         filters: FeatureFlagType['filters'] | null,
         active: FeatureFlagType['active'] | null,
@@ -2056,6 +2059,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         loadCopyDependencyRequirementsFailure: (error: string, errorObject?: unknown) => ({ error, errorObject }),
         setScheduleDateMarker: (dateMarker: any) => ({ dateMarker }),
         setScheduleFormExpanded: (expanded: boolean) => ({ expanded }),
+        resetScheduleFormExpanded: true,
         setSchedulePayload: (
             filters: FeatureFlagType['filters'] | null,
             active: FeatureFlagType['active'] | null,
@@ -2488,6 +2492,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             null as boolean | null,
             {
                 setScheduleFormExpanded: (_, { expanded }) => expanded,
+                // A create adds to the plan, so the form returns to the default that the plan
+                // implies. Without this the form stays open for the rest of the mount, and the
+                // "Schedule a change" button stays hidden behind it.
+                createScheduledChangeSuccess: () => null,
+                resetScheduleFormExpanded: () => null,
             },
         ],
         // Distinguishes the first load from refetches, so the schedule header only
@@ -3401,6 +3410,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
         createPairedSchedule: async () => {
             const resetScheduleForm = (): void => {
+                actions.resetScheduleFormExpanded()
                 actions.setSchedulePreset(null)
                 actions.setScheduleDateMarker(null)
                 actions.setIsRecurring(false)
@@ -4547,7 +4557,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 scheduledChangesLoaded: boolean
             ): ScheduleFormState => {
                 if (scheduleFormManuallyExpanded !== null) {
-                    return scheduleFormManuallyExpanded ? 'expanded' : 'collapsed'
+                    // A manual collapse holds only while a plan remains to read. When the last
+                    // schedule goes, the form must open again, because the empty state tells the
+                    // user to use the form above it.
+                    return scheduleFormManuallyExpanded || !scheduleFormCollapsible ? 'expanded' : 'collapsed'
                 }
                 if (scheduledChangesLoading && !scheduledChangesLoaded) {
                     return 'loading'
