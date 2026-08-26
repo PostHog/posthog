@@ -7,9 +7,11 @@ from products.access_control.backend.resolution_preview import iter_resolution_c
 
 class Command(BaseCommand):
     help = (
-        "Report every organization's readiness for most-specific access resolution: organizations "
-        "that resolve differently first, then organizations where nothing changes. Read-only for "
-        "now; migration comes later, so --dry-run and a plain run print the same report."
+        "Report readiness for most-specific access resolution across organizations that have access "
+        "rules: those that resolve differently first, then those where nothing changes. Organizations "
+        "with no rules cannot resolve differently and are omitted, and an organization with no active "
+        "member is skipped. Read-only for now; migration comes later, so --dry-run and a plain run "
+        "print the same report."
     )
 
     def add_arguments(self, parser: Any) -> None:
