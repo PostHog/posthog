@@ -28,7 +28,7 @@ from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
-from posthog.schema import ActorsQuery, ProductKey
+from posthog.schema import ActorsQuery, ActorsQuerySearchMode, ProductKey
 
 from posthog.hogql.constants import CSV_EXPORT_LIMIT
 
@@ -177,6 +177,18 @@ def get_person_name_helper(
         # Prefer non-UUID distinct IDs (presumably from user identification) over UUIDs
         return sorted(distinct_ids, key=is_anonymous_id)[0]
     return str(person_pk)
+
+
+def _search_mode(request: request.Request) -> ActorsQuerySearchMode:
+    raw = request.GET.get("search_mode")
+    if not raw:
+        return ActorsQuerySearchMode.CONTAINS
+    try:
+        return ActorsQuerySearchMode(raw)
+    except ValueError:
+        raise ValidationError(
+            f"Invalid search_mode '{raw}'. Expected one of: {', '.join(mode.value for mode in ActorsQuerySearchMode)}."
+        )
 
 
 class PersonsWebBurstThrottle(UserOrEmailRateThrottle):
@@ -573,6 +585,16 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     "running. Up to 128 characters."
                 ),
             ),
+            OpenApiParameter(
+                "search_mode",
+                OpenApiTypes.STR,
+                enum=[mode.value for mode in ActorsQuerySearchMode],
+                description=(
+                    "How `search` matches. `contains` (the default) matches the term anywhere. "
+                    "`id_prefix` needs distinct IDs and person UUIDs to match from the start, "
+                    "which is much faster on large projects; email and name still match anywhere."
+                ),
+            ),
             PersonPropertiesSerializer(required=False),
         ],
     )
@@ -623,10 +645,12 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     }
                 )
             person_properties.append({"type": "hogql", "key": f"id = toUUID('{matched.uuid}')"})
+        search_mode = _search_mode(request)
         actors_query = ActorsQuery(
             select=["id"],
             properties=person_properties,
             search=filter.search or None,
+            searchMode=search_mode,
             orderBy=["created_at DESC", "id DESC"],
             limit=filter.limit,
             offset=filter.offset,
@@ -638,6 +662,9 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         slo_properties: dict[str, JsonValue] = {
             "query_type": "ActorsQuery",
             "has_search": bool(filter.search),
+            # Both modes are on the same endpoint, so latency has to be read per mode. Without this
+            # the anchored search only shows up as a step change on the day it rolls out.
+            "search_mode": search_mode.value,
             "has_properties": bool(person_properties),
             "has_distinct_id": bool(filter.distinct_id),
             # Only a caller that can cancel sends an id, which is what separates the command

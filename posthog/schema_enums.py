@@ -111,6 +111,11 @@ class MathGroupTypeIndex(float, Enum):
     NUMBER_4 = 4
 
 
+class ActorsQuerySearchMode(StrEnum):
+    CONTAINS = "contains"
+    ID_PREFIX = "id_prefix"
+
+
 class AgentMode(StrEnum):
     PRODUCT_ANALYTICS = "product_analytics"
     SQL = "sql"

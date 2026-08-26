@@ -10,6 +10,7 @@ from posthoganalytics import feature_enabled
 from posthog.schema import (
     ActorsQuery,
     ActorsQueryResponse,
+    ActorsQuerySearchMode,
     CachedActorsQueryResponse,
     DashboardFilter,
     InsightActorsQuery,
@@ -268,7 +269,11 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
         # Search is the expensive arm of an actors query, so the surrounding SLO event needs to
         # separate it from a plain listing. Works for both entry points: `run()` opens a
         # query-service SLO, `/api/persons/` opens a persons-list one.
-        tag_current_slo(has_search=bool(self.query.search), actor_type=self.strategy.field)
+        tag_current_slo(
+            has_search=bool(self.query.search),
+            search_mode=(self.query.searchMode or ActorsQuerySearchMode.CONTAINS).value,
+            actor_type=self.strategy.field,
+        )
         try:
             self.calculating = True
             return self._calculate_internal()

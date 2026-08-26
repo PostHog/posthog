@@ -101,13 +101,18 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            ("?search=another@gm", True, False),
-            ("", False, False),
-            ("?search=another@gm&client_query_id=abc-123", True, True),
+            ("?search=another@gm", True, False, "contains"),
+            ("", False, False, "contains"),
+            ("?search=another@gm&client_query_id=abc-123", True, True, "contains"),
+            ("?search=distinct_id&search_mode=id_prefix", True, False, "id_prefix"),
         ]
     )
     def test_person_list_emits_slo_event(
-        self, query: str, expected_has_search: bool, expected_has_client_query_id: bool
+        self,
+        query: str,
+        expected_has_search: bool,
+        expected_has_client_query_id: bool,
+        expected_search_mode: str,
     ) -> None:
         _create_person(
             team=self.team,
@@ -124,6 +129,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(len(completed), 1)
         self.assertEqual(completed[0]["has_search"], expected_has_search)
         self.assertEqual(completed[0]["has_client_query_id"], expected_has_client_query_id)
+        self.assertEqual(completed[0]["search_mode"], expected_search_mode)
         self.assertEqual(completed[0]["actor_type"], "person")
         self.assertEqual(completed[0]["outcome"], "success")
         self.assertEqual(completed[0]["result_count"], 1)
@@ -177,6 +183,30 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         ):
             response = self.client.get("/api/person/?search=someone")
         self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def test_search_mode(self) -> None:
+        _create_person(
+            team=self.team,
+            distinct_ids=["distinct_id_3"],
+            properties={"email": "someone@gmail.com"},
+        )
+        flush_persons_and_events()
+
+        response = self.client.get("/api/person/?search=distinct_id&search_mode=id_prefix")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["results"]), 1)
+
+        # Matching from the middle of a distinct ID only works in the default mode.
+        response = self.client.get("/api/person/?search=stinct_id&search_mode=id_prefix")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["results"]), 0)
+
+        response = self.client.get("/api/person/?search=stinct_id")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["results"]), 1)
+
+        response = self.client.get("/api/person/?search=stinct_id&search_mode=nonsense")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     @also_test_with_materialized_columns(event_properties=["email"], person_properties=["email"])
     @snapshot_clickhouse_queries

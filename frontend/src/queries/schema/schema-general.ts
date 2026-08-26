@@ -2739,6 +2739,17 @@ export interface ActorsQueryResponse extends AnalyticsQueryResponseBase {
 
 export type CachedActorsQueryResponse = CachedQueryResponse<ActorsQueryResponse>
 
+export enum ActorsQuerySearchMode {
+    /** Match the term anywhere in the email, name, person UUID, or any distinct ID. */
+    Contains = 'contains',
+    /**
+     * Match distinct IDs and person UUIDs from the start of the value. Email and name still match
+     * anywhere. Anchoring lets ClickHouse read a slice of the distinct ID table instead of all of
+     * it, which is most of the cost of a search on a large project.
+     */
+    IdPrefix = 'id_prefix',
+}
+
 export interface ActorsQuery extends DataNode<ActorsQueryResponse> {
     kind: NodeKind.ActorsQuery
     source?:
@@ -2751,6 +2762,11 @@ export interface ActorsQuery extends DataNode<ActorsQueryResponse> {
         | HogQLQuery
     select?: HogQLExpression[]
     search?: string
+    /**
+     * How `search` matches. Only persons honor this; groups and sessions always match anywhere.
+     * @default contains
+     */
+    searchMode?: ActorsQuerySearchMode
     /**
      * Exclude persons matching the team's "internal and test account" filters.
      * Only person-scoped filters (person properties, cohorts) are applied. Event-scoped

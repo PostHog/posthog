@@ -5,7 +5,7 @@ from typing import Literal, Optional, cast
 import orjson as json
 import structlog
 
-from posthog.schema import ActorsQuery, InsightActorsQuery, TrendsQuery
+from posthog.schema import ActorsQuery, ActorsQuerySearchMode, InsightActorsQuery, TrendsQuery
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
@@ -59,6 +59,18 @@ class ActorStrategy:
 # Test account filters authored against events (event/element/hogql/session types) have no
 # meaning in a person-level query, so only these types are applied on the persons list.
 PERSON_SCOPE_TEST_ACCOUNT_FILTER_TYPES = ("person", "cohort")
+
+LIKE_WILDCARDS = str.maketrans({"\\": "\\\\", "%": "\\%", "_": "\\_"})
+
+
+def escaped_like_prefix(term: str) -> str:
+    """Build a LIKE pattern that matches `term` literally at the start of a value.
+
+    ClickHouse takes the constant prefix of a LIKE pattern as a primary key range, and it reads an
+    escaped wildcard as part of that prefix. So escaping keeps both the match and the pruning
+    correct for terms holding `_` — common in email local parts.
+    """
+    return term.translate(LIKE_WILDCARDS) + "%"
 
 
 class PersonStrategy(ActorStrategy):
@@ -144,32 +156,69 @@ class PersonStrategy(ActorStrategy):
 
         search = self.query.search.strip() if self.query.search else None
         if search:
-            where_exprs.append(
-                ast.Or(
-                    exprs=[
-                        ast.CompareOperation(
-                            op=ast.CompareOperationOp.ILike,
-                            left=ast.Call(name="toString", args=[ast.Field(chain=["properties", "email"])]),
-                            right=ast.Constant(value=f"%{search}%"),
-                        ),
-                        ast.CompareOperation(
-                            op=ast.CompareOperationOp.ILike,
-                            left=ast.Call(name="toString", args=[ast.Field(chain=["properties", "name"])]),
-                            right=ast.Constant(value=f"%{search}%"),
-                        ),
-                        ast.CompareOperation(
-                            op=ast.CompareOperationOp.ILike,
-                            left=ast.Call(name="toString", args=[ast.Field(chain=["id"])]),
-                            right=ast.Constant(value=f"%{search}%"),
-                        ),
-                        parse_expr(
-                            "id in (select person_id from person_distinct_ids where ilike(distinct_id, {search}))",
-                            {"search": ast.Constant(value=f"%{search}%")},
-                        ),
-                    ]
-                )
-            )
+            where_exprs.append(self._search_condition(search))
         return where_exprs
+
+    def _search_condition(self, search: str) -> ast.Expr:
+        property_exprs: list[ast.Expr] = [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.ILike,
+                left=ast.Call(name="toString", args=[ast.Field(chain=["properties", key])]),
+                right=ast.Constant(value=f"%{search}%"),
+            )
+            for key in ("email", "name")
+        ]
+        if self.query.searchMode == ActorsQuerySearchMode.ID_PREFIX:
+            return ast.Or(exprs=[*property_exprs, *self._id_prefix_exprs(search)])
+        return ast.Or(
+            exprs=[
+                *property_exprs,
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.ILike,
+                    left=ast.Call(name="toString", args=[ast.Field(chain=["id"])]),
+                    right=ast.Constant(value=f"%{search}%"),
+                ),
+                parse_expr(
+                    "id in (select person_id from person_distinct_ids where ilike(distinct_id, {search}))",
+                    {"search": ast.Constant(value=f"%{search}%")},
+                ),
+            ]
+        )
+
+    def _id_prefix_exprs(self, search: str) -> list[ast.Expr]:
+        # The unanchored distinct ID subquery reads every distinct ID in the project, twice: the
+        # where-clause optimizer also clones it into the raw persons prefilter. Anchoring the match
+        # turns both passes into a primary key range on (team_id, distinct_id).
+        patterns = [escaped_like_prefix(search)]
+        lowercased = escaped_like_prefix(search.lower())
+        if lowercased != patterns[0]:
+            # `like` is case-sensitive, unlike the `ilike` this replaces. Distinct IDs people type
+            # are usually lowercase emails, so try the term lowercased as well — a second prefix
+            # keeps the key range.
+            patterns.append(lowercased)
+        distinct_id_matches: list[ast.Expr] = [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Like,
+                left=ast.Field(chain=["distinct_id"]),
+                right=ast.Constant(value=pattern),
+            )
+            for pattern in patterns
+        ]
+        return [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.ILike,
+                left=ast.Call(name="toString", args=[ast.Field(chain=["id"])]),
+                right=ast.Constant(value=escaped_like_prefix(search)),
+            ),
+            parse_expr(
+                "id in (select person_id from person_distinct_ids where {distinct_id_match})",
+                {
+                    "distinct_id_match": (
+                        distinct_id_matches[0] if len(distinct_id_matches) == 1 else ast.Or(exprs=distinct_id_matches)
+                    )
+                },
+            ),
+        ]
 
     def order_by(self) -> Optional[list[ast.OrderExpr]]:
         if self.query.orderBy not in [["person"], ["person DESC"], ["person ASC"]]:

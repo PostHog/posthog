@@ -20,6 +20,7 @@ from posthog.schema_enums import (
     AccountsTableSortDirection as AccountsTableSortDirection,
     AccountsTableThresholdOperator as AccountsTableThresholdOperator,
     Action as Action,
+    ActorsQuerySearchMode as ActorsQuerySearchMode,
     AgentMode as AgentMode,
     AggregationAxisFormat as AggregationAxisFormat,
     AggregationPropertyType as AggregationPropertyType,
@@ -29930,6 +29931,10 @@ class ActorsQuery(BaseModel):
     )
     response: ActorsQueryResponse | None = None
     search: str | None = None
+    searchMode: ActorsQuerySearchMode | None = Field(
+        default=ActorsQuerySearchMode.CONTAINS,
+        description=("How `search` matches. Only persons honor this; groups and sessions always match anywhere."),
+    )
     select: list[str] | None = None
     source: (
         InsightActorsQuery

@@ -1178,6 +1178,11 @@
                 "search": {
                     "type": "string"
                 },
+                "searchMode": {
+                    "$ref": "#/definitions/ActorsQuerySearchMode",
+                    "default": "contains",
+                    "description": "How `search` matches. Only persons honor this; groups and sessions always match anywhere."
+                },
                 "select": {
                     "items": {
                         "$ref": "#/definitions/HogQLExpression"
@@ -1307,6 +1312,10 @@
             },
             "required": ["columns", "hogql", "limit", "offset", "results"],
             "type": "object"
+        },
+        "ActorsQuerySearchMode": {
+            "enum": ["contains", "id_prefix"],
+            "type": "string"
         },
         "AgentMode": {
             "enum": [

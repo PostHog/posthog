@@ -13,6 +13,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     ActorsQuery,
+    ActorsQuerySearchMode,
     BaseMathType,
     BreakdownFilter,
     BreakdownType,
@@ -216,12 +217,46 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         runner = self._create_runner(ActorsQuery(search=f"MR JACOB {self.random_uuid}"))
         self.assertEqual(len(runner.calculate().results), 10)
 
-    def test_persons_query_search_distinct_id(self):
+    @parameterized.expand(
+        [
+            ("contains_whole_distinct_id", ActorsQuerySearchMode.CONTAINS, "id-{uuid}-9", 1),
+            # The default mode matches a distinct ID anywhere in the value.
+            ("contains_middle_of_distinct_id", ActorsQuerySearchMode.CONTAINS, "{uuid}-9", 1),
+            ("id_prefix_whole_distinct_id", ActorsQuerySearchMode.ID_PREFIX, "id-{uuid}-9", 1),
+            ("id_prefix_start_of_distinct_id", ActorsQuerySearchMode.ID_PREFIX, "id-{uuid}", 10),
+            # The cheap mode gives up matching a distinct ID from the middle — that is the whole
+            # point, because the unanchored version reads every distinct ID in the project.
+            ("id_prefix_middle_of_distinct_id", ActorsQuerySearchMode.ID_PREFIX, "{uuid}-9", 0),
+            # Email and name still match anywhere in the cheap mode, so domain search survives.
+            ("id_prefix_email_domain", ActorsQuerySearchMode.ID_PREFIX, ".posthog.com", 10),
+        ]
+    )
+    def test_persons_query_search_distinct_id(
+        self, _name: str, search_mode: ActorsQuerySearchMode, term: str, expected_count: int
+    ):
         self.random_uuid = self._create_random_persons()
-        runner = self._create_runner(ActorsQuery(search=f"id-{self.random_uuid}-9"))
-        self.assertEqual(len(runner.calculate().results), 1)
-        runner = self._create_runner(ActorsQuery(search=f"id-{self.random_uuid}-9"))
-        self.assertEqual(len(runner.calculate().results), 1)
+        runner = self._create_runner(
+            ActorsQuery(search=term.format(uuid=self.random_uuid), searchMode=search_mode),
+        )
+        self.assertEqual(len(runner.calculate().results), expected_count)
+
+    @parameterized.expand(
+        [
+            ("exact", "someone@example.com", 1),
+            # Distinct IDs are usually lowercase emails, so a term typed in another case still
+            # finds them.
+            ("uppercased_term", "SOMEONE@EXAMPLE.COM", 1),
+            # `_` is a LIKE wildcard, so an unescaped term would also match `some-one@example.com`.
+            ("underscore_is_literal", "some_one@example.com", 1),
+        ]
+    )
+    def test_persons_query_search_id_prefix_matches_literally(self, _name: str, term: str, expected_count: int) -> None:
+        for distinct_id in ("someone@example.com", "some_one@example.com", "some-one@example.com"):
+            _create_person(team=self.team, distinct_ids=[distinct_id], is_identified=True)
+        flush_persons_and_events()
+
+        runner = self._create_runner(ActorsQuery(search=term, searchMode=ActorsQuerySearchMode.ID_PREFIX))
+        self.assertEqual(len(runner.calculate().results), expected_count)
 
     def test_persons_query_search_trims_whitespace(self):
         self.random_uuid = self._create_random_persons()
