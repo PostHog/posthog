@@ -51,7 +51,8 @@ const STALE_PAGE_RETRIES = 2
 const STALE_PAGE_RETRY_DELAY_MS = 15000
 // Cloud agent ("loop") that diagnoses a fresh incident and answers in its Slack thread.
 // Project 2 owns the loop, the same project the links above point at. What the agent does is
-// .agents/skills/diagnosing-master-red; setting the loop up is that skill's references/loop-setup.md.
+// .agents/skills/debugging-ci-failures/references/master-red-incident-loop.md, and setting the
+// loop up is master-red-loop-setup.md beside it.
 const LOOPS_API_BASE = 'https://us.posthog.com/api/projects/2/loops'
 const DIAGNOSIS_TIMEOUT_MS = 10000
 

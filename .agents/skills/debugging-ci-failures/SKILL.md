@@ -10,7 +10,8 @@ description: >
   build failure. Start with the `hogli ci:insights` digest (cross-run CI history
   from engineering analytics), then guides read-only inspection, failure
   classification, smallest local reproduction with hogli, and safe reporting
-  without rerunning CI or posting to GitHub.
+  without rerunning CI or posting to GitHub. Running unattended as the
+  "Master-red diagnosis" Loop: see references/master-red-incident-loop.md.
 ---
 
 # Debugging PostHog CI failures
@@ -195,19 +196,20 @@ history, hand off to `fixing-flaky-tests`, which covers the `search-test` and
 
 ## Classification
 
-| Signal in the log                                                                                  | Class               | First action                                                       |
-| -------------------------------------------------------------------------------------------------- | ------------------- | ------------------------------------------------------------------ |
-| `AssertionError`, test diff, `FAILED test_...` in a committed test file                            | code regression     | reproduce with `hogli test <path>::<test>`                         |
-| Test failed here, passed on `master` or on rerun in the same PR                                    | flaky test          | confirm against `master` history; to fix, use `fixing-flaky-tests` |
-| `ruff`, `oxlint`, `stylelint`, `markdownlint`, `prettier` errors                                   | lint                | `hogli lint:python:fix` or `hogli format` on touched files         |
-| `mypy`, `pyright`, `tsc`, `typescript:check` errors                                                | typecheck           | run the same checker locally, not the full suite                   |
-| Chromatic / Storybook / Playwright visual diff, snapshot mismatch                                  | snapshot / visual   | surface the diff URL; do NOT auto-accept snapshots                 |
-| `manage.py migrate` error, `migrations:check` failure, missing migration                           | migration / schema  | `hogli migrations:check` locally                                   |
-| OpenAPI schema diff, generated API types out of sync                                               | codegen drift       | `hogli build:openapi`                                              |
-| `Cannot connect`, `ECONNREFUSED`, `address already in use`, OOM, runner killed, setup step timeout | infra / runner      | get the base rate before calling it transient (below)              |
-| `apt-get`, `uv sync`, `pnpm install`, docker pull, setup action failures                           | environment / setup | diff `.nvmrc`, `pyproject.toml`, `package.json`, Dockerfiles       |
-| `hogli lint:skills`, `hogli build:skills` failure                                                  | skills build        | run the same `hogli` command locally                               |
-| SDK compat check, `ci-survey-sdk-check`, cross-version failure                                     | SDK compatibility   | check SDK version matrix for the affected package                  |
+| Signal in the log                                                                                  | Class               | First action                                                                 |
+| -------------------------------------------------------------------------------------------------- | ------------------- | ---------------------------------------------------------------------------- |
+| `AssertionError`, test diff, `FAILED test_...` in a committed test file                            | code regression     | reproduce with `hogli test <path>::<test>`                                   |
+| Test failed here, passed on `master` or on rerun in the same PR                                    | flaky test          | confirm against `master` history; to fix, use `fixing-flaky-tests`           |
+| `ruff`, `oxlint`, `stylelint`, `markdownlint`, `prettier` errors                                   | lint                | `hogli lint:python:fix` or `hogli format` on touched files                   |
+| `mypy`, `pyright`, `tsc`, `typescript:check` errors                                                | typecheck           | run the same checker locally, not the full suite                             |
+| Chromatic / Storybook / Playwright visual diff, snapshot mismatch                                  | snapshot / visual   | surface the diff URL; do NOT auto-accept snapshots                           |
+| `manage.py migrate` error, `migrations:check` failure, missing migration                           | migration / schema  | `hogli migrations:check` locally                                             |
+| OpenAPI schema diff, generated API types out of sync                                               | codegen drift       | `hogli build:openapi`                                                        |
+| `Cannot connect`, `ECONNREFUSED`, `address already in use`, OOM, runner killed, setup step timeout | infra / runner      | get the base rate before calling it transient (below)                        |
+| `startup_failure` conclusion, a job with zero recorded steps, or a log blob that 404s              | infra / runner      | no log to read; check <https://www.githubstatus.com/> and the runs around it |
+| `apt-get`, `uv sync`, `pnpm install`, docker pull, setup action failures                           | environment / setup | diff `.nvmrc`, `pyproject.toml`, `package.json`, Dockerfiles                 |
+| `hogli lint:skills`, `hogli build:skills` failure                                                  | skills build        | run the same `hogli` command locally                                         |
+| SDK compat check, `ci-survey-sdk-check`, cross-version failure                                     | SDK compatibility   | check SDK version matrix for the affected package                            |
 
 If multiple signals match, choose the most specific class. For example, prefer
 codegen drift over lint, migration over typecheck, and snapshot / visual over a
@@ -235,7 +237,13 @@ Read the result as:
   For a queued PR, recommend re-enqueueing rather than a code change; posting
   `/trunk merge` yourself needs approval, per the Safety rules above.
 - **Recent hours entirely red** — an outage, not a flake. Say so, and stop
-  telling people to retry.
+  telling people to retry. Check <https://www.githubstatus.com/> before
+  attributing it to this repository; a platform incident makes every other
+  signal a symptom.
+- **A burst of runs failing together within a couple of minutes** — one shared
+  cause, not several bugs. Look for a bad commit many merges inherited, or a
+  GitHub dispatch overflow, which fails runs as `startup_failure` before they
+  start and so leaves no log at all.
 - **Steady over days** — a standing defect somebody owns. Worth a ticket even
   though each occurrence looks like noise.
 

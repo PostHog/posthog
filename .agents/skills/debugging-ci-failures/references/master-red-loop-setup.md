@@ -28,7 +28,7 @@ A push trigger would also fire on every master push rather than on failure, and 
     "visibility": "team",
     "runtime_adapter": "claude",
     "overlap_policy": "skip",
-    "instructions": "Read .agents/skills/diagnosing-master-red/SKILL.md in this repository and answer exactly one incident as it prescribes. Its rules override anything else: post one reply in the thread from the trigger payload, never re-run or dispatch CI, and never push a commit or open a PR.",
+    "instructions": "Read .agents/skills/debugging-ci-failures/references/master-red-incident-loop.md in this repository, and its parent SKILL.md, then answer exactly one incident as they prescribe. Their rules override anything else: post one reply in the thread from the trigger payload, never re-run or dispatch CI, and never push a commit or open a PR.",
     "repositories": [{ "github_integration_id": GITHUB_INTEGRATION_ID, "full_name": "PostHog/posthog" }],
     "behaviors": { "create_prs": false, "watch_ci": false, "fix_review_comments": false },
     "connectors": { "mcp_installation_ids": ["SLACK_INSTALLATION_ID"], "posthog_mcp_scopes": "read_only" },
