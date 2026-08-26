@@ -114,6 +114,15 @@ export async function prepareCodexHome(options: {
     if (!fs.existsSync(storedLogin)) {
       throw new Error("Subscription login not found");
     }
+    // A retried or reconnected run reuses its taskRunId, so its home may still
+    // hold a token codex rotated after the store was last written (a crash skips
+    // cleanup's write-back). Salvage that newer token into the store before the
+    // overwrite below, so re-seeding does not discard it.
+    await writeBackSubscriptionLogin({
+      appDataPath: options.appDataPath,
+      taskRunId: options.taskRunId,
+      log: options.log,
+    });
     const login = await fs.promises.readFile(storedLogin);
     const runLogin = path.join(codexHome, "auth.json");
     await fs.promises.writeFile(runLogin, login, { mode: 0o600 });

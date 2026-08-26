@@ -282,6 +282,39 @@ describe("prepareCodexHome", () => {
     },
   );
 
+  it("salvages a run's newer rotated login before re-seeding a retried run", async () => {
+    const subscriptionHome = getCodexSubscriptionHomeDir(appDataPath);
+    await mkdir(subscriptionHome, { recursive: true });
+    const storedLogin = path.join(subscriptionHome, "auth.json");
+    await writeFile(storedLogin, '{"token":1}');
+
+    // First run seeds from the store, then codex rotates the token in the run
+    // home. A crash skips write-back, so the store still holds the old token.
+    const first = await prepareCodexHome({
+      appDataPath,
+      taskRunId,
+      subscription: true,
+      bundledSkillsDir,
+      log: noopLog,
+    });
+    await writeFile(path.join(first, "auth.json"), '{"token":2}');
+
+    // Reconnecting the same run re-prepares its home. The rotated token must be
+    // carried into the store, not overwritten by the stale stored login.
+    const second = await prepareCodexHome({
+      appDataPath,
+      taskRunId,
+      subscription: true,
+      bundledSkillsDir,
+      log: noopLog,
+    });
+
+    expect(readFileSync(storedLogin, "utf-8")).toBe('{"token":2}');
+    expect(readFileSync(path.join(second, "auth.json"), "utf-8")).toBe(
+      '{"token":2}',
+    );
+  });
+
   it("throws for a subscription session without a stored login", async () => {
     await expect(
       prepareCodexHome({
