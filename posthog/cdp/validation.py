@@ -201,24 +201,26 @@ register_supported_function("postHogUpdateAccount")
 register_supported_function("postHogSetAccountProperties")
 
 
-# Async functions that the CDP worker registers for every hog program it runs. The registry is
-# global and is not scoped by function type, so a hand-written call reaches the real handler.
-# PostHog's own machinery is the only intended caller. Workflows dispatch the email and the push
-# step through hidden templates, and warehouse webhooks go through source functions. A call from
-# user-authored code skips the setup those paths do first, and the handler then fails in a way the
-# worker does not expect. A `sendEmail` call from a plain destination produces to a Kafka topic
-# that the destination's cluster does not have. The produce error terminates the worker process,
-# and the partition it owned stops draining.
+# Async functions that put the invocation on a queue the running consumer cannot serve.
 #
-# Keep this set in sync with registerAsyncFunction() under nodejs/src/cdp/async-functions/. A
-# registered name belongs here unless CORE_SUPPORTED_FUNCTIONS or register_supported_function()
-# above makes it available to user-authored code.
+# The worker's async function registry is global and is not scoped by function type, so any hog
+# program that names one of these reaches the real handler. These two handlers set
+# `queueParameters` to a bespoke type ('email', 'sendPushNotification') instead of the ordinary
+# 'fetch'. Only the messaging consumers process those queues. When a plain destination stages one,
+# the cyclotron worker produces to a Kafka topic its cluster does not have. The produce error
+# terminates the worker process, and the partition it owned stops draining.
+#
+# Membership is decided by that failure mode, NOT by "the worker registers it". Most registered
+# async functions stage an ordinary 'fetch' (postHogCreateAccount, postHogCreateTask and the
+# postHogGet*/postHogUpdate* family), which is the same mechanism CORE_SUPPORTED_FUNCTIONS already
+# gives user code, so they are safe here and are deliberately absent. produceToWarehouseWebhooks is
+# also absent: it only appends to an in-memory list, and its callers are all
+# `warehouse_source_webhook` functions, which HogFunctionSerializer.validate_type refuses anyway.
+#
+# Before adding a name, check what its handler in nodejs/src/cdp/async-functions/ stages.
 RESERVED_ASYNC_FUNCTIONS = {
     "sendEmail",
     "sendPushNotification",
-    "produceToWarehouseWebhooks",
-    "postHogCreateTask",
-    "postHogCreateAccount",
 }
 
 
