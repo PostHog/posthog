@@ -130,7 +130,7 @@ def ensure_image_builder_task(image: SandboxCustomImage, user_id: int) -> Task:
 
 def read_spec_from_builder_sandbox(image: SandboxCustomImage) -> SandboxImageSpec:
     """Read and validate the spec file from the builder task's live sandbox."""
-    from products.tasks.backend.logic.services.sandbox import Sandbox
+    from products.tasks.backend.logic.services.sandbox import get_sandbox_class_for_sandbox_id
 
     if image.builder_task_id is None:
         raise SandboxImageSpecError("This image has no builder session; provide a spec directly instead")
@@ -144,7 +144,7 @@ def read_spec_from_builder_sandbox(image: SandboxCustomImage) -> SandboxImageSpe
         raise SandboxImageSpecError("The builder session has no sandbox yet; send it a message first")
 
     try:
-        sandbox = Sandbox.get_by_id(sandbox_id)
+        sandbox = get_sandbox_class_for_sandbox_id(sandbox_id).get_by_id(sandbox_id)
         result = sandbox.execute(f"cat {SANDBOX_IMAGE_SPEC_PATH}", timeout_seconds=30)
     except Exception as e:
         logger.warning(

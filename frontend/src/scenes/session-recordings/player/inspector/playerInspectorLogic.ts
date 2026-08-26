@@ -31,6 +31,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ceilMsToClosestSecond } from 'lib/utils/durations'
 import { eventToDescription } from 'lib/utils/events'
 import { createFuse } from 'lib/utils/fuseSearch'
+import { isString } from 'lib/utils/guards'
 import { humanizeBytes } from 'lib/utils/numbers'
 import { toParams } from 'lib/utils/url'
 import { getText } from 'scenes/comments/Comment'
@@ -306,7 +307,9 @@ export function computeDisplayGroups(items: InspectorListItem[], groupSimilar: b
 }
 
 function _isCustomSnapshot(x: unknown): x is customEvent {
-    return (x as customEvent).type === 5
+    // rrweb types `data.tag` as a required string, but captured snapshots reach us without it,
+    // and every consumer below reads the tag as one
+    return (x as customEvent).type === 5 && isString((x as customEvent).data?.tag)
 }
 
 function _isPluginSnapshot(x: unknown): x is pluginEvent {
@@ -1689,6 +1692,11 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
                 let errorCount = 0
                 for (const event of eventsData || []) {
+                    // A malformed or missing event row must not crash the whole inspector list.
+                    if (!event) {
+                        continue
+                    }
+
                     let isMatchingEvent = false
 
                     if (event.event === '$exception') {

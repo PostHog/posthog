@@ -3131,7 +3131,7 @@ wheels = [
 
 [[package]]
 name = "hogli"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "tools/hogli" }
 dependencies = [
     { name = "click" },
@@ -5684,6 +5684,7 @@ dependencies = [
     { name = "pixelhog" },
     { name = "playwright" },
     { name = "polars" },
+    { name = "posthog-hogland" },
     { name = "posthog-owners" },
     { name = "posthoganalytics" },
     { name = "protobuf" },
@@ -5961,6 +5962,7 @@ requires-dist = [
     { name = "pixelhog", specifier = "~=1.2.0" },
     { name = "playwright", specifier = "~=1.60.0" },
     { name = "polars", specifier = "==1.37.1" },
+    { name = "posthog-hogland", specifier = "==0.3.1" },
     { name = "posthog-owners", editable = "tools/owners" },
     { name = "posthoganalytics", specifier = "==7.44.0" },
     { name = "protobuf", specifier = "~=5.29.6" },
@@ -6096,6 +6098,20 @@ hogql-parser-parity = [{ name = "shrinkray", specifier = "==26.4.14.0" }]
 sentiment = [
     { name = "optimum", extras = ["onnxruntime"], specifier = "~=1.25.0" },
     { name = "torch", specifier = "~=2.8.0" },
+]
+
+[[package]]
+name = "posthog-hogland"
+version = "0.3.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "httpx" },
+    { name = "httpx-sse" },
+    { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/41/ec/dc5991a1015bf2beeb901d023f784be17322162b5011ef6e2b49eb2051f6/posthog_hogland-0.3.1.tar.gz", hash = "sha256:6cffa11ebc66c3f6cb4a38f8aadfd59ec658969fdb0f111a2bf9d81e5501d6c4", size = 46155, upload-time = "2026-07-06T08:55:16.003Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d2/69/57f187f0497072a2d776417514b69959bbeb79c939a9d0a369cd81a04ccf/posthog_hogland-0.3.1-py3-none-any.whl", hash = "sha256:cd565d9839163d6f5567952c7e8b998d88123b02aaa8f86df3daafdefbc11c00", size = 34955, upload-time = "2026-07-06T08:55:14.798Z" },
 ]
 
 [[package]]

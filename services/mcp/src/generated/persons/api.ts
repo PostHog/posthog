@@ -24,6 +24,12 @@ export const personsListQueryPropertiesItemValuesItemOperatorDefault = `exact`
 export const personsListQueryPropertiesItemValuesItemTypeDefault = `event`
 
 export const PersonsListQueryParams = /* @__PURE__ */ zod.object({
+    client_query_id: zod
+        .string()
+        .optional()
+        .describe(
+            'Names the ClickHouse query this request runs. Send the same id to `DELETE \/api\/projects\/:project_id\/query\/:client_query_id\/` to stop a search that is still running. Up to 128 characters.'
+        ),
     distinct_id: zod.string().optional().describe('Filter list by distinct id.'),
     email: zod.string().optional().describe('Filter persons by email (exact match)'),
     format: zod.enum(['csv', 'json']).optional(),
