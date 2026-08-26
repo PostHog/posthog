@@ -2,6 +2,7 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 
 import { initKeaTests } from '~/test/init'
 
@@ -98,6 +99,84 @@ describe('heatmapsBrowserLogic', () => {
 
             expect(logic.values.displayUrl).toBe('')
             expect(router.values.searchParams.pageURL).toBeUndefined()
+        })
+    })
+
+    describe('recording background href', () => {
+        beforeEach(() => {
+            initKeaTests()
+            jest.spyOn(api, 'queryHogQL').mockResolvedValue({ results: [] } as any)
+            jest.spyOn(global, 'fetch').mockResolvedValue({
+                status: 200,
+                json: async () => ({ results: [] }),
+            } as any)
+            router.actions.push('/heatmaps/recording')
+        })
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        // The recording path has no dataUrl; the href comes from the snapshot. onIframeLoad used to
+        // overwrite it with an empty string, so the query never ran and the heatmap loaded forever.
+        it('keeps the snapshot href when the iframe loads without a dataUrl', async () => {
+            const logic = heatmapsBrowserLogic({ iframeRef: { current: null } })
+            logic.mount()
+            const dataLogic = heatmapDataLogic({ context: 'in-app' })
+
+            logic.actions.setReplayIframeData({
+                html: '<html></html>',
+                width: 100,
+                height: 100,
+                startDateTime: undefined,
+                url: 'https://example.com/pricing',
+            })
+            await expectLogic(logic).toFinishAllListeners()
+            expect(dataLogic.values.href).toBe('https://example.com/pricing')
+
+            logic.actions.onIframeLoad()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(dataLogic.values.href).toBe('https://example.com/pricing')
+        })
+    })
+
+    describe('non-recording stale href', () => {
+        beforeEach(() => {
+            initKeaTests()
+            jest.spyOn(api, 'queryHogQL').mockResolvedValue({ results: [] } as any)
+            jest.spyOn(global, 'fetch').mockResolvedValue({
+                status: 200,
+                json: async () => ({ results: [] }),
+            } as any)
+            router.actions.push('/heatmaps/abc123')
+        })
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        // Open a heatmap with a page URL, then open one without a data URL (e.g. a saved heatmap
+        // with no custom data URL). Without clearing, onIframeLoad would re-query the previous
+        // page's href and repaint its click data over the page now in the frame.
+        it('clears the previous href when the iframe loads without a dataUrl', async () => {
+            const logic = heatmapsBrowserLogic({ iframeRef: { current: null } })
+            logic.mount()
+            const dataLogic = heatmapDataLogic({ context: 'in-app' })
+
+            logic.actions.setDisplayUrl('https://example.com/a')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(dataLogic.values.href).toBe('https://example.com/a')
+
+            logic.actions.setDataUrlUserTouched(true)
+            logic.actions.setDisplayUrl('https://example.com/b')
+            logic.actions.setDataUrl(null)
+            await expectLogic(logic).toFinishAllListeners()
+            // setDataUrl(null) leaves href alone, so it still points at the previous page here.
+            expect(dataLogic.values.href).toBe('https://example.com/a')
+
+            logic.actions.onIframeLoad()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(dataLogic.values.href).toBe('')
         })
     })
 

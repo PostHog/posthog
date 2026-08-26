@@ -34,7 +34,7 @@ export const WithTabsAndFilters: Story = {
       <>
         <PageHeaderHeading>
           <PageHeaderTitleRow>
-            <PageHeaderTitle>Inbox</PageHeaderTitle>
+            <PageHeaderTitle>Self-driving</PageHeaderTitle>
           </PageHeaderTitleRow>
           <PageHeaderDescription>
             Work done by your agents – pull requests, reports, and live runs.

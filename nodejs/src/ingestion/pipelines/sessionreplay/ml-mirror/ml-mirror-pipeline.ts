@@ -14,6 +14,7 @@ import {
     SessionReplayPipelineOutput,
 } from '~/ingestion/pipelines/sessionreplay'
 import { createAiTrainingOptInFilterStep } from '~/ingestion/pipelines/sessionreplay/ai-training-optin-filter-step'
+import type { CrawlHistoryStore } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/crawl-history'
 import { createProduceCollectedImagesStep } from '~/ingestion/pipelines/sessionreplay/ml-mirror/produce-collected-images-step'
 import { createProduceCollectedUrlsStep } from '~/ingestion/pipelines/sessionreplay/ml-mirror/produce-collected-urls-step'
 import { createParseAndAnonymizeMessageStep } from '~/ingestion/pipelines/sessionreplay/parse-and-anonymize-step'
@@ -44,6 +45,7 @@ export interface MlMirrorUrlFetchProducer {
     outputs: IngestionOutputs<MlImageFetchOutput | MlImageScrubOutput>
     producedRefCacheMax: number
     producedRefCacheWindowMs: number
+    crawlHistory?: Pick<CrawlHistoryStore, 'read'>
 }
 
 /**
@@ -190,11 +192,12 @@ export function createMlMirrorReplayPipeline(
                                                         : parsed
                                                     const withUrlsProduced = urlFetch
                                                         ? withImagesProduced.pipe(
-                                                              createProduceCollectedUrlsStep(
-                                                                  urlFetch.outputs,
-                                                                  urlFetch.producedRefCacheMax,
-                                                                  urlFetch.producedRefCacheWindowMs
-                                                              )
+                                                              createProduceCollectedUrlsStep(urlFetch.outputs, topHog, {
+                                                                  producedRefCacheMax: urlFetch.producedRefCacheMax,
+                                                                  producedRefCacheWindowMs:
+                                                                      urlFetch.producedRefCacheWindowMs,
+                                                                  crawlHistory: urlFetch.crawlHistory,
+                                                              })
                                                           )
                                                         : withImagesProduced
                                                     return withUrlsProduced.pipe(

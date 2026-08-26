@@ -6,8 +6,6 @@ from posthoganalytics import capture_exception
 from pydantic import BaseModel, Field
 from rest_framework.exceptions import ValidationError
 
-from posthog.schema import MaxExperimentMetricResult
-
 from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.event_usage import EventSource
 from posthog.session_recordings.session_recording_api import list_recordings_from_query
@@ -22,6 +20,7 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag, expe
 
 from ee.hogai.context.experiment.context import ExperimentContext
 from ee.hogai.tool import MaxTool
+from ee.hogai.tool_errors import MaxToolAccessDeniedError
 
 CREATE_EXPERIMENT_TOOL_DESCRIPTION = dedent("""
     Use this tool to create A/B test experiments that measure the impact of changes.
@@ -213,7 +212,7 @@ EXPERIMENT_SUMMARY_TOOL_DESCRIPTION = dedent("""
 class ExperimentSummaryArgs(BaseModel):
     experiment_id: int | None = Field(
         default=None,
-        description="The ID of the experiment to summarize. Only required when results context is not already available (e.g. when the user asks about an experiment from chat).",
+        description="The ID of the experiment to summarize. Not needed when the user is viewing an experiment (taken from context).",
     )
 
 
@@ -238,16 +237,10 @@ class ExperimentSummaryTool(MaxTool):
 
             resolved_experiment_id = int(resolved_experiment_id)
 
-            # When frontend context has metrics data, use it directly
-            if (
-                context.get("primary_metrics_results") is not None
-                or context.get("secondary_metrics_results") is not None
-            ):
-                return await self._format_from_context(resolved_experiment_id, context)
-
-            # Otherwise, fetch data via the data service (agent-initiated call)
             return await self._fetch_and_format(resolved_experiment_id)
 
+        except MaxToolAccessDeniedError:
+            raise
         except Exception as e:
             capture_exception(
                 e,
@@ -259,40 +252,16 @@ class ExperimentSummaryTool(MaxTool):
             )
             return f"Failed to summarize experiment: {str(e)}", {"error": "summary_failed", "details": str(e)}
 
-    async def _format_from_context(self, experiment_id: int, context: dict) -> tuple[str, dict[str, Any]]:
-        """Format experiment data using pre-computed context from the frontend."""
+    async def _fetch_and_format(self, experiment_id: int) -> tuple[str, dict[str, Any]]:
+        """Fetch experiment data from query runners and format it."""
         experiment_context = ExperimentContext(team=self._team, experiment_id=experiment_id)
         experiment = await experiment_context.aget_experiment()
         if experiment is None:
             return f"Experiment {experiment_id} not found", {"error": "not_found"}
 
-        try:
-            primary_metrics = [MaxExperimentMetricResult(**m) for m in context.get("primary_metrics_results", [])]
-            secondary_metrics = [MaxExperimentMetricResult(**m) for m in context.get("secondary_metrics_results", [])]
-        except Exception as e:
-            capture_exception(
-                e,
-                properties={
-                    "team_id": self._team.id,
-                    "user_id": self._user.id,
-                    "experiment_id": experiment_id,
-                },
-            )
-            return f"Invalid experiment context: {str(e)}", {"error": "invalid_context", "details": str(e)}
+        # Before the metric queries run, so a denied user costs no ClickHouse work
+        await self.check_object_access(experiment, "viewer", resource="experiment", action="read")
 
-        exposures = context.get("exposures")
-
-        formatted_data = await experiment_context.format_experiment_results_data(
-            experiment,
-            exposures=exposures,
-            primary_metrics_results=primary_metrics,
-            secondary_metrics_results=secondary_metrics,
-        )
-
-        return self._build_result(experiment, formatted_data, primary_metrics, secondary_metrics)
-
-    async def _fetch_and_format(self, experiment_id: int) -> tuple[str, dict[str, Any]]:
-        """Fetch experiment data from query runners and format it."""
         data_service = ExperimentSummaryDataService(self._team, self._user)
 
         try:
@@ -301,11 +270,6 @@ class ExperimentSummaryTool(MaxTool):
             return str(e), {"error": "not_found"}
 
         summary_context = summary_data.context
-
-        experiment_context = ExperimentContext(team=self._team, experiment_id=experiment_id)
-        experiment = await experiment_context.aget_experiment()
-        if experiment is None:
-            return f"Experiment {experiment_id} not found", {"error": "not_found"}
 
         formatted_data = await experiment_context.format_experiment_results_data(
             experiment,
@@ -435,6 +399,8 @@ class SessionReplaySummaryTool(MaxTool):
 
             experiment = await get_experiment()
 
+            await self.check_object_access(experiment, "viewer", resource="experiment", action="read")
+
             if experiment.is_draft:
                 output = SessionReplaySummaryOutput(
                     experiment_id=experiment_id,
@@ -538,6 +504,8 @@ class SessionReplaySummaryTool(MaxTool):
 
             return user_message, output.model_dump()
 
+        except MaxToolAccessDeniedError:
+            raise
         except ValueError as e:
             return f"❌ {str(e)}", {"error": "validation_error", "details": str(e)}
         except Exception as e:

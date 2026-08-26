@@ -129,7 +129,7 @@ export const getCanvasesPartialUpdateUrl = (projectId: string, id: string) => {
 }
 
 /**
- * Update canvas metadata (name, author context, pin, generation-task pointer).
+ * Update canvas metadata, including the space it belongs to.
  */
 export const canvasesPartialUpdate = async (
     projectId: string,

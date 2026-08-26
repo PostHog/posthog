@@ -364,6 +364,9 @@ SESSION_RISK_ENABLED = get_from_env("SESSION_RISK_ENABLED", not TEST, type_cast=
 # region stays enrichment-free only by leaving this unset there. Fire-and-forget from signup, so
 # this only gates whether the workflow is dispatched at all.
 GROWTH_SIGNUP_ENRICHMENT_ENABLED = get_from_env("GROWTH_SIGNUP_ENRICHMENT_ENABLED", False, type_cast=str_to_bool)
+# Max orgs the daily ICP re-enrichment sweep re-fetches per run — the Harmonic spend/rate
+# bound for products/growth/backend/temporal/signup_enrichment/reenrichment.py.
+GROWTH_ICP_REENRICH_DAILY_CAP = get_from_env("GROWTH_ICP_REENRICH_DAILY_CAP", 500, type_cast=int)
 # The internal analytics project the enrichment pipeline reads/writes bridge and mirror data
 # against (products/growth/backend/enrichment). Region-defaulted to the deployment's own internal
 # project (the same team split the usage report uses), so enrichment lookups never touch another
@@ -594,6 +597,11 @@ SPECTACULAR_SETTINGS = {
         "ExperimentMetricKindEnum": "products.ai_observability.backend.models.score_definitions.ScoreDefinition.Kind",
         "EvaluationTargetEnum": "products.ai_observability.backend.models.evaluations.EvaluationTarget",
         "IntegrationKindEnum": "posthog.models.integration.Integration.IntegrationKind",
+        # Shared by TaskCreate.origin_product and TaskWrite.origin_product. Needs naming because
+        # WarmTaskRequest.origin_product offers only the warmable subset, so "origin_product" alone
+        # no longer identifies one choice set. Keyed to the name the generator already produced
+        # (`OriginProductEnumApi`) so naming it doesn't rename the type its consumers import.
+        "OriginProductEnum": "products.tasks.backend.models.Task.OriginProduct",
         "TicketStatusEnum": "products.conversations.backend.models.constants.Status",
         "EmailChannelKindEnum": "products.conversations.backend.models.team_conversations_email_config.EmailChannelKind",
         "EmailThreadMessageDirectionEnum": "products.conversations.backend.models.email_thread.EmailThreadMessageDirection",
@@ -689,7 +697,11 @@ SPECTACULAR_SETTINGS = {
         # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
         "TileSpacingEnum": ["tight", "condensed", "standard", "relaxed", "wide"],
         "LayoutCompactionEnum": ["vertical", "horizontal", "stable"],
+        "DesktopAccessReasonEnum": "products.tasks.backend.facade.contracts.DESKTOP_ACCESS_REASON_SCHEMA_VALUES",
         "PropertyGroupOperator": ["AND", "OR"],
+        # `severity` is shared by a data quality check, its overview projection, and the severity a
+        # past run was judged at.
+        "DataQualityCheckSeverityEnum": ["error", "warn"],
         # `scope`/`state` are generic field names; one shared name for the canvas state scope set.
         "CanvasStateScopeEnum": ["user", "shared"],
         # `kind` is a generic field name; one shared name for the canvas kind set.
@@ -911,6 +923,16 @@ SPECTACULAR_SETTINGS = {
         "TaskExecutionModeEnum": ["interactive", "background"],
         # Shared by ClaudeTaskRunCreateSchema and SandboxOpen (the conversations `open` body).
         "InitialPermissionModeEnum": ["default", "acceptEdits", "plan", "bypassPermissions", "auto"],
+        "TaskRunBootstrapCreateRequestInitialPermissionModeEnum": [
+            "default",
+            "acceptEdits",
+            "plan",
+            "bypassPermissions",
+            "auto",
+            "read-only",
+            "full-access",
+            None,
+        ],
         "HogFunctionTemplatingEnum": ["hog", "liquid"],
         "HogFlowEdgeTypeEnum": ["continue", "branch"],
         "SourceMatchEnum": ["none", "auto", "mapped"],

@@ -70,6 +70,7 @@ class AccountProperties:
     Mirrors ``models.account.AccountProperties`` as a stable, framework-free shape.
     """
 
+    website_domain: str | None = None
     stripe_customer_id: str | None = None
     hubspot_deal_id: str | None = None
     billing_id: str | None = None
@@ -290,6 +291,79 @@ AccountTableFilter = (
 )
 
 
+class AccountTrackRuleFieldKind(str, Enum):
+    ACCOUNT_FIELD = "account_field"
+    CUSTOM_PROPERTY = "custom_property"
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTrackRuleField:
+    kind: AccountTrackRuleFieldKind
+    field: AccountTableField | None = None
+    definition_id: UUID | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTrackRuleCondition:
+    field: AccountTrackRuleField
+    operator: str
+    values: tuple[float | bool | str, ...] = ()
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTrackRuleGroup:
+    conditions: tuple[AccountTrackRuleCondition, ...]
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTrackRulesConfig:
+    schema_version: int = 1
+    version: int = 0
+    enabled: bool = False
+    groups: tuple[AccountTrackRuleGroup, ...] = ()
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTrackRuleSample:
+    id: UUID
+    name: str
+    external_id: str | None
+    rule_values: dict[str, float | bool | str | None]
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTrackRulePreview:
+    config_version: int
+    eligible_active: int
+    skipped_churned: int
+    tracked: int
+    ignored: int
+    newly_ignored: int
+    restored: int
+    tracked_samples: tuple[AccountTrackRuleSample, ...]
+    ignored_samples: tuple[AccountTrackRuleSample, ...]
+    validation_errors: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTrackRuleRunView:
+    id: UUID
+    config_version: int
+    trigger: str
+    status: str
+    eligible_active: int
+    skipped_churned: int
+    tracked: int
+    ignored: int
+    newly_ignored: int
+    restored: int
+    started_at: datetime | None
+    finished_at: datetime | None
+    error: str | None
+    created_by: int | None
+    created_at: datetime
+
+
 class AccountTableSortKind(str, Enum):
     ACCOUNT_FIELD = "account_field"
     TAGS = "tags"
@@ -361,6 +435,7 @@ class AccountTableRow:
     id: UUID
     name: str
     external_id: str | None
+    logo_domain: str | None = None
     account_fields: dict[AccountTableField, str | None] = field(default_factory=dict)
     tags: list[str] | None = None
     note_count: int | None = None

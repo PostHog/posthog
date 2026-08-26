@@ -1,5 +1,6 @@
 import datetime as dt
 import dataclasses
+from collections.abc import Callable
 from contextlib import ExitStack
 
 import pytest
@@ -17,13 +18,14 @@ from posthog.temporal.data_modeling.activities import (
     fail_materialization_activity,
 )
 from posthog.temporal.data_modeling.activities.enrich_view_semantics import EnrichViewSemanticsInputs
-from posthog.temporal.data_modeling.activities.materialize_view import _clear_account_property_staging
 from posthog.temporal.data_modeling.workflows.materialize_view import (
+    ACCOUNT_PROPERTY_S3_SYNC_PATCH,
+    ACCOUNT_PROPERTY_STAGING_WORKFLOW_PATCH,
     MaterializeViewWorkflow,
     MaterializeViewWorkflowInputs,
 )
 
-from products.customer_analytics.backend.facade.temporal_contracts import DispatchAccountPropertySyncInput
+from products.customer_analytics.backend.facade.temporal_contracts import StageAccountPropertySyncInput
 from products.data_quality.backend.facade.contracts import CHECK_SUITE_WORKFLOW_NAME, QualityAuditMode
 from products.warehouse_sources.backend.facade.hooks import PersonPropertySyncActivityInputs
 
@@ -54,7 +56,7 @@ class TestQualityGateBranching:
         activity_results: list,
         child_result: dict | Exception,
         *,
-        patched: bool = True,
+        patched: bool | Callable[[str], bool] = True,
         shadow_handle: AsyncMock | None = None,
         start_child: AsyncMock | None = None,
     ) -> tuple:
@@ -72,7 +74,12 @@ class TestQualityGateBranching:
             stack.enter_context(
                 patch.object(temporalio.workflow, "start_child_workflow", new=start_child or AsyncMock())
             )
-            stack.enter_context(patch.object(temporalio.workflow, "patched", return_value=patched))
+            patched_mock = (
+                patch.object(temporalio.workflow, "patched", side_effect=patched)
+                if callable(patched)
+                else patch.object(temporalio.workflow, "patched", return_value=patched)
+            )
+            stack.enter_context(patched_mock)
             stack.enter_context(patch.object(temporalio.workflow, "info", return_value=info))
             stack.enter_context(patch.object(temporalio.workflow, "now", return_value=dt.datetime(2026, 8, 1)))
             stack.enter_context(patch.object(temporalio.workflow, "logger"))
@@ -115,8 +122,12 @@ class TestQualityGateBranching:
         assert "publish_queryable_table_activity" not in started
         assert "succeed_materialization_activity" not in started
 
-    async def test_account_staging_dispatches_parallel_segments(self):
-        materialize_result = dataclasses.replace(_materialize_result("skip"), account_property_sync_enabled=True)
+    async def test_account_staging_starts_an_isolated_child_workflow(self):
+        materialize_result = dataclasses.replace(
+            _materialize_result("skip"),
+            account_property_sync_enabled=True,
+            delta_version=5,
+        )
         activity_results = [
             False,
             "job-1",
@@ -127,15 +138,76 @@ class TestQualityGateBranching:
         ]
         start_child = AsyncMock()
 
-        _, execute_activity = await self._run(activity_results, {}, start_child=start_child)
+        await self._run(activity_results, {}, start_child=start_child)
 
-        dispatch_call = next(
-            call
-            for call in execute_activity.await_args_list
-            if call.args[0] == "dispatch-warehouse-account-property-sync"
+        staging_call = next(
+            call for call in start_child.await_args_list if call.args[0] == "stage-warehouse-account-properties"
         )
-        assert isinstance(dispatch_call.args[1], DispatchAccountPropertySyncInput)
-        assert dispatch_call.args[1].job_id == "job-1"
+        assert isinstance(staging_call.args[1], StageAccountPropertySyncInput)
+        assert staging_call.args[1].job_id == "job-1"
+        assert staging_call.args[1].delta_version == 5
+        assert staging_call.kwargs["parent_close_policy"] == temporalio.workflow.ParentClosePolicy.ABANDON
+
+    async def test_a_legacy_history_replays_the_inline_dispatch_command(self):
+        # A history recorded under ACCOUNT_PROPERTY_S3_SYNC_PATCH holds the old dispatch activity
+        # command and no delta_version. Replaying it with only that marker present must re-emit the
+        # dispatch command, not the staging child, or the execution fails as nondeterministic.
+        materialize_result = dataclasses.replace(
+            _materialize_result("skip"),
+            account_property_sync_enabled=True,
+        )
+        activity_results = [
+            False,
+            "job-1",
+            materialize_result,
+            PrepareQueryableTableResult(storage_delta_mib=None, total_storage_mib=None),
+            None,
+            None,
+        ]
+        start_child = AsyncMock()
+
+        _, execute_activity = await self._run(
+            activity_results,
+            {},
+            patched=lambda change_id: change_id == ACCOUNT_PROPERTY_S3_SYNC_PATCH,
+            start_child=start_child,
+        )
+
+        assert any(
+            call.args[0] == "dispatch-warehouse-account-property-sync" for call in execute_activity.await_args_list
+        )
+        assert not [
+            call for call in start_child.await_args_list if call.args[0] == "stage-warehouse-account-properties"
+        ]
+
+    async def test_the_isolated_staging_child_wins_when_both_markers_are_present(self):
+        materialize_result = dataclasses.replace(
+            _materialize_result("skip"),
+            account_property_sync_enabled=True,
+            delta_version=5,
+        )
+        activity_results = [
+            False,
+            "job-1",
+            materialize_result,
+            PrepareQueryableTableResult(storage_delta_mib=None, total_storage_mib=None),
+            None,
+        ]
+        start_child = AsyncMock()
+
+        _, execute_activity = await self._run(
+            activity_results,
+            {},
+            patched=lambda change_id: (
+                change_id in (ACCOUNT_PROPERTY_STAGING_WORKFLOW_PATCH, ACCOUNT_PROPERTY_S3_SYNC_PATCH)
+            ),
+            start_child=start_child,
+        )
+
+        assert any(call.args[0] == "stage-warehouse-account-properties" for call in start_child.await_args_list)
+        assert not any(
+            call.args[0] == "dispatch-warehouse-account-property-sync" for call in execute_activity.await_args_list
+        )
 
     async def test_a_passing_audit_publishes_and_succeeds(self):
         activity_results = [
@@ -332,42 +404,50 @@ class TestFinalizeOrphanedDuckgresJob:
             await workflow._finalize_orphaned_duckgres_job("job-123", _inputs(), "activity died")
 
 
-class TestAccountPropertyStagingCleanup:
-    async def test_clear_failure_stops_the_materialization_attempt(self):
-        sink = MagicMock()
-        sink.clear = AsyncMock(side_effect=PermissionError("access denied"))
-        logger = MagicMock()
-        logger.awarning = AsyncMock()
-
-        with (
-            pytest.raises(PermissionError, match="access denied"),
-            patch("posthog.temporal.data_modeling.activities.materialize_view.capture_exception"),
-        ):
-            await _clear_account_property_staging(sink, logger)
-
-
-class TestMaybeSyncAccountProperties:
-    async def test_dispatches_both_segments_through_a_retrying_activity(self):
+class TestMaybeStageAccountProperties:
+    async def test_starts_an_abandoned_staging_child(self):
         workflow = MaterializeViewWorkflow()
-        result = dataclasses.replace(_materialize_result("skip"), account_property_sync_enabled=True)
-        execute_activity = AsyncMock()
-        with patch.object(temporalio.workflow, "execute_activity", new=execute_activity):
-            await workflow._maybe_sync_account_properties(_inputs(), result, "job-123")
+        result = dataclasses.replace(
+            _materialize_result("skip"),
+            account_property_sync_enabled=True,
+            delta_version=5,
+        )
+        start_child = AsyncMock()
+        with patch.object(temporalio.workflow, "start_child_workflow", new=start_child):
+            await workflow._maybe_stage_account_properties(_inputs(), result, "job-123")
 
-        execute_activity.assert_awaited_once()
-        assert execute_activity.await_args is not None
-        activity_name, payload = execute_activity.await_args.args
-        assert activity_name == "dispatch-warehouse-account-property-sync"
-        assert isinstance(payload, DispatchAccountPropertySyncInput)
+        start_child.assert_awaited_once()
+        assert start_child.await_args is not None
+        workflow_name, payload = start_child.await_args.args
+        assert workflow_name == "stage-warehouse-account-properties"
+        assert isinstance(payload, StageAccountPropertySyncInput)
         assert payload.job_id == "job-123"
-        assert execute_activity.await_args.kwargs["retry_policy"].maximum_attempts == 5
+        assert payload.delta_version == 5
+        assert start_child.await_args.kwargs["parent_close_policy"] == temporalio.workflow.ParentClosePolicy.ABANDON
 
-    async def test_no_dispatch_when_no_account_rows_were_staged(self):
+    async def test_staging_start_failure_does_not_fail_materialization(self):
         workflow = MaterializeViewWorkflow()
-        execute_activity = AsyncMock()
-        with patch.object(temporalio.workflow, "execute_activity", new=execute_activity):
-            await workflow._maybe_sync_account_properties(_inputs(), _materialize_result("skip"), "job-123")
-        execute_activity.assert_not_awaited()
+        result = dataclasses.replace(
+            _materialize_result("skip"),
+            account_property_sync_enabled=True,
+            delta_version=5,
+        )
+        start_child = AsyncMock(side_effect=PermissionError("access denied"))
+        with (
+            patch.object(temporalio.workflow, "start_child_workflow", new=start_child),
+            patch.object(temporalio.workflow, "logger", new=MagicMock()),
+            patch("posthog.temporal.data_modeling.workflows.materialize_view.capture_exception"),
+        ):
+            await workflow._maybe_stage_account_properties(_inputs(), result, "job-123")
+
+        start_child.assert_awaited_once()
+
+    async def test_no_staging_when_no_account_sources_are_enabled(self):
+        workflow = MaterializeViewWorkflow()
+        start_child = AsyncMock()
+        with patch.object(temporalio.workflow, "start_child_workflow", new=start_child):
+            await workflow._maybe_stage_account_properties(_inputs(), _materialize_result("skip"), "job-123")
+        start_child.assert_not_awaited()
 
 
 class TestMaybeEnrichViewSemantics:

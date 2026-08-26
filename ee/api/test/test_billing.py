@@ -26,6 +26,8 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.access_control.backend.models.access_control import AccessControl
+
 from ee.api.billing import (
     MEMBER_BILLING_USAGE_SPEND_READ_ACCESS_FLAG,
     OWNER_ONLY_BILLING_FLAG,
@@ -38,7 +40,6 @@ from ee.billing.billing_types import USAGE_TYPE_OPTIONS, BillingPeriod, Customer
 from ee.billing.quota_limiting import QuotaResource
 from ee.billing.test.test_billing_manager import create_default_products_response
 from ee.models.license import License
-from ee.models.rbac.access_control import AccessControl
 
 
 def create_usage_summary(**kwargs) -> dict[str, Any]:

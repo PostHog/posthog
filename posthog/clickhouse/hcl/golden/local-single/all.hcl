@@ -342,6 +342,54 @@ database "posthog" {
     }
   }
 
+  table "billing_usage_records" {
+    column "schema_version" {
+      type = "UInt8"
+    }
+    column "record_id" {
+      type = "String"
+    }
+    column "producer_id" {
+      type = "LowCardinality(String)"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "organization_id" {
+      type = "UUID"
+    }
+    column "usage_key" {
+      type = "LowCardinality(String)"
+    }
+    column "unit" {
+      type = "LowCardinality(String)"
+    }
+    column "quantity" {
+      type = "Int64"
+    }
+    column "timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "inserted_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    engine "distributed" {
+      cluster_name    = "posthog"
+      remote_database = "posthog"
+      remote_table    = "sharded_billing_usage_records"
+      sharding_key    = "cityHash64(team_id)"
+    }
+  }
+
   table "channel_definition" {
     order_by = ["domain", "kind"]
     settings = {
@@ -2461,6 +2509,48 @@ database "posthog" {
       broker_list = "warpstream_ingestion"
       topic_list  = "kafka_topic_list = 'clickhouse_app_metrics2'"
       group_name  = "kafka_group_name = 'clickhouse_app_metrics2_ws'"
+      format      = "kafka_format = 'JSONEachRow'"
+    }
+  }
+
+  table "kafka_billing_usage_records" {
+    settings = {
+      date_time_input_format = "best_effort"
+    }
+    column "schema_version" {
+      type = "UInt8"
+    }
+    column "record_id" {
+      type = "String"
+    }
+    column "producer_id" {
+      type = "LowCardinality(String)"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "organization_id" {
+      type = "UUID"
+    }
+    column "usage_key" {
+      type = "LowCardinality(String)"
+    }
+    column "unit" {
+      type = "LowCardinality(String)"
+    }
+    column "quantity" {
+      type = "Int64"
+    }
+    column "timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "inserted_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    engine "kafka" {
+      broker_list = "warpstream_ingestion"
+      topic_list  = "kafka_topic_list = 'clickhouse_billing_usage_records'"
+      group_name  = "kafka_group_name = 'clickhouse_billing_usage_records'"
       format      = "kafka_format = 'JSONEachRow'"
     }
   }
@@ -8702,6 +8792,58 @@ SQL
     }
   }
 
+  table "sharded_billing_usage_records" {
+    order_by     = ["team_id", "toDate(timestamp)", "producer_id", "usage_key", "record_id"]
+    partition_by = "toYYYYMM(timestamp)"
+    settings = {
+      index_granularity = "8192"
+    }
+    column "schema_version" {
+      type = "UInt8"
+    }
+    column "record_id" {
+      type = "String"
+    }
+    column "producer_id" {
+      type = "LowCardinality(String)"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "organization_id" {
+      type = "UUID"
+    }
+    column "usage_key" {
+      type = "LowCardinality(String)"
+    }
+    column "unit" {
+      type = "LowCardinality(String)"
+    }
+    column "quantity" {
+      type = "Int64"
+    }
+    column "timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "inserted_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/{shard}/posthog.sharded_billing_usage_records"
+      replica_name   = "{replica}"
+      version_column = "inserted_at"
+    }
+  }
+
   table "sharded_conversion_goal_attributed_preaggregated" {
     order_by     = ["team_id", "job_id", "person_id", "conversion_timestamp", "touchpoint_timestamp"]
     partition_by = "toYYYYMMDD(expires_at)"
@@ -13467,6 +13609,13 @@ SQL
       type        = "bloom_filter(0.00001)"
       granularity = 99999
     }
+    projection "projection_index_span_id" {
+      query = <<SQL
+SELECT _part_offset
+ORDER BY span_id
+SQL
+
+    }
     projection "projection_aggregate_counts" {
       query = <<SQL
 SELECT
@@ -13479,13 +13628,6 @@ SELECT
   count() AS event_count
 GROUP BY
   team_id, time_bucket, toStartOfMinute(timestamp), service_name, resource_fingerprint, is_root_span
-SQL
-
-    }
-    projection "projection_index_span_id" {
-      query = <<SQL
-SELECT _part_offset
-ORDER BY span_id
 SQL
 
     }
@@ -14726,6 +14868,54 @@ SQL
       remote_database = "posthog"
       remote_table    = "sharded_app_metrics2"
       sharding_key    = "rand()"
+    }
+  }
+
+  table "writable_billing_usage_records" {
+    column "schema_version" {
+      type = "UInt8"
+    }
+    column "record_id" {
+      type = "String"
+    }
+    column "producer_id" {
+      type = "LowCardinality(String)"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "organization_id" {
+      type = "UUID"
+    }
+    column "usage_key" {
+      type = "LowCardinality(String)"
+    }
+    column "unit" {
+      type = "LowCardinality(String)"
+    }
+    column "quantity" {
+      type = "Int64"
+    }
+    column "timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "inserted_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    engine "distributed" {
+      cluster_name    = "posthog"
+      remote_database = "posthog"
+      remote_table    = "sharded_billing_usage_records"
+      sharding_key    = "cityHash64(team_id)"
     }
   }
 
@@ -17502,6 +17692,67 @@ SQL
     }
     column "_timestamp" {
       type = "Nullable(DateTime)"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+  }
+
+  materialized_view "billing_usage_records_mv" {
+    to_table = "posthog.writable_billing_usage_records"
+    query    = <<SQL
+SELECT
+  schema_version,
+  record_id,
+  producer_id,
+  team_id,
+  organization_id,
+  usage_key,
+  unit,
+  quantity,
+  timestamp,
+  inserted_at,
+  _timestamp,
+  _offset,
+  _partition
+FROM posthog.kafka_billing_usage_records
+SQL
+
+    column "schema_version" {
+      type = "UInt8"
+    }
+    column "record_id" {
+      type = "String"
+    }
+    column "producer_id" {
+      type = "LowCardinality(String)"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "organization_id" {
+      type = "UUID"
+    }
+    column "usage_key" {
+      type = "LowCardinality(String)"
+    }
+    column "unit" {
+      type = "LowCardinality(String)"
+    }
+    column "quantity" {
+      type = "Int64"
+    }
+    column "timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "inserted_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "_timestamp" {
+      type = "DateTime"
     }
     column "_offset" {
       type = "UInt64"

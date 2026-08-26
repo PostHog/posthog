@@ -8,7 +8,7 @@ import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
-import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { createTeam, createTestTeamFixture, getTeam } from '~/tests/helpers/sql'
 
 import { Hub, InternalPerson, Team } from '../../types'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
@@ -108,10 +108,10 @@ describe('CdpCyclotronWorkerHogFlow', () => {
     }
 
     beforeEach(async () => {
-        await resetTestDatabase()
         hub = await createHub()
-        team = await getFirstTeam(hub.postgres)
-        const team2Id = await createTeam(hub.postgres, team.organization_id)
+        const { organizationId, team: fixtureTeam } = await createTestTeamFixture(hub.postgres)
+        team = fixtureTeam
+        const team2Id = await createTeam(hub.postgres, organizationId)
         team2 = (await getTeam(hub.postgres, team2Id))!
 
         const testPersons: TestPerson[] = [
@@ -188,6 +188,37 @@ describe('CdpCyclotronWorkerHogFlow', () => {
                     .withTeamId(team2.id)
                     .withStatus('active')
                     .withSimpleWorkflow()
+                    .build()
+            )
+        )
+
+        hogFlows.push(
+            await insertHogFlow(
+                hub.postgres,
+                new FixtureHogFlowBuilder()
+                    .withName('Test Hog Flow with a wait')
+                    .withTeamId(team.id)
+                    .withStatus('active')
+                    .withWorkflow({
+                        actions: {
+                            trigger: {
+                                type: 'trigger',
+                                config: { type: 'event', filters: {} },
+                            },
+                            wait: {
+                                type: 'wait_until_condition',
+                                config: {
+                                    condition: { filters: { properties: [{ key: 'email', type: 'person' }] } },
+                                    max_wait_duration: '1h',
+                                } as any,
+                            },
+                            exit: { type: 'exit', config: {} },
+                        },
+                        edges: [
+                            { from: 'trigger', to: 'wait', type: 'continue' },
+                            { from: 'wait', to: 'exit', type: 'continue' },
+                        ],
+                    } as any)
                     .build()
             )
         )
@@ -368,6 +399,34 @@ describe('CdpCyclotronWorkerHogFlow', () => {
             expect(results[0].invocation.state.personId).toBe('dd3d6f80-60ad-45c3-bd61-e2300f2ba7e1')
             // invocation4 (missing_person) resolves to nothing — no person_id to persist.
             expect(results[3].invocation.state.personId).toBeUndefined()
+        })
+
+        it('supplies a refreshPerson hook that re-reads uncached and rebuilds the filter globals', async () => {
+            // A wait step calls this before its first evaluation. Without it the wait evaluates the
+            // person the dequeue cached, and a run that parks on a stale read has nothing left to wake it.
+            const results = (await processor.processInvocations([
+                createSerializedHogFlowInvocation(hogFlows[2], {
+                    event: { distinct_id: 'distinct_A_1', properties: {} } as any,
+                }),
+            ])) as CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>[]
+
+            const getPerson = jest.spyOn(processor['personsManager'], 'getCyclotronPerson').mockResolvedValue({
+                id: 'dd3d6f80-60ad-45c3-bd61-e2300f2ba7e1',
+                properties: { name: 'Person A 1', email: 'written-after-caching@posthog.com' },
+                name: 'Person A 1',
+                url: 'http://localhost:8000/project/1/person/distinct_A_1',
+                distinct_id: 'distinct_A_1',
+            })
+
+            const refreshed = await results[0].invocation.refreshPerson!()
+
+            expect(getPerson).toHaveBeenCalledWith(expect.any(Number), 'distinct_A_1', 'distinct_id', {
+                forceFresh: true,
+            })
+            expect(refreshed.filterGlobals.person?.properties).toEqual({
+                name: 'Person A 1',
+                email: 'written-after-caching@posthog.com',
+            })
         })
 
         it('terminates invocations as canceled when the workflow is disabled after being queued', async () => {

@@ -1342,6 +1342,20 @@ export interface AssistantTrendsActorsQuery {
      * @default true
      */
     includeRecordings?: boolean
+
+    /**
+     * Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped.
+     * @default 100
+     */
+    limit?: integer
+
+    /**
+     * Number of persons to skip before the returned page. Use it with `limit` to walk the whole
+     * result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true,
+     * call again with `offset` raised by `limit`.
+     * @default 0
+     */
+    offset?: integer
 }
 
 /** A single lifecycle bucket — see `AssistantLifecycleActorsQuery.status`. */
@@ -1373,6 +1387,20 @@ export interface AssistantLifecycleActorsQuery {
      * in the source's `lifecycleFilter.toggledLifecycles` (defaults to all four when omitted).
      */
     status: AssistantLifecycleStatus
+
+    /**
+     * Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped.
+     * @default 100
+     */
+    limit?: integer
+
+    /**
+     * Number of persons to skip before the returned page. Use it with `limit` to walk the whole
+     * result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true,
+     * call again with `offset` raised by `limit`.
+     * @default 0
+     */
+    offset?: integer
 }
 
 /**
@@ -1399,6 +1427,20 @@ export interface AssistantPathsActorsQuery {
      * @default true
      */
     includeRecordings?: boolean
+
+    /**
+     * Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped.
+     * @default 100
+     */
+    limit?: integer
+
+    /**
+     * Number of persons to skip before the returned page. Use it with `limit` to walk the whole
+     * result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true,
+     * call again with `offset` raised by `limit`.
+     * @default 0
+     */
+    offset?: integer
 }
 
 /**
@@ -1428,6 +1470,20 @@ export interface AssistantRetentionActorsQuery {
      * Defaults to `0` when omitted.
      */
     interval?: integer
+
+    /**
+     * Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped.
+     * @default 100
+     */
+    limit?: integer
+
+    /**
+     * Number of persons to skip before the returned page. Use it with `limit` to walk the whole
+     * cohort: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true, call
+     * again with `offset` raised by `limit`.
+     * @default 0
+     */
+    offset?: integer
 }
 
 /**
@@ -1460,6 +1516,20 @@ export interface AssistantStickinessActorsQuery {
 
     /** Whether to pull from the previous period when `compareFilter` is enabled in the source. */
     compare?: 'current' | 'previous'
+
+    /**
+     * Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped.
+     * @default 100
+     */
+    limit?: integer
+
+    /**
+     * Number of persons to skip before the returned page. Use it with `limit` to walk the whole
+     * result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true,
+     * call again with `offset` raised by `limit`.
+     * @default 0
+     */
+    offset?: integer
 }
 
 /**
@@ -1523,6 +1593,20 @@ export interface AssistantFunnelsActorsQuery {
      * @default true
      */
     includeRecordings?: boolean
+
+    /**
+     * Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped.
+     * @default 100
+     */
+    limit?: integer
+
+    /**
+     * Number of persons to skip before the returned page. Use it with `limit` to walk the whole
+     * result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true,
+     * call again with `offset` raised by `limit`.
+     * @default 0
+     */
+    offset?: integer
 }
 
 /**
@@ -1744,14 +1828,14 @@ export interface AssistantDataVisualizationAxisDisplaySettings {
 export interface AssistantDataVisualizationAxisFormatting {
     /** Text prepended to each value (e.g. `$`). */
     prefix?: string
-    /** Text appended to each value (e.g. `%` or ` ms`). */
+    /** Text appended to each value (e.g. ` ms`). Leave unset when `style` is `percent`, which already appends the `%` sign. */
     suffix?: string
     /**
      * Number formatting style.
      * - `none` — no formatting.
      * - `number` — thousands separators (e.g. `1,234`).
      * - `short` — abbreviated large numbers (e.g. `1.2k`, `3.4M`).
-     * - `percent` — render the value as a percentage.
+     * - `percent` — multiply the value by 100 and append a `%` sign, so pass a 0-1 ratio (`a / b`, not `100.0 * a / b`). Never pair it with a `%` suffix, which renders `47.3%%`.
      */
     style?: 'none' | 'number' | 'short' | 'percent'
     /** Number of decimal places to display. */

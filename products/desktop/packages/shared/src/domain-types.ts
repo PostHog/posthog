@@ -286,6 +286,39 @@ export type TaskRunStatus =
 
 export type TaskRunEnvironment = "local" | "cloud";
 
+const optionalField = <T extends z.ZodType>(
+  field: T,
+): z.ZodCatch<z.ZodOptional<T>> => field.optional().catch(undefined);
+
+const taskRunStateFields = {
+  ai_stage: optionalField(z.string()),
+  auto_publish: optionalField(z.boolean()),
+  initial_permission_mode: optionalField(executionModeSchema),
+  initial_prompt_override: optionalField(z.string()),
+  pending_user_artifact_ids: optionalField(z.array(z.string())),
+  pending_user_message: optionalField(z.string()),
+  pending_user_message_id: optionalField(z.string()),
+  prewarmed: optionalField(z.boolean()),
+  reasoning_effort: optionalField(
+    z.union([effortLevelSchema, z.enum(["off", "minimal"])]),
+  ),
+  resume_from_run_id: optionalField(z.string()),
+  sandbox_environment_id: optionalField(z.string()),
+  slack_artifact_delivery: optionalField(
+    z.enum(["none", "message", "canvas_file"]),
+  ),
+  slack_chart_delivery: optionalField(z.boolean()),
+  slack_notified_pr_url: optionalField(z.string()),
+  slack_thread_url: optionalField(z.string()),
+  snapshot_kind: optionalField(z.string()),
+  token_usage: optionalField(z.record(z.string(), z.unknown())),
+} satisfies z.ZodRawShape;
+
+export const taskRunStateSchema = z.looseObject(taskRunStateFields).catch({});
+
+export type TaskRunState = z.infer<typeof taskRunStateSchema>;
+export type TaskRunStateField = keyof typeof taskRunStateFields;
+
 export type ArtifactType =
   | "plan"
   | "context"
@@ -375,7 +408,7 @@ export interface TaskRun {
   log_url: string;
   error_message: string | null;
   output: Record<string, unknown> | null; // Structured output (PR URL, commit SHA, etc.)
-  state: Record<string, unknown>; // Intermediate run state (defaults to {}, never null)
+  state: TaskRunState;
   artifacts?: TaskRunArtifact[];
   created_at: string;
   updated_at: string;
@@ -657,6 +690,12 @@ export interface SignalReport {
   source_products?: string[];
   /** PR URL from the latest implementation task run, if available. */
   implementation_pr_url?: string | null;
+  /**
+   * Whether that PR merged (GitHub webhook). A merged PR is history, not work
+   * in flight: a report can outlive its fix when evidence keeps arriving, and
+   * its old PR must not read as reviewable or continuable.
+   */
+  implementation_pr_merged?: boolean;
   /** Charts the report shows, placed by `[label](chart:<chart_id>)` links in the summary. */
   charts?: SignalReportChart[];
   /** The report's PR refund, when one exists (one refund per report, ever). */
@@ -665,6 +704,8 @@ export interface SignalReport {
   billing_exempt_reason?: string | null;
   /** Backend-owned refund eligibility: why a refund would be rejected right now, null when it would be accepted. */
   refund_ineligibility_reason?: string | null;
+  /** The space (task channel) this report is assigned to, or null when unassigned. The general view lists every report regardless of this value. */
+  channel_id?: string | null;
 }
 
 export type SignalReportRefundReason =
@@ -1010,6 +1051,8 @@ export interface SignalReportsQueryParams {
    * reports, `false` only non-PR reports. Pair with `limit: 1` to count PR reports cheaply.
    */
   has_implementation_pr?: boolean;
+  /** A space (task channel) UUID — only returns reports assigned to that space. Omit for the general view, which returns every report. */
+  channel_id?: string;
 }
 
 export interface SignalTeamConfig {
