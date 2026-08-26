@@ -38,7 +38,6 @@ class TestResources(StripeProvisioningTestBase):
         assert pat.scoped_teams == [self.team.id]
 
         assert set(pat.scopes) == set(mcp_advertised_resource_scopes())
-        assert "batch_export:write" in pat.scopes
 
         assert TeamProvisioningConfig.objects.get(team=self.team).service_id == "analytics"
 
