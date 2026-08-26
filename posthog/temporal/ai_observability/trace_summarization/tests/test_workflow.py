@@ -387,3 +387,9 @@ class TestBatchTraceSummarizationWorkflow:
         assert inputs.window_minutes == 30
         assert inputs.window_start == "2025-01-01T00:00:00Z"
         assert inputs.window_end == "2025-01-02T00:00:00Z"
+
+    def test_parse_inputs_rejects_unknown_model(self):
+        with pytest.raises(ValueError, match="gpt-4.1-nano"):
+            BatchTraceSummarizationWorkflow.parse_inputs(
+                ["123", "trace", "200", "20", "detailed", "30", "", "", "gpt-5.6-luna"]
+            )

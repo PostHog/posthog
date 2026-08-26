@@ -62,7 +62,7 @@ from posthog.temporal.ai_observability.trace_summarization.summarize_and_save im
 from posthog.temporal.common.base import PostHogWorkflow
 
 from products.ai_observability.backend.summarization.budget import text_repr_budget
-from products.ai_observability.backend.summarization.models import SummarizationMode
+from products.ai_observability.backend.summarization.models import OpenAIModel, SummarizationMode
 
 logger = structlog.get_logger(__name__)
 
@@ -91,7 +91,7 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
             window_minutes=int(inputs[5]) if len(inputs) > 5 else DEFAULT_WINDOW_MINUTES,
             window_start=inputs[6] if len(inputs) > 6 else None,
             window_end=inputs[7] if len(inputs) > 7 else None,
-            model=inputs[8] if len(inputs) > 8 else DEFAULT_MODEL,
+            model=OpenAIModel.parse(inputs[8]) if len(inputs) > 8 else DEFAULT_MODEL,
         )
 
     @staticmethod

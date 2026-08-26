@@ -85,6 +85,12 @@ class TestBatchTraceSummarizationCoordinatorWorkflow:
         assert result.window_minutes == expected.window_minutes
         assert result.model == expected.model
 
+    def test_parse_inputs_rejects_unknown_model(self):
+        with pytest.raises(ValueError, match="gpt-4.1-nano"):
+            BatchTraceSummarizationCoordinatorWorkflow.parse_inputs(
+                ["trace", "200", "20", "detailed", "30", "gpt-5.6-luna"]
+            )
+
     def test_continuation_fields_default_to_none(self):
         inputs = BatchTraceSummarizationCoordinatorInputs()
 
