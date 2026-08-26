@@ -124,7 +124,9 @@ Step 7 absorbs it into the `OutputRegistry`; the mode-scoped demand is folded in
 
 #### Step 8 · Call sites migrate to the table; `Event` retired
 
-- **Goal.** All four call sites (`events/analytics.rs`, `ai_endpoint.rs`, `otel/mod.rs`, `events/recordings.rs`) publish via `OutputRegistry::publish`, recording `capture_event_batch_size` at the call site; `State` and test mocks retype; then delete the v0 `Event` trait, the outputs facade, the Kafka `Event` bridge, and the single-event `kafka_send` path.
+- **Goal.** All four call sites (`events/analytics.rs`, `ai_endpoint.rs`, `otel/mod.rs`, `events/recordings.rs`) publish via `OutputRegistry::publish`, recording `capture_event_batch_size` at the call site; `State` and test mocks retype; then delete the v0 `Event` trait, its `Box<T>` blanket, the outputs facade, and the `Event` impls on Kafka, S3, print, noop, and the test mock.
+- **`State` drops its trait object.** `State.sink: Arc<dyn Event>` becomes `State.outputs: Arc<OutputRegistry>` — a concrete type, since `Output::single` already accepts any leaf. The substitution seam moves down to the leaf: `PublishEvents` and `Output::single` become `pub` so the `tests/` suites can stand their own capturing sinks in (`test_sink` is `cfg(test)`-gated and unreachable from there), and pipeline tests drive the real table and policy path instead of bypassing the outputs layer.
+- **`kafka_send` survives this step.** It is not reachable only from `Event::send`: `PublishEvents::publish_one` calls it too, and that is the production single-event path (recordings publishes one event per call). Deleting it means re-expressing `publish_one` over `prepare_batch` + `Sink::publish` + `fold_results`, which adds a task spawn per single event and drops the `ack_wait_one` span — a behavior change, and this step is a mechanical move. Step 12 retires it with the prep hoist.
 - **Parity proof.** All endpoint/integration suites green; grep proves `Event` call-site-free before the deletion half.
 - **Size.** M/L. May split into per-call-site commits if the diff grows.
 
@@ -270,8 +272,8 @@ When all steps land, the five strata hold:
 | 5 · `Pipeline` + `Lane`; lane resolution | done | `refactor(capture): lane decision moves to the pipeline layer` |
 | 6 · Kafka sink → backend mechanism | done | `refactor(capture): narrow the kafka sink to backend mechanism over prepared payloads` |
 | 7 · Outputs layer with policies; composites retired | done | `feat(capture): outputs layer owns the failover policy` |
-| 8a · Call sites on the table | pending | `refactor(capture): call sites publish through outputs` |
-| 8b · `Event` retired | pending | `refactor(capture): retire v0 Event trait` |
+| 8a · Call sites on the table | done | `refactor(capture): call sites publish through outputs` |
+| 8b · `Event` retired | done | `refactor(capture): retire v0 Event trait` |
 | 9 · Mode-scoped completeness | pending | `refactor(capture): mode-scoped output registry completeness` |
 | 10 · Breaker mode (dark) | pending | `feat(capture): breaker-driven failover mode (dark)` |
 | 11 · v1 convergence | pending | `refactor(capture): v1 resolves through shared pipeline/lane strata` |

@@ -12,7 +12,6 @@
 
 use crate::api::CaptureError;
 use crate::outputs::{OutputRegistry, PublishEvents};
-use crate::sinks::Event;
 use crate::v0_request::ProcessedEvent;
 use async_trait::async_trait;
 use std::sync::{Arc, Mutex};
@@ -36,19 +35,6 @@ impl MockSink {
     /// handle it already holds after publishing through the table.
     pub fn table(&self) -> Arc<OutputRegistry> {
         Arc::new(OutputRegistry::single(self.clone()))
-    }
-}
-
-#[async_trait]
-impl Event for MockSink {
-    async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
-        self.events.lock().unwrap().push(event);
-        Ok(())
-    }
-
-    async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
-        self.events.lock().unwrap().extend(events);
-        Ok(())
     }
 }
 
