@@ -262,3 +262,33 @@ describe('queryHandler — result shape for UI rendering', () => {
         expect(result.query).toEqual({ kind })
     })
 })
+
+describe('queryHandler — alert note gate', () => {
+    interface NotedResult {
+        _agentNote?: string
+    }
+
+    it.each([
+        // Legacy SQL insights wrap a HogQLQuery in a DataTableNode. The backend accepts an alert on
+        // that shape (it unwraps the wrapper before the kind check), so the offer must reach the agent.
+        [
+            'offers an alert for a DataTableNode wrapping HogQLQuery',
+            { kind: 'DataTableNode', source: { kind: 'HogQLQuery', query: 'select 1' } },
+            true,
+        ],
+        // A DataTableNode over EventsQuery/ActorsQuery cannot carry an alert, so the offer stays withheld.
+        [
+            'stays quiet for a DataTableNode wrapping EventsQuery',
+            { kind: 'DataTableNode', source: { kind: 'EventsQuery' } },
+            false,
+        ],
+    ] as const)('%s', async (_label, query, expectsNote) => {
+        const { context } = createContext({
+            getData: { id: 42, short_id: 'abc12345', query },
+        })
+
+        const result = (await queryHandler(context, { insightId: '42', output_format: 'json' })) as NotedResult
+
+        expect(typeof result._agentNote === 'string').toBe(expectsNote)
+    })
+})

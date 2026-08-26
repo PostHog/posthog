@@ -61,5 +61,13 @@ export function analyzeQuery(query: unknown): QueryInfo {
         return { visualization: 'table', innerKind: 'HogQLQuery' }
     }
 
+    // DataTableNode always renders as a table and wraps its real query on `source`. Legacy SQL
+    // insights use it around a HogQLQuery; it can also wrap EventsQuery/ActorsQuery. Unwrap to the
+    // source kind so a HogQL-backed table is recognised as alertable, while the others are not.
+    if (q.kind === 'DataTableNode' && q.source && typeof q.source === 'object') {
+        const source = q.source as Record<string, unknown>
+        return { visualization: 'table', innerKind: typeof source.kind === 'string' ? source.kind : 'DataTableNode' }
+    }
+
     return { visualization: 'table', innerKind: String(q.kind || 'unknown') }
 }
