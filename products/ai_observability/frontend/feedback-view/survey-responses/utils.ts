@@ -23,6 +23,17 @@ export function getSurveyIdFromEvent(event: LLMTraceEvent): string | null {
     return isString(surveyId) ? surveyId.toLowerCase() : null
 }
 
+/**
+ * Merges a trace's `survey sent` events into one response for each `$survey_submission_id`.
+ *
+ * A submission can arrive as several events, for example a thumbs rating and then a free-text
+ * follow-up. Each event holds only the answers it collected, so the answers must be merged across
+ * the submission's events instead of read from any single one.
+ *
+ * Callers must pass the events in ascending timestamp order. A question answered more than once
+ * keeps its latest non-empty value, which matches how the responses API merges a submission with
+ * `argMaxIf(answer, timestamp, isNotNull(answer))`.
+ */
 export function groupEventsBySubmission(events: LLMTraceEvent[], surveys: Record<string, Survey>): GroupedResponse[] {
     const submissionMap = new Map<string, GroupedResponse>()
 
@@ -54,7 +65,9 @@ export function groupEventsBySubmission(events: LLMTraceEvent[], surveys: Record
 
             if (value != null && value !== '') {
                 const existing = submission.responses.find((r) => r.questionIndex === i)
-                if (!existing) {
+                if (existing) {
+                    existing.value = value
+                } else {
                     submission.responses.push({ questionIndex: i, question, value })
                 }
             }
@@ -65,5 +78,47 @@ export function groupEventsBySubmission(events: LLMTraceEvent[], surveys: Record
         }
     }
 
+    // Answers arrive in event order, so a submission whose later event answered an earlier
+    // question would otherwise render its questions out of order.
+    for (const submission of submissionMap.values()) {
+        submission.responses.sort((a, b) => a.questionIndex - b.questionIndex)
+    }
+
     return Array.from(submissionMap.values())
+}
+
+/**
+ * Picks the `survey shown` events that deserve a "shown but received no response" card.
+ *
+ * A survey with a `survey sent` event on the same trace was answered, so its impression is not
+ * worth a card. An instrumented app can also send `survey shown` more than once for one survey,
+ * so only the first of each survives.
+ */
+export function selectUnansweredShownEvents(events: LLMTraceEvent[]): LLMTraceEvent[] {
+    const answeredSurveyIds = new Set<string>()
+    for (const event of events) {
+        const surveyId = getSurveyIdFromEvent(event)
+        if (event.event === 'survey sent' && surveyId) {
+            answeredSurveyIds.add(surveyId)
+        }
+    }
+
+    // A `survey shown` event without a readable `$survey_id` still renders, as an unnamed survey.
+    // Keying those together collapses them into the single card they used to get.
+    const shownBySurvey = new Map<string, LLMTraceEvent>()
+    for (const event of events) {
+        if (event.event !== 'survey shown') {
+            continue
+        }
+        const surveyId = getSurveyIdFromEvent(event)
+        if (surveyId && answeredSurveyIds.has(surveyId)) {
+            continue
+        }
+        const key = surveyId ?? ''
+        if (!shownBySurvey.has(key)) {
+            shownBySurvey.set(key, event)
+        }
+    }
+
+    return Array.from(shownBySurvey.values())
 }

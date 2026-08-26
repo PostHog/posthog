@@ -126,6 +126,12 @@ export const feedbackViewLogic = kea<feedbackViewLogicType>([
             {
                 loadSurveyEvents: async (createdAt: string) => {
                     const date = dayjs(createdAt)
+                    // One submission can span several `survey sent` events, and each event carries
+                    // only the answers it collected, so every event has to come back and be merged
+                    // by `groupEventsBySubmission`. Keeping one event per survey here would drop
+                    // the answers on all the others. Ascending timestamp order lets the merge keep
+                    // the latest answer for a question. The row bound guards against a runaway
+                    // trace, because a trace holds one submission per survey.
                     const response = await api.queryHogQL(
                         hogql`
                             SELECT uuid, event, timestamp, properties
@@ -133,8 +139,8 @@ export const feedbackViewLogic = kea<feedbackViewLogicType>([
                             WHERE (event = 'survey sent' OR event = 'survey shown')
                                 AND properties.$ai_trace_id = ${props.traceId}
                                 AND timestamp >= ${date}
-                            ORDER BY if(event = 'survey sent', 0, 1)
-                            LIMIT 1 BY properties.$survey_id
+                            ORDER BY timestamp ASC
+                            LIMIT 1000
                         `,
                         { productKey: 'llm_analytics' }
                     )

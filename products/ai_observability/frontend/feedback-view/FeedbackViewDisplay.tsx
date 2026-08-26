@@ -8,7 +8,7 @@ import { urls } from 'scenes/urls'
 import { aiObservabilityTraceLogic } from '../aiObservabilityTraceLogic'
 import { feedbackViewLogic } from './feedbackViewLogic'
 import { SurveyResponseCard } from './survey-responses/SurveyResponseCard'
-import { getSurveyIdFromEvent, groupEventsBySubmission } from './survey-responses/utils'
+import { getSurveyIdFromEvent, groupEventsBySubmission, selectUnansweredShownEvents } from './survey-responses/utils'
 import { FeedbackSurveyWizard } from './wizard/FeedbackSurveyWizard'
 
 export function FeedbackViewDisplay(): JSX.Element {
@@ -30,10 +30,7 @@ export function FeedbackViewDisplay(): JSX.Element {
 
     const surveyResponseEvents = (surveyEvents ?? []).filter((e) => e.event === 'survey sent')
     const groupedResponses = groupEventsBySubmission(surveyResponseEvents, surveys)
-
-    // survey events are deduped on survey_id (and implicitly trace_id), so we'll
-    // only have 'survey shown' events here if there was no survey response
-    const surveyShownEvents = (surveyEvents ?? []).filter((e) => e.event === 'survey shown')
+    const surveyShownEvents = selectUnansweredShownEvents(surveyEvents ?? [])
 
     // A response whose `$survey_id` matches no survey in this project has no questions to render
     // against, so it is dropped above. Say so, instead of leaving the trace looking uninstrumented.
