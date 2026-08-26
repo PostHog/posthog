@@ -561,6 +561,7 @@ export class PiAgentServer {
       taskId: this.config.taskId,
       cwd,
       environment: "cloud",
+      channelMode: !this.config.repositoryPath,
       additionalInstructions: configuredSystemPrompt,
     };
     const attributionHeaders = buildPosthogPropertyHeaderRecord({

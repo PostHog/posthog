@@ -22,6 +22,9 @@ describe("buildTaskSystemPrompt", () => {
     expect(prompt).toContain("<directory>/tmp/a&amp;b</directory>");
     expect(prompt).toContain("<directory>/tmp/&lt;shared&gt;</directory>");
     expect(prompt).toContain("## Channel task");
+    expect(prompt).toContain(
+      "Shell commands already run in the current working directory",
+    );
   });
 
   it("does not give local source-control instructions to cloud tasks", () => {

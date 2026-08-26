@@ -84,6 +84,7 @@ When you mention a pull request in any reply or summary, always hyperlink it to 
 export function buildShellEfficiencyPrompt(): string {
   return `## Shell efficiency
 Optimize for the fewest shell round trips.
+- Shell commands already run in the current working directory. Do not prefix them with \`cd\` to that directory.
 - Batch related commands into one Bash invocation using \`&&\` (e.g. \`npm run typecheck && npm run lint && npm test\`).
 - Emit all independent tool calls in the same response.
 - Read multiple files at once.

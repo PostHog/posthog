@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { RpcClient } from "@earendil-works/pi-coding-agent";
@@ -163,6 +163,7 @@ import { closeSync, readFileSync, writeFileSync } from "node:fs";
 const bootstrap = JSON.parse(readFileSync(3, "utf8"));
 closeSync(3);
 writeFileSync(${JSON.stringify(capturePath)}, JSON.stringify({
+  cwd: process.cwd(),
   nodeMode: process.env.ELECTRON_RUN_AS_NODE ?? "",
   extensions: bootstrap.extensions,
   apiKey: bootstrap.providerOptions.apiKey,
@@ -179,9 +180,11 @@ process.stdin.resume();
 
     try {
       await client.start();
+      const expectedCwd = await realpath(directory);
       await vi.waitFor(async () => {
         await expect(readFile(capturePath, "utf8")).resolves.toBe(
           JSON.stringify({
+            cwd: expectedCwd,
             nodeMode: "1",
             extensions: ["repository-tools"],
             apiKey: "proxy-key",
