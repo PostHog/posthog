@@ -122,7 +122,13 @@ export function AccessResolutionPreview(): JSX.Element {
     }
 
     const resourceChanges = preview.changes.filter((change) => change.scope === 'resource')
-    const objectChanges = preview.changes.filter((change) => change.scope === 'object')
+    const objectChanges = preview.changes
+        .filter((change) => change.scope === 'object')
+        .sort(
+            (a, b) =>
+                a.resource.localeCompare(b.resource) ||
+                (a.object_name ?? a.object_id ?? '').localeCompare(b.object_name ?? b.object_id ?? '')
+        )
 
     const resourceColumns: LemonTableColumns<ResolutionChange> = [
         {
@@ -137,15 +143,23 @@ export function AccessResolutionPreview(): JSX.Element {
     ]
     const objectColumns: LemonTableColumns<ResolutionChange> = [
         {
-            title: 'Object',
+            title: 'Type',
+            key: 'type',
+            width: 0,
+            render: (_, change) => (
+                <span className="capitalize whitespace-nowrap">{change.resource.replace(/_/g, ' ')}</span>
+            ),
+        },
+        {
+            title: 'Name',
             key: 'object',
             width: 0,
             render: (_, change) => (
-                <div className="whitespace-nowrap max-w-80">
-                    <div className="font-semibold truncate" title={change.object_name ?? change.object_id ?? undefined}>
-                        {change.object_name ?? change.object_id}
-                    </div>
-                    <div className="text-muted text-xs">{change.resource.replace(/_/g, ' ')}</div>
+                <div
+                    className="font-semibold truncate whitespace-nowrap max-w-80"
+                    title={change.object_name ?? change.object_id ?? undefined}
+                >
+                    {change.object_name ?? change.object_id}
                 </div>
             ),
         },
