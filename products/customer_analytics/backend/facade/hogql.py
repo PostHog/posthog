@@ -558,12 +558,12 @@ def _account_email_threads_select() -> ast.SelectQuery | ast.SelectSetQuery:
     )
 
 
-def _require_ticket_access(context: HogQLContext) -> None:
+def _require_ticket_access(context: HogQLContext, table_name: str) -> None:
     database = context.database
     if database is None or database.user_access_control is None:
-        raise TableAccessDeniedError("system.support_tickets")
+        raise TableAccessDeniedError(table_name)
     if not database.user_access_control.check_access_level_for_resource("ticket", "viewer"):
-        raise TableAccessDeniedError("system.support_tickets")
+        raise TableAccessDeniedError(table_name)
 
 
 class _AccountTagsTable(LazyTable):
@@ -797,7 +797,7 @@ class _AccountSupportTicketsTable(LazyTable):
     def lazy_select(
         self, table_to_add: LazyTableToAdd, context: HogQLContext, node: ast.SelectQuery
     ) -> ast.SelectQuery | ast.SelectSetQuery:
-        _require_ticket_access(context)
+        _require_ticket_access(context, "system.support_tickets")
         return _account_support_tickets_select()
 
     def to_printed_clickhouse(self, context: HogQLContext) -> str:
@@ -821,7 +821,7 @@ class _AccountEmailThreadsTable(LazyTable):
     def lazy_select(
         self, table_to_add: LazyTableToAdd, context: HogQLContext, node: ast.SelectQuery
     ) -> ast.SelectQuery | ast.SelectSetQuery:
-        _require_ticket_access(context)
+        _require_ticket_access(context, "system._account_email_threads")
         return _account_email_threads_select()
 
     def to_printed_clickhouse(self, context: HogQLContext) -> str:
@@ -910,7 +910,7 @@ def account_support_tickets_join(
 ) -> ast.JoinExpr:
     if not join_to_add.fields_accessed:
         raise ResolutionError("No fields requested from `accounts.support_tickets`")
-    _require_ticket_access(context)
+    _require_ticket_access(context, "system.support_tickets")
     return _join_on_account_id(_account_support_tickets_select(), join_to_add)
 
 
@@ -919,7 +919,7 @@ def account_email_threads_join(
 ) -> ast.JoinExpr:
     if not join_to_add.fields_accessed:
         raise ResolutionError("No fields requested from `accounts.email_threads`")
-    _require_ticket_access(context)
+    _require_ticket_access(context, "system._account_email_threads")
     return _join_on_account_id(_account_email_threads_select(), join_to_add)
 
 

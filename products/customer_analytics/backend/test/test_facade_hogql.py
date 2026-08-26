@@ -101,19 +101,20 @@ class TestFacadeHogqlSystemTables(SimpleTestCase):
 class TestAccountCommunicationHogqlAccess(SimpleTestCase):
     @parameterized.expand(
         [
-            ("email_threads", account_email_threads_join),
-            ("support_tickets", account_support_tickets_join),
+            ("email_threads", account_email_threads_join, "system._account_email_threads"),
+            ("support_tickets", account_support_tickets_join, "system.support_tickets"),
         ]
     )
-    def test_ticket_access_is_required(self, _name, resolver) -> None:
+    def test_ticket_access_is_required(self, _name, resolver, table_name) -> None:
         access_control = Mock()
         access_control.check_access_level_for_resource.return_value = False
         context = HogQLContext(database=Mock(user_access_control=access_control))
         join_to_add = Mock(fields_accessed={"count": ["count"]})
 
-        with self.assertRaises(TableAccessDeniedError):
+        with self.assertRaises(TableAccessDeniedError) as error:
             resolver(join_to_add, context, Mock())
 
+        assert error.exception.table_name == table_name
         access_control.check_access_level_for_resource.assert_called_once_with("ticket", "viewer")
 
 
