@@ -246,7 +246,7 @@ posthog:query-llm-traces-list
 
 For more complex SQL patterns, read these references:
 
-- [Single trace retrieval](./references/example-llm-trace.md.j2) — fetches a single trace by ID with all events and properties (renders the `TraceQuery` HogQL)
+- [Single trace retrieval](./references/example-llm-trace.md) — fetches a single trace by ID with all events and properties (renders the `TraceQuery` HogQL)
 - [Traces list with aggregated metrics](./references/example-llm-traces-list.md) — two-phase query: find trace IDs first, then fetch aggregated latency, tokens, costs, and error counts
 
 ## Parsing large trace results

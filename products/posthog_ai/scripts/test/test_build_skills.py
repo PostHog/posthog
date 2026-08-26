@@ -504,6 +504,42 @@ def test_lint_all_catches_bad_jinja2_in_subdirectory(tmp_path: Path) -> None:
     assert builder.lint_all() is False
 
 
+def test_lint_all_catches_md_j2_reference_link(tmp_path: Path) -> None:
+    skill_dir = tmp_path / "products" / "alpha" / "skills" / "bad-link"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: bad-link\ndescription: D\n---\nSee [payload](references/payload.md.j2).\n"
+    )
+    refs = skill_dir / "references"
+    refs.mkdir()
+    (refs / "payload.md.j2").write_text("# {{ 'rendered' }}\n")
+
+    builder = SkillBuilder(
+        repo_root=tmp_path,
+        products_dir=tmp_path / "products",
+        output_dir=tmp_path / "output",
+    )
+    assert builder.lint_all() is False
+
+
+def test_lint_all_passes_md_link_to_rendered_template(tmp_path: Path) -> None:
+    skill_dir = tmp_path / "products" / "alpha" / "skills" / "good-link"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: good-link\ndescription: D\n---\nSee [payload](references/payload.md).\n"
+    )
+    refs = skill_dir / "references"
+    refs.mkdir()
+    (refs / "payload.md.j2").write_text("# {{ 'rendered' }}\n")
+
+    builder = SkillBuilder(
+        repo_root=tmp_path,
+        products_dir=tmp_path / "products",
+        output_dir=tmp_path / "output",
+    )
+    assert builder.lint_all() is True
+
+
 def test_lint_all_catches_duplicate_skill_names(tmp_path: Path) -> None:
     for product in ("alpha", "beta"):
         skill_dir = tmp_path / "products" / product / "skills" / "same-name"
