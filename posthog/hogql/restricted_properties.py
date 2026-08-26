@@ -4,6 +4,11 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.database.schema.events import EventsGroupSubTable, EventsPersonSubTable, EventsTable
+from posthog.hogql.database.schema.flag_evaluations import (
+    FlagEvaluationsGroupSubTable,
+    FlagEvaluationsPersonSubTable,
+    FlagEvaluationsTable,
+)
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 
@@ -54,13 +59,14 @@ def restricted_property_keys_for_table_type(
         return set()
 
     # EventsPersonSubTable and EventsGroupSubTable are virtual tables over `events`, not EventsTable subclasses, but
-    # they carry person/group properties — match them before the EventsTable branch either way.
-    if isinstance(table, EventsPersonSubTable):
+    # they carry person/group properties — match them before the EventsTable branch either way. The flag_evaluations
+    # tables carry the same blobs on their own rows, so they take the same branches.
+    if isinstance(table, EventsPersonSubTable | FlagEvaluationsPersonSubTable):
         prop_def_type = PropertyDefinition.Type.PERSON
-    elif isinstance(table, EventsGroupSubTable):
+    elif isinstance(table, EventsGroupSubTable | FlagEvaluationsGroupSubTable):
         prop_def_type = PropertyDefinition.Type.GROUP
         group_type_index = table.group_index
-    elif isinstance(table, EventsTable):
+    elif isinstance(table, EventsTable | FlagEvaluationsTable):
         prop_def_type = PropertyDefinition.Type.EVENT
     elif isinstance(table, (PersonsTable, RawPersonsTable)):
         prop_def_type = PropertyDefinition.Type.PERSON
