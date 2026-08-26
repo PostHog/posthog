@@ -121,6 +121,21 @@ export class Agent {
       options.adapter === "codex" &&
       options.codexModelAccess === "own-subscription";
 
+    // Without gateway config, codex authenticates from CODEX_HOME instead.
+    const codexGatewayAuth =
+      !codexSubscription && gatewayConfig
+        ? {
+            apiBaseUrl: `${gatewayConfig.gatewayUrl}/v1`,
+            apiKey: gatewayConfig.apiKey,
+            httpHeaders: {
+              ...buildPosthogPropertyHeaderRecord(
+                taskId ? { ...attribution, $ai_session_id: taskId } : {},
+              ),
+              ...buildPosthogUserHeaderRecord(userNode),
+            },
+          }
+        : undefined;
+
     let codexModels: ModelInfo[] | undefined;
     let sanitizedModel =
       options.model && !isBlockedModelId(options.model)
@@ -206,22 +221,7 @@ export class Agent {
         options.adapter === "codex" && (codexSubscription || gatewayConfig)
           ? {
               cwd: options.repositoryPath,
-              // No gateway config means codex authenticates from CODEX_HOME.
-              ...(!codexSubscription && gatewayConfig
-                ? {
-                    apiBaseUrl: `${gatewayConfig.gatewayUrl}/v1`,
-                    apiKey: gatewayConfig.apiKey,
-                    httpHeaders: taskId
-                      ? {
-                          ...buildPosthogPropertyHeaderRecord({
-                            ...attribution,
-                            $ai_session_id: taskId,
-                          }),
-                          ...buildPosthogUserHeaderRecord(userNode),
-                        }
-                      : buildPosthogUserHeaderRecord(userNode),
-                  }
-                : {}),
+              ...codexGatewayAuth,
               binaryPath: options.codexBinaryPath,
               codexHome: options.codexHome,
               model: sanitizedModel,
