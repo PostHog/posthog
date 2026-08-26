@@ -8,6 +8,7 @@ import { compress, uncompress } from 'snappy'
 
 import { KafkaConsumerInterface, createKafkaConsumer } from '~/common/kafka/consumer'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
+import { UnknownTopicError } from '~/common/utils/db/error'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 
@@ -15,7 +16,14 @@ import { HealthCheckResult, HealthCheckResultError } from '../../../types'
 import { CdpConfig } from '../../config'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
 import { JobQueue } from './job-queue.interface'
-import { cdpJobSizeCompressedKb, cdpJobSizeKb, createInvocationSanitizer, observeConsumedBatch } from './shared'
+import {
+    UnroutableInvocationsError,
+    cdpCyclotronUnroutableInvocations,
+    cdpJobSizeCompressedKb,
+    cdpJobSizeKb,
+    createInvocationSanitizer,
+    observeConsumedBatch,
+} from './shared'
 
 export class CyclotronJobQueueKafka implements JobQueue {
     private kafkaConsumer?: KafkaConsumerInterface
@@ -104,7 +112,10 @@ export class CyclotronJobQueueKafka implements JobQueue {
             }
         })
 
-        await Promise.all(
+        // Ids rather than invocations, so the produce closures stay lightweight (see above).
+        const unroutableIds: string[] = []
+
+        const settled = await Promise.allSettled(
             messages.map(async (msg) => {
                 const value = this.config.CDP_CYCLOTRON_COMPRESS_KAFKA_DATA
                     ? await compress(msg.jsonString)
@@ -119,25 +130,54 @@ export class CyclotronJobQueueKafka implements JobQueue {
                     teamId: msg.teamId.toString(),
                 }
 
-                await producer
-                    .produce({
+                try {
+                    await producer.produce({
                         value: Buffer.from(value),
                         key: Buffer.from(msg.id),
                         topic: `cdp_cyclotron_${msg.queue}`,
                         headers,
                     })
-                    .catch((e) => {
-                        logger.error('🔄', 'Error producing kafka message', {
+                } catch (e) {
+                    if (e instanceof UnknownTopicError) {
+                        // Collected, not thrown: this job can never be delivered, and throwing
+                        // would kill the worker and stall the partition for everyone else on it.
+                        cdpCyclotronUnroutableInvocations.labels(msg.queue).inc()
+                        logger.error('🔄', 'cdp_cyclotron_unroutable_invocation', {
                             error: String(e),
+                            topic: e.topic,
+                            queue: msg.queue,
                             teamId: msg.teamId,
                             functionId: msg.functionId,
-                            payloadSizeKb: value.length / 1024,
                         })
+                        unroutableIds.push(msg.id)
+                        return
+                    }
 
-                        throw e
+                    logger.error('🔄', 'Error producing kafka message', {
+                        error: String(e),
+                        teamId: msg.teamId,
+                        functionId: msg.functionId,
+                        payloadSizeKb: value.length / 1024,
                     })
+
+                    throw e
+                }
             })
         )
+
+        // Every other produce failure keeps today's behaviour: rethrow, so a transient broker
+        // problem retries the batch rather than silently dropping work.
+        const rejected = settled.find((r): r is PromiseRejectedResult => r.status === 'rejected')
+        if (rejected) {
+            throw rejected.reason
+        }
+
+        if (unroutableIds.length) {
+            const byId = new Map(invocations.map((x) => [x.id, x]))
+            throw new UnroutableInvocationsError(
+                unroutableIds.map((id) => byId.get(id)).filter((x): x is CyclotronJobInvocation => !!x)
+            )
+        }
     }
 
     // Kafka jobs don't need explicit dequeue — they're just dropped
