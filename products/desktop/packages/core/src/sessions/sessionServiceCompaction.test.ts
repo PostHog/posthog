@@ -18,7 +18,7 @@ function compactionStatus(status: string): AcpMessage {
   } as unknown as AcpMessage;
 }
 
-function createHarness() {
+function createHarness(sessionOverrides: Partial<AgentSession> = {}) {
   const sessions: Record<string, AgentSession> = {
     [RUN_ID]: {
       taskRunId: RUN_ID,
@@ -34,6 +34,7 @@ function createHarness() {
       isCloud: false,
       isPromptPending: false,
       isCompacting: false,
+      ...sessionOverrides,
     } as unknown as AgentSession,
   };
 
@@ -67,7 +68,9 @@ function createHarness() {
 
   const cancelPrompt = vi.fn(async () => true);
   const prompt = vi.fn(async () => ({ stopReason: "end_turn" }));
+  const sendCommand = vi.fn(async () => ({ success: true, result: {} }));
   let onEvent: ((payload: unknown) => void) | undefined;
+  let cloudEntryCount = 0;
 
   const deps = {
     store,
@@ -81,7 +84,15 @@ function createHarness() {
     toast: { error: vi.fn(), success: vi.fn() },
     usageLimit: { show: vi.fn() },
     taskViewedApi: { markActivity: vi.fn() },
-    h: { extractSkillButtonId: () => undefined },
+    h: {
+      extractSkillButtonId: () => undefined,
+      getCloudPromptTransport: (p: string) => ({
+        messageText: p,
+        promptText: p,
+        filePaths: [],
+        skillBundles: [],
+      }),
+    },
     getPersistedConfigOptions: () => undefined,
     setPersistedConfigOptions: vi.fn(),
     trpc: {
@@ -100,6 +111,7 @@ function createHarness() {
         onPermissionRequest: { subscribe: () => ({ unsubscribe: vi.fn() }) },
         onSessionIdleKilled: { subscribe: () => ({ unsubscribe: vi.fn() }) },
       },
+      cloudTask: { sendCommand: { mutate: sendCommand } },
     },
   } as unknown as SessionServiceDeps;
 
@@ -112,10 +124,27 @@ function createHarness() {
   return {
     service,
     prompt,
+    sendCommand,
     // Session events land in a batch the service flushes on a short timer.
     emit: async (event: AcpMessage) => {
       onEvent?.(event);
       await vi.advanceTimersByTimeAsync(SESSION_EVENT_FLUSH_MS);
+    },
+    // Cloud runs never use the ACP subscription above — their events arrive as
+    // log entries on the run's stream.
+    emitCloudLog: (notification: Record<string, unknown>) => {
+      cloudEntryCount += 1;
+      (
+        service as unknown as {
+          handleCloudTaskUpdate(runId: string, update: unknown): void;
+        }
+      ).handleCloudTaskUpdate(RUN_ID, {
+        kind: "logs",
+        taskId: TASK_ID,
+        runId: RUN_ID,
+        newEntries: [{ type: "notification", notification }],
+        totalEntryCount: cloudEntryCount,
+      });
     },
     isCompacting: () => sessions[RUN_ID].isCompacting,
   };
@@ -152,5 +181,31 @@ describe("compaction busy state", () => {
     expect(h.isCompacting()).toBe(false);
     await h.service.sendPrompt(TASK_ID, "carry on");
     expect(h.prompt).toHaveBeenCalledTimes(1);
+  });
+
+  // Cloud runs carry the status as a log entry rather than a live ACP message.
+  // Miss it and a follow-up typed mid-compaction ships as a steer, which the
+  // SDK folds into the running turn and the compaction aborts.
+  it("queues a cloud steer sent while the agent is compacting", async () => {
+    const h = createHarness({
+      isCloud: true,
+      cloudStatus: "in_progress",
+      isPromptPending: true,
+      optimisticItems: [],
+      processedLineCount: 0,
+    } as Partial<AgentSession>);
+
+    h.emitCloudLog({
+      method: POSTHOG_NOTIFICATIONS.STATUS,
+      params: { sessionId: RUN_ID, status: "compacting" },
+    });
+    expect(h.isCompacting()).toBe(true);
+
+    const result = await h.service.sendPrompt(TASK_ID, "carry on", {
+      steer: true,
+    });
+
+    expect(result).toEqual({ stopReason: "queued" });
+    expect(h.sendCommand).not.toHaveBeenCalled();
   });
 });

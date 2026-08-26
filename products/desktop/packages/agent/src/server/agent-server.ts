@@ -558,6 +558,13 @@ export class AgentServer {
   private preSessionEvents: Record<string, unknown>[] = [];
   private deliveredMessageIds = new Set<string>();
   private pendingCompactContinuationMessageIds = new Set<string>();
+  // Compaction runs inside a turn and the SDK aborts it as soon as any new
+  // input lands, so a steer arriving mid-compaction kills it. Tracked from the
+  // adapter's `_posthog/status` notifications, which every client shares, so
+  // the guard holds no matter which surface sent the message.
+  private compactionInFlight = false;
+  /** Error from the last compaction that failed, cleared when the next one starts. */
+  private lastCompactionError: string | null = null;
   private inFlightMessageDeliveries = new Map<string, Promise<unknown>>();
   private activeOwnedTurnCount = 0;
   private activeStartupTurnCount = 0;
@@ -1313,6 +1320,19 @@ export class AgentServer {
           };
 
           if (params.steer === true) {
+            if (this.compactionInFlight) {
+              // Steering pushes the message onto the SDK's input stream, which
+              // aborts the compaction request in flight. Decline instead: the
+              // caller redelivers a declined steer as a normal follow-up, so
+              // the message lands once the compaction has finished.
+              this.logger.info("Declining steer during compaction");
+              const outcome = {
+                stopReason: "steer_declined",
+                steered: false,
+              };
+              resolveDelivery(outcome);
+              return outcome;
+            }
             if (
               this.activeOwnedTurnCount > 0 &&
               this.activeStartupTurnCount === 0
@@ -1345,13 +1365,23 @@ export class AgentServer {
           );
 
           const manualCompactPrompt = isManualCompactPrompt(prompt);
+          if (manualCompactPrompt && !retryCompactContinuation) {
+            // A compaction that never reaches the adapter emits no status, so
+            // clear here too rather than let an earlier failure describe it.
+            this.lastCompactionError = null;
+          }
           const acpSessionId = commandSession.acpSessionId;
           const continueAfterCompaction = (): Promise<PromptResponse> =>
             this.promptWithUpstreamRetry({
               sessionId: acpSessionId,
+              // A compaction that failed leaves the conversation untouched, so
+              // claiming it completed would have the model reason about a
+              // summary it never received.
               prompt: [
                 hiddenTextBlock(
-                  "Compaction is complete. Continue working on the task from the compacted context, following the user's instructions from the /compact command.",
+                  this.lastCompactionError
+                    ? `Compaction did not run: ${this.lastCompactionError}. The conversation was not summarized and the context is unchanged. Continue working on the task, following the user's instructions from the /compact command.`
+                    : "Compaction is complete. Continue working on the task from the compacted context, following the user's instructions from the /compact command.",
                 ),
               ],
             });
@@ -4889,6 +4919,7 @@ ${commonInstructions}
         method: string,
         params: Record<string, unknown>,
       ) => {
+        this.trackCompactionState(method, params);
         this.logger.debug("Extension notification", { method, params });
       },
       sessionUpdate: async (params: {
@@ -5471,7 +5502,40 @@ ${commonInstructions}
     this.broadcastEvent(event);
   }
 
+  /**
+   * Follow the adapter's compaction status so steers can be held back while a
+   * compaction runs, and so the `/compact` continuation reports the real
+   * outcome instead of always claiming success.
+   */
+  private trackCompactionState(
+    method: string,
+    params: Record<string, unknown>,
+  ): void {
+    if (method === POSTHOG_NOTIFICATIONS.COMPACT_BOUNDARY) {
+      this.compactionInFlight = false;
+      return;
+    }
+    if (method !== POSTHOG_NOTIFICATIONS.STATUS) return;
+    if (params.status === "compacting") {
+      this.compactionInFlight = params.isComplete !== true;
+      if (this.compactionInFlight) {
+        this.lastCompactionError = null;
+      }
+      return;
+    }
+    if (params.status === "compacting_failed") {
+      this.compactionInFlight = false;
+      this.lastCompactionError =
+        typeof params.error === "string" && params.error
+          ? params.error
+          : "the compaction request did not complete";
+    }
+  }
+
   private broadcastTurnComplete(stopReason: string): void {
+    // A compaction cannot outlive the turn it ran in. Clearing here keeps a
+    // dropped terminal status from declining every later steer.
+    this.compactionInFlight = false;
     if (!this.session) return;
     if (this.adapterEmittedTurnComplete) {
       this.adapterEmittedTurnComplete = false;

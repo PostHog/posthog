@@ -3473,6 +3473,10 @@ export class SessionService {
             isPromptPending: false,
             promptStartedAt: null,
             currentPromptId: null,
+            // A compaction cannot outlive the turn it ran in. Clearing here
+            // keeps a dropped terminal status from queuing every later message
+            // with nothing left to drain the queue.
+            isCompacting: false,
           });
           if (isLive) {
             // Queued messages will start a new turn — suppress the "done" notification in that case.
@@ -3492,6 +3496,38 @@ export class SessionService {
           }
           this.finalizeTurnContent(taskRunId, "turn_complete", acpMsg.ts);
         }
+      }
+      // Compaction state. Handled here rather than in the local-only event
+      // handler so cloud runs, whose events arrive over the log stream, also
+      // learn that a compaction is running — `sendPrompt` needs it to hold a
+      // steer back, because steering mid-compaction aborts the compaction.
+      if (
+        "method" in msg &&
+        "params" in msg &&
+        isNotification(msg.method, POSTHOG_NOTIFICATIONS.STATUS)
+      ) {
+        const params = msg.params as { status?: string; isComplete?: boolean };
+        if (params?.status === "compacting") {
+          this.d.store.updateSession(taskRunId, {
+            isCompacting: !params.isComplete,
+          });
+        } else if (params?.status === "compacting_failed") {
+          // A failed or interrupted compaction emits no compact boundary, so
+          // this is the only signal that clears the flag. Left set,
+          // `sendPrompt` queues every later message and nothing is left to
+          // drain the queue.
+          this.d.store.updateSession(taskRunId, {
+            isCompacting: false,
+          });
+        }
+      }
+      if (
+        "method" in msg &&
+        isNotification(msg.method, POSTHOG_NOTIFICATIONS.COMPACT_BOUNDARY)
+      ) {
+        this.d.store.updateSession(taskRunId, {
+          isCompacting: false,
+        });
       }
       // Lifecycle handshake from the agent — flip status to "connected"
       // so the UI can release the queue-while-not-ready guard. This is
@@ -3815,34 +3851,12 @@ export class SessionService {
       }
     }
 
-    if (
-      "method" in msg &&
-      "params" in msg &&
-      isNotification(msg.method, POSTHOG_NOTIFICATIONS.STATUS)
-    ) {
-      const params = msg.params as { status?: string; isComplete?: boolean };
-      if (params?.status === "compacting") {
-        this.d.store.updateSession(taskRunId, {
-          isCompacting: !params.isComplete,
-        });
-      } else if (params?.status === "compacting_failed") {
-        // A failed or interrupted compaction emits no compact boundary, so this
-        // is the only signal that clears the flag. Left set, `sendPrompt` queues
-        // every later message and nothing is left to drain the queue.
-        this.d.store.updateSession(taskRunId, {
-          isCompacting: false,
-        });
-      }
-    }
-
+    // `updatePromptStateFromEvents` already cleared `isCompacting`; a local
+    // session still has a queue to release now that the turn can accept it.
     if (
       "method" in msg &&
       isNotification(msg.method, POSTHOG_NOTIFICATIONS.COMPACT_BOUNDARY)
     ) {
-      this.d.store.updateSession(taskRunId, {
-        isCompacting: false,
-      });
-
       this.drainQueuedMessages(taskRunId, session);
     }
   }

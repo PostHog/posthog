@@ -427,4 +427,28 @@ describe("compaction tracking from the log stream", () => {
     );
     expect(store.getSessionForTask("t1")?.isCompacting).toBe(false);
   });
+
+  // A failed compaction emits no boundary, so this status is the only thing
+  // that can release the session. Miss it and steering and the queue flush stay
+  // blocked for the rest of the run.
+  it("clears isCompacting when the compaction fails", () => {
+    seedSession({ isCompacting: false });
+    const store = useTaskSessionStore.getState();
+
+    store._handleCloudUpdate("run-1", logsUpdate([statusEntry(false)]));
+    store._handleCloudUpdate(
+      "run-1",
+      logsUpdate([
+        {
+          type: "notification",
+          notification: {
+            method: "_posthog/status",
+            params: { status: "compacting_failed", error: "aborted" },
+          },
+        },
+      ]),
+    );
+
+    expect(store.getSessionForTask("t1")?.isCompacting).toBe(false);
+  });
 });
