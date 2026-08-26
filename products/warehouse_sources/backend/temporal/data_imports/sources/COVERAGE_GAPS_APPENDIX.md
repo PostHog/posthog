@@ -731,6 +731,14 @@ No material gaps found.
 
 Note: Every listable collection in the Beamer v0 API is already synced: posts, post comments, post reactions, feature requests, feature request comments, feature request votes, NPS responses and analytics users. The remaining operations are counts (count posts/comments/votes/reactions/NPS), the feed URL helper, unread-post lookups, NPS prompt eligibility and email-survey sends, and mutation-only team management (invite/remove/update role) - there is no GET for team members and no categories endpoint, so Category only exists as an inline field on Post. Caveat on the doc URL: the vendor's own page (getbeamer.com/help/beamer-api-documentation) now 404s and redirects into help.userflow.com after the Userflow merger; getbeamer-api.pages.dev is the working rendered Swagger reference for api.getbeamer.com/v0 and is what I diffed against.
 
+## Beehiiv — gaps
+
+Today (15): `Authors`, `Automations`, `ComplimentaryAccess`, `ConditionSets`, `CustomFields`, `NewsletterLists`, `Podcasts`, `Polls`, `PostTemplates`, `Posts`, `Publications`, `ReferralProgramMilestones`, `Segments`, `Subscriptions`, `Tiers`
+
+Diffed against: <https://developers.beehiiv.com/api-reference>
+
+- [x] `podcasts (GET /publications/{publication_id}/podcasts)` — podcasts belonging to the publication, added here
+
 ## Bettermode — **thin**
 
 Today (6): `members`, `moderation_items`, `posts`, `replies`, `spaces`, `tags`
