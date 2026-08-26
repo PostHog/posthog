@@ -13,7 +13,6 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
-from rest_framework.parsers import JSONParser
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -27,6 +26,7 @@ from posthog.api.secret_revocation import (
 )
 from posthog.models import Team
 from posthog.models.utils import mask_key_value
+from posthog.parsers import SafeJSONParser
 from posthog.redis import get_client
 from posthog.tasks.email import send_feature_flags_secure_api_key_exposed
 from posthog.utils import get_instance_region
@@ -152,7 +152,7 @@ class SecretAlertSerializer(serializers.Serializer):
 class SecretAlert(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
-    parser_classes = [JSONParser]
+    parser_classes = [SafeJSONParser]
 
     def initialize_request(self, request, *args, **kwargs):
         """

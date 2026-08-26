@@ -2058,13 +2058,21 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
 
             self.assertEqual(str(model_key.last_used_at), "2021-08-25 22:10:14.252000+00:00")
 
-    def test_deeply_nested_body_returns_400_not_500(self):
+    @parameterized.expand(
+        [
+            # Uses the default parsers from REST_FRAMEWORK.
+            ("default_parsers", "feature_flags"),
+            # Pins its own parser_classes, so it needs SafeJSONParser too or it still 500s.
+            ("pinned_parsers", "persons"),
+        ]
+    )
+    def test_deeply_nested_body_returns_400_not_500(self, _name, resource):
         # Auth reads request.data before authenticating, so a deeply nested body must
         # fail as a 400, not a 500 from an unhandled RecursionError.
         self.client.logout()
 
         response = self.client.post(
-            f"/api/projects/{self.team.pk}/feature_flags/",
+            f"/api/projects/{self.team.pk}/{resource}/",
             data="[" * 100_000,
             content_type="application/json",
         )

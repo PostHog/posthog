@@ -28,7 +28,6 @@ from pydantic import (
 )
 from rest_framework import request, serializers, status, viewsets
 from rest_framework.exceptions import APIException, ParseError, PermissionDenied, ValidationError
-from rest_framework.parsers import JSONParser
 from rest_framework.renderers import BaseRenderer
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -106,6 +105,7 @@ from posthog.models.filters.utils import get_filter
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
+from posthog.parsers import SafeJSONParser
 from posthog.permissions import TeamMemberStrictManagementPermission
 from posthog.ph_client import feature_enabled_or_false
 from posthog.query_cache import QueryCache
@@ -316,7 +316,7 @@ def capture_legacy_api_call(request: request.Request, team: Team) -> None:
         pass
 
 
-class QuerySchemaParser(JSONParser):
+class QuerySchemaParser(SafeJSONParser):
     """
     A query schema parser that only parses the query field and validates it against the schema if it is present
 

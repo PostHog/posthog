@@ -23,7 +23,7 @@ from posthoganalytics.ai.openai import OpenAI
 from rest_framework import filters, response, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
-from rest_framework.parsers import JSONParser, MultiPartParser
+from rest_framework.parsers import MultiPartParser
 from rest_framework.request import Request
 from rest_framework_csv import renderers as csvrenderers
 
@@ -41,6 +41,7 @@ from posthog.email import EmailMessage, is_email_available
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.parsers import SafeJSONParser
 from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.rate_limit import UserInterviewInviteThrottle
 from posthog.security.spreadsheet_safety import sanitize_formula_injection
@@ -407,7 +408,7 @@ class UserInterviewViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "user_interview"
     queryset = UserInterview.objects.order_by("-created_at").select_related("created_by").all()
     serializer_class = UserInterviewSerializer
-    parser_classes = [MultiPartParser, JSONParser]
+    parser_classes = [MultiPartParser, SafeJSONParser]
     posthog_feature_flag = "user-interviews"
     permission_classes = [PostHogFeatureFlagPermission]
     filter_backends = [DjangoFilterBackend]
@@ -435,7 +436,7 @@ class UserInterviewViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         methods=["post"],
         url_path="search",
         pagination_class=None,
-        parser_classes=[JSONParser],
+        parser_classes=[SafeJSONParser],
         required_scopes=["user_interview:read"],
     )
     def search(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> response.Response:

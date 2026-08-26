@@ -22,7 +22,6 @@ from prometheus_client import Counter
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.exceptions import MethodNotAllowed, NotFound, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
-from rest_framework.parsers import JSONParser
 from rest_framework.renderers import BaseRenderer
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
@@ -65,6 +64,7 @@ from posthog.models.person.util import (
     get_persons_by_uuids,
     get_persons_mapped_by_distinct_id,
 )
+from posthog.parsers import SafeJSONParser
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.queries.actor_base_query import get_serialized_people
 from posthog.queries.properties_timeline import PropertiesTimeline
@@ -494,7 +494,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         tuple[type[BaseRenderer], ...],
         (*tuple(api_settings.DEFAULT_RENDERER_CLASSES), csvrenderers.PaginatedCSVRenderer),
     )
-    parser_classes = [JSONParser]
+    parser_classes = [SafeJSONParser]
     queryset = Person.objects.none()
     serializer_class = PersonSerializer
     pagination_class = PersonLimitOffsetPagination

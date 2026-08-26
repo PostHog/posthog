@@ -13,13 +13,14 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import exceptions, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.user import User
+from posthog.parsers import SafeJSONParser
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
 from posthog.temporal.common.client import sync_connect
@@ -69,7 +70,7 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     queryset = KnowledgeSource.objects.unscoped()
     serializer_class = KnowledgeSourceSerializer
     permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
-    parser_classes = [JSONParser, MultiPartParser, FormParser]
+    parser_classes = [SafeJSONParser, MultiPartParser, FormParser]
     posthog_feature_flag = "product-business-knowledge"
     throttle_classes = [BurstRateThrottle, SustainedRateThrottle]
 

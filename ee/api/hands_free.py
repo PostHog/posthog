@@ -20,7 +20,6 @@ from prometheus_client import Counter
 from rest_framework import serializers, status
 from rest_framework.decorators import action
 from rest_framework.exceptions import APIException
-from rest_framework.parsers import JSONParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -28,6 +27,7 @@ from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.streaming import streaming_response
+from posthog.parsers import SafeJSONParser
 from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.rate_limit import (
     MaxHandsFreeSynthesizeBurstRateThrottle,
@@ -164,14 +164,14 @@ class MaxHandsFreeViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         detail=False,
         methods=["POST"],
         url_path="synthesize",
-        parser_classes=[JSONParser],
+        parser_classes=[SafeJSONParser],
         throttle_classes=[MaxHandsFreeSynthesizeBurstRateThrottle, MaxHandsFreeSynthesizeSustainedRateThrottle],
     )
     def synthesize(self, request: Request, *args: Any, **kwargs: Any) -> StreamingHttpResponse:
         """Proxy text-to-speech to ElevenLabs, streaming mp3 audio back to the browser.
 
         The viewset has no per-action `parser_classes` other than this one because the
-        token endpoint takes no body. Putting JSONParser here keeps the rest of the
+        token endpoint takes no body. Putting SafeJSONParser here keeps the rest of the
         viewset parser-free.
         """
         serializer = SynthesizeSerializer(data=request.data)
