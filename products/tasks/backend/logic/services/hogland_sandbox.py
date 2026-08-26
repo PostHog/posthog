@@ -18,6 +18,7 @@ Transport differences from Modal, handled by the callers that read
 
 from __future__ import annotations
 
+import time
 import uuid
 import shlex
 import logging
@@ -41,7 +42,14 @@ from products.tasks.backend.exceptions import (
 )
 from products.tasks.backend.logic.services.agent_server_launcher import AGENT_SERVER_PORT, AgentServerLaunchMixin
 from products.tasks.backend.logic.services.agentsh import AGENTSH_DAEMON_PORT
+from products.tasks.backend.logic.services.cpu_billing import (
+    CPU_BILLING_STATE_PATH,
+    build_sampler_start_command,
+    compute_billed_cpu_usage_usec,
+    parse_cpu_stat_usage_usec,
+)
 from products.tasks.backend.logic.services.sandbox import redact_sandbox_command
+from products.tasks.backend.logic.services.sandbox_config import BURSTABLE_REQUEST_CPU_CORES
 
 from .sandbox import AgentServerResult, ExecutionResult, ExecutionStream, SandboxConfig, SandboxStatus, SandboxTemplate
 
@@ -421,6 +429,37 @@ class HoglandSandbox(AgentServerLaunchMixin):
 
     def prune_snapshot_heavy_dirs(self, path: str) -> None:
         """No-op: hogland snapshots are block-level and have no file-count cap."""
+
+    def read_cpu_usage_usec(self) -> int | None:
+        # Must go through exec: hogpanion's file endpoint sets Content-Length from
+        # stat(), and sysfs files stat as size 0, so read_file returns an empty body.
+        result = self.execute("cat /sys/fs/cgroup/cpu.stat", timeout_seconds=10)
+        if result.exit_code != 0:
+            return None
+        return parse_cpu_stat_usage_usec(result.stdout)
+
+    def _cpu_billing_request_cores(self) -> float:
+        # Hogland reserves request == limit, so its own billing floor would be the full
+        # box. Running the sampler with Modal's default burstable floor instead makes
+        # provider_billed_* mean "what Modal would have billed this same workload" —
+        # the like-for-like number the platform cost comparison needs. Fixed constant
+        # rather than config so a get_by_id-synthesized config reads the same floor.
+        return BURSTABLE_REQUEST_CPU_CORES
+
+    def start_cpu_billing_sampler(self) -> bool:
+        result = self.execute(build_sampler_start_command(self._cpu_billing_request_cores()), timeout_seconds=10)
+        return result.exit_code == 0
+
+    def read_billed_cpu_usage_usec(self) -> int | None:
+        try:
+            # The state file is a regular file, so read_file works here.
+            state_text = self._box.read_file(CPU_BILLING_STATE_PATH).decode()
+        except Exception:
+            return None
+        current_cpu = self.read_cpu_usage_usec()
+        if current_cpu is None:
+            return None
+        return compute_billed_cpu_usage_usec(state_text, current_cpu, self._cpu_billing_request_cores(), time.time_ns())
 
     @staticmethod
     def delete_snapshot(external_id: str) -> None:

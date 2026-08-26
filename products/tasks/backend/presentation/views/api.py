@@ -2682,6 +2682,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 connection_token=connection.connection_token,
                 sandbox_connect_token=connection.sandbox_connect_token,
                 payload=command_payload,
+                sandbox_token_param=connection.sandbox_token_param,
             )
 
             tasks_facade.capture_relay_command_telemetry(
@@ -2747,6 +2748,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         - http://127.0.0.1:{port} (Docker sandboxes)
         - https://*.modal.run (Modal sandboxes)
         - https://*.modal.host (Modal connect token sandboxes)
+        - the exact host of settings.HOGLAND_API_URL (hogland box proxy)
         """
         from urllib.parse import urlparse
 
@@ -2765,6 +2767,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ):
             return True
 
+        hogland_host = urlparse(settings.HOGLAND_API_URL).hostname if settings.HOGLAND_API_URL else None
+        if parsed.scheme == "https" and hogland_host and parsed.hostname == hogland_host:
+            return True
+
         return False
 
     @staticmethod
@@ -2773,6 +2779,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         connection_token: str | None,
         sandbox_connect_token: str | None,
         payload: dict,
+        sandbox_token_param: str = "_modal_connect_token",
     ) -> http_requests.Response:
         headers = {
             "Content-Type": "application/json",
@@ -2781,13 +2788,13 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         command_url = f"{sandbox_url.rstrip('/')}/command"
 
-        # Modal connect tokens use Authorization: Bearer for tunnel auth,
+        # Tunnel/proxy tokens use Authorization: Bearer at the provider edge,
         # which conflicts with the JWT auth the agent server expects.
-        # Pass the Modal token as a query parameter instead so both
-        # auth mechanisms can coexist.
+        # Pass the provider token as a query parameter instead so both
+        # auth mechanisms can coexist (Modal: _modal_connect_token; hogland: token).
         params = {}
         if sandbox_connect_token:
-            params["_modal_connect_token"] = sandbox_connect_token
+            params[sandbox_token_param] = sandbox_connect_token
 
         return http_requests.post(
             command_url,

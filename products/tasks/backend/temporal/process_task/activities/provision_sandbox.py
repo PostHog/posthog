@@ -52,11 +52,10 @@ from products.tasks.backend.logic.services.network_policy import (
 )
 from products.tasks.backend.logic.services.sandbox import (
     ExecutionResult,
-    Sandbox,
     SandboxBase,
     SandboxConfig,
     SandboxTemplate,
-    get_sandbox_class,
+    get_sandbox_class_for_run_backend,
     get_sandbox_class_for_sandbox_id,
     sandbox_repo_path,
     workload_for_origin_product,
@@ -690,7 +689,7 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
             custom_image_name=ctx.custom_image_name if ctx.use_modal_vm_sandbox else None,
         )
 
-        sandbox_class = get_sandbox_class()
+        sandbox_class = get_sandbox_class_for_run_backend(ctx.sandbox_backend)
         return PrepareSandboxForRepositoryOutput(
             sandbox_name=get_sandbox_name_for_task(ctx.task_id),
             repository=repository,
@@ -758,7 +757,9 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
         # default, but the per-run state can opt out to pin a fixed-size box (request == limit).
         # The decision is captured once in the context at workflow start, so it's stable across
         # activity retries.
-        if ctx.burstable_sandbox_resources_enabled:
+        # Hogland reserves request == limit (no bursting); recording the burstable
+        # floor would misprice its reserved capacity 8-16x in the usage ledger.
+        if ctx.burstable_sandbox_resources_enabled and ctx.sandbox_backend != "hogland":
             config.burstable_resources = True
             emit_agent_log(
                 ctx.run_id,
@@ -769,7 +770,7 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
             )
 
         runtime = sandbox_runtime_label(use_vm_sandbox)
-        sandbox_backend = modal_sandbox_backend_label()
+        sandbox_backend = ctx.sandbox_backend if ctx.sandbox_backend != "modal" else modal_sandbox_backend_label()
         _apply_modal_network_policy(config, ctx, use_vm_sandbox=use_vm_sandbox)
         if config.outbound_domain_allowlist is not None:
             emit_agent_log(
@@ -786,7 +787,7 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
                 runtime=runtime,
                 sandbox_backend=sandbox_backend,
             ) as sandbox_creation_timer:
-                sandbox = Sandbox.create(config)
+                sandbox = get_sandbox_class_for_run_backend(ctx.sandbox_backend).create(config)
                 # The provider's TTL clock starts here — the usage ledger anchors its
                 # kill deadline on this boundary, not on when the row is opened below.
                 sandbox_created_at = timezone.now()
@@ -846,6 +847,8 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
                 "sandbox_url": credentials.url,
                 SANDBOX_JWT_STATE_KID_KEY: jwt_kid,
             }
+            if ctx.sandbox_backend != "modal":
+                sandbox_state["sandbox_backend"] = ctx.sandbox_backend
             if credentials.token:
                 sandbox_state["sandbox_connect_token"] = credentials.token
             TaskRun.update_state_atomic(ctx.run_id, updates=sandbox_state)
@@ -884,7 +887,7 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
 
 @activity.defn
 async def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> CreateSandboxForRepositoryOutput:
-    sandbox_class = get_sandbox_class()
+    sandbox_class = get_sandbox_class_for_run_backend(input.context.sandbox_backend)
     if not sandbox_class.supports_creation_cancellation:
         return await _create_sandbox_for_repository(input)
 
