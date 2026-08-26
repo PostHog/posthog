@@ -197,35 +197,36 @@ describe('buildToolResultPayload — agent notes', () => {
         {
             name: 'formatted table, structuredContent suppressed',
             withFormatted: true,
-            opts: { suppressStructuredContentForFormattedResults: true },
+            options: { suppressStructuredContentForFormattedResults: true },
             noteInText: true,
             noteInStructured: false,
         },
         {
             name: 'formatted table, structuredContent kept',
             withFormatted: true,
-            opts: { suppressStructuredContentForFormattedResults: false },
+            options: { suppressStructuredContentForFormattedResults: false },
             noteInText: false,
             noteInStructured: true,
         },
         {
             name: 'no formatted table, note rides the serialized result',
             withFormatted: false,
-            opts: {},
+            options: {},
             noteInText: true,
             noteInStructured: true,
         },
         {
             name: 'structuredContent pointer, payload carries the note',
             withFormatted: false,
-            opts: { forceUiDataToMeta: true },
+            options: { forceUiDataToMeta: true },
             noteInText: false,
             noteInStructured: true,
         },
         {
             name: 'raw JSON output',
             withFormatted: false,
-            opts: { params: { output_format: 'json' } },
+            options: {},
+            params: { output_format: 'json' as const },
             noteInText: true,
             noteInStructured: true,
         },
@@ -233,15 +234,14 @@ describe('buildToolResultPayload — agent notes', () => {
 
     it.each(CHANNEL_CASES)(
         'reaches the model once — $name',
-        ({ withFormatted, opts, noteInText, noteInStructured }) => {
-            const { params, ...rest } = opts as Record<string, unknown>
+        ({ withFormatted, options, params, noteInText, noteInStructured }) => {
             const payload = buildToolResultPayload({
                 handlerResult: withAgentNote(queryTrendsHandlerResult(withFormatted), AGENT_NOTE),
                 toolMeta: queryTrendsToolMeta,
                 toolName: 'query-trends',
                 params: params ?? {},
                 distinctId: 'test-distinct-id',
-                ...rest,
+                ...options,
             })
 
             const text = payload.content[0]!.text
