@@ -15,6 +15,7 @@ import { pagePerformanceLogic } from './pagePerformanceLogic'
 import { PathCleaningToggle } from './PathCleaningToggle'
 import { webAnalyticsLogic } from './webAnalyticsLogic'
 import { WebConversionGoal } from './WebConversionGoal'
+import { WebPropertyFilters } from './WebPropertyFilters'
 
 export const PagePerformanceFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Element => {
     const {
@@ -53,7 +54,12 @@ export const PagePerformanceFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Ele
                     <PathCleaningToggle value={isPathCleaningEnabled} onChange={setIsPathCleaningEnabled} />
                 </>
             }
-            right={<WebConversionGoal value={conversionGoal} onChange={setConversionGoal} />}
+            right={
+                <>
+                    <WebConversionGoal value={conversionGoal} onChange={setConversionGoal} />
+                    <WebPropertyFilters />
+                </>
+            }
         />
     )
 }

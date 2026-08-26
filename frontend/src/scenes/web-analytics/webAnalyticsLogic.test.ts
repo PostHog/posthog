@@ -476,35 +476,6 @@ describe('webAnalyticsLogic URL restoration', () => {
         expect(router.values.searchParams[key]).toBe(expected)
     })
 
-    it('keeps all page performance controls in the shareable URL', async () => {
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE], {
-            [FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE]: true,
-        })
-        logic.actions.setProductTab(ProductTab.PAGE_PERFORMANCE)
-        logic.actions.setDates('-30d', '2026-08-05')
-        logic.actions.setConversionGoal({ actionId: 42 })
-        logic.actions.setCompareFilter({ compare: true, compare_to: '-1y' })
-        logic.actions.setIsPathCleaningEnabled(false)
-        logic.actions.setShouldFilterTestAccounts(true)
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(router.values.location.pathname.endsWith('/web/page-performance')).toBe(true)
-        expect(router.values.searchParams).toMatchObject({
-            date_from: '-30d',
-            date_to: '2026-08-05',
-            'conversionGoal.actionId': 42,
-            compare_filter: { compare: true, compare_to: '-1y' },
-            path_cleaning: false,
-            filter_test_accounts: true,
-        })
-    })
-
-    const enableBackNavReset = (): void => {
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_BACK_NAVIGATION_RESET], {
-            [FEATURE_FLAGS.WEB_ANALYTICS_BACK_NAVIGATION_RESET]: true,
-        })
-    }
-
     const FILTER_A = {
         type: PropertyFilterType.Session as const,
         key: '$entry_utm_source',
@@ -516,6 +487,51 @@ describe('webAnalyticsLogic URL restoration', () => {
         key: '$entry_utm_medium',
         operator: PropertyOperator.Exact,
         value: ['cpc'],
+    }
+
+    it('keeps all page performance controls in the shareable URL', async () => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE], {
+            [FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE]: true,
+        })
+        logic.actions.setProductTab(ProductTab.PAGE_PERFORMANCE)
+        logic.actions.setDates('-30d', '2026-08-05')
+        logic.actions.setConversionGoal({ actionId: 42 })
+        logic.actions.setCompareFilter({ compare: true, compare_to: '-1y' })
+        logic.actions.setIsPathCleaningEnabled(false)
+        logic.actions.setShouldFilterTestAccounts(true)
+        logic.actions.setWebAnalyticsFilters([FILTER_A])
+        logic.actions.setDomainFilter('https://hedgebox.net')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.location.pathname.endsWith('/web/page-performance')).toBe(true)
+        expect(router.values.searchParams).toMatchObject({
+            date_from: '-30d',
+            date_to: '2026-08-05',
+            'conversionGoal.actionId': 42,
+            compare_filter: { compare: true, compare_to: '-1y' },
+            path_cleaning: false,
+            filter_test_accounts: true,
+            filters: [FILTER_A],
+            domain: 'https://hedgebox.net',
+        })
+    })
+
+    it('applies property filters from a shared page performance URL', async () => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE], {
+            [FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE]: true,
+        })
+
+        router.actions.push('/web/page-performance', { filters: [FILTER_A] })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.productTab).toBe(ProductTab.PAGE_PERFORMANCE)
+        expect(logic.values.rawWebAnalyticsFilters).toEqual([FILTER_A])
+    })
+
+    const enableBackNavReset = (): void => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_BACK_NAVIGATION_RESET], {
+            [FEATURE_FLAGS.WEB_ANALYTICS_BACK_NAVIGATION_RESET]: true,
+        })
     }
 
     it('clears a drilled-in filter when navigating back to a URL without filters (flag on)', async () => {

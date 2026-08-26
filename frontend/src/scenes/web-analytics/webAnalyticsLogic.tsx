@@ -3098,9 +3098,15 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 // Bot tab maintains its own filter state in `botAnalyticsLogic`, so we serialize
                 // those filters here instead of `rawWebAnalyticsFilters` (which only describes the
                 // regular Analytics tab). Date/interval are shared across tabs.
-                const rawBotAnalyticsFilters = botAnalyticsLogic.findMounted()?.values.rawBotAnalyticsFilters ?? []
+                const botLogic = botAnalyticsLogic.findMounted()
+                const rawBotAnalyticsFilters = botLogic?.values.rawBotAnalyticsFilters ?? []
                 if (rawBotAnalyticsFilters.length > 0) {
                     urlParams.set('filters', JSON.stringify(rawBotAnalyticsFilters))
+                } else if (botLogic) {
+                    // A leftover `filters` param here belongs to another tab; if it stayed, the next
+                    // URL restore would apply it as bot filters. Only scrub once the bot logic owns
+                    // the param, so a deep link keeps its filters until the scene mounts.
+                    urlParams.delete('filters')
                 }
                 if (dateFrom !== INITIAL_DATE_FROM || dateTo !== INITIAL_DATE_TO || interval !== INITIAL_INTERVAL) {
                     urlParams.set('date_from', dateFrom ?? '')
@@ -3109,7 +3115,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 }
                 return `/web/bots${urlParams.toString() ? '?' + urlParams.toString() : ''}`
             } else if (productTab === ProductTab.PAGE_PERFORMANCE) {
-                urlParams.delete('filters')
+                if (rawWebAnalyticsFilters.length > 0) {
+                    urlParams.set('filters', JSON.stringify(rawWebAnalyticsFilters))
+                } else {
+                    urlParams.delete('filters')
+                }
                 if (conversionGoal) {
                     if ('actionId' in conversionGoal) {
                         urlParams.set('conversionGoal.actionId', conversionGoal.actionId.toString())
@@ -3134,6 +3144,18 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 urlParams.set('path_cleaning', isPathCleaningEnabled.toString())
                 urlParams.set('filter_test_accounts', shouldFilterTestAccounts.toString())
                 urlParams.set('compare_filter', JSON.stringify(rawCompareFilter))
+                // The queries consume the merged `webAnalyticsFilters`, which folds these two in,
+                // so a shared URL must carry them to reproduce the same data.
+                if (domainFilter) {
+                    urlParams.set('domain', domainFilter)
+                } else {
+                    urlParams.delete('domain')
+                }
+                if (deviceTypeFilter) {
+                    urlParams.set('device_type', deviceTypeFilter)
+                } else {
+                    urlParams.delete('device_type')
+                }
                 return `/web/page-performance${urlParams.toString() ? '?' + urlParams.toString() : ''}`
             }
 
@@ -3333,10 +3355,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     if (botLogic && !objectsEqual(nextFilters, botLogic.values.rawBotAnalyticsFilters)) {
                         botLogic.actions.setBotAnalyticsFilters(nextFilters)
                     }
-                } else if (
-                    productTab !== ProductTab.PAGE_PERFORMANCE &&
-                    !objectsEqual(nextFilters, values.rawWebAnalyticsFilters)
-                ) {
+                } else if (!objectsEqual(nextFilters, values.rawWebAnalyticsFilters)) {
                     actions.setWebAnalyticsFilters(nextFilters)
                 }
             }
