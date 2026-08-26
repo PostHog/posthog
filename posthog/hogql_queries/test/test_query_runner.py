@@ -11,7 +11,7 @@ from unittest import mock
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db import OperationalError, connection
+from django.db import OperationalError, ProgrammingError, connection
 from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 
@@ -410,16 +410,22 @@ class TestQueryRunner(BaseTest):
             "version": 2,
         }
 
-    def test_cache_payload_degrades_when_product_config_read_fails(self):
-        # A DB pool timeout while loading a product config for the cache key must not 500 the whole
+    @parameterized.expand(
+        [
+            # Pool saturation: the read times out.
+            ("operational", OperationalError("query_wait_timeout")),
+            # Deploy-to-migrate gap: an extension column exists in the model but not yet in the table.
+            ("programming", ProgrammingError('column "account_track_rules" does not exist')),
+        ]
+    )
+    def test_cache_payload_degrades_when_product_config_read_fails(self, _name, db_error):
+        # A database error while loading a product config for the cache key must not 500 the whole
         # query; the failing config degrades to a stable marker while the others still resolve.
         TestQueryRunner = self.setup_test_query_runner_class()
         team = Team.objects.create(organization=self.organization, base_currency=CurrencyCode.USD.value)
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
-        with mock.patch.object(
-            TeamRevenueAnalyticsConfig, "to_cache_key_dict", side_effect=OperationalError("query_wait_timeout")
-        ):
+        with mock.patch.object(TeamRevenueAnalyticsConfig, "to_cache_key_dict", side_effect=db_error):
             products_modifiers = runner.get_cache_payload()["products_modifiers"]
 
         assert products_modifiers["revenue_analytics"] == "unavailable"

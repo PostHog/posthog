@@ -10,7 +10,7 @@ from typing import Any, Generic, NamedTuple, Optional, Protocol, TypeGuard, Type
 from zoneinfo import ZoneInfo
 
 from django.conf import settings as django_settings
-from django.db import OperationalError
+from django.db import DatabaseError
 
 import orjson
 import structlog
@@ -2568,14 +2568,15 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         return payload
 
     def _products_modifiers_for_cache(self) -> dict:
-        # The team-extension configs are loaded lazily and can hit the DB. Under connection-pool
-        # saturation these reads can time out (OperationalError); degrade to a stable "unavailable"
-        # marker instead of 500-ing the whole query. Failures then share one cache namespace,
-        # separate from the successfully-loaded key.
+        # The team-extension configs are loaded lazily and can hit the DB. Any database error must
+        # degrade to a stable "unavailable" marker instead of 500-ing the whole query: pool
+        # saturation raises OperationalError, and a column added to an extension table before its
+        # migration applies raises ProgrammingError. DatabaseError covers both. Failures then share
+        # one cache namespace, separate from the successfully-loaded key.
         def read(name: str, fn: Callable[[], Any]) -> dict | str:
             try:
                 return fn().to_cache_key_dict()
-            except OperationalError:
+            except DatabaseError:
                 logger.warning("Failed to read %s for cache key, degrading gracefully", name, exc_info=True)
                 return "unavailable"
 
