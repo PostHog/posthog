@@ -195,7 +195,8 @@ def _validate_agent_output(content: EvalReportContent, handled_ids: set[str] | N
         in one pair of backticks, so every other backticked ID is a dead identifier
 
     The dead-ID check reads the final citations, so the agent may draft a section
-    before it cites the example. It also covers the title, which no tool guards.
+    before it cites the example. It also covers the report title and the section
+    titles, which no tool guards and which no renderer runs citation linking over.
     """
     if not content.title.strip():
         return "agent did not call set_title"
@@ -210,7 +211,8 @@ def _validate_agent_output(content: EvalReportContent, handled_ids: set[str] | N
             return f"section {idx + 1} ({section.title!r}) has empty content"
 
     dead: list[str] = []
-    for text in [content.title, *(section.content for section in content.sections)]:
+    section_texts = [text for section in content.sections for text in (section.title, section.content)]
+    for text in [content.title, *section_texts]:
         for token in _dead_backticked_ids(text, content.citations, handled_ids or set()):
             if token not in dead:
                 dead.append(token)
