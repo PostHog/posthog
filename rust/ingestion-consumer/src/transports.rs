@@ -1,4 +1,4 @@
-//! Transport selection: HTTP request/response vs ordered gRPC lanes.
+//! Transport selection: HTTP request/response vs ordered gRPC worker streams.
 //!
 //! The consumer talks to workers through one [`Transport`], picked by
 //! `INGESTION_TRANSPORT`. Sends are two-phase everywhere: [`Transport::begin_send`]
@@ -7,12 +7,12 @@
 //! [`PendingSend::wait`] resolves like an HTTP response. The HTTP transport
 //! implements `begin_send` lazily (nothing happens until `wait`), which keeps
 //! its behavior identical to the direct `send_batch` call it replaces; the
-//! gRPC transport enqueues synchronously onto the worker's ordered lane.
+//! gRPC transport enqueues synchronously onto the worker's ordered stream.
 
 use std::str::FromStr;
 use std::sync::Arc;
 
-use crate::grpc_transport::{GrpcTransport, PendingLaneSend};
+use crate::grpc_transport::{GrpcTransport, PendingWorkerStreamSend};
 use crate::transport::{HttpTransport, SendError};
 use crate::types::SerializedKafkaMessage;
 
@@ -62,7 +62,7 @@ pub enum PendingSend {
         messages: Vec<SerializedKafkaMessage>,
         replay: bool,
     },
-    Grpc(PendingLaneSend),
+    Grpc(PendingWorkerStreamSend),
 }
 
 impl PendingSend {
@@ -128,7 +128,7 @@ impl Transport {
         }
     }
 
-    /// Drop a departed worker's transport state (semaphore or lane).
+    /// Drop a departed worker's transport state (semaphore or worker stream).
     pub fn remove_worker(&self, worker_url: &str) {
         match self {
             Transport::Http(transport) => transport.remove_worker(worker_url),

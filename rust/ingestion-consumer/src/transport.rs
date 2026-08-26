@@ -565,14 +565,14 @@ fn split_by_size(
 pub struct SendError {
     pub error: TransportError,
     pub messages: Vec<SerializedKafkaMessage>,
-    /// Set on a fenced lane send. Hold it until `messages` are stashed: the
-    /// lane keeps fencing new arrivals until every guard from that fence is
+    /// Set on a fenced worker stream send. Hold it until `messages` are stashed: the
+    /// worker stream keeps fencing new arrivals until every guard from that fence is
     /// dropped, so nothing enqueued before the stash lands can reach the
     /// worker ahead of the fenced groups on the next stream.
     pub fence_guard: Option<FenceGuard>,
 }
 
-/// Tells a fencing lane that one fenced send's messages are stashed.
+/// Tells a fencing worker stream that one fenced send's messages are stashed.
 pub struct FenceGuard {
     released: tokio::sync::mpsc::UnboundedSender<()>,
 }
@@ -618,14 +618,14 @@ pub enum TransportError {
     #[error("All retries exhausted")]
     RetriesExhausted,
 
-    #[error("Lane failed: {0}")]
-    LaneFailed(&'static str),
+    #[error("Worker stream failed: {0}")]
+    WorkerStreamFailed(&'static str),
 
-    #[error("Lane busy: {0}")]
-    LaneBusy(&'static str),
+    #[error("Worker stream busy: {0}")]
+    WorkerStreamBusy(&'static str),
 
-    #[error("Lane closed without resolving the send")]
-    LaneClosed,
+    #[error("Worker stream closed without resolving the send")]
+    WorkerStreamClosed,
 }
 
 impl TransportError {
@@ -643,23 +643,23 @@ impl TransportError {
             TransportError::PayloadTooLarge(_) => false,
             TransportError::WorkerError(_) => true,
             TransportError::RetriesExhausted => false,
-            // Lane failures resolve through the deferral path, not the HTTP
+            // Worker stream failures resolve through the deferral path, not the HTTP
             // retry loop — never retried in place.
-            TransportError::LaneFailed(_) => false,
-            // A busy lane is transient backpressure (like WorkerBusy), so the
+            TransportError::WorkerStreamFailed(_) => false,
+            // A busy worker stream is transient backpressure (like WorkerBusy), so the
             // fenced work re-routes as retriable rather than a worker fault.
-            TransportError::LaneBusy(_) => true,
-            TransportError::LaneClosed => false,
+            TransportError::WorkerStreamBusy(_) => true,
+            TransportError::WorkerStreamClosed => false,
         }
     }
 
-    /// Backpressure the worker signalled deliberately (503 or a busy lane).
+    /// Backpressure the worker signalled deliberately (503 or a busy worker stream).
     /// Distinct from `is_retriable`: connection errors and 5xx are retriable
     /// too, but they are worker faults and must count against passive health.
     pub fn is_backpressure(&self) -> bool {
         matches!(
             self,
-            TransportError::WorkerBusy(_) | TransportError::LaneBusy(_)
+            TransportError::WorkerBusy(_) | TransportError::WorkerStreamBusy(_)
         )
     }
 }
@@ -715,10 +715,10 @@ mod tests {
     #[test]
     fn test_only_busy_errors_are_backpressure() {
         assert!(TransportError::WorkerBusy("at capacity".into()).is_backpressure());
-        assert!(TransportError::LaneBusy("busy").is_backpressure());
+        assert!(TransportError::WorkerStreamBusy("busy").is_backpressure());
         assert!(!TransportError::HttpStatus(500, "boom".into()).is_backpressure());
         assert!(!TransportError::WorkerError("boom".into()).is_backpressure());
-        assert!(!TransportError::LaneFailed("nack").is_backpressure());
+        assert!(!TransportError::WorkerStreamFailed("nack").is_backpressure());
         assert!(!TransportError::RetriesExhausted.is_backpressure());
     }
 

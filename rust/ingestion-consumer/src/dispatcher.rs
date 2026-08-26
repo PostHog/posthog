@@ -344,9 +344,9 @@ impl Dispatcher {
 
     /// Assign, then hand each sub-batch to `send` before releasing the pin
     /// table. A key admitted here because nothing of its is deferred must
-    /// enter its lane before `defer_failed` can stash an older group for it:
+    /// enter its worker stream before `defer_failed` can stash an older group for it:
     /// with the lock released in between, the stash could land first, the
-    /// lane's fence could lift, and the newer group would ride the next
+    /// worker stream's fence could lift, and the newer group would ride the next
     /// stream ahead of the older one. `send` must not block.
     pub fn assign_and_send<T>(
         &self,
@@ -2440,7 +2440,7 @@ mod tests {
 
     /// A `defer_failed` racing an in-progress assignment must not land between
     /// a key's admission and its enqueue: the admitted newer group would then
-    /// ride the lane ahead of the stashed older one.
+    /// ride the worker stream ahead of the stashed older one.
     #[test]
     fn test_assign_and_send_enqueues_before_a_racing_defer_failed_lands() {
         let registry = healthy_registry(1);

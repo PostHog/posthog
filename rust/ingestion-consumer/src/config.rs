@@ -258,7 +258,7 @@ pub struct Config {
     pub ingestion_transport: TransportMode,
 
     /// The worker pods' gRPC port (`INGESTION_API_GRPC_PORT` on the Node.js
-    /// side). Lanes derive each worker's stream address from its HTTP URL's
+    /// side). Worker streams derive each worker's stream address from its HTTP URL's
     /// host plus this port.
     #[envconfig(from = "INGESTION_WORKER_GRPC_PORT", default = "6739")]
     pub ingestion_worker_grpc_port: u16,
@@ -269,14 +269,14 @@ pub struct Config {
     #[envconfig(from = "INGESTION_WORKER_GRPC_PORT_OFFSET", default = "0")]
     pub ingestion_worker_grpc_port_offset: u16,
 
-    /// Fence a lane (fail its un-acked and queued sub-batches into the
+    /// Fence a worker stream (fail its un-acked and queued sub-batches into the
     /// deferral path, reconnect, re-route) when un-acked work sees no ack for
     /// this long (milliseconds). The stream has no per-send timeout, so this
     /// watchdog is what turns a worker that stops acking into a re-route
     /// instead of a silent forever-wait. Sized above the worst-case batch
     /// processing time, like the HTTP timeout it replaces.
-    #[envconfig(from = "INGESTION_LANE_ACK_TIMEOUT_MS", default = "60000")]
-    pub ingestion_lane_ack_timeout_ms: u64,
+    #[envconfig(from = "INGESTION_WORKER_STREAM_ACK_TIMEOUT_MS", default = "60000")]
+    pub ingestion_worker_stream_ack_timeout_ms: u64,
 
     // ---- Worker discovery ----
     /// How the worker pool is discovered: `static` (use WORKER_ADDRESSES — the

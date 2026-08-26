@@ -416,7 +416,7 @@ impl FakeWorker {
 
 /// The FakeWorker's WorkerIngest implementation, sharing the HTTP handler's
 /// state and knobs so gRPC scenarios drive the same failure modes. Per the
-/// protocol, any failure ends the stream (a nack means the lane is dead).
+/// protocol, any failure ends the stream (a nack means the worker stream is dead).
 struct FakeWorkerGrpc {
     received: Arc<Mutex<Vec<(String, usize)>>>,
     healthy: Arc<AtomicBool>,
@@ -453,7 +453,7 @@ impl WorkerIngestService for FakeWorkerGrpc {
 
         tokio::spawn(async move {
             // Mirror the real worker: greet with `ready` so response headers
-            // flush; the lane must ignore it.
+            // flush; the worker stream must ignore it.
             let _ = tx.send(Ok(IngestStreamResponse {
                 msg: Some(ingest_stream_response::Msg::Ready(StreamReady {})),
             }));
@@ -672,7 +672,7 @@ impl Harness {
         .await
     }
 
-    /// Like `start`, but the consumer sends over WorkerIngest gRPC lanes
+    /// Like `start`, but the consumer sends over WorkerIngest gRPC worker streams
     /// (`GrpcPort::OffsetFromHttp(1)` — each FakeWorker serves gRPC on its
     /// HTTP port + 1).
     async fn start_grpc(
@@ -2995,11 +2995,11 @@ async fn flapping_worker_does_not_pin_batch_past_flush_timeout() {
     );
 }
 
-// ── gRPC transport (WorkerIngest lanes) ────────────────────────────────────
+// ── gRPC transport (WorkerIngest worker streams) ────────────────────────────────────
 
-/// The full Kafka → assign → lane → stream → ack → commit loop over the gRPC
+/// The full Kafka → assign → worker stream → stream → ack → commit loop over the gRPC
 /// transport: every message arrives exactly once, and each distinct_id's
-/// messages arrive in order on whichever worker its lane delivered them to.
+/// messages arrive in order on whichever worker its worker stream delivered them to.
 #[tokio::test]
 async fn grpc_messages_per_distinct_id_arrive_in_order() {
     let topic = format!("e2e-grpc-ordering-{}", Uuid::new_v4());
@@ -3038,12 +3038,12 @@ async fn grpc_messages_per_distinct_id_arrive_in_order() {
     harness.stop().await;
 }
 
-/// A worker that nacks fences its lane: the fenced messages fail back into
+/// A worker that nacks fences its worker stream: the fenced messages fail back into
 /// the deferral path with nothing lost, and once the worker leaves the pool
 /// the keys re-route to the survivor in order — the same recovery contract
 /// the HTTP transport gets from its request errors.
 #[tokio::test]
-async fn grpc_nacking_worker_fences_lane_and_reroutes_in_order() {
+async fn grpc_nacking_worker_fences_worker_stream_and_reroutes_in_order() {
     let topic = format!("e2e-grpc-fence-{}", Uuid::new_v4());
     let harness = Harness::start_grpc(
         &topic,
@@ -3064,7 +3064,7 @@ async fn grpc_nacking_worker_fences_lane_and_reroutes_in_order() {
     harness.wait_for(8, Duration::from_secs(10)).await;
 
     // Take down the worker that owns user-1: its stream nacks (fencing the
-    // lane) and its /_ready fails (dropping it from the pool and its pins).
+    // worker stream) and its /_ready fails (dropping it from the pool and its pins).
     let dead_idx = if !harness.workers[0].seqs_for("user-1").is_empty() {
         0
     } else {

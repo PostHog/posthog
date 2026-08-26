@@ -70,7 +70,7 @@ struct InFlightBatch {
     handle: JoinHandle<anyhow::Result<ProcessedBatch>>,
 }
 
-/// A sub-batch whose send order is already established on its worker's lane
+/// A sub-batch whose send order is already established on its worker's stream
 /// (`Transport::begin_send`), plus the metadata the resolve protocol needs.
 struct PendingSubBatch {
     worker: WorkerId,
@@ -344,7 +344,7 @@ impl IngestionConsumer {
         let messages = std::mem::take(&mut collected.messages);
         // Send order is established here too, still on the consumer loop and
         // under the dispatcher's lock: `begin_send` is synchronous, so a key's
-        // sub-batches enter its worker's lane in assignment order — spawned
+        // sub-batches enter its worker's stream in assignment order — spawned
         // tasks racing to send would scramble it.
         let pending = self
             .dispatcher
@@ -598,7 +598,7 @@ impl IngestionConsumer {
                 } = send_err;
                 let is_fault = !error.is_backpressure();
                 dispatcher.defer_failed(&batch_id, messages);
-                // Stashed: let the lane stop fencing new arrivals.
+                // Stashed: let the worker stream stop fencing new arrivals.
                 drop(fence_guard);
                 dispatcher.eager_flush_failed(&batch_id);
                 dispatcher.on_sub_batch_resolved(&worker, message_count, &routing_keys, true, true);
@@ -621,7 +621,7 @@ impl IngestionConsumer {
     /// Establish a sub-batch's send order. Synchronous and non-blocking on
     /// purpose: called where send order is decided (under the dispatcher's
     /// lock on the consumer loop, and in the eager flush loop), so a key's
-    /// sub-batches enter its worker's lane in exactly that order.
+    /// sub-batches enter its worker's stream in exactly that order.
     fn begin_send(
         transport: &Transport,
         batch_id: &str,
@@ -728,7 +728,7 @@ impl IngestionConsumer {
     }
 
     /// Await sub-batch sends in parallel and resolve each in the dispatcher.
-    /// On a send failure (the worker died mid-send, or its lane was fenced),
+    /// On a send failure (the worker died mid-send, or its worker stream was fenced),
     /// the failed messages are deferred — before the resolve, so the pin
     /// isn't evicted — to be replayed in order. Returns the number of
     /// messages accepted.
@@ -788,7 +788,7 @@ impl IngestionConsumer {
                         } = send_err;
                         let is_fault = !error.is_backpressure();
                         dispatcher.defer_failed(&bid, messages);
-                        // Stashed: let the lane stop fencing new arrivals.
+                        // Stashed: let the worker stream stop fencing new arrivals.
                         drop(fence_guard);
                         dispatcher.on_sub_batch_resolved(
                             &worker,

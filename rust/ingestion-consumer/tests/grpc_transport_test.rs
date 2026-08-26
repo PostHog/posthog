@@ -1,6 +1,6 @@
-//! Lane-level tests for the gRPC transport against an in-process mock worker.
+//! Worker stream-level tests for the gRPC transport against an in-process mock worker.
 //!
-//! Each test targets one property the lane must hold for per-key ordering:
+//! Each test targets one property the worker stream must hold for per-key ordering:
 //! wire order equals enqueue order, acks correlate out of order, and a
 //! failure fences everything outstanding (in order, with the messages handed
 //! back) so the dispatcher's deferral path can replay it.
@@ -76,7 +76,7 @@ impl WorkerIngest for MockWorker {
 
         tokio::spawn(async move {
             // Mirror the real worker: greet with `ready` so response headers
-            // flush; the lane must ignore it.
+            // flush; the worker stream must ignore it.
             let _ = tx.send(Ok(IngestStreamResponse {
                 msg: Some(ingest_stream_response::Msg::Ready(StreamReady {})),
             }));
@@ -240,7 +240,7 @@ fn msg(distinct_id: &str, offset: i64) -> SerializedKafkaMessage {
     }
 }
 
-/// The lane's worker URL: HTTP port is fake, the gRPC port is the mock's.
+/// The worker stream's worker URL: HTTP port is fake, the gRPC port is the mock's.
 fn worker_url(addr: SocketAddr) -> String {
     format!("http://{}:9001", addr.ip())
 }
@@ -356,7 +356,10 @@ async fn a_failure_fences_a_later_sub_batch_the_worker_already_acked() {
     ack_tx.send(ManualAck::Nack(1)).unwrap();
     let first_err = first.wait().await.expect_err("nacked send must fail");
     assert_eq!(first_err.messages[0].offset, 1);
-    assert!(matches!(first_err.error, TransportError::LaneFailed(_)));
+    assert!(matches!(
+        first_err.error,
+        TransportError::WorkerStreamFailed(_)
+    ));
     let second_err = second
         .await
         .unwrap()
@@ -372,7 +375,7 @@ async fn sends_enqueued_during_a_fence_are_fenced_until_the_callers_stash() {
     // Regression: a fence resolves its sends before their callers stash the
     // messages. In that gap the consumer loop can still enqueue a fenced
     // key's next group; if the next stream sent it, it would reach the worker
-    // ahead of the stashed older group. The lane must keep fencing until
+    // ahead of the stashed older group. The worker stream must keep fencing until
     // every fenced caller drops its guard.
     let mock = start_mock(AckMode::NackSeq(1), None).await;
     let transport = GrpcTransport::new(
@@ -396,17 +399,20 @@ async fn sends_enqueued_during_a_fence_are_fenced_until_the_callers_stash() {
         .expect("a send during a fence must fail promptly")
         .expect_err("a send during a fence must fail");
     assert_eq!(second_err.messages[0].offset, 2);
-    assert!(matches!(second_err.error, TransportError::LaneFailed(_)));
+    assert!(matches!(
+        second_err.error,
+        TransportError::WorkerStreamFailed(_)
+    ));
     assert_eq!(mock.received.lock().await.len(), 1);
 
-    // Both callers stashed: the lane resumes and the next send reaches the
+    // Both callers stashed: the worker stream resumes and the next send reaches the
     // worker on a fresh stream.
     drop(guard);
     drop(second_err);
     let third = transport.begin_send(&url, "batch-3", vec![msg("d1", 3)], false);
     let _ = tokio::time::timeout(Duration::from_secs(5), third.wait())
         .await
-        .expect("the lane must resume once the fence is released");
+        .expect("the worker stream must resume once the fence is released");
     let batch_ids: Vec<_> = mock
         .received
         .lock()
@@ -443,7 +449,10 @@ async fn a_nack_fences_everything_outstanding_in_order() {
         first_err.messages[0].offset, 1,
         "messages come back for deferral"
     );
-    assert!(matches!(first_err.error, TransportError::LaneFailed(_)));
+    assert!(matches!(
+        first_err.error,
+        TransportError::WorkerStreamFailed(_)
+    ));
 
     let second_err = second
         .wait()
@@ -462,7 +471,7 @@ async fn a_nack_fences_everything_outstanding_in_order() {
 }
 
 #[tokio::test]
-async fn the_lane_reconnects_with_a_new_stream_epoch_after_a_fence() {
+async fn the_worker_stream_reconnects_with_a_new_stream_epoch_after_a_fence() {
     let mock = start_mock(AckMode::NackSeq(1), None).await;
     let transport = GrpcTransport::new(
         GrpcPort::Fixed(mock.addr.port()),
@@ -516,7 +525,7 @@ async fn a_dead_worker_fences_instead_of_hanging() {
 #[tokio::test]
 async fn a_worker_that_stops_acking_fences_after_the_watchdog_window() {
     // Regression: a worker at capacity (or wedged) simply never acks, and the
-    // lane has no per-send timeout — without the watchdog the consumer waits
+    // worker stream has no per-send timeout — without the watchdog the consumer waits
     // forever and the whole pod wedges, as seen in production. The fence must
     // hand the messages back so the deferral path re-routes them.
     let (_ack_tx, ack_rx) = mpsc::unbounded_channel();
@@ -540,7 +549,7 @@ async fn a_worker_that_stops_acking_fences_after_the_watchdog_window() {
 #[tokio::test]
 async fn a_stuck_oldest_sub_batch_fences_even_while_siblings_keep_acking() {
     // Regression: the watchdog must bound each sub-batch's own wait, not the
-    // lane's time since its last ack. With more than one un-acked sub-batch, a
+    // worker stream's time since its last ack. With more than one un-acked sub-batch, a
     // worker that keeps acking newer sub-batches but never the oldest used to
     // reset a single shared deadline on every ack, so the stuck send waited
     // forever and its Kafka batch never completed — the wedge the watchdog
@@ -557,7 +566,7 @@ async fn a_stuck_oldest_sub_batch_fences_even_while_siblings_keep_acking() {
     let stuck = transport.begin_send(&url, "batch-stuck", vec![msg("d1", 1)], false);
 
     // Keep feeding siblings faster than the ack timeout. Each is acked and
-    // drained (the lane holds at most one alongside the stuck entry), so a
+    // drained (the worker stream holds at most one alongside the stuck entry), so a
     // watchdog keyed on the last ack would never fire.
     let feeder = {
         let transport = Arc::clone(&transport);
@@ -591,7 +600,7 @@ async fn a_stuck_oldest_sub_batch_fences_even_while_siblings_keep_acking() {
 async fn removing_a_worker_fences_its_in_flight_send_with_messages() {
     // Regression: reaping a worker that still has in-flight work must resolve
     // its un-acked sends with the messages intact, so the deferral path can
-    // replay them. Aborting the lane task instead dropped the sends unresolved,
+    // replay them. Aborting the worker stream task instead dropped the sends unresolved,
     // which the caller could only recover by crashing and replaying.
     let (_ack_tx, ack_rx) = mpsc::unbounded_channel();
     let mock = start_mock(AckMode::Manual, Some(ack_rx)).await;
@@ -603,7 +612,7 @@ async fn removing_a_worker_fences_its_in_flight_send_with_messages() {
     let url = worker_url(mock.addr);
 
     let pending = transport.begin_send(&url, "batch-1", vec![msg("d1", 1)], false);
-    // Wait until the send is on the wire (in the lane's ledger) before reaping.
+    // Wait until the send is on the wire (in the worker stream's ledger) before reaping.
     for _ in 0..200 {
         if mock.received.lock().await.len() == 1 {
             break;
@@ -620,7 +629,7 @@ async fn removing_a_worker_fences_its_in_flight_send_with_messages() {
 
     let err = tokio::time::timeout(Duration::from_secs(5), pending.wait())
         .await
-        .expect("reaped lane must fence, not hang")
+        .expect("reaped worker stream must fence, not hang")
         .expect_err("reaped worker fences the in-flight send");
     assert_eq!(err.messages.len(), 1, "messages come back for deferral");
     assert_eq!(err.messages[0].offset, 1);
@@ -640,8 +649,11 @@ async fn a_busy_status_fences_as_retriable_with_messages() {
     let url = worker_url(mock.addr);
 
     let pending = transport.begin_send(&url, "batch-1", vec![msg("d1", 1)], false);
-    let err = pending.wait().await.expect_err("busy fences the lane");
+    let err = pending
+        .wait()
+        .await
+        .expect_err("busy fences the worker stream");
     assert_eq!(err.messages.len(), 1, "messages come back for deferral");
     assert!(err.error.is_retriable(), "busy is retriable backpressure");
-    assert!(matches!(err.error, TransportError::LaneBusy(_)));
+    assert!(matches!(err.error, TransportError::WorkerStreamBusy(_)));
 }

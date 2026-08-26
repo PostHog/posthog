@@ -1,27 +1,27 @@
-//! Ordered streaming transport: one `WorkerIngest` lane per worker.
+//! Ordered streaming transport: one `WorkerIngest` stream per worker.
 //!
-//! Each lane owns a bidirectional gRPC stream to its worker and drains an
+//! Each worker stream owns a bidirectional gRPC stream to its worker and drains an
 //! ordered queue: enqueue order is send order is the worker's feed order,
 //! which is the per-key ordering guarantee concurrent HTTP requests cannot
 //! give. `begin_send` enqueues synchronously — call it where send order is
 //! decided (the consumer loop, right after assignment) — and hands back a
-//! [`PendingLaneSend`] the caller awaits like an HTTP response.
+//! [`PendingWorkerStreamSend`] the caller awaits like an HTTP response.
 //!
 //! **Acks resolve in send order.** The worker acks sub-batches as they
-//! complete, out of order. The lane records each ack in its ledger and
+//! complete, out of order. The worker stream records each ack in its ledger and
 //! resolves only the consecutive acked prefix, so a send never succeeds
 //! while an earlier one is still open: if that earlier one then fails, the
 //! later one is still in the ledger and fences with it, instead of having
 //! already released its keys and left the older messages to replay after
 //! the newer ones.
 //!
-//! **Failure fences the whole lane.** A nack, stream break, or connect
+//! **Failure fences the whole worker stream.** A nack, stream break, or connect
 //! failure resolves every queued and un-acked item, in enqueue order, with a
 //! [`SendError`] carrying the messages back — the callers' existing
 //! `defer_failed` path then stashes them, and the dispatcher's outstanding
 //! counts hold all newer work for those keys until the failed groups are
 //! retried (oldest first) and acked. Each fenced send also carries a
-//! [`FenceGuard`]; the lane keeps fencing every new arrival until all guards
+//! [`FenceGuard`]; the worker stream keeps fencing every new arrival until all guards
 //! are dropped, which closes the gap between a send resolving and its
 //! caller stashing, where the consumer loop could otherwise enqueue a fenced
 //! key's next group and the next stream would send it first. Nothing for a
@@ -29,7 +29,7 @@
 //! in the ledger, the queue, or fenced on arrival.
 //!
 //! Backpressure: the queue is unbounded (so enqueue stays synchronous and
-//! ordered) but the lane keeps at most `max_unacked` sub-batches un-acked on
+//! ordered) but the worker stream keeps at most `max_unacked` sub-batches un-acked on
 //! the stream; queue depth is bounded in practice by the consumer's
 //! `max_in_flight_batches`, whose batches cannot complete until their sends
 //! resolve.
@@ -55,19 +55,19 @@ use crate::transport::{FenceGuard, SendError, TransportError};
 use crate::types::SerializedKafkaMessage;
 
 /// An enqueued sub-batch awaiting its ack; resolves like an HTTP send.
-pub struct PendingLaneSend {
+pub struct PendingWorkerStreamSend {
     rx: oneshot::Receiver<Result<u32, SendError>>,
 }
 
-impl PendingLaneSend {
+impl PendingWorkerStreamSend {
     pub async fn wait(self) -> Result<u32, SendError> {
         match self.rx.await {
             Ok(result) => result,
-            // The lane task died without resolving its items — a bug, not an
+            // The worker stream task died without resolving its items — a bug, not an
             // operational failure. The messages are gone, so the batch cannot
             // reach its accepted total and the consumer exits and replays.
             Err(_) => Err(SendError {
-                error: TransportError::LaneClosed,
+                error: TransportError::WorkerStreamClosed,
                 messages: Vec::new(),
                 fence_guard: None,
             }),
@@ -75,15 +75,15 @@ impl PendingLaneSend {
     }
 }
 
-struct LaneItem {
+struct WorkerStreamItem {
     batch_id: String,
     messages: Vec<SerializedKafkaMessage>,
     replay: bool,
     reply: oneshot::Sender<Result<u32, SendError>>,
 }
 
-struct Lane {
-    tx: mpsc::UnboundedSender<LaneItem>,
+struct WorkerStream {
+    tx: mpsc::UnboundedSender<WorkerStreamItem>,
 }
 
 /// How a worker's gRPC address is derived from its HTTP URL.
@@ -100,14 +100,14 @@ pub enum GrpcPort {
 
 /// Sends sub-batches over one ordered `WorkerIngest` stream per worker.
 pub struct GrpcTransport {
-    lanes: DashMap<String, Arc<Lane>>,
+    worker_streams: DashMap<String, Arc<WorkerStream>>,
     consumer_id: String,
     /// How each worker's stream address is derived from its HTTP URL.
     grpc_port: GrpcPort,
-    /// Max un-acked sub-batches per lane (aligned with the worker's
+    /// Max un-acked sub-batches per worker stream (aligned with the worker's
     /// `concurrentBatches`, like the HTTP semaphore it replaces).
     max_unacked: usize,
-    /// Fence the lane when un-acked work sees no ack for this long.
+    /// Fence the worker stream when un-acked work sees no ack for this long.
     ack_timeout: Duration,
     /// Bumped on Kafka partition assignment; stamped on every sub-batch so
     /// the worker sentinel rebaselines across rebalances.
@@ -120,7 +120,7 @@ impl GrpcTransport {
     pub fn new(grpc_port: GrpcPort, max_unacked: usize, ack_timeout: Duration) -> Self {
         assert!(max_unacked > 0, "max_unacked must be > 0");
         Self {
-            lanes: DashMap::new(),
+            worker_streams: DashMap::new(),
             consumer_id: make_consumer_id(),
             grpc_port,
             max_unacked,
@@ -138,8 +138,8 @@ impl GrpcTransport {
         Arc::clone(&self.assignment_epoch)
     }
 
-    /// Enqueue a sub-batch on the worker's lane. Synchronous on purpose: call
-    /// in send order (the consumer loop / serialized flush paths) — the lane
+    /// Enqueue a sub-batch on the worker's stream. Synchronous on purpose: call
+    /// in send order (the consumer loop / serialized flush paths) — the worker stream
     /// preserves enqueue order onto the stream.
     pub fn begin_send(
         &self,
@@ -147,41 +147,41 @@ impl GrpcTransport {
         batch_id: &str,
         messages: Vec<SerializedKafkaMessage>,
         replay: bool,
-    ) -> PendingLaneSend {
+    ) -> PendingWorkerStreamSend {
         let (reply, rx) = oneshot::channel();
-        let item = LaneItem {
+        let item = WorkerStreamItem {
             batch_id: batch_id.to_string(),
             messages,
             replay,
             reply,
         };
-        let lane = self.lane_for(worker_url);
-        if let Err(send_err) = lane.tx.send(item) {
-            // Lane task gone (removed worker): fail the send immediately with
+        let stream = self.worker_stream_for(worker_url);
+        if let Err(send_err) = stream.tx.send(item) {
+            // Worker stream task gone (removed worker): fail the send immediately with
             // its messages so the caller defers and re-routes.
             let item = send_err.0;
             let _ = item.reply.send(Err(SendError {
-                error: TransportError::LaneClosed,
+                error: TransportError::WorkerStreamClosed,
                 messages: item.messages,
                 fence_guard: None,
             }));
         }
-        PendingLaneSend { rx }
+        PendingWorkerStreamSend { rx }
     }
 
-    fn lane_for(&self, worker_url: &str) -> Arc<Lane> {
-        if let Some(lane) = self.lanes.get(worker_url) {
-            return lane.clone();
+    fn worker_stream_for(&self, worker_url: &str) -> Arc<WorkerStream> {
+        if let Some(stream) = self.worker_streams.get(worker_url) {
+            return stream.clone();
         }
-        self.lanes
+        self.worker_streams
             .entry(worker_url.to_string())
-            .or_insert_with(|| Arc::new(self.spawn_lane(worker_url)))
+            .or_insert_with(|| Arc::new(self.spawn_worker_stream(worker_url)))
             .clone()
     }
 
-    fn spawn_lane(&self, worker_url: &str) -> Lane {
+    fn spawn_worker_stream(&self, worker_url: &str) -> WorkerStream {
         let (tx, rx) = mpsc::unbounded_channel();
-        let runner = LaneRunner {
+        let runner = WorkerStreamRunner {
             worker_url: Arc::from(worker_url),
             grpc_url: grpc_url(worker_url, self.grpc_port),
             consumer_id: self.consumer_id.clone(),
@@ -190,16 +190,16 @@ impl GrpcTransport {
             assignment_epoch: Arc::clone(&self.assignment_epoch),
         };
         tokio::spawn(async move { runner.run(rx).await });
-        Lane { tx }
+        WorkerStream { tx }
     }
 
-    /// Tear down a departed worker's lane. Dropping the lane closes its queue
+    /// Tear down a departed worker's stream. Dropping it closes its queue
     /// sender, so the runner fences whatever is still in flight **in order**,
     /// with the messages intact, and exits on its own. Aborting the task would
     /// instead drop the un-acked sends unresolved, which the caller can only
     /// recover by crashing and replaying — so let the graceful path run.
     pub fn remove_worker(&self, worker_url: &str) {
-        self.lanes.remove(worker_url);
+        self.worker_streams.remove(worker_url);
     }
 
     /// Check if a worker is ready by probing its HTTP health endpoint.
@@ -220,7 +220,7 @@ impl GrpcTransport {
 /// One un-acked sub-batch on the stream.
 struct LedgerEntry {
     seq: u64,
-    item: LaneItem,
+    item: WorkerStreamItem,
     /// Per-send ack deadline, armed when the sub-batch went on the wire. The
     /// watchdog fences on the oldest entry's deadline, so a stuck sub-batch
     /// times out even while its siblings keep acking.
@@ -239,7 +239,7 @@ type OpenStream = (
 /// One event off the ack stream: a frame, a clean end (`None`), or an error.
 type AckEvent = Result<Option<IngestStreamResponse>, tonic::Status>;
 
-struct LaneRunner {
+struct WorkerStreamRunner {
     worker_url: Arc<str>,
     grpc_url: String,
     consumer_id: String,
@@ -248,30 +248,30 @@ struct LaneRunner {
     assignment_epoch: Arc<AtomicU64>,
 }
 
-impl LaneRunner {
-    /// Lane lifecycle: connect, stream until something breaks, fence
+impl WorkerStreamRunner {
+    /// Worker stream lifecycle: connect, stream until something breaks, fence
     /// everything outstanding, reconnect. Ends when the transport drops the
     /// queue sender (worker removed or shutdown).
-    async fn run(self, mut queue: mpsc::UnboundedReceiver<LaneItem>) {
+    async fn run(self, mut queue: mpsc::UnboundedReceiver<WorkerStreamItem>) {
         let mut stream_epoch = 0u64;
         let mut backoff = Duration::from_millis(100);
         loop {
             stream_epoch += 1;
             match self.run_stream(&mut queue, stream_epoch).await {
                 StreamEnd::QueueClosed => {
-                    info!(worker = %self.worker_url, "Lane queue closed, exiting");
+                    info!(worker = %self.worker_url, "Worker stream queue closed, exiting");
                     return;
                 }
                 StreamEnd::Failed(fence) => {
                     counter!(
-                        "ingestion_consumer_lane_teardowns_total",
+                        "ingestion_consumer_worker_stream_teardowns_total",
                         "worker" => self.worker_url.clone(),
                     )
                     .increment(1);
                     let fenced = fence.settle(&mut queue).await;
                     if fenced > 0 {
                         counter!(
-                            "ingestion_consumer_lane_fenced_sub_batches_total",
+                            "ingestion_consumer_worker_stream_fenced_sub_batches_total",
                             "worker" => self.worker_url.clone(),
                         )
                         .increment(fenced as u64);
@@ -293,10 +293,10 @@ impl LaneRunner {
     /// queued and un-acked item has been resolved as failed, in order.
     async fn run_stream(
         &self,
-        queue: &mut mpsc::UnboundedReceiver<LaneItem>,
+        queue: &mut mpsc::UnboundedReceiver<WorkerStreamItem>,
         stream_epoch: u64,
     ) -> StreamEnd {
-        // Hold sends until there is work: connecting eagerly on an idle lane
+        // Hold sends until there is work: connecting eagerly on an idle worker stream
         // would spin reconnects against a worker that never gets traffic.
         let first = match queue.recv().await {
             Some(item) => item,
@@ -312,7 +312,7 @@ impl LaneRunner {
         };
 
         let mut next_seq = 1u64;
-        gauge!("ingestion_consumer_lane_ledger_depth", "worker" => self.worker_url.clone())
+        gauge!("ingestion_consumer_worker_stream_ledger_depth", "worker" => self.worker_url.clone())
             .set(0.0);
 
         loop {
@@ -348,7 +348,7 @@ impl LaneRunner {
         let endpoint = match tonic::transport::Endpoint::from_shared(self.grpc_url.clone()) {
             Ok(endpoint) => endpoint.connect_timeout(Duration::from_secs(5)),
             Err(err) => {
-                error!(worker = %self.worker_url, grpc_url = %self.grpc_url, error = %err, "Invalid lane address");
+                error!(worker = %self.worker_url, grpc_url = %self.grpc_url, error = %err, "Invalid worker stream address");
                 return Err("invalid address");
             }
         };
@@ -359,7 +359,7 @@ impl LaneRunner {
                     worker = %self.worker_url,
                     grpc_url = %self.grpc_url,
                     error = %err,
-                    "Lane connect failed"
+                    "Worker stream connect failed"
                 );
                 return Err("connect failed");
             }
@@ -368,7 +368,7 @@ impl LaneRunner {
                     worker = %self.worker_url,
                     grpc_url = %self.grpc_url,
                     timeout_ms = self.ack_timeout.as_millis() as u64,
-                    "Lane connect timed out"
+                    "Worker stream connect timed out"
                 );
                 return Err("connect timeout");
             }
@@ -391,7 +391,7 @@ impl LaneRunner {
 
         // Stream-open resolves only when the worker's response headers (its
         // greeting) arrive; bound it so a worker that never greets fences
-        // instead of deadlocking the lane — the failure mode that wedged
+        // instead of deadlocking the worker stream — the failure mode that wedged
         // production before the greeting existed.
         match tokio::time::timeout(
             self.ack_timeout,
@@ -405,12 +405,12 @@ impl LaneRunner {
                     worker = %self.worker_url,
                     grpc_url = %self.grpc_url,
                     timeout_ms = self.ack_timeout.as_millis() as u64,
-                    "Lane stream open timed out — no greeting from the worker"
+                    "Worker stream stream open timed out — no greeting from the worker"
                 );
                 Err("stream open timeout")
             }
             Ok(Err(status)) => {
-                warn!(worker = %self.worker_url, grpc_url = %self.grpc_url, status = %status, "Lane stream open failed");
+                warn!(worker = %self.worker_url, grpc_url = %self.grpc_url, status = %status, "Worker stream stream open failed");
                 Err("stream open failed")
             }
         }
@@ -421,8 +421,8 @@ impl LaneRunner {
     fn fill_ledger(
         &self,
         out_tx: &mpsc::UnboundedSender<IngestStreamRequest>,
-        queue: &mut mpsc::UnboundedReceiver<LaneItem>,
-        pending_first: &mut Option<LaneItem>,
+        queue: &mut mpsc::UnboundedReceiver<WorkerStreamItem>,
+        pending_first: &mut Option<WorkerStreamItem>,
         ledger: &mut VecDeque<LedgerEntry>,
         next_seq: &mut u64,
     ) -> Result<(), StreamEnd> {
@@ -465,7 +465,7 @@ impl LaneRunner {
             if !sent {
                 return Err(self.fence(None, ledger, queue, "stream closed mid-send"));
             }
-            gauge!("ingestion_consumer_lane_ledger_depth", "worker" => self.worker_url.clone())
+            gauge!("ingestion_consumer_worker_stream_ledger_depth", "worker" => self.worker_url.clone())
                 .set(ledger.len() as f64);
         }
         Ok(())
@@ -485,8 +485,8 @@ impl LaneRunner {
     async fn await_next_ack(
         &self,
         acks: &mut tonic::Streaming<IngestStreamResponse>,
-        queue: &mut mpsc::UnboundedReceiver<LaneItem>,
-        pending_first: &mut Option<LaneItem>,
+        queue: &mut mpsc::UnboundedReceiver<WorkerStreamItem>,
+        pending_first: &mut Option<WorkerStreamItem>,
         ledger: &mut VecDeque<LedgerEntry>,
     ) -> Result<Option<AckEvent>, StreamEnd> {
         let Some(front) = ledger.front() else {
@@ -506,7 +506,7 @@ impl LaneRunner {
                     worker = %self.worker_url,
                     unacked = ledger.len(),
                     timeout_ms = self.ack_timeout.as_millis() as u64,
-                    "No ack progress within the watchdog window — fencing lane"
+                    "No ack progress within the watchdog window — fencing worker stream"
                 );
                 Err(self.fence(pending_first.take(), ledger, queue, "ack progress timeout"))
             }
@@ -524,8 +524,8 @@ impl LaneRunner {
     fn handle_ack(
         &self,
         ack: AckEvent,
-        queue: &mut mpsc::UnboundedReceiver<LaneItem>,
-        pending_first: &mut Option<LaneItem>,
+        queue: &mut mpsc::UnboundedReceiver<WorkerStreamItem>,
+        pending_first: &mut Option<WorkerStreamItem>,
         ledger: &mut VecDeque<LedgerEntry>,
     ) -> Result<(), StreamEnd> {
         let frame = match ack {
@@ -538,7 +538,7 @@ impl LaneRunner {
                 });
             }
             Err(status) => {
-                warn!(worker = %self.worker_url, status = %status, "Lane stream failed");
+                warn!(worker = %self.worker_url, status = %status, "Worker stream stream failed");
                 return Err(self.fence(pending_first.take(), ledger, queue, "stream error"));
             }
         };
@@ -554,7 +554,7 @@ impl LaneRunner {
                 worker = %self.worker_url,
                 seq = response.seq,
                 error = %response.error,
-                "Worker nacked sub-batch — fencing lane"
+                "Worker nacked sub-batch — fencing worker stream"
             );
             return Err(self.fence(None, ledger, queue, "sub-batch nacked"));
         }
@@ -567,7 +567,7 @@ impl LaneRunner {
                 worker = %self.worker_url,
                 seq = response.seq,
                 status = response.status,
-                "Worker signalled busy — fencing lane as retriable"
+                "Worker signalled busy — fencing worker stream as retriable"
             );
             return Err(self.fence_with(true, None, ledger, queue, "worker busy"));
         }
@@ -575,7 +575,7 @@ impl LaneRunner {
             .iter_mut()
             .find(|e| e.seq == response.seq && e.acked.is_none())
         else {
-            warn!(worker = %self.worker_url, seq = response.seq, "Ack for unknown seq — fencing lane");
+            warn!(worker = %self.worker_url, seq = response.seq, "Ack for unknown seq — fencing worker stream");
             return Err(self.fence(None, ledger, queue, "unknown ack seq"));
         };
         entry.acked = Some(response.accepted);
@@ -593,7 +593,7 @@ impl LaneRunner {
             let accepted = entry.acked.expect("front is acked");
             let _ = entry.item.reply.send(Ok(accepted));
         }
-        gauge!("ingestion_consumer_lane_ledger_depth", "worker" => self.worker_url.clone())
+        gauge!("ingestion_consumer_worker_stream_ledger_depth", "worker" => self.worker_url.clone())
             .set(ledger.len() as f64);
         Ok(())
     }
@@ -606,9 +606,9 @@ impl LaneRunner {
     /// (oldest first) is the same request that failed.
     fn fence(
         &self,
-        pending_first: Option<LaneItem>,
+        pending_first: Option<WorkerStreamItem>,
         ledger: &mut VecDeque<LedgerEntry>,
-        queue: &mut mpsc::UnboundedReceiver<LaneItem>,
+        queue: &mut mpsc::UnboundedReceiver<WorkerStreamItem>,
         reason: &'static str,
     ) -> StreamEnd {
         self.fence_with(false, pending_first, ledger, queue, reason)
@@ -621,9 +621,9 @@ impl LaneRunner {
     fn fence_with(
         &self,
         retriable: bool,
-        pending_first: Option<LaneItem>,
+        pending_first: Option<WorkerStreamItem>,
         ledger: &mut VecDeque<LedgerEntry>,
-        queue: &mut mpsc::UnboundedReceiver<LaneItem>,
+        queue: &mut mpsc::UnboundedReceiver<WorkerStreamItem>,
         reason: &'static str,
     ) -> StreamEnd {
         let mut fence = Fence::new(retriable, reason);
@@ -642,14 +642,14 @@ impl LaneRunner {
             "status" => if retriable { "busy" } else { "error" }
         )
         .increment(1);
-        gauge!("ingestion_consumer_lane_ledger_depth", "worker" => self.worker_url.clone())
+        gauge!("ingestion_consumer_worker_stream_ledger_depth", "worker" => self.worker_url.clone())
             .set(0.0);
         StreamEnd::Failed(fence)
     }
 }
 
 /// A fence in progress. Every fenced send carries a [`FenceGuard`]; until all
-/// of them are dropped the lane fails each new arrival too, so a send
+/// of them are dropped the worker stream fails each new arrival too, so a send
 /// enqueued before the fenced messages are stashed cannot ride the next
 /// stream ahead of them.
 struct Fence {
@@ -675,11 +675,11 @@ impl Fence {
         }
     }
 
-    fn fail(&mut self, item: LaneItem) {
+    fn fail(&mut self, item: WorkerStreamItem) {
         let error = if self.retriable {
-            TransportError::LaneBusy(self.reason)
+            TransportError::WorkerStreamBusy(self.reason)
         } else {
-            TransportError::LaneFailed(self.reason)
+            TransportError::WorkerStreamFailed(self.reason)
         };
         self.outstanding += 1;
         self.fenced += 1;
@@ -694,7 +694,7 @@ impl Fence {
 
     /// Fail arrivals until every fenced caller has dropped its guard. Returns
     /// how many sends the fence failed in total.
-    async fn settle(mut self, queue: &mut mpsc::UnboundedReceiver<LaneItem>) -> usize {
+    async fn settle(mut self, queue: &mut mpsc::UnboundedReceiver<WorkerStreamItem>) -> usize {
         while self.outstanding > 0 {
             // Releases first: a caller drops its guard before it can enqueue
             // again, so a release already waiting must not lose to the send
