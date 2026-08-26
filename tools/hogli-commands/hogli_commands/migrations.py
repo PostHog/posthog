@@ -795,7 +795,12 @@ def migrations_status() -> None:
 @click.command(name="migrations:down", help="Roll back orphaned migrations")
 @click.option("--dry-run", "-n", is_flag=True, help="Show what would be done without executing")
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompts")
-@click.option("--force", "-f", is_flag=True, help="Force removal without schema rollback (just deletes DB records)")
+@click.option(
+    "--force",
+    "-f",
+    is_flag=True,
+    help="Continue when some migrations can't be rolled back, removing only their DB records",
+)
 def migrations_down(dry_run: bool, yes: bool, force: bool) -> None:
     """Roll back migrations that are applied but don't exist in code."""
     click.echo("\nAnalyzing migrations…\n")
