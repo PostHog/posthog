@@ -41,9 +41,6 @@ export function InboxView() {
     resetReportOpenTrackerHistory();
   }, []);
 
-  useTrackInboxViewed();
-
-  const { counts } = useInboxAllReports({ withReportsCount: true });
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const isDetailView = isInboxDetailPath(pathname);
 
@@ -52,6 +49,15 @@ export function InboxView() {
   // keyboard-triageable page, and reclaims the inbox slot from the spaces
   // redirect below. Detail routes keep their own bodies.
   const reportsInboxEnabled = useReportsInboxEnabled();
+  const listEnabled =
+    !isDetailView && (reportsInboxEnabled || !channelReportsEnabled);
+  const legacyListEnabled = listEnabled && !reportsInboxEnabled;
+  const { counts } = useInboxAllReports({
+    enabled: legacyListEnabled,
+    withReportsCount: true,
+  });
+
+  useTrackInboxViewed({ enabled: legacyListEnabled });
 
   if (reportsInboxEnabled && !isDetailView) {
     // The view owns its height so its page header stays pinned while the

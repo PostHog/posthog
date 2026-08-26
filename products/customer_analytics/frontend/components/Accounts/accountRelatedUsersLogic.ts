@@ -11,12 +11,11 @@ import { OrganizationMemberType, Region } from '~/types'
 
 import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from '../../constants'
 
-// The account org-members endpoint returns a slim member shape — only id + user are serialized.
-export type AccountOrganizationMember = Pick<OrganizationMemberType, 'id' | 'user'> & {
+export type AccountOrganizationMember = Pick<OrganizationMemberType, 'id' | 'user' | 'level'> & {
     region: Region.US | Region.EU
 }
 
-export const PAGE_SIZE = 5
+export const PAGE_SIZE = 20
 
 // EU-region orgs have no rows in this region's posthog_user tables; eu_org_members is a
 // materialized DWH pre-join of the EU postgres sync (prod-only, refreshed daily).
@@ -45,7 +44,7 @@ const fetchEuMembers = async (externalId: string): Promise<AccountOrganizationMe
             kind: NodeKind.HogQLQuery,
             tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
             query: hogql`
-                select user_id, membership_id, first_name, last_name, email, distinct_id
+                select user_id, membership_id, level, first_name, last_name, email, distinct_id
                 from eu_org_members
                 where organization_id = ${externalId}
                 order by joined_at desc
@@ -55,12 +54,13 @@ const fetchEuMembers = async (externalId: string): Promise<AccountOrganizationMe
         const rows = (response.results ?? []) as unknown[][]
         return rows.map((row) => ({
             id: String(row[1]),
+            level: Number(row[2]) as AccountOrganizationMember['level'],
             user: {
                 id: Number(row[0]),
-                first_name: (row[2] as string | null) ?? '',
-                last_name: (row[3] as string | null) ?? '',
-                email: (row[4] as string | null) ?? '',
-                distinct_id: (row[5] as string | null) ?? '',
+                first_name: (row[3] as string | null) ?? '',
+                last_name: (row[4] as string | null) ?? '',
+                email: (row[5] as string | null) ?? '',
+                distinct_id: (row[6] as string | null) ?? '',
             } as AccountOrganizationMember['user'],
             region: Region.EU,
         }))

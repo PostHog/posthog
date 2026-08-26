@@ -124,6 +124,10 @@ export function navigateToInbox(): void {
   void getRouterOrNull()?.navigate({ to: "/inbox" });
 }
 
+export function navigateToInboxReports(): void {
+  void getRouterOrNull()?.navigate({ to: "/inbox/reports" });
+}
+
 export function navigateToInboxPullRequestDetail(reportId: string): void {
   void getRouterOrNull()?.navigate({
     to: "/inbox/pulls/$reportId",

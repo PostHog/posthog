@@ -19,7 +19,11 @@ import { isFunnelsQuery, isInsightVizNode } from '~/queries/utils'
 import { FunnelVizType, InsightLogicProps, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import { AlertAdvancedOptionsSection } from 'products/alerts/frontend/components/AlertAdvancedOptionsSection'
-import { AlertStateIndicator, AlertTimezoneNotice } from 'products/alerts/frontend/components/AlertDefinition'
+import {
+    AlertErrorBanner,
+    AlertStateIndicator,
+    AlertTimezoneNotice,
+} from 'products/alerts/frontend/components/AlertDefinition'
 import { AlertDefinitionSection } from 'products/alerts/frontend/components/AlertDefinitionSection'
 import {
     AlertEditor,
@@ -509,6 +513,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
                                                     </div>
                                                 ) : undefined
                                             }
+                                            statusNode={alert ? <AlertErrorBanner alert={alert} /> : undefined}
                                             tabs={tabs}
                                         />
                                     )
