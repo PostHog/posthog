@@ -4,6 +4,7 @@ import { createBrotliDecompress, createGunzip, createInflate, createZstdDecompre
 export const MAX_UNCOMPRESSED_IMAGE_BYTES = 20 * 1024 * 1024
 export const CONTENT_TYPE_HEADER = 'content-type'
 export const CONTENT_ENCODING_HEADER = 'content-encoding'
+export const CAPTURE_TIMESTAMP_HEADER = 'capture-timestamp-ms'
 
 const MAX_CONTENT_ENCODING_LAYERS = 4
 
