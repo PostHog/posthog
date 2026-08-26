@@ -62,9 +62,12 @@ from posthog.rate_limit import (
     CustomSourceAIBuilderDailyThrottle,
     CustomSourceAIBuilderSustainedThrottle,
 )
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin, access_level_satisfied_for_resource
 
+from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
+)
 from products.cdp.backend.facade.api import HogFunctionSerializer
 from products.cdp.backend.facade.models import HogFunction
 from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet

@@ -13,8 +13,7 @@ import pandas as pd
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
-from posthog.rbac.user_access_control import UserAccessControl
-
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.engineering_analytics.backend.facade.contracts import CISignalsSyncStatus
 from products.engineering_analytics.backend.logic.ci_signals_config import (
     AUTHORIZED_SOURCES_CONFIG_KEY,
@@ -72,7 +71,11 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSchema,
     ExternalDataSource,
 )
-from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.warehouse_sources.backend.facade.types import (
+    ExternalDataSchemaStatus,
+    ExternalDataSourceStatus,
+    ExternalDataSourceType,
+)
 from products.warehouse_sources.backend.test.utils import create_data_warehouse_table_from_csv
 
 _BY_DESIGN_JOB_NAMES = [entry.split("/", 2)[2] for entry in BY_DESIGN_FAILURES]
@@ -289,7 +292,7 @@ class TestDetectForSourceMultiRepo(BaseTest):
             team=self.team,
             source_id="gh-multi-snap",
             connection_id="gh-multi-snap",
-            status=ExternalDataSource.Status.COMPLETED,
+            status=ExternalDataSourceStatus.COMPLETED,
             source_type=ExternalDataSourceType.GITHUB,
             prefix="multisnap_",
             job_inputs={"repositories": ["Acme/one", "Acme/two"]},
@@ -310,7 +313,7 @@ class TestDetectForSourceMultiRepo(BaseTest):
             team=self.team,
             source_id="gh-multi",
             connection_id="gh-multi",
-            status=ExternalDataSource.Status.COMPLETED,
+            status=ExternalDataSourceStatus.COMPLETED,
             source_type=ExternalDataSourceType.GITHUB,
             prefix="multi_",
             job_inputs={"repositories": ["Acme/one", "Acme/two", "Acme/three"]},
@@ -356,7 +359,7 @@ class TestDetectForSourceMultiRepo(BaseTest):
             team=self.team,
             source_id="gh-sib",
             connection_id="gh-sib",
-            status=ExternalDataSource.Status.COMPLETED,
+            status=ExternalDataSourceStatus.COMPLETED,
             source_type=ExternalDataSourceType.GITHUB,
             prefix="sib_",
             job_inputs={"repositories": ["Acme/one", "Acme/two"]},
@@ -563,13 +566,13 @@ class TestCISignalEmissionLedger(BaseTest):
 
 class TestSyncStatus(BaseTest):
     def _github_source_with_schemas(
-        self, *, source_id: str, repo: str, statuses: dict[str, ExternalDataSchema.Status]
+        self, *, source_id: str, repo: str, statuses: dict[str, ExternalDataSchemaStatus]
     ) -> None:
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_id=source_id,
             connection_id=source_id,
-            status=ExternalDataSource.Status.COMPLETED,
+            status=ExternalDataSourceStatus.COMPLETED,
             source_type=ExternalDataSourceType.GITHUB,
             prefix=f"{source_id.replace('-', '')}_",
             job_inputs={"repositories": [repo]},
@@ -587,16 +590,16 @@ class TestSyncStatus(BaseTest):
     @parameterized.expand(
         [
             ("all_completed", {}, CISignalsSyncStatus.COMPLETED),
-            ("one_failed", {"workflow_runs": ExternalDataSchema.Status.FAILED}, CISignalsSyncStatus.FAILED),
-            ("one_running", {"workflow_jobs": ExternalDataSchema.Status.RUNNING}, CISignalsSyncStatus.RUNNING),
+            ("one_failed", {"workflow_runs": ExternalDataSchemaStatus.FAILED}, CISignalsSyncStatus.FAILED),
+            ("one_running", {"workflow_jobs": ExternalDataSchemaStatus.RUNNING}, CISignalsSyncStatus.RUNNING),
         ]
     )
     def test_sync_status_resolves_repo_qualified_schema_names(
-        self, _name: str, overrides: dict[str, ExternalDataSchema.Status], expected: CISignalsSyncStatus
+        self, _name: str, overrides: dict[str, ExternalDataSchemaStatus], expected: CISignalsSyncStatus
     ) -> None:
         # Multi-repo sources qualify schema names; a bare-name match would pin the status at
         # RUNNING forever and never surface FAILED.
-        statuses = dict.fromkeys(CI_SIGNAL_REQUIRED_SCHEMAS, ExternalDataSchema.Status.COMPLETED)
+        statuses = dict.fromkeys(CI_SIGNAL_REQUIRED_SCHEMAS, ExternalDataSchemaStatus.COMPLETED)
         statuses.update(overrides)
         self._github_source_with_schemas(source_id="gh-sync", repo="acme/one", statuses=statuses)
         assert _sync_status(self.team, None) == expected
@@ -605,11 +608,11 @@ class TestSyncStatus(BaseTest):
         self._github_source_with_schemas(
             source_id="gh-ci",
             repo="acme/one",
-            statuses=dict.fromkeys(CI_SIGNAL_REQUIRED_SCHEMAS, ExternalDataSchema.Status.COMPLETED),
+            statuses=dict.fromkeys(CI_SIGNAL_REQUIRED_SCHEMAS, ExternalDataSchemaStatus.COMPLETED),
         )
         # An issues-only GitHub source (no CI tables syncing) must not pin the status at RUNNING.
         self._github_source_with_schemas(
-            source_id="gh-issues", repo="acme/two", statuses={"issues": ExternalDataSchema.Status.RUNNING}
+            source_id="gh-issues", repo="acme/two", statuses={"issues": ExternalDataSchemaStatus.RUNNING}
         )
         assert _sync_status(self.team, None) == CISignalsSyncStatus.COMPLETED
 

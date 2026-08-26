@@ -18,6 +18,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { IngestionLimitBanner } from '../components/IngestionLimitBanner'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
+import { ObservationSearchTab } from '../search/ObservationSearchTab'
 import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { formatCreditsRange } from '../utils/credits'
 import { quotaBannerState } from '../utils/quotaProjection'
@@ -133,6 +134,11 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                         key: ReplayScannerTab.Observations,
                         label: 'Observations',
                         content: <ScannerObservationsTable scannerId={scannerId} />,
+                    },
+                    {
+                        key: ReplayScannerTab.Search,
+                        label: 'Search',
+                        content: <ObservationSearchTab scannerId={scannerId} />,
                     },
                     {
                         key: ReplayScannerTab.OnDemand,

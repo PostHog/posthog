@@ -81,7 +81,6 @@ from posthog.exceptions import (
 )
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import (
@@ -91,6 +90,7 @@ from posthog.temporal.common.clickhouse import (
     ClickHouseTooManyRowsOrBytesError,
 )
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.notebooks.backend import frame_store
 
 logger = structlog.get_logger(__name__)

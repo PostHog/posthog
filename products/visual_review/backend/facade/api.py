@@ -16,6 +16,7 @@ Do NOT:
 """
 
 from dataclasses import replace
+from datetime import datetime
 from uuid import UUID
 
 from django.contrib.auth import get_user_model
@@ -30,6 +31,7 @@ from ..logic import (
     baseline_overview,
     baselines,
     errors,
+    flakiness,
     gating,
     history,
     quarantine,
@@ -255,9 +257,12 @@ def update_repo(input: contracts.UpdateRepoInput, team_id: int) -> contracts.Rep
     return _to_repo(repo)
 
 
-def get_thumbnail_hash_for_identifier(repo_id: UUID, identifier: str) -> str | None:
-    """Resolve a snapshot identifier to the content hash of its thumbnail, if any."""
-    return thumbnails.get_thumbnail_hash_for_identifier(repo_id, identifier)
+def get_thumbnail_hash_for_identifier(repo_id: UUID, identifier: str, run_type: str | None = None) -> str | None:
+    """Resolve a snapshot identifier to the content hash of its thumbnail, if any.
+
+    `run_type` narrows to one, for callers that list several side by side.
+    """
+    return thumbnails.get_thumbnail_hash_for_identifier(repo_id, identifier, run_type)
 
 
 def read_thumbnail_bytes(repo_id: UUID, content_hash: str) -> bytes | None:
@@ -325,6 +330,95 @@ def get_baselines_overview(repo_id: UUID) -> contracts.BaselineOverview:
         truncated=raw.truncated,
         generated_at=raw.generated_at,
     )
+
+
+def get_flakiness_overview(repo_id: UUID) -> contracts.FlakinessOverview:
+    """Snapshot identities carrying rendering instability or an open quarantine.
+
+    Backs the flakiness page. See `flakiness.get_flakiness_overview` for the
+    scoping rule and query shape.
+    """
+    raw = flakiness.get_flakiness_overview(repo_id)
+
+    quarantine_user_ids = {
+        row.quarantine.created_by_id for row in raw.rows if row.quarantine and row.quarantine.created_by_id
+    }
+    quarantine_user_infos = _fetch_user_basic_infos(quarantine_user_ids)
+
+    entries: list[contracts.FlakinessEntry] = []
+    for row in raw.rows:
+        snapshot = raw.snapshots_by_key.get(flakiness.snapshot_key(row))
+        artifact = snapshot.current_artifact if snapshot is not None else None
+        thumbnail = artifact.thumbnail if artifact is not None else None
+        metadata = (snapshot.metadata or {}) if snapshot is not None else {}
+        entries.append(
+            contracts.FlakinessEntry(
+                identifier=row.identifier,
+                run_type=row.run_type,
+                browser=metadata.get("browser") if isinstance(metadata, dict) else None,
+                thumbnail_hash=thumbnail.content_hash if thumbnail is not None else None,
+                width=artifact.width if artifact is not None else None,
+                height=artifact.height if artifact is not None else None,
+                variant_count=row.variant_count,
+                hard_count=row.hard_count,
+                soft_count=row.soft_count,
+                window_runs=row.window_runs,
+                hard_rate=row.hard_rate,
+                soft_rate=row.soft_rate,
+                last_flaked_at=row.last_flaked_at,
+                avg_diff_percentage=row.avg_diff_percentage,
+                worst_soft_diff_percentage=row.worst_soft_diff_percentage,
+                headroom=row.headroom,
+                baseline_age_days=_days_since(row.baseline_moved_at, raw.generated_at),
+                daily_hard_counts=row.daily_hard_counts,
+                daily_soft_counts=row.daily_soft_counts,
+                baseline_moved_day_index=_baseline_moved_day_index(row.baseline_moved_at, raw.generated_at),
+                flakiness_state=row.state,
+                is_quarantined=row.quarantine is not None,
+                needs_decision=row.needs_decision,
+                quarantine=(
+                    _to_baseline_quarantine_summary(row.quarantine, quarantine_user_infos)
+                    if row.quarantine is not None
+                    else None
+                ),
+            )
+        )
+
+    totals = contracts.FlakinessTotals(
+        listed=len(entries),
+        tracked=raw.tracked_total,
+        broken=raw.totals_broken,
+        unstable=raw.totals_unstable,
+        at_risk=raw.totals_at_risk,
+        noisy=raw.totals_noisy,
+        clean=raw.totals_clean,
+        quarantined=raw.totals_quarantined,
+        needs_decision=raw.totals_needs_decision,
+        by_run_type=raw.by_run_type,
+    )
+
+    return contracts.FlakinessOverview(
+        entries=entries,
+        totals=totals,
+        truncated=raw.truncated,
+        generated_at=raw.generated_at,
+    )
+
+
+def _days_since(moment: datetime | None, now: datetime) -> int | None:
+    return None if moment is None else max((now - moment).days, 0)
+
+
+def _baseline_moved_day_index(moved_at: datetime | None, now: datetime) -> int | None:
+    """Position of the baseline move inside the activity strip.
+
+    None when the baseline moved before the strip window opened, which is the
+    common case, so the frontend draws no divider.
+    """
+    days_ago = _days_since(moved_at, now)
+    if days_ago is None or days_ago >= contracts.FLAKINESS_WINDOW_DAYS:
+        return None
+    return contracts.FLAKINESS_WINDOW_DAYS - 1 - days_ago
 
 
 # --- Run API ---

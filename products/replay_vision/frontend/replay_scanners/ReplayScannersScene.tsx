@@ -33,11 +33,13 @@ import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackBu
 import { ScannerTypeBadge } from '../components/ScannerTypeBadge'
 import { replayVisionEmptyState } from '../emptyState/replayVisionEmptyState'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
+import { ObservationSearchTab } from '../search/ObservationSearchTab'
 import { getReplayVisionDeleteDisabledReason, getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { creditsToUsd, formatCreditCount } from '../utils/credits'
 import { CreateScannerButton } from './components/CreateScannerButton'
 import { VisionMetrics } from './components/VisionMetrics'
 import { VisionUsageTab } from './components/VisionUsageTab'
+import { ReplayScannerTab } from './replayScannerSceneLogic'
 import { type ScannersSorting, SCANNERS_PAGE_SIZE, replayScannersLogic } from './replayScannersLogic'
 import { LIMIT_REACHED_TOOLTIP } from './scannerCopy'
 import { ENABLED_OPTIONS, EnabledFilter, SCANNER_TYPE_OPTIONS, ScannerType, ReplayScanner } from './types'
@@ -252,15 +254,20 @@ export function ReplayScannersScene(): JSX.Element {
             )}
 
             <LemonTabs
-                activeKey={searchParams.tab === 'usage' ? 'usage' : 'scanners'}
-                onChange={(tab) => push(urls.replayVision(), tab === 'usage' ? { tab } : {})}
+                activeKey={
+                    [ReplayScannerTab.Search, 'usage'].includes(searchParams.tab) ? searchParams.tab : 'scanners'
+                }
+                onChange={(tab) => push(urls.replayVision(), tab === 'scanners' ? {} : { tab })}
                 tabs={[
                     { key: 'scanners', label: 'Scanners', content: <></> },
+                    { key: ReplayScannerTab.Search, label: 'Search', content: <></> },
                     { key: 'usage', label: 'Usage', content: <></> },
                 ]}
             />
 
-            {searchParams.tab === 'usage' ? (
+            {searchParams.tab === ReplayScannerTab.Search ? (
+                <ObservationSearchTab scannerId={null} />
+            ) : searchParams.tab === 'usage' ? (
                 <VisionUsageTab />
             ) : (
                 <>
