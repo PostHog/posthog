@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.core.cache import cache
 from django.test import SimpleTestCase
+from django.utils.timezone import now
 
 from parameterized import parameterized
 from rest_framework import status
@@ -82,8 +83,8 @@ class TestDataQualityCheckAPI(APIBaseTest):
             **overrides,
         }
 
-    def _create_check(self, **overrides) -> DataQualityCheck:
-        response = self.client.post(f"{self.url}/", self._payload(**overrides))
+    def _create_check(self, url: str | None = None, **overrides) -> DataQualityCheck:
+        response = self.client.post(f"{url or self.url}/", self._payload(**overrides))
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         return DataQualityCheck.objects.for_team(self.team.id).get(id=response.json()["id"])
 
@@ -174,22 +175,149 @@ class TestDataQualityCheckAPI(APIBaseTest):
         assert again.status_code == status.HTTP_200_OK
         assert again.json()["id"] == created.json()["id"]
 
-    @parameterized.expand([("check_type",), ("column_name",), ("config",)])
-    def test_the_assertion_cannot_be_edited_in_place(self, field: str) -> None:
-        # Editing it would leave the fingerprint describing a different check, so later identical
-        # creates would duplicate instead of upserting.
-        check = self._create_check()
-        new_value = {
-            "check_type": CheckType.UNIQUE,
-            "column_name": "total",
-            "config": {"values": ["a"]},
-        }[field]
+    @parameterized.expand(
+        [
+            ("view", "type", {"check_type": CheckType.UNIQUE}),
+            ("view", "column", {"column_name": "total"}),
+            (
+                "view",
+                "config",
+                {"check_type": CheckType.ACCEPTED_VALUES, "config": {"values": ["paid", "refunded"]}},
+            ),
+            (
+                "view",
+                "custom_sql",
+                {"check_type": CheckType.CUSTOM_SQL, "column_name": "", "config": {"query": "SELECT 1"}},
+            ),
+            ("table", "type", {"check_type": CheckType.UNIQUE}),
+            ("table", "config", {"check_type": CheckType.ROW_COUNT, "column_name": "", "config": {"min": 1}}),
+        ]
+    )
+    def test_editing_the_assertion_keeps_the_check_identity(self, kind: str, _case: str, edit: dict) -> None:
+        url = self.url if kind == "view" else self._table_checks_url()
+        check = self._create_check(url=url)
+        ran_at = now()
+        DataQualityCheck.objects.for_team(self.team.id).filter(id=check.id).update(
+            last_status=CheckRunStatus.FAILED, last_run_at=ran_at
+        )
 
-        response = self.client.patch(f"{self.url}/{check.id}/", {field: new_value})
+        response = self.client.patch(f"{url}/{check.id}/", edit)
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert body["id"] == str(check.id)
+        assert body["last_status"] == CheckRunStatus.FAILED
+        assert body["last_run_at"] is not None
+        assert body["fingerprint"] != check.fingerprint
+        check.refresh_from_db()
+        assert check.check_type == edit.get("check_type", check.check_type)
+        assert check.column_name == edit.get("column_name", check.column_name)
+        assert edit.get("config", {}).items() <= check.config.items()
+        assert check.created_by == self.user
+        assert check.last_run_at == ran_at
+
+    def test_a_metadata_edit_leaves_the_definition_and_its_author_alone(self) -> None:
+        check = self._create_check()
+
+        response = self.client.patch(f"{self.url}/{check.id}/", {"description": "why this matters", "tags": ["core"]})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        check.refresh_from_db()
+        assert check.description == "why this matters"
+        assert check.fingerprint == response.json()["fingerprint"]
+        assert check.definition_author is None
+
+    def test_editing_the_assertion_records_who_authorized_it(self) -> None:
+        # Automated runs of a check that reads beyond its subject execute as this user, so it has to
+        # be whoever last changed what the check reads, not whoever created it.
+        check = self._create_check()
+
+        self.client.patch(f"{self.url}/{check.id}/", {"check_type": CheckType.UNIQUE})
+
+        check.refresh_from_db()
+        assert check.definition_author == self.user
+
+    def test_editing_into_another_active_definition_writes_nothing(self) -> None:
+        taken = self._create_check(check_type=CheckType.UNIQUE, name="orders_customer_id_unique")
+        check = self._create_check(column_name="total")
+
+        response = self.client.patch(
+            f"{self.url}/{check.id}/",
+            {"check_type": CheckType.UNIQUE, "column_name": "customer_id", "description": "not saved either"},
+        )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "duplicate_definition"
         check.refresh_from_db()
-        assert str(getattr(check, field)) != str(new_value)
+        assert check.column_name == "total"
+        assert check.description == ""
+        assert taken.fingerprint != check.fingerprint
+
+    def test_editing_onto_a_taken_name_is_a_field_error(self) -> None:
+        self._create_check(check_type=CheckType.UNIQUE, name="orders_customer_id_unique")
+        check = self._create_check(column_name="total")
+
+        response = self.client.patch(f"{self.url}/{check.id}/", {"name": "orders_customer_id_unique"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "name"
+        check.refresh_from_db()
+        assert check.name == ""
+
+    def test_a_definition_freed_by_deletion_becomes_a_new_check(self) -> None:
+        # The old check keeps its own id and history; reusing the definition must not resurrect it.
+        first = self._create_check()
+        assert self.client.delete(f"{self.url}/{first.id}/").status_code == status.HTTP_204_NO_CONTENT
+
+        again = self.client.post(f"{self.url}/", self._payload())
+
+        assert again.status_code == status.HTTP_201_CREATED, again.json()
+        assert again.json()["id"] != str(first.id)
+        first.refresh_from_db()
+        assert first.deleted is True
+
+    def test_a_name_freed_by_deletion_can_be_used_again(self) -> None:
+        # A deleted check keeps its name as history. Holding it against a new check would make the
+        # delete irreversible for anyone who wants that name back.
+        first = self._create_check(name="orders_customer_id_not_null")
+        assert self.client.delete(f"{self.url}/{first.id}/").status_code == status.HTTP_204_NO_CONTENT
+
+        again = self.client.post(f"{self.url}/", self._payload(column_name="total", name="orders_customer_id_not_null"))
+
+        assert again.status_code == status.HTTP_201_CREATED, again.json()
+        assert again.json()["id"] != str(first.id)
+
+    def test_a_definition_race_lost_to_the_constraint_reads_as_a_conflict(self) -> None:
+        # Two rows can both clear the duplicate precheck and race to commit one fingerprint; the
+        # active-only constraint settles it, and the loser must see the same field error the
+        # precheck raises rather than a 500.
+        winner = self._create_check(check_type=CheckType.UNIQUE)
+        loser = self._create_check(column_name="total")
+
+        with patch.object(checks_logic, "_ensure_definition_available", return_value=None):
+            response = self.client.patch(
+                f"{self.url}/{loser.id}/", {"check_type": CheckType.UNIQUE, "column_name": "customer_id"}
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["code"] == "duplicate_definition"
+        loser.refresh_from_db()
+        assert loser.column_name == "total"
+        assert winner.check_type == CheckType.UNIQUE
+
+    def test_a_name_race_lost_to_the_constraint_reads_as_a_conflict(self) -> None:
+        # Two rows can both clear the name precheck and race to commit one name; the constraint
+        # settles it, and the loser must see the same field error the precheck raises, not a 500.
+        self._create_check(check_type=CheckType.UNIQUE, name="orders_customer_id_unique")
+        loser = self._create_check(column_name="total")
+
+        with patch.object(checks_logic, "_name_taken", side_effect=[False, True]):
+            response = self.client.patch(f"{self.url}/{loser.id}/", {"name": "orders_customer_id_unique"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "name"
+        loser.refresh_from_db()
+        assert loser.name == ""
 
     def test_a_racing_identical_create_returns_the_winning_row_not_a_500(self) -> None:
         # Two identical creates can both miss the fingerprint lookup and race to insert; the uniqueness
@@ -387,6 +515,45 @@ class TestDataQualityCheckAPI(APIBaseTest):
         check_runs = self.client.get(f"{base}/{mine.id}/check_runs/")
         assert [row["subject_name"] for row in check_runs.json()] == ["orders"]
 
+    def test_editing_a_check_does_not_unlock_the_history_it_used_to_read(self) -> None:
+        # Authorizing history against the definition the check carries *now* lets a member point a
+        # check that reads the denied "orders" at something harmless and then read what it recorded:
+        # the compiled query, the failed-row count and the observed value.
+        allowed = self._make_view("customers")
+        reads_orders = {"query": "SELECT 1 FROM orders"}
+        check = DataQualityCheck.objects.for_team(self.team.id).create(
+            team=self.team,
+            subject_type=SubjectType.VIEW,
+            saved_query_id=allowed.id,
+            subject_name="customers",
+            check_type=CheckType.CUSTOM_SQL,
+            config=reads_orders,
+            fingerprint=uuid4().hex,
+        )
+        DataQualityCheckRun.objects.for_team(self.team.id).create(
+            team=self.team,
+            suite_run=DataQualitySuiteRun.objects.for_team(self.team.id).create(team=self.team, trigger="manual"),
+            quality_check=check,
+            subject_type=SubjectType.VIEW,
+            subject_uuid=allowed.id,
+            subject_name="customers",
+            check_type=CheckType.CUSTOM_SQL,
+            check_config=reads_orders,
+            check_fingerprint=check.fingerprint,
+            status=CheckRunStatus.FAILED,
+            failed_row_count=3,
+            compiled_query="SELECT * FROM orders",
+        )
+        self._deny_the_view()
+
+        url = f"{self._checks_url(allowed.id)}/{check.id}"
+        edited = self.client.patch(url + "/", {"check_type": CheckType.NOT_NULL, "column_name": "id", "config": {}})
+        history = self.client.get(f"{url}/runs/")
+
+        assert edited.status_code == status.HTTP_200_OK, edited.json()
+        assert history.status_code == status.HTTP_200_OK
+        assert history.json() == []
+
     def _deny_the_view(self) -> None:
         # Deny the default member object-level access to the "orders" view, the way the HogQL
         # database sees it -- so denied_subject_names() picks it up and the endpoint hides it.
@@ -415,6 +582,10 @@ class TestDataQualityCheckAPI(APIBaseTest):
             ("list", lambda self, check, suite: self.client.get(f"{self.url}/")),
             ("retrieve", lambda self, check, suite: self.client.get(f"{self.url}/{check.id}/")),
             ("create", lambda self, check, suite: self.client.post(f"{self.url}/", self._payload())),
+            (
+                "partial_update",
+                lambda self, check, suite: self.client.patch(f"{self.url}/{check.id}/", {"description": "edited"}),
+            ),
             ("run", lambda self, check, suite: self.client.post(f"{self.url}/{check.id}/run/")),
             ("runs", lambda self, check, suite: self.client.get(f"{self.url}/{check.id}/runs/")),
             ("run_all", lambda self, check, suite: self.client.post(f"{self.url}/run_all/")),
@@ -475,6 +646,22 @@ class TestDataQualityCheckAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert DataQualityCheck.objects.for_team(self.team.id).count() == 0
+
+    def test_editing_a_check_to_read_a_denied_subject_writes_nothing(self) -> None:
+        # The stored definition cleared the denial; the candidate one has to clear it too, or an edit
+        # is the way to point a visible check at a table the member cannot read.
+        allowed = self._make_view("customers")
+        check = self._create_check(url=self._checks_url(allowed.id), column_name="id")
+        self._deny_the_view()
+
+        response = self.client.patch(
+            f"{self._checks_url(allowed.id)}/{check.id}/",
+            {"check_type": CheckType.CUSTOM_SQL, "column_name": "", "config": {"query": "SELECT 1 FROM orders"}},
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        check.refresh_from_db()
+        assert check.check_type == CheckType.NOT_NULL
 
     @parameterized.expand(
         [
