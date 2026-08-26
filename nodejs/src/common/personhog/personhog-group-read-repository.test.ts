@@ -169,13 +169,13 @@ describe('PersonHogGroupReadRepository', () => {
         it('throws after max retries exhausted', async () => {
             const { client, handlers } = createMockClientAndHandlers()
             handlers.getGroupsBatch.mockImplementation(() => {
-                throw new ConnectError('unavailable', Code.Unavailable)
+                throw new ConnectError('internal', Code.Internal)
             })
 
             const repo = new PersonHogGroupReadRepository(client)
             await expect(repo.fetchGroupsByKeys([TEAM_ID], [0], ['key'])).rejects.toThrow(ConnectError)
 
-            // 1 initial + 2 retries = 3 total
+            // 1 initial + 2 retries = 3 total (default budget for application-level errors)
             expect(handlers.getGroupsBatch).toHaveBeenCalledTimes(3)
         })
     })

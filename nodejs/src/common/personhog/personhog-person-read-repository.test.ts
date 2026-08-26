@@ -212,13 +212,13 @@ describe('PersonHogPersonReadRepository', () => {
         it('throws after max retries exhausted', async () => {
             const { client, handlers } = createMockClientAndHandlers()
             handlers.getPersonsByDistinctIds.mockImplementation(() => {
-                throw new ConnectError('unavailable', Code.Unavailable)
+                throw new ConnectError('internal', Code.Internal)
             })
 
             const repo = new PersonHogPersonReadRepository(client)
             await expect(repo.fetchPerson(TEAM_ID, 'user-1')).rejects.toThrow(ConnectError)
 
-            // 1 initial + 2 retries = 3 total
+            // 1 initial + 2 retries = 3 total (default budget for application-level errors)
             expect(handlers.getPersonsByDistinctIds).toHaveBeenCalledTimes(3)
         })
     })
