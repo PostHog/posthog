@@ -171,6 +171,26 @@ const HOGBOX_PREVIEW = 'hogbox-preview'
 // The skills build plus the .agents tree, both gated by ci-agent-skills.yml.
 const AGENT_SKILLS = 'agent-skills'
 
+// Bot, report, sync, and canary workflows plus the scripts they run. None of
+// them is a required check, so a break costs a bot action rather than a merge
+// gate, and one shared lane keeps a script and the workflow that runs it
+// serialized against each other.
+const REPO_AUTOMATION = 'repo-automation'
+
+// The local development stack: hogli start, the mprocs process lists, the
+// readiness checks, and the developer-only helper scripts. No required check
+// runs any of it except its own selftest workflows, which share the lane.
+const DEV_ENV = 'dev-env'
+
+// Entrypoints and configuration baked into the unified app image, which backs
+// the E2E suites, the hobby deployment, and production alike.
+const APP_IMAGE = 'app-image'
+
+// Suites that gate documentation changes, which claim the prose lane. Their
+// tooling has to share it, or a docs-check change and the docs PR it breaks
+// against merge in parallel.
+const PROSE_SUITE = 'prose-suite'
+
 const TRIPWIRE_RULES = [
     // Markdown in these trees compiles into nothing and no suite reads it, so
     // it is prose like any other. Ahead of the trees themselves, which would
@@ -276,6 +296,166 @@ const TRIPWIRE_RULES = [
     ['.github/scripts/check-idor-model-coverage.py', PYTHON],
     ['.github/scripts/report_test_timings.py', FULLSTACK],
     ['.github/scripts/test_report_test_timings.py', FULLSTACK],
+    // Bot, report, sync, and canary workflows. None is a required check; each
+    // failure costs a bot action, a Slack post, or a canary signal. Their
+    // scripts and config sit on the same lane further down.
+    ['.github/workflows/auto-assign-labels.yml', REPO_AUTOMATION],
+    ['.github/workflows/auto-assign-reviewers.yml', REPO_AUTOMATION],
+    ['.github/workflows/browserslist.yml', REPO_AUTOMATION],
+    ['.github/workflows/canary-flags-enable.yml', REPO_AUTOMATION],
+    ['.github/workflows/ci-alerts-devex.yml', REPO_AUTOMATION],
+    ['.github/workflows/ci-geoip-canary.yml', REPO_AUTOMATION],
+    ['.github/workflows/ci-master-run-traces.yml', REPO_AUTOMATION],
+    ['.github/workflows/eng-analytics-weekly-digest.yml', REPO_AUTOMATION],
+    ['.github/workflows/foss-sync.yml', REPO_AUTOMATION],
+    ['.github/workflows/inkeep-agent.yml', REPO_AUTOMATION],
+    ['.github/workflows/monitor-github-rate-limit.yml', REPO_AUTOMATION],
+    ['.github/workflows/pr-autoresolve-conflicts.yml', REPO_AUTOMATION],
+    ['.github/workflows/pr-cleanup.yml', REPO_AUTOMATION],
+    ['.github/workflows/pr-closed.yml', REPO_AUTOMATION],
+    ['.github/workflows/pr-opened.yml', REPO_AUTOMATION],
+    ['.github/workflows/pr-posthog-js-reviewer.yml', REPO_AUTOMATION],
+    ['.github/workflows/pr-priority-review.yml', REPO_AUTOMATION],
+    ['.github/workflows/pr-resolve-outdated-bot-comments.yml', REPO_AUTOMATION],
+    ['.github/workflows/pr-updated.yml', REPO_AUTOMATION],
+    ['.github/workflows/private-sync.yml', REPO_AUTOMATION],
+    ['.github/workflows/review-hog.yml', REPO_AUTOMATION],
+    ['.github/workflows/stale.yaml', REPO_AUTOMATION],
+    ['.github/workflows/test-quarantine.yml', REPO_AUTOMATION],
+    ['.github/workflows/update-ai-costs.yml', REPO_AUTOMATION],
+    ['.github/workflows/update-bot-ips.yml', REPO_AUTOMATION],
+    ['.github/workflows/weekly-flaky-report.yml', REPO_AUTOMATION],
+    ['.github/workflows/weekly-slow-tests-report.yml', REPO_AUTOMATION],
+    // More single-suite workflows, held to the trees their suites read: the AI
+    // evals, replay-vision evals, and ClickHouse HCL checks are Python; the
+    // hogql parser builds wheels (python), an npm package (both families), and
+    // a crate (rust); deltalite spans its crates and the wheel's python
+    // consumers.
+    ['.github/workflows/ci-ai.yml', PYTHON],
+    ['.github/workflows/ci-replay-vision-evals.yml', PYTHON],
+    ['.github/workflows/ci-clickhouse-hcl-schema.yml', PYTHON],
+    ['.github/workflows/build-hogql-parser.yml', PYTHON],
+    ['.github/workflows/build-hogql-parser-npm.yml', FULLSTACK],
+    ['.github/workflows/build-hogql-parser-rs.yml', RUST],
+    ['.github/workflows/rust-smoke-test-build.yml', RUST],
+    ['.github/workflows/publish-replay-anonymizer-crate.yml', RUST],
+    ['.github/workflows/build-deltalite.yml', [RUST, PYTHON]],
+    ['.github/workflows/ci-deltalite-python.yml', [RUST, PYTHON]],
+    // Standalone trees whose suites already own a lane.
+    ['.github/workflows/build-livestream-tui.yml', 'livestream-suite'],
+    ['.github/workflows/ci-livestream.yml', 'livestream-suite'],
+    ['.github/workflows/ci-livestream-tui.yml', 'livestream-suite'],
+    ['.github/workflows/livestream-docker-image.yml', 'livestream-suite'],
+    ['.github/workflows/build-phrocs.yml', 'phrocs-suite'],
+    ['.github/workflows/ci-phrocs.yml', 'phrocs-suite'],
+    ['.github/workflows/terragrunt-posthog.yaml', 'terraform-suite'],
+    ['.github/workflows/build-hobby-installer.yml', HOBBY],
+    ['.github/workflows/ci-integration-service.yml', 'service:integration-service'],
+    ['.github/workflows/ci-openapi-codegen.yml', PRODUCT_SURFACE],
+    // Publish and CD workflows found after the first deploy pass.
+    ['.github/workflows/llm-gateway-cd.yml', DEPLOY],
+    ['.github/workflows/publish-quill-npm.yml', DEPLOY],
+    ['.github/workflows/publish-symbol-data-crate.yml', DEPLOY],
+    ['.github/workflows/clickhouse-udfs.yml', DEPLOY],
+    // A scheduled mirror of the upstream Playwright image; no suite runs it.
+    ['.github/workflows/ci-playwright-container.yml', DEPLOY],
+    // The dev-environment checks: the flox boot check and the sandbox
+    // selftests, which are the only suites reading the dev-stack scripts.
+    ['.github/workflows/ci-dev-setup.yml', DEV_ENV],
+    ['.github/workflows/dev-sandbox-selftest.yml', DEV_ENV],
+    // The docs suites gate documentation PRs, which claim the prose lane.
+    // ci-docs-check is reusable but its one caller is the survey check, whose
+    // radius spans the frontend sources it compares against the docs.
+    ['.github/workflows/docs-preview-trigger.yml', PROSE_SUITE],
+    ['.github/workflows/ci-survey-sdk-check.yml', [JAVASCRIPT, PROSE_SUITE]],
+    ['.github/workflows/ci-docs-check.yml', [JAVASCRIPT, PROSE_SUITE]],
+    // Scripts and config on the automation lane above.
+    ['.github/scripts/assign-reviewers.js', REPO_AUTOMATION],
+    ['.github/scripts/assign-reviewers.test.js', REPO_AUTOMATION],
+    ['.github/scripts/codeowners.js', REPO_AUTOMATION],
+    ['.github/scripts/label-pr-from-title.js', REPO_AUTOMATION],
+    ['.github/scripts/label-pr-from-title.test.js', REPO_AUTOMATION],
+    ['.github/scripts/minimize-superseded-comments.mjs', REPO_AUTOMATION],
+    ['.github/scripts/autoresolve/**', REPO_AUTOMATION],
+    ['.github/scripts/monitor-github-rate-limit.js', REPO_AUTOMATION],
+    ['.github/scripts/monitor-github-rate-limit.test.js', REPO_AUTOMATION],
+    ['.github/scripts/weekly-*.mjs', REPO_AUTOMATION],
+    ['.github/scripts/eng-analytics-weekly-digest.mjs', REPO_AUTOMATION],
+    ['.github/scripts/ci-alerts-devex.js', REPO_AUTOMATION],
+    ['.github/scripts/ci-alerts-devex.test.js', REPO_AUTOMATION],
+    ['.github/scripts/ci_flake_overseer.py', REPO_AUTOMATION],
+    ['.github/scripts/test_ci_flake_overseer.py', REPO_AUTOMATION],
+    ['.github/scripts/compare-ci-runners.py', REPO_AUTOMATION],
+    ['.github/scripts/report_workflow_run_traces.py', REPO_AUTOMATION],
+    ['.github/scripts/test_report_workflow_run_traces.py', REPO_AUTOMATION],
+    ['.github/auto-assign-labels.json', REPO_AUTOMATION],
+    ['.github/dependabot.yml', REPO_AUTOMATION],
+    ['.github/renovate.json5', REPO_AUTOMATION],
+    // Scripts run only by ci-backend, ci-python, or ci-dagster.
+    ['.github/scripts/check-dagster-paths.py', PYTHON],
+    ['.github/scripts/test_check_dagster_paths.py', PYTHON],
+    ['.github/scripts/check-dwh-source-agnostic.py', PYTHON],
+    ['.github/scripts/check-operator-parity.py', PYTHON],
+    ['.github/scripts/check-version-specifiers.py', PYTHON],
+    ['.github/scripts/coverage_report.py', PYTHON],
+    ['.github/scripts/coverage_report.py.lock', PYTHON],
+    ['.github/scripts/test_coverage_report.py', PYTHON],
+    ['.github/scripts/list-removed-renamed-paths.sh', PYTHON],
+    ['.github/scripts/migration-deletion-allowlist.txt', PYTHON],
+    ['.github/scripts/signal-fanout', PYTHON],
+    ['.github/scripts/verify-new-snapshots.sh', PYTHON],
+    ['.github/scripts/post-ch-migration-section.mjs', PYTHON],
+    ['.github/scripts/post-django-migration-section.mjs', PYTHON],
+    ['.github/scripts/post-coverage-section.mjs', PYTHON],
+    ['.github/scripts/post-eval-section.mjs', PYTHON],
+    // CI-report sections and helpers owned by one suite each.
+    ['.github/scripts/post-playwright-section.mjs', FULLSTACK],
+    ['.github/scripts/verify-playwright-new-tests-and-snapshots.sh', FULLSTACK],
+    ['.github/scripts/post-snapshot-section.mjs', FULLSTACK],
+    ['.github/scripts/count-snapshot-changes.sh', FULLSTACK],
+    ['.github/scripts/fixtures/**', FULLSTACK],
+    ['.github/scripts/verify-storybook-new-stories.sh', JAVASCRIPT],
+    ['.github/scripts/post-hobby-section.mjs', HOBBY],
+    ['.github/scripts/desktop/**', DESKTOP],
+    ['.github/scripts/patch-cli-npm-installer.mjs', DEPLOY],
+    ['.github/scripts/patch-cli-npm-installer.test.mjs', DEPLOY],
+    ['.github/scripts/check-docs-links.js', PROSE_SUITE],
+    ['.github/scripts/trigger-vercel-preview.sh', PROSE_SUITE],
+    ['.github/scripts/post-docs-preview-section.mjs', PROSE_SUITE],
+    // Validates the AGENTS.md symlinks that the agents lane's build reads.
+    ['.github/scripts/check-agents-md-symlinks.sh', 'agents-lane'],
+    // Run only by the husky pre-commit hook, whose config already sits on the
+    // repo-config lane. No CI suite executes them.
+    ['.github/scripts/check-access-control-doc-sync.sh', 'repo-config-lane'],
+    ['.github/scripts/check-fixture-provenance.sh', 'repo-config-lane'],
+    ['.github/scripts/check-product-scaffold.sh', 'repo-config-lane'],
+    // Composite actions held to the workflows that use them. The setup and
+    // helper actions used across language families (pnpm-install, paths-filter,
+    // setup-sqlx-cli, setup-protoc, setup-sccache, docker-meta, semgrep-ci) and
+    // the lane-feeding rust-compute-affected stay on the blanket below.
+    ['.github/actions/build-n-cache-image/**', FULLSTACK],
+    ['.github/actions/commit-snapshots/**', FULLSTACK],
+    ['.github/actions/trunk-quarantine-gate/**', FULLSTACK],
+    ['.github/actions/setup-emsdk/**', FULLSTACK],
+    ['.github/actions/desktop-build-agent-release/**', DESKTOP],
+    ['.github/actions/desktop-restore-turbo-cache/**', DESKTOP],
+    ['.github/actions/setup-python-cached/**', PYTHON],
+    ['.github/actions/report-jest-timings/**', NODE],
+    ['.github/actions/get-pr-labels/**', APP_IMAGE],
+    ['.github/actions/wait-for-check/**', HOBBY],
+    // Problem matchers and coverage config registered only by the Python
+    // suites, and the ClickHouse version matrix the backend, dagster, and E2E
+    // suites test against.
+    ['.github/mypy-problem-matcher.json', PYTHON],
+    ['.github/ty-problem-matcher.json', PYTHON],
+    ['.github/openapi-problem-matcher.json', PYTHON],
+    ['.github/coverage-core.cfg', PYTHON],
+    ['.github/clickhouse-versions.json', FULLSTACK],
+    ['.github/dockerignore-drop-allowlist.txt', FULLSTACK],
+    // Issue templates render on github.com and compile into nothing.
+    ['.github/ISSUE_TEMPLATE/**', 'repo-config-lane'],
+    // Deployment templates with no in-repo reader; nothing tests them.
+    ['.github/pr-deploy/**', DEPLOY],
 
     // Lint rules that run repo-wide: a new rule fails code that merged in a
     // parallel lane, which is the same conflict .oxlintrc.json is here for. The
@@ -421,7 +601,92 @@ const TRIPWIRE_RULES = [
     ['bin/upgrade-hobby', HOBBY],
     ['bin/migrate-storage-hobby', HOBBY],
     ['bin/migrate-session-recordings-hobby', HOBBY],
-    // bin/ appears in the backend, frontend, and E2E path filters alike.
+    // Called by the hobby storage-migration scripts above, so it has to share
+    // their lane.
+    ['bin/migrate-minio-to-seaweedfs', HOBBY],
+    // Entrypoints and configuration the unified app image bakes in, plus the
+    // scripts docker-compose.base.yml runs as service commands. The image
+    // backs E2E, hobby, and production, which is the app-image radius. The
+    // exact-name rows precede the wildcard rows that would otherwise claim
+    // them for the dev stack.
+    ['bin/docker-server*', APP_IMAGE],
+    ['bin/docker-worker*', APP_IMAGE],
+    ['bin/docker-migrate', APP_IMAGE],
+    ['bin/migrate', APP_IMAGE],
+    ['bin/migrate-check', APP_IMAGE],
+    ['bin/celery-queues.env', APP_IMAGE],
+    ['bin/posthog-node', APP_IMAGE],
+    ['bin/temporal-django-worker', APP_IMAGE],
+    ['bin/granian_metrics.py', APP_IMAGE],
+    ['bin/unit_metrics.py', APP_IMAGE],
+    ['bin/start-backend', APP_IMAGE],
+    ['bin/start-frontend', APP_IMAGE],
+    // The schema and taxonomy codegen pipeline, which turns
+    // frontend/src/queries/schema.json into posthog/schema.py and the other
+    // generated artifacts both families read.
+    ['bin/build-*', PRODUCT_SURFACE],
+    ['bin/patch-schema-*', PRODUCT_SURFACE],
+    ['bin/split-schema-enums.py', PRODUCT_SURFACE],
+    // Scripts run only by the Python suites.
+    ['bin/check_uv_python_compatibility.py', PYTHON],
+    ['bin/find_python_dependencies.py', PYTHON],
+    ['bin/test/**', PYTHON],
+    ['bin/ruff.sh', PYTHON],
+    // Scripts run only by the frontend and storybook suites, plus the pnpm
+    // lifecycle hook package.json declares.
+    ['bin/find-affected-stories', JAVASCRIPT],
+    ['bin/find-affected-stories.test.mjs', JAVASCRIPT],
+    ['bin/frontend-exclude-filter', JAVASCRIPT],
+    ['bin/validate-setup-tasks.mjs', JAVASCRIPT],
+    ['bin/lint-feature-flag-sorting.mjs', JAVASCRIPT],
+    ['bin/fix-rdkafka-paths', JAVASCRIPT],
+    ['bin/create-notebook-node.sh', JAVASCRIPT],
+    // The Hog CLI backs the Hog suite, the jest-timing helpers feed
+    // report_test_timings, the dockerignore check runs in container-images-ci,
+    // and the sandbox scripts are baked into the sandbox image; all of those
+    // sit on the fullstack lanes already.
+    ['bin/hog', FULLSTACK],
+    ['bin/hoge', FULLSTACK],
+    ['bin/report-jest-timings', FULLSTACK],
+    ['bin/render-jest-timings-example', FULLSTACK],
+    ['bin/dockerignore-drop-check', FULLSTACK],
+    ['bin/sandbox*', FULLSTACK],
+    ['bin/sandbox-shims/**', FULLSTACK],
+    ['bin/generate_personhog_proto.sh', PROTO],
+    // Runs in the bot-IP update workflow on the automation lane.
+    ['bin/update-bots-list', REPO_AUTOMATION],
+    // The local development stack: process lists, launchers, readiness checks,
+    // storage upgrades, and developer helpers. Nothing in CI reads them except
+    // the dev-setup check and the sandbox selftests, which share the lane.
+    ['bin/mprocs*.yaml', DEV_ENV],
+    ['bin/e2e-test-runner', DEV_ENV],
+    ['bin/start', DEV_ENV],
+    ['bin/start-*', DEV_ENV],
+    ['bin/dev-*', DEV_ENV],
+    ['bin/check_*', DEV_ENV],
+    ['bin/clickhouse-*', DEV_ENV],
+    ['bin/docker-*', DEV_ENV],
+    ['bin/temporal-*', DEV_ENV],
+    ['bin/verify-*', DEV_ENV],
+    ['bin/upgrade-*', DEV_ENV],
+    ['bin/helpers/**', DEV_ENV],
+    ['bin/wait-for-postgres-tables', DEV_ENV],
+    ['bin/ensure-local-setup', DEV_ENV],
+    ['bin/dump_hogvmrs_stl', DEV_ENV],
+    ['bin/download-sentiment-model', DEV_ENV],
+    ['bin/inject_mcp_intents.py', DEV_ENV],
+    ['bin/install-hogli-completion', DEV_ENV],
+    ['bin/phw', DEV_ENV],
+    ['bin/posthog-worktree', DEV_ENV],
+    ['bin/rust-jumphost', DEV_ENV],
+    ['bin/send-dev-metrics.sh', DEV_ENV],
+    ['bin/setup-gateway-e2e', DEV_ENV],
+    ['bin/sync-storage', DEV_ENV],
+    ['bin/warm-flags-cache', DEV_ENV],
+    // bin/ appears in the backend, frontend, and E2E path filters alike, and
+    // what remains here is read across families: hogli and turbo drive the
+    // suites, bin/docker is the image entrypoint, and download-mmdb and the
+    // wait-for-docker pair run in backend, frontend, nodejs, and rust CI.
     ['bin/**', UNIVERSAL],
     ['patches/**', UNIVERSAL],
     // Holds the Depot-runner copies of the workflows and composite actions in
@@ -1297,7 +1562,16 @@ function allKnownTargets(context) {
     if (!rustGraph || !services) {
         return null
     }
-    const targets = new Set(['py:core', 'fe:core', 'node:ingestion', 'agents', 'deploy', 'hobby'])
+    const targets = new Set([
+        'py:core',
+        'fe:core',
+        'node:ingestion',
+        'agents',
+        'deploy',
+        'hobby',
+        'repo-automation',
+        'dev-env',
+    ])
     for (const product of products) {
         targets.add(pyProduct(product))
         targets.add(feProduct(product))
@@ -1492,6 +1766,25 @@ function addServiceSuiteLane(service) {
     }
 }
 
+// A domain whose lanes are a fixed list of always-known targets. Only for
+// targets allKnownTargets carries unconditionally (the static base set,
+// STANDALONE_TREES values, and TOOLS_INDEPENDENT); a dynamic target needs a
+// guarded function like the service one above.
+function laneOf(...targetNames) {
+    return (targets) => {
+        for (const name of targetNames) {
+            targets.add(name)
+        }
+        return true
+    }
+}
+
+function addAppImageLanes(targets, context) {
+    targets.add('hobby')
+    targets.add('deploy')
+    return addFullstackLanes(targets, context)
+}
+
 // Each proto tree and the consumers that generate from it. proto/README.md's
 // consumer table is the source, and the generated code is the check on it: a
 // consumer that read a proto without committing stubs would be reading nothing.
@@ -1573,14 +1866,29 @@ const DOMAIN_LANES = new Map([
     [CLI_ARTIFACTS, addCliArtifactLanes],
     [AGENT_SKILLS, addAgentSkillsLanes],
     [DESKTOP, addDesktopLanes],
+    [REPO_AUTOMATION, laneOf('repo-automation')],
+    [DEV_ENV, laneOf('dev-env')],
+    [APP_IMAGE, addAppImageLanes],
+    [PROSE_SUITE, laneOf('prose')],
+    ['livestream-suite', laneOf('livestream')],
+    ['phrocs-suite', laneOf('tools:phrocs')],
+    ['terraform-suite', laneOf('terraform')],
+    ['repo-config-lane', laneOf('repo-config')],
+    ['agents-lane', laneOf('agents')],
 ])
-for (const service of ['llm-gateway', 'oauth-proxy', 'agent-proxy']) {
+for (const service of ['llm-gateway', 'oauth-proxy', 'agent-proxy', 'integration-service']) {
     DOMAIN_LANES.set(`service:${service}`, addServiceSuiteLane(service))
 }
 
 // Returns false when the file's domain is universal, which is the caller's cue
-// to abandon the per-file accumulation and report the whole set.
+// to abandon the per-file accumulation and report the whole set. A rule may
+// carry a list of domains for a file read on both sides of a split; the file
+// claims every listed domain's lanes, and one that cannot enumerate widens the
+// whole set as it would alone.
 function applyTripwireDomain(domain, file, targets, context) {
+    if (Array.isArray(domain)) {
+        return domain.every((entry) => applyTripwireDomain(entry, file, targets, context))
+    }
     const resolved = domain === SEMGREP ? (context.semgrepDomains || new Map()).get(file) || UNIVERSAL : domain
     const addLanes = DOMAIN_LANES.get(resolved)
     return addLanes ? addLanes(targets, context, file) : false

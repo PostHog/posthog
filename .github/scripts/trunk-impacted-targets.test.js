@@ -149,7 +149,8 @@ const WORKSPACE_CONTEXT = {
 // runs against.
 test('a universal tripwire claims every known target', () => {
     const tripwireFiles = [
-        'bin/start',
+        // Runs in backend, frontend, nodejs, and rust CI alike.
+        'bin/download-mmdb',
         // Read by pytest, jest, and playwright alike, so no one domain holds it.
         '.test_quarantine.json',
         // Trees that steer what every suite runs or what it runs against: the
@@ -563,8 +564,96 @@ test('the hobby scripts and their smoke test share one lane', () => {
     ]) {
         assert.deepEqual(computeTargets([file], CONTEXT), ['hobby'], file)
     }
-    // Everything else under bin/ keeps the old radius.
-    assert.deepEqual(computeTargets(['bin/start'], CONTEXT), EVERYTHING)
+    // A bin file read across language families keeps the old radius.
+    assert.deepEqual(computeTargets(['bin/download-mmdb'], CONTEXT), EVERYTHING)
+})
+
+// The bot, report, and sync workflows gate no required check, so a break costs
+// a bot action rather than a merge. Each one shares the lane with the script
+// and config it runs, which is the pair that has to stay serialized.
+test('automation workflows share one lane with their scripts and config', () => {
+    for (const file of [
+        '.github/workflows/auto-assign-reviewers.yml',
+        '.github/scripts/assign-reviewers.js',
+        '.github/workflows/weekly-flaky-report.yml',
+        '.github/scripts/weekly-flaky-report.mjs',
+        '.github/scripts/weekly-report-common.mjs',
+        '.github/auto-assign-labels.json',
+        '.github/renovate.json5',
+        '.github/workflows/stale.yaml',
+    ]) {
+        assert.deepEqual(computeTargets([file], CONTEXT), ['repo-automation'], file)
+    }
+})
+
+// The dev stack is exercised only by the dev-setup check and the sandbox
+// selftests, so its process lists, launchers, and helpers share one lane with
+// those workflows instead of serializing the whole queue.
+test('the dev stack and its selftests share the dev-env lane', () => {
+    for (const file of [
+        '.github/workflows/ci-dev-setup.yml',
+        '.github/workflows/dev-sandbox-selftest.yml',
+        'bin/mprocs.yaml',
+        'bin/start',
+        'bin/start-rust-service',
+        'bin/dev-sandbox',
+        'bin/check_hosts',
+        'bin/docker-dev',
+        'bin/helpers/_utils.sh',
+    ]) {
+        assert.deepEqual(computeTargets([file], CONTEXT), ['dev-env'], file)
+    }
+})
+
+// The unified app image backs E2E, hobby, and production, so its baked-in
+// entrypoints claim all three radii and stay clear of the rust crates.
+test('app-image entrypoints claim the fullstack, hobby, and deploy lanes', () => {
+    for (const file of ['bin/docker-server', 'bin/migrate', 'bin/celery-queues.env', 'bin/start-backend']) {
+        const targets = computeTargets([file], CONTEXT)
+        for (const target of ['py:core', 'fe:core', 'node:ingestion', 'hobby', 'deploy']) {
+            assert.equal(targets.includes(target), true, `${target} (from ${file})`)
+        }
+        assert.equal(
+            targets.some((target) => target.startsWith('rust:crate:')),
+            false,
+            file
+        )
+    }
+})
+
+// A docs-check change has to overlap the docs PRs it can break against, which
+// claim the prose lane.
+test('docs suites and their scripts claim the prose lane', () => {
+    for (const file of ['.github/workflows/docs-preview-trigger.yml', '.github/scripts/check-docs-links.js']) {
+        assert.deepEqual(computeTargets([file], CONTEXT), ['prose'], file)
+    }
+    // The survey check compares docs against frontend sources, so it spans
+    // both.
+    const survey = computeTargets(['.github/workflows/ci-survey-sdk-check.yml'], CONTEXT)
+    assert.equal(survey.includes('prose'), true)
+    assert.equal(survey.includes('fe:core'), true)
+    assert.equal(survey.includes('py:core'), false)
+})
+
+// A rule may list several domains for a file read on both sides of a split;
+// the file claims every listed domain's lanes.
+test('a multi-domain rule claims the union of its domains', () => {
+    const deltalite = computeTargets(['.github/workflows/ci-deltalite-python.yml'], CONTEXT)
+    assert.equal(deltalite.includes('py:core'), true)
+    assert.equal(
+        deltalite.some((target) => target.startsWith('rust:crate:')),
+        true
+    )
+    assert.equal(deltalite.includes('fe:core'), false)
+})
+
+// The schema codegen pipeline turns schema.json into the generated artifacts
+// both families read, which is the product-surface radius.
+test('the schema codegen scripts claim the product-surface lanes', () => {
+    assert.deepEqual(
+        computeTargets(['bin/build-schema-python.sh'], CONTEXT),
+        computeTargets(['frontend/src/products.json'], CONTEXT)
+    )
 })
 
 // The guard is the narrowing direction: a service workflow whose directory is
@@ -743,6 +832,18 @@ test('every target the rules can emit appears in the enumerated universe', () =>
         '.github/workflows/ci-cli.yml',
         'bin/hobby-ci.py',
         'Dockerfile.llm-analytics',
+        '.github/workflows/stale.yaml',
+        '.github/workflows/ci-dev-setup.yml',
+        '.github/workflows/ci-deltalite-python.yml',
+        '.github/workflows/docs-preview-trigger.yml',
+        '.github/workflows/terragrunt-posthog.yaml',
+        '.github/workflows/ci-livestream.yml',
+        '.github/scripts/check-agents-md-symlinks.sh',
+        '.github/ISSUE_TEMPLATE/bug_report.yml',
+        'bin/docker-server',
+        'bin/mprocs.yaml',
+        'bin/build-schema-python.sh',
+        'bin/update-bots-list',
     ]
     for (const file of everyRule) {
         const targets = computeTargets([file], CONTEXT)
