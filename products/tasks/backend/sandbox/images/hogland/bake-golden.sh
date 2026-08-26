@@ -226,7 +226,12 @@ log "setup-golden.sh completed in the box"
 # `box snapshot` pauses the box and persists it to S3, emitting the record JSON.
 log "snapshotting seed box $SEED_BOX_ID"
 snap_json=$(hogland box snapshot "$SEED_BOX_ID")
-SNAP_ID=$(printf '%s' "$snap_json" | jq -r '.id // empty')
+# box snapshot serializes the seed box's ssh_public_key verbatim, so the key's
+# trailing newline lands as a raw control character and the record is invalid
+# JSON. A strict jq then returns no id even though the snapshot succeeded. box
+# create and box list normalize the key, so only this parse needs guarding.
+# Collapsing newlines to spaces rewrites whitespace only and keeps .id intact.
+SNAP_ID=$(printf '%s' "$snap_json" | tr '\n' ' ' | jq -r '.id // empty')
 if [[ -z "$SNAP_ID" ]]; then
     log "FAIL: box snapshot returned no id"
     printf '%s\n' "$snap_json" >&2
