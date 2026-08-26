@@ -51,6 +51,7 @@ from .serializers import (
     CreateRunResultSerializer,
     FinalizeResultSerializer,
     FinalizeRunInputSerializer,
+    FlakinessOverviewSerializer,
     MarkToleratedInputSerializer,
     QuarantinedIdentifierEntrySerializer,
     QuarantineInputSerializer,
@@ -116,6 +117,7 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         "list_quarantined",
         "thumbnail",
         "baselines",
+        "flakiness",
     ]
 
     @extend_schema(responses={200: RepoSerializer(many=True)})
@@ -181,6 +183,16 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         parameters=[
             OpenApiParameter("id", OpenApiTypes.STR, OpenApiParameter.PATH),
             OpenApiParameter("identifier", OpenApiTypes.STR, OpenApiParameter.PATH),
+            OpenApiParameter(
+                "run_type",
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Narrow the lookup to one run type. The same identifier under two run types is "
+                    "two different images, so omit this only when the caller shows one run type."
+                ),
+            ),
         ],
         responses={200: OpenApiResponse(description="WebP thumbnail image")},
     )
@@ -195,7 +207,9 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             patch_cache_control(resp, no_store=True)
             return resp
 
-        thumb_hash = api.get_thumbnail_hash_for_identifier(repo_id, identifier)
+        thumb_hash = api.get_thumbnail_hash_for_identifier(
+            repo_id, identifier, request.query_params.get("run_type") or None
+        )
         if thumb_hash is None:
             resp = HttpResponse(status=404)
             patch_cache_control(resp, no_store=True)
@@ -301,6 +315,30 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return Response({"detail": "Repo not found"}, status=status.HTTP_404_NOT_FOUND)
         result = api.get_baselines_overview(repo_id)
         return Response(BaselineOverviewSerializer(instance=result).data)
+
+    @extend_schema(
+        parameters=[OpenApiParameter("id", OpenApiTypes.STR, OpenApiParameter.PATH)],
+        responses={200: FlakinessOverviewSerializer},
+        description=(
+            "Snapshots in a repo whose rendering cannot be trusted: those carrying at least one "
+            "live tolerated variant against their current baseline, and those under an active "
+            "quarantine. Everything else is omitted, so this is far smaller than the baselines "
+            "universe; `totals.tracked` gives the full denominator. Variant counts are scoped to "
+            "the current baseline hash, because a toleration recorded against an earlier baseline "
+            "can never match again. Capped at "
+            f"{contracts.FLAKINESS_MAX_ENTRIES} entries, which sets `truncated`. Filtering, "
+            "faceting and search are done client-side; this endpoint takes no filter query params."
+        ),
+    )
+    @action(detail=True, methods=["get"], url_path="flakiness")
+    def flakiness(self, request: Request, pk: str, **kwargs) -> Response:
+        repo_id = _parse_uuid(pk)
+        try:
+            api.get_repo(repo_id, team_id=self.team_id)
+        except api.RepoNotFoundError:
+            return Response({"detail": "Repo not found"}, status=status.HTTP_404_NOT_FOUND)
+        result = api.get_flakiness_overview(repo_id)
+        return Response(FlakinessOverviewSerializer(instance=result).data)
 
 
 class SnapshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):

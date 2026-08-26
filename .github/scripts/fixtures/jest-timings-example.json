@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "runner": "jest",
+  "captured_at": "2026-08-25T15:13:10+00:00",
+  "artifacts_root": "junit-artifacts",
+  "suites": ["nodejs"],
+  "shards": [
+    {
+      "suite": "nodejs",
+      "junit_filename": "junit-nodejs-1.xml",
+      "test_count": 3,
+      "wall_seconds": 18.42,
+      "testcase_seconds": 12.66,
+      "launch_seconds": 5.76,
+      "median_test_seconds": 2.84,
+      "p90_test_seconds": 7.15,
+      "max_test_seconds": 7.15,
+      "slowest_tests": [
+        {"name": "creates a person from an event", "file": "nodejs/src/ingestion/persons/person.test.ts", "duration_seconds": 7.15, "start_offset_seconds": 9.1, "outcome": "passed"},
+        {"name": "uses the project UUID", "file": "nodejs/src/ingestion/persons/person.test.ts", "duration_seconds": 2.84, "start_offset_seconds": 5.6, "outcome": "passed"},
+        {"name": "drops invalid properties", "file": "nodejs/src/ingestion/persons/person.test.ts", "duration_seconds": 2.67, "start_offset_seconds": 1.0, "outcome": "passed"}
+      ],
+      "per_file_launch_overhead_seconds": {"nodejs/src/ingestion/persons/person.test.ts": 5.76}
+    },
+    {
+      "suite": "nodejs",
+      "junit_filename": "junit-nodejs-2.xml",
+      "test_count": 3,
+      "wall_seconds": 16.3,
+      "testcase_seconds": 9.95,
+      "launch_seconds": 6.35,
+      "median_test_seconds": 2.72,
+      "p90_test_seconds": 4.45,
+      "max_test_seconds": 4.45,
+      "slowest_tests": [
+        {"name": "does not replay an old event", "file": "nodejs/src/ingestion/events/event.test.ts", "duration_seconds": 4.45, "start_offset_seconds": 8.2, "outcome": "passed"},
+        {"name": "keeps distinct IDs separate", "file": "nodejs/src/ingestion/events/event.test.ts", "duration_seconds": 2.72, "start_offset_seconds": 4.5, "outcome": "passed"},
+        {"name": "accepts an empty properties object", "file": "nodejs/src/ingestion/events/event.test.ts", "duration_seconds": 2.78, "start_offset_seconds": 1.0, "outcome": "passed"}
+      ],
+      "per_file_launch_overhead_seconds": {"nodejs/src/ingestion/events/event.test.ts": 6.35}
+    },
+    {
+      "suite": "nodejs",
+      "junit_filename": "junit-nodejs-3.xml",
+      "test_count": 2,
+      "wall_seconds": 14.8,
+      "testcase_seconds": 8.1,
+      "launch_seconds": 6.7,
+      "median_test_seconds": 3.7,
+      "p90_test_seconds": 4.4,
+      "max_test_seconds": 4.4,
+      "slowest_tests": [
+        {"name": "writes a session recording chunk", "file": "nodejs/src/ingestion/session-recording/chunks.test.ts", "duration_seconds": 4.4, "start_offset_seconds": 7.0, "outcome": "passed"},
+        {"name": "rejects an oversized chunk", "file": "nodejs/src/ingestion/session-recording/chunks.test.ts", "duration_seconds": 3.7, "start_offset_seconds": 1.0, "outcome": "passed"}
+      ],
+      "per_file_launch_overhead_seconds": {"nodejs/src/ingestion/session-recording/chunks.test.ts": 6.7}
+    }
+  ]
+}
