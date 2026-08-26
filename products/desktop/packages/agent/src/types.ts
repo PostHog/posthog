@@ -69,7 +69,6 @@ export interface TaskExecutionOptions {
   adapter?: Adapter;
   model?: string;
   gatewayUrl?: string;
-  /** Codex-only. "own-subscription" spawns codex without gateway config. */
   codexModelAccess?: CodexModelAccess;
   codexBinaryPath?: string;
   codexHome?: string;

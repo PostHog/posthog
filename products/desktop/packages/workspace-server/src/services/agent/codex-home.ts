@@ -26,10 +26,8 @@ export function getCodexHomeDir(
 }
 
 /**
- * Holds ONLY the user's own ChatGPT login (`auth.json`): the `account/login/start`
- * flow writes it here, and subscription sessions seed it into their per-run
- * CODEX_HOME. It never serves as a session's CODEX_HOME itself — concurrent
- * sessions would race to rebuild its skills dir and see each other's threads.
+ * Holds only the ChatGPT login (`auth.json`). Each session copies it into its
+ * own CODEX_HOME. Never use this dir as a session's CODEX_HOME.
  */
 export function getCodexSubscriptionHomeDir(appDataPath: string): string {
   return path.join(appDataPath, "codex-home-subscription");
@@ -61,10 +59,6 @@ export async function cleanupCodexHome(
  * in so their Codex configuration still applies without Windows symlink
  * privileges, minus its `mcp_servers` tables: PostHog sessions only get the MCP
  * servers PostHog injects per thread (see {@link stripMcpServers}).
- *
- * With `subscription`, the stored ChatGPT login is copied from the subscription
- * home into the run's home so the session bills the user's own plan; refreshed
- * tokens flow back via {@link writeBackSubscriptionLogin} at cleanup.
  *
  * Returns the CODEX_HOME path to hand to the spawned process.
  */
@@ -123,11 +117,9 @@ export async function prepareCodexHome(options: {
     const login = await fs.promises.readFile(storedLogin);
     const runLogin = path.join(codexHome, "auth.json");
     await fs.promises.writeFile(runLogin, login, { mode: 0o600 });
-    // writeFile's mode only applies on create; a retried run overwrites.
+    // writeFile sets the mode only when it creates the file. A retry overwrites it.
     await fs.promises.chmod(runLogin, 0o600);
-    // Binds the run to the login generation it was seeded from, so write-back
-    // at cleanup is rejected once the stored login changes (sign-out, a fresh
-    // sign-in, or another run's refresh).
+    // Records the login generation that seeded this run.
     await fs.promises.writeFile(
       path.join(codexHome, SEED_HASH_FILE),
       sha256(login),
@@ -145,16 +137,12 @@ function sha256(contents: Buffer): string {
 }
 
 /**
- * Copies a refreshed login from the run's CODEX_HOME back into the persistent
- * subscription store before the run's home is deleted. Codex rotates its OAuth
- * tokens during runs and persists them via the file credentials store, so
- * without this the stored login goes stale and own-subscription sessions start
- * failing until the user signs in again.
+ * Copies a run's refreshed login back into the store before cleanup deletes
+ * the run's home. Codex rotates OAuth tokens during a run and saves them in
+ * its CODEX_HOME. Without this copy the stored login goes stale.
  *
- * The write is bound to the login generation that seeded the run: it is
- * skipped when the stored login is gone (a mid-run sign-out must not be
- * resurrected) or no longer matches the seed (a fresh sign-in, possibly to
- * another account, or a concurrent run's refresh must not be overwritten).
+ * Skip the write when the stored login is gone (sign-out) or when it changed
+ * since seeding (a new sign-in or another run's refresh).
  */
 export async function writeBackSubscriptionLogin(options: {
   appDataPath: string;
@@ -175,8 +163,6 @@ export async function writeBackSubscriptionLogin(options: {
     const seedHash = await fs.promises
       .readFile(seedHashFile, "utf-8")
       .catch(() => undefined);
-    // A run without a recorded seed (gateway mode, or seeded by an older
-    // build) never writes to the store.
     if (seedHash === undefined) {
       return;
     }
@@ -192,7 +178,7 @@ export async function writeBackSubscriptionLogin(options: {
     if (refreshed.equals(stored)) {
       return;
     }
-    // Temp file + rename: a reader never sees a half-written login.
+    // A temp file and rename protect readers from a half-written login.
     const tempLogin = path.join(
       path.dirname(storedLogin),
       `.auth.json.${process.pid}.tmp`,

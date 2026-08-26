@@ -121,7 +121,7 @@ export class Agent {
       options.adapter === "codex" &&
       options.codexModelAccess === "own-subscription";
 
-    // Without gateway config, codex authenticates from CODEX_HOME instead.
+    // Without gateway config, codex authenticates from CODEX_HOME.
     const codexGatewayAuth =
       !codexSubscription && gatewayConfig
         ? {

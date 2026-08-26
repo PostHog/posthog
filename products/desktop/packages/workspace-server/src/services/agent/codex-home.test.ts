@@ -224,13 +224,11 @@ describe("prepareCodexHome", () => {
       log: noopLog,
     });
 
-    // The session runs against its isolated per-run home, never the shared one.
     expect(codexHome).toBe(path.join(appDataPath, "codex-home", taskRunId));
     expect(readFileSync(path.join(codexHome, "auth.json"), "utf-8")).toBe(
       '{"token":1}',
     );
 
-    // Cleanup removes the seeded copy; the stored login survives.
     await cleanupCodexHome(appDataPath, taskRunId);
     expect(existsSync(codexHome)).toBe(false);
     expect(existsSync(path.join(subscriptionHome, "auth.json"))).toBe(true);
@@ -270,7 +268,7 @@ describe("prepareCodexHome", () => {
         bundledSkillsDir,
         log: noopLog,
       });
-      // Codex rewrites auth.json during the run; don't count on its mode.
+      // Codex rewrites auth.json during a run; do not count on its mode.
       await chmod(path.join(first, "auth.json"), 0o644);
 
       const second = await prepareCodexHome({
@@ -341,7 +339,7 @@ describe("prepareCodexHome", () => {
       bundledSkillsDir,
       log: noopLog,
     });
-    // Codex rotates its OAuth tokens mid-run and persists them in its home.
+    // Codex rotates OAuth tokens during a run and saves them in its home.
     await writeFile(path.join(codexHome, "auth.json"), '{"token":2}');
 
     await writeBackSubscriptionLogin({ appDataPath, taskRunId, log: noopLog });
@@ -357,7 +355,7 @@ describe("prepareCodexHome", () => {
       const subscriptionHome = getCodexSubscriptionHomeDir(appDataPath);
       await mkdir(subscriptionHome, { recursive: true });
       const storedLogin = path.join(subscriptionHome, "auth.json");
-      // A store created without a mode (e.g. by an older build) is 0644.
+      // Older builds wrote the store without a mode (0644).
       await writeFile(storedLogin, '{"token":1}');
 
       const codexHome = await prepareCodexHome({
@@ -369,7 +367,11 @@ describe("prepareCodexHome", () => {
       });
       await writeFile(path.join(codexHome, "auth.json"), '{"token":2}');
 
-      await writeBackSubscriptionLogin({ appDataPath, taskRunId, log: noopLog });
+      await writeBackSubscriptionLogin({
+        appDataPath,
+        taskRunId,
+        log: noopLog,
+      });
 
       expect(statSync(storedLogin).mode & 0o777).toBe(0o600);
     },
@@ -390,7 +392,7 @@ describe("prepareCodexHome", () => {
     });
     await writeFile(path.join(codexHome, "auth.json"), '{"token":2}');
 
-    // Mid-run: sign-out, then a fresh sign-in to a different account.
+    // The user signed out and connected another account mid-run.
     await writeFile(storedLogin, '{"token":"other-account"}');
 
     await writeBackSubscriptionLogin({ appDataPath, taskRunId, log: noopLog });
@@ -425,7 +427,6 @@ describe("prepareCodexHome", () => {
     });
     expect(readFileSync(storedLogin, "utf-8")).toBe('{"token":"a2"}');
 
-    // run-a's write-back changed the store, so run-b must not roll it back.
     await writeBackSubscriptionLogin({
       appDataPath,
       taskRunId: "run-b",
@@ -461,7 +462,7 @@ describe("prepareCodexHome", () => {
     });
     await writeFile(path.join(codexHome, "auth.json"), '{"token":2}');
 
-    // The user signed out while the session was still running.
+    // The user signed out mid-run.
     await rm(path.join(subscriptionHome, "auth.json"));
 
     await writeBackSubscriptionLogin({ appDataPath, taskRunId, log: noopLog });

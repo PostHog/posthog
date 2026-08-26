@@ -167,8 +167,8 @@ function buildSessionServiceDeps(): SessionServiceDeps {
             BEDROCK_LLM_GATEWAY_FLAG,
           ),
         ),
-        // Behind a rollout flag: without it, sessions stay on the gateway even
-        // when the setting was turned on earlier.
+        // Without the flag, sessions stay on the gateway even when the user
+        // turned the setting on.
         codexModelAccess:
           resolveService<FeatureFlags>(FEATURE_FLAGS).isEnabled(
             CODEX_OWN_SUBSCRIPTION_FLAG,

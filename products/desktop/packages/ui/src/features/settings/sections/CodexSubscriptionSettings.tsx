@@ -13,8 +13,7 @@ import { registerCodexSubscription } from "@posthog/ui/shell/posthogAnalyticsImp
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
-// Detection is existence-only and sign-in runs through Codex's own login flow
-// into an app-private CODEX_HOME; the user's ~/.codex credentials are never read.
+// Sign-in uses Codex's own login flow. The app never reads ~/.codex credentials.
 export function CodexSubscriptionSettings() {
   const subscription = useCodexSubscription();
   const hostTRPC = useHostTRPC();

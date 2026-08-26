@@ -79,7 +79,7 @@ function codexSubscriptionProperties({
   };
 }
 
-// Registered as super properties so every event carries the subscription state.
+// Super properties: every event carries the subscription state.
 export function registerCodexSubscription(state: CodexSubscriptionState) {
   registeredCodexSubscription = state;
   if (!isInitialized) {

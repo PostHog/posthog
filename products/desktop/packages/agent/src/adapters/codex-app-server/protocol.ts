@@ -4,7 +4,6 @@
  * newline-delimited JSON that omits the `"jsonrpc": "2.0"` header.
  */
 
-/** Identity sent on the app-server `initialize` handshake. */
 export const CODEX_CLIENT_INFO = {
   name: "posthog-code",
   title: "PostHog",

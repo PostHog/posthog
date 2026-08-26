@@ -289,7 +289,6 @@ interface SessionConfig {
   /** The agent's session ID (for resume - SDK session ID for Claude, Codex's session ID for Codex) */
   sessionId?: string;
   adapter?: Adapter;
-  /** Codex-only. "own-subscription" runs on the user's own ChatGPT login. */
   codexModelAccess?: CodexModelAccess;
   /** Permission mode to use for the session */
   permissionMode?: string;
@@ -525,11 +524,10 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     return this.bundledResources.resolve(`.vite/build/codex-acp/${binary}`);
   }
 
-  /** In-flight ChatGPT sign-in; its app-server hosts the OAuth callback. */
+  /** In-flight ChatGPT sign-in; the app-server hosts the OAuth callback. */
   private codexLogin?: CodexLoginSession;
 
-  // Serializes mutations of the stored subscription login so a run's write-back
-  // can never interleave with a sign-out and recreate the just-deleted login.
+  // Serializes store mutations so a write-back cannot interleave with a sign-out.
   private subscriptionStoreQueue: Promise<unknown> = Promise.resolve();
 
   private enqueueSubscriptionStoreOp(
@@ -551,7 +549,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     });
   }
 
-  /** Runs Codex's own ChatGPT sign-in; completion surfaces via getCodexSubscriptionStatus. */
+  /** Starts Codex's own sign-in. Completion shows in getCodexSubscriptionStatus. */
   async startCodexSubscriptionLogin(): Promise<{ authUrl: string }> {
     this.codexLogin?.cancel();
     const codexHome = getCodexSubscriptionHomeDir(
@@ -1003,7 +1001,7 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
         "skills",
       );
 
-      // Falls back to the gateway when no login is stored; never to ~/.codex.
+      // Without a stored login, fall back to the gateway, never to ~/.codex.
       let codexSubscription =
         adapter === "codex" &&
         config.codexModelAccess === "own-subscription" &&
@@ -1027,7 +1025,7 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
           this.log.warn("Failed to prepare codex home", {
             error: err instanceof Error ? err.message : String(err),
           });
-          // Without the subscription home, codex would read the user's ~/.codex.
+          // Without the prepared home, codex reads ~/.codex.
           codexSubscription = false;
         }
       }

@@ -42,7 +42,7 @@ export const sessionConfigSchema = z.object({
 
 export type SessionConfig = z.infer<typeof sessionConfigSchema>;
 
-/** How Codex sessions authenticate for model calls. See {@link CodexModelAccess} in @posthog/shared. */
+/** Mirrors CodexModelAccess in @posthog/shared. */
 export const codexModelAccessSchema = z.enum([
   "posthog-gateway",
   "own-subscription",
@@ -70,7 +70,6 @@ export const startSessionInput = z.object({
   autoProgress: z.boolean().optional(),
   runMode: z.enum(["local", "cloud"]).optional(),
   adapter: z.enum(["claude", "codex"]).optional(),
-  /** Codex-only. "own-subscription" runs on the user's own ChatGPT login; absent means gateway. */
   codexModelAccess: codexModelAccessSchema.optional(),
   additionalDirectories: z.array(z.string()).optional(),
   customInstructions: customInstructionsField,
@@ -291,12 +290,12 @@ export const rtkStatusOutput = z.object({
 
 export type RtkStatus = z.infer<typeof rtkStatusOutput>;
 
-/** All fields come from existence checks; no credential is ever read. */
+/** All fields are existence checks. No credential is read. */
 export const codexSubscriptionStatusOutput = z.object({
   cliInstalled: z.boolean(),
-  /** `~/.codex/auth.json` exists on the host. */
+  /** `~/.codex/auth.json` exists. */
   credentialFilePresent: z.boolean(),
-  /** The app's own subscription CODEX_HOME holds a completed ChatGPT login. */
+  /** The app's subscription CODEX_HOME has a completed ChatGPT login. */
   appLoggedIn: z.boolean(),
 });
 
@@ -304,7 +303,6 @@ export type CodexSubscriptionStatus = z.infer<
   typeof codexSubscriptionStatusOutput
 >;
 
-/** ChatGPT OAuth URL from Codex's own login flow, for the browser to open. */
 export const codexSubscriptionLoginOutput = z.object({
   authUrl: z.string(),
 });

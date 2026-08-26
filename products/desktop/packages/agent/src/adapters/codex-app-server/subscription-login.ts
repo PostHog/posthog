@@ -15,14 +15,13 @@ const LOGIN_TIMEOUT_MS = 10 * 60 * 1000;
 const LOGIN_POLL_INTERVAL_MS = 2_000;
 
 export interface CodexLoginSession {
-  /** ChatGPT OAuth URL to open in the user's browser. */
   authUrl: string;
-  /** Resolves true once codex reports a signed-in account; false on timeout, cancel, or process exit. */
+  /** True when an account is signed in; false on timeout, cancel, or exit. */
   completed: Promise<boolean>;
   cancel: () => void;
 }
 
-// Polls account/read because it is the authoritative auth state across codex versions.
+// account/read is the stable auth check across codex versions.
 export async function waitForCodexAccount(
   rpc: AppServerRpc,
   options: {
@@ -43,7 +42,7 @@ export async function waitForCodexAccount(
       );
       if (result?.account) return true;
     } catch {
-      // Client closed or the app-server process exited.
+      // The app-server exited or closed the stream.
       return false;
     }
     await sleep(pollIntervalMs, options.signal);
@@ -51,7 +50,7 @@ export async function waitForCodexAccount(
   return false;
 }
 
-// The spawned app-server hosts the OAuth callback, so it must live until `completed` settles.
+// The app-server hosts the OAuth callback. Keep it alive until `completed` settles.
 export async function startCodexChatgptLogin(options: {
   binaryPath: string;
   codexHome: string;
