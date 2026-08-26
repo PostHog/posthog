@@ -2,7 +2,6 @@ import json
 from types import SimpleNamespace
 
 import pytest
-from unittest import mock
 from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
@@ -12,15 +11,13 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.person_property_update_consumer import (
     _DEFAULT_RATE_PER_SEC,
     DLQ,
+    EVENT_SOURCE,
     RETRY,
     SENT,
-    GroupPropertyUpdate,
     InvalidPersonPropertyMessage,
     PersonPropertyUpdateConsumer,
     _current_rate,
     build_capture_kwargs,
-    build_group_update,
-    write_group_update,
 )
 
 _SETTING = (
@@ -42,6 +39,31 @@ class TestBuildCaptureKwargs:
             "process_person_profile": True,
         }
 
+    def test_group_message_maps_to_groupidentify(self):
+        # Regression: a group message must become a $groupidentify with $group_type/$group_key/$group_set
+        # and process_person_profile=True. With false, ingestion drops the event before the group
+        # upsert (invalid_event_when_process_person_profile_is_false), so the sync reports success
+        # while writing nothing to the group.
+        kwargs = build_capture_kwargs(
+            {
+                "token": "tok",
+                "kind": "group",
+                "distinct_id": "team-uuid",
+                "group_type": "organization",
+                "group_type_index": 0,
+                "group_key": "acme",
+                "properties": {"plan_tier": "pro"},
+            }
+        )
+        assert kwargs == {
+            "token": "tok",
+            "event_name": "$groupidentify",
+            "event_source": EVENT_SOURCE,
+            "distinct_id": "team-uuid",
+            "properties": {"$group_type": "organization", "$group_key": "acme", "$group_set": {"plan_tier": "pro"}},
+            "process_person_profile": True,
+        }
+
     @parameterized.expand(
         [
             ("missing_token", {"distinct_id": "a", "properties": {"p": 1}}),
@@ -51,97 +73,19 @@ class TestBuildCaptureKwargs:
             ("nan_value", {"token": "t", "distinct_id": "a", "properties": {"p": float("nan")}}),
             ("inf_value", {"token": "t", "distinct_id": "a", "properties": {"p": float("inf")}}),
             ("nested_inf_value", {"token": "t", "distinct_id": "a", "properties": {"p": {"q": float("-inf")}}}),
+            (
+                "group_missing_group_type",
+                {"token": "t", "distinct_id": "a", "kind": "group", "group_key": "k", "properties": {"p": 1}},
+            ),
+            (
+                "group_missing_group_key",
+                {"token": "t", "distinct_id": "a", "kind": "group", "group_type": "org", "properties": {"p": 1}},
+            ),
         ]
     )
     def test_rejects_unusable_messages(self, _name, payload):
         with pytest.raises(InvalidPersonPropertyMessage):
             build_capture_kwargs(payload)
-
-
-_GROUP_PAYLOAD = {
-    "token": "tok",
-    "kind": "group",
-    "distinct_id": "team-uuid",
-    "team_id": 77,
-    "group_type": "organization",
-    "group_type_index": 0,
-    "group_key": "acme",
-    "properties": {"plan_tier": "pro"},
-}
-
-
-class TestBuildGroupUpdate:
-    def test_maps_group_message_to_direct_write(self):
-        # Regression: group messages must map to a direct write, not a capture event — ingestion
-        # drops a $groupidentify sent with process_person_profile=false before the group is touched.
-        update = build_group_update({**_GROUP_PAYLOAD, "group_key": 123})
-        assert update == GroupPropertyUpdate(
-            team_id=77, group_type_index=0, group_key="123", properties={"plan_tier": "pro"}
-        )
-
-    @parameterized.expand(
-        [
-            ("missing_team_id", {"team_id": None}),
-            ("non_int_team_id", {"team_id": "77"}),
-            ("missing_group_type_index", {"group_type_index": None}),
-            ("out_of_range_group_type_index", {"group_type_index": 5}),
-            ("missing_group_key", {"group_key": None}),
-            ("empty_group_key", {"group_key": ""}),
-            ("empty_properties", {"properties": {}}),
-            ("nan_value", {"properties": {"p": float("nan")}}),
-        ]
-    )
-    def test_rejects_unusable_group_messages(self, _name, overrides):
-        with pytest.raises(InvalidPersonPropertyMessage):
-            build_group_update({**_GROUP_PAYLOAD, **overrides})
-
-
-_CONSUMER_MODULE = "products.warehouse_sources.backend.temporal.data_imports.person_property_update_consumer"
-
-
-class TestWriteGroupUpdate:
-    _UPDATE = GroupPropertyUpdate(team_id=77, group_type_index=0, group_key="acme", properties={"plan_tier": "pro"})
-
-    def _patch_stores(self):
-        return patch.multiple(
-            _CONSUMER_MODULE,
-            get_group_by_key=mock.DEFAULT,
-            create_group=mock.DEFAULT,
-            save_group=mock.DEFAULT,
-            raw_create_group_ch=mock.DEFAULT,
-        )
-
-    def test_merges_properties_into_existing_group(self):
-        # The synced columns must overwrite their own keys and leave every other property alone —
-        # replacing the whole dict would wipe properties set by ingestion or the groups API.
-        group = SimpleNamespace(group_properties={"name": "Acme", "plan_tier": "free"}, created_at="2026-01-01")
-        with self._patch_stores() as mocks:
-            mocks["get_group_by_key"].return_value = group
-            write_group_update(self._UPDATE)
-
-        merged = {"name": "Acme", "plan_tier": "pro"}
-        assert group.group_properties == merged
-        mocks["save_group"].assert_called_once_with(group, operation="warehouse_group_property_sync")
-        mocks["raw_create_group_ch"].assert_called_once_with(77, 0, "acme", merged, "2026-01-01")
-        mocks["create_group"].assert_not_called()
-
-    def test_noop_when_properties_already_match(self):
-        group = SimpleNamespace(group_properties={"plan_tier": "pro", "name": "Acme"}, created_at="2026-01-01")
-        with self._patch_stores() as mocks:
-            mocks["get_group_by_key"].return_value = group
-            write_group_update(self._UPDATE)
-
-        mocks["save_group"].assert_not_called()
-        mocks["raw_create_group_ch"].assert_not_called()
-
-    def test_creates_group_when_missing(self):
-        with self._patch_stores() as mocks:
-            mocks["get_group_by_key"].return_value = None
-            write_group_update(self._UPDATE)
-
-        mocks["create_group"].assert_called_once_with(77, 0, "acme", {"plan_tier": "pro"})
-        mocks["save_group"].assert_not_called()
-        mocks["raw_create_group_ch"].assert_not_called()
 
 
 def _capture_result(
@@ -167,33 +111,6 @@ class TestProcessRecord:
         assert c.process_record(value) == SENT
         assert capture.call_args.kwargs["event_name"] == "$set"
         assert capture.call_args.kwargs["process_person_profile"] is True
-
-    def test_group_message_writes_group_directly_not_via_capture(self):
-        # Regression: routed through capture, a group update is silently dropped by ingestion
-        # ($groupidentify with process_person_profile=false), so the sync reports success while
-        # writing nothing. Group messages must take the direct write and never touch capture.
-        capture = MagicMock()
-        write_group = MagicMock()
-        c = PersonPropertyUpdateConsumer(
-            capture_fn=capture, group_write_fn=write_group, grant_fn=lambda: True, dlq_producer=MagicMock()
-        )
-
-        assert c.process_record(json.dumps(_GROUP_PAYLOAD).encode()) == SENT
-        capture.assert_not_called()
-        write_group.assert_called_once_with(
-            GroupPropertyUpdate(team_id=77, group_type_index=0, group_key="acme", properties={"plan_tier": "pro"})
-        )
-
-    def test_group_write_failure_is_left_for_retry(self):
-        # Personhog/ClickHouse hiccups are transient: redeliver, never DLQ or commit past the message.
-        write_group = MagicMock(side_effect=RuntimeError("personhog down"))
-        dlq = MagicMock()
-        c = PersonPropertyUpdateConsumer(
-            capture_fn=MagicMock(), group_write_fn=write_group, grant_fn=lambda: True, dlq_producer=dlq
-        )
-
-        assert c.process_record(json.dumps(_GROUP_PAYLOAD).encode()) == RETRY
-        dlq.produce.assert_not_called()
 
     def test_transient_capture_failure_is_left_for_retry(self):
         # Not succeeded and nothing dropped -> transient (exhausted retries / unaccounted): redeliver.
@@ -265,7 +182,6 @@ class TestProcessRecord:
             ("non_object_string", b'"foo"'),
             ("non_object_null", b"null"),
             ("poison_shape", json.dumps({"distinct_id": "a", "properties": {"p": 1}}).encode()),
-            ("group_missing_team_id", json.dumps({k: v for k, v in _GROUP_PAYLOAD.items() if k != "team_id"}).encode()),
         ]
     )
     def test_poison_messages_go_to_dlq(self, _name, value):
