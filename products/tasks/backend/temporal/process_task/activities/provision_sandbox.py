@@ -837,7 +837,7 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
                     config.snapshot_source = "none"
                     config.snapshot_restored = False
                     config.image_fallback = None
-                    sandbox = Sandbox.create(config)
+                    sandbox = get_sandbox_class_for_run_backend(ctx.sandbox_backend).create(config)
                     sandbox_created_at = timezone.now()
                     actual_used_snapshot = False
                 sandbox_creation_timer.set_used_snapshot(actual_used_snapshot)
