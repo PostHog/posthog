@@ -2,6 +2,7 @@ import uuid
 from datetime import timedelta
 from typing import Any
 
+from freezegun import freeze_time
 from posthog.test.base import BaseTest
 
 from django.utils import timezone
@@ -68,6 +69,7 @@ class TestEnrollmentCensusCriteria(BaseTest):
         report = build_census_report([small, large], window_days=14)
         assert [candidate.stats.team_id for candidate in report.candidates] == [2, 1]
 
+    @freeze_time("2026-01-15")
     def test_build_load_counts_running_experiments_and_all_metric_kinds(self) -> None:
         def _experiment(metrics: list[dict], **kwargs: Any) -> Experiment:
             return Experiment.objects.create(
