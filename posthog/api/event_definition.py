@@ -92,7 +92,10 @@ def create_event_definitions_sql(
                 f"{order_expression} {order_direction} NULLS {'FIRST' if order_direction == 'ASC' else 'LAST'}"
             )
 
-    # Match the leading expression of `event_definition_proj_uniq` so project scoping uses that index.
+    # COALESCE(project_id, team_id) is the leading expression of the unique index
+    # `event_definition_proj_uniq`, so the planner can seek that index for the project scope and
+    # for any `name` equality in `conditions`. The equivalent form
+    # `project_id = X OR (project_id IS NULL AND team_id = X)` matches no index at all.
     return f"""
             SELECT {",".join(event_definition_fields)}
             FROM posthog_eventdefinition
@@ -297,9 +300,7 @@ class EventDefinitionViewSet(
         event_type = EventDefinitionType(self.request.GET.get("event_type", EventDefinitionType.EVENT))
 
         search = self.request.GET.get("search", None)
-        # Prevent the global trigram index from winning over the project-scoped index. Applying the name
-        # filter after seeking `event_definition_proj_uniq` bounds the search to the project's definitions.
-        search_query, search_kwargs = term_search_filter_sql(["(posthog_eventdefinition.name || '')"], search)
+        search_query, search_kwargs = term_search_filter_sql(self.search_fields, search)
 
         params = {"project_id": self.project_id, "is_posthog_event": "$%", **search_kwargs}
         order_expressions = self._ordering_params_from_request()
