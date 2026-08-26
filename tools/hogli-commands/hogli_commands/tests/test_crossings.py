@@ -221,6 +221,14 @@ def get_query_runner(query, team, kind=None):
         from products.marketing_analytics.backend.hogql_queries.table import MarketingAnalyticsTableQueryRunner
 
         return MarketingAnalyticsTableQueryRunner(query=query, team=team)
+    if kind == "TrendsQuery":
+        if query.tags and query.tags.productKey == "web_analytics":
+            from products.web_analytics.backend.hogql_queries.web_trends import WebTrendsQueryRunner
+
+            return WebTrendsQueryRunner(query=query, team=team)
+        from .insights.trends.trends_query_runner import TrendsQueryRunner
+
+        return TrendsQueryRunner(query=query, team=team)
 """
 
 NODE_KIND_ENUM = """
@@ -237,7 +245,7 @@ class After(StrEnum):
     Y = "AlsoNotAKind"
 """
 
-KINDS = {"PathsQuery": "product_analytics", "WebOverviewQuery": "web_analytics"}
+KINDS = {"PathsQuery": frozenset({"product_analytics"}), "WebOverviewQuery": frozenset({"web_analytics"})}
 
 
 class TestGarageDrives:
@@ -248,10 +256,12 @@ class TestGarageDrives:
             "MARKETING_ANALYTICS_TABLE_QUERY": "MarketingAnalyticsTableQuery",
         }
         assert crossings._kinds_in_dispatcher(DISPATCHER, node_kinds) == {
-            "PathsQuery": "product_analytics",
-            "WebOverviewQuery": "web_analytics",
-            "WebStatsTableQuery": "web_analytics",
-            "MarketingAnalyticsTableQuery": "marketing_analytics",
+            "PathsQuery": frozenset({"product_analytics"}),
+            "WebOverviewQuery": frozenset({"web_analytics"}),
+            "WebStatsTableQuery": frozenset({"web_analytics"}),
+            "MarketingAnalyticsTableQuery": frozenset({"marketing_analytics"}),
+            # a core kind that hands off to a product under a nested condition reaches that product
+            "TrendsQuery": frozenset({"web_analytics"}),
         }
 
     @pytest.mark.parametrize(

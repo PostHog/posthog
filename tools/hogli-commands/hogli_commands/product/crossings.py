@@ -653,22 +653,29 @@ def _node_kind_values(source: str) -> dict[str, str]:
     return dict(_ENUM_MEMBER_RE.findall(match.group(1))) if match else {}
 
 
-def _kinds_in_dispatcher(source: str, node_kinds: Mapping[str, str] | None = None) -> dict[str, str]:
-    """Query kind -> owning product, for every kind whose dispatch branch imports from a product."""
+def _kinds_in_dispatcher(source: str, node_kinds: Mapping[str, str] | None = None) -> dict[str, frozenset[str]]:
+    """Query kind -> products whose runners its dispatch branch can reach.
+
+    The whole branch is read, not only its direct statements: a core kind can hand off to a
+    product runner under a nested condition (a trends query tagged for web analytics), and a test
+    that runs that kind may then execute product code."""
     tree = ast.parse(source)
-    kinds: dict[str, str] = {}
+    kinds: dict[str, set[str]] = {}
     for node in ast.walk(tree):
         if not isinstance(node, ast.If):
             continue
-        for kind in _compared_kinds(node.test, node_kinds or {}):
-            for statement in node.body:
-                if (
-                    isinstance(statement, ast.ImportFrom)
-                    and statement.module
-                    and statement.module.startswith("products.")
-                ):
-                    kinds[kind] = statement.module.split(".")[1]
-    return kinds
+        branch_kinds = _compared_kinds(node.test, node_kinds or {})
+        if not branch_kinds:
+            continue
+        products = {
+            statement.module.split(".")[1]
+            for body_statement in node.body
+            for statement in ast.walk(body_statement)
+            if isinstance(statement, ast.ImportFrom) and statement.module and statement.module.startswith("products.")
+        }
+        for kind in branch_kinds:
+            kinds.setdefault(kind, set()).update(products)
+    return {kind: frozenset(products) for kind, products in kinds.items() if products}
 
 
 def _compared_kinds(test: ast.expr, node_kinds: Mapping[str, str]) -> list[str]:
@@ -687,13 +694,13 @@ def _compared_kinds(test: ast.expr, node_kinds: Mapping[str, str]) -> list[str]:
     return kinds
 
 
-def product_query_kinds(products: Iterable[str] | None = None) -> dict[str, str]:
-    """Query kind -> owning product, read off core's dispatch table."""
+def product_query_kinds(products: Iterable[str] | None = None) -> dict[str, frozenset[str]]:
+    """Query kind -> products whose runners it can reach, read off core's dispatch table."""
     node_kinds = _node_kind_values(NODE_KIND_ENUM.read_text(encoding="utf-8"))
     kinds = _kinds_in_dispatcher(QUERY_DISPATCHER.read_text(encoding="utf-8"), node_kinds)
     if products is not None:
-        wanted = set(products)
-        kinds = {kind: product for kind, product in kinds.items() if product in wanted}
+        wanted = frozenset(products)
+        kinds = {kind: owners & wanted for kind, owners in kinds.items() if owners & wanted}
     return kinds
 
 
@@ -722,7 +729,7 @@ def _is_test_client_call(node: ast.Call) -> bool:
     return receiver is not None and receiver.endswith("client")
 
 
-def _kind_mentions(tree: ast.Module, kinds: dict[str, str]) -> list[tuple[ast.AST, str]]:
+def _kind_mentions(tree: ast.Module, kinds: Mapping[str, frozenset[str]]) -> list[tuple[ast.AST, str]]:
     """Nodes where a product query kind enters a query: `{"kind": "X"}` or the schema constructor `X(...)`.
 
     A bare string (a parametrize row, a URL segment) is not a query and is not counted."""
@@ -791,7 +798,7 @@ class _Executions:
         return any(self._executes_directly(helpers[name]) for name in called if name in helpers)
 
 
-def kind_drives(tree: ast.Module, kinds: dict[str, str]) -> Counter[_KindDrive]:
+def kind_drives(tree: ast.Module, kinds: Mapping[str, frozenset[str]]) -> Counter[_KindDrive]:
     """Drive -> mentions, for every kind this module both builds and executes.
 
     Building alone is not a drive: a test that checks a schema or a formatter constructs the query
@@ -816,7 +823,8 @@ def kind_drives(tree: ast.Module, kinds: dict[str, str]) -> Counter[_KindDrive]:
                 scope_executes[id(scope)] = _executes_directly(scope)
             executes = scope_executes[id(scope)]
         if executes:
-            found[_KindDrive(kinds[kind], kind)] += 1
+            for product in kinds[kind]:
+                found[_KindDrive(product, kind)] += 1
     return found
 
 
