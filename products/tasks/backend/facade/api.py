@@ -7955,13 +7955,24 @@ def project_completed_activity(task_run: "TaskRun") -> None:
     )
 
 
+# A scout runs headless on a schedule, under an acting user resolved from the scout skill's
+# author rather than from whoever asked for the run. Its task therefore carries a real person
+# as `created_by`, so every projected row lands in a feed that person never asked for. Scout
+# output belongs in the Signals inbox instead.
+ACTIVITY_FEED_EXCLUDED_ORIGIN_PRODUCTS = (Task.OriginProduct.SIGNALS_SCOUT,)
+
+
 def _task_activity_qs(team_id: int, user_id: int) -> QuerySet[TaskActivity]:
     """The requester's feed rows, gated to tasks they can still see.
 
     Rows outlive visibility changes (a task moving to a private channel, say), so the
     visibility gate belongs on read rather than being enforced when projecting.
     """
-    visible_tasks = _visible_task_qs(team_id, user_id).filter(internal=False, archived=False)
+    visible_tasks = (
+        _visible_task_qs(team_id, user_id)
+        .filter(internal=False, archived=False)
+        .exclude(origin_product__in=ACTIVITY_FEED_EXCLUDED_ORIGIN_PRODUCTS)
+    )
     return TaskActivity.objects.for_team(team_id).filter(user_id=user_id, task__in=visible_tasks)
 
 
