@@ -77,7 +77,7 @@ export function LogsSparkline({
                 key: timeseries.name,
                 label: timeseries.name,
                 data: timeseries.values,
-                // The logic hands back vars.scss color names ('danger', 'data-color-1'); a canvas
+                // The logic hands back vars.scss color names ('danger', 'brand-blue'); a canvas
                 // fill needs a real color. `theme` is a dep so a light/dark flip re-resolves them.
                 color: getColorVar(timeseries.color || 'muted'),
                 // Buckets past the ingestion checkpoint are always a trailing run.
@@ -104,6 +104,8 @@ export function LogsSparkline({
             xAxis: { tickFormatter: (value: string) => dayjs(value).tz(displayTimezone).format(tickFormat) },
             yAxis: { tickFormatter: humanFriendlyNumber },
             barCornerRadius: 2,
+            // severity_text is free-form, so top-10 values plus the other row can overflow the
+            // tooltip; pinning makes it scrollable.
             tooltip: { pinnable: true },
         }),
         [displayTimezone, tickFormat]
