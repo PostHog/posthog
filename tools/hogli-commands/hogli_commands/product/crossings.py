@@ -19,8 +19,8 @@ from anywhere. That scan therefore runs over every model class a product registe
 reference is counted as the disallowed kind `get_model`.
 
 Tests are out of scope. A test reaches concrete classes through testing doors on purpose, so counting
-its fixtures would measure the fixture, not the coupling. `apps.get_model` is the escape hatch core
-test fixtures are told to use, and keeping tests out is what leaves that advice intact.
+its fixtures would measure the fixture, not the coupling. That leaves `apps.get_model` in a test
+fixture uncounted; it is still a dependency with the import edge removed, not a sanctioned door.
 """
 
 from __future__ import annotations
