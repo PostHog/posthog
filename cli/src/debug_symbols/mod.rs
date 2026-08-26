@@ -7,6 +7,7 @@ use tracing::{info, warn};
 
 use crate::api::symbol_sets::SymbolSetUpload;
 use crate::dsym::{source_bundle, DsymFile};
+use crate::release_injection;
 
 pub mod upload;
 
@@ -69,6 +70,28 @@ impl DebugSymbolFile {
     ) -> Result<SymbolSetUpload> {
         use std::io::{Cursor, Write};
 
+        let Self {
+            debug_id,
+            path,
+            mut data,
+            format,
+            ..
+        } = self;
+
+        // Upload the binary with its release marker reset to the placeholder, so the symbol
+        // set of an unchanged binary is byte-identical across releases. Event mode injects a
+        // new release id into the binary on every release, and on Linux that binary is the
+        // very ELF uploaded here: left as-is, its content hash would change per release and
+        // the server would see a conflict for the same build id. The placeholder is not needed
+        // for symbolication, so this changes nothing the server reads.
+        let reset = release_injection::reset_slots(&mut data);
+        if reset > 0 {
+            info!(
+                "Reset the injected release id in {} before packaging, so the symbol set stays identical across releases",
+                path.display()
+            );
+        }
+
         let mut buffer = Cursor::new(Vec::new());
         {
             let mut zip = zip::ZipWriter::new(&mut buffer);
@@ -76,10 +99,10 @@ impl DebugSymbolFile {
                 .compression_method(zip::CompressionMethod::Deflated);
 
             zip.start_file("dwarf", options)?;
-            zip.write_all(&self.data)?;
+            zip.write_all(&data)?;
 
             if include_source {
-                match source_bundle::extract_source_paths_from_dwarf_bytes(&self.data) {
+                match source_bundle::extract_source_paths_from_dwarf_bytes(&data) {
                     Ok(all_paths) => {
                         let filtered = filter_native_source_paths(&all_paths);
                         info!(
@@ -111,14 +134,14 @@ impl DebugSymbolFile {
         }
 
         let zip_data = buffer.into_inner();
-        let wrapped = if self.format == FileFormat::MachO {
+        let wrapped = if format == FileFormat::MachO {
             write_symbol_data(AppleDsym { data: zip_data })?
         } else {
             write_symbol_data(ElfDebugInfo { data: zip_data })?
         };
 
         Ok(SymbolSetUpload {
-            chunk_id: self.debug_id,
+            chunk_id: debug_id,
             release_id,
             data: wrapped,
             content_hash: None,

@@ -176,13 +176,11 @@ pub fn upload(args: &Args) -> Result<()> {
     }
 
     info!("Uploading {} debug symbol file(s)...", uploads.len());
-    // --include-source implies force unless --skip-on-conflict. Event mode implies it too: on Linux
-    // the marker lives in the same ELF we upload as symbols, so re-injecting a new id changes the
-    // uploaded content under an unchanged build id — force lets a re-release overwrite it. (On
-    // macOS the symbols are a separate dSYM, so this is moot.)
-    let effective_force = conflict.force
-        || (*include_source && !conflict.skip_on_conflict)
-        || (*release_mode == ReleaseMode::Event && !conflict.skip_on_conflict);
+    // --include-source implies force unless the user explicitly asked to keep
+    // existing symbol sets with --skip-on-conflict. Event mode needs no force:
+    // the symbols upload with the release marker reset, so an unchanged binary
+    // hashes the same on every release (see `DebugSymbolFile::into_upload`).
+    let effective_force = conflict.force || (*include_source && !conflict.skip_on_conflict);
     let (_summary, upload_result) = api::symbol_sets::upload_with_retry(
         uploads,
         10,
