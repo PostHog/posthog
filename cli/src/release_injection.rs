@@ -209,10 +209,17 @@ fn macho_has_real_signature(path: &Path) -> bool {
     }
 }
 
-/// Re-sign a Mach-O ad-hoc after editing, so macOS will run it again. No-op off macOS. A missing or
-/// failing `codesign` warns rather than fails — the injection itself succeeded.
+/// Re-sign a Mach-O ad-hoc after editing, so macOS will run it again. `codesign` only exists on
+/// macOS, so anywhere else this warns instead of re-signing: the injection itself succeeded, but
+/// the binary needs a signature before it runs on macOS. A missing or failing `codesign` warns
+/// rather than fails for the same reason.
 fn resign_macho(path: &Path) {
     if !cfg!(target_os = "macos") {
+        warn!(
+            "{} is a Mach-O whose code signature the injection invalidated, and it cannot be \
+             re-signed here (codesign is macOS-only); sign it before it runs on macOS",
+            path.display()
+        );
         return;
     }
     match std::process::Command::new("codesign")
