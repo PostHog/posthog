@@ -665,7 +665,7 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
 
         response = self.client.get("/login/saml/?email=hellohello@posthog.com")
 
-        self._assert_saml_login_social_failure_redirect(response, "Multiple SAML configurations found for this user.")
+        self.assertRedirects(response, "/login?error_code=improperly_configured_sso", fetch_redirect_response=False)
 
     def test_saml_flow_carries_next_url_in_relay_state(self):
         # The session cookie is SameSite=Lax, so it's dropped on the IdP's cross-site POST
