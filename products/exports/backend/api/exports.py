@@ -124,6 +124,8 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
             raise ValidationError({"insight": ["This insight does not belong to your team."]})
 
         export_context = data.get("export_context") or {}
+        if "limit_context" in export_context:
+            raise ValidationError({"export_context": ["limit_context is not supported for exports."]})
         if export_context.get("path") and (
             str(export_context.get("method", "GET")).upper() != "GET" or export_context.get("body") is not None
         ):
