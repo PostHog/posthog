@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto'
 import { register } from 'prom-client'
 
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
@@ -9,12 +10,13 @@ import { createCdpValkeyShadowPools } from '../../cdp-services'
 import { CyclotronJobInvocationHogFlow } from '../../types'
 import { HogFlowDuplicateObserverService } from './hogflow-duplicate-observer.service'
 
-const KEY_PREFIX = 'hogflow:observe:'
+const WORKFLOW_ID = randomUUID()
+const KEY_PREFIX = `hogflow:observe:${WORKFLOW_ID}:`
 
 const buildInvocation = (overrides: { id?: string; functionId?: string; eventUuid?: string | null } = {}) =>
     ({
         id: overrides.id ?? 'invocation-1',
-        functionId: overrides.functionId ?? 'workflow-1',
+        functionId: overrides.functionId ?? WORKFLOW_ID,
         state: { event: overrides.eventUuid === null ? undefined : { uuid: overrides.eventUuid ?? 'event-1' } },
     }) as unknown as CyclotronJobInvocationHogFlow
 
@@ -73,9 +75,9 @@ describe('HogFlowDuplicateObserverService', () => {
         const observer = new HogFlowDuplicateObserverService(redis, valkey)
         await observer.observe(buildInvocation({ id: 'inv-A' }), buildAction('action-1'))
 
-        const stored = await readKey('hogflow:observe:workflow-1:event-1:action-1')
+        const stored = await readKey(`${KEY_PREFIX}event-1:action-1`)
         expect(stored).toBe('inv-A')
-        expect(await dupCounterValue('workflow-1')).toBe(0)
+        expect(await dupCounterValue(WORKFLOW_ID)).toBe(0)
     })
 
     it('does not flag a duplicate when the same invocation re-observes', async () => {
@@ -84,7 +86,7 @@ describe('HogFlowDuplicateObserverService', () => {
         await observer.observe(inv, buildAction('action-1'))
         await observer.observe(inv, buildAction('action-1'))
 
-        expect(await dupCounterValue('workflow-1')).toBe(0)
+        expect(await dupCounterValue(WORKFLOW_ID)).toBe(0)
     })
 
     it('flags a duplicate when a different invocation hits the same key', async () => {
@@ -93,8 +95,8 @@ describe('HogFlowDuplicateObserverService', () => {
         await observer.observe(buildInvocation({ id: 'inv-B' }), buildAction('action-1'))
 
         // The second observation must NOT overwrite the first (NX) — verifies single-call atomicity.
-        expect(await readKey('hogflow:observe:workflow-1:event-1:action-1')).toBe('inv-A')
-        expect(await dupCounterValue('workflow-1')).toBe(1)
+        expect(await readKey(`${KEY_PREFIX}event-1:action-1`)).toBe('inv-A')
+        expect(await dupCounterValue(WORKFLOW_ID)).toBe(1)
     })
 
     it('writes to the mirror in parallel with the primary', async () => {
@@ -120,6 +122,6 @@ describe('HogFlowDuplicateObserverService', () => {
         const observer = new HogFlowDuplicateObserverService(redis, mirror)
         await observer.observe(buildInvocation({ id: 'inv-A' }), buildAction('action-1'))
 
-        expect(await readKey('hogflow:observe:workflow-1:event-1:action-1')).toBe('inv-A')
+        expect(await readKey(`${KEY_PREFIX}event-1:action-1`)).toBe('inv-A')
     })
 })
