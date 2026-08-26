@@ -136,10 +136,11 @@ export function ObservationPrimaryOutput({
     }
     const scannerType = snapshot.scanner_type
     const config = configFromSnapshot(snapshot)
-    const promptText = config?.prompt ?? null
-    const prompt = showPrompt ? promptText : null
-    // Tooltip carries the prompt only when it isn't printed inline.
-    const promptTooltip = prompt ? null : promptText
+    const prompt = showPrompt ? (config?.prompt ?? null) : null
+    // The compact rendering drops the prompt, so the hover explains this one result instead. The prompt is
+    // the same on every row, and the detail view that prints it also prints the reasoning in full.
+    const reasoning = showPrompt ? null : readReasoning(observation)
+    const resultTooltip = reasoning ? citedTextToPlainText(reasoning, result.reasoning_segments) : null
     const textClass = 'text-sm'
     const summaryClass = expandSummary
         ? `${textClass} whitespace-pre-wrap`
@@ -164,7 +165,7 @@ export function ObservationPrimaryOutput({
             verdict === 'yes' ? 'Yes' : verdict === 'no' ? 'No' : verdict === 'inconclusive' ? 'Inconclusive' : '—'
         return (
             <div className="flex flex-col gap-1">
-                <Tooltip title={promptTooltip}>
+                <Tooltip title={resultTooltip}>
                     <LemonTag size="medium" type={tagType} className="self-start">
                         {tagLabel}
                     </LemonTag>
@@ -288,7 +289,7 @@ export function ObservationPrimaryOutput({
         const displayLabel = resultLabel ?? scaleLabel
         return (
             <div className="flex flex-col gap-1">
-                <Tooltip title={promptTooltip}>
+                <Tooltip title={resultTooltip}>
                     <span className={`${textClass} self-start`}>
                         <span className="font-semibold text-base">{score ?? '—'}</span>
                         {scaleMax !== null && <span className="text-muted"> / {scaleMax}</span>}
