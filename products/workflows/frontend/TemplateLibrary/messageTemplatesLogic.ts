@@ -162,16 +162,23 @@ export interface messageTemplatesLogicMeta {
             createdByFilter: number | null,
             typeFilter: LibraryTypeFilter
         ) => MessageTemplate[]
-        savedWorkflowTemplates: (workflowTemplates: any) => HogFlowTemplate[]
+        savedWorkflowTemplates: (workflowTemplates: HogFlowTemplate[]) => HogFlowTemplate[]
         filteredWorkflowTemplates: (
-            savedWorkflowTemplates: any,
+            savedWorkflowTemplates: HogFlowTemplate[],
             search: string,
             createdByFilter: number | null,
             typeFilter: LibraryTypeFilter
         ) => HogFlowTemplate[]
-        libraryItems: (filteredTemplates: MessageTemplate[], filteredWorkflowTemplates: any) => LibraryItem[]
-        libraryLoading: (templatesLoading: boolean, workflowTemplatesLoading: any) => boolean
-        isLibraryEmpty: (libraryLoading: any, templates: MessageTemplate[], savedWorkflowTemplates: any) => boolean
+        libraryItems: (
+            filteredTemplates: MessageTemplate[],
+            filteredWorkflowTemplates: HogFlowTemplate[]
+        ) => LibraryItem[]
+        libraryLoading: (templatesLoading: boolean, workflowTemplatesLoading: boolean) => boolean
+        isLibraryEmpty: (
+            libraryLoading: boolean,
+            templates: MessageTemplate[],
+            savedWorkflowTemplates: HogFlowTemplate[]
+        ) => boolean
     }
 }
 
