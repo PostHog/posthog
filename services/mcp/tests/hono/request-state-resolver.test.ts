@@ -1,9 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { mockSessionStore, mockTokenStore, mockSessionScopedStores } = vi.hoisted(() => ({
+const { mockSessionStore, mockTokenStore, mockSessionScopedStores, mockRefreshTtlCalls } = vi.hoisted(() => ({
     mockSessionStore: new Map<string, unknown>(),
     mockTokenStore: new Map<string, unknown>(),
     mockSessionScopedStores: new Map<string, Map<string, unknown>>(),
+    // Records the keys passed to every session-scoped refreshTtl call (only the
+    // session cache refreshes, so any recorded call is a session refresh).
+    mockRefreshTtlCalls: [] as string[][],
 }))
 
 vi.mock('@/lib/posthog/flags', () => ({
@@ -35,6 +38,7 @@ vi.mock('@/hono/request-context', () => {
         setMany: (entries: Record<string, unknown>) => Promise<void>
         delete: (key: string) => Promise<void>
         clear: () => Promise<void>
+        refreshTtl: (keys: string[]) => Promise<void>
     }
 
     const makeCache = (store: Map<string, unknown>): MockCache => ({
@@ -54,6 +58,9 @@ vi.mock('@/hono/request-context', () => {
         }),
         clear: vi.fn(async () => {
             store.clear()
+        }),
+        refreshTtl: vi.fn(async (keys: string[]) => {
+            mockRefreshTtlCalls.push(keys)
         }),
     })
 
@@ -135,6 +142,7 @@ describe('RequestStateResolver MCP client contexts', () => {
         mockSessionStore.clear()
         mockTokenStore.clear()
         mockSessionScopedStores.clear()
+        mockRefreshTtlCalls.length = 0
     })
 
     it('stores client props, but not resolved mode, for a new MCP session', async () => {
@@ -408,6 +416,17 @@ describe('RequestStateResolver MCP client contexts', () => {
 
             await makeResolver().resolve(makeProps({ projectId: '1', mcpSessionId: 'session-a' }))
             expect(mockTokenStore.get('projectId')).toBe('1')
+        })
+
+        it('renews the session-scoped keys TTL on every pinned request', async () => {
+            // The keys carry a write-based TTL; without a per-request refresh a
+            // switch recorded early in a long session expires first, reads back as
+            // a changed pin, and the pin silently wins again.
+            await makeResolver().resolve(makeProps({ projectId: '1' }))
+
+            expect(mockRefreshTtlCalls).toContainEqual(
+                expect.arrayContaining(['appliedPinOrgId', 'appliedPinProjectId', 'activeOrgId', 'activeProjectId'])
+            )
         })
     })
 

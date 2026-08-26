@@ -304,6 +304,13 @@ export class RequestStateResolver {
             sessionCache.get('activeProjectId'),
         ])
 
+        // These keys carry a write-based TTL, but the MCP session they belong to
+        // renews its own context store on every request. Renew them too, so a
+        // switch recorded early in a long-lived session does not expire before
+        // the session ends and read back as a missing marker — which reads as a
+        // changed pin, discards the switch, and reverts to the pin mid-session.
+        await sessionCache.refreshTtl(['appliedPinOrgId', 'appliedPinProjectId', 'activeOrgId', 'activeProjectId'])
+
         const pinChanged =
             (organizationId !== undefined && appliedPinOrg !== organizationId) ||
             (projectId !== undefined && appliedPinProject !== projectId)
