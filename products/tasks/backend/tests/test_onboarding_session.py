@@ -117,6 +117,9 @@ class TestOnboardingSessionIdempotency(TestCase):
             self.assertEqual(kwargs["client_provenance"], TaskClientProvenance.POSTHOG_DESKTOP)
             self.assertEqual(kwargs["model"], expected_model)
             self.assertTrue(kwargs["title_manually_set"])
+            self.assertIn("Use the canonical `posthog:exec` tool", kwargs["description"])
+            self.assertIn("Discover them with `search`", kwargs["description"])
+            self.assertIn("call channel-instructions-retrieve", kwargs["description"])
             self.assertEqual(set(kwargs["posthog_mcp_scopes"]), {*MCP_READ_SCOPES, "task:write"})
             self.assertFalse(
                 any(scope.endswith(":write") and scope != "task:write" for scope in kwargs["posthog_mcp_scopes"])
