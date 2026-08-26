@@ -1,0 +1,28 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "horizon_days": {
+            "description": "Override the template's default prediction horizon in days.",
+            "maximum": 365,
+            "minimum": 1,
+            "type": "number"
+        },
+        "target_event": {
+            "description": "Event or action name to use as the prediction target. Required for 'feature_adoption' and 'repeat_key_behavior'. Optional override for activity-based templates ('likely_active_soon', 'at_risk_of_inactivity', 'return_after_first_use') — omit to use the auto-resolved event.",
+            "type": "string"
+        },
+        "template_key": {
+            "description": "Template to resolve. Use autoresearch-templates-list to see all available templates with descriptions. Required.\n\n* `likely_active_soon` - likely_active_soon\n* `at_risk_of_inactivity` - at_risk_of_inactivity\n* `return_after_first_use` - return_after_first_use\n* `feature_adoption` - feature_adoption\n* `repeat_key_behavior` - repeat_key_behavior",
+            "enum": [
+                "likely_active_soon",
+                "at_risk_of_inactivity",
+                "return_after_first_use",
+                "feature_adoption",
+                "repeat_key_behavior"
+            ],
+            "type": "string"
+        }
+    },
+    "required": ["template_key"],
+    "type": "object"
+}

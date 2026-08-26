@@ -57,6 +57,13 @@
             "intents": ["llm_prompts"]
         },
         {
+            "path": "Autoresearch",
+            "category": "Unreleased",
+            "iconType": "experiment",
+            "type": "autoresearch",
+            "intents": ["autoresearch"]
+        },
+        {
             "path": "Business knowledge",
             "category": "AI engineering",
             "iconType": "conversations",

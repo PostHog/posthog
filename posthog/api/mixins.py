@@ -239,7 +239,29 @@ def validated_request(
                     serializer_class = response_serializer
                     serialized = response_serializer(data=data, context=context)
 
-                if not serialized.is_valid(raise_exception=strict_response_validation):
+                try:
+                    response_matches_serializer = serialized.is_valid(raise_exception=strict_response_validation)
+                except Exception as exc:
+                    # `is_valid` only converts DRF's own ValidationError into a return value, so an
+                    # exception raised while parsing the response escapes it. A DataclassSerializer
+                    # rebuilds its dataclass in `to_internal_value`, and read-only fields are absent
+                    # by then, so a pydantic dataclass raises here for a response that is perfectly
+                    # valid. Under DEBUG alone this check is advisory, so report it the way a
+                    # mismatch is reported rather than failing the request it is only inspecting.
+                    if strict_response_validation:
+                        raise
+                    logger.warning(
+                        "Response serializer could not parse the response it declared for status code "
+                        f"{status_code} in the responses parameter of the @validated_request decorator. "
+                        "The response was returned unchanged; check the declared serializer.",
+                        view_func=view_func.__name__,
+                        status_code=status_code,
+                        serializer_class=serializer_class.__name__,
+                        error=str(exc),
+                    )
+                    return result
+
+                if not response_matches_serializer:
                     logger.warning(
                         f"Response data does not match declared serializer for status code {status_code} declared in responses parameter of the @validated_request decorator. Please update the provided API schema to ensure API docs remain up to date",
                         view_func=view_func.__name__,

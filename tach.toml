@@ -82,6 +82,7 @@ depends_on = [
     "products.access_control",
     "products.analytics_platform",
     "products.approvals",
+    "products.autoresearch",
     "products.batch_exports",
     "products.billing_alerts",
     "products.business_knowledge",
@@ -181,6 +182,16 @@ depends_on = [
     "posthog",
     "products.feature_flags",
     "products.notifications", "products.access_control",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.autoresearch"
+depends_on = [
+    "posthog",
+    "products.actions",
+    "products.feature_flags",
+    "products.tasks",
 ]
 layer = "modules"
 
@@ -977,7 +988,7 @@ expose = [
     "backend\\.routes.*",
 ]
 from = [
-    "products\\.(customer_analytics|data_modeling|data_warehouse|demo|endpoints|error_tracking|experiments|managed_warehouse|mcp_analytics|mcp_store|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|user_interviews|visual_review|warehouse_sources)",
+    "products\\.(autoresearch|customer_analytics|data_modeling|data_warehouse|demo|endpoints|error_tracking|experiments|managed_warehouse|mcp_analytics|mcp_store|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|user_interviews|visual_review|warehouse_sources)",
 ]
 
 # TODO: Experiments-specific temporary interface

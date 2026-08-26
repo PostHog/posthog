@@ -1,0 +1,25 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "agent_response": {
+            "default": "",
+            "description": "Plain-English note on how the suggestion was interpreted and acted upon (or why it was dismissed).",
+            "maxLength": 2000,
+            "type": "string"
+        },
+        "id": {
+            "description": "A UUID string identifying this autoresearch suggestion.",
+            "type": "string"
+        },
+        "pipeline_id": {
+            "type": "string"
+        },
+        "status": {
+            "description": "How the agent handled the suggestion: 'picked_up' (applied as a search constraint), 'acted_on' (spawned one or more iterations), or 'dismissed' (rejected — explain why in agent_response).\n\n* `picked_up` - picked_up\n* `acted_on` - acted_on\n* `dismissed` - dismissed",
+            "enum": ["picked_up", "acted_on", "dismissed"],
+            "type": "string"
+        }
+    },
+    "required": ["id", "pipeline_id", "status"],
+    "type": "object"
+}

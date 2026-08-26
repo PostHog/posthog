@@ -1,0 +1,14 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "limit": {
+            "description": "Maximum number of prior runs to return (default 5, capped at 20).",
+            "type": "number"
+        },
+        "pipeline_id": {
+            "type": "string"
+        }
+    },
+    "required": ["pipeline_id"],
+    "type": "object"
+}

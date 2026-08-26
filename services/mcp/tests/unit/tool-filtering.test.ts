@@ -892,6 +892,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'experiment-flag-cleanup-pr',
                 'data-warehouse-scene',
                 'data-quality-checks',
+                'autoresearch',
                 'context-layer',
             ])
         )

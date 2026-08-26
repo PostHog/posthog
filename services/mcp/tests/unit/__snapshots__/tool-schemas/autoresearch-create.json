@@ -1,0 +1,85 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "cadence_days": {
+            "description": "Re-score the inference population every N days (1-365). Default: 1.",
+            "maximum": 365,
+            "minimum": 1,
+            "type": "number"
+        },
+        "description": {
+            "description": "Optional free-text description.",
+            "type": "string"
+        },
+        "horizon_days": {
+            "description": "Prediction horizon in days (1-365). The model predicts whether the target event occurs within this window.",
+            "maximum": 365,
+            "minimum": 1,
+            "type": "number"
+        },
+        "inference_population": {
+            "additionalProperties": {},
+            "description": "Inference population filter. Defaults to training_population if not set.",
+            "properties": {},
+            "type": "object"
+        },
+        "iteration_budget": {
+            "description": "Total training iterations allowed for the autoresearch loop (1-500). Default: 50.",
+            "maximum": 500,
+            "minimum": 1,
+            "type": "number"
+        },
+        "name": {
+            "description": "Display name for the pipeline.",
+            "maxLength": 255,
+            "type": "string"
+        },
+        "output_person_property": {
+            "description": "Person property name for the prediction score, e.g. 'predicted_p_pageview'. Auto-derived from target_event if omitted. Letters, digits, and _ $ . - only; must be unique among this project's non-archived pipelines.",
+            "maxLength": 255,
+            "type": "string"
+        },
+        "plateau_iterations": {
+            "description": "Stop training if no improvement in this many consecutive iterations. Default: 10.",
+            "maximum": 2147483647,
+            "minimum": -2147483648,
+            "type": "number"
+        },
+        "success_auc": {
+            "anyOf": [
+                {
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Target AUC threshold. Training stops early if reached. Default: 0.75."
+        },
+        "target_definition": {
+            "additionalProperties": {},
+            "description": "Omit (or pass {\"type\": \"event\"}) to predict target_event; pass {\"type\": \"action\", \"action_id\": N} to predict a PostHog action. No other shapes are accepted.",
+            "properties": {},
+            "type": "object"
+        },
+        "target_event": {
+            "description": "PostHog event name to predict, e.g. '$pageview' or 'signed_up'. Omit when predicting an action target (pass target_definition instead).",
+            "maxLength": 255,
+            "type": "string"
+        },
+        "training_lookback_days": {
+            "description": "How far back to look for training examples (7-730 days). Larger windows give more data but may include stale behavior. Default: 180.",
+            "maximum": 730,
+            "minimum": 7,
+            "type": "number"
+        },
+        "training_population": {
+            "additionalProperties": {},
+            "description": "Training population filter. Use {} for all identified users.",
+            "properties": {},
+            "type": "object"
+        }
+    },
+    "required": ["name"],
+    "type": "object"
+}
