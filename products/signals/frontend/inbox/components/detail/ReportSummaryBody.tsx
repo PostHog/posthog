@@ -43,17 +43,33 @@ interface ReportSummaryBodyProps {
     chartPlacements: ChartPlacements
     /** The Create PR action, rendered under the Solution section when the report offers it. */
     createPrAction?: ReportDetailAction
+    /**
+     * Says a pull request with the fix is open and links to it. Rendered under the Solution section, or after
+     * the body when the summary has no sections, so a report never hides that its fix already shipped.
+     */
+    pullRequestNote?: ReactNode
 }
 
 /**
  * The report summary as sections: the lead sentence, then Problem, Impact, and Solution under their
  * own headings. A summary without headings renders as one block of prose.
  */
-export function ReportSummaryBody({ summary, chartPlacements, createPrAction }: ReportSummaryBodyProps): JSX.Element {
+export function ReportSummaryBody({
+    summary,
+    chartPlacements,
+    createPrAction,
+    pullRequestNote,
+}: ReportSummaryBodyProps): JSX.Element {
     const parsed = useMemo(() => parseReportSummary(summary), [summary])
+    const hasSolutionSection = parsed.sections.some((section) => section.kind === 'solution')
 
     if (parsed.sections.length === 0) {
-        return <SummaryMarkdown markdown={parsed.lead} sourceOffset={0} chartPlacements={chartPlacements} />
+        return (
+            <div className="flex flex-col gap-6">
+                <SummaryMarkdown markdown={parsed.lead} sourceOffset={0} chartPlacements={chartPlacements} />
+                {pullRequestNote}
+            </div>
+        )
     }
 
     return (
@@ -74,6 +90,7 @@ export function ReportSummaryBody({ summary, chartPlacements, createPrAction }: 
                         sourceOffset={section.bodyOffset}
                         chartPlacements={chartPlacements}
                     />
+                    {section.kind === 'solution' && pullRequestNote && <div className="mt-2">{pullRequestNote}</div>}
                     {section.kind === 'solution' && createPrAction && (
                         <div className="mt-2">
                             <LemonButton
@@ -92,6 +109,7 @@ export function ReportSummaryBody({ summary, chartPlacements, createPrAction }: 
                     )}
                 </section>
             ))}
+            {!hasSolutionSection && pullRequestNote}
         </div>
     )
 }

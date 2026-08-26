@@ -7,8 +7,6 @@ import { LemonButton, LemonTabs, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
-import { ScoutLink } from 'lib/signals/ScoutLink'
-import { scoutDisplayName } from 'lib/signals/signalCardSourceLine'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { SignalNode } from 'scenes/debug/signals/types'
 import { urls } from 'scenes/urls'
@@ -16,7 +14,7 @@ import { urls } from 'scenes/urls'
 import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalCard } from '../../SignalCard'
-import { SignalReport, SignalReportStatus, SignalSourceProduct } from '../../types'
+import { SignalReport, SignalReportStatus } from '../../types'
 import {
     displayConventionalCommitTitle,
     parseConventionalCommitTitle,
@@ -27,12 +25,6 @@ import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabil
 import { SignalReportBillingBadge } from '../badges/SignalReportBillingBadge'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
 import { isStatusRedundantWithActionability, SignalReportStatusBadge } from '../badges/SignalReportStatusBadge'
-import {
-    hasKnownSourceProduct,
-    knownSourceProductEntries,
-    SourceProductIconRow,
-    sourceProductsTooltipTitle,
-} from '../badges/sourceProductIcons'
 import { ConventionalCommitScopeTag } from '../cards/ReportCard'
 import { CommitContent } from './artefactTypes'
 import { DetailSection } from './DetailSection'
@@ -81,99 +73,6 @@ export function ReportDetailBadges({
 /** Shared explainer for the signal count in the meta line and the Evidence section. */
 const SIGNALS_TOOLTIP =
     'Signals are the individual pieces of evidence from your connected sources and scouts that were grouped into this report.'
-
-/**
- * Dot-separated stats under the title (signal count · first seen · last updated · source stack).
- * `evidenceCount` switches to the live signal count once findings load, so the row reads the same
- * before and after the query resolves.
- */
-function ReportDetailStats({
-    report,
-    evidenceCount,
-    scoutSkillName,
-}: {
-    report: SignalReport
-    evidenceCount: number
-    /** Authoring scout's raw skill slug, when scout-authored — its name links to the scout off the "Scout" chip. */
-    scoutSkillName?: string | null
-}): JSX.Element {
-    const hasSource = hasKnownSourceProduct(report.source_products)
-
-    const stats: ReactNode[] = []
-    if (evidenceCount > 0) {
-        stats.push(
-            <Tooltip title={SIGNALS_TOOLTIP}>
-                <span className="tabular-nums cursor-help">
-                    {evidenceCount} signal{evidenceCount === 1 ? '' : 's'}
-                </span>
-            </Tooltip>
-        )
-    }
-    // Mirrors error tracking's "First seen" / "Last seen": surface both lifecycle moments as distinct facts.
-    stats.push(
-        <span className="flex items-center gap-1">
-            <span>First seen</span>
-            <TZLabel time={report.created_at} />
-        </span>
-    )
-    stats.push(
-        <span className="flex items-center gap-1">
-            <span>Last updated</span>
-            <TZLabel time={report.updated_at ?? report.created_at} />
-        </span>
-    )
-    if (hasSource) {
-        stats.push(<MetaSourceStack sourceProducts={report.source_products} scoutSkillName={scoutSkillName} />)
-    }
-
-    return (
-        <div className="flex items-center gap-2 flex-wrap min-w-0 text-xs text-tertiary leading-none select-none">
-            {stats.map((node, i) => (
-                <span key={i} className="flex items-center gap-2 min-w-0">
-                    {i > 0 && <span aria-hidden>·</span>}
-                    {node}
-                </span>
-            ))}
-        </div>
-    )
-}
-
-/** Source-product icon stack reused inside the detail meta row. */
-function MetaSourceStack({
-    sourceProducts,
-    scoutSkillName,
-}: {
-    sourceProducts?: string[] | null
-    scoutSkillName?: string | null
-}): JSX.Element | null {
-    const entries = knownSourceProductEntries(sourceProducts)
-    const [primary, ...overflow] = entries
-    if (!primary) {
-        return null
-    }
-    // Name the authoring scout on a scout-authored report so it's clear at a glance who wrote it,
-    // and link the name straight to the scout's detail page. The scout may not sort first among mixed
-    // sources, so key off whether any source is a scout rather than just the primary.
-    const scoutName = scoutDisplayName(scoutSkillName)
-    const showScout = entries.some(({ key }) => key === SignalSourceProduct.SignalsScout) && !!scoutName
-    return (
-        <Tooltip title={sourceProductsTooltipTitle(entries)}>
-            <span className="inline-flex items-center gap-1.5 min-w-0 cursor-help">
-                <SourceProductIconRow entries={entries} className="inline-flex items-center gap-1 shrink-0" />
-                <span>
-                    {primary.meta.label}
-                    {showScout && scoutSkillName ? (
-                        <>
-                            {' · '}
-                            <ScoutLink skillName={scoutSkillName} className="text-tertiary" />
-                        </>
-                    ) : null}
-                    {overflow.length > 0 ? ` + ${overflow.length}` : null}
-                </span>
-            </span>
-        </Tooltip>
-    )
-}
 
 /** Placeholder finding rows shown while the signals query is in flight, sized to the known count. */
 function EvidenceSkeleton({ count }: { count: number }): JSX.Element {
@@ -263,8 +162,10 @@ interface InboxDetailFrameProps {
     showFilesTab?: boolean
     /** Body of the "Files changed" tab (may be a skeleton while the commit artefact loads). */
     diffSection?: ReactNode
-    /** +/- line-count stat shown in the "Files changed" tab label. */
+    /** +/- line-count stat shown in the "Files changed" tab label and the report footer. */
     diffStat?: ReactNode
+    /** Note that a pull request with the fix is open, placed under the summary's Solution section. */
+    pullRequestNote?: ReactNode
     /** Extra sections (Tasks, Reviewers) – defaults applied by callers. */
     children?: ReactNode
 }
@@ -273,8 +174,9 @@ interface InboxDetailFrameProps {
  * Shared chrome for the Report and Pull request detail bodies. A back link and the actions sit on
  * one row over a bordered container: the evidence rail on the left (Evidence first, then the PR
  * checks, reviewers, runs, and activity), and the report summary on the right under its own
- * "Report summary" header with the title, billing chip, and stats. The status and actionability chips
- * stay off this header: the inbox section the report came from already says what they said.
+ * "Report summary" header. The title stands alone: the priority and the size of the change sit at the
+ * foot of the report beside the rating, and the status and actionability chips stay off the page
+ * because the inbox section the report came from already says what they said.
  * AgentRunDetail keeps its own layout.
  */
 export function InboxDetailFrame({
@@ -284,6 +186,7 @@ export function InboxDetailFrame({
     showFilesTab,
     diffSection,
     diffStat,
+    pullRequestNote,
     children,
 }: InboxDetailFrameProps): JSX.Element {
     const { searchParams } = useValues(router)
@@ -338,31 +241,16 @@ export function InboxDetailFrame({
         </span>
     )
 
-    // The report body: title, stats, summary, charts, and the rating. On a PR-bearing report it is the
-    // "Summary" tab; otherwise it sits under the "Report summary" header.
+    // The report body: title, summary, charts, then priority and change size beside the rating. On a
+    // PR-bearing report it is the "Summary" tab; otherwise it sits under the "Report summary" header.
     const summaryColumn = (
         <div className="flex flex-1 flex-col gap-6">
-            <header className="flex items-start gap-3 min-w-0">
-                {/* Priority square anchors the title. */}
-                {report.priority && (
-                    <div className="shrink-0 mt-1">
-                        <SignalReportPriorityBadge priority={report.priority} explanation={priorityExplanation} />
-                    </div>
+            <h1 className="min-w-0 m-0 break-words text-2xl font-bold leading-tight tracking-tight">
+                {conventionalTitle && (
+                    <ConventionalCommitScopeTag type={conventionalTitle.type} scope={conventionalTitle.scope} />
                 )}
-                <div className="flex flex-col gap-2 min-w-0">
-                    <h1 className="min-w-0 m-0 break-words text-2xl font-bold leading-tight tracking-tight">
-                        {conventionalTitle && (
-                            <ConventionalCommitScopeTag type={conventionalTitle.type} scope={conventionalTitle.scope} />
-                        )}
-                        {displayTitle}
-                    </h1>
-                    <ReportDetailStats
-                        report={report}
-                        evidenceCount={evidenceCount}
-                        scoutSkillName={report.scout_name}
-                    />
-                </div>
-            </header>
+                {displayTitle}
+            </h1>
 
             <div>
                 {report.summary ? (
@@ -370,6 +258,7 @@ export function InboxDetailFrame({
                         summary={report.summary}
                         chartPlacements={chartPlacements}
                         createPrAction={createPrAction}
+                        pullRequestNote={pullRequestNote}
                     />
                 ) : (
                     <p className={`text-sm text-tertiary m-0${summaryPending ? ' italic' : ''}`}>
@@ -384,9 +273,30 @@ export function InboxDetailFrame({
                     </div>
                 )}
             </div>
-            {/* The rating closes out the report body, pinned to the bottom of the column. */}
-            <div className="mt-auto">
-                <ReportFeedbackFooter report={report} align="end" />
+            {/* Priority and the size of the change close out the report beside the rating, pinned to the
+                bottom of the column. The stat opens the diff, so the number is a way in, not just a label. */}
+            <div className="mt-auto flex flex-wrap items-start justify-between gap-4">
+                <div className="flex items-center gap-2 pt-1">
+                    {report.priority && (
+                        <SignalReportPriorityBadge priority={report.priority} explanation={priorityExplanation} />
+                    )}
+                    {showFilesTab && diffStat && (
+                        <LemonButton
+                            size="xsmall"
+                            type="tertiary"
+                            onClick={() => setDetailTab('files')}
+                            data-attr="inbox-report-footer-files-changed"
+                        >
+                            <span className="flex items-center gap-1.5 text-tertiary">
+                                <span>Files changed</span>
+                                {diffStat}
+                            </span>
+                        </LemonButton>
+                    )}
+                </div>
+                <div className="min-w-0 flex-1">
+                    <ReportFeedbackFooter report={report} align="end" />
+                </div>
             </div>
         </div>
     )
@@ -559,6 +469,31 @@ function prFilesUrl(prUrl: string): string {
     return prUrl.replace(/\/+$/, '').replace(/(\/files)?$/, '/files')
 }
 
+/** The "Open in GitHub" button, shared by the page header and the summary's pull request note. */
+function OpenPullRequestButton({
+    report,
+    prUrl,
+    prRef,
+}: {
+    report: SignalReport
+    prUrl: string
+    prRef: NonNullable<ReturnType<typeof parsePrUrlParts>>
+}): JSX.Element {
+    return (
+        <LemonButton
+            type="primary"
+            size="small"
+            sideIcon={<IconExternal />}
+            to={prFilesUrl(prUrl)}
+            targetBlank
+            tooltip={`${prRef.repoSlug}#${prRef.number}`}
+            onClick={() => captureInboxReportAction({ report, actionType: 'open_pr', surface: 'detail_pane' })}
+        >
+            Open in GitHub
+        </LemonButton>
+    )
+}
+
 /**
  * Unified report detail for Pull requests / Reports / Not actionable. The "Open in GitHub" action
  * surfaces only when the report has a shipped implementation PR; otherwise it reads as a plain
@@ -597,20 +532,19 @@ export function ReportDetail({ report }: { report: SignalReport }): JSX.Element 
                 ) : undefined
             }
             primaryAction={
-                hasPr ? (
-                    <LemonButton
-                        type="primary"
-                        size="small"
-                        sideIcon={<IconExternal />}
-                        to={prFilesUrl(prUrl)}
-                        targetBlank
-                        tooltip={`${prRef.repoSlug}#${prRef.number}`}
-                        onClick={() =>
-                            captureInboxReportAction({ report, actionType: 'open_pr', surface: 'detail_pane' })
-                        }
-                    >
-                        Open in GitHub
-                    </LemonButton>
+                prRef && prUrl ? <OpenPullRequestButton report={report} prUrl={prUrl} prRef={prRef} /> : undefined
+            }
+            pullRequestNote={
+                prRef && prUrl ? (
+                    <div className="flex flex-wrap items-center gap-3" data-attr="inbox-report-solution-pr-note">
+                        <span className="text-sm text-secondary">
+                            A pull request with this fix is open:{' '}
+                            <span className="font-mono">
+                                {prRef.repoSlug}#{prRef.number}
+                            </span>
+                        </span>
+                        <OpenPullRequestButton report={report} prUrl={prUrl} prRef={prRef} />
+                    </div>
                 ) : undefined
             }
             // The PR conversation closes the evidence rail, under Activity; CI checks sit higher in
