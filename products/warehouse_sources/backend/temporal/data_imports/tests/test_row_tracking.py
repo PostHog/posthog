@@ -30,6 +30,8 @@ from products.warehouse_sources.backend.temporal.data_imports.row_tracking impor
     will_hit_billing_limit,
 )
 
+from ee.billing.billing_manager import handle_billing_service_error
+
 
 class TestRowTrackingRedisUnavailable(BaseTest):
     @parameterized.expand(
@@ -353,6 +355,12 @@ class TestRowTracking(BaseTest):
 
         mock_capture_exception.assert_not_called()
 
+    @staticmethod
+    def _billing_service_bad_status_response(status_code: int) -> mock.Mock:
+        response = mock.Mock(status_code=status_code, text="")
+        response.json.side_effect = requests.exceptions.JSONDecodeError("Expecting value", "", 0)
+        return response
+
     @parameterized.expand([("request_timeout", 408), ("bad_gateway", 502), ("service_unavailable", 503)])
     @pytest.mark.asyncio
     async def test_row_tracking_fails_open_on_transient_billing_service_status_without_capturing_exception(
@@ -360,10 +368,11 @@ class TestRowTracking(BaseTest):
     ):
         # handle_billing_service_error() raises a plain Exception (not a requests error)
         # for a bad billing response, so a billing-service-side timeout or gateway error
-        # doesn't match the requests.exceptions.RequestException case above. It must still
-        # fail open like any other billing-check error without being reported to error
-        # tracking.
+        # doesn't match the requests.exceptions.RequestException case above. Going through
+        # the real handle_billing_service_error() (rather than a hand-crafted Exception)
+        # guards against the fix's exception-message matching drifting out of sync with it.
         source = await self._create_source()
+        response = self._billing_service_bad_status_response(status_code)
 
         with (
             mock.patch("ee.billing.billing_manager.BillingManager.get_billing") as mock_get_billing,
@@ -371,7 +380,7 @@ class TestRowTracking(BaseTest):
                 "products.warehouse_sources.backend.temporal.data_imports.row_tracking.capture_exception"
             ) as mock_capture_exception,
         ):
-            mock_get_billing.side_effect = Exception(f"Billing service returned bad status code: {status_code}")
+            mock_get_billing.side_effect = lambda *args, **kwargs: handle_billing_service_error(response)
 
             assert await self._run(source, 10) is False
 
@@ -382,6 +391,7 @@ class TestRowTracking(BaseTest):
         # A bad status code outside the known-transient set (e.g. a validation error)
         # still indicates a real bug worth investigating, so it must keep being reported.
         source = await self._create_source()
+        response = self._billing_service_bad_status_response(400)
 
         with (
             mock.patch("ee.billing.billing_manager.BillingManager.get_billing") as mock_get_billing,
@@ -389,7 +399,7 @@ class TestRowTracking(BaseTest):
                 "products.warehouse_sources.backend.temporal.data_imports.row_tracking.capture_exception"
             ) as mock_capture_exception,
         ):
-            mock_get_billing.side_effect = Exception("Billing service returned bad status code: 400")
+            mock_get_billing.side_effect = lambda *args, **kwargs: handle_billing_service_error(response)
 
             assert await self._run(source, 10) is False
 
