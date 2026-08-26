@@ -32,7 +32,10 @@ __all__ = [
     "DuckLakeTableResult",
     "DucklingTables",
     "ManagedWarehouseBackfillState",
+    "ManagedWarehouseModeledTable",
     "ManagedWarehousePostgresConnection",
+    "ManagedWarehousePublishedTableRecord",
+    "ManagedWarehousePublishedTableStatus",
     "ManagedWarehouseProvisionStatus",
     "ManagedWarehouseSourceAuth",
     "ManagedWarehouseSourceJobRecord",
@@ -206,6 +209,36 @@ class ManagedWarehouseBackfillState:
 
     has_backfill: bool
     table_suffix: str | None
+
+
+@frozen
+class ManagedWarehouseModeledTable:
+    schema_name: str
+    table_name: str
+
+
+class ManagedWarehousePublishedTableStatus(StrEnum):
+    PENDING = "pending"
+    PUBLISHING = "publishing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+@frozen
+class ManagedWarehousePublishedTableRecord:
+    id: UUID
+    saved_query_id: UUID | None
+    team_id: int
+    source_schema_name: str
+    source_table_name: str
+    name: str
+    status: ManagedWarehousePublishedTableStatus
+    last_published_at: datetime | None
+    last_error: str | None
+    row_count: int | None
+    folder_version: str | None
+    table_id: UUID | None
+    deleted: bool
 
 
 class ManagedWarehouseSourceJobWorkflow(StrEnum):

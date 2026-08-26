@@ -1,10 +1,21 @@
 import pytest
 from unittest.mock import patch
 
-from posthog.models import Organization
+from posthog.models import Organization, Team
 
-from products.managed_warehouse.backend.facade.api import get_duckgres_query_server_config, get_stored_warehouse_config
-from products.managed_warehouse.backend.facade.contracts import DuckgresStoredServerConfig
+from products.managed_warehouse.backend.facade.api import (
+    create_managed_warehouse_published_table,
+    get_duckgres_query_server_config,
+    get_managed_warehouse_published_table,
+    get_stored_warehouse_config,
+    list_managed_warehouse_published_tables,
+    managed_warehouse_published_table_name_exists,
+    mark_managed_warehouse_published_table_deleted,
+)
+from products.managed_warehouse.backend.facade.contracts import (
+    DuckgresStoredServerConfig,
+    ManagedWarehousePublishedTableRecord,
+)
 from products.managed_warehouse.backend.models import DuckgresServer
 
 
@@ -58,3 +69,34 @@ def test_stored_warehouse_config_maps_connection_and_catalog_without_returning_t
     assert stored.bucket is not None
     assert stored.bucket.bucket == "managed-warehouse-bucket"
     assert not hasattr(stored, "save")
+
+
+@pytest.mark.django_db
+def test_published_table_facade_keeps_every_capability_team_scoped() -> None:
+    organization = Organization.objects.create(name="Publication facade")
+    first_team = Team.objects.create(organization=organization)
+    second_team = Team.objects.create(organization=organization)
+    first_publication = create_managed_warehouse_published_table(
+        team_id=first_team.id,
+        source_schema_name="main",
+        source_table_name="first_table",
+        name="first_table",
+    )
+    second_publication = create_managed_warehouse_published_table(
+        team_id=second_team.id,
+        source_schema_name="main",
+        source_table_name="second_table",
+        name="second_table",
+    )
+
+    assert isinstance(first_publication, ManagedWarehousePublishedTableRecord)
+    assert list_managed_warehouse_published_tables(first_team.id) == [first_publication]
+    assert get_managed_warehouse_published_table(first_team.id, second_publication.id) is None
+    assert not managed_warehouse_published_table_name_exists(first_team.id, second_publication.name)
+    assert not mark_managed_warehouse_published_table_deleted(first_team.id, second_publication.id)
+
+    assert mark_managed_warehouse_published_table_deleted(first_team.id, first_publication.id)
+    assert list_managed_warehouse_published_tables(first_team.id) == []
+    deleted_publication = get_managed_warehouse_published_table(first_team.id, first_publication.id)
+    assert deleted_publication is not None
+    assert deleted_publication.deleted

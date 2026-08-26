@@ -506,6 +506,57 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert "DELETED" not in serialized_database
         assert "DELETED" not in database._view_table_names
 
+    def test_managed_warehouse_saved_query_without_table_is_omitted(self):
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="pending_publication",
+            query={
+                "kind": "ManagedWarehouseSource",
+                "source_schema_name": f"posthog_data_modeling_team_{self.team.pk}",
+                "source_table_name": "customer_arr",
+            },
+            origin=DataWarehouseSavedQuery.Origin.MANAGED_WAREHOUSE,
+            status=DataWarehouseSavedQuery.Status.RUNNING,
+        )
+
+        database = Database.create_for(team=self.team)
+        serialized_database = database.serialize(HogQLContext(team_id=self.team.pk, database=database))
+
+        assert not database.has_table("pending_publication")
+        assert "pending_publication" not in serialized_database
+
+    def test_serialize_managed_warehouse_saved_query_as_warehouse_table(self):
+        table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="published_customer_arr",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            url_pattern="https://example.com/published_customer_arr/**.parquet",
+            columns={"id": "String"},
+            row_count=7,
+        )
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="published_customer_arr",
+            query={
+                "kind": "ManagedWarehouseSource",
+                "source_schema_name": f"posthog_data_modeling_team_{self.team.pk}",
+                "source_table_name": "customer_arr",
+            },
+            origin=DataWarehouseSavedQuery.Origin.MANAGED_WAREHOUSE,
+            status=DataWarehouseSavedQuery.Status.COMPLETED,
+            table=table,
+            columns={"id": "String"},
+        )
+
+        database = Database.create_for(team=self.team)
+        serialized_database = database.serialize(HogQLContext(team_id=self.team.pk, database=database))
+
+        serialized = serialized_database["published_customer_arr"]
+        assert isinstance(serialized, DatabaseSchemaDataWarehouseTable)
+        assert serialized.id == str(saved_query.id)
+        assert serialized.row_count == 7
+        assert serialized.url_pattern == table.url_pattern
+
     def test_serialize_database_warehouse_table_s3_with_unknown_field(self):
         credentials = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
         DataWarehouseTable.objects.create(

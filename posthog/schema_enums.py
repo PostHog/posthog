@@ -912,6 +912,7 @@ class DataTableNodeViewPropsContextType(StrEnum):
 class DataWarehouseSavedQueryOrigin(StrEnum):
     DATA_WAREHOUSE = "data_warehouse"
     ENDPOINT = "endpoint"
+    MANAGED_WAREHOUSE = "managed_warehouse"
     MANAGED_VIEWSET = "managed_viewset"
 
 

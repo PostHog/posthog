@@ -1347,6 +1347,20 @@ class Database(BaseModel):
                 )
                 continue
 
+            if saved_query.origin == DataWarehouseSavedQuery.Origin.MANAGED_WAREHOUSE:
+                if saved_query.table is None:
+                    continue
+                tables[view_name] = DatabaseSchemaDataWarehouseTable(
+                    fields=fields_dict,
+                    id=str(saved_query.pk),
+                    name=view_name,
+                    format=saved_query.table.format,
+                    url_pattern=saved_query.table.url_pattern,
+                    row_count=row_count,
+                    certification=certifications_by_saved_query_id.get(str(saved_query.pk)),
+                )
+                continue
+
             tables[view_name] = DatabaseSchemaViewTable(
                 fields=fields_dict,
                 id=str(saved_query.pk),
@@ -1906,6 +1920,11 @@ class Database(BaseModel):
         with timings.measure("data_warehouse_saved_query", emit_span=True):
             for saved_query in sources.saved_queries:
                 with timings.measure(f"saved_query_{saved_query.name}"):
+                    if (
+                        saved_query.origin == DataWarehouseSavedQuery.Origin.MANAGED_WAREHOUSE
+                        and saved_query.table is None
+                    ):
+                        continue
                     if (
                         sources.is_hogql_warehouse_access_control_enabled
                         and not sources.bypass_warehouse_access_control

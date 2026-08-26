@@ -12,6 +12,9 @@ from datetime import date
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+from django.db.models import Q
+from django.utils import timezone
+
 from products.managed_warehouse.backend import common, storage
 from products.managed_warehouse.backend.common import (
     DUCKGRES_BUCKET_REGION,
@@ -25,12 +28,14 @@ from products.managed_warehouse.backend.facade.contracts import (
     DuckLakeCatalogConnectionConfig,
     ManagedWarehouseBackfillState,
     ManagedWarehouseProvisionStatus,
+    ManagedWarehousePublishedTableRecord,
+    ManagedWarehousePublishedTableStatus,
 )
 
 if TYPE_CHECKING:
     import psycopg
 
-    from products.managed_warehouse.backend.models import DuckgresServer
+    from products.managed_warehouse.backend.models import DuckgresServer, ManagedWarehousePublishedTable
     from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
 __all__ = [
@@ -42,6 +47,8 @@ __all__ = [
     "duckgres_data_imports_schema",
     "duckgres_data_imports_table_name",
     "duckgres_data_modeling_schema",
+    "ducklake_data_modeling_schema",
+    "ducklake_data_modeling_schema_team_id",
     "get_catalog_connection_config",
     "get_control_plane_bucket",
     "get_duckgres_query_server_config",
@@ -51,15 +58,24 @@ __all__ = [
     "get_stored_warehouse_config",
     "get_team_backfill_state",
     "get_warehouse_provision_status",
+    "get_managed_warehouse_published_table",
+    "get_managed_warehouse_published_table_for_update",
     "has_provisioned_warehouse",
     "is_dev_mode",
+    "is_publishable_table",
     "organization_is_pending_deletion",
     "persist_duckgres_server_for_org",
+    "create_managed_warehouse_published_table",
+    "list_managed_warehouse_published_tables",
+    "managed_warehouse_published_table_name_exists",
+    "mark_managed_warehouse_published_table_deleted",
     "reconcile_stored_bucket_config",
     "resolve_team_earliest_event_date",
+    "sanitize_ducklake_identifier",
     "setup_duckgres_session",
     "update_team_earliest_event_date",
     "validate_schema_name",
+    "validate_duckgres_identifier",
 ]
 
 
@@ -91,9 +107,43 @@ def _to_stored_server_config(server: DuckgresServer) -> DuckgresStoredServerConf
     )
 
 
+def _to_published_table_record(
+    publication: ManagedWarehousePublishedTable,
+) -> ManagedWarehousePublishedTableRecord:
+    return ManagedWarehousePublishedTableRecord(
+        id=publication.id,
+        saved_query_id=publication.saved_query_id,
+        team_id=publication.team_id,
+        source_schema_name=publication.source_schema_name,
+        source_table_name=publication.source_table_name,
+        name=publication.name,
+        status=ManagedWarehousePublishedTableStatus(publication.status),
+        last_published_at=publication.last_published_at,
+        last_error=publication.last_error,
+        row_count=publication.row_count,
+        folder_version=publication.folder_version,
+        table_id=publication.table_id,
+        deleted=publication.deleted,
+    )
+
+
 def is_dev_mode() -> bool:
     """Whether Duckgres runs in the env-var-configured local mode."""
     return common.is_dev_mode()
+
+
+def sanitize_ducklake_identifier(raw: str, *, default_prefix: str) -> str:
+    return common.sanitize_ducklake_identifier(raw, default_prefix=default_prefix)
+
+
+def validate_duckgres_identifier(identifier: str) -> None:
+    common.validate_duckgres_identifier(identifier)
+
+
+def is_publishable_table(schema_name: str, table_name: str, *, reserved_table_names: frozenset[str]) -> bool:
+    from products.managed_warehouse.backend.publish import is_publishable_table as is_publishable  # noqa: PLC0415
+
+    return is_publishable(schema_name, table_name, reserved_table_names=reserved_table_names)
 
 
 def default_bucket_region() -> str:
@@ -123,6 +173,78 @@ def has_provisioned_warehouse(organization_id: str | UUID) -> bool:
     from products.managed_warehouse.backend.models import DuckgresServer  # noqa: PLC0415
 
     return DuckgresServer.objects.filter(organization_id=organization_id).exists()
+
+
+def create_managed_warehouse_published_table(
+    *,
+    team_id: int,
+    source_schema_name: str,
+    source_table_name: str,
+    name: str,
+    saved_query_id: UUID | None = None,
+    created_by_id: int | None = None,
+) -> ManagedWarehousePublishedTableRecord:
+    from products.managed_warehouse.backend.models import ManagedWarehousePublishedTable  # noqa: PLC0415
+
+    publication = ManagedWarehousePublishedTable.objects.for_team(team_id).create(
+        team_id=team_id,
+        source_schema_name=source_schema_name,
+        source_table_name=source_table_name,
+        name=name,
+        saved_query_id=saved_query_id,
+        created_by_id=created_by_id,
+    )
+    return _to_published_table_record(publication)
+
+
+def get_managed_warehouse_published_table(
+    team_id: int, publication_id: UUID | str
+) -> ManagedWarehousePublishedTableRecord | None:
+    from products.managed_warehouse.backend.models import ManagedWarehousePublishedTable  # noqa: PLC0415
+
+    publication = (
+        ManagedWarehousePublishedTable.objects.for_team(team_id)
+        .filter(Q(id=publication_id) | Q(saved_query_id=publication_id))
+        .first()
+    )
+    return _to_published_table_record(publication) if publication is not None else None
+
+
+def get_managed_warehouse_published_table_for_update(
+    team_id: int, publication_id: UUID | str
+) -> ManagedWarehousePublishedTableRecord | None:
+    from products.managed_warehouse.backend.models import ManagedWarehousePublishedTable  # noqa: PLC0415
+
+    publication = (
+        ManagedWarehousePublishedTable.objects.for_team(team_id)
+        .select_for_update()
+        .filter(Q(id=publication_id) | Q(saved_query_id=publication_id))
+        .first()
+    )
+    return _to_published_table_record(publication) if publication is not None else None
+
+
+def list_managed_warehouse_published_tables(team_id: int) -> list[ManagedWarehousePublishedTableRecord]:
+    from products.managed_warehouse.backend.models import ManagedWarehousePublishedTable  # noqa: PLC0415
+
+    publications = ManagedWarehousePublishedTable.objects.for_team(team_id).filter(deleted=False).order_by("name")
+    return [_to_published_table_record(publication) for publication in publications]
+
+
+def managed_warehouse_published_table_name_exists(team_id: int, name: str) -> bool:
+    from products.managed_warehouse.backend.models import ManagedWarehousePublishedTable  # noqa: PLC0415
+
+    return ManagedWarehousePublishedTable.objects.for_team(team_id).filter(name=name, deleted=False).exists()
+
+
+def mark_managed_warehouse_published_table_deleted(team_id: int, publication_id: UUID | str) -> bool:
+    from products.managed_warehouse.backend.models import ManagedWarehousePublishedTable  # noqa: PLC0415
+
+    return bool(
+        ManagedWarehousePublishedTable.objects.for_team(team_id)
+        .filter(Q(id=publication_id) | Q(saved_query_id=publication_id), deleted=False)
+        .update(deleted=True, updated_at=timezone.now())
+    )
 
 
 def get_duckgres_query_server_config(organization_id: str) -> DuckgresQueryServerConfig:
@@ -220,6 +342,14 @@ def duckgres_data_imports_table_name(schema: ExternalDataSchema) -> str:
 
 def duckgres_data_modeling_schema(team_id: int) -> str:
     return common.duckgres_data_modeling_schema(team_id)
+
+
+def ducklake_data_modeling_schema(team_id: int) -> str:
+    return common.ducklake_data_modeling_schema(team_id)
+
+
+def ducklake_data_modeling_schema_team_id(schema_name: str) -> int | None:
+    return common.ducklake_data_modeling_schema_team_id(schema_name)
 
 
 def validate_schema_name(name: str | None) -> str | None:

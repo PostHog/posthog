@@ -237,6 +237,7 @@ rules:
                               |LLMSkillOwner
                               |LLMTraceSummary
                               |ManagedWarehouseBackfillPartition
+                              |ManagedWarehousePublishedTable
                               |ManagedWarehouseSourceJob
                               |MarketingAnalyticsGoalMapping
                               |Meeting
@@ -604,6 +605,7 @@ rules:
                         |LLMSkillOwner
                         |LLMTraceSummary
                         |ManagedWarehouseBackfillPartition
+                        |ManagedWarehousePublishedTable
                         |ManagedWarehouseSourceJob
                         |MarketingAnalyticsGoalMapping
                         |Meeting

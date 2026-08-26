@@ -5,6 +5,7 @@ from django.apps import apps
 
 from parameterized import parameterized
 from psycopg import sql as psql
+from psycopg.conninfo import conninfo_to_dict
 
 from posthog.schema import HogQLQuery, HogQLVariable
 
@@ -351,6 +352,30 @@ class TestExecuteDuckLakeQuery:
         assert result.results == [["$pageview", 42]]
         assert result.sql == "SELECT event, count(*) FROM events"
         assert result.hogql is None
+
+    @mock.patch("products.managed_warehouse.backend.client.psycopg")
+    @mock.patch("products.managed_warehouse.backend.client.is_dev_mode", return_value=True)
+    def test_optional_timeouts_are_added_to_connection(
+        self, _mock_dev_mode: mock.MagicMock, mock_psycopg: mock.MagicMock
+    ) -> None:
+        mock_cursor = mock.MagicMock(description=[])
+        mock_cursor.fetchall.return_value = []
+        mock_conn = mock.MagicMock()
+        mock_conn.cursor.return_value.__enter__ = mock.Mock(return_value=mock_cursor)
+        mock_conn.cursor.return_value.__exit__ = mock.Mock(return_value=False)
+        mock_psycopg.connect.return_value.__enter__ = mock.Mock(return_value=mock_conn)
+        mock_psycopg.connect.return_value.__exit__ = mock.Mock(return_value=False)
+
+        execute_ducklake_query(
+            1,
+            sql="SELECT 1",
+            connect_timeout_seconds=5,
+            statement_timeout_seconds=7,
+        )
+
+        conninfo = conninfo_to_dict(mock_psycopg.connect.call_args.args[0])
+        assert conninfo["connect_timeout"] == "5"
+        assert conninfo["options"] == "-c statement_timeout=7000"
 
     @mock.patch("products.managed_warehouse.backend.client.psycopg")
     @mock.patch("products.managed_warehouse.backend.client.is_dev_mode", return_value=True)

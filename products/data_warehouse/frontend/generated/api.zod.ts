@@ -24,6 +24,40 @@ export const DataWarehouseDataQualityGatePartialUpdateBody = /* @__PURE__ */ zod
     .describe('The team-level materialization gate. Checks always run and warn; this only toggles blocking.')
 
 /**
+ * Copy a modeled Duckgres table into the ClickHouse-queryable PostHog data warehouse.
+ * @summary Publish a managed warehouse table
+ */
+export const dataWarehouseManagedWarehousePublishTableCreateBodySourceSchemaNameMax = 63
+
+export const dataWarehouseManagedWarehousePublishTableCreateBodySourceTableNameMax = 63
+
+export const dataWarehouseManagedWarehousePublishTableCreateBodyNameMax = 128
+
+export const DataWarehouseManagedWarehousePublishTableCreateBody = /* @__PURE__ */ zod.object({
+    source_schema_name: zod
+        .string()
+        .max(dataWarehouseManagedWarehousePublishTableCreateBodySourceSchemaNameMax)
+        .describe('Duckgres schema containing the modeled table.'),
+    source_table_name: zod
+        .string()
+        .max(dataWarehouseManagedWarehousePublishTableCreateBodySourceTableNameMax)
+        .describe('Modeled Duckgres table to publish.'),
+    name: zod
+        .string()
+        .max(dataWarehouseManagedWarehousePublishTableCreateBodyNameMax)
+        .optional()
+        .describe('Warehouse table name in PostHog. Defaults to <schema>_<table>.'),
+})
+
+/**
+ * Copy a fresh snapshot of an already-published modeled Duckgres table.
+ * @summary Republish a managed warehouse table
+ */
+export const DataWarehouseManagedWarehouseRepublishTableCreateBody = /* @__PURE__ */ zod.object({
+    id: zod.uuid().describe('Publication ID for the published table.'),
+})
+
+/**
  * Onboard this project onto the organization's existing managed warehouse.
  *
  * Requires a schema name and records the project's membership in the Duckgres control plane.
@@ -439,7 +473,7 @@ export const WarehouseExpressionsPartialUpdateBody = /* @__PURE__ */ zod.object(
  */
 export const warehouseSavedQueriesCreateBodyNameMax = 128
 
-export const warehouseSavedQueriesCreateBodyQueryKindDefault = `HogQLQuery`
+export const warehouseSavedQueriesCreateBodyQueryOneKindDefault = `HogQLQuery`
 export const warehouseSavedQueriesCreateBodyIncrementalOneEnabledDefault = false
 export const warehouseSavedQueriesCreateBodyIncrementalOneLookbackSecondsDefault = 0
 export const warehouseSavedQueriesCreateBodyIncrementalOneLookbackSecondsMin = 0
@@ -455,12 +489,19 @@ export const WarehouseSavedQueriesCreateBody = /* @__PURE__ */ zod
                 'Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.'
             ),
         query: zod
-            .object({
-                kind: zod.enum(['HogQLQuery']).default(warehouseSavedQueriesCreateBodyQueryKindDefault),
-                query: zod.string(),
-            })
+            .union([
+                zod.object({
+                    kind: zod.enum(['HogQLQuery']).default(warehouseSavedQueriesCreateBodyQueryOneKindDefault),
+                    query: zod.string(),
+                }),
+                zod.object({
+                    kind: zod.enum(['ManagedWarehouseSource']),
+                    source_schema_name: zod.string(),
+                    source_table_name: zod.string(),
+                }),
+            ])
             .describe(
-                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key (always \"HogQLQuery\"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {\"kind\": \"HogQLQuery\", \"query\": \"SELECT\\n    event,\\n    count() AS cnt\\nFROM events\\nGROUP BY event\\nLIMIT 100\"}'
+                'Query definition. User-created views use {\"kind\": \"HogQLQuery\", \"query\": \"...\"}. Published tables use a read-only managed warehouse source definition.'
             ),
         incremental: zod
             .union([
@@ -539,7 +580,7 @@ export const WarehouseSavedQueriesCreateBody = /* @__PURE__ */ zod
  */
 export const warehouseSavedQueriesUpdateBodyNameMax = 128
 
-export const warehouseSavedQueriesUpdateBodyQueryKindDefault = `HogQLQuery`
+export const warehouseSavedQueriesUpdateBodyQueryOneKindDefault = `HogQLQuery`
 export const warehouseSavedQueriesUpdateBodyIncrementalOneEnabledDefault = false
 export const warehouseSavedQueriesUpdateBodyIncrementalOneLookbackSecondsDefault = 0
 export const warehouseSavedQueriesUpdateBodyIncrementalOneLookbackSecondsMin = 0
@@ -555,12 +596,19 @@ export const WarehouseSavedQueriesUpdateBody = /* @__PURE__ */ zod
                 'Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.'
             ),
         query: zod
-            .object({
-                kind: zod.enum(['HogQLQuery']).default(warehouseSavedQueriesUpdateBodyQueryKindDefault),
-                query: zod.string(),
-            })
+            .union([
+                zod.object({
+                    kind: zod.enum(['HogQLQuery']).default(warehouseSavedQueriesUpdateBodyQueryOneKindDefault),
+                    query: zod.string(),
+                }),
+                zod.object({
+                    kind: zod.enum(['ManagedWarehouseSource']),
+                    source_schema_name: zod.string(),
+                    source_table_name: zod.string(),
+                }),
+            ])
             .describe(
-                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key (always \"HogQLQuery\"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {\"kind\": \"HogQLQuery\", \"query\": \"SELECT\\n    event,\\n    count() AS cnt\\nFROM events\\nGROUP BY event\\nLIMIT 100\"}'
+                'Query definition. User-created views use {\"kind\": \"HogQLQuery\", \"query\": \"...\"}. Published tables use a read-only managed warehouse source definition.'
             ),
         incremental: zod
             .union([
@@ -639,7 +687,7 @@ export const WarehouseSavedQueriesUpdateBody = /* @__PURE__ */ zod
  */
 export const warehouseSavedQueriesPartialUpdateBodyNameMax = 128
 
-export const warehouseSavedQueriesPartialUpdateBodyQueryKindDefault = `HogQLQuery`
+export const warehouseSavedQueriesPartialUpdateBodyQueryOneKindDefault = `HogQLQuery`
 export const warehouseSavedQueriesPartialUpdateBodyIncrementalOneEnabledDefault = false
 export const warehouseSavedQueriesPartialUpdateBodyIncrementalOneLookbackSecondsDefault = 0
 export const warehouseSavedQueriesPartialUpdateBodyIncrementalOneLookbackSecondsMin = 0
@@ -656,13 +704,20 @@ export const WarehouseSavedQueriesPartialUpdateBody = /* @__PURE__ */ zod
                 'Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.'
             ),
         query: zod
-            .object({
-                kind: zod.enum(['HogQLQuery']).default(warehouseSavedQueriesPartialUpdateBodyQueryKindDefault),
-                query: zod.string(),
-            })
+            .union([
+                zod.object({
+                    kind: zod.enum(['HogQLQuery']).default(warehouseSavedQueriesPartialUpdateBodyQueryOneKindDefault),
+                    query: zod.string(),
+                }),
+                zod.object({
+                    kind: zod.enum(['ManagedWarehouseSource']),
+                    source_schema_name: zod.string(),
+                    source_table_name: zod.string(),
+                }),
+            ])
             .optional()
             .describe(
-                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key (always \"HogQLQuery\"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {\"kind\": \"HogQLQuery\", \"query\": \"SELECT\\n    event,\\n    count() AS cnt\\nFROM events\\nGROUP BY event\\nLIMIT 100\"}'
+                'Query definition. User-created views use {\"kind\": \"HogQLQuery\", \"query\": \"...\"}. Published tables use a read-only managed warehouse source definition.'
             ),
         incremental: zod
             .union([
@@ -745,7 +800,7 @@ export const WarehouseSavedQueriesPartialUpdateBody = /* @__PURE__ */ zod
  */
 export const warehouseSavedQueriesAncestorsCreateBodyNameMax = 128
 
-export const warehouseSavedQueriesAncestorsCreateBodyQueryKindDefault = `HogQLQuery`
+export const warehouseSavedQueriesAncestorsCreateBodyQueryOneKindDefault = `HogQLQuery`
 export const warehouseSavedQueriesAncestorsCreateBodyIncrementalOneEnabledDefault = false
 export const warehouseSavedQueriesAncestorsCreateBodyIncrementalOneLookbackSecondsDefault = 0
 export const warehouseSavedQueriesAncestorsCreateBodyIncrementalOneLookbackSecondsMin = 0
@@ -761,12 +816,19 @@ export const WarehouseSavedQueriesAncestorsCreateBody = /* @__PURE__ */ zod
                 'Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.'
             ),
         query: zod
-            .object({
-                kind: zod.enum(['HogQLQuery']).default(warehouseSavedQueriesAncestorsCreateBodyQueryKindDefault),
-                query: zod.string(),
-            })
+            .union([
+                zod.object({
+                    kind: zod.enum(['HogQLQuery']).default(warehouseSavedQueriesAncestorsCreateBodyQueryOneKindDefault),
+                    query: zod.string(),
+                }),
+                zod.object({
+                    kind: zod.enum(['ManagedWarehouseSource']),
+                    source_schema_name: zod.string(),
+                    source_table_name: zod.string(),
+                }),
+            ])
             .describe(
-                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key (always \"HogQLQuery\"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {\"kind\": \"HogQLQuery\", \"query\": \"SELECT\\n    event,\\n    count() AS cnt\\nFROM events\\nGROUP BY event\\nLIMIT 100\"}'
+                'Query definition. User-created views use {\"kind\": \"HogQLQuery\", \"query\": \"...\"}. Published tables use a read-only managed warehouse source definition.'
             ),
         incremental: zod
             .union([
@@ -845,7 +907,7 @@ export const WarehouseSavedQueriesAncestorsCreateBody = /* @__PURE__ */ zod
  */
 export const warehouseSavedQueriesCancelCreateBodyNameMax = 128
 
-export const warehouseSavedQueriesCancelCreateBodyQueryKindDefault = `HogQLQuery`
+export const warehouseSavedQueriesCancelCreateBodyQueryOneKindDefault = `HogQLQuery`
 export const warehouseSavedQueriesCancelCreateBodyIncrementalOneEnabledDefault = false
 export const warehouseSavedQueriesCancelCreateBodyIncrementalOneLookbackSecondsDefault = 0
 export const warehouseSavedQueriesCancelCreateBodyIncrementalOneLookbackSecondsMin = 0
@@ -861,12 +923,19 @@ export const WarehouseSavedQueriesCancelCreateBody = /* @__PURE__ */ zod
                 'Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.'
             ),
         query: zod
-            .object({
-                kind: zod.enum(['HogQLQuery']).default(warehouseSavedQueriesCancelCreateBodyQueryKindDefault),
-                query: zod.string(),
-            })
+            .union([
+                zod.object({
+                    kind: zod.enum(['HogQLQuery']).default(warehouseSavedQueriesCancelCreateBodyQueryOneKindDefault),
+                    query: zod.string(),
+                }),
+                zod.object({
+                    kind: zod.enum(['ManagedWarehouseSource']),
+                    source_schema_name: zod.string(),
+                    source_table_name: zod.string(),
+                }),
+            ])
             .describe(
-                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key (always \"HogQLQuery\"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {\"kind\": \"HogQLQuery\", \"query\": \"SELECT\\n    event,\\n    count() AS cnt\\nFROM events\\nGROUP BY event\\nLIMIT 100\"}'
+                'Query definition. User-created views use {\"kind\": \"HogQLQuery\", \"query\": \"...\"}. Published tables use a read-only managed warehouse source definition.'
             ),
         incremental: zod
             .union([
@@ -949,7 +1018,7 @@ export const WarehouseSavedQueriesCancelCreateBody = /* @__PURE__ */ zod
  */
 export const warehouseSavedQueriesDescendantsCreateBodyNameMax = 128
 
-export const warehouseSavedQueriesDescendantsCreateBodyQueryKindDefault = `HogQLQuery`
+export const warehouseSavedQueriesDescendantsCreateBodyQueryOneKindDefault = `HogQLQuery`
 export const warehouseSavedQueriesDescendantsCreateBodyIncrementalOneEnabledDefault = false
 export const warehouseSavedQueriesDescendantsCreateBodyIncrementalOneLookbackSecondsDefault = 0
 export const warehouseSavedQueriesDescendantsCreateBodyIncrementalOneLookbackSecondsMin = 0
@@ -965,12 +1034,21 @@ export const WarehouseSavedQueriesDescendantsCreateBody = /* @__PURE__ */ zod
                 'Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.'
             ),
         query: zod
-            .object({
-                kind: zod.enum(['HogQLQuery']).default(warehouseSavedQueriesDescendantsCreateBodyQueryKindDefault),
-                query: zod.string(),
-            })
+            .union([
+                zod.object({
+                    kind: zod
+                        .enum(['HogQLQuery'])
+                        .default(warehouseSavedQueriesDescendantsCreateBodyQueryOneKindDefault),
+                    query: zod.string(),
+                }),
+                zod.object({
+                    kind: zod.enum(['ManagedWarehouseSource']),
+                    source_schema_name: zod.string(),
+                    source_table_name: zod.string(),
+                }),
+            ])
             .describe(
-                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key (always \"HogQLQuery\"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {\"kind\": \"HogQLQuery\", \"query\": \"SELECT\\n    event,\\n    count() AS cnt\\nFROM events\\nGROUP BY event\\nLIMIT 100\"}'
+                'Query definition. User-created views use {\"kind\": \"HogQLQuery\", \"query\": \"...\"}. Published tables use a read-only managed warehouse source definition.'
             ),
         incremental: zod
             .union([
@@ -1069,7 +1147,7 @@ export const WarehouseSavedQueriesMaterializeCreateBody = /* @__PURE__ */ zod
  */
 export const warehouseSavedQueriesRevertMaterializationCreateBodyNameMax = 128
 
-export const warehouseSavedQueriesRevertMaterializationCreateBodyQueryKindDefault = `HogQLQuery`
+export const warehouseSavedQueriesRevertMaterializationCreateBodyQueryOneKindDefault = `HogQLQuery`
 export const warehouseSavedQueriesRevertMaterializationCreateBodyIncrementalOneEnabledDefault = false
 export const warehouseSavedQueriesRevertMaterializationCreateBodyIncrementalOneLookbackSecondsDefault = 0
 export const warehouseSavedQueriesRevertMaterializationCreateBodyIncrementalOneLookbackSecondsMin = 0
@@ -1085,14 +1163,21 @@ export const WarehouseSavedQueriesRevertMaterializationCreateBody = /* @__PURE__
                 'Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.'
             ),
         query: zod
-            .object({
-                kind: zod
-                    .enum(['HogQLQuery'])
-                    .default(warehouseSavedQueriesRevertMaterializationCreateBodyQueryKindDefault),
-                query: zod.string(),
-            })
+            .union([
+                zod.object({
+                    kind: zod
+                        .enum(['HogQLQuery'])
+                        .default(warehouseSavedQueriesRevertMaterializationCreateBodyQueryOneKindDefault),
+                    query: zod.string(),
+                }),
+                zod.object({
+                    kind: zod.enum(['ManagedWarehouseSource']),
+                    source_schema_name: zod.string(),
+                    source_table_name: zod.string(),
+                }),
+            ])
             .describe(
-                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key (always \"HogQLQuery\"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {\"kind\": \"HogQLQuery\", \"query\": \"SELECT\\n    event,\\n    count() AS cnt\\nFROM events\\nGROUP BY event\\nLIMIT 100\"}'
+                'Query definition. User-created views use {\"kind\": \"HogQLQuery\", \"query\": \"...\"}. Published tables use a read-only managed warehouse source definition.'
             ),
         incremental: zod
             .union([
@@ -1226,7 +1311,7 @@ export const WarehouseSavedQueriesCheckIncrementalCreateBody = /* @__PURE__ */ z
  */
 export const warehouseSavedQueriesResumeSchedulesCreateBodyNameMax = 128
 
-export const warehouseSavedQueriesResumeSchedulesCreateBodyQueryKindDefault = `HogQLQuery`
+export const warehouseSavedQueriesResumeSchedulesCreateBodyQueryOneKindDefault = `HogQLQuery`
 export const warehouseSavedQueriesResumeSchedulesCreateBodyIncrementalOneEnabledDefault = false
 export const warehouseSavedQueriesResumeSchedulesCreateBodyIncrementalOneLookbackSecondsDefault = 0
 export const warehouseSavedQueriesResumeSchedulesCreateBodyIncrementalOneLookbackSecondsMin = 0
@@ -1242,12 +1327,21 @@ export const WarehouseSavedQueriesResumeSchedulesCreateBody = /* @__PURE__ */ zo
                 'Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.'
             ),
         query: zod
-            .object({
-                kind: zod.enum(['HogQLQuery']).default(warehouseSavedQueriesResumeSchedulesCreateBodyQueryKindDefault),
-                query: zod.string(),
-            })
+            .union([
+                zod.object({
+                    kind: zod
+                        .enum(['HogQLQuery'])
+                        .default(warehouseSavedQueriesResumeSchedulesCreateBodyQueryOneKindDefault),
+                    query: zod.string(),
+                }),
+                zod.object({
+                    kind: zod.enum(['ManagedWarehouseSource']),
+                    source_schema_name: zod.string(),
+                    source_table_name: zod.string(),
+                }),
+            ])
             .describe(
-                'HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key (always \"HogQLQuery\"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {\"kind\": \"HogQLQuery\", \"query\": \"SELECT\\n    event,\\n    count() AS cnt\\nFROM events\\nGROUP BY event\\nLIMIT 100\"}'
+                'Query definition. User-created views use {\"kind\": \"HogQLQuery\", \"query\": \"...\"}. Published tables use a read-only managed warehouse source definition.'
             ),
         incremental: zod
             .union([

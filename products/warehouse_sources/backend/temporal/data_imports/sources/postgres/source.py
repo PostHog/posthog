@@ -8,7 +8,6 @@ from sshtunnel import BaseSSHTunnelForwarderError
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 from posthog.schema import (
     DataWarehouseSourceCategory,
@@ -19,9 +18,12 @@ from posthog.schema import (
     SourceFieldSSHTunnelConfig,
 )
 
+from posthog.hogql.direct_sql.postgres_adapter import is_postwh_host
+
 from posthog.exceptions_capture import capture_exception
 
 from products.data_warehouse.backend.facade.api import reconcile_postgres_schemas
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
@@ -1252,6 +1254,15 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
+        # Managed warehouse data is already in PostHog. Importing it through the copy pipeline
+        # would duplicate that data and allow the warehouse sink to copy it back again.
+        if access_method != ExternalDataSource.AccessMethod.DIRECT and is_postwh_host(config.host):
+            return False, (
+                "This host is your PostHog managed warehouse, so importing it as a source would "
+                "duplicate data PostHog already stores. Publish the modeled table to PostHog "
+                "instead, or connect this source with direct query access."
+            )
+
         return self.validate_credentials(config, team_id, schema_name=schema_name, api_version=api_version)
 
     def get_connection_metadata(

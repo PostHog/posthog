@@ -42,6 +42,8 @@ def make_duckgres_conninfo(
     organization_id: str | None = None,
     service_credential: ServiceCredential | None = None,
     application_name: str = "posthog",
+    connect_timeout_seconds: int | None = None,
+    statement_timeout_seconds: int | None = None,
 ) -> str:
     """Build a psycopg conninfo for a team's duckgres server.
 
@@ -78,7 +80,7 @@ def make_duckgres_conninfo(
         if not service_credential.credential_secret:
             raise RuntimeError("service_credential carries no secret; mint or refresh returned an invalid response")
         connect = service_credential.connect
-        return make_conninfo(
+        conninfo = make_conninfo(
             host=connect.host,
             port=connect.port,
             dbname=connect.database,
@@ -90,24 +92,30 @@ def make_duckgres_conninfo(
             sslrootcert="/tmp/no.txt",
             application_name=application_name,
         )
-
-    if is_dev_mode():
-        config = _duckgres_dev_config()
     else:
-        org_id = organization_id or _get_org_id_for_team(team_id)
-        config = get_duckgres_config_for_org(org_id)
-    return make_conninfo(
-        host=config["DUCKGRES_HOST"],
-        port=int(config["DUCKGRES_PORT"]),
-        dbname=config["DUCKGRES_DATABASE"],
-        user=config["DUCKGRES_USERNAME"],
-        password=config["DUCKGRES_PASSWORD"],
-        sslmode="require",
-        sslcert="/tmp/no.txt",
-        sslkey="/tmp/no.txt",
-        sslrootcert="/tmp/no.txt",
-        application_name=application_name,
-    )
+        if is_dev_mode():
+            config = _duckgres_dev_config()
+        else:
+            org_id = organization_id or _get_org_id_for_team(team_id)
+            config = get_duckgres_config_for_org(org_id)
+        conninfo = make_conninfo(
+            host=config["DUCKGRES_HOST"],
+            port=int(config["DUCKGRES_PORT"]),
+            dbname=config["DUCKGRES_DATABASE"],
+            user=config["DUCKGRES_USERNAME"],
+            password=config["DUCKGRES_PASSWORD"],
+            sslmode="require",
+            sslcert="/tmp/no.txt",
+            sslkey="/tmp/no.txt",
+            sslrootcert="/tmp/no.txt",
+            application_name=application_name,
+        )
+    if connect_timeout_seconds is not None:
+        conninfo = make_conninfo(conninfo, connect_timeout=connect_timeout_seconds)
+    if statement_timeout_seconds is not None:
+        conninfo = make_conninfo(conninfo, options=f"-c statement_timeout={statement_timeout_seconds * 1000}")
+
+    return conninfo
 
 
 # TODO: remove hardcoded schemas and derive the search path from the team's
@@ -269,6 +277,8 @@ def execute_ducklake_query(
     team: Team | None = None,
     user: User | None = None,
     bypass_warehouse_access_control: bool = False,
+    connect_timeout_seconds: int | None = None,
+    statement_timeout_seconds: int | None = None,
 ) -> DuckLakeQueryResult:
     """Execute a query against a team's duckgres server.
 
@@ -308,7 +318,13 @@ def execute_ducklake_query(
 
     assert sql is not None
 
-    conninfo = make_duckgres_conninfo(team_id, organization_id=organization_id, application_name="endpoints-shadow")
+    conninfo = make_duckgres_conninfo(
+        team_id,
+        organization_id=organization_id,
+        application_name="endpoints-shadow",
+        connect_timeout_seconds=connect_timeout_seconds,
+        statement_timeout_seconds=statement_timeout_seconds,
+    )
     _connect_start = time.monotonic()
     with psycopg.connect(conninfo) as conn:
         connect_ms = (time.monotonic() - _connect_start) * 1000

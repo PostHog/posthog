@@ -25,12 +25,22 @@ from products.managed_warehouse.backend.temporal.ducklake_register_data_imports_
     ducklake_register_data_imports_gate_activity,
     prepare_ducklake_data_imports_registration_activity,
 )
+from products.managed_warehouse.backend.temporal.publish_table_workflow import (
+    DuckgresPrunePublishedSnapshotWorkflow,
+    DuckgresPublishTableWorkflow,
+    prune_published_snapshot_activity,
+    publish_table_copy_activity,
+    publish_table_mark_failed_activity,
+    publish_table_register_activity,
+)
 from products.managed_warehouse.backend.temporal.source_job_state import record_managed_warehouse_source_job_activity
 
 WORKFLOWS = [
     DucklakeCompactionWorkflow,
     DuckLakeCopyDataImportsWorkflow,
     DuckLakeCopyDataModelingWorkflow,
+    DuckgresPrunePublishedSnapshotWorkflow,
+    DuckgresPublishTableWorkflow,
     DuckLakeRegisterDataImportsWorkflow,
 ]
 ACTIVITIES = [
@@ -46,6 +56,10 @@ ACTIVITIES = [
     prepare_data_imports_ducklake_metadata_activity,
     prepare_data_modeling_ducklake_metadata_activity,
     prepare_ducklake_data_imports_registration_activity,
+    prune_published_snapshot_activity,
+    publish_table_copy_activity,
+    publish_table_mark_failed_activity,
+    publish_table_register_activity,
     record_managed_warehouse_source_job_activity,
     run_ducklake_compaction,
     verify_data_imports_ducklake_copy_activity,

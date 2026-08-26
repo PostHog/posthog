@@ -54,12 +54,16 @@ def make_duckgres_conninfo(
     organization_id: str | None = None,
     service_credential: ServiceCredential | None = None,
     application_name: str = "posthog",
+    connect_timeout_seconds: int | None = None,
+    statement_timeout_seconds: int | None = None,
 ) -> str:
     return client.make_duckgres_conninfo(
         team_id,
         organization_id=organization_id,
         service_credential=service_credential,
         application_name=application_name,
+        connect_timeout_seconds=connect_timeout_seconds,
+        statement_timeout_seconds=statement_timeout_seconds,
     )
 
 
@@ -89,6 +93,8 @@ def execute_ducklake_query(
     team: Team | None = None,
     user: User | None = None,
     bypass_warehouse_access_control: bool = False,
+    connect_timeout_seconds: int | None = None,
+    statement_timeout_seconds: int | None = None,
 ) -> DuckLakeQueryResult:
     return client.execute_ducklake_query(
         team_id,
@@ -98,6 +104,8 @@ def execute_ducklake_query(
         team=team,
         user=user,
         bypass_warehouse_access_control=bypass_warehouse_access_control,
+        connect_timeout_seconds=connect_timeout_seconds,
+        statement_timeout_seconds=statement_timeout_seconds,
     )
 
 

@@ -21423,19 +21423,16 @@ export namespace Schemas {
       readonly updated_at: string | null;
     }
 
-    export type DataWarehouseSavedQueryQueryKind = typeof DataWarehouseSavedQueryQueryKind[keyof typeof DataWarehouseSavedQueryQueryKind];
-
-
-    export const DataWarehouseSavedQueryQueryKind = {
-      HogQLQuery: 'HogQLQuery',
-    } as const;
-
     /**
-     * HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\n    event,\n    count() AS cnt\nFROM events\nGROUP BY event\nLIMIT 100"}
+     * Query definition. User-created views use {"kind": "HogQLQuery", "query": "..."}. Published tables use a read-only managed warehouse source definition.
      */
     export type DataWarehouseSavedQueryQuery = {
-      kind?: DataWarehouseSavedQueryQueryKind;
+      kind?: 'HogQLQuery';
       query: string;
+    } | {
+      kind: 'ManagedWarehouseSource';
+      source_schema_name: string;
+      source_table_name: string;
     };
 
     export type DataWarehouseSavedQueryColumnsItem = { [key: string]: unknown };
@@ -21672,6 +21669,7 @@ export namespace Schemas {
     /**
      * * `data_warehouse` - Data Warehouse
      * * `endpoint` - Endpoint
+     * * `managed_warehouse` - Managed Warehouse
      * * `managed_viewset` - Managed Viewset
      */
     export type OriginEnum = typeof OriginEnum[keyof typeof OriginEnum];
@@ -21680,6 +21678,7 @@ export namespace Schemas {
     export const OriginEnum = {
       DataWarehouse: 'data_warehouse',
       Endpoint: 'endpoint',
+      ManagedWarehouse: 'managed_warehouse',
       ManagedViewset: 'managed_viewset',
     } as const;
 
@@ -21697,7 +21696,7 @@ export namespace Schemas {
          * @maxLength 128
          */
       name: string;
-      /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\n    event,\n    count() AS cnt\nFROM events\nGROUP BY event\nLIMIT 100"} */
+      /** Query definition. User-created views use {"kind": "HogQLQuery", "query": "..."}. Published tables use a read-only managed warehouse source definition. */
       query: DataWarehouseSavedQueryQuery;
       /** Update the materialized table in place instead of rebuilding it. Null or absent means every run rebuilds the whole table. */
       incremental?: IncrementalConfig | null;
@@ -21774,6 +21773,7 @@ export namespace Schemas {
        *
        * * `data_warehouse` - Data Warehouse
        * * `endpoint` - Endpoint
+       * * `managed_warehouse` - Managed Warehouse
        * * `managed_viewset` - Managed Viewset */
       readonly origin: OriginEnum | null;
       /** Whether this view is for testing only and will auto-expire. */
@@ -21921,6 +21921,7 @@ export namespace Schemas {
        *
        * * `data_warehouse` - Data Warehouse
        * * `endpoint` - Endpoint
+       * * `managed_warehouse` - Managed Warehouse
        * * `managed_viewset` - Managed Viewset */
       readonly origin: OriginEnum | null;
       /** Whether this view is for testing only and will auto-expire. */
@@ -49912,6 +49913,18 @@ export namespace Schemas {
       FeatureFlag: 'FeatureFlag',
     } as const;
 
+    export interface ModeledTable {
+      /** Duckgres schema name. */
+      schema_name: string;
+      /** Duckgres table name. */
+      table_name: string;
+    }
+
+    export interface ModeledTablesResponse {
+      /** Modeled tables eligible for publishing. */
+      results: ModeledTable[];
+    }
+
     export interface MonitorStats {
       /** Succeeded observations whose verdict was `yes`. */
       yes_total: number;
@@ -59028,19 +59041,16 @@ export namespace Schemas {
       connection_id?: string | null;
     }
 
-    export type PatchedDataWarehouseSavedQueryQueryKind = typeof PatchedDataWarehouseSavedQueryQueryKind[keyof typeof PatchedDataWarehouseSavedQueryQueryKind];
-
-
-    export const PatchedDataWarehouseSavedQueryQueryKind = {
-      HogQLQuery: 'HogQLQuery',
-    } as const;
-
     /**
-     * HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\n    event,\n    count() AS cnt\nFROM events\nGROUP BY event\nLIMIT 100"}
+     * Query definition. User-created views use {"kind": "HogQLQuery", "query": "..."}. Published tables use a read-only managed warehouse source definition.
      */
     export type PatchedDataWarehouseSavedQueryQuery = {
-      kind?: PatchedDataWarehouseSavedQueryQueryKind;
+      kind?: 'HogQLQuery';
       query: string;
+    } | {
+      kind: 'ManagedWarehouseSource';
+      source_schema_name: string;
+      source_table_name: string;
     };
 
     export type PatchedDataWarehouseSavedQueryColumnsItem = { [key: string]: unknown };
@@ -59064,7 +59074,7 @@ export namespace Schemas {
          * @maxLength 128
          */
       name?: string;
-      /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\n    event,\n    count() AS cnt\nFROM events\nGROUP BY event\nLIMIT 100"} */
+      /** Query definition. User-created views use {"kind": "HogQLQuery", "query": "..."}. Published tables use a read-only managed warehouse source definition. */
       query?: PatchedDataWarehouseSavedQueryQuery;
       /** Update the materialized table in place instead of rebuilding it. Null or absent means every run rebuilds the whole table. */
       incremental?: IncrementalConfig | null;
@@ -59141,6 +59151,7 @@ export namespace Schemas {
        *
        * * `data_warehouse` - Data Warehouse
        * * `endpoint` - Endpoint
+       * * `managed_warehouse` - Managed Warehouse
        * * `managed_viewset` - Managed Viewset */
       readonly origin?: OriginEnum | null;
       /** Whether this view is for testing only and will auto-expire. */
@@ -68300,6 +68311,93 @@ export namespace Schemas {
       results: ProxyRecord[];
       /** Maximum number of proxy records allowed for this organization's current plan. */
       max_proxy_records: number;
+    }
+
+    export interface PublishModeledTableRequest {
+      /**
+         * Duckgres schema containing the modeled table.
+         * @maxLength 63
+         */
+      source_schema_name: string;
+      /**
+         * Modeled Duckgres table to publish.
+         * @maxLength 63
+         */
+      source_table_name: string;
+      /**
+         * Warehouse table name in PostHog. Defaults to <schema>_<table>.
+         * @maxLength 128
+         */
+      name?: string;
+    }
+
+    /**
+     * * `pending` - Pending
+     * * `publishing` - Publishing
+     * * `completed` - Completed
+     * * `failed` - Failed
+     */
+    export type PublishedTableStatusEnum = typeof PublishedTableStatusEnum[keyof typeof PublishedTableStatusEnum];
+
+
+    export const PublishedTableStatusEnum = {
+      Pending: 'pending',
+      Publishing: 'publishing',
+      Completed: 'completed',
+      Failed: 'failed',
+    } as const;
+
+    export interface PublishedTable {
+      /** Publication ID used for publish actions. */
+      id: string;
+      /**
+         * Canonical saved query ID, or null for a publication created before saved-query integration.
+         * @nullable
+         */
+      saved_query_id: string | null;
+      /** Warehouse table name in PostHog. */
+      name: string;
+      /** Duckgres schema of the source modeled table. */
+      source_schema_name: string;
+      /** Duckgres table this publication copies. */
+      source_table_name: string;
+      /** Publish lifecycle state.
+       *
+       * * `pending` - Pending
+       * * `publishing` - Publishing
+       * * `completed` - Completed
+       * * `failed` - Failed */
+      status: PublishedTableStatusEnum;
+      /**
+         * When the last publish completed, or null if it has not completed.
+         * @nullable
+         */
+      last_published_at: string | null;
+      /**
+         * Error from the last failed publish, if any.
+         * @nullable
+         */
+      last_error: string | null;
+      /**
+         * Rows in the last published snapshot, or null before the first successful publish.
+         * @nullable
+         */
+      row_count: number | null;
+    }
+
+    export interface PublishedTableConflict {
+      /** Why the publication could not be started. */
+      detail: string;
+    }
+
+    export interface PublishedTableId {
+      /** Publication ID for the published table. */
+      id: string;
+    }
+
+    export interface PublishedTablesResponse {
+      /** Published tables and their current status. */
+      results: PublishedTable[];
     }
 
     /**
@@ -89218,6 +89316,13 @@ export namespace Schemas {
       '7d': '7d',
       '30d': '30d',
     } as const;
+
+    export type DataWarehouseManagedWarehousePublishedTableDestroyParams = {
+    /**
+     * Publication ID for the published table.
+     */
+    id: string;
+    };
 
     export type DataWarehouseManagedWarehouseSourceSchemasRetrieveParams = {
     /**
