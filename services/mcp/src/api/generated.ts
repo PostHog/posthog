@@ -81040,6 +81040,15 @@ export namespace Schemas {
       readonly installations: readonly StamphogDiscoveredInstallation[];
     }
 
+    export interface StartTrainingRequest {
+      /**
+         * Override the pipeline iteration budget for this training run.
+         * @minimum 1
+         * @maximum 500
+         */
+      iteration_budget?: number;
+    }
+
     /**
      * Result of an upload: where the file landed and its content hash.
      */

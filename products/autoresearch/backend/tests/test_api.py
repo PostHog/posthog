@@ -166,6 +166,45 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
 
     # ──────────────────────────────────────── lifecycle actions ────────────────────────────────────
 
+    def test_pause_and_resume_pipeline(self):
+        pipeline = self._make_pipeline(status=AutoresearchPipeline.Status.RUNNING)
+        resp = self.client.post(f"{self.base_url}/{pipeline.id}/pause/")
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json()["status"] == "paused"
+
+        resp2 = self.client.post(f"{self.base_url}/{pipeline.id}/resume/")
+        assert resp2.status_code == status.HTTP_200_OK
+        assert resp2.json()["status"] == "running"
+
+    def test_resume_non_paused_pipeline_returns_400(self):
+        pipeline = self._make_pipeline(status=AutoresearchPipeline.Status.RUNNING)
+        resp = self.client.post(f"{self.base_url}/{pipeline.id}/resume/")
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_archive_pipeline(self):
+        pipeline = self._make_pipeline()
+        resp = self.client.post(f"{self.base_url}/{pipeline.id}/archive/")
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json()["status"] == "archived"
+        pipeline.refresh_from_db()
+        assert pipeline.status == AutoresearchPipeline.Status.ARCHIVED
+
+    def test_train_archived_pipeline_returns_404(self):
+        pipeline = self._make_pipeline(status=AutoresearchPipeline.Status.ARCHIVED)
+        # Archived pipelines are excluded from the queryset so the endpoint returns 404
+        resp = self.client.post(f"{self.base_url}/{pipeline.id}/train/")
+        assert resp.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_score_archived_pipeline_returns_404(self):
+        pipeline = self._make_pipeline(status=AutoresearchPipeline.Status.ARCHIVED)
+        resp = self.client.post(f"{self.base_url}/{pipeline.id}/score/")
+        assert resp.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_score_without_champion_returns_400(self):
+        pipeline = self._make_pipeline(status=AutoresearchPipeline.Status.RUNNING)
+        resp = self.client.post(f"{self.base_url}/{pipeline.id}/score/")
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+
     # ─────────────────────────────────────── validate action ──────────────────────────────────────
 
     @patch(
@@ -205,6 +244,38 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
 
     # ──────────────────────────────────────── train action ────────────────────────────────────────
+
+    def test_start_training(self):
+        pipeline = self._make_pipeline()
+
+        # The run must not exist before the call: the endpoint rejects pipelines that
+        # already have a live run, so the mock creates it the way run_training would.
+        def _fake_run_training(*, pipeline: AutoresearchPipeline, iteration_budget: int, user_id: Any):
+            return AutoresearchTrainingRun.objects.create(
+                pipeline=pipeline,
+                status=AutoresearchTrainingRun.Status.RUNNING,
+                iteration_budget=iteration_budget,
+            )
+
+        with patch("products.autoresearch.backend.facade.api.run_training", side_effect=_fake_run_training):
+            resp = self.client.post(f"{self.base_url}/{pipeline.id}/train/")
+
+        assert resp.status_code == status.HTTP_200_OK
+        data = resp.json()
+        assert data["status"] == "running"
+
+    def test_start_training_with_live_run_returns_400(self):
+        pipeline = self._make_pipeline()
+        AutoresearchTrainingRun.objects.create(
+            pipeline=pipeline,
+            status=AutoresearchTrainingRun.Status.RUNNING,
+            iteration_budget=50,
+        )
+        with patch("products.autoresearch.backend.facade.api.run_training") as mock_run_training:
+            resp = self.client.post(f"{self.base_url}/{pipeline.id}/train/")
+
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        mock_run_training.assert_not_called()
 
     # ──────────────────────────────────── update restrictions ─────────────────────────────────────
 

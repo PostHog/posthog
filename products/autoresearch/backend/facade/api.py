@@ -15,6 +15,7 @@ import hashlib
 from typing import Any
 from uuid import UUID
 
+from django.db import transaction
 from django.utils import timezone as django_timezone
 
 from posthog.models.team import Team
@@ -26,7 +27,9 @@ from products.tasks.backend.facade.sandbox import get_sandbox_class
 from ..dataset import templates as templates_module
 from ..dataset.labeling import POPULATION_KINDS as _POPULATION_KINDS
 from ..dataset.validation import validate_pipeline_definition as _validate_pipeline_definition
+from ..evaluation.online_validation import run_online_validation_for_pipeline
 from ..inference.sandbox import SandboxInferenceError, features_parquet, labels_parquet, materialize_training_data
+from ..inference.scoring import run_inference_for_pipeline
 from ..models import (
     AutoresearchIteration,
     AutoresearchModel,
@@ -38,6 +41,7 @@ from ..models import (
 from ..training import artifacts as artifact_store
 from ..training.promotion import PromotionError, complete_training_run
 from ..training.recipe_validation import RecipeValidationError, validate_feature_sql, validate_recipe
+from ..training.runner import run_training
 from .contracts import (
     ArtifactContent,
     ArtifactDeleteResult,
@@ -310,6 +314,20 @@ def delete_pipeline(team_id: int, pipeline_id: str | UUID) -> None:
     _pipeline_row(team_id, pipeline_id, live_only=True).delete()
 
 
+def set_pipeline_status(team_id: int, pipeline_id: str | UUID, *, status: str) -> Pipeline:
+    """Archive, pause, or resume a pipeline.
+
+    Resuming refuses anything that is not paused, so a caller cannot use it to revive an
+    archived pipeline or restart a converged one.
+    """
+    row = _pipeline_row(team_id, pipeline_id, live_only=True)
+    if status == AutoresearchPipeline.Status.RUNNING and row.status != AutoresearchPipeline.Status.PAUSED:
+        raise AutoresearchConflict("Pipeline is not paused.")
+    row.status = status
+    row.save(update_fields=["status", "updated_at"])
+    return _pipeline_with_champion(row)
+
+
 def pipeline_has_models(team_id: int, pipeline_id: str | UUID) -> bool:
     """Whether any model has been trained for this pipeline yet.
 
@@ -488,6 +506,30 @@ def get_run(team_id: int, run_id: str | UUID) -> Run | None:
     return _run_to_contract(row) if row else None
 
 
+def score_pipeline(team_id: int, pipeline_id: str | UUID) -> Run:
+    """Score the inference population with the champion model and emit prediction events."""
+    pipeline = _pipeline_row(team_id, pipeline_id, live_only=True)
+    if pipeline.status == AutoresearchPipeline.Status.ARCHIVED:
+        raise AutoresearchConflict("Cannot score an archived pipeline.")
+    champion = (
+        AutoresearchModel.objects.for_team(team_id)
+        .filter(pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION)
+        .order_by("-created_at")
+        .first()
+    )
+    if not champion:
+        raise AutoresearchConflict("No champion model found. Run training first.")
+    return _run_to_contract(run_inference_for_pipeline(pipeline=pipeline, model=champion))
+
+
+def validate_pipeline_online(team_id: int, pipeline_id: str | UUID) -> list[Run]:
+    """Score matured prediction dates against realized outcomes."""
+    pipeline = _pipeline_row(team_id, pipeline_id, live_only=True)
+    if pipeline.status == AutoresearchPipeline.Status.ARCHIVED:
+        raise AutoresearchConflict("Cannot validate an archived pipeline.")
+    return [_run_to_contract(run) for run in run_online_validation_for_pipeline(pipeline=pipeline)]
+
+
 # ── Training runs ──────────────────────────────────────────────────────────
 
 
@@ -511,6 +553,38 @@ def get_training_run(team_id: int, training_run_id: str | UUID) -> TrainingRun |
         return _training_run_to_contract(_training_run_row(team_id, training_run_id))
     except TrainingRunNotFound:
         return None
+
+
+def start_training(team_id: int, pipeline_id: str | UUID, *, iteration_budget: int | None, user_id: int) -> TrainingRun:
+    """Start an asynchronous training run in a sandbox.
+
+    Mirrors the scheduled coordinator's kickoff guard: the pipeline row is locked so a
+    concurrent manual and scheduled start serialize, and a second live run is refused.
+    ``run_training`` stays inside the lock so the new run row commits before a waiting
+    request re-checks.
+    """
+    with transaction.atomic():
+        try:
+            pipeline = (
+                AutoresearchPipeline.objects.for_team(team_id)
+                .exclude(status=AutoresearchPipeline.Status.ARCHIVED)
+                .select_for_update()
+                .get(pk=str(pipeline_id))
+            )
+        except (AutoresearchPipeline.DoesNotExist, ValueError, TypeError):
+            raise PipelineNotFound("Pipeline not found.")
+        if (
+            AutoresearchTrainingRun.objects.for_team(team_id)
+            .filter(pipeline=pipeline, status=AutoresearchTrainingRun.Status.RUNNING)
+            .exists()
+        ):
+            raise AutoresearchConflict(
+                "A training run is already in progress for this pipeline. "
+                "Wait for it to finish, or check its status in the training runs list."
+            )
+        budget = iteration_budget or pipeline.iteration_budget
+        training_run = run_training(pipeline=pipeline, iteration_budget=budget, user_id=user_id)
+    return _training_run_to_contract(training_run)
 
 
 def open_training_run(team_id: int, pipeline_id: str | UUID, *, iteration_budget: int | None) -> TrainingRun:
