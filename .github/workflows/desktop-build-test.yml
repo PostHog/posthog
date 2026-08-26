@@ -165,12 +165,12 @@ jobs:
               uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
                   name: code-macos-${{ matrix.arch }}
-                  compression-level: 0
                   path: |
                       products/desktop/apps/code/out/*.dmg
                       products/desktop/apps/code/out/*-mac.zip
                       products/desktop/apps/code/out/*.blockmap
                       products/desktop/apps/code/out/latest-mac.yml
+                  compression-level: 0
                   retention-days: 7
 
     build-windows:
@@ -245,12 +245,12 @@ jobs:
               uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
                   name: code-windows
-                  compression-level: 0
                   path: |
                       products/desktop/apps/code/out/*.exe
                       products/desktop/apps/code/out/latest.yml
                       products/desktop/apps/code/out/*.blockmap
                       products/desktop/apps/code/out/squirrel-windows/**
+                  compression-level: 0
                   retention-days: 7
                   if-no-files-found: ignore
 
@@ -329,9 +329,9 @@ jobs:
               uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
                   name: code-linux-${{ matrix.arch }}
-                  compression-level: 0
                   path: |
                       products/desktop/apps/code/out/*.AppImage
                       products/desktop/apps/code/out/*.deb
                       products/desktop/apps/code/out/*.rpm
+                  compression-level: 0
                   retention-days: 7

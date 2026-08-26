@@ -137,10 +137,10 @@ jobs:
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: wheels-${{ matrix.os }}
-                  compression-level: 0
                   path: |
                       common/hogql_parser/dist/*.whl
                       common/hogql_parser/dist/*.tar.gz
+                  compression-level: 0
                   if-no-files-found: error
 
     publish:
