@@ -37,6 +37,7 @@ __all__ = [
     "DUCKGRES_BUCKET_REGION",
     "EARLIEST_BACKFILL_DATE",
     "NO_HISTORY_SENTINEL",
+    "data_warehouse_scene_enabled_for_team",
     "default_bucket_region",
     "deprovision_for_org_deletion",
     "duckgres_data_imports_schema",
@@ -89,6 +90,16 @@ def _to_stored_server_config(server: DuckgresServer) -> DuckgresStoredServerConf
         catalog=catalog,
         bucket=bucket,
     )
+
+
+def data_warehouse_scene_enabled_for_team(team_id: int) -> bool:
+    """Whether the team's organization can see the data warehouse scene, including its Settings tab.
+
+    The scene and its tabs are gated on the org-scoped `data-warehouse-scene` flag.
+    """
+    from products.managed_warehouse.backend.presentation.views import is_enabled  # noqa: PLC0415
+
+    return is_enabled(common._get_org_id_for_team(team_id))
 
 
 def is_dev_mode() -> bool:

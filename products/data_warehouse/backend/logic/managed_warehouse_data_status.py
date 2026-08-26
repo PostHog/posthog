@@ -8,6 +8,7 @@ from django.utils import timezone
 from products.data_warehouse.backend.logic.backfill_status import historical_backfill_months
 from products.data_warehouse.backend.models import ManagedWarehouseBackfillPartition
 from products.managed_warehouse.backend.facade import source_jobs
+from products.managed_warehouse.backend.facade.api import data_warehouse_scene_enabled_for_team
 from products.managed_warehouse.backend.facade.contracts import (
     ManagedWarehouseSourceJobRecord,
     ManagedWarehouseSourceJobStatus,
@@ -105,12 +106,20 @@ def dataset_status(
     dataset: Literal["events", "persons"],
     backfill: ManagedWarehouseTeamMembership | None,
     partitions: list[ManagedWarehouseBackfillPartition],
+    settings_tab_visible: bool,
 ) -> DatasetStatus:
     if backfill is None or not backfill.backfill_enabled:
+        # The Settings tab is gated on the same flag as this scene, so only point a user there when
+        # they can reach it. Everyone else needs the request-access path instead of a dead end.
+        detail = (
+            "Warehouse backfill is not enabled for this project. Enable it from the Settings tab."
+            if settings_tab_visible
+            else "Warehouse backfill is not enabled for this project. Contact PostHog support to request access."
+        )
         return {
             "dataset": dataset,
             "readiness_state": "not_configured",
-            "detail": "Warehouse backfill is not enabled for this project. Enable it from the Settings tab.",
+            "detail": detail,
             "completed_partitions": 0,
             "total_partitions": None,
             "current_partition": None,
@@ -368,6 +377,7 @@ def get_managed_warehouse_data_status(
     # A status read degrades to None (reported not_configured) when the control plane
     # can't answer; it must never 500.
     backfill = team_backfill_membership(team_id)
+    settings_tab_visible = data_warehouse_scene_enabled_for_team(team_id)
     partitions = list(
         ManagedWarehouseBackfillPartition.objects.for_team(team_id)
         .filter(environment_id=team_id)
@@ -377,11 +387,13 @@ def get_managed_warehouse_data_status(
         dataset="events",
         backfill=backfill,
         partitions=[row for row in partitions if row.dataset == ManagedWarehouseBackfillPartition.Dataset.EVENTS],
+        settings_tab_visible=settings_tab_visible,
     )
     persons = dataset_status(
         dataset="persons",
         backfill=backfill,
         partitions=[row for row in partitions if row.dataset == ManagedWarehouseBackfillPartition.Dataset.PERSONS],
+        settings_tab_visible=settings_tab_visible,
     )
     sources = _sources_status(team_id, user_access_control=user_access_control)
     return {
