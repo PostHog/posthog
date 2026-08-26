@@ -22,6 +22,7 @@ import { ObservationSearchTab } from '../search/ObservationSearchTab'
 import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { formatCreditsRange } from '../utils/credits'
 import { quotaBannerState } from '../utils/quotaProjection'
+import { ScannerAlertsTab } from './components/ScannerAlertsTab'
 import { ScannerBackfillsTab } from './components/ScannerBackfillsTab'
 import { ScannerCalibrationTab } from './components/ScannerCalibrationTab'
 import { ScannerConfigReadonly } from './components/ScannerConfigReadonly'
@@ -48,7 +49,16 @@ export function ReplayScannerSceneComponent(): JSX.Element {
     const { setActiveTab } = useActions(replayScannerSceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const scoutDigests = !!featureFlags[FEATURE_FLAGS.REPLAY_VISION_SCOUT_DIGESTS]
-    const visibleTabs = Object.values(ReplayScannerTab).filter((tab) => scoutDigests || tab !== ReplayScannerTab.Scouts)
+    const newAlerts = !!featureFlags[FEATURE_FLAGS.REPLAY_VISION_ALERTS]
+    // With both flags on the Actions tab has nothing left to show: digests live on Scouts and
+    // alerts live on the new Alerts tab.
+    const hideActionsTab = newAlerts && scoutDigests
+    const visibleTabs = Object.values(ReplayScannerTab).filter(
+        (tab) =>
+            (scoutDigests || tab !== ReplayScannerTab.Scouts) &&
+            (newAlerts || tab !== ReplayScannerTab.Alerts) &&
+            (!hideActionsTab || tab !== ReplayScannerTab.Actions)
+    )
 
     const scannerLogic = replayScannerLogic({ id: scannerId })
     useAttachedLogic(scannerLogic, replayScannerSceneLogic)
@@ -176,17 +186,31 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                               },
                           ]
                         : []),
-                    {
-                        key: ReplayScannerTab.Actions,
-                        // Digests moved to their own Scouts tab, leaving this one to alerts alone.
-                        label: scoutDigests ? 'Alerts' : 'Digests and alerts',
-                        content: (
-                            <VisionActionsTab
-                                scannerId={scannerId}
-                                scannerUserAccessLevel={scanner.user_access_level}
-                            />
-                        ),
-                    },
+                    ...(newAlerts
+                        ? [
+                              {
+                                  key: ReplayScannerTab.Alerts,
+                                  label: 'Alerts',
+                                  content: <ScannerAlertsTab scannerId={scannerId} />,
+                              },
+                          ]
+                        : []),
+                    ...(hideActionsTab
+                        ? []
+                        : [
+                              {
+                                  key: ReplayScannerTab.Actions,
+                                  // Digests moved to the Scouts tab and new alerts to the Alerts tab;
+                                  // the label names whatever this tab still carries.
+                                  label: newAlerts ? 'Digests' : scoutDigests ? 'Alerts' : 'Digests and alerts',
+                                  content: (
+                                      <VisionActionsTab
+                                          scannerId={scannerId}
+                                          scannerUserAccessLevel={scanner.user_access_level}
+                                      />
+                                  ),
+                              },
+                          ]),
                 ]}
             />
         </SceneContent>
