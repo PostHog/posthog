@@ -7,6 +7,7 @@ from uuid import uuid4
 import pytest
 from unittest.mock import patch
 
+from django.conf import settings as django_settings
 from django.utils import timezone
 
 import dagster
@@ -46,7 +47,13 @@ from posthog.models.data_deletion_request import (
     RequestType,
     auto_approve_pending_requests,
 )
-from posthog.models.deletion_targets import DeletionTarget, UnreachableTargetError, is_present
+from posthog.models.deletion_targets import (
+    EVENTS,
+    DeletionTarget,
+    TargetPlacement,
+    UnreachableTargetError,
+    placement_for,
+)
 from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_DATA_TABLE, FLAG_EVALUATIONS_SOURCE_EVENT
 from posthog.test.persons import create_person
 
@@ -1986,12 +1993,12 @@ def test_delete_person_events_op_runs_lightweight_delete_per_shard(cluster: Clic
 
 
 @pytest.mark.django_db
-def test_is_present_refuses_a_target_this_handle_cannot_sweep(cluster: ClickhouseCluster):
-    # Mutations dispatch over the shards of the one cluster this handle enumerates, so a storage
-    # table rolled out on another one is on no host it can reach. Reporting it simply absent drops
-    # it from resolve_targets and every sweep then completes without touching it, which is the
-    # failure this guard exists to stop. Standing in for that: a storage table no host carries,
-    # behind a proxy that still reads rows.
+def test_placement_for_refuses_a_target_no_cluster_here_can_sweep(cluster: ClickhouseCluster):
+    # Mutations dispatch over the shards of the one cluster a handle enumerates, so a storage table
+    # rolled out on another one is on no host it can reach. Reporting it simply absent drops it from
+    # resolve_placements and every sweep then completes without touching it, which is the failure
+    # this guard exists to stop. Standing in for that: a storage table no host carries, on a cluster
+    # this deployment does not define, behind a proxy that still reads rows.
     target = DeletionTarget(
         data_table="sharded_events_on_another_cluster",
         read_table="events",
@@ -2000,11 +2007,50 @@ def test_is_present_refuses_a_target_this_handle_cannot_sweep(cluster: Clickhous
     )
 
     cluster.any_host(_truncate_writable_events).result()
-    assert is_present(cluster, target) is False
+    assert placement_for(cluster, target) is None
 
     cluster.any_host(partial(_insert_events, [(TEAM_ID, "$pageview", str(uuid4()), datetime.now())])).result()
     with pytest.raises(UnreachableTargetError):
-        is_present(cluster, target)
+        placement_for(cluster, target)
+
+
+@pytest.mark.django_db
+def test_delete_person_events_op_dispatches_on_the_targets_own_cluster(cluster: ClickhouseCluster):
+    # Shard numbers are per cluster, so the handle a target is paired with is the only one whose
+    # shards mean anything for it. Sweeping an off-cluster table over the job's own handle sends
+    # its mutations to hosts that never held those rows, and every shard still reports complete.
+    person_uuid = str(uuid4())
+    cluster.any_host(_truncate_writable_events).result()
+    cluster.any_host(
+        partial(_insert_events_with_person, [(TEAM_ID, "$pageview", str(uuid4()), datetime.now(), person_uuid)])
+    ).result()
+
+    # A second handle over the same node: a different object with its own shard map, which is what
+    # an off-cluster target's placement looks like here.
+    sibling = cluster.sibling(django_settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER)
+    ctx = PersonRemovalContext(
+        request_id=str(uuid4()),
+        team_id=TEAM_ID,
+        person_uuids=[person_uuid],
+        person_distinct_ids=[],
+        drop_profiles=False,
+        drop_events=True,
+        drop_recordings=False,
+    )
+
+    with (
+        patch(
+            "posthog.dags.data_deletion_requests.resolve_placements",
+            return_value=[TargetPlacement(target=EVENTS, cluster=sibling)],
+        ),
+        patch.object(sibling, "map_any_host_in_shards", wraps=sibling.map_any_host_in_shards) as on_sibling,
+        patch.object(cluster, "map_any_host_in_shards", wraps=cluster.map_any_host_in_shards) as on_job_handle,
+    ):
+        delete_person_events_op(build_op_context(), cluster, ctx)
+
+    assert on_sibling.called
+    assert not on_job_handle.called
+    assert cluster.any_host(partial(_count_events_for_person, TEAM_ID, person_uuid)).result() == 0
 
 
 @pytest.mark.django_db
@@ -2030,7 +2076,8 @@ def test_delete_person_events_op_fails_when_the_persons_rows_outlive_the_sweep(c
         drop_recordings=False,
     )
 
-    with patch("posthog.dags.data_deletion_requests.resolve_targets", return_value=[stranded]):
+    placement = TargetPlacement(target=stranded, cluster=cluster)
+    with patch("posthog.dags.data_deletion_requests.resolve_placements", return_value=[placement]):
         with pytest.raises(dagster.Failure, match="still readable"):
             delete_person_events_op(build_op_context(), cluster, ctx)
 
