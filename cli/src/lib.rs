@@ -10,6 +10,7 @@ pub mod invocation_context;
 pub mod login;
 pub mod proguard;
 pub mod release;
+pub mod release_injection;
 pub mod sourcemaps;
 pub mod utils;
 

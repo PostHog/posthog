@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use anyhow::{anyhow, Result};
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::{
     api::{
@@ -10,7 +10,8 @@ use crate::{
         symbol_sets::{dedup_uploads_by_chunk_id, SymbolSetUpload, MAX_FILE_SIZE},
     },
     debug_symbols::{discover, package_dsym_bundles, report_problems},
-    sourcemaps::args::{pack_version, ReleaseArgs, UploadConflictArgs},
+    release_injection::inject_release_id,
+    sourcemaps::args::{pack_version, ReleaseArgs, ReleaseMode, UploadConflictArgs},
     utils::git::get_git_info,
 };
 
@@ -36,6 +37,26 @@ pub struct Args {
     /// Implies --force unless --skip-on-conflict is set.
     #[arg(long, default_value_t = false)]
     pub include_source: bool,
+
+    /// How the release is associated with exceptions. `symbol-set`, the default, stamps the release
+    /// id onto every uploaded symbol set. EXPERIMENTAL `event` instead injects the created release's
+    /// id into the binary, where the SDK reads it and reports it as `$release_id`; the symbol sets
+    /// stay release-independent. Needs an SDK that compiles the marker in (posthog-rs 0.26+). Also
+    /// settable via `POSTHOG_RELEASE_MODE`.
+    #[arg(
+        long,
+        env = "POSTHOG_RELEASE_MODE",
+        value_enum,
+        default_value = "symbol-set"
+    )]
+    pub release_mode: ReleaseMode,
+
+    /// With `--release-mode=event`, skip re-signing the binary ad-hoc after injecting the release
+    /// id. Injecting invalidates the Mach-O code signature, so the binary must be re-signed before
+    /// it runs on macOS; by default the CLI re-signs ad-hoc. Pass this when your pipeline signs the
+    /// binary itself after upload (e.g. a notarized build), so its real signature is not replaced.
+    #[arg(long, default_value_t = false)]
+    pub no_resign: bool,
 }
 
 pub fn upload(args: &Args) -> Result<()> {
@@ -44,6 +65,8 @@ pub fn upload(args: &Args) -> Result<()> {
         release,
         conflict,
         include_source,
+        release_mode,
+        no_resign,
     } = args;
     let release_args = release.resolve_info_plist()?;
 
@@ -112,17 +135,54 @@ pub fn upload(args: &Args) -> Result<()> {
         .can_create()
         .then(|| release_builder.fetch_or_create())
         .transpose()?;
-    if let Some(release) = created_release {
-        let release_id = release.id.to_string();
-        for upload in &mut uploads {
-            upload.release_id = Some(release_id.clone());
+
+    match release_mode {
+        // Bind the release to every uploaded symbol set (the previous behavior).
+        ReleaseMode::SymbolSet => {
+            if let Some(release) = created_release {
+                let release_id = release.id.to_string();
+                for upload in &mut uploads {
+                    upload.release_id = Some(release_id.clone());
+                }
+            }
         }
+        // Carry the release on the event, not the symbol set: inject the created release's id into
+        // the binary (the SDK reports it as `$release_id`) and leave the symbol sets
+        // release-independent. Resolution is by the id, so nothing has to match the app.
+        ReleaseMode::Event => match created_release {
+            Some(release) => {
+                let release_id = release.id.to_string();
+                let patched = inject_release_id(&directory, &release_id, !*no_resign)?;
+                if patched == 0 {
+                    warn!(
+                        "--release-mode=event created release {release_id}, but found no PostHog \
+                         release marker under {} to inject it into, so exceptions will report no \
+                         release. Link an SDK that supports release injection (posthog-rs 0.26+) \
+                         and point --directory at that build's output.",
+                        directory.display()
+                    );
+                } else {
+                    info!(
+                        "Injected release {release_id} into {patched} binary/binaries; symbol sets upload release-independent"
+                    );
+                }
+            }
+            None => warn!(
+                "--release-mode=event needs a release to inject into the binary, but none could \
+                 be resolved. Pass --release-name and --release-version, or run from a git \
+                 repository, or exceptions will report no release."
+            ),
+        },
     }
 
     info!("Uploading {} debug symbol file(s)...", uploads.len());
-    // --include-source implies force unless the user explicitly asked to keep
-    // existing symbol sets with --skip-on-conflict.
-    let effective_force = conflict.force || (*include_source && !conflict.skip_on_conflict);
+    // --include-source implies force unless --skip-on-conflict. Event mode implies it too: on Linux
+    // the marker lives in the same ELF we upload as symbols, so re-injecting a new id changes the
+    // uploaded content under an unchanged build id — force lets a re-release overwrite it. (On
+    // macOS the symbols are a separate dSYM, so this is moot.)
+    let effective_force = conflict.force
+        || (*include_source && !conflict.skip_on_conflict)
+        || (*release_mode == ReleaseMode::Event && !conflict.skip_on_conflict);
     let (_summary, upload_result) = api::symbol_sets::upload_with_retry(
         uploads,
         10,
@@ -159,6 +219,43 @@ fn merge_uploads_prefer_dsym(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use clap::Parser;
+
+    #[derive(Parser)]
+    struct SymbolSetsCli {
+        #[command(subcommand)]
+        command: crate::download::SymbolSetsSubcommand,
+    }
+
+    fn parse_upload(extra: &[&str]) -> Args {
+        let mut argv = vec!["symbol-sets", "upload", "--directory", "target/release"];
+        argv.extend_from_slice(extra);
+        match SymbolSetsCli::parse_from(argv).command {
+            crate::download::SymbolSetsSubcommand::Upload(args) => args,
+            _ => panic!("expected the upload subcommand"),
+        }
+    }
+
+    #[test]
+    fn defaults_to_binding_the_release_to_the_symbol_sets() {
+        // Every existing caller omits the flag and must keep uploading symbol sets stamped with
+        // their release. A different default would silently unbind all of them.
+        assert_eq!(parse_upload(&[]).release_mode, ReleaseMode::SymbolSet);
+    }
+
+    #[test]
+    fn accepts_event_release_mode() {
+        assert_eq!(
+            parse_upload(&["--release-mode", "event"]).release_mode,
+            ReleaseMode::Event
+        );
+    }
+
+    #[test]
+    fn resigns_by_default_and_no_resign_opts_out() {
+        assert!(!parse_upload(&[]).no_resign);
+        assert!(parse_upload(&["--no-resign"]).no_resign);
+    }
 
     #[test]
     fn merge_uploads_prefers_dsym_over_matching_macho() {

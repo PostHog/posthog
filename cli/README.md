@@ -72,6 +72,12 @@ A single command handles both desktop/server formats:
 
 Pass `--include-source` to bundle the referenced source files for richer context around frames.
 
+By default the upload binds the symbol sets to the release, and an exception takes the release of the symbol sets its frames resolved against. With `--release-mode=event` the CLI instead **injects the created release's id into the binary**: the SDK compiled a fixed placeholder into the build, and the CLI overwrites it with the release id, which the SDK then reports as `$release_id` on every event. The symbol sets stay release-independent, so a binary that did not change across two releases keeps one symbol set instead of colliding on the release the first upload stamped on it. Because the release id is copied into both the release row and the binary, the release's name and version do not have to match anything the app reports.
+
+Injection is marker-driven, so it is language-agnostic: it patches any native binary that carries the PostHog release marker and does nothing where the marker is absent. It needs an SDK that compiles the marker in (posthog-rs 0.26+ today; other native SDKs adopt the same marker to opt in). The overwrite is fixed-width and leaves the build id (Mach-O `LC_UUID`, ELF `.note.gnu.build-id`) untouched, so the uploaded symbols still match.
+
+On macOS the edit invalidates the Mach-O code signature, so the binary will not run until it is signed again. The CLI re-signs it ad-hoc after injecting, which is what a local, CI, or server build needs. If the binary already carried a real signing identity, the ad-hoc re-sign replaces it (and the CLI warns) — so for a distributed or notarized build, run the upload as a build step **before** your signing step, or pass `--no-resign` and sign the binary yourself afterwards. This is macOS-only; ELF binaries are not signed.
+
 The standalone `posthog-cli dsym upload` command is unchanged and still recommended for dSYM-only Xcode build phases, where it also reads release and version metadata from each bundle's `Info.plist`.
 
 ## Configuring sourcemap upload concurrency
