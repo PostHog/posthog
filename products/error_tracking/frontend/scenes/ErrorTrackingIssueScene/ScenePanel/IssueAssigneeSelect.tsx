@@ -3,7 +3,7 @@ import { Button, SelectTriggerIcon } from 'lib/ui/quill'
 import { ErrorTrackingIssueAssignee } from '~/queries/schema/schema-general'
 
 import { AssigneeIconDisplay, AssigneeLabelDisplay } from '../../../components/Assignee/AssigneeDisplay'
-import { AssigneeSelect } from '../../../components/Assignee/AssigneeSelect'
+import { QuillAssigneeSelect } from '../../../components/Assignee/QuillAssigneeSelect'
 
 export const IssueAssigneeSelect = ({
     assignee,
@@ -15,7 +15,7 @@ export const IssueAssigneeSelect = ({
     onChange: (assignee: ErrorTrackingIssueAssignee | null) => void
 }): JSX.Element => {
     return (
-        <AssigneeSelect assignee={assignee} onChange={onChange}>
+        <QuillAssigneeSelect assignee={assignee} onChange={onChange}>
             {(anyAssignee) => (
                 <Button variant="outline" disabled={disabled}>
                     <AssigneeIconDisplay assignee={anyAssignee} size="xsmall" />
@@ -23,6 +23,6 @@ export const IssueAssigneeSelect = ({
                     {!disabled && <SelectTriggerIcon />}
                 </Button>
             )}
-        </AssigneeSelect>
+        </QuillAssigneeSelect>
     )
 }

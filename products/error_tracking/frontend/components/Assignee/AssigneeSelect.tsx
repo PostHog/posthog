@@ -1,8 +1,11 @@
-import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useState } from 'react'
+import { useActions } from 'kea'
+import { useEffect, useState } from 'react'
+
+import { LemonDropdown } from '@posthog/lemon-ui'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
+import { AssigneeResolver } from './AssigneeDisplay'
 import { AssigneeDropdown } from './AssigneeDropdown'
 import { Assignee, assigneeSelectLogic } from './assigneeSelectLogic'
 
@@ -10,17 +13,19 @@ export const AssigneeSelect = ({
     assignee,
     onChange,
     children,
+    fullWidth = false,
 }: {
     assignee: ErrorTrackingIssue['assignee']
     onChange: (assignee: ErrorTrackingIssue['assignee']) => void
     children: (assignee: Assignee, isOpen: boolean) => JSX.Element
+    /** When true, the trigger fills its container (e.g. a grid column). Default is content width for filter bars. */
+    fullWidth?: boolean
 }): JSX.Element => {
-    const { ensureAssigneeTypesLoaded } = useActions(assigneeSelectLogic)
-    const { resolveAssignee } = useValues(assigneeSelectLogic)
+    const { setSearch, ensureAssigneeTypesLoaded } = useActions(assigneeSelectLogic)
     const [showPopover, setShowPopover] = useState(false)
-    const resolvedAssignee = useMemo(() => resolveAssignee(assignee), [assignee, resolveAssignee])
 
     const _onChange = (value: ErrorTrackingIssue['assignee']): void => {
+        setSearch('')
         setShowPopover(false)
         onChange(value)
     }
@@ -30,12 +35,18 @@ export const AssigneeSelect = ({
     }, [ensureAssigneeTypesLoaded])
 
     return (
-        <AssigneeDropdown
-            assignee={assignee}
-            onChange={_onChange}
-            open={showPopover}
-            onOpenChange={setShowPopover}
-            trigger={children(resolvedAssignee, showPopover)}
-        />
+        <LemonDropdown
+            closeOnClickInside={false}
+            visible={showPopover}
+            matchWidth={false}
+            onVisibilityChange={(visible) => setShowPopover(visible)}
+            overlay={<AssigneeDropdown assignee={assignee} onChange={_onChange} />}
+        >
+            <div className={fullWidth ? 'w-full' : 'w-fit'}>
+                <AssigneeResolver assignee={assignee}>
+                    {({ assignee: resolvedAssignee }) => children(resolvedAssignee, showPopover)}
+                </AssigneeResolver>
+            </div>
+        </LemonDropdown>
     )
 }
