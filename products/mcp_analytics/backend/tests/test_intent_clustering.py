@@ -594,6 +594,44 @@ class TestStratifySessionIds:
         assert len(selected) <= 1500
 
 
+class TestSelectCorpusSessions:
+    """The per-tool buckets only carry each tool's floor, so the rest of the
+    corpus budget is filled from the uniform hash sample. The top-up must never
+    displace a floor session — that would undo the stratification — and must
+    still produce a full-size corpus for a team with only a couple of tools."""
+
+    def test_floors_survive_a_uniform_sample_larger_than_the_budget(self) -> None:
+        from products.mcp_analytics.backend.intent_clustering import select_corpus_sessions
+
+        tool_sessions = {"query-metrics": {"m-s0", "m-s1"}}
+        uniform = [f"exec-s{i}" for i in range(50)]
+
+        selected = select_corpus_sessions(tool_sessions, uniform, min_sessions_per_tool=400, max_total_sessions=10)
+
+        assert {"m-s0", "m-s1"}.issubset(selected)
+        assert len(selected) == 10
+
+    def test_uniform_sample_is_the_whole_corpus_when_buckets_are_unavailable(self) -> None:
+        from products.mcp_analytics.backend.intent_clustering import select_corpus_sessions
+
+        uniform = [f"exec-s{i}" for i in range(30)]
+
+        selected = select_corpus_sessions({}, uniform, min_sessions_per_tool=400, max_total_sessions=10)
+
+        assert len(selected) == 10
+        assert set(selected).issubset(uniform)
+
+    def test_budget_already_filled_by_floors_admits_no_top_up(self) -> None:
+        from products.mcp_analytics.backend.intent_clustering import select_corpus_sessions
+
+        tool_sessions = {f"tool_{t}": {f"tool_{t}-s{i}" for i in range(3)} for t in range(4)}
+
+        selected = select_corpus_sessions(tool_sessions, ["uniform-s0"], min_sessions_per_tool=3, max_total_sessions=12)
+
+        assert "uniform-s0" not in selected
+        assert len(selected) == 12
+
+
 class TestCapPerToolCallVolume:
     """After sampling, a single high-volume tool (exec) must not be allowed to
     occupy the whole intent corpus; cap its attributed calls so mid/low tools
@@ -1158,6 +1196,24 @@ class TestCorpusQueries(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, B
         # the exec-wrapped call buckets under its inner tool
         assert buckets.get("query-apm-spans") == {"session-a"}
         assert "session-quiet" not in buckets.get("query-metrics", set())
+
+    def test_tool_buckets_are_capped_per_tool_not_globally(self) -> None:
+        # A global cap on candidate sessions re-erases the low-volume tool the
+        # per-tool floor exists to protect: at high total volume its sessions
+        # fall outside the hash-ordered cut before any bucketing happens, so the
+        # floor has nothing left to keep. The cap has to apply per tool.
+        for i in range(12):
+            self._seed_tool_call(f"exec-s{i}", "exec", intent="operate the thing")
+        for i in range(2):
+            self._seed_tool_call(f"metrics-s{i}", "query-metrics", intent="check p99 latency")
+        flush_persons_and_events()
+
+        buckets = intent_clustering.fetch_tools_by_session(self.team, max_sessions_per_tool=3)
+
+        assert buckets["query-metrics"] == {"metrics-s0", "metrics-s1"}
+        # exec is capped at the same number, so the two buckets together hold
+        # more sessions than the cap — the pool was never cut globally.
+        assert len(buckets["exec"]) == 3
 
     def test_window_stats_count_calls_intents_and_sessions(self) -> None:
         self._seed_tool_call("session-a", "execute_sql", intent="find slow queries")

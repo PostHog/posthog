@@ -30,7 +30,7 @@ import math
 import asyncio
 import hashlib
 from collections import Counter, defaultdict
-from collections.abc import Collection
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -149,17 +149,19 @@ class WindowStats:
 
 # Intent corpus -----------------------------------------------------------
 
-# Bound on sessions sampled from ClickHouse for the corpus. Raised alongside
-# stratified sampling: with per-tool floors, a larger pool means each tool can
-# actually reach its floor, and the per-tool call cap (below) stops the extra
-# sessions from belonging only to the dominant tool. The IN-tuple stays sane
-# because per-session queries chunk the ids.
+# Total corpus budget. Raised alongside stratified sampling: the per-tool floors
+# below have to fit inside it before any of the budget goes to the dominant
+# tools, and the per-tool call cap (below) stops the extra sessions from
+# belonging only to those tools. The IN-tuple stays sane because per-session
+# queries chunk the ids.
 MAX_CORPUS_SESSIONS = 6000
 
 # Each tool keeps at least this many sessions in the corpus, so a low/mid-volume
 # tool (logs/tracing/metrics) survives sampling instead of being erased by the
 # dominant exec/scout traffic. ~400 is the statistical floor for reading a
-# discovery/capture rate to ±5%.
+# discovery/capture rate to ±5%. Doubles as the per-tool candidate pool size in
+# ``fetch_tools_by_session``: a pool bigger than the floor buys nothing, since
+# the rest of the corpus budget comes from the uniform sample.
 MIN_SESSIONS_PER_TOOL = 400
 
 # No tool may contribute more than this many attributed calls to the corpus.
@@ -168,9 +170,9 @@ MIN_SESSIONS_PER_TOOL = 400
 MAX_CALLS_PER_TOOL = 1500
 
 # Sender-controlled tool names only ever expand the ``_SESSION_TOOLS_SQL``
-# grouping. One session honestly uses a handful of distinct tools, so bound how
-# many distinct tools a single session can contribute to the per-tool buckets —
-# an attacker emitting thousands of unique names can't fan out the aggregation.
+# buckets. One session honestly uses a handful of distinct tools, so bound how
+# many distinct tools a single session can contribute — an attacker emitting
+# thousands of unique names can't fan the buckets out from one session.
 MAX_DISTINCT_TOOLS_PER_SESSION_BUCKET = 500
 
 # execute_hogql_query injects LIMIT 100 into any query without an explicit
@@ -435,39 +437,44 @@ def fetch_window_stats(team: Team, lookback_days: int = DEFAULT_LOOKBACK_DAYS) -
     )
 
 
-# Intent-bearing sessions bucketed by effective tool. Both dimensions are
-# sender-controlled, so each is bounded *before* the GROUP BY materializes
-# aggregation state: the inner queries cap the number of intent-bearing
-# sessions (cityHash sample, same scheme as ``sample_corpus_sessions``) and the
-# per-session distinct tool count, so an attacker submitting many unique tool
-# names can't fan out the outer group. Only intent-bearing sessions enter the
-# buckets, which is what lets stratified sampling reach a low/mid-volume tool
-# directly instead of through an independent uniform sample.
+# Intent-bearing sessions bucketed by effective tool, capped *per tool*.
+#
+# A single cap on candidate sessions cannot work here: the hash-ordered cut runs
+# before any bucketing, so at high total volume a low/mid-volume tool's handful
+# of sessions falls outside it and the per-tool floor has nothing left to keep —
+# the erasure this pipeline exists to prevent. ``LIMIT n BY tool`` gives each
+# tool its own pool, so whether a tool reaches the corpus stops depending on the
+# team's total session count.
+#
+# Both dimensions are sender-controlled, so each is bounded: ``groupUniqArray``
+# de-duplicates a session's tool names in aggregate state and ``arraySlice``
+# caps how many of them leave it, while the per-tool cap and the absolute row
+# cap bound the rows. Grouping by session alone (rather than session x tool)
+# keeps the aggregation one dimension wide, and lets a session qualify on any of
+# its calls carrying an intent — the population ``sample_corpus_sessions`` draws
+# from.
 #
 # ``cityHash64`` here and in ``sample_corpus_sessions`` is a fast pseudo-random
 # ordering, not a security boundary — the memory/CPU protection comes from the
-# numeric caps, not the hash.
+# numeric caps, not the hash. ``arraySort`` keeps the per-session tool slice
+# stable across reruns so repeat runs re-hit the embedding cache.
 _SESSION_TOOLS_SQL = """
-SELECT
-    $session_id AS session_id,
-    left({tool_expr}, {max_tool_len}) AS tool
-FROM events
-WHERE event = {event}
-    AND timestamp >= now() - INTERVAL {lookback_days} DAY
-    AND $session_id IN (
-        SELECT $session_id
-        FROM events
-        WHERE event = {event}
-            AND timestamp >= now() - INTERVAL {lookback_days} DAY
-            AND $session_id != ''
-            AND coalesce(toString(properties.$mcp_intent), '') != ''
-        GROUP BY $session_id
-        ORDER BY cityHash64($session_id)
-        LIMIT {max_candidate_sessions}
-    )
-    AND notEmpty({tool_expr_where})
-GROUP BY session_id, tool
-LIMIT {max_distinct_tools} BY session_id
+SELECT session_id, arrayJoin(tools) AS tool
+FROM (
+    SELECT
+        $session_id AS session_id,
+        arraySlice(arraySort(groupUniqArray(left({tool_expr}, {max_tool_len}))), 1, {max_distinct_tools}) AS tools,
+        countIf(coalesce(toString(properties.$mcp_intent), '') != '') AS intent_calls
+    FROM events
+    WHERE event = {event}
+        AND timestamp >= now() - INTERVAL {lookback_days} DAY
+        AND $session_id != ''
+        AND notEmpty({tool_expr_where})
+    GROUP BY session_id
+    HAVING intent_calls > 0
+)
+ORDER BY cityHash64(session_id)
+LIMIT {max_sessions_per_tool} BY tool
 LIMIT {max_rows}
 """
 
@@ -475,14 +482,14 @@ LIMIT {max_rows}
 def fetch_tools_by_session(
     team: Team,
     lookback_days: int = DEFAULT_LOOKBACK_DAYS,
-    max_candidate_sessions: int = MAX_CORPUS_SESSIONS,
+    max_sessions_per_tool: int = MIN_SESSIONS_PER_TOOL,
 ) -> dict[str, set[str]]:
-    """Return ``{tool: {intent-bearing session_ids}}`` for the sampling window.
+    """Return ``{tool: {intent-bearing session_ids}}``, capped per tool.
 
-    The candidate pool is the deterministic cityHash sample of intent-bearing
-    sessions (``max_candidate_sessions``), so every tool's bucket is drawn from
-    that pool directly; the stratifier then guarantees per-tool floors without
-    any independent uniform sample gating it.
+    Each tool gets its own deterministic cityHash pool, so a tool's presence in
+    the corpus is independent of the team's total session count. The pool only
+    has to cover the tool's floor — ``select_corpus_sessions`` spends whatever
+    budget is left on the uniform sample.
     """
     query = parse_select(
         _SESSION_TOOLS_SQL,
@@ -492,13 +499,24 @@ def fetch_tools_by_session(
             "tool_expr_where": parse_expr(EFFECTIVE_TOOL_SQL),
             "lookback_days": ast.Constant(value=lookback_days),
             "max_tool_len": ast.Constant(value=MAX_TOOL_NAME_LENGTH),
-            "max_candidate_sessions": ast.Constant(value=max_candidate_sessions),
+            "max_sessions_per_tool": ast.Constant(value=max_sessions_per_tool),
             "max_distinct_tools": ast.Constant(value=MAX_DISTINCT_TOOLS_PER_SESSION_BUCKET),
             "max_rows": ast.Constant(value=MAX_QUERY_ROWS),
         },
     )
+    rows = _run_corpus_query(team, query)
+    if len(rows) >= MAX_QUERY_ROWS:
+        # The row cap hit before every tool's pool came back, so some tool's
+        # bucket is short of its floor. Say so rather than let the missing tool
+        # read as a traffic change.
+        logger.warning(
+            "mcpa.intent_clustering.tool_buckets_truncated",
+            team_id=team.id,
+            max_rows=MAX_QUERY_ROWS,
+            max_sessions_per_tool=max_sessions_per_tool,
+        )
     out: dict[str, set[str]] = defaultdict(set)
-    for row in _run_corpus_query(team, query):
+    for row in rows:
         session_id, tool = str(row[0] or ""), str(row[1] or "")
         if session_id and tool:
             out[tool].add(session_id)
@@ -558,6 +576,35 @@ def stratify_session_ids(
                     selected.add(sid)
                     room -= 1
     return selected
+
+
+def select_corpus_sessions(
+    tool_sessions: dict[str, set[str]],
+    uniform_sample: Sequence[str],
+    min_sessions_per_tool: int,
+    max_total_sessions: int,
+) -> list[str]:
+    """The corpus session ids: per-tool floors first, uniform sample for the rest.
+
+    The floors are what keep a low/mid-volume tool in the corpus at any traffic
+    volume, but they only cover each tool's floor, so on their own they would
+    shrink the corpus for a team with a handful of tools. Spending the remaining
+    budget on the uniform hash sample keeps the corpus full size and keeps the
+    bulk of the window's traffic represented — the per-tool call cap is what
+    stops that bulk from crowding the intent space later.
+
+    ``uniform_sample`` is also the whole corpus when the per-tool buckets are
+    unavailable, so a capture or schema gap degrades to the prior behavior
+    rather than emptying the corpus.
+    """
+    if max_total_sessions <= 0:
+        return []
+    selected = stratify_session_ids(tool_sessions, min_sessions_per_tool, max_total_sessions)
+    for session_id in uniform_sample:
+        if len(selected) >= max_total_sessions:
+            break
+        selected.add(session_id)
+    return sorted(selected)
 
 
 @frozen
