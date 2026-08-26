@@ -32,6 +32,13 @@ describe('customBotDefinitions', () => {
                 'This is not a valid regular expression.',
             ],
             [
+                // The server's re.compile rejects (?U), so the editor must too or Save 400s. Only
+                // i, m and s are translated to JavaScript flags.
+                'a leading inline flag the server rejects',
+                { pattern: '(?U)AcmeBot', matcher: CustomBotMatcher.Regex },
+                'This is not a valid regular expression.',
+            ],
+            [
                 'a range on a property that is not an IP',
                 { matcher: CustomBotMatcher.Cidr, pattern: '192.0.2.0/24' },
                 'Ranges only work with the IP address property.',
@@ -64,6 +71,10 @@ describe('customBotDefinitions', () => {
             ['a plain substring', {}],
             ['a substring with regex metacharacters', { pattern: 'Acme (bot) v1.0' }],
             ['an anchored regex', { pattern: '^AcmeBot/[0-9]+$', matcher: CustomBotMatcher.Regex }],
+            // The server and ClickHouse accept a leading inline flag group; JavaScript RegExp does
+            // not, so these would wrongly block Save without the flag translation.
+            ['a leading case-insensitive flag', { pattern: '(?i)(acme|globex)bot', matcher: CustomBotMatcher.Regex }],
+            ['leading multiline and dotall flags', { pattern: '(?ms)^Acme.Bot', matcher: CustomBotMatcher.Regex }],
         ])('accepts %s', (_name, overrides) => {
             expect(validateCustomBotDefinition(definition(overrides))).toBeNull()
         })
@@ -92,6 +103,15 @@ describe('customBotDefinitions', () => {
 
             expect(matchesValue(regex, 'AcmeBot/12')).toBe(true)
             expect(matchesValue(regex, 'AcmeBot/vNext')).toBe(false)
+        })
+
+        it('applies a leading (?i) flag so a case-insensitive rule matches', () => {
+            // ClickHouse regex matching is case-sensitive by default, so (?i) is the natural way to
+            // write one. new RegExp rejects the inline group, so without translation this reports no match.
+            const regex = definition({ pattern: '(?i)acmebot', matcher: CustomBotMatcher.Regex })
+
+            expect(matchesValue(regex, 'ACMEBOT/1.0')).toBe(true)
+            expect(matchesValue(regex, 'Mozilla/5.0')).toBe(false)
         })
 
         // Subnet membership is the one thing here a person cannot check by eye, so the tester

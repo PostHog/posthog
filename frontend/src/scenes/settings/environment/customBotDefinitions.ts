@@ -88,6 +88,25 @@ const UNSUPPORTED_CONSTRUCTS: { pattern: RegExp; label: string }[] = [
     { pattern: /\\[zZGKCRX]/, label: 'unsupported escape' },
 ]
 
+// Python's re (and re2) take regex flags as a leading inline group like (?i), which JavaScript
+// RegExp rejects outright. The server accepts them, and a contains rule is compiled to (?i) itself,
+// so translate them to JavaScript flags before compiling. Otherwise the editor would block a valid
+// case-insensitive rule such as (?i)(acme|globex)bot and the tester would report no match.
+//
+// Only i, m and s are recognized: they are the flags JavaScript supports, and unlike re2 the
+// server's re.compile rejects (?U)/(?L), so recognizing those here would accept a rule the API then
+// refuses. A rarer server-valid flag like (?x) still gets refused in the editor, but the server
+// stays the authority, so that only affects the inline hint, not what saves. Compare compileForPreview
+// in lib/components/PathCleanFilters/pathCleaningUtils.ts.
+const LEADING_INLINE_FLAGS = /^\(\?([ims]+)\)/
+
+function compileCustomBotRegex(pattern: string): RegExp {
+    const match = pattern.match(LEADING_INLINE_FLAGS)
+    const flags = match ? match[1]! : ''
+    const body = match ? pattern.slice(match[0].length) : pattern
+    return new RegExp(body, flags)
+}
+
 /** An address as a number, with the width of its family. Null when it does not parse. */
 function parseIp(address: string): { value: bigint; width: bigint } | null {
     if (!address.includes(':')) {
@@ -181,7 +200,7 @@ export function validateCustomBotDefinition(definition: CustomBotDefinition): st
         }
     }
     try {
-        new RegExp(definition.pattern)
+        compileCustomBotRegex(definition.pattern)
     } catch {
         return 'This is not a valid regular expression.'
     }
@@ -204,7 +223,7 @@ export function matchesValue(definition: CustomBotDefinition, value: string): bo
     }
     if (definition.matcher === CustomBotMatcher.Regex) {
         try {
-            return new RegExp(definition.pattern).test(value)
+            return compileCustomBotRegex(definition.pattern).test(value)
         } catch {
             return false
         }
