@@ -27,7 +27,7 @@ describe('replayObservationLogic', () => {
                         status: 'failed',
                         error_reason: 'internal_error:boom',
                         scanner_snapshot: {
-                            // Inline scanners are unnamed, which is why their crumb read "Scanner" before it 404'd.
+                            // An inline scanner carries no name.
                             name: scannerOrigin === 'configured' ? 'My scanner' : '',
                             scanner_type: 'monitor',
                             scanner_version: 1,
@@ -57,7 +57,7 @@ describe('replayObservationLogic', () => {
 
     // A one-off "Summarize this recording" scan mints an inline scanner the scanner endpoints refuse to
     // serve, so a back button aimed at it 404s and drops the reader on the vision empty state. Both ways
-    // off this page — going back, and retrying — must land on the recording instead.
+    // off this page, going back and retrying, must land on the recording instead.
     test.each([
         {
             origin: 'configured' as const,

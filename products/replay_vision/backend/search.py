@@ -214,6 +214,6 @@ def fetch_ranked_observations(
         status=ObservationStatus.SUCCEEDED,
         id__in=ordered_ids,
     )
-    rows = accessible_observations(access, team_id, rows).select_related("triggered_by_user", "label")
+    rows = accessible_observations(access, team_id, rows).select_related("scanner", "triggered_by_user", "label")
     observations = {str(obs.id): obs for obs in rows}
     return [obs for observation_id in ordered_ids if (obs := observations.get(observation_id)) is not None]

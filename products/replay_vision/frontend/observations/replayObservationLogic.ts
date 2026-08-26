@@ -12,7 +12,7 @@ import type { ReplayObservationApi, VisionObservationsRetrieveParams } from '../
 import { scheduleObservationPoll } from '../logics/observationPolling'
 import { requestObservationRetry } from '../logics/observationRetry'
 import { OBSERVATION_LIST_FILTER_KEYS } from '../replay_scanners/types'
-import { isOneOffScan, scannerLabel } from '../utils/observation'
+import { hasScannerPage, scannerLabel } from '../utils/observation'
 import { parseNumericParam } from '../utils/urlParams'
 import { observationProgressLogic } from './observationProgressLogic'
 import { replayObservationSceneLogic } from './replayObservationSceneLogic'
@@ -42,26 +42,24 @@ export function neighborFilterParams(searchParams: Record<string, unknown>): Vis
 }
 
 /**
- * The crumb the observation page's back button returns to.
+ * Where an observation belongs, and so where both ways off its page lead: going back, and retrying.
  *
- * A saved scanner owns its observations and has a page listing them, so back goes there. A one-off
- * scan is owned by the recording it was run from — that's where the person started, and the only place
- * its result is listed — so back goes to the recording instead.
+ * A saved scanner owns its observations and has a page listing them. A one-off scan is owned by the
+ * recording it was run from, which is where the person started and the only place its result is
+ * listed. The recording is also the safe side of [hasScannerPage], because it always resolves.
  */
+export function observationParentUrl(observation: ReplayObservationApi): string {
+    return hasScannerPage(observation)
+        ? urls.replayVision(observation.scanner_id)
+        : urls.replaySingle(observation.session_id)
+}
+
+/** The crumb the observation page's back button returns to. */
 export function observationParentBreadcrumb(observation: ReplayObservationApi): Breadcrumb {
-    if (isOneOffScan(observation)) {
-        return {
-            key: `recording-${observation.session_id}`,
-            name: 'Recording',
-            path: urls.replaySingle(observation.session_id),
-            iconType: 'session_replay',
-        }
-    }
-    return {
-        key: `scanner-${observation.scanner_id}`,
-        name: scannerLabel(observation),
-        path: urls.replayVision(observation.scanner_id),
-    }
+    const path = observationParentUrl(observation)
+    return hasScannerPage(observation)
+        ? { key: `scanner-${observation.scanner_id}`, name: scannerLabel(observation), path }
+        : { key: `recording-${observation.session_id}`, name: 'Recording', path, iconType: 'session_replay' }
 }
 
 /** Canonical link to an observation's detail page, carrying list filters so prev/next honors them. */
@@ -193,16 +191,15 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
             loadObservationFailure: reschedulePoll,
 
             retryObservation: async () => {
-                // The retried row is deleted, so this page's id dangles afterwards. Hand off to wherever the
-                // replacement shows up: the scanner page for a configured scanner, and the recording itself
-                // for an inline scan, which has no page of its own.
+                // The retried row is deleted, so this page's id dangles afterwards. Hand off to whatever
+                // owns the observation, which is where the replacement appears.
                 const observation = values.observation
-                const landsOnScanner = !!observation && !isOneOffScan(observation)
+                const landsOnScanner = !!observation && hasScannerPage(observation)
                 const retried = await requestObservationRetry(
                     props.id,
                     landsOnScanner
-                        ? 'Retrying scan — the new observation will appear on the scanner page shortly.'
-                        : 'Retrying scan — the new observation will appear on the recording shortly.'
+                        ? 'Retrying scan. The new observation will appear on the scanner page shortly.'
+                        : 'Retrying scan. The new observation will appear on the recording shortly.'
                 )
                 if (!retried) {
                     actions.retryObservationFailure()
@@ -212,11 +209,7 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
                 if (!observation) {
                     return
                 }
-                router.actions.push(
-                    landsOnScanner
-                        ? urls.replayVision(observation.scanner_id)
-                        : urls.replaySingle(observation.session_id)
-                )
+                router.actions.push(observationParentUrl(observation))
             },
 
             // When the stream reports the observation has settled, reload once to render the final result.

@@ -41,8 +41,8 @@ export const replayObservationSceneLogic = kea<replayObservationSceneLogicType>(
 
     actions({
         setObservationId: (observationId: string) => ({ observationId }),
-        // Pushed by replayObservationLogic once the observation loads — this crumb is what the scene's
-        // back button returns to, so where it points decides where "back" lands.
+        // Pushed by replayObservationLogic once the observation loads. The scene's back button returns
+        // to this crumb, so where it points decides where "back" lands.
         setParentBreadcrumb: (parentBreadcrumb: Breadcrumb | null) => ({ parentBreadcrumb }),
     }),
 

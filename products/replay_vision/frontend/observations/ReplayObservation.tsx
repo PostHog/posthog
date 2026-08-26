@@ -153,7 +153,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
     const reasoning = result && typeof result.reasoning === 'string' ? result.reasoning : null
     const reasoningSegments = result?.reasoning_segments
     const scannerType = snapshot?.scanner_type
-    // An inline scanner has no name, so a one-off scan says what it is instead of titling the page "Scanner".
+    // An inline scanner has no name, so the page borrows the dock's word for the scan that produced it.
     const scannerName = scannerLabel(observation)
     const triggerLabel = OBSERVATION_TRIGGER_TAG[observation.triggered_by].label
     const snapshotConfig = configFromSnapshot(snapshot)

@@ -9,8 +9,12 @@ from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.replay_vision.backend.embeddings import EMBEDDING_DOCUMENT_TYPE, EMBEDDING_PRODUCT
-from products.replay_vision.backend.search import ObservationSearchFilters, rank_observations
+from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerOrigin, ScannerType
+from products.replay_vision.backend.search import ObservationSearchFilters, fetch_ranked_observations, rank_observations
+from products.replay_vision.backend.tests.helpers import snapshot_for
 
 
 class TestObservationFiltersTagClause:
@@ -141,3 +145,41 @@ class TestRankObservationsQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual([m.observation_id for m in matches], [kept])
+
+
+class TestFetchRankedObservations(APIBaseTest):
+    def _observation(self, scanner_name: str) -> ReplayObservation:
+        scanner = ReplayScanner.objects.create(
+            team=self.team,
+            name=scanner_name,
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "did the user check out?"},
+            model=ScannerModel.GEMINI_3_7_FLASH,
+        )
+        return ReplayObservation.objects.create(
+            team=self.team,
+            scanner=scanner,
+            session_id=f"sess-{scanner_name}",
+            status=ObservationStatus.SUCCEEDED,
+            # A settled status has to carry a completion time, per the model's check constraint.
+            completed_at=timezone.now(),
+            scanner_snapshot=snapshot_for(scanner),
+        )
+
+    def test_hydrated_rows_carry_their_scanner(self) -> None:
+        # The serializer reads `scanner.origin` on every row to tell a saved scanner from a one-off
+        # scan. Without the join that is one query per result on a page of up to 50, and nothing else
+        # in this suite counts queries, so a dropped `select_related` would go unnoticed.
+        observations = [self._observation("first"), self._observation("second")]
+        access = UserAccessControl(user=self.user, team=self.team)
+
+        rows = fetch_ranked_observations(
+            self.team.pk,
+            [str(obs.scanner_id) for obs in observations],
+            [str(obs.id) for obs in observations],
+            access,
+        )
+
+        self.assertEqual(len(rows), 2)
+        with self.assertNumQueries(0):
+            self.assertEqual([row.scanner.origin for row in rows], [ScannerOrigin.CONFIGURED] * 2)

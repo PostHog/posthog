@@ -4,19 +4,40 @@ import { type ReplayObservationApi, ScannerOriginEnumApi } from '../generated/ap
 import { citedTextToPlainText, parseCitedSegments } from './citations'
 
 /**
- * Whether this observation came from a one-off scan — the player's "Summarize this recording" —
- * rather than from a saved scanner.
+ * Whether this observation came from a one-off scan, meaning the player's "Summarize this recording"
+ * rather than a saved scanner.
  *
- * A one-off scan runs on an inline scanner: an unnamed throwaway keyed to that single question. The
- * scanner endpoints exclude those, so it has no name to show and no page to navigate to.
+ * A one-off scan runs on an inline scanner, which is an unnamed throwaway keyed to that single
+ * question, so there is no scanner name to show next to the result.
  */
-export function isOneOffScan(obs: Pick<ReplayObservationApi, 'scanner_origin'>): boolean {
+function isOneOffScan(obs: Pick<ReplayObservationApi, 'scanner_origin'>): boolean {
     return obs.scanner_origin === ScannerOriginEnumApi.Inline
 }
 
-/** What to call the scan behind an observation, anywhere one is named next to its result. */
-export function scannerLabel(obs: ReplayObservationApi): string {
-    return isOneOffScan(obs) ? 'One-off scan' : obs.scanner_snapshot?.name || 'Scanner'
+/**
+ * Whether there is a scanner page to send someone to.
+ *
+ * Deliberately the opposite polarity to [isOneOffScan]: only a confirmed saved scanner answers true,
+ * so an inline scanner, and any origin a later release adds, both fall through to the safe side. The
+ * scanner endpoints serve configured scanners only, so guessing wrong here means a 404.
+ */
+export function hasScannerPage(obs: Pick<ReplayObservationApi, 'scanner_origin'>): boolean {
+    return obs.scanner_origin === ScannerOriginEnumApi.Configured
+}
+
+/**
+ * What to call the scan behind an observation, anywhere one is named next to its result.
+ *
+ * A one-off scan has no scanner name to borrow. The player's dock already calls the built-in prompt
+ * behind almost all of them "Quick summary", so their results answer to that same name instead of a
+ * second name for one thing. Max can run a one-off scan that is not a summary, and that stays
+ * generic, because calling it a summary would be wrong.
+ */
+export function scannerLabel(obs: Pick<ReplayObservationApi, 'scanner_origin' | 'scanner_snapshot'>): string {
+    if (!isOneOffScan(obs)) {
+        return obs.scanner_snapshot?.name || 'Scanner'
+    }
+    return obs.scanner_snapshot?.scanner_type === 'summarizer' ? 'Quick summary' : 'One-off scan'
 }
 
 export function readModelOutput(obs: ReplayObservationApi): Record<string, unknown> | null {
@@ -115,7 +136,7 @@ export function readTags(obs: ReplayObservationApi): string[] {
 }
 
 export interface ObservationSeekbarMarkEntry {
-    scannerName: string | null
+    scannerName: string
     headline: string | null
     snippet: string | null
 }
@@ -196,7 +217,7 @@ function observationHeadline(obs: ReplayObservationApi): string | null {
 export function observationSeekbarMarks(observations: ReplayObservationApi[]): ObservationSeekbarMark[] {
     const entriesByTimestamp = new Map<number, Map<string, ObservationSeekbarMarkEntry>>()
     for (const obs of observations) {
-        const scannerName = obs.scanner_snapshot?.name ?? null
+        const scannerName = scannerLabel(obs)
         const headline = observationHeadline(obs)
         for (const { timestampMs, snippet } of readCitations(obs)) {
             const entries = entriesByTimestamp.get(timestampMs) ?? new Map<string, ObservationSeekbarMarkEntry>()
