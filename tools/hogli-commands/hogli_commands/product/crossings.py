@@ -41,11 +41,11 @@ import textwrap
 import warnings
 import functools
 from collections import Counter, defaultdict
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-from .ast_helpers import ast_parse_safe, get_model_names
+from .ast_helpers import ast_parse_safe, get_model_names, lazy_reexport_map
 from .isolation import COMPUTED_WIRING_LOCATIONS, MODEL_CROSSINGS, facade_model_crossings
 from .paths import PRODUCTS_DIR, REPO_ROOT
 
@@ -694,18 +694,34 @@ def _compared_kinds(test: ast.expr, node_kinds: Mapping[str, str]) -> list[str]:
     return kinds
 
 
-def product_query_kinds(products: Iterable[str] | None = None) -> dict[str, frozenset[str]]:
-    """Query kind -> products whose runners it can reach, read off core's dispatch table."""
+@dataclass(frozen=True)
+class _QueryKinds:
+    """The product query kinds core dispatches, by literal and by `NodeKind` member.
+
+    A test names a kind either way (`"PathsQuery"` or `NodeKind.PATHS_QUERY`); both must count."""
+
+    products: Mapping[str, frozenset[str]]  # kind -> products whose runners it can reach
+    members: Mapping[str, str]  # NodeKind member -> kind, for the kinds in `products`
+
+    def __bool__(self) -> bool:
+        return bool(self.products)
+
+
+def product_query_kinds(products: Iterable[str] | None = None) -> _QueryKinds:
+    """The query kinds that reach product runners, read off core's dispatch table."""
     node_kinds = _node_kind_values(NODE_KIND_ENUM.read_text(encoding="utf-8"))
     kinds = _kinds_in_dispatcher(QUERY_DISPATCHER.read_text(encoding="utf-8"), node_kinds)
     if products is not None:
         wanted = frozenset(products)
         kinds = {kind: owners & wanted for kind, owners in kinds.items() if owners & wanted}
-    return kinds
+    return _QueryKinds(kinds, {member: kind for member, kind in node_kinds.items() if kind in kinds})
 
 
 def _wiring_location_exports(product: str, location: str) -> dict[_Export, str]:
-    """Every top-level class or function a module in the wiring location defines, labeled with the location."""
+    """Every name a module in the wiring location defines at top level, labeled with the location.
+
+    A facade module that hands those names out through a PEP 562 lazy map is an export path too,
+    so an import through the facade resolves to the location like a static re-export would."""
     label = wiring_location_label(product, location)
     root = PRODUCTS_DIR / product / location.rstrip("/")
     paths = sorted(root.rglob("*.py")) if root.is_dir() else [root] if root.is_file() else []
@@ -718,7 +734,43 @@ def _wiring_location_exports(product: str, location: str) -> dict[_Export, str]:
         for node in tree.body:
             if isinstance(node, ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
                 exports[_Export(module, node.name)] = label
+    for facade_path in sorted((PRODUCTS_DIR / product / "backend" / "facade").glob("*.py")):
+        tree = ast_parse_safe(facade_path)
+        if tree is None:
+            continue
+        for name, source in _lazy_reexports(tree, product, _module_exists).items():
+            if (REPO_ROOT / source.replace(".", "/")).with_suffix(".py").is_relative_to(root):
+                exports[_Export(_dotted_module(facade_path), name)] = label
     return exports
+
+
+def _module_exists(dotted: str) -> bool:
+    path = REPO_ROOT / dotted.replace(".", "/")
+    return path.with_suffix(".py").is_file() or (path / "__init__.py").is_file()
+
+
+def _lazy_reexports(tree: ast.Module, product: str, exists: Callable[[str], bool]) -> dict[str, str]:
+    """Exported name -> absolute dotted source module, for a facade's PEP 562 lazy map.
+
+    Lazy maps store their values relative to some package: absolute, relative to the product's
+    backend package, or relative to a module-level prefix constant (`_B = "products....hogql_queries."`).
+    The first candidate that names a real module wins."""
+    prefixes = [
+        node.value.value
+        for node in tree.body
+        if isinstance(node, ast.Assign)
+        and isinstance(node.value, ast.Constant)
+        and isinstance(node.value.value, str)
+        and node.value.value.endswith(".")
+    ]
+    resolved: dict[str, str] = {}
+    for name, value in lazy_reexport_map(tree).items():
+        candidates = [value, *(prefix + value for prefix in prefixes), f"products.{product}.backend.{value}"]
+        for candidate in candidates:
+            if exists(candidate):
+                resolved[name] = candidate
+                break
+    return resolved
 
 
 def _is_test_client_call(node: ast.Call) -> bool:
@@ -729,26 +781,33 @@ def _is_test_client_call(node: ast.Call) -> bool:
     return receiver is not None and receiver.endswith("client")
 
 
-def _kind_mentions(tree: ast.Module, kinds: Mapping[str, frozenset[str]]) -> list[tuple[ast.AST, str]]:
-    """Nodes where a product query kind enters a query: `{"kind": "X"}` or the schema constructor `X(...)`.
+def _kind_mentions(tree: ast.Module, kinds: _QueryKinds) -> list[tuple[ast.AST, str]]:
+    """Nodes where a product query kind enters a query: `{"kind": "X"}`, `{"kind": NodeKind.X}`, or
+    the schema constructor `X(...)`.
 
     A bare string (a parametrize row, a URL segment) is not a query and is not counted."""
     found: list[tuple[ast.AST, str]] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Dict):
             for key, value in zip(node.keys, node.values):
-                if (
-                    isinstance(key, ast.Constant)
-                    and key.value == "kind"
-                    and isinstance(value, ast.Constant)
-                    and value.value in kinds
-                ):
-                    found.append((node, value.value))
+                if not (isinstance(key, ast.Constant) and key.value == "kind"):
+                    continue
+                kind = _kind_of(value, kinds)
+                if kind is not None:
+                    found.append((node, kind))
         elif isinstance(node, ast.Call):
             name = _callee_name(node)
-            if name in kinds:
+            if name in kinds.products:
                 found.append((node, name))
     return found
+
+
+def _kind_of(value: ast.expr, kinds: _QueryKinds) -> str | None:
+    if isinstance(value, ast.Constant) and value.value in kinds.products:
+        return str(value.value)
+    if isinstance(value, ast.Attribute) and isinstance(value.value, ast.Name) and value.value.id == "NodeKind":
+        return kinds.members.get(value.attr)
+    return None
 
 
 _Function = ast.FunctionDef | ast.AsyncFunctionDef
@@ -798,7 +857,7 @@ class _Executions:
         return any(self._executes_directly(helpers[name]) for name in called if name in helpers)
 
 
-def kind_drives(tree: ast.Module, kinds: Mapping[str, frozenset[str]]) -> Counter[_KindDrive]:
+def kind_drives(tree: ast.Module, kinds: _QueryKinds) -> Counter[_KindDrive]:
     """Drive -> mentions, for every kind this module both builds and executes.
 
     Building alone is not a drive: a test that checks a schema or a formatter constructs the query
@@ -823,7 +882,7 @@ def kind_drives(tree: ast.Module, kinds: Mapping[str, frozenset[str]]) -> Counte
                 scope_executes[id(scope)] = _executes_directly(scope)
             executes = scope_executes[id(scope)]
         if executes:
-            for product in kinds[kind]:
+            for product in kinds.products[kind]:
                 found[_KindDrive(product, kind)] += 1
     return found
 
@@ -873,25 +932,29 @@ def _alternation(names: Iterable[str]) -> bytes:
 
 @dataclass(frozen=True)
 class _KindHint:
-    """A cheap test for the two textual shapes `_kind_mentions` accepts, so a file that only names
-    a kind in a parametrize row or a URL is never parsed.
+    """A cheap test for the textual shapes `_kind_mentions` accepts, so a file that only names a
+    kind in a parametrize row or a URL is never parsed.
 
     The alternation over every kind is slow at each position of a large file; the longest common
-    suffix of the kinds ("Query" today) gates it with one substring search."""
+    suffix of the kinds ("Query" today) gates it with one substring search, and `NodeKind.` gates
+    the enum form."""
 
     gate: bytes
     pattern: re.Pattern[bytes]
 
     @classmethod
-    def for_kinds(cls, kinds: Iterable[str]) -> _KindHint:
-        names = sorted(kinds)
+    def for_kinds(cls, kinds: _QueryKinds) -> _KindHint:
+        names = sorted(kinds.products)
         reversed_common = os.path.commonprefix([name[::-1] for name in names])
         alternation = _alternation(names)
-        pattern = rb"[\"']kind[\"']\s*:\s*[\"'](?:" + alternation + rb")[\"']|\b(?:" + alternation + rb")\("
+        pattern = (
+            rb"[\"']kind[\"']\s*:\s*[\"'](?:" + alternation + rb")[\"']|\b(?:" + alternation + rb")\("
+            rb"|NodeKind\.(?:" + _alternation(kinds.members) + rb")\b"
+        )
         return cls(reversed_common[::-1].encode(), re.compile(pattern))
 
     def matches(self, source: bytes) -> bool:
-        return self.gate in source and self.pattern.search(source) is not None
+        return (self.gate in source or b"NodeKind." in source) and self.pattern.search(source) is not None
 
 
 def _reads_class_off_module(source: bytes, aliases: dict[str, str], class_names: set[str]) -> bool:

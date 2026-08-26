@@ -245,7 +245,10 @@ class After(StrEnum):
     Y = "AlsoNotAKind"
 """
 
-KINDS = {"PathsQuery": frozenset({"product_analytics"}), "WebOverviewQuery": frozenset({"web_analytics"})}
+KINDS = crossings._QueryKinds(
+    {"PathsQuery": frozenset({"product_analytics"}), "WebOverviewQuery": frozenset({"web_analytics"})},
+    {"PATHS_QUERY": "PathsQuery"},
+)
 
 
 class TestGarageDrives:
@@ -341,6 +344,14 @@ class TestGarageDrives:
                 """,
                 {("product_analytics", "PathsQuery"): 1},
             ),
+            # the enum form of a kind counts like the literal
+            (
+                """
+                def test_paths(team):
+                    process_query_dict(team, {"kind": NodeKind.PATHS_QUERY, "pathsFilter": {}})
+                """,
+                {("product_analytics", "PathsQuery"): 1},
+            ),
             # a same-named method in a later class does not answer for the one that executes
             (
                 """
@@ -383,7 +394,31 @@ class TestGarageDrives:
         drives = crossings.kind_drives(ast.parse(textwrap.dedent(source)), KINDS)
         assert {(drive.product, drive.kind): count for drive, count in drives.items()} == expected
 
-    def test_driven_garages_reads_the_products_lines(self, tmp_path: Path) -> None:
+    def test_lazy_facade_map_resolves_to_its_source_module(self) -> None:
+        facade = textwrap.dedent(
+            """
+            _B = "products.product_analytics.backend.hogql_queries."
+            _LAZY = {"PathsQueryRunner": "paths.paths_query_runner", "helper": "logic.helpers"}
+
+            def __getattr__(name):
+                return None
+            """
+        )
+        existing = {
+            "products.product_analytics.backend.hogql_queries.paths.paths_query_runner",
+            "products.product_analytics.backend.logic.helpers",
+        }
+        assert crossings._lazy_reexports(ast.parse(facade), "product_analytics", existing.__contains__) == {
+            "PathsQueryRunner": "products.product_analytics.backend.hogql_queries.paths.paths_query_runner",
+            "helper": "products.product_analytics.backend.logic.helpers",
+        }
+
+    def test_hint_matches_the_enum_form(self) -> None:
+        hint = crossings._KindHint.for_kinds(KINDS)
+        assert hint.matches(b'client.post(url, {"query": {"kind": NodeKind.PATHS_QUERY}})')
+        assert not hint.matches(b"NodeKind.TRENDS_QUERY")
+
+    def test_driven_wiring_locations_reads_the_products_lines(self, tmp_path: Path) -> None:
         baseline = tmp_path / "baseline.txt"
         baseline.write_text(
             "# header\n"
