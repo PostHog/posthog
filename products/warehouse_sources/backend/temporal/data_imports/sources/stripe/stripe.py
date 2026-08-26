@@ -16,6 +16,7 @@ from stripe._base_address import BaseAddresses
 from stripe._webhook_endpoint_service import WebhookEndpointService
 from structlog.types import FilteringBoundLogger
 
+from posthog.dataclasses import frozen
 from posthog.temporal.common.logger import get_logger
 
 from products.warehouse_sources.backend.models.external_table_definitions import (
@@ -465,7 +466,7 @@ def _payment_method_history_snapshot_row(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-@dataclasses.dataclass
+@frozen
 class StripeResumeConfig:
     """Where a sweep stopped, in whichever coordinate system it was walking.
 
