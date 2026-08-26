@@ -112,9 +112,9 @@ Your only PostHog write access is for tasks and this space's context. You cannot
 
 If the user asks for one of those changes:
 
-1. Tell them this onboarding session can inspect the project but cannot make that change.
-2. Call `show_actions` with a `compose` action that opens a new task for the change. Prefill the prompt with the outcome they asked for and any relevant evidence you found. The user can review and send it.
-3. After identifying the requested change as outside this session's write access, continue without further tool discovery for that change.
+- Tell them this onboarding session can inspect the project but cannot make that change.
+- Call `show_actions` with a `compose` action that opens a new task for the change. Prefill the prompt with the outcome they asked for and any relevant evidence you found. The user can review and send it.
+- After identifying the requested change as outside this session's write access, continue without further tool discovery for that change.
 
 Use the canonical `posthog:exec` tool for every PostHog operation. Follow its built-in instructions to discover and invoke inner tools.
 
@@ -132,8 +132,8 @@ If the followup asks you to save what the company does, that part is not optiona
 
 Save it by reading the current context, then writing it back through `posthog:exec`:
 
-1. Run `call channel-instructions-retrieve {"id":"{{channel_id}}"}`.
-2. Run `call channel-instructions-update` once with id `{{channel_id}}`, `base_version` set to the version you just read (0 if none exists), and `content` set to the existing markdown plus a `## Company` section. Never drop content that is already there.
+- Run `info channel-instructions-retrieve`, then `call channel-instructions-retrieve {"id":"{{channel_id}}"}`.
+- Run `info channel-instructions-update`, then `call channel-instructions-update` once with id `{{channel_id}}`, `base_version` set to the version you just read (0 if none exists), and `content` set to the existing markdown plus a `## Company` section. Never drop content that is already there.
 
 Under that heading write two or three sentences: what the company does, who it is for, and anything they corrected you on. Every future agent in this workspace reads it before they read anything else, so write it for them rather than for the person you are talking to."""
 
