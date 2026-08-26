@@ -233,6 +233,30 @@ class MessageTemplateSerializer(serializers.ModelSerializer):
                 {"content": {"function": {"template_id": f"'{template_id}' is not a known destination template."}}}
             )
 
+        # Hidden templates are internal building blocks (template-email, template-twilio,
+        # template-native-push) that the workflow editor renders behind the specialized email/SMS/push
+        # step types. A library template is emitted as a plain "function" step, which loses that action
+        # type - and suppression and opt-out only run for function_email, function_sms and function_push.
+        # Saving one here would hand the editor a step that reaches suppressed recipients, so reject it.
+        # Mirrors HogFunctionSerializer._validate_template_is_creatable in products/cdp.
+        if template.status == "hidden":
+            raise serializers.ValidationError(
+                {
+                    "content": {
+                        "function": {
+                            "template_id": f"'{template_id}' is internal and cannot be saved as a template."
+                        }
+                    }
+                }
+            )
+
+        # Not a recipient-controls problem, just a broken one: a coming_soon destination has no working
+        # implementation to insert, so a library entry pointing at it could never run.
+        if template.status == "coming_soon":
+            raise serializers.ValidationError(
+                {"content": {"function": {"template_id": f"'{template_id}' is not available yet."}}}
+            )
+
         # The library stores plaintext JSON, so schema-declared secrets (auth headers, API keys)
         # must never land in it - drop them here regardless of what the client sent.
         secret_keys = {schema["key"] for schema in (template.inputs_schema or []) if schema.get("secret")}

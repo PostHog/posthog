@@ -517,6 +517,32 @@ class TestFunctionMessageTemplatesAPI(APIBaseTest):
             status="stable",
             category=["Custom"],
         )
+        # An internal destination the workflow editor drives through its own email step type, which is
+        # where suppression and opt-out are enforced. Must not be savable as a plain function template.
+        HogFunctionTemplate.objects.create(
+            template_id="template-email",
+            sha="1.0.0",
+            name="Native email",
+            description="",
+            code="return event",
+            code_language="hog",
+            inputs_schema=[],
+            type="destination",
+            status="hidden",
+            category=["Messaging"],
+        )
+        HogFunctionTemplate.objects.create(
+            template_id="template-not-ready",
+            sha="1.0.0",
+            name="Unreleased destination",
+            description="",
+            code="return event",
+            code_language="hog",
+            inputs_schema=[],
+            type="destination",
+            status="coming_soon",
+            category=["Custom"],
+        )
 
     def _create_function_template(self, content):
         return self.client.post(
@@ -542,6 +568,8 @@ class TestFunctionMessageTemplatesAPI(APIBaseTest):
             ("missing_template_id", {"function": {"inputs": {}}}),
             ("unknown_template", {"function": {"template_id": "template-nope", "inputs": {}}}),
             ("non_destination_template", {"function": {"template_id": "template-transformation", "inputs": {}}}),
+            ("hidden_template", {"function": {"template_id": "template-email", "inputs": {}}}),
+            ("coming_soon_template", {"function": {"template_id": "template-not-ready", "inputs": {}}}),
         ]
     )
     def test_create_function_template_with_invalid_template_fails(self, _name, content):
@@ -552,6 +580,31 @@ class TestFunctionMessageTemplatesAPI(APIBaseTest):
         response = self.client.post(f"/api/projects/{self.team.id}/messaging_templates/", data=payload, format="json")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+    def test_hidden_destination_cannot_be_saved_as_template(self):
+        # A hidden destination saved here would come back as a type "function" step, bypassing the
+        # suppression and opt-out checks that only run for function_email/function_sms/function_push.
+        response = self._create_function_template({"function": {"template_id": "template-email", "inputs": {}}})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "internal" in str(response.json())
+        assert not MessageTemplate.objects.filter(team=self.team, type="function").exists()
+
+    def test_hidden_destination_cannot_be_patched_in(self):
+        created = self._create_function_template(
+            {"function": {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}}
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        template_id = created.json()["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/messaging_templates/{template_id}/",
+            data={"content": {"function": {"template_id": "template-email", "inputs": {}}}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert MessageTemplate.objects.get(id=template_id).content["function"]["template_id"] == "template-webhook"
 
     def test_secret_inputs_are_never_stored(self):
         response = self._create_function_template(
