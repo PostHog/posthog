@@ -14,7 +14,7 @@ Flag keys are unique within a project, so a key alone identifies one flag there,
 matcher here is project-scoped.
 """
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -53,6 +53,14 @@ class TriggerGroupFlagRef:
     stored_flag: Any
     key: str | None
     flag_id: int | None
+
+
+@dataclass(frozen=True, kw_only=True)
+class ReplayGateRewrite:
+    """New values for a team's gate columns. `None` leaves that column alone."""
+
+    linked_flag: dict[str, Any] | None = None
+    trigger_groups: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -249,26 +257,43 @@ def rewritten_trigger_groups(trigger_groups: Any, renames: Mapping[int, str]) ->
     return {**trigger_groups, "groups": groups} if changed else None
 
 
-def save_replay_gate_rewrites(
-    team: Team, *, linked_flag: dict[str, Any] | None, trigger_groups: dict[str, Any] | None
-) -> None:
-    """Write whichever rewritten columns were supplied, in a single save."""
-    update_fields = []
-    if linked_flag is not None:
-        team.session_recording_linked_flag = linked_flag
-        update_fields.append("session_recording_linked_flag")
-    if trigger_groups is not None:
-        team.session_recording_trigger_groups = trigger_groups
-        update_fields.append("session_recording_trigger_groups")
-    if not update_fields:
-        # A no-op save would still spend a write, a Celery task, and a RemoteConfig rebuild.
-        return
+def save_replay_gate_rewrites(team_id: int, compute: Callable[[Team], ReplayGateRewrite]) -> None:
+    """Rewrite a team's gate columns under a row lock, in a single save.
 
-    # Saving the instance rather than issuing a queryset `update()` is what fires the `post_save`
-    # receiver that refreshes the team's RemoteConfig; a bulk update would leave the cached SDK
-    # payload holding the old key. Both columns go in one save because that refresh is queued per
-    # save, not per changed field.
-    team.save(update_fields=update_fields)
+    `compute` is handed the team as it exists inside the lock rather than a copy the caller read
+    earlier. Callers load their teams in one batch and then loop, so an admin edit to this team's
+    replay settings can land before its turn comes up, and both rewrites replace a whole column —
+    computing one from a stale copy would put the pre-edit column back and publish it to the SDKs.
+
+    Taking the lock here is safe because this is the only row the function locks and the
+    transaction commits before returning, so two calls for different teams cannot deadlock against
+    each other. `relink_teams_on_key_change` defers to `on_commit` so the serializer's lock on the
+    flag row is already released by the time this runs.
+    """
+    with transaction.atomic():
+        # Loads every column rather than deferring: the `post_save` cache receiver reads about
+        # thirty other fields, each its own query when deferred.
+        team = Team.objects.select_for_update().filter(pk=team_id).first()
+        if team is None:
+            return
+
+        rewrite = compute(team)
+        update_fields = []
+        if rewrite.linked_flag is not None:
+            team.session_recording_linked_flag = rewrite.linked_flag
+            update_fields.append("session_recording_linked_flag")
+        if rewrite.trigger_groups is not None:
+            team.session_recording_trigger_groups = rewrite.trigger_groups
+            update_fields.append("session_recording_trigger_groups")
+        if not update_fields:
+            # A no-op save would still spend a write, a Celery task, and a RemoteConfig rebuild.
+            return
+
+        # Saving the instance rather than issuing a queryset `update()` is what fires the
+        # `post_save` receiver that refreshes the team's RemoteConfig; a bulk update would leave
+        # the cached SDK payload holding the old key. Both columns go in one save because that
+        # refresh is queued per save, not per changed field.
+        team.save(update_fields=update_fields)
 
 
 def update_linked_flag_key(team: Team, expected_flag_id: int, new_key: str) -> None:
@@ -311,23 +336,30 @@ def relink_teams(feature_flag: FeatureFlag, *, old_key: str) -> None:
     matched by the key it still holds — the one the flag has just stopped having.
     """
     new_key = feature_flag.key
-    for team in teams_gating_replay_on_flag(feature_flag, key=old_key):
+
+    def rewrite(team: Team) -> ReplayGateRewrite:
+        # Group indices come from the locked row, so a group added or reordered since this team was
+        # selected still moves the reference the rename is about.
+        trigger_groups = team.session_recording_trigger_groups
+        moving = {ref.group_index: new_key for ref in trigger_group_flag_refs(trigger_groups) if ref.key == old_key}
+        return ReplayGateRewrite(
+            linked_flag=rewritten_linked_flag(
+                team.session_recording_linked_flag, flag_id=feature_flag.pk, new_key=new_key
+            ),
+            trigger_groups=rewritten_trigger_groups(trigger_groups, moving),
+        )
+
+    # Ids only: `Team` is a wide model with several large JSONFields, and the columns this rewrites
+    # are re-read under the lock anyway.
+    for team_id in teams_gating_replay_on_flag(feature_flag, key=old_key).values_list("pk", flat=True):
         try:
-            trigger_groups = team.session_recording_trigger_groups
-            moving = {ref.group_index: new_key for ref in trigger_group_flag_refs(trigger_groups) if ref.key == old_key}
-            save_replay_gate_rewrites(
-                team,
-                linked_flag=rewritten_linked_flag(
-                    team.session_recording_linked_flag, flag_id=feature_flag.pk, new_key=new_key
-                ),
-                trigger_groups=rewritten_trigger_groups(trigger_groups, moving),
-            )
+            save_replay_gate_rewrites(team_id, rewrite)
         except Exception:
             # This runs after the rename has committed, so raising would fail a request that
             # already succeeded, and the retry would find the key unchanged and skip the relink
             # entirely. Report instead and leave the row for `repair_replay_linked_flag_keys`.
             # Per team, so one unwritable row doesn't strand the others.
-            logger.exception("replay_relink_failed", flag_id=feature_flag.pk, team_id=team.pk)
+            logger.exception("replay_relink_failed", flag_id=feature_flag.pk, team_id=team_id)
             capture_exception()
 
 

@@ -7,8 +7,16 @@ from parameterized import parameterized
 from posthog.models import Team
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.feature_flags.backend.session_recording_links import replay_gated_flags, teams_gating_replay_on_flag
-from products.feature_flags.backend.test.replay_gate_fixtures import trigger_groups
+from products.feature_flags.backend.session_recording_links import (
+    ReplayGateRewrite,
+    replay_gated_flags,
+    rewritten_linked_flag,
+    rewritten_trigger_groups,
+    save_replay_gate_rewrites,
+    teams_gating_replay_on_flag,
+    trigger_group_flag_refs,
+)
+from products.feature_flags.backend.test.replay_gate_fixtures import set_linked_flag, set_trigger_groups, trigger_groups
 
 GATED = True
 NOT_GATED = False
@@ -91,3 +99,75 @@ class TestReplayGateMatchersAgree(BaseTest):
 
         assert teams_gating_replay_on_flag(gate_flag, key=gate_flag.key).exists() is False
         assert replay_gated_flags(self.team.project_id).gates(gate_flag) is False
+
+
+class TestReplayGateWritesUseTheLockedRow(BaseTest):
+    # Both rewrites replace a whole column, and callers select their teams in one batch before
+    # looping, so a write built from the copy the caller selected would put back an admin edit that
+    # landed in between and republish it to the SDKs. These pin that the rewrite is computed from
+    # the row as it exists at write time.
+
+    def test_an_edit_to_the_linked_flag_since_the_caller_looked_survives(self) -> None:
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="gate-new")
+        set_linked_flag(self.team, {"id": flag.id, "key": "gate-old", "variant": "control"})
+
+        # An admin switches the variant after the caller picked this team out of its batch.
+        set_linked_flag(Team.objects.get(pk=self.team.pk), {"id": flag.id, "key": "gate-old", "variant": "test"})
+
+        save_replay_gate_rewrites(
+            self.team.pk,
+            lambda team: ReplayGateRewrite(
+                linked_flag=rewritten_linked_flag(
+                    team.session_recording_linked_flag, flag_id=flag.id, new_key="gate-new"
+                )
+            ),
+        )
+
+        self.team.refresh_from_db()
+        assert self.team.session_recording_linked_flag == {"id": flag.id, "key": "gate-new", "variant": "test"}
+
+    def test_skips_the_write_when_the_team_now_gates_on_a_different_flag(self) -> None:
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="gate-new")
+        other_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="other-gate")
+        set_linked_flag(self.team, {"id": flag.id, "key": "gate-old"})
+
+        # An admin repoints the gate at another flag, which this rename has no business touching.
+        set_linked_flag(Team.objects.get(pk=self.team.pk), {"id": other_flag.id, "key": "other-gate"})
+
+        save_replay_gate_rewrites(
+            self.team.pk,
+            lambda team: ReplayGateRewrite(
+                linked_flag=rewritten_linked_flag(
+                    team.session_recording_linked_flag, flag_id=flag.id, new_key="gate-new"
+                )
+            ),
+        )
+
+        self.team.refresh_from_db()
+        assert self.team.session_recording_linked_flag == {"id": other_flag.id, "key": "other-gate"}
+
+    def test_a_group_added_since_the_caller_looked_survives_and_the_rename_moves_its_own_group(self) -> None:
+        set_trigger_groups(self.team, {"flag": "gate-old"})
+
+        # Prepending shifts the reference the rename is about off index 0, so a rewrite keyed by
+        # indices read earlier would move the wrong group.
+        admin = Team.objects.get(pk=self.team.pk)
+        stored = admin.session_recording_trigger_groups
+        stored["groups"].insert(
+            0, {"id": "added", "sampleRate": 0.5, "conditions": {"matchType": "any", "events": ["signup"]}}
+        )
+        admin.session_recording_trigger_groups = stored
+        admin.save()
+
+        def rewrite(team: Team) -> ReplayGateRewrite:
+            groups = team.session_recording_trigger_groups
+            moving = {ref.group_index: "gate-new" for ref in trigger_group_flag_refs(groups) if ref.key == "gate-old"}
+            return ReplayGateRewrite(trigger_groups=rewritten_trigger_groups(groups, moving))
+
+        save_replay_gate_rewrites(self.team.pk, rewrite)
+
+        self.team.refresh_from_db()
+        groups = self.team.session_recording_trigger_groups["groups"]
+        assert [group["id"] for group in groups] == ["added", "group-0"]
+        assert groups[0]["conditions"] == {"matchType": "any", "events": ["signup"]}
+        assert groups[1]["conditions"]["flag"] == "gate-new"
