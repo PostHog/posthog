@@ -27,6 +27,13 @@ from .git_smart_http import FileTree
 # but stored at 4096 today — export validates rather than silently truncating.
 SPEC_DESCRIPTION_MAX_LENGTH = 1024
 
+# A skill bundle is unpacked into a harness's skill directory, and every skill in it costs prompt
+# context on each turn (the harness lists name and description of every discovered skill), so the
+# count is bounded by what an agent can usefully carry, not by what the user owns. The client picks
+# the count up to the ceiling.
+DEFAULT_BUNDLE_SKILLS = 20
+MAX_BUNDLE_SKILLS = 100
+
 # Zip-bomb defense for import: bound member count and per-member *decompressed* read so a small
 # zip can't inflate into GBs of memory. These are coarse hard stops — the precise per-field/per-file
 # size caps are enforced downstream by the import validator. Member count is kept comfortably above

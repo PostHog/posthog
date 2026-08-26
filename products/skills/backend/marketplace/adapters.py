@@ -23,6 +23,8 @@ from ..models.skills import LLMSkill, LLMSkillFile
 from .git_smart_http import FileTree, SynthesizedRepo, synthesize_repo
 from .packaging import (
     CODEX_METADATA_PATH,
+    DEFAULT_BUNDLE_SKILLS,
+    MAX_BUNDLE_SKILLS,
     SPEC_DESCRIPTION_MAX_LENGTH,
     SkillExport,
     SkillFileExport,
@@ -61,9 +63,8 @@ _MAX_MARKETPLACE_TREE_BYTES = 64_000_000
 # Don't pickle a very large synthesized repo into the shared cache — serve it uncached instead.
 _MAX_CACHEABLE_PACKFILE_BYTES = 16_000_000
 
-# A sandbox bundle is fetched once per run and unpacked into the harness's skill directories, so it
-# is bounded by what a coding agent can usefully load, not by what the team owns.
-MAX_BUNDLE_SKILLS = 20
+# A full bundle carries skill content, so it is bounded by what a coding agent can usefully load,
+# not by what the team owns. The count limit lives with the other bundle policy in packaging.
 MAX_BUNDLE_BYTES = 5_000_000
 
 
@@ -233,12 +234,12 @@ def _octet_length(expression: F | Cast) -> Func:
 _Row = TypeVar("_Row")
 
 
-def _candidate_batches(rows: "QuerySet[LLMSkill, _Row]") -> Iterator[_Row]:
-    """Yield candidate rows in cap-sized slices so a user with thousands of skills never has them
+def _candidate_batches(rows: "QuerySet[LLMSkill, _Row]", limit: int) -> Iterator[_Row]:
+    """Yield candidate rows in limit-sized slices so a user with thousands of skills never has them
     all in memory at once; the caller stops iterating once the bundle is capped."""
     offset = 0
     while True:
-        batch = list(rows[offset : offset + MAX_BUNDLE_SKILLS])
+        batch = list(rows[offset : offset + limit])
         if not batch:
             return
         yield from batch
@@ -258,7 +259,11 @@ def _bundle_candidates(team: Team, user: User, readable_skills: QuerySet[LLMSkil
 
 
 def build_skill_bundle(
-    team: Team, user: User, readable_skills: QuerySet[LLMSkill], content: BundleContent = "stub"
+    team: Team,
+    user: User,
+    readable_skills: QuerySet[LLMSkill],
+    content: BundleContent = "stub",
+    limit: int = DEFAULT_BUNDLE_SKILLS,
 ) -> SkillBundle:
     """One zip of the skills a user created or owns, for unpacking into a skills directory.
 
@@ -271,14 +276,15 @@ def build_skill_bundle(
     ``readable_skills`` is the caller's access-filtered view of the team's skills. The walk only
     selects from it, so a skill the list endpoint would hide from the user stays out of the bundle.
 
-    Newest first. Skills that fail the spec check or carry a name or path the harness could not
-    unpack safely are ``skipped``; they do not count toward the caps and are checked before them.
-    The walk stops at the first skill that would cross the count or byte cap; everything after it
-    is counted as dropped and never read. Scouts are excluded because the scout harness loads its
-    own skill.
+    Newest first, at most ``limit`` skills; the caller chooses the limit, up to ``MAX_BUNDLE_SKILLS``.
+    Skills that fail the spec check or carry a name or path the harness could not unpack safely are
+    ``skipped``; they do not count toward the caps and are checked before them. The walk stops at
+    the first skill that would cross the count or byte cap; everything after it is counted as
+    dropped and never read. Scouts are excluded because the scout harness loads its own skill.
     """
     candidates = _bundle_candidates(team, user, readable_skills)
-    walk = _walk_stubs(candidates) if content == "stub" else _walk_full(candidates)
+    limit = min(limit, MAX_BUNDLE_SKILLS)
+    walk = _walk_stubs(candidates, limit) if content == "stub" else _walk_full(candidates, limit)
 
     if walk.skipped:
         logger.warning("skills_bundle_skipped", team_id=team.id, user_id=user.id, skills=walk.skipped)
@@ -301,11 +307,11 @@ def _dropped_count(candidates: QuerySet[LLMSkill], trees: dict[str, FileTree], s
     return candidates.count() - len(trees) - len(skipped)
 
 
-def _walk_stubs(candidates: QuerySet[LLMSkill]) -> _BundleWalk:
+def _walk_stubs(candidates: QuerySet[LLMSkill], limit: int) -> _BundleWalk:
     trees: dict[str, FileTree] = {}
     skipped: list[str] = []
-    for row in _candidate_batches(candidates.values("name", "description", "version")):
-        if len(trees) >= MAX_BUNDLE_SKILLS:
+    for row in _candidate_batches(candidates.values("name", "description", "version"), limit):
+        if len(trees) >= limit:
             return _BundleWalk(trees=trees, dropped_count=_dropped_count(candidates, trees, skipped), skipped=skipped)
         name = row["name"]
         if not _name_and_description_are_valid(name, row["description"]):
@@ -356,7 +362,7 @@ def _bundle_paths_are_safe(paths: list[str]) -> bool:
     return True
 
 
-def _walk_full(candidates: QuerySet[LLMSkill]) -> _BundleWalk:
+def _walk_full(candidates: QuerySet[LLMSkill], limit: int) -> _BundleWalk:
     # Names, descriptions and column byte counts only. A skill's row and files load one skill at a
     # time, and only once it has passed every check, so a user with many or very large skills does
     # not cost the worker more than the bundle cap.
@@ -372,9 +378,9 @@ def _walk_full(candidates: QuerySet[LLMSkill]) -> _BundleWalk:
     skipped: list[str] = []
     total_bytes = 0
     capped = False
-    for candidate in _candidate_batches(sized):
+    for candidate in _candidate_batches(sized, limit):
         name = candidate["name"]
-        if len(trees) >= MAX_BUNDLE_SKILLS:
+        if len(trees) >= limit:
             capped = True
             break
         # Skips are decided before the cap so an invalid skill never caps the bundle. Validity is

@@ -798,7 +798,13 @@ class LLMSkillViewSet(
         readable_skills = self.user_access_control.filter_queryset_by_access_level(
             LLMSkill.objects.filter(team=self.team), resource="llm_skill"
         )
-        bundle = build_skill_bundle(self.team, user, readable_skills, content=query.validated_data["content"])
+        bundle = build_skill_bundle(
+            self.team,
+            user,
+            readable_skills,
+            content=query.validated_data["content"],
+            limit=query.validated_data["limit"],
+        )
         response = HttpResponse(bundle.zip_bytes, content_type="application/zip")
         response["Content-Disposition"] = 'attachment; filename="skills-bundle.zip"'
         # Counts only: names are unbounded and would blow past proxy header limits for heavy users.

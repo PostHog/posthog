@@ -9,6 +9,7 @@ from posthog.api.shared import UserBasicSerializer
 
 from products.ai_observability.backend.markdown_outline import get_markdown_outline
 
+from ..marketplace.packaging import DEFAULT_BUNDLE_SKILLS, MAX_BUNDLE_SKILLS
 from ..models.skills import LLMSkill, LLMSkillFile, category_for_skill_name
 from .community_publish_services import (
     DISPLAY_NAME_PATTERN,
@@ -124,6 +125,16 @@ class LLMSkillFetchQuerySerializer(serializers.Serializer):
 
 
 class LLMSkillBundleQuerySerializer(serializers.Serializer):
+    limit = serializers.IntegerField(
+        min_value=1,
+        max_value=MAX_BUNDLE_SKILLS,
+        default=DEFAULT_BUNDLE_SKILLS,
+        help_text=(
+            f"Maximum number of skills in the zip, newest first; default {DEFAULT_BUNDLE_SKILLS}, at most "
+            f"{MAX_BUNDLE_SKILLS}. Every skill in the zip costs the agent prompt context on each turn, so pick "
+            "what the harness can usefully carry. Skills past the limit are reported in X-Skills-Dropped."
+        ),
+    )
     content = serializers.ChoiceField(
         choices=["stub", "full"],
         default="stub",

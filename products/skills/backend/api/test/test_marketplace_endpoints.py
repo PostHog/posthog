@@ -183,9 +183,18 @@ class TestSkillBundle(APIBaseTest):
         return LLMSkill.objects.create(**fields)
 
     def _fetch(
-        self, *, flag: bool | None = True, authorization: str | None = None, content: str | None = None
+        self,
+        *,
+        flag: bool | None = True,
+        authorization: str | None = None,
+        content: str | None = None,
+        limit: int | str | None = None,
     ) -> HttpResponse:
-        query = {"content": content} if content else {}
+        query: dict[str, str] = {}
+        if content:
+            query["content"] = content
+        if limit is not None:
+            query["limit"] = str(limit)
         with patch(SANDBOX_FLAG, return_value=flag):
             if authorization:
                 return self.client.get(self._url(), query, HTTP_AUTHORIZATION=authorization)
@@ -249,8 +258,7 @@ class TestSkillBundle(APIBaseTest):
             skill = self._create_skill(name)
             LLMSkill.objects.filter(pk=skill.pk).update(updated_at=base + timedelta(minutes=index))
 
-        with patch.object(adapters, "MAX_BUNDLE_SKILLS", 2):
-            response = self._fetch(content=content)
+        response = self._fetch(content=content, limit=2)
 
         assert response.status_code == status.HTTP_200_OK
         assert self._skill_dirs(response) == {"newest", "middle"}
@@ -381,10 +389,17 @@ class TestSkillBundle(APIBaseTest):
         assert "body_next_offset" in stub
         assert "The real instructions" not in stub
 
-    def test_unknown_content_is_400(self):
+    @parameterized.expand(
+        [
+            ("unknown_content", {"content": "partial"}),
+            ("limit_over_ceiling", {"limit": 101}),
+            ("limit_zero", {"limit": 0}),
+        ]
+    )
+    def test_bad_query_params_are_400(self, _label: str, query: dict[str, Any]):
         self._create_skill("mine")
 
-        assert self._fetch(content="partial").status_code == status.HTTP_400_BAD_REQUEST
+        assert self._fetch(**query).status_code == status.HTTP_400_BAD_REQUEST
 
     def test_no_skills_is_an_empty_zip(self):
         response = self._fetch()
