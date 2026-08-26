@@ -26,6 +26,9 @@ export type FacetField = 'severity_text' | 'service_name'
  * - `column`: a top-level logs column, filtered through a `log` property filter under `logKey`.
  * - `resourceAttribute`: a `resource_attributes` map key (e.g. k8s.namespace.name), filtered through
  *   a `log_resource_attribute` property filter under `key`.
+ * - `attribute`: a plain (non-resource) log attribute key, filtered through a `log_attribute`
+ *   property filter under `key`. Only used by user-added custom facets today — no curated `FACETS`
+ *   entry uses it.
  */
 export type FacetSource =
     | {
@@ -41,6 +44,7 @@ export type FacetSource =
           logKey: string
       }
     | { type: 'resourceAttribute'; key: string; aliasKeys?: string[] }
+    | { type: 'attribute'; key: string }
 
 export interface FacetConfig {
     /** Stable id used for collapse state and data-attrs. */
@@ -59,6 +63,8 @@ export interface FacetConfig {
     emptyLabel?: string
     /** Max pixel height before the value list virtualizes and scrolls. */
     maxHeight?: number
+    /** User-added facets show a remove control in the rail; curated facets never do. */
+    removable?: boolean
 }
 
 /** The data key a facet is queried on: its column, or the resource-attribute key resolution picked. */
@@ -90,6 +96,7 @@ export function facetScopeSignature(facet: FacetConfig, scope: FacetScope): stri
     const { source } = facet
     const selfLogKey = source.type === 'column' ? source.logKey : undefined
     const selfResourceKey = source.type === 'resourceAttribute' ? source.key : undefined
+    const selfAttributeKey = source.type === 'attribute' ? source.key : undefined
     const groupSignature = innerFilters(scope.queryFilterGroup)
         .map((entry): unknown[] | null => {
             if (!isPropertyLeaf(entry)) {
@@ -108,6 +115,13 @@ export function facetScopeSignature(facet: FacetConfig, scope: FacetScope): stri
             ) {
                 return null
             }
+            if (
+                selfAttributeKey !== undefined &&
+                entry.type === PropertyFilterType.LogAttribute &&
+                entry.key === selfAttributeKey
+            ) {
+                return null
+            }
             return [entry.type, entry.key, entry.operator, JSON.stringify(entry.value ?? null)]
         })
         .filter((entry) => entry !== null)
@@ -116,7 +130,11 @@ export function facetScopeSignature(facet: FacetConfig, scope: FacetScope): stri
         // A facet mounted before the team resolved fetches nothing; keeping the id in the signature
         // makes it fetch once the team arrives.
         scope.currentTeamId ?? null,
-        source.type === 'column' ? ['column', source.column] : ['resource', source.key],
+        source.type === 'column'
+            ? ['column', source.column]
+            : source.type === 'attribute'
+              ? ['attribute', source.key]
+              : ['resource', source.key],
         scope.utcDateRange.date_from ?? null,
         scope.utcDateRange.date_to ?? null,
         scope.utcDateRange.explicitDate ?? null,
@@ -226,7 +244,7 @@ export function resolveFacets(facets: FacetConfig[], presentResourceKeys: string
     const present = new Set(presentResourceKeys)
     const resolved: FacetConfig[] = []
     for (const facet of facets) {
-        if (facet.source.type === 'column') {
+        if (facet.source.type !== 'resourceAttribute') {
             resolved.push(facet)
             continue
         }
@@ -286,4 +304,30 @@ export function facetsByGroup(facets: FacetConfig[]): [string, FacetConfig[]][] 
         }
     }
     return groups
+}
+
+/** A custom facet's source kind, as persisted per-user — mirrors the backend's `source_type` choices. */
+export type CustomFacetSourceType = 'attribute' | 'resourceAttribute'
+
+/** Builds a rail-renderable FacetConfig for a user-added custom facet — always dynamic, always removable. */
+export function buildCustomFacet(key: string, sourceType: CustomFacetSourceType): FacetConfig {
+    return {
+        key: `custom:${sourceType}:${key}`,
+        title: key,
+        group: 'Custom',
+        kind: 'dynamic',
+        source: sourceType === 'attribute' ? { type: 'attribute', key } : { type: 'resourceAttribute', key },
+        searchable: true,
+        emptyLabel: `No ${key} values`,
+        maxHeight: 300,
+        removable: true,
+    }
+}
+
+/** The (key, sourceType) a removable custom facet was built from — `null` for a curated facet. */
+export function customFacetIdentity(facet: FacetConfig): { key: string; sourceType: CustomFacetSourceType } | null {
+    if (!facet.removable || facet.source.type === 'column') {
+        return null
+    }
+    return { key: facet.source.key, sourceType: facet.source.type }
 }

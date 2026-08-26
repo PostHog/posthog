@@ -97,7 +97,9 @@ export function filterValues(filter: { value?: PropertyFilterValue }): unknown[]
 export function facetFilterTarget(source: FacetSource): FacetFilterTarget {
     return source.type === 'column'
         ? { key: source.logKey, type: PropertyFilterType.Log }
-        : { key: source.key, type: PropertyFilterType.LogResourceAttribute }
+        : source.type === 'attribute'
+          ? { key: source.key, type: PropertyFilterType.LogAttribute }
+          : { key: source.key, type: PropertyFilterType.LogResourceAttribute }
 }
 
 /** A facet's selection, read from the exact (include) and is_not (exclude) filters it owns. */
