@@ -244,9 +244,12 @@ class MultitenantSAMLAuth(SAMLAuth):
             raise AuthMissingParameter(self, "email")
 
         idp_configs = list(IdentityProviderConfig.objects.saml_for_email(email)[:2])
-        if len(idp_configs) != 1:
+        if len(idp_configs) == 0:
             saml_logger.warning("saml_not_configured", **_saml_log_context(email))
             raise AuthFailed(self, "SAML not configured for this user.")
+        if len(idp_configs) > 1:
+            saml_logger.warning("saml_multiple_configs", **_saml_log_context(email))
+            raise AuthFailed(self, "Multiple SAML configurations found for this user.")
 
         idp_config = idp_configs[0]
         saml_logger.info(
