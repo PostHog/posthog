@@ -19,6 +19,8 @@ MODAL_VM_SANDBOX_FEATURE_FLAG = "tasks-modal-vm-sandbox"
 # Gates the nightly prebaked dev-stack image bake (see logic/services/dev_stack_image.py).
 DEV_STACK_IMAGE_BAKE_FEATURE_FLAG = "tasks-dev-stack-image-bake"
 MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG = "tasks-modal-network-allowlist"
+# Routes a plain default-template run onto the hogland (Firecracker) sandbox backend.
+HOGLAND_SANDBOX_FEATURE_FLAG = "tasks-hogland-sandbox"
 AGENT_RUN_OTEL_TELEMETRY_FEATURE_FLAG = "tasks-agent-run-otel-telemetry"
 PI_CLOUD_RUNTIME_FEATURE_FLAG = "pi-harness"
 # Gates agent-to-agent peer messaging between cloud runs. v1 additionally requires the Pi

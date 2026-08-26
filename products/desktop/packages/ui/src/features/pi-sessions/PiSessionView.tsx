@@ -34,6 +34,10 @@ import type { Task } from "@posthog/shared/domain-types";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { useUsageLimitStore } from "@posthog/ui/features/billing/usageLimitStore";
+import {
+  spendStopMessage,
+  useSpendStop,
+} from "@posthog/ui/features/billing/useSpendStop";
 import { PromptInput } from "@posthog/ui/features/message-editor/components/PromptInput";
 import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
 import { PermissionSelector } from "@posthog/ui/features/permissions/PermissionSelector";
@@ -601,6 +605,8 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
     [mcpPermission, piSessionController, taskId],
   );
 
+  const spendStop = useSpendStop();
+
   if (!session) {
     return <TaskDetailSkeleton />;
   }
@@ -754,7 +760,8 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
               !status ||
               !isOnline ||
               hasQueuedMessage ||
-              isAuthRestoring
+              isAuthRestoring ||
+              spendStop !== null
             }
             submitTooltipOverride={
               !isOnline
@@ -763,7 +770,9 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
                   ? "Restoring authentication"
                   : hasQueuedMessage
                     ? "A message is already queued"
-                    : undefined
+                    : spendStop
+                      ? spendStopMessage(spendStop)
+                      : undefined
             }
             enableBashMode
             enableCommands

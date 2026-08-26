@@ -330,6 +330,34 @@ class TestAccountsTableQueryRunner(BaseTest):
 
         assert {row.custom_properties[definition.id] for row in page.rows} == {0.0, 1.0, 2.0}
 
+    def test_resolves_the_logo_domain_from_account_properties(self) -> None:
+        from_website_domain = create_account(
+            team_id=self.team.id,
+            name="From website domain",
+            _properties={"website_domain": "acme.example", "email_domains": ["other.example"]},
+        )
+        from_email_domains = create_account(
+            team_id=self.team.id,
+            name="From email domains",
+            _properties={"email_domains": ["globex.example"]},
+        )
+        from_external_id = create_account(team_id=self.team.id, name="From external ID", external_id="legacy.example")
+
+        page = api.query_accounts_table(
+            team_id=self.team.id,
+            user_access_control=UserAccessControl(user=self.user, team=self.team),
+            selection=contracts.AccountTableColumnSelection(),
+            filters=(),
+            sort=None,
+            offset=0,
+            limit=100,
+        )
+
+        logo_domains = {row.id: row.logo_domain for row in page.rows}
+        assert logo_domains[from_website_domain.id] == "acme.example"
+        assert logo_domains[from_email_domains.id] == "globex.example"
+        assert logo_domains[from_external_id.id] is None
+
     def test_caps_selected_columns_metrics_and_page_size(self) -> None:
         with self.assertRaises(ValidationError):
             self._run(AccountsTableQuery(columns=[AccountsTableTagsColumn()] * (ACCOUNTS_TABLE_MAX_COLUMNS + 1)))
