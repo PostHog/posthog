@@ -145,6 +145,12 @@ REAPER_OP_TIMEOUT = dt.timedelta(seconds=45)
 REAPER_OP_SCHEDULE_TO_CLOSE = dt.timedelta(minutes=2)
 REAPER_MAX_ATTEMPTS = 3
 
+# The backfill reaper pages through every backfill schedule and only applies fixes at the end, so a
+# healthy pass needs minutes; per-page heartbeats catch a dead worker instead of a short attempt cap.
+REAP_BACKFILL_SCHEDULES_TIMEOUT = dt.timedelta(minutes=3)
+REAP_BACKFILL_SCHEDULES_SCHEDULE_TO_CLOSE = dt.timedelta(minutes=4)
+REAP_BACKFILL_SCHEDULES_HEARTBEAT_TIMEOUT = dt.timedelta(seconds=30)
+
 # Priority 1 so a saturated sweep/backfill backlog cannot queue the tick past its execution timeout.
 RECONCILER_ACTIVITY_PRIORITY = Priority(priority_key=1, fairness_key="replay-vision-scanner-reconciler")
 

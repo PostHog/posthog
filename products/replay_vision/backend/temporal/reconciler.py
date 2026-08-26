@@ -15,6 +15,9 @@ from posthog.temporal.common.base import PostHogWorkflow
 from products.replay_vision.backend.temporal.constants import (
     LIST_ENABLED_SCANNERS_TIMEOUT,
     LIST_SCANNER_SCHEDULES_TIMEOUT,
+    REAP_BACKFILL_SCHEDULES_HEARTBEAT_TIMEOUT,
+    REAP_BACKFILL_SCHEDULES_SCHEDULE_TO_CLOSE,
+    REAP_BACKFILL_SCHEDULES_TIMEOUT,
     REAP_ORPHANED_OBSERVATIONS_HEARTBEAT_TIMEOUT,
     REAPER_MAX_ATTEMPTS,
     REAPER_OP_SCHEDULE_TO_CLOSE,
@@ -81,7 +84,14 @@ class ReconcileScannerSchedulesWorkflow(PostHogWorkflow):
 
         if workflow.patched("reap-backfill-schedules-2026-08"):
             try:
-                await self._run_reaper(reap_backfill_schedules_activity)
+                # A full schedule listing outlives the short reaper attempt, so this one keeps a long
+                # attempt and leans on heartbeats to detect a dead worker.
+                await self._run_reaper(
+                    reap_backfill_schedules_activity,
+                    heartbeat_timeout=REAP_BACKFILL_SCHEDULES_HEARTBEAT_TIMEOUT,
+                    start_to_close_timeout=REAP_BACKFILL_SCHEDULES_TIMEOUT,
+                    schedule_to_close_timeout=REAP_BACKFILL_SCHEDULES_SCHEDULE_TO_CLOSE,
+                )
             except Exception:
                 workflow.logger.exception("replay_vision.reap_backfill_schedules_failed")
 
@@ -151,12 +161,17 @@ class ReconcileScannerSchedulesWorkflow(PostHogWorkflow):
         return result
 
     async def _run_reaper(
-        self, reaper_activity: Callable[[], Any], *, heartbeat_timeout: dt.timedelta | None = None
+        self,
+        reaper_activity: Callable[[], Any],
+        *,
+        heartbeat_timeout: dt.timedelta | None = None,
+        start_to_close_timeout: dt.timedelta = REAPER_OP_TIMEOUT,
+        schedule_to_close_timeout: dt.timedelta = REAPER_OP_SCHEDULE_TO_CLOSE,
     ) -> None:
         await workflow.execute_activity(
             reaper_activity,
-            start_to_close_timeout=REAPER_OP_TIMEOUT,
-            schedule_to_close_timeout=REAPER_OP_SCHEDULE_TO_CLOSE,
+            start_to_close_timeout=start_to_close_timeout,
+            schedule_to_close_timeout=schedule_to_close_timeout,
             heartbeat_timeout=heartbeat_timeout,
             retry_policy=RetryPolicy(maximum_attempts=REAPER_MAX_ATTEMPTS),
             priority=RECONCILER_ACTIVITY_PRIORITY,
