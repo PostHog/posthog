@@ -574,6 +574,11 @@
         "params": ["handle"],
         "scope": "project"
     },
+    "engineeringAnalyticsDora": {
+        "template": "/engineering-analytics/dora",
+        "params": [],
+        "scope": "project"
+    },
     "engineeringAnalyticsPullRequest": {
         "template": "/engineering-analytics/repos/{repoOwner}/{repoName}/pull-requests/{number}",
         "params": ["repoOwner", "repoName", "number"],
