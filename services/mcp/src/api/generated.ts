@@ -66113,6 +66113,33 @@ export namespace Schemas {
       readonly requires_credential_review?: boolean;
     }
 
+    /**
+     * * `attribute` - attribute
+     * * `resourceAttribute` - resourceAttribute
+     */
+    export type UserFacetSettingsEntrySourceTypeEnum = typeof UserFacetSettingsEntrySourceTypeEnum[keyof typeof UserFacetSettingsEntrySourceTypeEnum];
+
+
+    export const UserFacetSettingsEntrySourceTypeEnum = {
+      Attribute: 'attribute',
+      ResourceAttribute: 'resourceAttribute',
+    } as const;
+
+    export interface UserFacetSettingsEntry {
+      /** The log or span attribute key this facet is based on — for example `http.status_code` or `k8s.pod.name`. */
+      key: string;
+      /** Where the key lives: `attribute` for a plain log/span attribute, `resourceAttribute` for an OpenTelemetry resource attribute.
+       *
+       * * `attribute` - attribute
+       * * `resourceAttribute` - resourceAttribute */
+      source_type: UserFacetSettingsEntrySourceTypeEnum;
+    }
+
+    export interface PatchedUserFacetSettings {
+      /** Ordered list of custom facets the user has pinned for this product, within the current team. Send the full list to replace the existing set. */
+      custom_facets?: UserFacetSettingsEntry[];
+    }
+
     export interface PatchedUserInterview {
       readonly id?: string;
       readonly created_by?: UserBasic;
@@ -83862,6 +83889,11 @@ export namespace Schemas {
       total: number;
     }
 
+    export interface UserFacetSettings {
+      /** Ordered list of custom facets the user has pinned for this product, within the current team. Send the full list to replace the existing set. */
+      custom_facets: UserFacetSettingsEntry[];
+    }
+
     export interface UserGitHubLinkStartRequest {
       /**
          * Optional team/project id (e.g. PostHog Desktop); web UI uses the session's current team.
@@ -97496,6 +97528,36 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type UserFacetSettingsRetrieveParams = {
+    /**
+     * Which product's custom facets to read or update.
+     */
+    product: UserFacetSettingsRetrieveProduct;
+    };
+
+    export type UserFacetSettingsRetrieveProduct = typeof UserFacetSettingsRetrieveProduct[keyof typeof UserFacetSettingsRetrieveProduct];
+
+
+    export const UserFacetSettingsRetrieveProduct = {
+      Logs: 'logs',
+      Tracing: 'tracing',
+    } as const;
+
+    export type UserFacetSettingsPartialUpdateParams = {
+    /**
+     * Which product's custom facets to read or update.
+     */
+    product: UserFacetSettingsPartialUpdateProduct;
+    };
+
+    export type UserFacetSettingsPartialUpdateProduct = typeof UserFacetSettingsPartialUpdateProduct[keyof typeof UserFacetSettingsPartialUpdateProduct];
+
+
+    export const UserFacetSettingsPartialUpdateProduct = {
+      Logs: 'logs',
+      Tracing: 'tracing',
+    } as const;
 
     export type UsersListParams = {
     email?: string;
