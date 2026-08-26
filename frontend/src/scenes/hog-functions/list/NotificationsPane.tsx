@@ -53,7 +53,7 @@ export function NotificationsPane({
     const { openDialog } = useActions(newNotificationDialogLogic(logicProps))
 
     return (
-        <PayGateMini feature={requiredFeature}>
+        <PayGateMini feature={requiredFeature} featureDetail={`hog-function-notifications-${subTemplateId}`}>
             <div>
                 <p>{description}</p>
                 <HogFunctionList
