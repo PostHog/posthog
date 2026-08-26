@@ -22,10 +22,13 @@ surface, aggregates only (SPEC §6). Deploy counts are repo events and ignore th
 team filter by design.
 """
 
-from dataclasses import dataclass
 from datetime import datetime, timedelta
 
+from posthog.schema import HogQLQueryResponse
+
 from posthog.hogql import ast
+
+from posthog.dataclasses import frozen
 
 from products.engineering_analytics.backend.facade.contracts import (
     DeploymentFrequencyBucket,
@@ -188,12 +191,43 @@ _TEAM_FILTER = (
 )
 
 
-@dataclass(frozen=True)
+@frozen
 class _EnvironmentScope:
     # 'production', 'persistent', or the exact environment the caller passed (see DoraOverview).
     scope: str
     # The trusted SQL predicate variant for the deploys CTE.
     predicate: str
+
+
+@frozen
+class _CurPrev:
+    """One optional metric over the current window and its previous-window twin."""
+
+    current: float | None
+    previous: float | None
+
+
+@frozen
+class _DoraScan:
+    """One request's bound scan state — the curated handle, the environment-scoped deploys CTE,
+    the shared placeholder registry, and the window — composed by every deploy sub-query."""
+
+    curated: CuratedGitHubSource
+    deploys_cte: str
+    placeholders: dict[str, ast.Expr]
+    date_from: datetime
+    date_to: datetime | None
+    granularity: Granularity
+
+    def run(self, sql: str, *, query_type: str) -> HogQLQueryResponse:
+        return self.curated.run(sql, query_type=query_type, placeholders=self.placeholders)
+
+    def date_to_filter(self, column: str) -> str:
+        """The optional window-end clause on ``column``; empty when the window is open-ended."""
+        return f"AND {column} <= {{date_to}}" if self.date_to is not None else ""
+
+    def window_buckets(self) -> list[datetime]:
+        return window_buckets(self.date_from, self.date_to, self.granularity)
 
 
 def _resolve_environment_scope(environment: str | None, environments: list[tuple[str, bool]]) -> _EnvironmentScope:
@@ -244,6 +278,131 @@ def _empty_overview(
     )
 
 
+@frozen
+class _DeployOutcomes:
+    """Deploy outcome counts over the window pair, straight off the deploys rollup."""
+
+    deployment_count: int
+    deployment_count_prev: int
+    failed_count: int
+    failed_count_prev: int
+    outcome_count: int
+    outcome_count_prev: int
+
+    @property
+    def failed_share(self) -> float | None:
+        return self.failed_count / self.outcome_count if self.outcome_count else None
+
+    @property
+    def failed_share_prev(self) -> float | None:
+        return self.failed_count_prev / self.outcome_count_prev if self.outcome_count_prev else None
+
+
+def _query_deploy_outcomes(scan: _DoraScan) -> _DeployOutcomes:
+    success = window_pair_predicates("first_success_at", date_to=scan.date_to)
+    failure = window_pair_predicates("first_failure_at", date_to=scan.date_to)
+    sql = f"WITH {scan.deploys_cte} " + (
+        _HEADLINE_SELECT.replace("__CUR_SUCCESS__", success.current)
+        .replace("__PREV_SUCCESS__", success.previous)
+        .replace("__CUR_FAILURE__", failure.current)
+        .replace("__PREV_FAILURE__", failure.previous)
+    )
+    response = scan.run(sql, query_type="engineering_analytics.dora_deploys")
+    deploy_count, deploy_count_prev, failed, failed_prev, outcome, outcome_prev = (
+        response.results[0] if response.results else (0, 0, 0, 0, 0, 0)
+    )
+    return _DeployOutcomes(
+        deployment_count=int(deploy_count or 0),
+        deployment_count_prev=int(deploy_count_prev or 0),
+        failed_count=int(failed or 0),
+        failed_count_prev=int(failed_prev or 0),
+        outcome_count=int(outcome or 0),
+        outcome_count_prev=int(outcome_prev or 0),
+    )
+
+
+def _query_restore(scan: _DoraScan) -> _CurPrev:
+    """Median failed-deploy-to-next-success seconds over the window pair (the restore proxy)."""
+    failure = window_pair_predicates("first_failure_at", date_to=scan.date_to)
+    sql = f"WITH {scan.deploys_cte} " + (
+        _RESTORE_SELECT.replace("__CUR_FAILURE__", failure.current).replace("__PREV_FAILURE__", failure.previous)
+    )
+    response = scan.run(sql, query_type="engineering_analytics.dora_restore")
+    current, previous = response.results[0] if response.results else (None, None)
+    return _CurPrev(current=opt_float(current), previous=opt_float(previous))
+
+
+def _query_frequency_series(scan: _DoraScan) -> list[DeploymentFrequencyBucket]:
+    """Successful deployments per bucket across the window, oldest first, zero-filled."""
+    sql = f"WITH {scan.deploys_cte} " + (
+        _FREQUENCY_SERIES_SELECT.replace("__BUCKET_FN__", bucket_expr(scan.granularity, "first_success_at")).replace(
+            "__DATE_TO_SUCCESS__", scan.date_to_filter("first_success_at")
+        )
+    )
+    response = scan.run(sql, query_type="engineering_analytics.dora_frequency")
+    count_by_bucket = {
+        normalize_bucket(bucket_start, scan.granularity): int(count or 0)
+        for bucket_start, count in response.results or []
+    }
+    return [
+        DeploymentFrequencyBucket(bucket_start=bucket, deployment_count=count_by_bucket.get(bucket, 0))
+        for bucket in scan.window_buckets()
+    ]
+
+
+@frozen
+class _LeadTime:
+    """The PR-scoped merge-to-deploy figures: window-pair counts and medians plus the box-plot series."""
+
+    deployed_count: int
+    deployed_count_prev: int
+    median_seconds: float | None
+    median_seconds_prev: float | None
+    series: list[MergeToDeployBucket]
+
+
+def _query_lead_time(scan: _DoraScan, *, github_team: str | None, members_source: str | None) -> _LeadTime:
+    # A team filter without membership data cannot be honored: empty lead-time figures, never
+    # silently unfiltered ones.
+    if github_team and members_source is None:
+        return _LeadTime(
+            deployed_count=0, deployed_count_prev=0, median_seconds=None, median_seconds_prev=None, series=[]
+        )
+    team_filter = ""
+    if github_team and members_source is not None:
+        scan.placeholders["github_team"] = ast.Constant(value=github_team)
+        team_filter = _TEAM_FILTER.replace("__MEMBERS_SOURCE__", members_source)
+    deployed_prs_cte = _DEPLOYED_PRS_CTE.replace("__PR_SOURCE__", scan.curated.pr_source()).replace(
+        "__TEAM_FILTER__", team_filter
+    )
+
+    windows = window_pair_predicates("deployed_at", date_to=scan.date_to)
+    headline_sql = f"WITH {scan.deploys_cte}, {deployed_prs_cte} " + (
+        _LEAD_TIME_HEADLINE_SELECT.replace("__CUR_DEPLOYED__", windows.current).replace(
+            "__PREV_DEPLOYED__", windows.previous
+        )
+    )
+    headline = scan.run(headline_sql, query_type="engineering_analytics.dora_lead_time")
+    deployed_cur, deployed_prev, median_cur, median_prev = (
+        headline.results[0] if headline.results else (0, 0, None, None)
+    )
+
+    series_sql = f"WITH {scan.deploys_cte}, {deployed_prs_cte} " + (
+        _LEAD_TIME_SERIES_SELECT.replace("__BUCKET_FN__", bucket_expr(scan.granularity, "deployed_at")).replace(
+            "__DATE_TO_DEPLOYED__", scan.date_to_filter("deployed_at")
+        )
+    )
+    rows = scan.run(series_sql, query_type="engineering_analytics.dora_lead_time_series")
+    stats_by_bucket = {normalize_bucket(row[0], scan.granularity): row[1:] for row in (rows.results or [])}
+    return _LeadTime(
+        deployed_count=int(deployed_cur or 0),
+        deployed_count_prev=int(deployed_prev or 0),
+        median_seconds=opt_float(median_cur),
+        median_seconds_prev=opt_float(median_prev),
+        series=[_lead_time_bucket(bucket, stats_by_bucket.get(bucket)) for bucket in scan.window_buckets()],
+    )
+
+
 def query_dora_overview(
     *,
     curated: CuratedGitHubSource,
@@ -279,101 +438,34 @@ def query_dora_overview(
         "deploy_scan_floor": ast.Constant(value=prev_from - _DEPLOY_SCAN_SLACK),
         "merge_scan_floor": ast.Constant(value=prev_from - _MERGE_SCAN_LOOKBACK),
     }
-    date_to_clause = ""
     if date_to is not None:
         placeholders["date_to"] = ast.Constant(value=date_to)
-        date_to_clause = "AND {column} <= {date_to}"
-
-    def date_to_filter(column: str) -> str:
-        return date_to_clause.replace("{column}", column) if date_to_clause else ""
 
     environments = _query_environments(
-        curated, deployments_source, placeholders=placeholders, date_to_filter=date_to_filter("d.created_at")
+        curated,
+        deployments_source,
+        placeholders=placeholders,
+        date_to_filter="AND d.created_at <= {date_to}" if date_to is not None else "",
     )
     env_scope = _resolve_environment_scope(environment, environments)
     if environment:
         placeholders["environment"] = ast.Constant(value=environment)
 
-    deploys_cte = (
-        _DEPLOYS_CTE.replace("__DEPLOYMENTS_SOURCE__", deployments_source)
-        .replace("__STATUSES_SOURCE__", statuses_source)
-        .replace("__ENV_PREDICATE__", env_scope.predicate)
+    scan = _DoraScan(
+        curated=curated,
+        deploys_cte=(
+            _DEPLOYS_CTE.replace("__DEPLOYMENTS_SOURCE__", deployments_source)
+            .replace("__STATUSES_SOURCE__", statuses_source)
+            .replace("__ENV_PREDICATE__", env_scope.predicate)
+        ),
+        placeholders=placeholders,
+        date_from=date_from,
+        date_to=date_to,
+        granularity=granularity,
     )
-
-    success_windows = window_pair_predicates("first_success_at", date_to=date_to)
-    failure_windows = window_pair_predicates("first_failure_at", date_to=date_to)
-
-    headline_sql = f"WITH {deploys_cte} " + (
-        _HEADLINE_SELECT.replace("__CUR_SUCCESS__", success_windows.current)
-        .replace("__PREV_SUCCESS__", success_windows.previous)
-        .replace("__CUR_FAILURE__", failure_windows.current)
-        .replace("__PREV_FAILURE__", failure_windows.previous)
-    )
-    headline = curated.run(headline_sql, query_type="engineering_analytics.dora_deploys", placeholders=placeholders)
-    row = headline.results[0] if headline.results else (0, 0, 0, 0, 0, 0)
-    deploy_count, deploy_count_prev, failed_count, failed_count_prev, outcome_count, outcome_count_prev = row
-
-    restore_sql = f"WITH {deploys_cte} " + (
-        _RESTORE_SELECT.replace("__CUR_FAILURE__", failure_windows.current).replace(
-            "__PREV_FAILURE__", failure_windows.previous
-        )
-    )
-    restore = curated.run(restore_sql, query_type="engineering_analytics.dora_restore", placeholders=placeholders)
-    restore_cur, restore_prev = restore.results[0] if restore.results else (None, None)
-
-    frequency_sql = f"WITH {deploys_cte} " + (
-        _FREQUENCY_SERIES_SELECT.replace("__BUCKET_FN__", bucket_expr(granularity, "first_success_at")).replace(
-            "__DATE_TO_SUCCESS__", date_to_filter("first_success_at")
-        )
-    )
-    frequency = curated.run(frequency_sql, query_type="engineering_analytics.dora_frequency", placeholders=placeholders)
-    count_by_bucket = {
-        normalize_bucket(bucket_start, granularity): int(count or 0) for bucket_start, count in frequency.results or []
-    }
-    frequency_series = [
-        DeploymentFrequencyBucket(bucket_start=bucket, deployment_count=count_by_bucket.get(bucket, 0))
-        for bucket in window_buckets(date_from, date_to, granularity)
-    ]
-
-    # A team filter without membership data cannot be honored: empty lead-time figures, never
-    # silently unfiltered ones.
-    if github_team and members_source is None:
-        deployed_cur, deployed_prev, lead_median_cur, lead_median_prev = 0, 0, None, None
-        lead_series: list[MergeToDeployBucket] = []
-    else:
-        team_filter = ""
-        if github_team and members_source is not None:
-            placeholders["github_team"] = ast.Constant(value=github_team)
-            team_filter = _TEAM_FILTER.replace("__MEMBERS_SOURCE__", members_source)
-        deployed_prs_cte = _DEPLOYED_PRS_CTE.replace("__PR_SOURCE__", curated.pr_source()).replace(
-            "__TEAM_FILTER__", team_filter
-        )
-        deployed_windows = window_pair_predicates("deployed_at", date_to=date_to)
-        lead_headline_sql = f"WITH {deploys_cte}, {deployed_prs_cte} " + (
-            _LEAD_TIME_HEADLINE_SELECT.replace("__CUR_DEPLOYED__", deployed_windows.current).replace(
-                "__PREV_DEPLOYED__", deployed_windows.previous
-            )
-        )
-        lead_headline = curated.run(
-            lead_headline_sql, query_type="engineering_analytics.dora_lead_time", placeholders=placeholders
-        )
-        deployed_cur, deployed_prev, lead_median_cur, lead_median_prev = (
-            lead_headline.results[0] if lead_headline.results else (0, 0, None, None)
-        )
-
-        lead_series_sql = f"WITH {deploys_cte}, {deployed_prs_cte} " + (
-            _LEAD_TIME_SERIES_SELECT.replace("__BUCKET_FN__", bucket_expr(granularity, "deployed_at")).replace(
-                "__DATE_TO_DEPLOYED__", date_to_filter("deployed_at")
-            )
-        )
-        lead_rows = curated.run(
-            lead_series_sql, query_type="engineering_analytics.dora_lead_time_series", placeholders=placeholders
-        )
-        stats_by_bucket = {normalize_bucket(row[0], granularity): row[1:] for row in (lead_rows.results or [])}
-        lead_series = [
-            _lead_time_bucket(bucket, stats_by_bucket.get(bucket))
-            for bucket in window_buckets(date_from, date_to, granularity)
-        ]
+    outcomes = _query_deploy_outcomes(scan)
+    restore = _query_restore(scan)
+    lead = _query_lead_time(scan, github_team=github_team, members_source=members_source)
 
     return DoraOverview(
         deploy_data_available=True,
@@ -381,24 +473,24 @@ def query_dora_overview(
         environments=[name for name, _ in environments],
         has_membership_data=has_membership_data,
         github_teams=github_teams,
-        deployment_count=int(deploy_count or 0),
-        deployment_count_prev=int(deploy_count_prev or 0),
-        deployments_per_day=(int(deploy_count or 0) / window_days) if deploy_count else None,
-        deployments_per_day_prev=(int(deploy_count_prev or 0) / window_days) if deploy_count_prev else None,
-        median_merge_to_deploy_seconds=opt_float(lead_median_cur),
-        median_merge_to_deploy_seconds_prev=opt_float(lead_median_prev),
-        deployed_pr_count=int(deployed_cur or 0),
-        deployed_pr_count_prev=int(deployed_prev or 0),
-        failed_deployment_count=int(failed_count or 0),
-        failed_deployment_count_prev=int(failed_count_prev or 0),
-        failed_deployment_share=(int(failed_count or 0) / int(outcome_count)) if outcome_count else None,
-        failed_deployment_share_prev=(int(failed_count_prev or 0) / int(outcome_count_prev))
-        if outcome_count_prev
+        deployment_count=outcomes.deployment_count,
+        deployment_count_prev=outcomes.deployment_count_prev,
+        deployments_per_day=outcomes.deployment_count / window_days if outcomes.deployment_count else None,
+        deployments_per_day_prev=outcomes.deployment_count_prev / window_days
+        if outcomes.deployment_count_prev
         else None,
-        median_failed_deploy_to_next_success_seconds=opt_float(restore_cur),
-        median_failed_deploy_to_next_success_seconds_prev=opt_float(restore_prev),
-        deployment_frequency_series=frequency_series,
-        merge_to_deploy_series=lead_series,
+        median_merge_to_deploy_seconds=lead.median_seconds,
+        median_merge_to_deploy_seconds_prev=lead.median_seconds_prev,
+        deployed_pr_count=lead.deployed_count,
+        deployed_pr_count_prev=lead.deployed_count_prev,
+        failed_deployment_count=outcomes.failed_count,
+        failed_deployment_count_prev=outcomes.failed_count_prev,
+        failed_deployment_share=outcomes.failed_share,
+        failed_deployment_share_prev=outcomes.failed_share_prev,
+        median_failed_deploy_to_next_success_seconds=restore.current,
+        median_failed_deploy_to_next_success_seconds_prev=restore.previous,
+        deployment_frequency_series=_query_frequency_series(scan),
+        merge_to_deploy_series=lead.series,
         series_granularity=granularity,
     )
 
