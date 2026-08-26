@@ -9,7 +9,7 @@ import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authoriz
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { JSSnippet } from 'lib/components/JSSnippet'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
-import { TeamMembershipLevel } from 'lib/constants'
+import { CLOUD_AWS_REGIONS, TeamMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
@@ -81,6 +81,7 @@ export function TeamVariables(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
 
     const region = preflight?.region
+    const awsRegion = region ? CLOUD_AWS_REGIONS[region] : null
 
     const RESET_CONFIRMATION = 'RESET'
 
@@ -157,7 +158,7 @@ export function TeamVariables(): JSX.Element {
                     <div className="border rounded p-4 space-y-3 bg-bg-light flex-1 min-w-60">
                         <LemonLabel className="mb-0">Region</LemonLabel>
                         <CodeSnippet compact thing="project region">
-                            {`${region} Cloud`}
+                            {awsRegion ? `${region} Cloud (AWS ${awsRegion})` : `${region} Cloud`}
                         </CodeSnippet>
                         <p className="text-muted text-xs mb-0">Where your PostHog data is hosted.</p>
                     </div>

@@ -626,6 +626,13 @@ export const CLOUD_HOSTNAMES = {
     [Region.DEV]: 'app.dev.posthog.dev',
 }
 
+// AWS region each PostHog Cloud runs in. Customers need this in writing for data-processing reviews.
+export const CLOUD_AWS_REGIONS: Record<Region, string | null> = {
+    [Region.US]: 'us-east-1',
+    [Region.EU]: 'eu-central-1',
+    [Region.DEV]: null,
+}
+
 export const SESSION_RECORDINGS_PLAYLIST_FREE_COUNT = 5
 export const SESSION_RECORDINGS_TTL_WARNING_THRESHOLD_DAYS = 10 // days
 
