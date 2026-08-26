@@ -166,4 +166,23 @@ describe('inboxSceneLogic routing', () => {
         router.actions.push(urls.inbox())
         expect(logic.values.activeTab).toBe(expectedTab)
     })
+
+    // A slow flag response (or a bookmarked URL of the other layout) can leave a tab active that the
+    // resolved layout has no panel for. The active tab must fall back to the layout's landing tab
+    // rather than strand the body on a tab that renders nothing.
+    it.each<[boolean, string, string, string]>([
+        [false, '/inbox/runs', 'runs', 'reports'],
+        [true, '/inbox/settings', 'settings', 'pulls'],
+    ])(
+        'a mid-session flag flip (from redesign=%p) via %s strands %s → falls back to %s',
+        (initial, path, strandedTab, expectedTab) => {
+            mountWithRedesign(initial)
+            router.actions.push(path)
+            expect(logic.values.activeTab).toBe(strandedTab)
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_REDESIGN], {
+                [FEATURE_FLAGS.INBOX_REDESIGN]: !initial,
+            })
+            expect(logic.values.activeTab).toBe(expectedTab)
+        }
+    )
 })

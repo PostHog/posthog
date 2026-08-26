@@ -597,11 +597,18 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             (featureFlags: FeatureFlagsSet): boolean => isInboxRedesignEnabled(featureFlags),
         ],
         // The landing tab differs per layout (Reports under the redesign, Pull requests with the
-        // flag off), and a bare `/inbox` keeps whichever tab was already active.
+        // flag off), and a bare `/inbox` keeps whichever tab was already active. A tab set under one
+        // layout can outlive a mid-session flag flip (async flag resolution, or a bookmarked URL of
+        // the other layout). Fall back to the layout's landing tab when the active tab is not one of
+        // this layout's tabs, so the body never renders a tab the active layout has no panel for.
         activeTab: [
             (s) => [s.activeTabState, s.isRedesign],
             (activeTabState: InboxTabKey | null, isRedesign: boolean): InboxTabKey =>
-                activeTabState ?? (isRedesign ? 'reports' : 'pulls'),
+                activeTabState && isInboxTabKey(activeTabState, isRedesign)
+                    ? activeTabState
+                    : isRedesign
+                      ? 'reports'
+                      : 'pulls',
         ],
         breadcrumbs: [
             () => [],
