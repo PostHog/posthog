@@ -3141,7 +3141,7 @@ class TestObservationSearchAction(_VisionAPITestCase):
         ]
 
         with patch(
-            "posthog.rbac.user_access_control.UserAccessControl.filter_queryset_by_access_level",
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
             side_effect=lambda qs, **_: qs.exclude(pk=experiment.pk) if qs.model is Experiment else qs,
         ):
             resp = self.client.get(f"{self.search_url}?q=anything")
@@ -3161,7 +3161,7 @@ class TestObservationSearchAction(_VisionAPITestCase):
         mock_embed.return_value = MagicMock(embedding=[0.1])
 
         with patch(
-            "posthog.rbac.user_access_control.UserAccessControl.filter_queryset_by_access_level",
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
             side_effect=lambda qs, **_: qs.exclude(pk=experiment.pk) if qs.model is Experiment else qs,
         ):
             scoped = self.client.get(f"{self.search_url}?q=anything&scanner_id={denied.id}")
