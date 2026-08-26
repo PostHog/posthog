@@ -10,6 +10,7 @@ import { Avatar, AvatarFallback, Badge, Button, cn } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { UserBasic } from "@posthog/shared/domain-types";
 import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
+import { ActivityRowSurface } from "@posthog/ui/features/canvas/components/ActivityRowSurface";
 import {
   type AgentActivityIconKind,
   activityPresentation,
@@ -50,6 +51,8 @@ interface ActivityRowProps {
   onActivate: (item: TaskActivityItem) => void;
   isSelected?: boolean;
   compact?: boolean;
+  asOption?: boolean;
+  optionValue?: string;
 }
 
 export function ActivityRow({
@@ -61,6 +64,8 @@ export function ActivityRow({
   onActivate,
   isSelected = false,
   compact = false,
+  asOption = false,
+  optionValue,
 }: ActivityRowProps): ReactElement {
   const presentation = activityPresentation(item, currentUser?.email);
   const channelId = item.channelId;
@@ -91,13 +96,14 @@ export function ActivityRow({
 
   return (
     <div className="group relative">
-      <Button
+      <ActivityRowSurface
         type="button"
+        asOption={asOption}
+        optionValue={optionValue}
         onClick={openTask}
         aria-label={`${item.taskTitle} ${presentation.metadata}${presentation.spaceLabel ? ` ${presentation.spaceLabel}` : ""}`}
         left
         className={cn(
-          "h-auto w-full items-start text-left",
           compact ? "py-1.5" : "py-2",
           compact && item.isUnread && "pr-8",
           isSelected && "bg-fill-selected",
@@ -155,7 +161,7 @@ export function ActivityRow({
             />
           )}
         </span>
-      </Button>
+      </ActivityRowSurface>
       {item.isUnread && (
         <Button
           variant="default"
