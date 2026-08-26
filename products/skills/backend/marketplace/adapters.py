@@ -217,9 +217,8 @@ class SkillBundle:
 BundleContent = Literal["stub", "full"]
 
 
-class _OctetLength(Func):
-    function = "OCTET_LENGTH"
-    output_field = IntegerField()
+def _octet_length(field: str) -> Func:
+    return Func(F(field), function="OCTET_LENGTH", output_field=IntegerField())
 
 
 def _bundle_candidates(team: Team, user: User, readable_skills: QuerySet[LLMSkill]) -> QuerySet[LLMSkill]:
@@ -295,8 +294,8 @@ def _walk_full(candidates: QuerySet[LLMSkill]) -> tuple[dict[str, FileTree], lis
     # so a user with many or very large skills does not cost the worker more than the bundle cap.
     sized = list(
         candidates.values("id", "name").annotate(
-            body_bytes=_OctetLength(F("body")),
-            file_bytes=Coalesce(Sum(_OctetLength(F("files__content"))), 0),
+            body_bytes=_octet_length("body"),
+            file_bytes=Coalesce(Sum(_octet_length("files__content")), 0),
         )
     )
 
