@@ -18,6 +18,7 @@ from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 
 from ..facade.enums import SubjectType
+from .contracts import SubjectIdentity
 from .registry import all_specs, get_spec
 from .spec import CheckTypeSpec
 from .subjects import resolve_subject, resolve_subject_by_name
@@ -134,14 +135,6 @@ def referenced_subject_names(team_id: int, check_type: str, config: dict[str, An
     return list(referenced_subjects(team_id, check_type, config).names)
 
 
-@frozen
-class PinnedSubject:
-    """One subject a run read besides its own, as the identity recorded alongside the run."""
-
-    subject_type: str
-    subject_uuid: str
-
-
 _SUBJECT_TYPE_KEY = "subject_type"
 _SUBJECT_UUID_KEY = "subject_uuid"
 
@@ -164,14 +157,14 @@ def pin_referenced_subjects(team_id: int, check_type: str, config: dict[str, Any
             subject for name in spec.referenced_table_names(parsed) if (subject := _pin_name(team_id, name)) is not None
         ]
         if related := spec.related_subject_ref(parsed):
-            pinned.append(PinnedSubject(subject_type=str(related[0]), subject_uuid=str(related[1])))
+            pinned.append(SubjectIdentity(subject_type=str(related[0]), subject_uuid=str(related[1])))
     except Exception as err:
         capture_exception(err)
         return None
     return [{_SUBJECT_TYPE_KEY: subject.subject_type, _SUBJECT_UUID_KEY: subject.subject_uuid} for subject in pinned]
 
 
-def pinned_subjects(recorded: Any) -> list[PinnedSubject] | None:
+def pinned_subjects(recorded: Any) -> list[SubjectIdentity] | None:
     """The identities a run recorded, or None when it recorded nothing judgeable.
 
     A malformed entry reads as nothing recorded rather than as an empty list, so a run whose
@@ -180,7 +173,7 @@ def pinned_subjects(recorded: Any) -> list[PinnedSubject] | None:
     than left to raise on whichever surface reads the column."""
     if not isinstance(recorded, list):
         return None
-    subjects = []
+    subjects: list[SubjectIdentity] = []
     for entry in recorded:
         if not isinstance(entry, dict):
             return None
@@ -189,21 +182,17 @@ def pinned_subjects(recorded: Any) -> list[PinnedSubject] | None:
             return None
         if not _is_resolvable(subject_type, subject_uuid):
             return None
-        subjects.append(PinnedSubject(subject_type=subject_type, subject_uuid=subject_uuid))
+        subjects.append(SubjectIdentity(subject_type=subject_type, subject_uuid=subject_uuid))
     return subjects
 
 
-def pinned_subject_refs(recordings: Iterable[Any]) -> list[tuple[str, str]]:
+def pinned_subject_refs(recordings: Iterable[Any]) -> list[SubjectIdentity]:
     """Every identity across these recordings, for one bulk name resolution over a page of runs."""
-    return [
-        (subject.subject_type, subject.subject_uuid)
-        for recorded in recordings
-        for subject in pinned_subjects(recorded) or []
-    ]
+    return [subject for recorded in recordings for subject in pinned_subjects(recorded) or []]
 
 
 def run_reads_unreadable_subject(
-    check_type: str, recorded: Any, current_names: Mapping[tuple[str, str], str], denied: set[str]
+    check_type: str, recorded: Any, current_names: Mapping[SubjectIdentity, str], denied: set[str]
 ) -> bool:
     """Whether a recorded run read a subject the caller cannot be shown to be allowed.
 
@@ -220,11 +209,7 @@ def run_reads_unreadable_subject(
     pinned = pinned_subjects(recorded)
     if pinned is None:
         return check_type_reads_beyond_subject(check_type)
-    return any(
-        (name := current_names.get((subject.subject_type, subject.subject_uuid))) is None
-        or is_subject_denied(name, denied)
-        for subject in pinned
-    )
+    return any((name := current_names.get(subject)) is None or is_subject_denied(name, denied) for subject in pinned)
 
 
 def _is_resolvable(subject_type: str, subject_uuid: str) -> bool:
@@ -236,11 +221,11 @@ def _is_resolvable(subject_type: str, subject_uuid: str) -> bool:
     return True
 
 
-def _pin_name(team_id: int, name: str) -> PinnedSubject | None:
+def _pin_name(team_id: int, name: str) -> SubjectIdentity | None:
     ref = resolve_subject_by_name(team_id, name)
     if ref is None:
         return None
-    return PinnedSubject(subject_type=str(ref.subject_type), subject_uuid=ref.subject_uuid)
+    return SubjectIdentity(subject_type=str(ref.subject_type), subject_uuid=ref.subject_uuid)
 
 
 def unconfirmable_subject_names(

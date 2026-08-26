@@ -1096,23 +1096,30 @@ def _visible_data_quality_checks(
     recordings = data_quality.latest_run_recordings(team_id, [check.id for check in checks])
     current_names = data_quality.resolve_subject_names(
         team_id,
-        [(check.subject_type, check.subject_uuid) for check in checks if check.subject_uuid]
+        [
+            data_quality.subject_identity(check.subject_type, check.subject_uuid)
+            for check in checks
+            if check.subject_uuid
+        ]
         + data_quality.pinned_subject_refs(recording.referenced_subjects for recording in recordings.values()),
     )
     return [
         check
         for check in checks
         if not _references_denied_table(
-            [current_names.get((check.subject_type, str(check.subject_uuid)), check.subject_name)], denied
+            [
+                current_names.get(
+                    data_quality.subject_identity(check.subject_type, check.subject_uuid), check.subject_name
+                )
+            ],
+            denied,
         )
         and not data_quality.check_reads_denied_subject(team_id, check.check_type, check.config, denied)
         and not _last_run_read_a_denied_subject(recordings.get(check.id), current_names, denied)
     ]
 
 
-def _last_run_read_a_denied_subject(
-    recording: Any, current_names: dict[tuple[str, str], str], denied: set[str]
-) -> bool:
+def _last_run_read_a_denied_subject(recording: Any, current_names: dict[Any, str], denied: set[str]) -> bool:
     from products.data_quality.backend.facade import api as data_quality  # noqa: PLC0415
 
     # A check that never ran carries no verdict, so there is nothing here to authorize.
@@ -1179,13 +1186,15 @@ def _without_denied_runs(team_id: int, runs: Any, denied: set[str]) -> Any:
     recordings = list(runs.values_list("check_type", "referenced_subjects").distinct())
     current_names = data_quality.resolve_subject_names(
         team_id,
-        [(subject_type, subject_uuid) for subject_type, subject_uuid, _ in subjects]
+        [data_quality.subject_identity(subject_type, subject_uuid) for subject_type, subject_uuid, _ in subjects]
         + data_quality.pinned_subject_refs(recorded for _, recorded in recordings),
     )
     blocked_subjects = [
         subject_uuid
         for subject_type, subject_uuid, stamped in subjects
-        if _references_denied_table([current_names.get((subject_type, str(subject_uuid)), stamped)], denied)
+        if _references_denied_table(
+            [current_names.get(data_quality.subject_identity(subject_type, subject_uuid), stamped)], denied
+        )
     ]
     if blocked_subjects:
         runs = runs.exclude(subject_uuid__in=blocked_subjects)

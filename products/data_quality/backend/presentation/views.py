@@ -53,6 +53,14 @@ _RECENT_RUNS_LIMIT = 50
 _MATCHES_NOTHING = Q(pk__in=[])
 
 
+def _current_subject_name(check: DataQualityCheck, current_names: dict[api.SubjectIdentity, str]) -> str:
+    # A hard-deleted subject nulls the FK, leaving nothing to resolve and only the name the last run
+    # stamped on the check.
+    if check.subject_uuid is None:
+        return check.subject_name
+    return current_names.get(api.subject_identity(check.subject_type, check.subject_uuid), check.subject_name)
+
+
 def _matches_recording(check_type: str, recorded: list | None) -> Q:
     # A JSONField compares None against JSON null, not against the SQL NULL a run without a
     # recording stores, so the two cases cannot share one lookup.
@@ -184,23 +192,21 @@ class _QualityGatedViewSet(TeamAndOrgViewSetMixin):
         list.
         """
         recordings = api.latest_run_recordings(self.team_id, [check.id for check in checks])
-        subjects: list[tuple[str, str | UUID]] = [
-            (check.subject_type, check.subject_uuid) for check in checks if check.subject_uuid
+        subjects = [
+            api.subject_identity(check.subject_type, check.subject_uuid) for check in checks if check.subject_uuid
         ]
         subjects += api.pinned_subject_refs(recording.referenced_subjects for recording in recordings.values())
         current_names = api.resolve_subject_names(self.team_id, subjects)
         return {
             check.id
             for check in checks
-            if api.is_subject_denied(
-                current_names.get((check.subject_type, str(check.subject_uuid)), check.subject_name), denied
-            )
+            if api.is_subject_denied(_current_subject_name(check, current_names), denied)
             or self._reads_unreadable_subject(check.check_type, check.config)
             or self._last_run_read_an_unreadable_subject(recordings.get(check.id), current_names, denied)
         }
 
     def _last_run_read_an_unreadable_subject(
-        self, recording: api.RunRecording | None, current_names: dict[tuple[str, str], str], denied: set[str]
+        self, recording: api.RunRecording | None, current_names: dict[api.SubjectIdentity, str], denied: set[str]
     ) -> bool:
         # A check that never ran carries no verdict, so there is nothing here to authorize.
         if recording is None:
@@ -683,14 +689,14 @@ class DataQualityRunViewSet(
             "subject_type", "saved_query_id", "table_id", "subject_name"
         )
         stamped = {
-            (subject_type, str(saved_query_id or table_id)): name
+            api.subject_identity(subject_type, saved_query_id or table_id): name
             for subject_type, saved_query_id, table_id, name in checks
             if saved_query_id or table_id
         }
         # A hard-deleted check leaves its runs behind with the FK nulled, so its subject would drop
         # out of the set above while its suites still report on it.
         stamped |= {
-            (subject_type, str(subject_uuid)): name
+            api.subject_identity(subject_type, subject_uuid): name
             for subject_type, subject_uuid, name in DataQualityCheckRun.objects.for_team(self.team_id)
             .filter(quality_check__isnull=True)
             .values_list("subject_type", "subject_uuid", "subject_name")
@@ -698,9 +704,9 @@ class DataQualityRunViewSet(
         }
         current_names = api.resolve_subject_names(self.team_id, stamped.keys())
         return {
-            UUID(subject_uuid)
-            for (subject_type, subject_uuid), name in stamped.items()
-            if api.is_subject_denied(current_names.get((subject_type, subject_uuid), name), denied)
+            UUID(identity.subject_uuid)
+            for identity, name in stamped.items()
+            if api.is_subject_denied(current_names.get(identity, name), denied)
         }
 
     @extend_schema(
