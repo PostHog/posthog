@@ -194,7 +194,6 @@ export interface insightLogicActions {
             disable_baseline?: boolean | undefined
             favorited?: boolean | undefined
             filter_override_context?: InsightFilterOverrideContextApi | null | undefined
-            resolved_date_range?: ResolvedDateRangeResponse | null | undefined
             id: number
             is_cached?: boolean | undefined
             is_sample: boolean
@@ -208,6 +207,7 @@ export interface insightLogicActions {
             order: number | null
             query: Node<Record<string, any>> | null
             query_status?: QueryStatus | undefined
+            resolved_date_range?: ResolvedDateRangeResponse | null | undefined
             result: any
             saved: boolean
             short_id: InsightShortId
@@ -239,7 +239,6 @@ export interface insightLogicActions {
             disable_baseline?: boolean | undefined
             favorited?: boolean | undefined
             filter_override_context?: InsightFilterOverrideContextApi | null | undefined
-            resolved_date_range?: ResolvedDateRangeResponse | null | undefined
             id: number
             is_cached?: boolean | undefined
             is_sample: boolean
@@ -253,6 +252,7 @@ export interface insightLogicActions {
             order: number | null
             query: Node<Record<string, any>> | null
             query_status?: QueryStatus | undefined
+            resolved_date_range?: ResolvedDateRangeResponse | null | undefined
             result: any
             saved: boolean
             short_id: InsightShortId
@@ -361,7 +361,6 @@ export interface insightLogicActions {
             disable_baseline?: boolean | undefined
             favorited?: boolean | undefined
             filter_override_context?: InsightFilterOverrideContextApi | null | undefined
-            resolved_date_range?: ResolvedDateRangeResponse | null | undefined
             id?: number | undefined
             is_cached?: boolean | undefined
             is_sample?: boolean | undefined
@@ -375,6 +374,7 @@ export interface insightLogicActions {
             order?: number | null | undefined
             query?: Node<Record<string, any>> | null | undefined
             query_status?: QueryStatus | undefined
+            resolved_date_range?: ResolvedDateRangeResponse | null | undefined
             result?: any
             saved?: boolean | undefined
             short_id?: InsightShortId | undefined
@@ -405,7 +405,6 @@ export interface insightLogicActions {
             disable_baseline?: boolean | undefined
             favorited?: boolean | undefined
             filter_override_context?: InsightFilterOverrideContextApi | null | undefined
-            resolved_date_range?: ResolvedDateRangeResponse | null | undefined
             id?: number | undefined
             is_cached?: boolean | undefined
             is_sample?: boolean | undefined
@@ -419,6 +418,7 @@ export interface insightLogicActions {
             order?: number | null | undefined
             query?: Node<Record<string, any>> | null | undefined
             query_status?: QueryStatus | undefined
+            resolved_date_range?: ResolvedDateRangeResponse | null | undefined
             result?: any
             saved?: boolean | undefined
             short_id?: InsightShortId | undefined
