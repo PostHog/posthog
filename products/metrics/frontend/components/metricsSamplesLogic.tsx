@@ -42,7 +42,7 @@ export interface MetricsTraceExemplar {
 
 // An Error Tracking issue spike rendered as a clickable exemplar dot on the
 // viewer chart — PoC for the metric->error-spike pivot. Team-wide: not yet
-// scoped to the metric's own service (see METRICS_ERROR_OVERLAY_PLAN.md).
+// scoped to the metric's own service (spike events carry no service attribution).
 export interface MetricsErrorSpikeExemplar {
     timestamp: string
     issueId: string

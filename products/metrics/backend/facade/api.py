@@ -326,8 +326,8 @@ def list_metric_event_samples(
     return [MetricEventSample(**row) for row in runner.run()]
 
 
-# PoC cap: team-wide, not yet scoped to a metric's service. See
-# METRICS_ERROR_OVERLAY_PLAN.md for the correlation-key gap and follow-ups.
+# PoC cap: team-wide — Error Tracking spike events carry no service attribution,
+# so there is no correlation key to scope them to one metric's service yet.
 _ERROR_SPIKES_LIMIT = 200
 
 

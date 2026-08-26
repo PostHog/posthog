@@ -198,8 +198,9 @@ export const MetricsViewer = (): JSX.Element => {
     )
 
     // Error Tracking issue spikes as clickable dots — PoC for the metric->error-spike
-    // pivot. Team-wide (see METRICS_ERROR_OVERLAY_PLAN.md), toggled independently of
-    // trace exemplars, and skipped entirely without Error Tracking view access.
+    // pivot. Team-wide (spike events carry no service attribution), toggled
+    // independently of trace exemplars, and skipped entirely without Error Tracking
+    // view access.
     const errorSpikeMarkers: MetricsExemplar[] = useMemo(
         () =>
             !errorOverlaysEnabled || !showErrorSpikes || errorTrackingDisabledReason
