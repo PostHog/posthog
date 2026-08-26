@@ -43,6 +43,9 @@ jobs:
             sandbox_image: ${{ steps.filter.outputs.sandbox_image }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: .github/actions/paths-filter
+                  sparse-checkout-cone-mode: false
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
@@ -78,7 +81,10 @@ jobs:
                 contains(github.event.pull_request.labels.*.name, 'build-tasks-sandbox-image')
             )
         runs-on: ubuntu-latest
-        timeout-minutes: 30
+        # `Run migrations` builds the schema from scratch on ubuntu-latest with no schema cache and
+        # takes 22-29 minutes, so a 30-minute budget left no headroom and cut the job off mid-migrate
+        # on two of three recent runs. `Build skills`, the step this job exists for, takes 10 seconds.
+        timeout-minutes: 45
         permissions:
             contents: read
 
