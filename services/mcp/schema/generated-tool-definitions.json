@@ -2850,7 +2850,7 @@
         "feature_flag": "data-quality-checks"
     },
     "data-quality-check-update-on-table": {
-        "description": "Change a check's presentation (name, description, severity, enabled, tags). The assertion itself — check_type, column_name, config — is immutable; create a new check and delete this one instead.",
+        "description": "Change any part of a check: its presentation (name, description, severity, enabled, tags) and what it asserts (check_type, column_name, config). The table it audits is fixed. The check keeps its id, run history, latest status, and latest run time. A definition or name another active check already holds comes back as a field error, with nothing written. Deleted checks release their definition, so it can be authored again as a new check.",
         "category": "Data quality",
         "feature": "data_quality",
         "summary": "Update a data quality check on a table",
@@ -2865,7 +2865,7 @@
         "feature_flag": "data-quality-checks"
     },
     "data-quality-check-update-on-view": {
-        "description": "Change a check's presentation (name, description, severity, enabled, tags). The assertion itself — check_type, column_name, config — is immutable; create a new check and delete this one instead.",
+        "description": "Change any part of a check: its presentation (name, description, severity, enabled, tags) and what it asserts (check_type, column_name, config). The view it audits is fixed. The check keeps its id, run history, latest status, and latest run time. A definition or name another active check already holds comes back as a field error, with nothing written. Deleted checks release their definition, so it can be authored again as a new check.",
         "category": "Data quality",
         "feature": "data_quality",
         "summary": "Update a data quality check on a view",
