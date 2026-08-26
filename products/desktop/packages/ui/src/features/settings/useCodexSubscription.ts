@@ -9,6 +9,7 @@ import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFla
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { track } from "@posthog/ui/shell/analytics";
 import { registerCodexSubscription } from "@posthog/ui/shell/posthogAnalyticsImpl";
+import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
 import { useQuery } from "@tanstack/react-query";
 
 export interface CodexSubscriptionStatus {
@@ -97,10 +98,13 @@ export function useCodexSubscription(): CodexSubscription {
   const flagEnabled =
     useFeatureFlag(CODEX_OWN_SUBSCRIPTION_FLAG) || import.meta.env.DEV;
   const codexModelAccess = useSettingsStore((s) => s.codexModelAccess);
+  const { localWorkspaces } = useHostCapabilities();
   const hostTRPC = useHostTRPC();
   const { data: status } = useQuery({
     ...hostTRPC.agent.codexSubscriptionStatus.queryOptions(),
-    enabled: flagEnabled,
+    // Cloud-only hosts (web) have no local codex and no such host procedure, so
+    // asking would fail with NOT_FOUND. Same gate GeneralSettings uses.
+    enabled: flagEnabled && localWorkspaces,
   });
 
   const subscriptionOn = codexModelAccess === "own-subscription";
