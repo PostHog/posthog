@@ -14,6 +14,7 @@ import {
   REPORTS_INBOX_STATUS_FILTER,
 } from "@posthog/core/inbox/reportFiltering";
 import { partitionInboxReports } from "@posthog/core/inbox/reportInboxSections";
+import { INBOX_SCOPE_FOR_YOU } from "@posthog/core/inbox/reportMembership";
 import {
   deriveHeadline,
   humanizeReportTitle,
@@ -45,6 +46,7 @@ import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAll
 import { useInboxReportDismissAction } from "@posthog/ui/features/inbox/hooks/useInboxReportDismissAction";
 import { useInboxReportsInfinite } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import { useInboxSectionCounts } from "@posthog/ui/features/inbox/hooks/useInboxSectionCounts";
+import { useTrackReportsInboxViewed } from "@posthog/ui/features/inbox/hooks/useTrackReportsInboxViewed";
 import {
   hasActiveInboxFilters,
   useInboxSignalsFilterStore,
@@ -101,6 +103,11 @@ export function ReportsInboxView() {
     isFetchingNextPage,
     fetchNextPage,
     searchQuery,
+    totalCount,
+    scope,
+    isSuccess,
+    sourceProductFilter,
+    priorityFilter,
   } = useInboxAllReports({
     statusFilter: REPORTS_INBOX_STATUS_FILTER,
     applyPrFilter: true,
@@ -127,6 +134,15 @@ export function ReportsInboxView() {
   const monitoringCount = searchActive
     ? sections.monitoring.length
     : serverCounts.monitoring;
+  useTrackReportsInboxViewed({
+    reports: scopedReports,
+    totalCount: searchActive ? scopedReports.length : totalCount,
+    isReady: isSuccess && !serverCounts.isLoading,
+    sourceProductFilter,
+    priorityFilter,
+    searchQuery,
+    isDefaultScope: scope === INBOX_SCOPE_FOR_YOU,
+  });
 
   // Keep paging rows in (capped) so the sections have bodies to render —
   // counts never depend on this; they come from the server queries above.

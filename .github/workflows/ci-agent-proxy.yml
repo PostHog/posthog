@@ -18,6 +18,9 @@ jobs:
     changes:
         runs-on: ubuntu-latest
         timeout-minutes: 5
+        # Skipped on trunk-merge/** heads: merge-queue PRs are ephemeral and every
+        # constituent PR already ran this in full.
+        if: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
         name: Determine need to run agent-proxy checks
         outputs:
             agent_proxy: ${{ steps.filter.outputs.agent_proxy || 'true' }}
