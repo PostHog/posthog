@@ -370,6 +370,24 @@ describe('RequestStateResolver MCP client contexts', () => {
             expect(mockSessionScopedStores.get('mcp-session-1')?.get('activeProjectId')).toBeUndefined()
         })
 
+        it('reverts org and project together when only the project pin changes after a cross-org switch', async () => {
+            // A both-pins client that switch-projects across orgs, then changes only
+            // its project pin, must not keep the switched org: pin is one context, so
+            // any changed pin value reverts both fields. Otherwise org-scoped tools
+            // stay on the switched org while project-scoped tools use the new pin.
+            await makeResolver().resolve(makeProps({ organizationId: 'org-1', projectId: '1' }))
+
+            // A cross-org switch-project records both fields on the session and the token cache.
+            mockTokenStore.set('orgId', 'org-2')
+            mockTokenStore.set('projectId', '2')
+            mockSessionScopedStores.get('mcp-session-1')?.set('activeOrgId', 'org-2')
+            mockSessionScopedStores.get('mcp-session-1')?.set('activeProjectId', '2')
+
+            await makeResolver().resolve(makeProps({ organizationId: 'org-1', projectId: '9' }))
+            expect(mockTokenStore.get('orgId')).toBe('org-1')
+            expect(mockTokenStore.get('projectId')).toBe('9')
+        })
+
         it('applies the pin on every request without an MCP session id', async () => {
             // No session means no cross-request continuity to protect, so the pin
             // must keep winning each request (single-exec CLI stands alone).
