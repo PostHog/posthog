@@ -146,7 +146,7 @@ const ORIGIN_VALUES: { value: string; fallbackHint: string }[] = [
   { value: "session_summaries", fallbackHint: "Session summary" },
   { value: "loop", fallbackHint: "Loops" },
   { value: "automation", fallbackHint: "Automation" },
-  { value: "review_hog", fallbackHint: "ReviewHog" },
+  { value: "review_hog", fallbackHint: "PostHog Review" },
   { value: "support_queue", fallbackHint: "Support" },
   { value: "support_reply", fallbackHint: "Support reply" },
   { value: "eval_clusters", fallbackHint: "Evals" },
