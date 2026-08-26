@@ -17,7 +17,7 @@ Column | Type | Nullable | Description
 `team_id` | integer | NOT NULL | Team this account belongs to
 `name` | varchar | NOT NULL | Display name of the account
 `external_id` | varchar | NULL | Identifier of the account in the source system
-`properties` | json | NOT NULL | Account properties: role assignments `csm`, `account_executive`, `account_owner` (each `{id, email}` of a PostHog user) plus external system identifiers
+`properties` | json | NOT NULL | Account properties for email matching (`email_domains`, `known_emails`) and external system identifiers. Legacy role keys may remain only until backfill and are not authoritative
 `stripe_customer_id` | varchar | NULL | Extracted from `properties`
 `hubspot_deal_id` | varchar | NULL | Extracted from `properties`
 `billing_id` | varchar | NULL | Extracted from `properties`
@@ -61,7 +61,8 @@ Column | Type | Nullable | Description
 ### Important notes
 
 - Active assignments are `ended_at IS NULL`; ended rows are kept as history.
-- The role keys in `system.accounts.properties` (`csm`, `account_executive`, `account_owner`) mirror the active assignments and include the user's email; the relationships table has only `user_id`.
+- Do not read `csm`, `account_executive`, or `account_owner` from `system.accounts.properties`. These keys are retired, and the relationship backfill removes them. Use `system.account_relationships` for ownership.
+- `system.account_relationships` exposes `user_id`, but the customer analytics HogQL system tables do not expose a current user email field. Use an account API when current organization member details are required.
 
 ## Feature requests
 
@@ -226,16 +227,12 @@ SELECT a.name, d.name AS relationship, r.user_id, r.started_at
 FROM system.account_relationships r
 JOIN system.account_relationship_definitions d ON d.id = r.definition_id
 JOIN system.accounts a ON a.id = r.account_id
-WHERE a.name ILIKE '%acme%' AND r.ended_at IS NULL
+WHERE a.name ILIKE '%acme%'
+  AND d.name = 'CSM'
+  AND r.ended_at IS NULL
 ```
 
-Shortcut when the email is enough — the role keys on `properties` mirror active assignments:
-
-```sql
-SELECT name, properties.csm.email AS csm_email
-FROM system.accounts
-WHERE name ILIKE '%acme%'
-```
+Do not use `properties.csm.email` as an email shortcut. The role keys in account properties are retired and are stripped by `backfill_account_relationships`. HogQL relationship tables return `user_id`; use an account API when current organization member details are required.
 
 **All accounts a user holds a relationship on:**
 

@@ -1,6 +1,6 @@
 from unittest.mock import Mock, patch
 
-from django.test import SimpleTestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from parameterized import parameterized
 
@@ -63,7 +63,7 @@ CLOUDFLARE_HOSTNAME_STATUSES = [
 ]
 
 
-class TestCloudflareAPIErrorIsRateLimited(SimpleTestCase):
+class TestCloudflareAPIErrorIsRateLimited(TestCase):
     @parameterized.expand(
         [
             ("error_code_10000", "Rate limited", [{"code": 10000}], True),
@@ -120,9 +120,9 @@ class TestParseHostnameStatuses(SimpleTestCase):
 
 
 @override_settings(CLOUDFLARE_API_TOKEN="token", CLOUDFLARE_ZONE_ID="zone")
-class TestUpdateCustomHostnameMetadata(SimpleTestCase):
+class TestCreateCustomHostname(SimpleTestCase):
     @patch("posthog.temporal.proxy_service.cloudflare.requests.post")
-    def test_sets_redirect_metadata_when_creating_hostname(self, post_request):
+    def test_sets_minimum_tls_version_and_redirect_metadata(self, post_request):
         response = Mock()
         response.json.return_value = {
             "success": True,
@@ -137,7 +137,11 @@ class TestUpdateCustomHostnameMetadata(SimpleTestCase):
             headers={"Authorization": "Bearer token", "Content-Type": "application/json"},
             json={
                 "hostname": "p.example.com",
-                "ssl": {"method": "http", "type": "dv"},
+                "ssl": {
+                    "method": "http",
+                    "type": "dv",
+                    "settings": {"min_tls_version": "1.2"},
+                },
                 "custom_metadata": {"root_redirect_url": "https://example.com/"},
             },
             timeout=8.0,

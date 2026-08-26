@@ -13,7 +13,7 @@ from posthog.dataclasses import frozen
 from posthog.temporal.common.utils import asyncify
 
 from products.context_layer.backend.facade import api as context_layer_facade
-from products.tasks.backend.logic.services.sandbox import Sandbox
+from products.tasks.backend.logic.services.sandbox import get_sandbox_class_for_sandbox_id
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 
@@ -38,7 +38,7 @@ def _clear_wiki_checkout(ctx: TaskProcessingContext, sandbox_id: str) -> None:
     mount_path = shlex.quote(context_layer_facade.SANDBOX_MOUNT_PATH)
     bundle_path = shlex.quote(f"{context_layer_facade.SANDBOX_MOUNT_PATH}.bundle")
     try:
-        sandbox = Sandbox.get_by_id(sandbox_id)
+        sandbox = get_sandbox_class_for_sandbox_id(sandbox_id).get_by_id(sandbox_id)
         sandbox.execute(f"rm -rf {mount_path} {bundle_path}", timeout_seconds=MOUNT_TIMEOUT_SECONDS)
     except Exception as error:
         emit_agent_log(ctx.run_id, "debug", f"Could not clear a stale context wiki checkout: {error}")
@@ -81,7 +81,7 @@ def materialize_context_layer_in_sandbox(input: MaterializeContextLayerInput) ->
             f"status=$?; rm -f {bundle_path} {shlex.quote(url_path)}; exit $status"
         )
         try:
-            sandbox = Sandbox.get_by_id(input.sandbox_id)
+            sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
             sandbox.write_file(url_path, mount.bundle_url.encode())
             result = sandbox.execute(command, timeout_seconds=MOUNT_TIMEOUT_SECONDS)
         except Exception as error:
