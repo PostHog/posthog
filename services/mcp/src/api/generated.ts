@@ -76,6 +76,15 @@ export namespace Schemas {
       window?: AIWindowConfig;
     }
 
+    export interface AIReportChart {
+      /** Id of the rendered PNG export backing this chart. */
+      export_asset_id: number;
+      /** Chart caption, taken from the plan step it illustrates. */
+      title: string;
+      /** Index of the plan step this chart came from. */
+      step_index: number;
+    }
+
     export interface AIReportQueryDiagnostic {
       /** What this query step was meant to compute. */
       description: string;
@@ -55461,6 +55470,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly ai_report_diagnostics: readonly AIReportQueryDiagnostic[] | null;
+      /**
+         * Charts rendered for this report, in the order they were delivered. Empty when the report had no charts. Null for non-AI deliveries and for deliveries recorded before charts existed.
+         * @nullable
+         */
+      readonly ai_report_charts: readonly AIReportChart[] | null;
       /**
          * The subscription's prompt as it was when this report was generated. Null for older deliveries and non-AI deliveries.
          * @nullable
