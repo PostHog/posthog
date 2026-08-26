@@ -28,6 +28,26 @@ class AcceptedValuesConfig(CheckConfig):
 
 _NUMERIC_PREFIXES = ("Int", "UInt", "Float", "Decimal")
 
+# Wrappers that do not change how a value is written; the inner scalar type decides coercion. A
+# direct ClickHouse source stores them verbatim, e.g. LowCardinality(Nullable(Int64)).
+_TRANSPARENT_WRAPPERS = ("Nullable(", "LowCardinality(")
+
+
+def _unwrap_type(column_type: str) -> str:
+    """Peel transparent wrappers so the inner scalar type name leads.
+
+    ``LowCardinality(Nullable(Int64))`` -> ``Int64``. A wrapper the coercion does not know is left
+    in place, so an unexpected shape falls through to "unchanged" rather than being misread.
+    """
+    while column_type.endswith(")"):
+        for wrapper in _TRANSPARENT_WRAPPERS:
+            if column_type.startswith(wrapper):
+                column_type = column_type[len(wrapper) : -1]
+                break
+        else:
+            break
+    return column_type
+
 
 def _coerce_value(value: str | float | bool, column_type: str) -> str | float | bool:
     """One accepted value in the column's own type, or unchanged when the column holds strings."""
@@ -64,7 +84,7 @@ class AcceptedValuesSpec(CheckTypeSpec):
         assert isinstance(config, AcceptedValuesConfig)
         if not column_type:
             return config
-        bare = column_type[len("Nullable(") : -1] if column_type.startswith("Nullable(") else column_type
+        bare = _unwrap_type(column_type)
         return AcceptedValuesConfig(values=[_coerce_value(value, bare) for value in config.values])
 
     def build(

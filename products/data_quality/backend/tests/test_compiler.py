@@ -272,9 +272,12 @@ class TestCheckSerialization:
         [
             ("int_column", "Int64", ["1", "2"], [1.0, 2.0]),
             ("nullable_int_column", "Nullable(Int64)", ["1"], [1.0]),
+            ("low_cardinality_int_column", "LowCardinality(Int64)", ["1"], [1.0]),
+            ("low_cardinality_nullable_int_column", "LowCardinality(Nullable(Int64))", ["1"], [1.0]),
             ("float_column", "Float64", ["1.5"], [1.5]),
             ("bool_column", "Bool", ["true", "FALSE"], [False, True]),
             ("string_column", "String", ["1", "paid"], ["1", "paid"]),
+            ("low_cardinality_string_column", "LowCardinality(String)", ["1", "paid"], ["1", "paid"]),
             ("unknown_column_type", None, ["1"], ["1"]),
         ]
     )
