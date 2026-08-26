@@ -30,6 +30,8 @@ import re
 from ipaddress import ip_network
 from typing import TYPE_CHECKING, Union
 
+import structlog
+
 from posthog.dataclasses import frozen
 
 from products.web_analytics.backend.hogql_queries.bot_definitions import BotDefinition
@@ -37,6 +39,8 @@ from products.web_analytics.backend.hogql_queries.bot_ip_definitions import ipv6
 
 if TYPE_CHECKING:
     from posthog.schema import CustomBotDefinition
+
+logger = structlog.get_logger(__name__)
 
 # Bounds the work added to every query that reads a classification field.
 MAX_CUSTOM_BOT_DEFINITIONS = 50
@@ -229,7 +233,9 @@ def assert_patterns_compile(patterns: list[str]) -> None:
         sync_execute("SELECT multiMatchAnyIndex(%(probe)s, %(patterns)s)", {"probe": "", "patterns": patterns})
     except ServerException as error:
         if error.code not in _BAD_PATTERN_CH_CODES:
-            # ClickHouse is unreachable or unhappy for an unrelated reason; don't block the save.
+            # ClickHouse is unreachable or unhappy for an unrelated reason; don't block the save,
+            # but record the skip so a bypassed probe is visible instead of silent.
+            logger.warning("custom_bot_patterns_probe_skipped", code=error.code, error=str(error))
             return
         if error.code == _TOO_SLOW_CH_CODE:
             raise ValueError("One of these patterns is too slow to run. Try a more specific one.") from error
@@ -240,6 +246,9 @@ def assert_patterns_compile(patterns: list[str]) -> None:
             else "One of these patterns is not supported. Try a simpler expression."
         ) from error
     except Exception:
+        # A failure inside the probe itself (driver misuse, a changed signature) would otherwise
+        # disable this guard silently. Keep failing open, but make the bypass visible.
+        logger.exception("custom_bot_patterns_probe_error")
         return
 
 
