@@ -118,6 +118,8 @@ class TestOnboardingSessionIdempotency(TestCase):
             self.assertEqual(kwargs["model"], expected_model)
             self.assertTrue(kwargs["title_manually_set"])
             self.assertIn("Use the canonical `posthog:exec` tool", kwargs["description"])
+            self.assertIn("use `docs-search` before answering", kwargs["description"])
+            self.assertIn("without first running `docs-search`", kwargs["description"])
             self.assertIn("info channel-instructions-retrieve", kwargs["description"])
             self.assertIn("call channel-instructions-retrieve", kwargs["description"])
             self.assertIn("info channel-instructions-update", kwargs["description"])
