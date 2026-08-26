@@ -342,17 +342,20 @@ impl IngestionConsumer {
         });
         let assign_start = Instant::now();
         let messages = std::mem::take(&mut collected.messages);
-        let sub_batches = self.dispatcher.assign(&batch_id, messages);
+        // Send order is established here too, still on the consumer loop and
+        // under the dispatcher's lock: `begin_send` is synchronous, so a key's
+        // sub-batches enter its worker's lane in assignment order — spawned
+        // tasks racing to send would scramble it.
+        let pending = self
+            .dispatcher
+            .assign_and_send(&batch_id, messages, |sub_batch| {
+                Self::begin_send(&self.transport, &batch_id, sub_batch, false)
+            });
         // Assignment serializes on the consumer loop (it no longer overlaps
         // batch collection) — watch this stays a small fraction of the batch
         // collection interval.
         histogram!("ingestion_consumer_assign_duration_seconds")
             .record(assign_start.elapsed().as_secs_f64());
-        // Establish send order here too, still on the consumer loop:
-        // `begin_send` is synchronous, so a key's sub-batches enter its
-        // worker's lane in assignment order — spawned tasks racing to send
-        // would scramble it.
-        let pending = Self::begin_sends(&self.transport, &batch_id, sub_batches, false);
 
         let task_batch_id = batch_id.clone();
         let dispatcher = Arc::clone(&self.dispatcher);
@@ -482,8 +485,14 @@ impl IngestionConsumer {
                     anyhow::bail!("deferred messages made no progress within the flush timeout");
                 }
                 let mut accepted_this_round = 0u32;
-                let sub_batches = self.dispatcher.flush_deferred(batch_id);
-                if sub_batches.is_empty() {
+                // Serialized on the consumer loop, oldest batch first, so
+                // begin_send order preserves the flush's key order.
+                let pending = self
+                    .dispatcher
+                    .flush_deferred_and_send(batch_id, |sub_batch| {
+                        Self::begin_send(&self.transport, batch_id, sub_batch, true)
+                    });
+                if pending.is_empty() {
                     // Nothing routable right now (no healthy worker), or the
                     // remaining work is in flight on the eager path — wait.
                     tokio::select! {
@@ -495,9 +504,6 @@ impl IngestionConsumer {
                         }
                     }
                 } else {
-                    // Serialized on the consumer loop, oldest batch first, so
-                    // begin_send order preserves the flush's key order.
-                    let pending = Self::begin_sends(&self.transport, batch_id, sub_batches, true);
                     accepted_this_round += self
                         .heartbeat_while(Self::scatter(&self.dispatcher, batch_id, pending, true))
                         .await?;
@@ -534,8 +540,7 @@ impl IngestionConsumer {
                 batch_id,
                 sub_batch,
             } = flush;
-            let mut pending = Self::begin_sends(&transport, &batch_id, vec![sub_batch], true);
-            let pending = pending.pop().expect("one sub-batch produces one send");
+            let pending = Self::begin_send(&transport, &batch_id, sub_batch, true);
             let dispatcher = Arc::clone(&dispatcher);
             tokio::spawn(async move {
                 Self::send_eager_flush(dispatcher, batch_id, pending).await;
@@ -613,36 +618,31 @@ impl IngestionConsumer {
             .signal_failure(format!("Batch processing failed: {err:#}"));
     }
 
-    /// Establish send order for a batch's sub-batches. Synchronous on
-    /// purpose: called where send order is decided (the consumer loop and the
-    /// serialized flush paths), so a key's sub-batches enter its worker's
-    /// lane in exactly that order.
-    fn begin_sends(
+    /// Establish a sub-batch's send order. Synchronous and non-blocking on
+    /// purpose: called where send order is decided (under the dispatcher's
+    /// lock on the consumer loop, and in the eager flush loop), so a key's
+    /// sub-batches enter its worker's lane in exactly that order.
+    fn begin_send(
         transport: &Transport,
         batch_id: &str,
-        sub_batches: Vec<SubBatch>,
+        sub_batch: SubBatch,
         replay: bool,
-    ) -> Vec<PendingSubBatch> {
-        sub_batches
-            .into_iter()
-            .map(|sub_batch| {
-                let SubBatch {
-                    worker,
-                    messages,
-                    routing_keys,
-                    key_offsets,
-                } = sub_batch;
-                let message_count = messages.len();
-                let pending = transport.begin_send(&worker, batch_id, messages, replay);
-                PendingSubBatch {
-                    worker,
-                    routing_keys,
-                    key_offsets,
-                    message_count,
-                    pending,
-                }
-            })
-            .collect()
+    ) -> PendingSubBatch {
+        let SubBatch {
+            worker,
+            messages,
+            routing_keys,
+            key_offsets,
+        } = sub_batch;
+        let message_count = messages.len();
+        let pending = transport.begin_send(&worker, batch_id, messages, replay);
+        PendingSubBatch {
+            worker,
+            routing_keys,
+            key_offsets,
+            message_count,
+            pending,
+        }
     }
 
     /// Await a batch's pre-ordered sub-batch sends, gather results, and feed
