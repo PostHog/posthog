@@ -228,8 +228,7 @@ export interface editorSceneLogicMeta {
               }
         saveAsMenuItems: (
             editorSource: SqlEditorSource,
-            dashboardId: number | null,
-            featureFlags: FeatureFlagsSet
+            dashboardId: number | null
         ) => {
             primary: SaveAsMenuItem
             secondary: SaveAsMenuItem[]
@@ -472,13 +471,11 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
             },
         ],
         saveAsMenuItems: [
-            (s) => [s.editorSource, s.dashboardId, s.featureFlags],
+            (s) => [s.editorSource, s.dashboardId],
             (
                 editorSource: import('./sqlEditorLogic').SqlEditorSource,
-                dashboardId: number | null,
-                featureFlags: import('../../../lib/logic/featureFlagLogic').FeatureFlagsSet
+                dashboardId: number | null
             ): { primary: SaveAsMenuItem; secondary: SaveAsMenuItem[] } => {
-                const metricsEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_DATA_CATALOG]
                 const saveAsInsightItem: SaveAsMenuItem = {
                     action: 'insight',
                     label: dashboardId ? 'Save & add to dashboard' : 'Save as insight',
@@ -496,9 +493,9 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                     action: 'metric',
                     label: 'Save as metric',
                 }
-                const extraItems = [saveAsEndpointItem, ...(metricsEnabled ? [saveAsMetricItem] : [])]
+                const extraItems = [saveAsEndpointItem, saveAsMetricItem]
 
-                if (editorSource === 'metric' && metricsEnabled) {
+                if (editorSource === 'metric') {
                     return {
                         primary: saveAsMetricItem,
                         secondary: [saveAsInsightItem, saveAsViewItem, saveAsEndpointItem],
@@ -508,7 +505,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                 if (editorSource === 'endpoint') {
                     return {
                         primary: saveAsEndpointItem,
-                        secondary: [saveAsInsightItem, saveAsViewItem, ...(metricsEnabled ? [saveAsMetricItem] : [])],
+                        secondary: [saveAsInsightItem, saveAsViewItem, saveAsMetricItem],
                     }
                 }
 
