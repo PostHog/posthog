@@ -1635,18 +1635,6 @@ export interface eventUsageLogicActions {
     reportInviteMembersButtonClicked: () => {
         value: true
     }
-    reportOrganizationSwitcherOpened: () => {
-        value: true
-    }
-    reportProjectSwitcherOpened: () => {
-        value: true
-    }
-    reportOrganizationSwitched: (organizationId: string) => {
-        organizationId: string
-    }
-    reportProjectSwitched: (teamId: number) => {
-        teamId: number
-    }
     reportMCPHintDismissed: (
         dismissType: 'all' | 'surface',
         surfaceKey?: string
@@ -1781,6 +1769,12 @@ export interface eventUsageLogicActions {
     reportOnboardingUseCaseSkipped: () => {
         value: true
     }
+    reportOrganizationSwitched: (organizationId: string) => {
+        organizationId: string
+    }
+    reportOrganizationSwitcherOpened: () => {
+        value: true
+    }
     reportPersonDetailViewed: (person: PersonType) => {
         person: PersonType
     }
@@ -1857,6 +1851,12 @@ export interface eventUsageLogicActions {
     ) => {
         name: string
         value: any
+    }
+    reportProjectSwitched: (teamId: number) => {
+        teamId: number
+    }
+    reportProjectSwitcherOpened: () => {
+        value: true
     }
     reportPropertyGroupFilterAdded: () => {
         value: true
