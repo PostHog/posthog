@@ -9,6 +9,7 @@
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
+const { execFileSync } = require('node:child_process')
 const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
@@ -117,6 +118,7 @@ const PROTO_CONTEXT = {
             ['personhog-proto', []],
             ['personhog-consumer', ['personhog-proto']],
             ['prometheus-rw-proto', []],
+            ['usage-ingestion-proto', []],
             ['unrelated', []],
         ]),
         byDir: [
@@ -126,6 +128,7 @@ const PROTO_CONTEXT = {
             { dir: 'personhog-proto', name: 'personhog-proto' },
             { dir: 'personhog-consumer', name: 'personhog-consumer' },
             { dir: 'prometheus-rw-proto', name: 'prometheus-rw-proto' },
+            { dir: 'usage-ingestion-proto', name: 'usage-ingestion-proto' },
             { dir: 'unrelated', name: 'unrelated' },
         ],
     },
@@ -256,6 +259,7 @@ test('proto configuration at the root claims every tree', () => {
         'proto/ingestion/worker/v1/worker.proto',
         'proto/kafka_assigner/v1/service.proto',
         'proto/prometheus/v1/remote_write.proto',
+        'proto/usage_ingestion/v1/service.proto',
     ]) {
         for (const target of computeTargets([file], PROTO_CONTEXT)) {
             union.add(target)
@@ -336,6 +340,11 @@ test('every proto tree is declared, with the crate that compiles it', () => {
 // land in today, so a tree that starts generating into one of them without
 // declaring the domain fails here. A consumer that generates into a root
 // neither of these names is still only caught by review.
+//
+// The equality runs both ways. Reading only from the table cannot see a stub
+// directory no tree claims, because a tree whose directory name differs from
+// its own name (usage_ingestion generates into usage-ingestion) reads as "no
+// stubs" and agrees with an empty domain list. The directory side catches that.
 test('every proto tree declaring a stub consumer has stubs there, and no other tree does', () => {
     const stubRoots = [
         ['posthog/personhog_client/proto/generated', PYTHON],
@@ -345,14 +354,25 @@ test('every proto tree declaring a stub consumer has stubs there, and no other t
         const generated = fs
             .readdirSync(path.join(REPO_ROOT, root), { withFileTypes: true })
             .filter((entry) => entry.isDirectory())
+            // __pycache__ is a build artifact of the python root, not a stub tree.
+            .filter((entry) => !entry.name.startsWith('__'))
             .map((entry) => entry.name)
+        const claimed = new Set()
         for (const [tree, { domains, stubDir }] of PROTO_TREES) {
             assert.equal(
                 generated.includes(stubDir || tree),
                 domains.includes(domain),
                 `proto/${tree} stubs in ${root} must match its declared ${domain} consumer`
             )
+            if (domains.includes(domain)) {
+                claimed.add(stubDir || tree)
+            }
         }
+        assert.deepEqual(
+            generated.filter((dir) => !claimed.has(dir)),
+            [],
+            `every directory in ${root} must belong to a proto tree declaring its ${domain} consumer`
+        )
     }
 })
 
@@ -869,6 +889,29 @@ test('nodejs is still the only workspace package importing a rust binding', () =
             .map((entry) => path.posix.join(glob.slice(0, -2), entry.name))
     }
     const packageDirs = workspaceGlobs.flatMap(expand)
+
+    // An incomplete checkout (e.g. a sparse CI checkout missing workspace
+    // manifests) would silently shrink the inspection set: expand() and the
+    // existsSync checks below skip whatever is absent. The git index stays
+    // complete even when the working tree is sparse, so any tracked manifest
+    // inside the workspace that is not on disk means the checkout dropped it.
+    const matcher = compileWorkspaceMatcher(workspaceGlobs)
+    const trackedManifests = execFileSync('git', ['ls-files', '-z', '--', ':(glob)**/package.json', 'package.json'], {
+        cwd: REPO_ROOT,
+        encoding: 'utf8',
+    })
+        .split('\0')
+        .filter(Boolean)
+    assert.ok(trackedManifests.length > 0, 'git ls-files found no manifests, so the checkout check below is vacuous')
+    for (const manifest of new Set(trackedManifests)) {
+        if (manifest !== 'package.json' && !matcher(manifest)) {
+            continue
+        }
+        assert.ok(
+            fs.existsSync(path.join(REPO_ROOT, manifest)),
+            `${manifest} is tracked by git but absent on disk — an incomplete checkout guts this guard`
+        )
+    }
 
     const bindingPackages = new Set()
     for (const dir of packageDirs) {

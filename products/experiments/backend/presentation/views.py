@@ -46,13 +46,13 @@ from posthog.rate_limit import (
     SessionEventDeltasBurstRateThrottle,
     SessionEventDeltasSustainedRateThrottle,
 )
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.experiments.models import ExperimentTimeseriesRecalculationWorkflowInputs
 from posthog.user_permissions import UserPermissions
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.experiments.backend.experiment_service import ExperimentService, ExperimentVersionConflict
 from products.experiments.backend.llm_metric_templates import build_template, list_templates

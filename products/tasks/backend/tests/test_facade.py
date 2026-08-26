@@ -17,6 +17,7 @@ from posthog.models import Integration, Organization, OrganizationMembership, Te
 from posthog.models.scoping import team_scope
 from posthog.models.user import User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.models import SignalTeamConfig
 from products.tasks.backend.facade import (
     api as facade,
@@ -33,8 +34,6 @@ from products.tasks.backend.models import (
     TaskWorkflowDispatch,
 )
 from products.tasks.backend.prompts import WIZARD_HEAD_BRANCH_PLACEHOLDER, build_wizard_pr_agent_prompt
-
-from ee.models.rbac.access_control import AccessControl
 
 FACADE_MODULES = [
     "products.tasks.backend.facade.api",
@@ -223,6 +222,28 @@ class TestFacadeReadsAndMappers(TestCase):
         defaults.update(kwargs)
         return Task.objects.create(**defaults)
 
+    @parameterized.expand([("the_sandbox", True), ("a_human_reader", False)])
+    def test_run_detail_serves_the_boot_prompt_to_the_sandbox_only(self, _name, include_agent_state):
+        # The agent reads initial_prompt_override off this payload to build its first
+        # message; dropping it strips it silently and the run falls back to
+        # task.description. But it embeds the triggering event wholesale (for a Slack
+        # trigger, a private channel's content) and workflow tasks are team-readable,
+        # so human readers must not receive it.
+        task = self._make_task()
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.QUEUED,
+            state={"initial_prompt_override": "framed prompt", "sandbox_jwt_kid": "secret"},
+        )
+
+        detail = facade.get_task_run_detail(run.id, task.id, self.team.id, include_agent_state=include_agent_state)
+
+        assert detail is not None
+        expected = "framed prompt" if include_agent_state else None
+        assert detail.state.get("initial_prompt_override") == expected
+        assert "sandbox_jwt_kid" not in detail.state
+
     def test_get_task_run_maps_all_fields(self):
         task = self._make_task()
         run = TaskRun.objects.create(
@@ -279,6 +300,24 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertTrue(facade.is_task_controllable_by_user(task.id, self.user.id))
         other_user = User.objects.create(email="other@test.com", distinct_id="other")
         self.assertFalse(facade.is_task_controllable_by_user(task.id, other_user.id))
+
+    def test_task_control_runtime_and_origin_uses_control_predicate(self):
+        task = self._make_task(origin_product=Task.OriginProduct.POSTHOG_AI, runtime=Task.Runtime.PI)
+        self.assertEqual(
+            facade.task_control_runtime_and_origin(task.id, self.team.id, self.user.id),
+            facade.ControlVisibleTask(
+                runtime=Task.Runtime.PI.value, origin_product=Task.OriginProduct.POSTHOG_AI.value
+            ),
+        )
+
+        # An experiments task is readable across the team but only its creator may drive it, so the
+        # warm gate must use the control predicate, not the read predicate.
+        other_user = User.objects.create(email="control-origin@test.com", distinct_id="control-origin")
+        experiments_task = self._make_task(origin_product=Task.OriginProduct.EXPERIMENTS)
+        self.assertIsNotNone(facade.get_task_detail(experiments_task.id, self.team.id, other_user.id))
+        self.assertIsNone(facade.task_control_runtime_and_origin(experiments_task.id, self.team.id, other_user.id))
+
+        self.assertIsNone(facade.task_control_runtime_and_origin(uuid4(), self.team.id, self.user.id))
 
     def _make_wizard_run(self, task: Task, status: TaskRun.Status, **kwargs) -> TaskRun:
         # A genuine server-started wizard run carries the markers create_wizard_cloud_run stamps:

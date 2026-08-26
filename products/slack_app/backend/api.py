@@ -2792,11 +2792,7 @@ def _channel_is_approved(slack_workspace_id: str, channel_id: str) -> bool:
     at all lives on the Slack event envelope — see ``posthog_code_event_handler``
     — so this only needs to answer the persistence question.
     """
-    return SlackChannel.objects.filter(
-        slack_workspace_id=slack_workspace_id,
-        slack_channel_id=channel_id,
-        approved_at__isnull=False,
-    ).exists()
+    return SlackChannel.approval_granted(slack_workspace_id, channel_id)
 
 
 def _post_channel_approval_prompt(

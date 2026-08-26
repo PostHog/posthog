@@ -238,6 +238,7 @@ class ExternalDataSourceType(models.TextChoices):
     EBAY = "Ebay", "Ebay"
     COMMERCETOOLS = "Commercetools", "Commercetools"
     LIGHTSPEEDRETAIL = "LightspeedRetail", "LightspeedRetail"
+    SHIPMAIL = "Shipmail", "Shipmail"
     SHIPSTATION = "ShipStation", "ShipStation"
     CONSTANTCONTACT = "ConstantContact", "ConstantContact"
     MAILGUN = "Mailgun", "Mailgun"
@@ -1374,6 +1375,11 @@ class ExternalDataSourceType(models.TextChoices):
     DATOCMS = "DatoCMS", "DatoCMS"
     WPSOFFICE = "WPSOffice", "WPSOffice"
     TERABOX = "TeraBox", "TeraBox"
+    SIMONDATA = "SimonData", "SimonData"
+    COMMISSIONJUNCTION = "CommissionJunction", "CommissionJunction"
+    LIVEBLOCKS = "Liveblocks", "Liveblocks"
+    NATIONBUILDER = "NationBuilder", "NationBuilder"
+    TANA = "Tana", "Tana"
 
 
 def external_data_source_type_choices() -> list[tuple[str, str | Promise]]:

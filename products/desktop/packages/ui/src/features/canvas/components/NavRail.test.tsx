@@ -48,7 +48,7 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
   useChannelsLayout: () => true,
 }));
 vi.mock("@posthog/ui/features/inbox/hooks/useInboxAllReports", () => ({
-  useInboxAllReports: () => ({ counts: { pulls: 0 } }),
+  useInboxAllReports: () => ({ counts: { pulls: 1 } }),
 }));
 vi.mock("@posthog/ui/features/sidebar/components/ProjectSwitcher", () => ({
   ProjectSwitcher: () => (
@@ -158,6 +158,18 @@ describe("NavRail", () => {
       "Settings",
       "Project switcher",
     ]);
+  });
+
+  it("puts numberless notification dots on the Activity and Self-driving buttons", () => {
+    render(<NavRail />);
+
+    for (const label of ["Activity", "Self-driving"]) {
+      const button = screen.getByLabelText(label);
+      const dot = button.querySelector('[data-slot="dot"]');
+
+      expect(dot).toHaveClass("absolute", "top-0", "right-0");
+      expect(dot).toHaveTextContent("");
+    }
   });
 
   // The route is the whole answer, so a destination can never be lit over a

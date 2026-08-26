@@ -62,12 +62,11 @@ from posthog.models.user_integration import GitHubInstallRequest, UserIntegratio
 from posthog.models.utils import hash_key_value
 from posthog.rate_limit import GitHubRepositoryRefreshThrottle
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.batch_exports.backend.models import BatchExport, BatchExportDestination
 from products.cdp.backend.models import HogFunction
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.workflows.backend.models import HogFlow
-
-from ee.models.rbac.access_control import AccessControl
 
 
 class TestSlackIntegration:

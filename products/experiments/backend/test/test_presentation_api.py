@@ -26,6 +26,7 @@ from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.test_journeys import journeys_for
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.event_definition import EventDefinition
@@ -51,7 +52,6 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.api.test.base import APILicensedTest
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
-from ee.models.rbac.access_control import AccessControl
 
 
 def _make(cls, **attrs):

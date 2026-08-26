@@ -429,6 +429,36 @@ class TestGroupTarget:
         write_snapshot.assert_not_awaited()
         assert result.produced == 0
 
+    @pytest.mark.asyncio
+    async def test_group_type_is_resolved_by_project_not_team(self):
+        # Group types are project-scoped, and GroupTypeMapping stores the project's root team id, so
+        # a child environment has no rows under its own team id. Resolving by team id found nothing
+        # there, which skipped every group source on that team and produced no intents at all.
+        team = MagicMock(api_token="tok", uuid="team-uuid", project_id=77)
+        rows = [{"group_key": "acme", "plan": "pro"}]
+        by_project = {77: [{"group_type_index": 0, "group_type": "organization"}]}
+        with (
+            patch(f"{_MODULE}.person_property_sync_sources_for", return_value=[self._group_source()]),
+            patch(f"{_MODULE}.Team") as team_cls,
+            patch(f"{_MODULE}._read_staged_rows", new=AsyncMock(return_value=rows)),
+            patch(f"{_MODULE}._read_snapshot_hashes", new=AsyncMock(return_value={})),
+            patch(f"{_MODULE}._filter_existing_ids", return_value={"acme"}),
+            patch(
+                f"{_MODULE}.get_group_types_for_project",
+                side_effect=lambda project_id, **_kwargs: by_project.get(project_id, []),
+            ) as lookup,
+            patch(f"{_MODULE}._produce_intents", return_value=1) as produce,
+            patch(f"{_MODULE}._write_snapshot_hashes", new=AsyncMock()),
+            patch(f"{_MODULE}._stamp_provenance"),
+            patch(f"{_MODULE}._clear_staged", new=AsyncMock()),
+        ):
+            team_cls.objects.get.return_value = team
+            result = await pps.run_person_property_sync(team_id=1, binding=_SCHEMA, job_id="job-1")
+
+        assert lookup.call_args.args[0] == 77  # the project, not team_id=1
+        assert produce.call_args.kwargs["group_type_name"] == "organization"
+        assert result.produced == 1
+
 
 class TestExistenceLookupChunking:
     """Both personhog helpers return whole models (properties included) and hold every one before

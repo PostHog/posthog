@@ -939,6 +939,7 @@ class TestExternalDataSource(APIBaseTest):
                 "cdc_lag_warning_threshold_mb": 512,
                 "cdc_lag_critical_threshold_mb": 1024,
                 "cdc_consistent_point": "0/AA",
+                "cdc_ingest_mode": "buffered",
             },
         )
 
@@ -959,6 +960,7 @@ class TestExternalDataSource(APIBaseTest):
                     "cdc_lag_warning_threshold_mb": 1,
                     "cdc_lag_critical_threshold_mb": 2,
                     "cdc_consistent_point": "0/BAD",
+                    "cdc_ingest_mode": "legacy",
                 }
             },
             format="json",
@@ -975,6 +977,7 @@ class TestExternalDataSource(APIBaseTest):
         assert str(source.job_inputs["cdc_lag_warning_threshold_mb"]) == "512"
         assert str(source.job_inputs["cdc_lag_critical_threshold_mb"]) == "1024"
         assert source.job_inputs["cdc_consistent_point"] == "0/AA"
+        assert source.job_inputs["cdc_ingest_mode"] == "buffered"
 
     @patch(
         "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",

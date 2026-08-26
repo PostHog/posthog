@@ -1,10 +1,11 @@
-import type {
-  ArtifactType,
-  Task,
-  TaskRun,
-  TaskRunArtifact,
-  TaskRunArtifactMetadata,
-  TaskRunStatus,
+import {
+  type ArtifactType,
+  type Task,
+  type TaskRun,
+  type TaskRunArtifact,
+  type TaskRunArtifactMetadata,
+  type TaskRunStatus,
+  taskRunStateSchema,
 } from "@posthog/shared/domain-types";
 import type { Schemas } from "./generated";
 
@@ -187,7 +188,7 @@ export function normalizeTaskRunResponse(
     log_url: dto.log_url ?? "",
     error_message: dto.error_message ?? null,
     output: isRecord(dto.output) ? dto.output : null,
-    state: isRecord(dto.state) ? dto.state : {},
+    state: taskRunStateSchema.parse(dto.state),
     ...(dto.artifacts == null
       ? {}
       : { artifacts: dto.artifacts.map(normalizeTaskRunArtifact) }),

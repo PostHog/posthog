@@ -54,6 +54,24 @@ describe('frontier record', () => {
         expect(parsed).toEqual({ ok: true, candidates: [candidate()], urlCount: 1, rejected: [] })
     })
 
+    it('round trips the optional low-origin-diversity marker', () => {
+        const marked = candidate({ lowOriginDiversityDeferred: true })
+
+        expect(parseCollectedUrlsRecord(serializeFrontierRecord([marked]), 'example.com')).toEqual({
+            ok: true,
+            candidates: [marked],
+            urlCount: 1,
+            rejected: [],
+        })
+    })
+
+    it('drops a job with a non-boolean low-origin-diversity marker', () => {
+        expect(parseCollectedUrlsRecord(record({ lowOriginDiversityDeferred: 'true' }), 'example.com')).toEqual({
+            ok: false,
+            reason: 'bad_url',
+        })
+    })
+
     it.each([
         ['missing value', null, 'example.com', 'malformed'],
         ['missing key', record(), null, 'malformed'],

@@ -104,6 +104,7 @@ from products.customer_analytics.backend.logic import (
     relationships as _relationships_logic,
 )
 from products.customer_analytics.backend.logic.account_filters import InvalidAccountFilter, apply_account_filters
+from products.customer_analytics.backend.logic.account_logo import resolve_logo_domain
 from products.customer_analytics.backend.logic.custom_property_definitions import (
     apply_option_side_effects,
     coerce_is_big_number,
@@ -176,14 +177,15 @@ _ACCOUNT_PROPERTY_INPUT_KEY = "properties"
 
 if TYPE_CHECKING:
     from posthog.models.user import User
-    from posthog.rbac.user_access_control import UserAccessControl
 
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
     from products.customer_analytics.backend.models import CustomPropertyValue
     from products.workflows.backend.services.account_audience import AccountAudienceFilters
 
 
 def _to_account_properties(properties: _ModelAccountProperties) -> contracts.AccountProperties:
     return contracts.AccountProperties(
+        website_domain=properties.website_domain,
         stripe_customer_id=properties.stripe_customer_id,
         hubspot_deal_id=properties.hubspot_deal_id,
         billing_id=properties.billing_id,
@@ -2903,6 +2905,14 @@ def query_accounts_metrics(
     return results
 
 
+def _resolve_account_logo_domain(account: Account) -> str | None:
+    properties = account.properties
+    return resolve_logo_domain(
+        website_domain=properties.website_domain,
+        email_domains=properties.email_domains,
+    )
+
+
 def query_accounts_table(
     *,
     team_id: int,
@@ -3030,6 +3040,7 @@ def query_accounts_table(
             id=account.id,
             name=account.name,
             external_id=account.external_id,
+            logo_domain=_resolve_account_logo_domain(account),
             account_fields=_account_table_field_values(account, selection.account_fields),
             tags=tags_by_account[account.id] if selection.include_tags else None,
             note_count=note_counts_by_account[account.id] if selection.include_note_count else None,

@@ -48,13 +48,6 @@ from posthog.rate_limit import (
     SharePasswordVolumeThrottle,
     SustainedRateThrottle,
 )
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import (
-    AccessControlLevel,
-    UserAccessControl,
-    UserAccessControlSerializerMixin,
-    access_level_satisfied_for_resource,
-)
 from posthog.scopes import APIScopeObject
 from posthog.security.url_validation import is_url_allowed
 from posthog.session_recordings.session_recording_api import SessionRecordingSerializer
@@ -63,11 +56,21 @@ from posthog.user_permissions import UserPermissions
 from posthog.utils import get_ip_address, render_template
 from posthog.views import preflight_check
 
+from products.access_control.backend.facade.user_access_control import (
+    AccessControlLevel,
+    UserAccessControl,
+    access_level_satisfied_for_resource,
+)
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
+)
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.access import dashboard_access_method, record_dashboard_view
 from products.dashboards.backend.api.dashboard import DashboardSerializer
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.exports.backend.api.exports import ExportedAssetCreateSerializer
+from products.exports.backend.facade.api import export_limit_context
 from products.exports.backend.models.exported_asset import (
     EXPORTED_ASSET_PURPOSE_RENDER,
     EXPORTED_ASSET_PURPOSE_SUBSCRIPTION_DELIVERY,
@@ -1304,6 +1307,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                     resource.team,
                     source_query,
                     execution_mode=execution_mode,
+                    limit_context=export_limit_context(resource.export_context),
                     # Anonymous render surface; attribute the read to the export owner so
                     # warehouse HogQL access control resolves against their access.
                     user=resource.created_by,

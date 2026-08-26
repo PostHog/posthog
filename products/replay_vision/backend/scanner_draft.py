@@ -25,8 +25,8 @@ from pydantic import BaseModel, Field
 from posthog.llm.semantic_enrichment import get_team_business_context
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.rbac.user_access_control import UserAccessControl
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.scanner_config import scanner_config_error
 from products.replay_vision.backend.tag_suggestions import _product_taxonomy

@@ -16,6 +16,7 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
 import { PythonKernelExecuteResponse } from '../Nodes/pythonExecution'
+import type { NotebookLogicMode } from './notebookLogic'
 
 /** A DuckDB object a SQL node can currently SELECT from, as reported by the kernel's last run. */
 export type NotebookKernelFrame = {
@@ -49,6 +50,13 @@ export type NotebookKernelInfo = {
 
 export type NotebookKernelInfoLogicProps = {
     shortId: string
+    /**
+     * Anything other than `'notebook'` disables the kernel poll. A canvas notebook is never
+     * persisted, so `/kernel/status/` always 404s for its client-made short ID, and a canvas
+     * holds no Python or SQL node that could use a kernel. Person and group profile pages
+     * render one, so polling them costs a 404 every 10 seconds for as long as the page is open.
+     */
+    mode?: NotebookLogicMode
 }
 
 export const cpuCoreOptions = [0.125, 0.25, 0.5, 1, 2, 4, 6, 8, 16, 32, 64]
@@ -546,7 +554,10 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
             actions.executeKernelSuccess(null)
         },
     })),
-    afterMount(({ actions, cache, values }) => {
+    afterMount(({ actions, cache, props, values }) => {
+        if (props.mode && props.mode !== 'notebook') {
+            return
+        }
         const scheduleRefresh = (): void => {
             const delayMs = values.isStarting ? 2000 : 10000
             cache.kernelInfoRefresh = window.setTimeout(() => {
