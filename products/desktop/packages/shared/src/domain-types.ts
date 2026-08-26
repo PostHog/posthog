@@ -286,8 +286,9 @@ export type TaskRunStatus =
 
 export type TaskRunEnvironment = "local" | "cloud";
 
-const optionalField = <T extends z.ZodType>(field: T) =>
-  field.optional().catch(undefined);
+const optionalField = <T extends z.ZodType>(
+  field: T,
+): z.ZodCatch<z.ZodOptional<T>> => field.optional().catch(undefined);
 
 const taskRunStateFields = {
   ai_stage: optionalField(z.string()),
