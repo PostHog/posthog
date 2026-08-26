@@ -189,18 +189,26 @@ export const MetricsViewer = (): JSX.Element => {
                       )
                   },
               }))
-        const spikeMarkers: MetricsExemplar[] = errorTrackingDisabledReason
-            ? []
-            : errorSpikes.map((spike) => ({
-                  timeMs: dayjs(spike.detected_at).valueOf(),
-                  color: 'danger',
-                  tooltipLabel: `Error spike at ${dayjs(spike.detected_at).format('D MMM HH:mm:ss')}: ${spike.issue_name ?? 'Untitled issue'}. Click to view the issue.`,
-                  onClick: () => {
-                      router.actions.push(urls.errorTrackingIssue(spike.issue_id, { timestamp: spike.detected_at }))
-                  },
-              }))
+        const spikeMarkers: MetricsExemplar[] =
+            !errorOverlaysEnabled || errorTrackingDisabledReason
+                ? []
+                : errorSpikes.map((spike) => ({
+                      timeMs: dayjs(spike.detected_at).valueOf(),
+                      color: 'danger',
+                      tooltipLabel: `Error spike at ${dayjs(spike.detected_at).format('D MMM HH:mm:ss')}: ${spike.issue_name ?? 'Untitled issue'}. Click to view the issue.`,
+                      onClick: () => {
+                          router.actions.push(urls.errorTrackingIssue(spike.issue_id, { timestamp: spike.detected_at }))
+                      },
+                  }))
         return [...traceMarkers, ...spikeMarkers]
-    }, [traceExemplars, tracingDisabledReason, exemplarDotClicked, errorSpikes, errorTrackingDisabledReason])
+    }, [
+        traceExemplars,
+        tracingDisabledReason,
+        exemplarDotClicked,
+        errorSpikes,
+        errorOverlaysEnabled,
+        errorTrackingDisabledReason,
+    ])
 
     // Refetch the chart whenever any filter changes — the loader breakpoint debounces input.
     useEffect(() => {
