@@ -47,13 +47,26 @@ describe('runHealth', () => {
             { conclusion: 'skipped', durationSeconds: 600, startedAt: at(10) },
             { conclusion: 'cancelled', durationSeconds: 600, startedAt: at(11) },
             { conclusion: 'action_required', durationSeconds: 600, startedAt: at(12) },
+            { conclusion: 'neutral', durationSeconds: 600, startedAt: at(13) },
+            { conclusion: 'future_outcome', durationSeconds: 600, startedAt: at(14) },
         ])
-        expect(summary.completedRuns).toBe(4)
+        expect(summary.completedRuns).toBe(6)
         expect(summary.conclusiveRuns).toBe(1)
         expect(summary.passedRuns).toBe(1)
         expect(summary.passRate).toBe(1)
         expect(summary.failures).toBe(0)
         expect(summary.state).toBe('healthy')
+    })
+
+    it.each(['failure', 'timed_out', 'startup_failure', 'stale'])('counts %s as a decisive failure', (conclusion) => {
+        const summary = computeHealthSummary([
+            { conclusion: 'success', durationSeconds: 600, startedAt: at(9) },
+            { conclusion, durationSeconds: 600, startedAt: at(10) },
+        ])
+        expect(summary.conclusiveRuns).toBe(2)
+        expect(summary.failures).toBe(1)
+        expect(summary.passRate).toBe(0.5)
+        expect(summary.state).toBe('failing')
     })
 
     it('excludes still-running runs from rates and durations, and counts re-runs', () => {

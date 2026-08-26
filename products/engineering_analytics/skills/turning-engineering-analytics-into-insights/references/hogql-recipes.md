@@ -105,7 +105,8 @@ SELECT
     workflow_name,
     count() AS runs,
     countIf(conclusion = 'success')
-        / nullIf(countIf(conclusion IN ('success', 'failure', 'timed_out')), 0) AS success_rate,
+        / nullIf(countIf(conclusion IN ('success', 'failure', 'timed_out', 'startup_failure', 'stale')), 0)
+            AS success_rate,
     quantileIf(0.95)(duration_seconds, conclusion = 'success') AS p95_seconds
 FROM runs
 WHERE status = 'completed'
@@ -115,7 +116,8 @@ HAVING runs >= 5
 ORDER BY week, runs DESC
 ```
 
-The success rate excludes skipped, cancelled, and action-required runs because they did not reach a pass-or-fail verdict.
+The success rate counts `failure`, `timed_out`, `startup_failure`, and `stale` as failures.
+It excludes skipped, cancelled, neutral, and action-required runs because they did not reach a pass-or-fail verdict.
 The duration percentile uses successful runs because cancelled and failed runs end early.
 For a single-workflow tile, add `AND workflow_name = 'CI'` and drop the group.
 
@@ -145,7 +147,7 @@ runs AS (<workflow-runs base>),
 ci AS (
     SELECT
         head_sha,
-        countIf(s = 'completed' AND c IN ('failure', 'timed_out')) AS failing
+        countIf(s = 'completed' AND c IN ('failure', 'timed_out', 'startup_failure', 'stale')) AS failing
     FROM (
         SELECT head_sha, workflow_name,
             argMax(status, run_started_at) AS s,

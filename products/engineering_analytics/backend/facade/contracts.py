@@ -747,7 +747,7 @@ class PushCISample:
     started_at: datetime
     # First run start → last completed run end on this push; None while nothing has completed.
     wall_seconds: int | None
-    # Any latest-per-workflow run on this push concluded 'failure' or 'timed_out'.
+    # Any latest-per-workflow run on this push reached a decisive failure verdict.
     failed: bool
     # Any latest-per-workflow run on this push hasn't completed yet.
     pending: bool
@@ -835,8 +835,8 @@ class CICardSummary:
 class WorkflowHealthBucket:
     """One time bucket of a workflow's run history; empty buckets are zero-filled. The
     bucket width (hour / day / week) is set per item in ``WorkflowHealthItem.granularity``
-    to fit the window. ``failures`` is decisive failures only (failure / timed_out),
-    matching the CI rollup — skipped, cancelled, and action_required runs are neither
+    to fit the window. ``failures`` is decisive failures only, matching the CI rollup —
+    skipped, cancelled, neutral, and action_required runs are neither
     successes nor failures, so they must not be treated as non-passing.
     """
 
@@ -923,7 +923,7 @@ class QuarantineRequestResult:
 @dataclass(frozen=True)
 class WorkflowHealthItem:
     """Per-workflow CI health over a window. ``success_rate`` is over conclusive runs
-    (success, failure, or timed out); ``p50_seconds``/``p95_seconds`` are over successful
+    (success or a decisive failure); ``p50_seconds``/``p95_seconds`` are over successful
     runs only because cancelled, skipped, and failed runs end early. Each is ``None``
     when the window has no qualifying runs.
     """
@@ -932,14 +932,14 @@ class WorkflowHealthItem:
     workflow_name: str
     run_count: int
     successful_run_count: int
-    # Completed runs that reached a verdict (success / failure / timed_out). This is the denominator
-    # for success_rate and the sample-size gate for verdict-based signals.
+    # Completed runs that reached a pass or decisive failure verdict. This is the denominator for
+    # success_rate and the sample-size gate for verdict-based signals.
     conclusive_run_count: int
     success_rate: float | None
     p50_seconds: float | None
     p95_seconds: float | None
     last_failure_at: datetime | None
-    # Whether the most recent completed run was a decisive failure (failure / timed_out).
+    # Whether the most recent completed run was a decisive failure.
     # None when nothing has completed in the window. Drives the OK/RED status badge — a
     # bool, not the raw conclusion, because the data carries conclusions outside
     # WorkflowConclusion (e.g. action_required) that would fail validation here.
@@ -1013,7 +1013,7 @@ class TimeToGreenBucket:
 @dataclass(frozen=True)
 class PassRateBucket:
     """One time bucket of the repo's CI pass rate: successful runs divided by conclusive runs
-    (success, failure, or timed out) across all branches. ``success_rate`` is None for a bucket
+    (success or a decisive failure) across all branches. ``success_rate`` is None for a bucket
     with no conclusive run, so the trend has a gap instead of a false 0% rate.
     """
 

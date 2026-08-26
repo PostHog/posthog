@@ -27,6 +27,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.clickhouse.workload import Workload
 from posthog.models.team import Team
 
+from products.engineering_analytics.backend.logic.queries._workflow_filters import DECISIVE_FAILURE_CONCLUSIONS_SQL
 from products.engineering_analytics.backend.logic.sources import (
     GitHubTables,
     resolve_github_tables,
@@ -292,13 +293,13 @@ class CuratedGitHubSource:
                     head_sha,
                     count() AS runs,
                     countIf(s = 'completed' AND c = 'success') AS passing,
-                    countIf(s = 'completed' AND c IN ('failure', 'timed_out')) AS failing,
+                    countIf(s = 'completed' AND c IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL})) AS failing,
                     -- s IS NULL: run_started_at parses to NULL on a bad/missing timestamp, and argMax
                     -- over an all-NULL group returns NULL — count those as pending, not vanished.
                     countIf(s IS NULL OR s != 'completed') AS pending,
                     -- The names behind `failing`, sorted for a stable order — the UI shows what is
                     -- failing under the CI tag instead of a bare count.
-                    arraySort(groupArrayIf(workflow_name, s = 'completed' AND c IN ('failure', 'timed_out'))) AS failing_workflows
+                    arraySort(groupArrayIf(workflow_name, s = 'completed' AND c IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL}))) AS failing_workflows
                 FROM (
                     SELECT
                         head_sha,

@@ -3,8 +3,8 @@
 Run counts, success rate, and duration percentiles per ``workflow_name`` for runs
 started within ``[date_from, date_to]`` (``date_to`` optional), optionally scoped to
 a single ``head_branch`` and/or attributed pull-request runs. Rates are over conclusive
-runs (success, failure, or timed out), so skipped, cancelled, and action-required runs
-never read as failures. Duration percentiles are over successful runs only because
+runs (success or a decisive failure), so skipped, cancelled, neutral, and action-required
+runs never read as failures. Duration percentiles are over successful runs only because
 cancelled, skipped, and failed runs end early and would bias a "how long does CI take"
 percentile low. They are ``None`` for a window with no successful runs. No-op gate runs
 are excluded from the percentiles too, with an all-successful fallback for legitimately
@@ -40,6 +40,7 @@ from products.engineering_analytics.backend.logic.queries._buckets import (
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource, opt_float
 from products.engineering_analytics.backend.logic.queries._workflow_filters import (
     CONCLUSIVE_RUN_CONDITION,
+    DECISIVE_FAILURE_CONCLUSIONS_SQL,
     LATEST_COMPLETED_RUN_FAILED,
     RUN_DURATION_PERCENTILE_CONDITION,
     SUCCESSFUL_RUN_CONDITION,
@@ -69,7 +70,7 @@ _SELECT = f"""
         countIf({SUCCESSFUL_RUN_CONDITION}) / nullIf(countIf({CONCLUSIVE_RUN_CONDITION}), 0) AS success_rate,
         {run_duration_percentile_expr(0.5)} AS p50_seconds,
         {run_duration_percentile_expr(0.95)} AS p95_seconds,
-        max(if(conclusion IN ('failure', 'timed_out'), run_started_at, NULL)) AS last_failure_at,
+        max(if(conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL}), run_started_at, NULL)) AS last_failure_at,
         countIf(status = 'completed') AS completed_count,
         {LATEST_COMPLETED_RUN_FAILED} AS latest_failed,
         argMaxIf(conclusion, (run_started_at, id), status = 'completed') AS latest_conclusion,
@@ -106,7 +107,7 @@ _BUCKET_SELECT = f"""
         count() AS run_count,
         countIf(status = 'completed') AS completed,
         countIf(status = 'completed' AND conclusion = 'success') AS successes,
-        countIf(status = 'completed' AND conclusion IN ('failure', 'timed_out')) AS failures
+        countIf(status = 'completed' AND conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL})) AS failures
     FROM __RUNS_SOURCE__ AS r
     WHERE run_started_at >= {{date_from}} __DATE_TO__ __BRANCH__ __RUN_SCOPE__
     GROUP BY repo_owner, repo_name, workflow_name, bucket_start

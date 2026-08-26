@@ -64,8 +64,8 @@ class WorkflowActionsMixin(EngineeringAnalyticsViewSetBase):
         description=(
             "Per-workflow CI health over a window (default last 24 hours, maximum 366 days): run count, success "
             "rate, p50/p95 duration, last failure time, latest-run status, and a zero-filled run history bucketed "
-            "by hour/day/week to fit the window. Success rate covers conclusive runs only (success, failure, or "
-            "timed out), excluding skipped, cancelled, and action-required runs. p50/p95 are over successful runs "
+            "by hour/day/week to fit the window. Success rate covers runs that succeeded or ended in a decisive "
+            "failure. Skipped, cancelled, neutral, and action-required runs are excluded. p50/p95 are over successful runs "
             "only, so cancelled (superseded) "
             "and failed runs never bias the duration trend. Optionally scope to a single git branch via `branch`, "
             "or to attributed pull-request runs via `run_scope=pull_request`. Use this for 'is CI getting slower' "

@@ -14811,7 +14811,7 @@ export namespace Schemas {
       runs: number;
       /** Latest runs that completed with conclusion 'success'. */
       passing: number;
-      /** Latest runs that completed with conclusion 'failure' or 'timed_out'. */
+      /** Latest runs that ended in failure, timeout, startup failure, or staleness. */
       failing: number;
       /** Latest runs not yet completed (queued or in progress). */
       pending: number;
@@ -57569,7 +57569,7 @@ export namespace Schemas {
       /** Bucket start, aligned to success_rate_series_granularity (top of hour, midnight, or Monday). */
       bucket_start: string;
       /**
-         * Fraction (0-1) of conclusive runs started in this bucket that succeeded. Skipped, cancelled, and action_required runs are excluded. Null when the bucket had no conclusive run (a gap, not a 0% pass rate).
+         * Fraction (0-1) of conclusive runs started in this bucket that succeeded. Skipped, cancelled, neutral, and action_required runs are excluded. Null when the bucket had no conclusive run (a gap, not a 0% pass rate).
          * @nullable
          */
       success_rate: number | null;
@@ -68245,7 +68245,7 @@ export namespace Schemas {
          * @nullable
          */
       wall_seconds: number | null;
-      /** True when any latest-per-workflow run on this push concluded 'failure' or 'timed_out'. */
+      /** True when any latest-per-workflow run on this push ended in a decisive failure. */
       failed: boolean;
       /** True when any latest-per-workflow run on this push hasn't completed yet. */
       pending: boolean;
@@ -71563,7 +71563,7 @@ export namespace Schemas {
       cost_series: CostPerMergeBucket[];
       /** Median time-to-green (p50 wall clock for a PR push round to settle fully green) per bucket across the window, oldest first, bucketed by time_to_green_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
       time_to_green_series: TimeToGreenBucket[];
-      /** CI pass rate (conclusive runs that succeeded, all branches) per bucket across the window, oldest first, bucketed by success_rate_series_granularity. Skipped, cancelled, and action_required runs are excluded. Empty buckets carry null; the whole series is empty when include_series=false. */
+      /** CI pass rate (conclusive runs that succeeded, all branches) per bucket across the window, oldest first, bucketed by success_rate_series_granularity. Skipped, cancelled, neutral, and action_required runs are excluded. Empty buckets carry null; the whole series is empty when include_series=false. */
       success_rate_series: PassRateBucket[];
       /** Median time-to-merge (p50 open_to_merge_seconds, bots/drafts excluded) per bucket across the window, oldest first, bucketed by open_to_merge_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
       open_to_merge_series: OpenToMergeBucket[];
@@ -71574,7 +71574,7 @@ export namespace Schemas {
       /** Same count over the equal-length window immediately before date_from — the delta baseline. */
       run_count_prev: number;
       /**
-         * Fraction of conclusive runs that succeeded (0-1) in the window. Skipped, cancelled, and action_required runs are excluded. Null if no run reached a verdict.
+         * Fraction of conclusive runs that succeeded (0-1) in the window. Skipped, cancelled, neutral, and action_required runs are excluded. Null if no run reached a verdict.
          * @nullable
          */
       success_rate: number | null;
@@ -84010,7 +84010,7 @@ export namespace Schemas {
       completed: number;
       /** Completed runs with conclusion 'success' in this bucket. */
       successes: number;
-      /** Completed runs that failed in this bucket (conclusion 'failure' or 'timed_out'); excludes skipped, cancelled, and action_required runs. */
+      /** Completed runs with conclusion 'failure', 'timed_out', 'startup_failure', or 'stale'. Skipped, cancelled, neutral, and action_required runs are excluded. */
       failures: number;
     }
 
@@ -84025,10 +84025,10 @@ export namespace Schemas {
       run_count: number;
       /** Completed runs with conclusion 'success'. */
       successful_run_count: number;
-      /** Completed runs with conclusion 'success', 'failure', or 'timed_out'. This is the success_rate denominator. */
+      /** Completed runs that succeeded or ended in failure, timeout, startup failure, or staleness. This is the success_rate denominator. */
       conclusive_run_count: number;
       /**
-         * Fraction of conclusive runs that succeeded (0-1). Conclusive runs ended in success, failure, or timed_out; skipped, cancelled, and action_required runs are excluded. Null if no run reached a verdict.
+         * Fraction of conclusive runs that succeeded (0-1). Failures include failure, timed_out, startup_failure, and stale. Skipped, cancelled, neutral, and action_required runs are excluded. Null if no run reached a verdict.
          * @nullable
          */
       success_rate: number | null;
@@ -84043,12 +84043,12 @@ export namespace Schemas {
          */
       p95_seconds: number | null;
       /**
-         * When the most recent failing run (conclusion 'failure' or 'timed_out') started, or null.
+         * When the most recent decisive failure started, or null.
          * @nullable
          */
       last_failure_at: string | null;
       /**
-         * Whether the most recent completed run was a decisive failure (conclusion 'failure' or 'timed_out'). Null when no run has completed in the window. Powers the OK/RED status badge.
+         * Whether the most recent completed run ended in failure, timeout, startup failure, or staleness. Null when no run has completed in the window. Powers the OK/RED status badge.
          * @nullable
          */
       latest_run_failed: boolean | null;

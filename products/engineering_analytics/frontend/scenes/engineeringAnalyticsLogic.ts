@@ -113,7 +113,7 @@ export interface WorkflowHealthBucket {
     runCount: number
     completed: number
     successes: number
-    /** Decisive failures only (failure / timed_out); excludes skipped, cancelled, action_required. */
+    /** Decisive failures only; excludes skipped, cancelled, neutral, and action_required. */
     failures: number
 }
 

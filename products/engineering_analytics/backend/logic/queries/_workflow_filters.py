@@ -22,8 +22,10 @@ def merge_queue_branch_predicate(branch_sql: str) -> str:
     return f"startsWith({branch_sql}, '{MERGE_QUEUE_BRANCH_PREFIX}')"
 
 
+DECISIVE_FAILURE_CONCLUSIONS = ("failure", "timed_out", "startup_failure", "stale")
+DECISIVE_FAILURE_CONCLUSIONS_SQL = ", ".join(f"'{conclusion}'" for conclusion in DECISIVE_FAILURE_CONCLUSIONS)
 SUCCESSFUL_RUN_CONDITION = "status = 'completed' AND conclusion = 'success'"
-CONCLUSIVE_RUN_CONDITION = "status = 'completed' AND conclusion IN ('success', 'failure', 'timed_out')"
+CONCLUSIVE_RUN_CONDITION = f"status = 'completed' AND conclusion IN ('success', {DECISIVE_FAILURE_CONCLUSIONS_SQL})"
 
 # Duration percentiles use successful instances because cancelled, skipped, and failed instances
 # end early. Including them answers "how long until CI stopped", not "how long does CI take to pass".
@@ -70,7 +72,7 @@ def run_duration_percentile_expr(quantile: float) -> str:
 # later-created run. argMaxIf defaults to 0 (false) over zero matching rows, so consumers must
 # pair it with a completed-run count to tell "latest run passed" apart from "no completed run yet".
 LATEST_COMPLETED_RUN_FAILED = (
-    "argMaxIf(conclusion IN ('failure', 'timed_out'), (run_started_at, id), status = 'completed')"
+    f"argMaxIf(conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL}), (run_started_at, id), status = 'completed')"
 )
 
 

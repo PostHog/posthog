@@ -169,8 +169,8 @@ class WorkflowHealthBucketSerializer(DataclassSerializer):
             "completed": {"help_text": "Runs that completed in this bucket."},
             "successes": {"help_text": "Completed runs with conclusion 'success' in this bucket."},
             "failures": {
-                "help_text": "Completed runs that failed in this bucket (conclusion 'failure' or 'timed_out'); "
-                "excludes skipped, cancelled, and action_required runs."
+                "help_text": "Completed runs with conclusion 'failure', 'timed_out', 'startup_failure', or 'stale'. "
+                "Skipped, cancelled, neutral, and action_required runs are excluded."
             },
         }
 
@@ -188,12 +188,12 @@ class WorkflowHealthItemSerializer(DataclassSerializer):
             "run_count": {"help_text": "Total runs started in the window."},
             "successful_run_count": {"help_text": "Completed runs with conclusion 'success'."},
             "conclusive_run_count": {
-                "help_text": "Completed runs with conclusion 'success', 'failure', or 'timed_out'. This is the "
-                "success_rate denominator."
+                "help_text": "Completed runs that succeeded or ended in failure, timeout, startup failure, or staleness. "
+                "This is the success_rate denominator."
             },
             "success_rate": {
-                "help_text": "Fraction of conclusive runs that succeeded (0-1). Conclusive runs ended in "
-                "success, failure, or timed_out; skipped, cancelled, and action_required runs are excluded. "
+                "help_text": "Fraction of conclusive runs that succeeded (0-1). Failures include failure, timed_out, "
+                "startup_failure, and stale. Skipped, cancelled, neutral, and action_required runs are excluded. "
                 "Null if no run reached a verdict.",
                 "allow_null": True,
             },
@@ -209,12 +209,12 @@ class WorkflowHealthItemSerializer(DataclassSerializer):
                 "allow_null": True,
             },
             "last_failure_at": {
-                "help_text": "When the most recent failing run (conclusion 'failure' or 'timed_out') started, or null.",
+                "help_text": "When the most recent decisive failure started, or null.",
                 "allow_null": True,
             },
             "latest_run_failed": {
-                "help_text": "Whether the most recent completed run was a decisive failure (conclusion 'failure' "
-                "or 'timed_out'). Null when no run has completed in the window. Powers the OK/RED status badge.",
+                "help_text": "Whether the most recent completed run ended in failure, timeout, startup failure, or "
+                "staleness. Null when no run has completed in the window. Powers the OK/RED status badge.",
                 "allow_null": True,
             },
             "latest_run_conclusion": {
@@ -297,7 +297,7 @@ class PassRateBucketSerializer(DataclassSerializer):
             },
             "success_rate": {
                 "help_text": "Fraction (0-1) of conclusive runs started in this bucket that succeeded. "
-                "Skipped, cancelled, and action_required runs are excluded. Null when the bucket had no "
+                "Skipped, cancelled, neutral, and action_required runs are excluded. Null when the bucket had no "
                 "conclusive run (a gap, not a 0% pass rate).",
                 "allow_null": True,
             },
@@ -350,7 +350,7 @@ class RepoOverviewSerializer(DataclassSerializer):
     success_rate_series = PassRateBucketSerializer(
         many=True,
         help_text="CI pass rate (conclusive runs that succeeded, all branches) per bucket across the window, "
-        "oldest first, bucketed by success_rate_series_granularity. Skipped, cancelled, and action_required "
+        "oldest first, bucketed by success_rate_series_granularity. Skipped, cancelled, neutral, and action_required "
         "runs are excluded. Empty buckets carry null; the whole series is empty when include_series=false.",
     )
     open_to_merge_series = OpenToMergeBucketSerializer(
@@ -376,7 +376,7 @@ class RepoOverviewSerializer(DataclassSerializer):
             },
             "success_rate": {
                 "help_text": "Fraction of conclusive runs that succeeded (0-1) in the window. Skipped, cancelled, "
-                "and action_required runs are excluded. Null if no run reached a verdict.",
+                "neutral, and action_required runs are excluded. Null if no run reached a verdict.",
                 "allow_null": True,
             },
             "success_rate_prev": {

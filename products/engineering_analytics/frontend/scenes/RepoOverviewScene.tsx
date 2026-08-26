@@ -132,7 +132,7 @@ export function RepoOverviewScene(): JSX.Element {
                                 deltaUnit="pt"
                                 deltaPrecision={1}
                                 loading={overviewPending}
-                                tooltip="Share of runs that passed among runs that succeeded, failed, or timed out. Skipped, canceled, and action-required runs are excluded."
+                                tooltip="Share of successful runs among runs that succeeded, failed, timed out, failed to start, or became stale. Skipped, canceled, neutral, and action-required runs are excluded."
                                 emptyText="No CI runs reached a pass-or-fail result in the window."
                             />
 
