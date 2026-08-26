@@ -29,8 +29,8 @@ export interface paymentEntryLogicValues {
     authorizationStatus: string | null
     clientSecret: null
     isLoading: boolean
-    platformPackageUpgrade: boolean
     paymentEntryModalOpen: boolean
+    platformPackageUpgrade: boolean
     redirectPath: string | null
     stripeError: null
 }
