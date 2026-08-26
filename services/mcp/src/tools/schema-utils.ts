@@ -3,6 +3,14 @@
 // 12k tokens × 4 chars/token
 export const TOKEN_CHAR_LIMIT = 4 * 12_000
 
+// Per-field drill-down budget (2k tokens × 4 chars/token). A drilled field is
+// returned in full only under this budget; above it, the field is summarized so
+// its complex sub-parts move behind their own drill-down hints. It is far below
+// TOKEN_CHAR_LIMIT on purpose: a heavy nested union — a retention entity embeds
+// the whole property-filter union twice — fits under the whole-schema budget yet
+// still costs thousands of tokens when returned raw.
+export const FIELD_INLINE_CHAR_LIMIT = 4 * 2_000
+
 type JSONSchema = Record<string, unknown>
 
 interface SummarizedProperty {
