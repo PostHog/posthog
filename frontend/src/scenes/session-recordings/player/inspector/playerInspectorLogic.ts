@@ -33,7 +33,6 @@ import { eventToDescription } from 'lib/utils/events'
 import { createFuse } from 'lib/utils/fuseSearch'
 import { isString } from 'lib/utils/guards'
 import { humanizeBytes } from 'lib/utils/numbers'
-import { toParams } from 'lib/utils/url'
 import { getText } from 'scenes/comments/Comment'
 import {
     InspectorListItemPerformance,
@@ -972,7 +971,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         session_ids: [props.sessionRecordingId],
                     }
 
-                    const response = await api.recordings.getMatchingEvents(toParams(params))
+                    const response = await api.recordings.getMatchingEvents(params)
                     return response.results
                 },
             },

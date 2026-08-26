@@ -362,7 +362,7 @@ describe('playerInspectorLogic', () => {
             let releaseMatchingEvents: () => void = () => {}
             const gate = new Promise<void>((resolve) => (releaseMatchingEvents = resolve))
             useMocks({
-                get: {
+                post: {
                     '/api/environments/:team_id/session_recordings/matching_events': async () => {
                         await gate
                         return [200, { results: [{ uuid: 'matching-event', timestamp: '2025-01-01T00:00:10.000Z' }] }]

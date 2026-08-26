@@ -111,8 +111,7 @@ describe('SessionReplayWidget', () => {
 
         await waitFor(() => expect(getMatchingEvents).toHaveBeenCalledTimes(1))
         // The clicked session id is layered onto the query the backend supplied.
-        expect(getMatchingEvents.mock.calls[0][0]).toContain('session_ids')
-        expect(getMatchingEvents.mock.calls[0][0]).toContain('recording-1')
+        expect(getMatchingEvents.mock.calls[0][0]).toMatchObject({ session_ids: ['recording-1'] })
         expect(sessionPlayerModalLogic.values.activeSessionRecording).toEqual({
             id: 'recording-1',
             matching_events: [{ session_id: 'recording-1', events }],
