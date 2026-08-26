@@ -1041,7 +1041,7 @@ def get_cache_stats() -> dict[str, Any]:
 #
 # Transitional surface: KAFKA_ROUTING_FLAG, _evaluate_kafka_routing_flag,
 # _route_to_kafka, get_team_primary_flags_writer (and its config binding on
-# FLAGS_HYPERCACHE_MANAGEMENT_CONFIG), SHADOW_COMPARE_FLAG, _publish_shadow,
+# FLAGS_HYPERCACHE_MANAGEMENT_CONFIG), SHADOW_COMPARE_FLAG, _shadow_compare_enabled,
 # publish_shadow_invalidation, _produce_invalidation, _enqueue_invalidation,
 # and the Kafka branch inside it.
 # The signal handlers themselves stay; their tails simplify at cutover. The one
@@ -1149,8 +1149,8 @@ def _route_to_kafka(team_id: int) -> bool:
 SHADOW_COMPARE_FLAG = "flags-cache-shadow-compare"
 
 
-def _publish_shadow(team_id: int) -> bool:
-    """Return True if this Celery-owned team should also publish a shadow message.
+def _shadow_compare_enabled(team_id: int) -> bool:
+    """Return True if shadow parity comparison is enabled for this team.
 
     Every failure mode returns False, because shadow publishing is telemetry: an
     outage here must cost parity evidence and never a cache build.
@@ -1222,7 +1222,7 @@ def publish_shadow_invalidation(team_id: int) -> None:
     if routed_to_kafka is not False:
         return
 
-    if _publish_shadow(team_id):
+    if _shadow_compare_enabled(team_id):
         _produce_invalidation(team_id, shadow=True)
 
 
