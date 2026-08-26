@@ -90,6 +90,8 @@ describe('experimentsLogic', () => {
             expect(api.get).toHaveBeenCalledWith(expect.stringContaining('search=test'))
         })
 
+        // we use expectLogic for assertions
+        // eslint-disable-next-line jest/expect-expect
         it('resets filters to defaults', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setFeatureFlagModalFilters({ search: 'test' })
@@ -219,6 +221,8 @@ describe('experimentsLogic', () => {
             expect(mockReplace).toHaveBeenLastCalledWith(expect.not.stringContaining('ff_page'))
         })
 
+        // we use expectLogic for assertions
+        // eslint-disable-next-line jest/expect-expect
         it('constructs API params correctly', async () => {
             logic.actions.setFeatureFlagModalFilters({
                 search: 'test',
@@ -393,6 +397,7 @@ describe('experimentsLogic', () => {
             const copiedExperiment = createMockExperiment({ id: 999 })
             api.create.mockResolvedValue(copiedExperiment)
 
+            //@ts-expect-error
             const toastSpy = jest.spyOn(lemonToast, 'success').mockImplementation(jest.fn())
             const projectSpy = jest.spyOn(urls, 'project').mockImplementation(() => {
                 throw new Error('navigation-called')
