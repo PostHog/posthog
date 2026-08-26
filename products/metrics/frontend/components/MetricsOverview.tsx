@@ -58,7 +58,10 @@ const MetricsOverviewSkeleton = (): JSX.Element => (
             dataSource={[]}
             loading
             rowKey="service_name"
-            columns={SERVICE_COLUMN_TITLES.map((title) => ({ title }))}
+            columns={SERVICE_COLUMN_TITLES.map((title) => ({
+                title,
+                align: title === 'Metrics' || title === 'Active series' ? 'right' : undefined,
+            }))}
         />
     </div>
 )
