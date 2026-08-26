@@ -197,4 +197,3 @@ github.sha }}` and then run `hogli build:skills`, `bake-golden.sh`, and
   check), but the only fix that cannot be bypassed by editing the workflow file
   is pinning `ref: refs/heads/master` in hogplane's `github_oidc` TrustMapping
   for every cluster (see "Per-cluster prerequisites" above).
-
