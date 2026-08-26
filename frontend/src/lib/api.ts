@@ -3643,7 +3643,7 @@ const api = {
         async listForOrg(
             organizationId: OrganizationType['id'],
             params: { limit?: number; offset?: number } = {}
-        ): Promise<CountedPaginatedResponse<Pick<OrganizationMemberType, 'id' | 'user'>>> {
+        ): Promise<CountedPaginatedResponse<Pick<OrganizationMemberType, 'id' | 'user' | 'level'>>> {
             return await new ApiRequest()
                 .organizationMembersForAccount()
                 .withQueryString({ organization_id: organizationId, ...params })
