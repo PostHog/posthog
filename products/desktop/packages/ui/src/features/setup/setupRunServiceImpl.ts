@@ -23,7 +23,7 @@ import {
 import { injectable } from "inversify";
 import { captureException, track } from "../../shell/analytics";
 import { createAuthenticatedClient } from "../auth/authClientImperative";
-import { fetchAuthState } from "../auth/authQueries";
+import { getCachedAuthState } from "../auth/authQueries";
 import { FEATURE_FLAGS, type FeatureFlags } from "../feature-flags/identifiers";
 
 /**
@@ -47,7 +47,7 @@ export class SetupRunServiceImpl implements ISetupRunService {
     projectId: number | null;
     authed: boolean;
   }> {
-    const authState = await fetchAuthState();
+    const authState = getCachedAuthState();
     const apiHost = authState.cloudRegion
       ? getCloudUrlFromRegion(authState.cloudRegion)
       : null;
