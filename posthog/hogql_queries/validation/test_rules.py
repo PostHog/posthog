@@ -36,6 +36,20 @@ class TestRequireAtLeastOneSeries(BaseTest):
 
         RequireAtLeastOneSeries().validate(self._context(query))
 
+    @parameterized.expand(
+        [
+            ("empty_series", {"kind": "TrendsQuery", "series": []}),
+            ("missing_series", {"kind": "StickinessQuery"}),
+            ("null_series", {"kind": "LifecycleQuery", "series": None}),
+            ("wrapped_query", {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": []}}),
+        ]
+    )
+    def test_raises_for_invalid_serialized_query(self, _name, query):
+        with self.assertRaises(ValidationError) as context:
+            RequireAtLeastOneSeries().validate_serialized_query(query)
+
+        self.assertEqual(context.exception.get_codes(), ["insight_requires_at_least_one_series"])
+
 
 class TestDisallowUnsupportedDataWarehouseSettings(BaseTest):
     def _context(self, query: LifecycleQuery) -> QueryValidationContext:

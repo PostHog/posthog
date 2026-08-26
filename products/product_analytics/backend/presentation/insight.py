@@ -89,6 +89,7 @@ from posthog.hogql_queries.legacy_compatibility.feature_flag import get_query_me
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES, ExecutionMode, execution_mode_from_refresh
 from posthog.hogql_queries.refresh_policy import ComputeSurface, resolve_execution_mode
+from posthog.hogql_queries.validation.rules import RequireAtLeastOneSeries
 from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
 from posthog.models import Filter, User
 from posthog.models.activity_logging.activity_log import (
@@ -597,27 +598,12 @@ class InsightFilterOverrideContext(BaseModel):
 
 
 def _validate_saved_insight_query(query: dict[str, Any] | None) -> None:
-    if query is None:
-        return
-
-    source = query.get("source") if query.get("kind") == "InsightVizNode" else query
-    if not isinstance(source, dict):
-        return
-
-    query_kind = source.get("kind")
-    if query_kind not in {"TrendsQuery", "StickinessQuery", "LifecycleQuery"}:
-        return
-
-    series = source.get("series")
-    if not isinstance(series, list) or not series:
+    try:
+        RequireAtLeastOneSeries().validate_serialized_query(query)
+    except ValidationError as error:
         raise serializers.ValidationError(
-            {
-                "query": serializers.ErrorDetail(
-                    f"{query_kind.removesuffix('Query')} insights require at least one series.",
-                    code="insight_requires_at_least_one_series",
-                )
-            }
-        )
+            {"query": error.detail}
+        ) from error
 
 
 @extend_schema_serializer(deprecate_fields=["dashboards"])

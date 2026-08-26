@@ -1,3 +1,5 @@
+from typing import Any
+
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import EntityType, FunnelsQuery, LifecycleQuery, RetentionQuery, StickinessQuery, TrendsQuery
@@ -14,11 +16,28 @@ class RequireAtLeastOneSeries:
     code = "insight_requires_at_least_one_series"
 
     def validate(self, context: QueryValidationContext[TrendsQuery | StickinessQuery | LifecycleQuery]) -> None:
-        if not context.query.series:
-            raise ValidationError(
-                f"{get_query_insight_name(context.query)} require at least one series.",
-                code=self.code,
-            )
+        self.validate_query(context.query)
+
+    def validate_query(self, query: TrendsQuery | StickinessQuery | LifecycleQuery) -> None:
+        self._validate_series(get_query_insight_name(query), query.series)
+
+    def validate_serialized_query(self, query: dict[str, Any] | None) -> None:
+        if query is None:
+            return
+
+        source = query.get("source") if query.get("kind") == "InsightVizNode" else query
+        if not isinstance(source, dict):
+            return
+
+        query_kind = source.get("kind")
+        if query_kind not in {"TrendsQuery", "StickinessQuery", "LifecycleQuery"}:
+            return
+
+        self._validate_series(f"{query_kind.removesuffix('Query')} insights", source.get("series"))
+
+    def _validate_series(self, insight_name: str, series: object) -> None:
+        if not isinstance(series, list) or not series:
+            raise ValidationError(f"{insight_name} require at least one series.", code=self.code)
 
 
 class DisallowUnsupportedDataWarehouseSettings:
