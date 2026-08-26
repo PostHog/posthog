@@ -854,10 +854,12 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                 redshift_integration: (
                     type[RedshiftIntegration] | type[AWSRedshiftIntegration] | type[AWSRedshiftRoleBasedIntegration]
                 ) = AWSRedshiftRoleBasedIntegration
+            elif any(required in config for required in ("aws_access_key_id", "aws_secret_access_key")):
+                # Checked before the plain-server keys: AWS-credential configs also carry
+                # 'user' (the database user to obtain temporary credentials for).
+                redshift_integration = AWSRedshiftIntegration
             elif any(required in config for required in ("host", "port", "user", "password")):
                 redshift_integration = RedshiftIntegration
-            elif any(required in config for required in ("aws_access_key_id", "aws_secret_access_key")):
-                redshift_integration = AWSRedshiftIntegration
             else:
                 raise ValidationError("Missing required inputs")
 
