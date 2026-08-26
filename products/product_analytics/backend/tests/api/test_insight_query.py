@@ -186,6 +186,27 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             expected_status=status.HTTP_201_CREATED,
         )
 
+    @parameterized.expand(
+        [
+            ("trends", {"kind": "TrendsQuery", "series": []}),
+            ("stickiness", {"kind": "StickinessQuery", "series": []}),
+            ("lifecycle", {"kind": "LifecycleQuery", "series": []}),
+            ("missing_series", {"kind": "TrendsQuery"}),
+            ("null_series", {"kind": "TrendsQuery", "series": None}),
+            ("unknown_field", {"kind": "TrendsQuery", "series": [], "unknown": True}),
+        ]
+    )
+    def test_cannot_save_insight_query_without_series(self, _name: str, query: dict) -> None:
+        insight_count_before = Insight.objects.count()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights/", {"name": "Invalid insight", "query": query}
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "insight_requires_at_least_one_series" in str(response.json())
+        assert Insight.objects.count() == insight_count_before
+
     def test_can_list_insights_including_those_with_only_queries(self) -> None:
         self.dashboard_api.create_insight({"name": "Insight with filters"})
         self.dashboard_api.create_insight(
@@ -331,6 +352,28 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         assert stored_query["kind"] == "InsightVizNode"
         assert stored_query["source"]["kind"] == "FunnelsQuery"
 
+    def test_cannot_update_insight_to_query_without_series(self) -> None:
+        insight_id, _ = self.dashboard_api.create_insight(
+            {
+                "name": "Insight to update",
+                "query": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                },
+            }
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight_id}",
+            {"query": {"kind": "TrendsQuery", "series": []}},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert Insight.objects.get(pk=insight_id).query == {
+            "kind": "InsightVizNode",
+            "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+        }
+
     @parameterized.expand(
         [
             (
@@ -408,3 +451,13 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         error_body = str(response.json())
         assert "This query can't be saved" in error_body
         assert "Traceback" not in error_body
+
+    def test_mcp_create_rejects_query_without_series(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights/",
+            data={"name": "Invalid insight", "query": {"kind": "TrendsQuery", "series": []}},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "insight_requires_at_least_one_series" in str(response.json())

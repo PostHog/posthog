@@ -596,6 +596,30 @@ class InsightFilterOverrideContext(BaseModel):
     )
 
 
+def _validate_saved_insight_query(query: dict[str, Any] | None) -> None:
+    if query is None:
+        return
+
+    source = query.get("source") if query.get("kind") == "InsightVizNode" else query
+    if not isinstance(source, dict):
+        return
+
+    query_kind = source.get("kind")
+    if query_kind not in {"TrendsQuery", "StickinessQuery", "LifecycleQuery"}:
+        return
+
+    series = source.get("series")
+    if not isinstance(series, list) or not series:
+        raise serializers.ValidationError(
+            {
+                "query": serializers.ErrorDetail(
+                    f"{query_kind.removesuffix('Query')} insights require at least one series.",
+                    code="insight_requires_at_least_one_series",
+                )
+            }
+        )
+
+
 @extend_schema_serializer(deprecate_fields=["dashboards"])
 class InsightSerializer(InsightBasicSerializer):
     result = serializers.SerializerMethodField()
@@ -720,6 +744,7 @@ class InsightSerializer(InsightBasicSerializer):
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         query = attrs.get("query") if "query" in attrs else None
+        _validate_saved_insight_query(query)
         using_legacy_filters = "filters" in attrs and attrs.get("filters") is not None and query in (None, {})
         if using_legacy_filters and is_legacy_insight_filters_blocked(
             self.context["request"].user, self.context["get_team"]()
