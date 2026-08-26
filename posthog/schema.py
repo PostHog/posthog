@@ -5851,8 +5851,8 @@ class MarketingAnalyticsRetentionCell(BaseModel):
     complete: bool = Field(
         ...,
         description=(
-            "False when this period hasn't fully elapsed within the queried range, so a"
-            " low cell reads as unfinished rather than as churn."
+            "False when this period has not fully elapsed within the queried range, so"
+            " a low cell reads as unfinished instead of as churn."
         ),
     )
     count: int = Field(..., description="Distinct persons from this cohort active in this period.")
@@ -5868,11 +5868,7 @@ class MarketingAnalyticsRetentionRow(BaseModel):
     cohortIndex: int = Field(..., description="0-based position of this cohort from the range start.")
     cohortSize: int = Field(
         ...,
-        description=(
-            "Persons who started a cohort in this period with this breakdown value. Not"
-            " derivable from values[0]: with a conversion-goal return event, period 0"
-            " counts converters, not starters."
-        ),
+        description=("Persons acquired in this period under this breakdown value. The denominator for every cell."),
     )
     values: list[MarketingAnalyticsRetentionCell] = Field(
         ...,
@@ -12894,8 +12890,8 @@ class CachedMarketingAnalyticsRetentionQueryResponse(BaseModel):
         ...,
         description=(
             "Older cohorts dropped to bound the matrix. Non-zero means the table covers"
-            " less than the date range the filter bar shows, which the table has to say"
-            " out loud."
+            " less than the date range the filter bar shows, so the table has to"
+            " say so."
         ),
     )
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
@@ -18954,8 +18950,8 @@ class MarketingAnalyticsRetentionQueryResponse(BaseModel):
         ...,
         description=(
             "Older cohorts dropped to bound the matrix. Non-zero means the table covers"
-            " less than the date range the filter bar shows, which the table has to say"
-            " out loud."
+            " less than the date range the filter bar shows, so the table has to"
+            " say so."
         ),
     )
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
@@ -20732,8 +20728,8 @@ class QueryResponseAlternative35(BaseModel):
         ...,
         description=(
             "Older cohorts dropped to bound the matrix. Non-zero means the table covers"
-            " less than the date range the filter bar shows, which the table has to say"
-            " out loud."
+            " less than the date range the filter bar shows, so the table has to"
+            " say so."
         ),
     )
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
@@ -26847,7 +26843,7 @@ class MarketingAnalyticsRetentionQuery(BaseModel):
         default=None,
         description=(
             "Only count persons with no session before the range, so a channel's"
-            " cohorts aren't inflated by users it acquired long ago. Defaults to true."
+            " cohorts are not inflated by users it acquired long ago. Defaults to true."
         ),
     )
     properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]

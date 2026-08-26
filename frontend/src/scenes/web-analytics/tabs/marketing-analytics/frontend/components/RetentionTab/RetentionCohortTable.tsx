@@ -49,10 +49,9 @@ const cohortLabel = (isoDate: string, interval: MarketingAnalyticsRetentionInter
     }
 }
 
-// One retention table renders at a time, so a single stable key is enough. An incrementing key
-// would leave a fresh dataNodeLogic attached to the scene on every visit to the tab, since
-// useAttachedLogic only detaches when the scene unmounts. The filter bar's ReloadAll would then
-// re-run each earlier visit's stale query on top of the live one.
+// Stable, because `useAttachedLogic` only detaches when the scene unmounts. An incrementing key leaves
+// a fresh dataNodeLogic attached on every visit to the tab, and the filter bar's ReloadAll then re-runs
+// each earlier visit's stale query on top of the live one.
 const RETENTION_DATA_NODE_KEY = 'MarketingRetention'
 
 export function RetentionCohortTable({
@@ -216,12 +215,10 @@ const totalAcquired = (rows: MarketingAnalyticsRetentionRow[] | undefined): numb
     (rows ?? []).reduce((total, row) => total + row.cohortSize, 0)
 
 /**
- * The same cohorts with the breakdown collapsed away, so a channel can be read against the average
- * instead of on its own.
+ * The same cohorts with the breakdown collapsed away, so a channel can be read against the average.
  *
- * Summing is exact rather than approximate: a person has one breakdown value, so no one is counted
- * under two of the rows being merged. Rates are recomputed from the summed counts, because averaging
- * per-channel rates would weight a channel with ten people the same as one with ten thousand.
+ * Rates are recomputed from the summed counts, because averaging per-channel rates would weight a
+ * channel with ten people the same as one with ten thousand.
  */
 export function baselineRows(rows: MarketingAnalyticsRetentionRow[]): MarketingAnalyticsRetentionRow[] {
     const byCohort = new Map<number, MarketingAnalyticsRetentionRow>()

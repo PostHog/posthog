@@ -1,33 +1,13 @@
 """Retention explorer: how well the users each channel brings in stick around.
 
-The attribution table answers "which channel produces conversions". This answers the half that table
-can't: whether those users come back. A channel can lead on last-touch conversions and trail every other
-channel four weeks later, and nothing in marketing analytics surfaces that today.
+Cohorting is by acquisition, not by activity. A person is bucketed once, by the dimension of their first
+session, and then followed forward, so a row means "the users this channel brought me". A plain
+`RetentionQuery` with a session-property breakdown cannot express this, because it slices events by
+whatever channel tag each event carries and spreads one person's history across every channel that
+re-touched them.
 
-Cohorting is by acquisition, not by activity: a person is bucketed once, by the dimension of their
-**first** session, and then followed forward. That is what makes a row mean "the users this channel
-brought me", rather than "the events that happened to carry this channel's tag" — which is what a plain
-`RetentionQuery` with a session-property breakdown would give, and which mixes several channels into one
-person's history.
-
-One question, deliberately: do the users this channel brings come back? Cohorts open on arrival, the
-columns count return visits, and every cell is a share of the cohort — `retentionReference: 'total'`,
-which is the default in core retention and hardcoded on the web analytics tile, so the same percentage
-means the same thing wherever a marketer reads it.
-
-Conversion goals are not an axis here yet, and that is a decision rather than an omission. Cohorting on
-a goal, or counting conversions in the columns, makes the table a distribution of when people converted
-instead of a retention curve: the first column stops being the cohort, the columns stop being a
-shrinking group, and for a goal completed once each person lands in exactly one of them. Different chart,
-different reading rules — its own iteration, not a dropdown on this one.
-
-Two things this deliberately does that core retention does not:
-
-1. `onlyNewUsers` excludes anyone who was already here before the range. Without it, a channel's cohorts
-   are inflated by its own returning traffic, and every channel's week 0 looks larger than its true
-   intake.
-2. The breakdown value goes through the team's source and campaign normalization (see
-   `session_breakdown_base`), so a channel row here keys the same way it does on the cost side.
+Every cell is a share of the cohort, matching `retentionReference: 'total'` in core retention and on the
+web analytics tile, so the same percentage means the same thing on every surface.
 """
 
 from datetime import datetime, timedelta
@@ -55,27 +35,25 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange, date_to
 
 from .session_breakdown_base import MarketingSessionBreakdownQueryRunnerBase
 
-# Weekly by default. A daily grain over a 90-day range is 90 cohort rows per breakdown value before
-# anyone has misconfigured anything, and marketing questions are asked in weeks anyway.
+# Weekly by default, because a daily grain over a 90-day range is 90 cohort rows per breakdown value.
 DEFAULT_INTERVAL = MarketingAnalyticsRetentionInterval.WEEK
 DEFAULT_TOTAL_INTERVALS = 8
 DEFAULT_BREAKDOWN_LIMIT = 20
 DEFAULT_NEW_USER_LOOKBACK_DAYS = 90
 
-# Clamped rather than rejected: these come from a query the frontend builds, so an out-of-range value is
-# a bug to contain, not a message to show a marketer. The ceilings bound the matrix at
-# MAX_COHORTS x MAX_TOTAL_INTERVALS cells per breakdown value.
+# Out-of-range options are clamped rather than rejected, because the frontend builds the query, so a bad
+# value is a bug to contain instead of a message to show a marketer.
+#
+# The three ceilings must multiply out under `MAX_SELECT_RETENTION_LIMIT`, since the outer select emits
+# one row per cell plus the folded row: (40 + 1) x 60 x 40 + 1 is under 100k. Raise one without checking
+# that product and the printer's row cap drops whole breakdown values off the end of the alphabet, which
+# is what folding exists to prevent.
 MAX_TOTAL_INTERVALS = 40
 MAX_COHORTS = 60
-# Chosen so the widest matrix still fits under `MAX_SELECT_RETENTION_LIMIT`: the outer select emits one
-# row per cell plus the folded row, and 41 x 60 x 40 + 1 is under 100k. Raising any of these three
-# without checking that product would put the printer's row cap back in play, and the rows it drops are
-# whole breakdown values off the end of the alphabet — exactly what folding exists to prevent.
 MAX_BREAKDOWN_LIMIT = 40
 MAX_NEW_USER_LOOKBACK_DAYS = 365
 
-# Label the long tail of breakdown values roll up under, shared with core retention so the two surfaces
-# print the same thing.
+# Shared with core retention so both surfaces print the same label for the folded tail.
 _OTHER = BREAKDOWN_OTHER_STRING_LABEL
 
 _INTERVAL_TO_TYPE: dict[MarketingAnalyticsRetentionInterval, IntervalType] = {
@@ -104,8 +82,8 @@ _SUMMARY_CTE = "summary"
 _ACTOR_ID = "actor_id"
 _BREAKDOWN_VALUE = "breakdown_value"
 _FIRST_SESSION_AT = "first_session_at"
-# What decides a person's row. The first session under an arrival start, their first conversion under a
-# goal start — kept separate from `first_session_at`, which always means the session the breakdown reads.
+# What decides a person's cohort row. Named apart from `first_session_at`, which always means the session
+# the breakdown value is read off.
 _COHORT_AT = "cohort_at"
 _ACTIVITY_INDEX = "activity_index"
 _COHORT_INDEX = "cohort_index"
@@ -124,8 +102,8 @@ class MarketingAnalyticsRetentionQueryRunner(
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        # A cohorts x columns matrix per breakdown value blows past the default row cap long before the
-        # result is unreasonable, so escalate the same way `RetentionQueryRunner` does.
+        # A cohorts x columns matrix per breakdown value passes the default row cap long before the result
+        # is unreasonable, so escalate the same way `RetentionQueryRunner` does.
         if self.limit_context in (LimitContext.QUERY, LimitContext.QUERY_ASYNC):
             self.limit_context = LimitContext.RETENTION
 
@@ -151,8 +129,8 @@ class MarketingAnalyticsRetentionQueryRunner(
 
     @cached_property
     def query_date_range(self) -> QueryDateRange:
-        """Overrides the base runner's interval-less range: every expression here buckets by period, and
-        the cohort rows are one per period, so the range has to know which interval it is counting in."""
+        """Overrides the base runner's interval-less range, because every expression here buckets by
+        period, so the range has to know which interval it counts in."""
         return QueryDateRange(
             date_range=self.query.dateRange,
             team=self.team,
@@ -164,10 +142,10 @@ class MarketingAnalyticsRetentionQueryRunner(
     def _period_count(self) -> int:
         """Aligned periods the requested range spans, before the cohort clamp.
 
-        Computed arithmetically rather than by enumerating the range, because `dateRange` is
-        caller-controlled: a daily grain over years 0001-9999 would materialize millions of datetimes
-        just to slice off the last MAX_COHORTS. Zero or negative when the range is inverted, which
-        `cohort_starts` floors at one.
+        Computed arithmetically instead of by enumerating the range, because `dateRange` is
+        caller-controlled: a daily grain over years 0001-9999 would materialize millions of datetimes to
+        slice off the last MAX_COHORTS. Zero or negative on an inverted range, which `cohort_starts`
+        floors at one.
         """
         start = self._aligned(self.query_date_range.date_from())
         end = self._aligned(self.query_date_range.date_to())
@@ -190,9 +168,9 @@ class MarketingAnalyticsRetentionQueryRunner(
         Truncated to the most recent MAX_COHORTS, because an old cohort with few columns left to show is
         the least interesting part of a range someone widened by accident.
 
-        Always at least one entry. An inverted range spans no periods, and every expression below reads
-        `cohort_starts[0]` as the window's anchor, so an empty list would fail the query on an index
-        error rather than return the empty table the range actually describes.
+        Always at least one entry. An inverted range spans no periods, and every expression below anchors
+        on `cohort_starts[0]`, so an empty list would fail the query on an index error instead of
+        returning the empty table the range describes.
         """
         kept = max(1, min(self._period_count, MAX_COHORTS))
         end = self._aligned(self.query_date_range.date_to())
@@ -201,14 +179,14 @@ class MarketingAnalyticsRetentionQueryRunner(
 
     @property
     def truncated_cohorts(self) -> int:
-        """Older cohorts the clamp dropped. Reported, because the clamp also pulls the whole scan's
-        lower bound forward — the table then covers less than the date range the filter bar shows."""
+        """Older cohorts the clamp dropped. Reported because the clamp also pulls the scan's lower bound
+        forward, so the table then covers less than the date range the filter bar shows."""
         return max(self._period_count - len(self.cohort_starts), 0)
 
     @property
     def interval_count(self) -> int:
-        """Column count. Never more than the number of cohorts, since a wider matrix would be all
-        greyed-out cells the range can't fill."""
+        """Column count, never more than the number of cohorts, because a wider matrix would be all
+        greyed-out cells the range cannot fill."""
         requested = self.query.totalIntervals or DEFAULT_TOTAL_INTERVALS
         clamped = max(1, min(requested, MAX_TOTAL_INTERVALS))
         return min(clamped, len(self.cohort_starts))
@@ -218,8 +196,8 @@ class MarketingAnalyticsRetentionQueryRunner(
     def _interval_index_expr(self, source: ast.Expr) -> ast.Expr:
         """How many periods `source` sits after the first cohort's start.
 
-        Both ends go through `get_start_of_interval_hogql`, which is what core retention uses, so a
-        team whose week starts on Sunday gets the same week boundaries on both surfaces.
+        Both ends go through `get_start_of_interval_hogql`, the same helper core retention uses, so a team
+        whose week starts on Sunday gets the same week boundaries on both surfaces.
         """
         interval = _INTERVAL_TO_TYPE[self.retention_interval].value
         return ast.Call(
@@ -258,8 +236,7 @@ class MarketingAnalyticsRetentionQueryRunner(
         ]
 
     def _event_filters(self) -> list[ast.Expr]:
-        """The query's own property filters plus the team's test-account filters, applied to every arm
-        so the cohort side and the activity side select the same population."""
+        """Applied to every arm, so the cohort side and the activity side select the same population."""
         exprs: list[ast.Expr] = []
         if self.query.properties:
             exprs.append(property_to_expr(self.query.properties, self.team))
@@ -272,14 +249,12 @@ class MarketingAnalyticsRetentionQueryRunner(
     def _build_pre_existing_select(self) -> ast.SelectQuery:
         """(A) Persons who were already here before the range started.
 
-        Deliberately a bare pageview rather than `_touchpoint_condition()`: "has this person been here
-        before" must not depend on `excludeDirectTraffic`, or excluding direct would make every
-        direct-acquired returning visitor look brand new and inflate the paid channels' cohorts.
+        A bare pageview instead of `_touchpoint_condition()`, because "has this person been here before"
+        must not depend on `excludeDirectTraffic`. Otherwise excluding direct makes every direct-acquired
+        returning visitor look brand new and inflates the paid channels' cohorts.
 
-        `_event_filters()` is applied, though, and that is the deliberate other half: a property filter
-        narrows the whole question to a segment, so "new" means new to that segment. Dropping it here
-        would let someone who has been around for a year outside the filter count as newly acquired
-        inside it — the reverse of what the switch is for.
+        `_event_filters()` is applied, though, because a property filter narrows the whole question to a
+        segment, so "new" has to mean new to that segment.
         """
         return ast.SelectQuery(
             select=[ast.Field(chain=["events", "person_id"])],
@@ -313,14 +288,13 @@ class MarketingAnalyticsRetentionQueryRunner(
     def _build_first_session_select(self) -> ast.SelectQuery:
         """(B) One row per acquired person: when they first arrived, and what brought them.
 
-        `argMin` over the session start is the whole first-touch semantic. Note it is deliberately not
-        the attribution runners' person-array collection, which is scoped to converters and keeps the
-        *most recent* sessions after truncation — both wrong ends for this question.
+        `argMin` over the session start carries the first-touch semantic. Not the attribution runners'
+        person-array collection, which is scoped to converters and keeps the most recent sessions after
+        truncation.
 
         Both timestamp bounds are needed. The `events.timestamp` pair prunes parts on the table's order
-        key; the `session.$start_timestamp` pair is what actually defines "acquired in this window", and
-        without it a person's first session could sit before the range while one of its later pageviews
-        pulls them in.
+        key. The `session.$start_timestamp` pair is what defines "acquired in this window": without it a
+        person whose first session sits before the range gets pulled in by a later pageview.
         """
         session_start = ast.Field(chain=["events", "session", "$start_timestamp"])
 
@@ -356,8 +330,7 @@ class MarketingAnalyticsRetentionQueryRunner(
     def _build_acquisition_select(self) -> ast.SelectQuery:
         """(C) One row per person in the table: the period they arrived in, and under which value.
 
-        The first session relabelled: arriving *is* the acquisition, so the period a person belongs to
-        and the value they are credited to both come from it.
+        The first session relabelled, because arriving is the acquisition.
         """
         first_session = self._build_first_session_select()
         for column in first_session.select:
@@ -366,14 +339,14 @@ class MarketingAnalyticsRetentionQueryRunner(
         return first_session
 
     def _build_activity_select(self) -> ast.SelectQuery:
-        """(C) One row per person per period they came back in.
+        """(D) One row per person per period they came back in.
 
-        Collapsed to (person, period) here rather than at the join, so the join below fans out by
-        periods a person was active in rather than by their every event.
+        Collapsed to (person, period) here instead of at the join, so the join below fans out by periods
+        a person was active in rather than by their every event.
 
         Restricted to the acquired persons, which the matrix join would discard anyway. It matters
-        because this is the join's build side: without the restriction it is every active person in the
-        range, and under `onlyNewUsers` the cohort can be a small fraction of that.
+        because this is the join's build side: without the restriction it holds every active person in
+        the range, and under `onlyNewUsers` the cohort can be a small fraction of that.
         """
         return ast.SelectQuery(
             select=[
@@ -403,10 +376,10 @@ class MarketingAnalyticsRetentionQueryRunner(
         )
 
     def _build_cohort_sizes_select(self) -> ast.SelectQuery:
-        """(D) How many people each channel brought in, per acquisition period.
+        """(E) How many people each channel brought in, per acquisition period.
 
-        Also the period-0 cell of every row, which the matrix no longer emits: the cohort is exactly the
-        people who did the starting event, so its own size is what that column counts.
+        Also the period-0 cell of every row, because the cohort is exactly the people who arrived, so its
+        own size is what that column counts.
         """
         return ast.SelectQuery(
             select=[
@@ -422,7 +395,7 @@ class MarketingAnalyticsRetentionQueryRunner(
         )
 
     def _build_matrix_select(self) -> ast.SelectQuery:
-        """(E) The cells: people from one cohort seen again N periods later."""
+        """(F) The cells: people from one cohort seen again N periods later."""
         cohort_index = self._interval_index_expr(ast.Field(chain=[_ACQUISITION_CTE, _COHORT_AT]))
         intervals_from_base = ast.ArithmeticOperation(
             left=ast.Field(chain=[_ACTIVITY_CTE, _ACTIVITY_INDEX]),
@@ -477,11 +450,10 @@ class MarketingAnalyticsRetentionQueryRunner(
         )
 
     def _build_top_breakdowns_select(self) -> ast.SelectQuery:
-        """(F) The breakdown values big enough to get their own rows.
+        """(G) The breakdown values big enough to get their own rows.
 
-        Ranked by people acquired across the whole range, not by any single cell. Ranking on period 0 —
-        the obvious alternative — breaks under a conversion-goal return event, where a channel with a
-        large intake can legitimately have near-zero conversions in the acquisition period itself.
+        Ranked by people acquired across the whole range, so a channel that acquires steadily outranks
+        one with a single large period.
         """
         return ast.SelectQuery(
             select=[ast.Field(chain=[_BREAKDOWN_VALUE])],
@@ -498,10 +470,9 @@ class MarketingAnalyticsRetentionQueryRunner(
     def _display_value_expr(self, field: ast.Expr) -> ast.Expr:
         """The label a breakdown value renders under: itself, or 'Other'.
 
-        Folding happens here, in SQL, rather than over whatever rows a row cap happened to return. A
-        high-cardinality breakdown — landing page especially — produces far more rows than any cap would
-        keep, and truncating them by the outer ORDER BY drops whole values alphabetically: they would be
-        neither shown nor counted as folded.
+        Folded in SQL rather than over whatever rows a row cap returned. A high-cardinality breakdown
+        such as landing page produces far more rows than any cap keeps, and truncating them by the outer
+        ORDER BY drops whole values alphabetically, so they are neither shown nor counted as folded.
         """
         return ast.Call(
             name="if",
@@ -515,7 +486,7 @@ class MarketingAnalyticsRetentionQueryRunner(
         )
 
     def _build_folded_sizes_select(self) -> ast.SelectQuery:
-        """(G) Cohort sizes after folding. Summed, because several values can share the 'Other' label."""
+        """(H) Cohort sizes after folding. Summed, because several values can share the 'Other' label."""
         return ast.SelectQuery(
             select=[
                 ast.Alias(alias=_BREAKDOWN_VALUE, expr=self._display_value_expr(ast.Field(chain=[_BREAKDOWN_VALUE]))),
@@ -527,10 +498,10 @@ class MarketingAnalyticsRetentionQueryRunner(
         )
 
     def _build_folded_matrix_select(self) -> ast.SelectQuery:
-        """(H) Cells after folding.
+        """(I) Cells after folding.
 
-        Summing counts across folded values is exact rather than approximate: a person has one
-        acquisition breakdown value, so no one can be counted under two of the values being merged.
+        Summing counts across folded values is exact, because a person has one acquisition breakdown
+        value, so no one is counted under two of the values being merged.
         """
         return ast.SelectQuery(
             select=[
@@ -548,10 +519,10 @@ class MarketingAnalyticsRetentionQueryRunner(
         )
 
     def _build_summary_select(self) -> ast.SelectQuery:
-        """(I) One row saying how many breakdown values existed before folding.
+        """(J) One row saying how many breakdown values existed before folding.
 
         Its own CTE rather than a SELECT-list scalar, which would be evaluated per output row and would
-        report nothing at all when there are no rows to attach it to.
+        report nothing when there are no rows to attach it to.
         """
         return ast.SelectQuery(
             select=[
@@ -564,11 +535,11 @@ class MarketingAnalyticsRetentionQueryRunner(
         )
 
     def _build_outer_select(self) -> ast.SelectQuery:
-        """(J) Cohort sizes with their cells attached.
+        """(K) Cohort sizes with their cells attached.
 
-        LEFT from the sizes, so a cohort nobody came back to still emits one row carrying its size —
-        otherwise a channel with terrible retention would simply vanish from the table, which reads as
-        "no data" rather than as the finding it is.
+        LEFT from the sizes, so a cohort nobody came back to still emits one row carrying its size.
+        Otherwise a channel with terrible retention vanishes from the table, which reads as "no data"
+        instead of as the finding it is.
         """
         return ast.SelectQuery(
             select=[
@@ -612,8 +583,8 @@ class MarketingAnalyticsRetentionQueryRunner(
                 ast.OrderExpr(expr=ast.Field(chain=[_COHORT_INDEX]), order="ASC"),
                 ast.OrderExpr(expr=ast.Field(chain=[_INTERVALS_FROM_BASE]), order="ASC"),
             ],
-            # Folding caps the rows at (breakdown_limit + 1) x cohorts x columns, so this can only bite
-            # if one of those clamps is raised without the other. A pure backstop, never a truncation.
+            # Folding caps the rows at (breakdown_limit + 1) x cohorts x columns, so this is a backstop
+            # that only bites if one of those clamps is raised without the others.
             limit=ast.Constant(value=(self.breakdown_limit + 1) * len(self.cohort_starts) * self.interval_count + 1),
         )
 
@@ -623,7 +594,7 @@ class MarketingAnalyticsRetentionQueryRunner(
         ctes: dict[str, ast.CTE] = {}
 
         # Materialized because both `cohort_sizes` and `matrix` read it, and ClickHouse re-evaluates an
-        # unmaterialized CTE at each reference — the events scan underneath would run twice.
+        # unmaterialized CTE at each reference, so the events scan underneath would run twice.
         with self.timings.measure("retention_acquisition_cte"):
             ctes[_ACQUISITION_CTE] = ast.CTE(
                 name=_ACQUISITION_CTE,
@@ -633,7 +604,7 @@ class MarketingAnalyticsRetentionQueryRunner(
             )
         with self.timings.measure("retention_activity_cte"):
             ctes[_ACTIVITY_CTE] = ast.CTE(name=_ACTIVITY_CTE, expr=self._build_activity_select(), cte_type="subquery")
-        # Materialized for the same reason: four references read it — `summary`, `folded_sizes`, and the
+        # Materialized for the same reason. Four references read it: `summary`, `folded_sizes`, and the
         # `top_breakdowns` subquery that both folding CTEs inline.
         ctes[_COHORT_SIZES_CTE] = ast.CTE(
             name=_COHORT_SIZES_CTE,
@@ -671,11 +642,11 @@ class MarketingAnalyticsRetentionQueryRunner(
             settings=HogQLGlobalSettings(max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY),
         )
 
-        # Mapped by column name, not tuple position, so adding a column can't shift every later one.
+        # Mapped by column name, not tuple position, so adding a column cannot shift every later one.
         columns = response.columns or []
         named_results = [dict(zip(columns, row)) for row in response.results or []]
 
-        # Every row carries the same pre-folding breakdown count, so read it off the first one.
+        # The CROSS JOIN puts the same pre-folding count on every row, so read it off the first one.
         distinct_breakdowns = int(named_results[0].get(_DISTINCT_BREAKDOWNS) or 0) if named_results else 0
         rows = self._build_rows(named_results)
 
@@ -695,21 +666,15 @@ class MarketingAnalyticsRetentionQueryRunner(
     def _build_rows(self, rows: list[dict[str, Any]]) -> list[MarketingAnalyticsRetentionRow]:
         """Collapse the flat cell list into one dense row per (breakdown value, cohort).
 
-        Period 0 is filled from the cohort size rather than from a cell, because it is not a
-        measurement: the cohort is the people who did the starting event, so the column is 100% of
-        itself. Every column after it is measured against the one before, which is what makes a row read
-        as period-over-period churn instead of as a share of an increasingly distant cohort.
-
-        Dense on purpose: every row gets exactly `interval_count` cells, zero-filled, so the table never
-        has to check whether a column exists before rendering it. The zero-fill is also what keeps the
-        step rates honest — a period nobody reached is a real zero, and the column after it goes null.
+        Every row gets exactly `interval_count` cells, zero-filled, so the table never has to check
+        whether a column exists before rendering it.
         """
         cohort_starts = self.cohort_starts
         step = self.query_date_range.interval_relativedelta()
-        # `date_to()` is the last instant of the range rather than its exclusive end, so an interval
-        # ending exactly there would otherwise read as unfinished — greying out the final column of every
-        # fully historical range. On an open-ended range `date_to()` is the end of today, which is in the
-        # future, so the wall clock is what bounds a period that is still being lived through.
+        # Two bounds, because either one alone is wrong. `date_to()` is the last instant of the range, so
+        # an interval ending exactly there reads as unfinished and greys out the final column of every
+        # historical range. On an open-ended range `date_to()` is the end of today, which is in the
+        # future, so only the wall clock closes a period still being lived through.
         range_end = min(
             self.query_date_range.date_to() + timedelta(microseconds=1),
             self.query_date_range.now_with_timezone,
@@ -720,8 +685,8 @@ class MarketingAnalyticsRetentionQueryRunner(
         for row in rows:
             cohort_index = int(row.get(_COHORT_INDEX) or 0)
             if not 0 <= cohort_index < len(cohort_starts):
-                # Defensive: `cohort_index` is derived from a session start the WHERE clause already
-                # bounds to the cohort window, so this should be unreachable. It guards a list index.
+                # Unreachable: the WHERE clause already bounds the session start to the cohort window.
+                # Guards the `cohort_starts` index below.
                 continue
             key = (str(row.get(_BREAKDOWN_VALUE) or ""), cohort_index)
             # Folded in SQL already, so the size repeats identically across a cohort's cells.
@@ -738,9 +703,8 @@ class MarketingAnalyticsRetentionQueryRunner(
             for offset in range(self.interval_count):
                 count = bucket.get(offset, 0)
                 absolute = cohort_index + offset
-                # Complete once the period it covers has fully elapsed inside the queried range. Without
-                # this the newest cohorts show a real-looking 0%, which reads as churn rather than as a
-                # week that hasn't happened yet.
+                # Without this the newest cohorts show a real-looking 0%, which reads as churn instead of
+                # as a period that has not happened yet.
                 complete = absolute < len(cohort_starts) and cohort_starts[absolute] + step <= range_end
                 values.append(
                     MarketingAnalyticsRetentionCell(
@@ -761,9 +725,6 @@ class MarketingAnalyticsRetentionQueryRunner(
         return results
 
     def _build_main_select_query(self, conversion_aggregator: Any) -> ast.SelectQuery:
-        """Not part of this runner's shape.
-
-        The base hook exists to slot a SELECT into its ad-cost-joined table query; this runner overrides
-        `to_query` wholesale and builds its own CTE chain, so there is nothing to hook.
-        """
+        """The base hook slots a SELECT into its ad-cost-joined table query. This runner overrides
+        `to_query` and builds its own CTE chain, so there is nothing to hook."""
         raise NotImplementedError(f"{type(self).__name__} builds its query in to_query")

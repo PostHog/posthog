@@ -7223,8 +7223,8 @@ export type CachedMarketingAnalyticsAttributionPathsQueryResponse =
     CachedQueryResponse<MarketingAnalyticsAttributionPathsQueryResponse>
 
 /**
- * Cohort and column period for the Retention explorer. Deliberately narrower than IntervalType: hour and
- * minute grains would produce a matrix nobody can read and a scan nobody wants to pay for.
+ * Cohort and column period for the Retention explorer. Narrower than IntervalType, because hour and
+ * minute grains produce a matrix nobody can read.
  */
 export enum MarketingAnalyticsRetentionInterval {
     Day = 'day',
@@ -7233,10 +7233,9 @@ export enum MarketingAnalyticsRetentionInterval {
 }
 
 /**
- * `interval` is omitted because `retentionInterval` shadows it, and the sampling and path-cleaning
- * fields because this runner ignores them — leaving them settable would let a caller ask for something
- * that silently does nothing. `conversionGoal` goes too: this table counts return visits, not
- * conversions.
+ * The omitted fields are ones this runner ignores, so leaving them settable would let a caller ask for
+ * something that does nothing. `interval` goes because `retentionInterval` shadows it, and
+ * `conversionGoal` because this table counts return visits rather than conversions.
  */
 export interface MarketingAnalyticsRetentionQuery extends Omit<
     WebAnalyticsQueryBase<MarketingAnalyticsRetentionQueryResponse>,
@@ -7254,7 +7253,7 @@ export interface MarketingAnalyticsRetentionQuery extends Omit<
     /** Drop persons whose first session names nothing for the current breakdown. */
     excludeUnattributed?: boolean
     /**
-     * Only count persons with no session before the range, so a channel's cohorts aren't inflated by
+     * Only count persons with no session before the range, so a channel's cohorts are not inflated by
      * users it acquired long ago. Defaults to true.
      */
     onlyNewUsers?: boolean
@@ -7271,8 +7270,8 @@ export interface MarketingAnalyticsRetentionCell {
     /** count / cohortSize. Null when the cohort is empty. */
     rate: number | null
     /**
-     * False when this period hasn't fully elapsed within the queried range, so a low cell reads as
-     * unfinished rather than as churn.
+     * False when this period has not fully elapsed within the queried range, so a low cell reads as
+     * unfinished instead of as churn.
      */
     complete: boolean
 }
@@ -7283,10 +7282,7 @@ export interface MarketingAnalyticsRetentionRow {
     cohortDate: string
     /** 0-based position of this cohort from the range start. */
     cohortIndex: integer
-    /**
-     * Persons who started a cohort in this period with this breakdown value. Not derivable from
-     * values[0]: with a conversion-goal return event, period 0 counts converters, not starters.
-     */
+    /** Persons acquired in this period under this breakdown value. The denominator for every cell. */
     cohortSize: integer
     /** One per column, index = periods since the cohort started. Always intervalCount long. */
     values: MarketingAnalyticsRetentionCell[]
@@ -7303,7 +7299,7 @@ export interface MarketingAnalyticsRetentionQueryResponse extends AnalyticsQuery
     otherBreakdownCount: integer
     /**
      * Older cohorts dropped to bound the matrix. Non-zero means the table covers less than the date
-     * range the filter bar shows, which the table has to say out loud.
+     * range the filter bar shows, so the table has to say so.
      */
     truncatedCohorts: integer
     /** Distinct persons acquired across every cohort and breakdown value. */
