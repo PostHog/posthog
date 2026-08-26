@@ -507,11 +507,41 @@ class TestGarageDrives:
             """
         )
         imports = crossings._read_imports(source.encode(), "posthog.test")
-        constructors = crossings._kind_constructors(imports, KINDS)
-        assert constructors == {"Query": "PathsQuery"}
-        drives = crossings.kind_drives(ast.parse(source), KINDS, constructors)
+        names = crossings._kind_names(imports, KINDS)
+        assert names.constructors == {"Query": "PathsQuery"}
+        drives = crossings.kind_drives(ast.parse(source), KINDS, names)
         assert {(d.product, d.kind): n for d, n in drives.items()} == {("product_analytics", "PathsQuery"): 1}
         assert crossings._KindHint.for_kinds(KINDS).matches(source.encode())
+
+    def test_aliased_enum_counts_by_its_kind(self) -> None:
+        source = textwrap.dedent(
+            """
+            from posthog.schema import NodeKind as Kind
+
+            def test_paths(team):
+                process_query_dict(team, {"kind": Kind.PATHS_QUERY})
+            """
+        )
+        imports = crossings._read_imports(source.encode(), "posthog.test")
+        names = crossings._kind_names(imports, KINDS)
+        assert names.enum_bases == frozenset({"Kind", "NodeKind"})
+        drives = crossings.kind_drives(ast.parse(source), KINDS, names)
+        assert {(d.product, d.kind): n for d, n in drives.items()} == {("product_analytics", "PathsQuery"): 1}
+        assert crossings._KindHint.for_kinds(KINDS).matches(source.encode())
+
+    def test_member_off_an_unrelated_base_is_not_a_kind(self) -> None:
+        source = textwrap.dedent(
+            """
+            from elsewhere import Other as Kind
+
+            def test_paths(team):
+                process_query_dict(team, {"kind": Kind.PATHS_QUERY})
+            """
+        )
+        imports = crossings._read_imports(source.encode(), "posthog.test")
+        names = crossings._kind_names(imports, KINDS)
+        assert names.enum_bases == frozenset({"NodeKind"})
+        assert crossings.kind_drives(ast.parse(source), KINDS, names) == {}
 
     def test_module_object_imports_count_as_drives(self) -> None:
         source = textwrap.dedent(

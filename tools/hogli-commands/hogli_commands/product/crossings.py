@@ -834,9 +834,7 @@ def _is_test_client_call(node: ast.Call) -> bool:
     return receiver is not None and receiver.endswith("client")
 
 
-def _kind_mentions(
-    tree: ast.Module, kinds: _QueryKinds, constructors: Mapping[str, str] | None = None
-) -> list[tuple[ast.AST, str]]:
+def _kind_mentions(tree: ast.Module, kinds: _QueryKinds, names: _KindNames | None = None) -> list[tuple[ast.AST, str]]:
     """Nodes that name a product query kind: a `"X"` or `NodeKind.X` value, or the schema
     constructor `X(...)`.
 
@@ -848,15 +846,15 @@ def _kind_mentions(
     A HogQL string that embeds a query in tag syntax (`<StickinessQuery ... />`) names the kind
     too; every tag in the string counts once.
 
-    `constructors` maps the local names the module binds to schema classes (`from posthog.schema
-    import PathsQuery as Query`) back to their kinds; without it, a constructor counts by its own
-    name only."""
-    by_local = {kind: kind for kind in kinds.products} | dict(constructors or {})
+    `names` maps the local names the module binds back to their kinds; without it, a constructor
+    counts by its own name only and the enum counts only as `NodeKind`."""
+    names = names or _KIND_NAMES_UNIMPORTED
+    by_local = {kind: kind for kind in kinds.products} | dict(names.constructors)
     tag = re.compile(r"<(" + "|".join(sorted(re.escape(k) for k in kinds.products)) + r")\b") if kinds else None
     found: list[tuple[ast.AST, str]] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Constant | ast.Attribute):
-            kind = _kind_of(node, kinds)
+            kind = _kind_of(node, kinds, names.enum_bases)
             if kind is not None:
                 found.append((node, kind))
             elif tag is not None and isinstance(node, ast.Constant) and isinstance(node.value, str):
@@ -868,15 +866,33 @@ def _kind_mentions(
     return found
 
 
-def _kind_constructors(imports: _ImportTable, kinds: _QueryKinds) -> dict[str, str]:
-    """Local name -> kind, for every schema class the module imports under any name."""
-    return {edge.bound: edge.exported for edge in imports.edges if edge.exported in kinds.products}
+@dataclass(frozen=True)
+class _KindNames:
+    """The local names one module binds to a query kind: schema constructors, and `NodeKind` itself.
+
+    Either import can carry an alias (`from posthog.schema import PathsQuery as Query`, `NodeKind as
+    Kind`), and both spellings reach the dispatcher unchanged, so both must resolve back to a kind."""
+
+    constructors: Mapping[str, str]  # local name -> kind
+    enum_bases: frozenset[str]  # local names bound to `NodeKind`
 
 
-def _kind_of(value: ast.expr, kinds: _QueryKinds) -> str | None:
+# A module that reads the enum off a package path (`schema.NodeKind.PATHS_QUERY`) binds no name for
+# it, so the unaliased spelling stays a base on its own.
+_KIND_NAMES_UNIMPORTED = _KindNames({}, frozenset({"NodeKind"}))
+
+
+def _kind_names(imports: _ImportTable, kinds: _QueryKinds) -> _KindNames:
+    """The kind-bearing names a module binds, under whatever local name it imports them."""
+    constructors = {edge.bound: edge.exported for edge in imports.edges if edge.exported in kinds.products}
+    aliases = {edge.bound for edge in imports.edges if edge.exported == "NodeKind"}
+    return _KindNames(constructors, frozenset(aliases) | _KIND_NAMES_UNIMPORTED.enum_bases)
+
+
+def _kind_of(value: ast.expr, kinds: _QueryKinds, enum_bases: frozenset[str]) -> str | None:
     if isinstance(value, ast.Constant) and value.value in kinds.products:
         return str(value.value)
-    if isinstance(value, ast.Attribute) and isinstance(value.value, ast.Name) and value.value.id == "NodeKind":
+    if isinstance(value, ast.Attribute) and isinstance(value.value, ast.Name) and value.value.id in enum_bases:
         return kinds.members.get(value.attr)
     return None
 
@@ -970,9 +986,7 @@ class _Executions:
         return False
 
 
-def kind_drives(
-    tree: ast.Module, kinds: _QueryKinds, constructors: Mapping[str, str] | None = None
-) -> Counter[_KindDrive]:
+def kind_drives(tree: ast.Module, kinds: _QueryKinds, names: _KindNames | None = None) -> Counter[_KindDrive]:
     """Drive -> mentions, for every kind this module both builds and executes.
 
     Building alone is not a drive: a test that checks a schema or a formatter constructs the query
@@ -980,7 +994,7 @@ def kind_drives(
     a test function counts when that function executes (itself or through a helper it calls); a
     kind built elsewhere, a `setUp` fixture or a class attribute, counts when any function of the
     enclosing class (or of the module, outside a class) executes."""
-    mentions = _kind_mentions(tree, kinds, constructors)
+    mentions = _kind_mentions(tree, kinds, names)
     if not mentions:
         return Counter()
     parents = _parent_map(tree)
@@ -1051,26 +1065,44 @@ class _KindHint:
     kind inside a longer string (a URL segment) is never parsed.
 
     The alternation over every kind is slow at each position of a large file; the longest common
-    suffix of the kinds ("Query" today) gates it with one substring search, and `NodeKind.` gates
-    the enum form."""
+    suffix of each spelling gates it with one substring search ("Query" for the kinds today,
+    "_QUERY" for the enum members).
+
+    The enum clause matches a member off any base name rather than off `NodeKind` alone, because a
+    test can import the enum under an alias. That admits an unrelated `Other.PATHS_QUERY`, which
+    costs one parse; `_kind_of` resolves the base against the file's imports and refuses it."""
 
     gate: bytes
+    member_gate: bytes
     pattern: re.Pattern[bytes]
+
+    @staticmethod
+    def _common_suffix(names: Iterable[str]) -> bytes:
+        return os.path.commonprefix([name[::-1] for name in names])[::-1].encode()
 
     @classmethod
     def for_kinds(cls, kinds: _QueryKinds) -> _KindHint:
         names = sorted(kinds.products)
-        reversed_common = os.path.commonprefix([name[::-1] for name in names])
         alternation = _alternation(names)
-        pattern = (
-            rb"[\"'](?:" + alternation + rb")[\"']|\b(?:" + alternation + rb")\("
-            rb"|\b(?:" + alternation + rb")\s+as\s|<(?:" + alternation + rb")\b"
-            rb"|NodeKind\.(?:" + _alternation(kinds.members) + rb")\b"
+        clauses = [
+            rb"[\"'](?:" + alternation + rb")[\"']",
+            rb"\b(?:" + alternation + rb")\(",
+            rb"\b(?:" + alternation + rb")\s+as\s",
+            rb"<(?:" + alternation + rb")\b",
+        ]
+        if kinds.members:
+            clauses.append(rb"\.(?:" + _alternation(kinds.members) + rb")\b")
+        return cls(
+            cls._common_suffix(names),
+            cls._common_suffix(kinds.members) if kinds.members else b"",
+            re.compile(rb"|".join(clauses)),
         )
-        return cls(reversed_common[::-1].encode(), re.compile(pattern))
 
     def matches(self, source: bytes) -> bool:
-        return (self.gate in source or b"NodeKind." in source) and self.pattern.search(source) is not None
+        """Members with no shared suffix leave the enum gate empty, which admits every file to the
+        pattern: slower, and still correct. A missed drive would not be."""
+        gated = self.gate in source or (self.member_gate != b"" and self.member_gate in source)
+        return gated and self.pattern.search(source) is not None
 
 
 def _reads_class_off_module(source: bytes, aliases: dict[str, str], class_names: set[str]) -> bool:
@@ -1157,7 +1189,7 @@ def scan_crossing_uses(products: Iterable[str] | None = None) -> list[CrossingUs
                 parents = parents or _parent_map(tree)
                 counts[(label, candidate.dotted, classify_use(node, parents))] += 1
         if is_test and candidate.mentions_query_kind:
-            for drive, count in kind_drives(tree, kinds, _kind_constructors(candidate.imports, kinds)).items():
+            for drive, count in kind_drives(tree, kinds, _kind_names(candidate.imports, kinds)).items():
                 if drive.product in query_products and not candidate.path.is_relative_to(PRODUCTS_DIR / drive.product):
                     counts[
                         (
