@@ -3,9 +3,11 @@ import { DateTime } from 'luxon'
 
 import { UUIDT } from '~/common/utils/utils'
 
+import type { HogFlow } from '../schema/hogflow'
 import type { HogInputsService } from '../services/hog-inputs.service'
 import {
     CyclotronJobInvocation,
+    CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
     HogFunctionFilterGlobals,
@@ -157,6 +159,18 @@ export async function buildHogFunctionInvocations(
         metrics,
         logs,
     }
+}
+
+/**
+ * Returns the workflow an invocation belongs to, or undefined when it does not belong to one.
+ *
+ * A workflow step's hog function invocation keeps the flow it was built from (see
+ * `CyclotronJobInvocationHogFunctionFromHogFlow`), but the services that run the step are typed on
+ * the narrower hog function shape, because the same services also run standalone hog functions.
+ * Reading the flow through here keeps that one runtime check in a single place.
+ */
+export function hogFlowOfInvocation(invocation: CyclotronJobInvocation): HogFlow | undefined {
+    return 'hogFlow' in invocation ? (invocation as CyclotronJobInvocationHogFlow).hogFlow : undefined
 }
 
 /**

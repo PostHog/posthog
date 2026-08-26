@@ -2099,7 +2099,7 @@
             "label": "Library version (patch)"
         },
         "$link_index": {
-            "description": "The position of the clicked link in the workflow email, counted from the top.",
+            "description": "The position of the clicked link in the workflow email, counted from the top. The first link is 0.",
             "label": "Email link position"
         },
         "$link_url": {
@@ -3555,8 +3555,27 @@
             ],
             "label": "Workflow step name"
         },
+        "$workflow_conversion_event": {
+            "description": "The name of the event that met the workflow's conversion goal. Only set on event conversions.",
+            "examples": [
+                "purchase_completed"
+            ],
+            "label": "Workflow conversion event"
+        },
+        "$workflow_conversion_event_uuid": {
+            "description": "The unique identifier of the event that met the workflow's conversion goal. Only set on event conversions.",
+            "label": "Workflow conversion event ID"
+        },
+        "$workflow_conversion_type": {
+            "description": "How the conversion was detected. Event conversions come from the conversion goal event firing. Property conversions come from a person property matching the goal.",
+            "examples": [
+                "event",
+                "property"
+            ],
+            "label": "Workflow conversion type"
+        },
         "$workflow_id": {
-            "description": "The unique identifier of the workflow that sent the email.",
+            "description": "The unique identifier of the workflow this event came from.",
             "label": "Workflow ID"
         },
         "$workflow_name": {
@@ -3568,7 +3587,7 @@
             "label": "Workflow name"
         },
         "$workflow_version": {
-            "description": "The version of the workflow that was published when the email was sent.",
+            "description": "The published version of the workflow that was running when this event happened.",
             "label": "Workflow version"
         },
         "_kx": {
@@ -4159,6 +4178,11 @@
         "$web_vitals": {
             "description": "Automatically captured web vitals data.",
             "label": "Web vitals"
+        },
+        "$workflows_conversion": {
+            "description": "Fires when a person in a workflow meets its conversion goal.",
+            "label": "Workflow conversion",
+            "primary_property": "$workflow_id"
         },
         "$workflows_email_blocked": {
             "description": "Fires when a recipient marks a workflow email as spam, so later sends to them are blocked.",
@@ -7121,7 +7145,7 @@
             "label": "Library version (patch)"
         },
         "$link_index": {
-            "description": "The position of the clicked link in the workflow email, counted from the top.",
+            "description": "The position of the clicked link in the workflow email, counted from the top. The first link is 0.",
             "label": "Email link position"
         },
         "$link_url": {
@@ -8562,8 +8586,27 @@
             ],
             "label": "Workflow step name"
         },
+        "$workflow_conversion_event": {
+            "description": "The name of the event that met the workflow's conversion goal. Only set on event conversions.",
+            "examples": [
+                "purchase_completed"
+            ],
+            "label": "Workflow conversion event"
+        },
+        "$workflow_conversion_event_uuid": {
+            "description": "The unique identifier of the event that met the workflow's conversion goal. Only set on event conversions.",
+            "label": "Workflow conversion event ID"
+        },
+        "$workflow_conversion_type": {
+            "description": "How the conversion was detected. Event conversions come from the conversion goal event firing. Property conversions come from a person property matching the goal.",
+            "examples": [
+                "event",
+                "property"
+            ],
+            "label": "Workflow conversion type"
+        },
         "$workflow_id": {
-            "description": "The unique identifier of the workflow that sent the email.",
+            "description": "The unique identifier of the workflow this event came from.",
             "label": "Workflow ID"
         },
         "$workflow_name": {
@@ -8575,7 +8618,7 @@
             "label": "Workflow name"
         },
         "$workflow_version": {
-            "description": "The version of the workflow that was published when the email was sent.",
+            "description": "The published version of the workflow that was running when this event happened.",
             "label": "Workflow version"
         },
         "_kx": {

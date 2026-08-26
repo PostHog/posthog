@@ -1197,9 +1197,10 @@ describe('EmailService', () => {
         })
 
         it('names the workflow and the step that sent the email', async () => {
-            // Insights break down by these names instead of a column of UUIDs. The flow's email runs as a
-            // hog function invocation built by spreading the flow invocation, so `hogFlow` is only there at
-            // runtime — narrowing that spread away would drop both names and no other test would notice.
+            // Covers the send path reading the names off the invocation's flow and putting them on the
+            // captured event, so that an insight breaks down by workflow name instead of by UUID. The
+            // separate guarantee that a workflow step's invocation still carries its flow is held by
+            // the return type of `HogFlowFunctionsService.buildHogFunctionInvocation`, not by this test.
             jest.spyOn((service as any).teamWorkflowsConfigService, 'shouldCaptureEngagementEvents').mockResolvedValue(
                 true
             )

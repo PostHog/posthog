@@ -531,6 +531,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Workflow email tracking consent updated",
             "description": "Fires when a recipient changes whether workflow emails to them may be tracked.",
         },
+        "$workflows_conversion": {
+            "label": "Workflow conversion",
+            "description": "Fires when a person in a workflow meets its conversion goal.",
+            "primary_property": "$workflow_id",
+        },
     },
     "elements": {
         "tag_name": {
@@ -1835,7 +1840,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$workflow_id": {
             "label": "Workflow ID",
-            "description": "The unique identifier of the workflow that sent the email.",
+            "description": "The unique identifier of the workflow this event came from.",
         },
         "$workflow_action_name": {
             "label": "Workflow step name",
@@ -1848,7 +1853,21 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$workflow_version": {
             "label": "Workflow version",
-            "description": "The version of the workflow that was published when the email was sent.",
+            "description": "The published version of the workflow that was running when this event happened.",
+        },
+        "$workflow_conversion_type": {
+            "label": "Workflow conversion type",
+            "description": "How the conversion was detected. Event conversions come from the conversion goal event firing. Property conversions come from a person property matching the goal.",
+            "examples": ["event", "property"],
+        },
+        "$workflow_conversion_event": {
+            "label": "Workflow conversion event",
+            "description": "The name of the event that met the workflow's conversion goal. Only set on event conversions.",
+            "examples": ["purchase_completed"],
+        },
+        "$workflow_conversion_event_uuid": {
+            "label": "Workflow conversion event ID",
+            "description": "The unique identifier of the event that met the workflow's conversion goal. Only set on event conversions.",
         },
         "$email_to": {
             "label": "Email recipient",
@@ -1869,7 +1888,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$link_index": {
             "label": "Email link position",
-            "description": "The position of the clicked link in the workflow email, counted from the top.",
+            "description": "The position of the clicked link in the workflow email, counted from the top. The first link is 0.",
         },
         "$device": {
             "label": "Device",

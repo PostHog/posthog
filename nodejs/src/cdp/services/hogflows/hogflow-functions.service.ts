@@ -2,6 +2,7 @@ import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
 import {
     CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationHogFunction,
+    CyclotronJobInvocationHogFunctionFromHogFlow,
     CyclotronJobInvocationResult,
     HogFunctionInvocationGlobals,
     HogFunctionType,
@@ -89,7 +90,7 @@ export class HogFlowFunctionsService {
         invocation: CyclotronJobInvocationHogFlow,
         hogFunction: HogFunctionType,
         globals: Omit<HogFunctionInvocationGlobals, 'source' | 'project'>
-    ): Promise<CyclotronJobInvocationHogFunction> {
+    ): Promise<CyclotronJobInvocationHogFunctionFromHogFlow> {
         const teamId = invocation.hogFlow.team_id
         const projectUrl = `${this.siteUrl}/project/${teamId}`
 
@@ -108,7 +109,7 @@ export class HogFlowFunctionsService {
             },
         }
 
-        const hogFunctionInvocation: CyclotronJobInvocationHogFunction = {
+        const hogFunctionInvocation: CyclotronJobInvocationHogFunctionFromHogFlow = {
             ...invocation,
             hogFunction,
             state: invocation.state.currentAction?.hogFunctionState ?? {

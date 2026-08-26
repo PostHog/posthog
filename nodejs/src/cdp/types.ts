@@ -362,6 +362,15 @@ export type CyclotronJobInvocationHogFunction = CyclotronJobInvocation & {
     hogFunction: HogFunctionType
 }
 
+// A hog function invocation that a workflow step produced, which keeps the flow it was built from.
+// Services downstream of the step read the flow to describe the workflow that ran, for example the
+// email service names the workflow and the step on the events it captures. The type states that
+// carry so the compiler holds it, because it is otherwise only an object spread in
+// `HogFlowFunctionsService.buildHogFunctionInvocation` that nothing else forces to keep `hogFlow`.
+export type CyclotronJobInvocationHogFunctionFromHogFlow = CyclotronJobInvocationHogFunction & {
+    hogFlow: HogFlow
+}
+
 export type CyclotronJobInvocationHogFlow = CyclotronJobInvocation & {
     state?: HogFlowInvocationContext
     hogFlow: HogFlow

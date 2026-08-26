@@ -109,6 +109,35 @@ export const resolveEmailEngagementDistinctId = (
     return invocation.state?.globals?.event?.distinct_id || undefined
 }
 
+/**
+ * The workflow and step names to put on an engagement event, next to `$workflow_id` and
+ * `$workflow_action_id`.
+ *
+ * These are display labels, so that an insight broken down by workflow reads as names instead of a
+ * column of UUIDs. They describe the flow as it is published now, which has two consequences a
+ * reader of the data needs to know:
+ *
+ * 1. A rename splits a name breakdown into two buckets, because past events keep the old name.
+ *    `$workflow_id` stays the stable key for anyone who needs one bucket per workflow.
+ * 2. They float relative to `$workflow_version`. That version comes from the tracking code minted at
+ *    send time, so an engagement event that arrives after a republish carries the version that sent
+ *    it next to names taken from the newer one. A step deleted by that republish has no name at all.
+ *    We accept this because the names are labels and not keys, and because there is no way to load a
+ *    specific published version of a flow.
+ */
+export const resolveWorkflowNameProperties = (
+    hogFlow: HogFlow | undefined | null,
+    actionId: string | undefined
+): { $workflow_name?: string; $workflow_action_name?: string } => {
+    return {
+        $workflow_name: hogFlow?.name,
+        // `actions` is typed as required but flows are read from the database without schema
+        // validation, so keep the optional chain. A throw here would fail a send that already
+        // reached the provider, which the caller would then retry as a duplicate email.
+        $workflow_action_name: actionId ? hogFlow?.actions?.find((action) => action.id === actionId)?.name : undefined,
+    }
+}
+
 // HTML attribute values arrive entity-encoded (e.g. `&amp;`, `&#38;`). Decode before
 // percent-encoding for the tracking redirect, otherwise `?a=1&amp;b=2` round-trips
 // through `target=` as a literal `&amp;` and breaks the destination page's query string.
@@ -293,13 +322,8 @@ export class EmailTrackingService {
                 timestamp,
                 properties: {
                     $workflow_id: appSourceId,
-                    // The names come off the current `hogFlow`, not the tracking code like the version
-                    // above: they are display labels, and the current name is the one the workflows list
-                    // shows. A rename between send and open therefore splits a name breakdown across two
-                    // buckets — `$workflow_id` stays the stable key.
-                    $workflow_name: hogFlow?.name,
                     $workflow_action_id: actionId,
-                    $workflow_action_name: hogFlow?.actions.find((action) => action.id === actionId)?.name,
+                    ...resolveWorkflowNameProperties(hogFlow, actionId),
                     ...(workflowVersion !== undefined ? { $workflow_version: workflowVersion } : {}),
                     ...properties,
                 },
