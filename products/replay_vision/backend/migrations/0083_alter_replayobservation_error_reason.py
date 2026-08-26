@@ -4,7 +4,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("replay_vision", "0082_admission_budget_cache"),
     ]
