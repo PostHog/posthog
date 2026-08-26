@@ -7,9 +7,9 @@ from django.utils import timezone
 
 from posthog.schema import ExperimentQuery
 
+from products.experiments.backend.facade.timeseries import METRIC_BUILDERS, build_metric
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.models.experiment import Experiment, ExperimentMetricResult
-from products.experiments.backend.temporal.metric_resolution import METRIC_BUILDERS, build_metric
 
 
 class Command(BaseCommand):
