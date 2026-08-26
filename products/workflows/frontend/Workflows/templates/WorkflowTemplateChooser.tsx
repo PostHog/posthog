@@ -11,7 +11,6 @@ import { LemonDialog, LemonTag } from '@posthog/lemon-ui'
 import { FallbackCoverImage } from 'lib/components/FallbackCoverImage/FallbackCoverImage'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
-import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -98,16 +97,7 @@ export function WorkflowTemplateChooser(props: WorkflowTemplateChooserProps): JS
                                           primaryButton: {
                                               children: 'Delete',
                                               status: 'danger',
-                                              onClick: async () => {
-                                                  try {
-                                                      await deleteHogflowTemplate(template)
-                                                      lemonToast.success(`Template "${template.name}" deleted`)
-                                                  } catch (error: any) {
-                                                      lemonToast.error(
-                                                          `Failed to delete template: ${error.detail || error.message || 'Unknown error'}`
-                                                      )
-                                                  }
-                                              },
+                                              onClick: () => deleteHogflowTemplate(template),
                                           },
                                           secondaryButton: { children: 'Cancel' },
                                       })

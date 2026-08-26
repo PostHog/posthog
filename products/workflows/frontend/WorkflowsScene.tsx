@@ -209,6 +209,16 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
             to: urls.workflowsLibraryTemplateNewFunction(),
             'data-attr': 'new-function-template',
         },
+        {
+            // Workflow templates are saved from a workflow, not created here. Say so where someone
+            // looks for the option, rather than leaving the library's third type unexplained.
+            label: () => (
+                <div className="px-2 py-1 max-w-60 text-xs text-secondary">
+                    To add a workflow, open one and choose "Save as workflow template".
+                </div>
+            ),
+            custom: true,
+        },
     ]
 
     const tabs: LemonTab<WorkflowsSceneTab>[] = [

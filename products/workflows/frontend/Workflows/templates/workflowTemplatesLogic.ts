@@ -1,8 +1,9 @@
-import { MakeLogicType, actions, afterMount, kea, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { createFuse, Fuse } from 'lib/utils/fuseSearch'
 
 import type { HogFlowTemplate } from '../hogflows/types'
@@ -170,6 +171,16 @@ export const workflowTemplatesLogic = kea<workflowTemplatesLogicType>([
                 return Array.from(tagSet).sort()
             },
         ],
+    }),
+    // Toasts live here rather than at the call sites: dispatching a kea action returns immediately,
+    // so a caller that toasts straight after the call reports success before the delete has run.
+    listeners({
+        deleteHogflowTemplateSuccess: ({ payload }) => {
+            lemonToast.success(`Template "${payload?.template.name}" deleted`)
+        },
+        deleteHogflowTemplateFailure: ({ error }) => {
+            lemonToast.error(`Couldn't delete the template: ${error}`)
+        },
     }),
     urlToAction(({ actions }) => ({
         '/workflows': (_, searchParams) => {

@@ -6,6 +6,7 @@ import { useEffect } from 'react'
 
 import * as readingIsMagicPng from '@posthog/brand/hoggies/png/reading-is-magic'
 import { IconLetter, IconTrash, IconWebhooks } from '@posthog/icons'
+import { LemonDialog } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { MemberSelect } from 'lib/components/MemberSelect'
@@ -22,17 +23,26 @@ import { urls } from 'scenes/urls'
 
 import { MessageTemplateCard } from './MessageTemplateCard'
 import { messageTemplatesLogic } from './messageTemplatesLogic'
+import { WorkflowTemplateCard } from './WorkflowTemplateCard'
 
 const HedgehogReadingIsMagic = pngHoggie(readingIsMagicPng)
 
 export function MessageTemplatesTable(): JSX.Element {
     useMountedLogic(messageTemplatesLogic)
-    const { filteredTemplates, templates, templatesLoading, search, createdByFilter, typeFilter, hasActiveFilters } =
-        useValues(messageTemplatesLogic)
+    const {
+        libraryItems,
+        libraryLoading,
+        isLibraryEmpty,
+        savedWorkflowTemplates,
+        search,
+        createdByFilter,
+        typeFilter,
+    } = useValues(messageTemplatesLogic)
     const {
         deleteTemplate,
         createTemplate,
         duplicateTemplate,
+        deleteHogflowTemplate,
         setSearch,
         setCreatedByFilter,
         setTypeFilter,
@@ -48,18 +58,17 @@ export function MessageTemplatesTable(): JSX.Element {
     }, [loadHogFunctionTemplates])
     const destinationTemplatesById = Object.fromEntries(destinationTemplates.map((t) => [t.id, t]))
 
-    const showProductIntroduction = !templatesLoading && templates.length === 0
-    const showNoResults =
-        !templatesLoading && templates.length > 0 && filteredTemplates.length === 0 && hasActiveFilters
+    const showNoResults = !libraryLoading && !isLibraryEmpty && libraryItems.length === 0
+    const noWorkflowTemplatesYet = typeFilter === 'workflow' && savedWorkflowTemplates.length === 0
 
     return (
         <div className="templates-section" data-attr="message-templates-table">
-            {showProductIntroduction && (
+            {isLibraryEmpty && (
                 <ProductIntroduction
                     productName="Template library"
                     thingName="template"
                     titleOverride="Save your first template"
-                    description="Templates are emails, webhooks, and destinations you set up once and reuse across your workflows. Start one here, or open a workflow and save a step you already configured."
+                    description="Templates are emails, webhooks, and whole workflows you set up once and reuse. Start an email or webhook here. To add a workflow, open one and save it as a template."
                     docsURL="https://posthog.com/docs/workflows"
                     actionElementOverride={
                         <>
@@ -111,6 +120,7 @@ export function MessageTemplatesTable(): JSX.Element {
                             { value: 'all', label: 'All' },
                             { value: 'email', label: 'Emails' },
                             { value: 'function', label: 'Webhooks & destinations' },
+                            { value: 'workflow', label: 'Workflows' },
                         ]}
                         data-attr="templates-type-filter"
                     />
@@ -120,51 +130,105 @@ export function MessageTemplatesTable(): JSX.Element {
                     <MemberSelect value={createdByFilter} onChange={(user) => setCreatedByFilter(user?.id ?? null)} />
                 </div>
             </div>
-            {templatesLoading ? (
+            {libraryLoading ? (
                 <Spinner className="text-6xl" />
             ) : showNoResults ? (
                 <div className="flex flex-col items-center gap-2 py-8 text-center" data-attr="templates-no-results">
-                    <p className="mb-0 text-secondary">No templates match your filters.</p>
+                    {noWorkflowTemplatesYet ? (
+                        <>
+                            <p className="mb-0 text-secondary">You haven't saved a workflow template yet.</p>
+                            <p className="mb-0 text-xs text-secondary">
+                                Open a workflow and choose "Save as workflow template" to keep it here.
+                            </p>
+                        </>
+                    ) : (
+                        <p className="mb-0 text-secondary">No templates match your filters.</p>
+                    )}
                     <LemonButton type="secondary" size="small" onClick={clearFilters}>
                         Clear filters
                     </LemonButton>
                 </div>
             ) : (
                 <div className="MessageTemplatesGrid">
-                    {filteredTemplates.map((template, index) => (
-                        <MessageTemplateCard
-                            key={template.id}
-                            template={template}
-                            index={index}
-                            hogFunctionTemplate={
-                                template.content.function?.template_id
-                                    ? destinationTemplatesById[template.content.function.template_id]
-                                    : undefined
-                            }
-                            onClick={() => router.actions.push(urls.workflowsLibraryTemplate(template.id))}
-                            actions={
-                                <More
-                                    size="small"
-                                    overlay={
-                                        <LemonMenuOverlay
-                                            items={[
-                                                {
-                                                    label: 'Duplicate',
-                                                    onClick: () => duplicateTemplate(template),
-                                                },
-                                                {
-                                                    label: 'Delete',
-                                                    status: 'danger' as const,
-                                                    icon: <IconTrash />,
-                                                    onClick: () => deleteTemplate(template),
-                                                },
-                                            ]}
-                                        />
-                                    }
-                                />
-                            }
-                        />
-                    ))}
+                    {libraryItems.map((item, index) =>
+                        item.kind === 'workflow' ? (
+                            <WorkflowTemplateCard
+                                key={`workflow-${item.template.id}`}
+                                template={item.template}
+                                index={index}
+                                onClick={() =>
+                                    router.actions.push(urls.workflowNew(), { editTemplateId: item.template.id })
+                                }
+                                actions={
+                                    <More
+                                        size="small"
+                                        overlay={
+                                            <LemonMenuOverlay
+                                                items={[
+                                                    {
+                                                        label: 'New workflow from this',
+                                                        onClick: () =>
+                                                            router.actions.push(urls.workflowNew(), {
+                                                                templateId: item.template.id,
+                                                            }),
+                                                    },
+                                                    {
+                                                        label: 'Delete',
+                                                        status: 'danger' as const,
+                                                        icon: <IconTrash />,
+                                                        onClick: () =>
+                                                            LemonDialog.open({
+                                                                title: 'Delete template?',
+                                                                description: `"${item.template.name}" will be removed from the library. Workflows already created from it are not affected.`,
+                                                                primaryButton: {
+                                                                    children: 'Delete',
+                                                                    status: 'danger',
+                                                                    onClick: () => deleteHogflowTemplate(item.template),
+                                                                },
+                                                                secondaryButton: { children: 'Cancel' },
+                                                            }),
+                                                    },
+                                                ]}
+                                            />
+                                        }
+                                    />
+                                }
+                            />
+                        ) : (
+                            <MessageTemplateCard
+                                key={`message-${item.template.id}`}
+                                template={item.template}
+                                index={index}
+                                hogFunctionTemplate={
+                                    item.template.content.function?.template_id
+                                        ? destinationTemplatesById[item.template.content.function.template_id]
+                                        : undefined
+                                }
+                                onClick={() => router.actions.push(urls.workflowsLibraryTemplate(item.template.id))}
+                                actions={
+                                    <More
+                                        size="small"
+                                        overlay={
+                                            <LemonMenuOverlay
+                                                items={[
+                                                    {
+                                                        label: 'Duplicate',
+                                                        onClick: () => duplicateTemplate(item.template),
+                                                    },
+                                                    {
+                                                        label: 'Delete',
+                                                        status: 'danger' as const,
+                                                        icon: <IconTrash />,
+                                                        onClick: () => deleteTemplate(item.template),
+                                                    },
+                                                ]}
+                                            />
+                                        }
+                                    />
+                                }
+                            />
+                        )
+                    )}
                 </div>
             )}
         </div>
