@@ -593,7 +593,7 @@ export interface OrganizationType extends OrganizationBasicType {
     members_can_create_projects?: boolean
     members_can_use_personal_api_keys: boolean
     members_can_see_org_members?: boolean
-    mcp_access_read_only?: boolean
+    read_only_mcp_access?: boolean
     allow_publicly_shared_resources: boolean
     metadata?: OrganizationMetadata
     member_count: number

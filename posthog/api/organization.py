@@ -189,7 +189,7 @@ class OrganizationSerializer(
             "members_can_use_personal_api_keys",
             "members_can_see_org_members",
             "allow_publicly_shared_resources",
-            "mcp_access_read_only",
+            "read_only_mcp_access",
             "member_count",
             "is_ai_data_processing_approved",
             "is_ai_training_opted_in",
@@ -398,8 +398,8 @@ class OrganizationSerializer(
     def get_member_count(self, organization: Organization) -> int:
         return _cached_per_org("member_count", str(organization.id), lambda: _fetch_member_count(organization))
 
-    def validate_mcp_access_read_only(self, value: bool) -> bool:
-        if self.instance and self.instance.mcp_access_read_only != value:
+    def validate_read_only_mcp_access(self, value: bool) -> bool:
+        if self.instance and self.instance.read_only_mcp_access != value:
             if not self.instance.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS):
                 raise serializers.ValidationError(
                     "You must upgrade your plan to configure MCP access.",

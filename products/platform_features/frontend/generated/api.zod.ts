@@ -36,7 +36,7 @@ export const CreateBody = /* @__PURE__ */ zod.object({
             'When False, members (below admin) only see themselves in the members list and only project members in access control.'
         ),
     allow_publicly_shared_resources: zod.boolean().optional(),
-    mcp_access_read_only: zod
+    read_only_mcp_access: zod
         .boolean()
         .nullish()
         .describe(
@@ -94,7 +94,7 @@ export const UpdateBody = /* @__PURE__ */ zod.object({
             'When False, members (below admin) only see themselves in the members list and only project members in access control.'
         ),
     allow_publicly_shared_resources: zod.boolean().optional(),
-    mcp_access_read_only: zod
+    read_only_mcp_access: zod
         .boolean()
         .nullish()
         .describe(
@@ -152,7 +152,7 @@ export const PartialUpdateBody = /* @__PURE__ */ zod.object({
             'When False, members (below admin) only see themselves in the members list and only project members in access control.'
         ),
     allow_publicly_shared_resources: zod.boolean().optional(),
-    mcp_access_read_only: zod
+    read_only_mcp_access: zod
         .boolean()
         .nullish()
         .describe(

@@ -33,19 +33,19 @@ class TestMCPAccessSetting(APIBaseTest):
         self.organization_membership.save()
 
     def test_toggle_round_trip(self) -> None:
-        response = self.client.patch("/api/organizations/@current/", {"mcp_access_read_only": True})
+        response = self.client.patch("/api/organizations/@current/", {"read_only_mcp_access": True})
         assert response.status_code == 200
-        assert response.json()["mcp_access_read_only"] is True
+        assert response.json()["read_only_mcp_access"] is True
         self.organization.refresh_from_db()
-        assert self.organization.mcp_access_read_only is True
+        assert self.organization.read_only_mcp_access is True
 
-        response = self.client.patch("/api/organizations/@current/", {"mcp_access_read_only": False})
-        assert response.json()["mcp_access_read_only"] is False
+        response = self.client.patch("/api/organizations/@current/", {"read_only_mcp_access": False})
+        assert response.json()["read_only_mcp_access"] is False
 
     def test_toggle_requires_the_entitlement(self) -> None:
         self.organization.available_product_features = []
         self.organization.save()
-        response = self.client.patch("/api/organizations/@current/", {"mcp_access_read_only": True})
+        response = self.client.patch("/api/organizations/@current/", {"read_only_mcp_access": True})
         assert response.status_code == 400
         assert response.json()["code"] == "payment_required"
 

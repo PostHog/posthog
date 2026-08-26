@@ -4031,7 +4031,7 @@ export interface OrganizationApi {
      * When True, requests through the PostHog MCP server can read but not change this organization's data.
      * @nullable
      */
-    mcp_access_read_only?: boolean | null
+    read_only_mcp_access?: boolean | null
     readonly member_count: number
     /** @nullable */
     is_ai_data_processing_approved?: boolean | null

@@ -32,9 +32,9 @@ export function OrganizationMCPAccess(): JSX.Element {
                 }
                 bordered
                 data-attr="org-mcp-access-read-only-toggle"
-                checked={!!currentOrganization?.mcp_access_read_only}
-                onChange={(mcp_access_read_only) => {
-                    updateOrganization({ mcp_access_read_only })
+                checked={!!currentOrganization?.read_only_mcp_access}
+                onChange={(read_only_mcp_access) => {
+                    updateOrganization({ read_only_mcp_access })
                 }}
                 disabled={currentOrganizationLoading}
                 disabledReason={adminRestrictionReason}
