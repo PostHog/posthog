@@ -14,14 +14,15 @@ import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/fil
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { Query } from '~/queries/Query/Query'
 import { ExperimentFunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
+import { commonActionFilterProps } from '~/scenes/experiments/Metrics/Selectors'
+import { sharedMetricLogic } from '~/scenes/experiments/SharedMetrics/sharedMetricLogic'
+import { BreakdownAttributionType, FilterType } from '~/types'
+
 import {
     LegacyFunnelAttributionSelect,
     LegacyFunnelConversionWindowFilter,
     LegacyFunnelAggregationSelect,
-} from '~/scenes/experiments/legacy'
-import { commonActionFilterProps } from '~/scenes/experiments/Metrics/Selectors'
-import { sharedMetricLogic } from '~/scenes/experiments/SharedMetrics/sharedMetricLogic'
-import { BreakdownAttributionType, FilterType } from '~/types'
+} from 'products/experiments/frontend/legacy'
 
 export function LegacySharedFunnelsMetricForm(): JSX.Element {
     const { sharedMetric } = useValues(sharedMetricLogic)
