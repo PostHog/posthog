@@ -11,9 +11,9 @@ import { playMeep } from './meep'
  * requests / Reports tabs use), fed mock data – so they read as the genuine article rather than a
  * lookalike. Because they look real, they're marked plainly as examples: an "Example" tag sits on
  * each card, the card itself is made non-interactive (so its Review/Archive buttons don't offer
- * live hover states or misleading tooltips), and a single click surface explains that the real work
- * arrives once you run the setup command. The meep stays as flair, but it's no longer the only sign
- * a click did anything.
+ * live hover states or misleading tooltips), and a single click surface sits on top. A click on that
+ * surface scrolls to the setup command and pulses it, so the click has a visible answer. The meep
+ * stays as flair on top of that.
  *
  * The sample work is a wink at Silicon Valley (the show): Pied Piper's middle-out compression and
  * the ever-looming Hooli.
@@ -62,10 +62,19 @@ const REPORT_SAMPLE: Omit<SignalReport, 'created_at' | 'updated_at'> = {
  * Wraps a real `ReportCard` and makes it legibly a sample. The card is rendered non-interactive
  * (`pointer-events-none`, `aria-hidden`) so its Review/Archive buttons and links no longer offer
  * live hover states or misleading tooltips ("Archive this report") that invite dead clicks. An
- * "Example" tag labels it at a glance, and a single click surface on top plays the meep flair while
- * a tooltip explains that real work lands here once the setup command runs.
+ * "Example" tag labels it at a glance, and a single click surface on top scrolls to the setup
+ * command and pulses it (via `onExampleClick`), so a click gets a visible answer rather than only a
+ * sound.
  */
-function PreviewCard({ report, tabKey }: { report: SignalReport; tabKey: 'pulls' | 'reports' }): JSX.Element {
+function PreviewCard({
+    report,
+    tabKey,
+    onExampleClick,
+}: {
+    report: SignalReport
+    tabKey: 'pulls' | 'reports'
+    onExampleClick: () => void
+}): JSX.Element {
     return (
         // `@container` so ReportCard's `@lg:` row layout resolves against the preview width (it has no
         // inbox-list container here). `role="presentation"` – the whole thing is decorative.
@@ -83,26 +92,41 @@ function PreviewCard({ report, tabKey }: { report: SignalReport; tabKey: 'pulls'
                 Example
             </LemonTag>
 
-            {/* One interactive surface over the whole card: a click plays the meep flair, and the
-                tooltip is the real signal – it says this is a preview and how to get the real thing. */}
-            <Tooltip title="This is an example. Run the command above to get real ones in your inbox.">
+            {/* One interactive surface over the whole card. A click scrolls to the setup command and
+                pulses it, so the click has a visible answer, then plays the meep flair on top. */}
+            <Tooltip title="This is an example. Run the setup command to get real ones. Click to jump to it.">
                 <button
                     type="button"
-                    aria-label="Example card – run the setup command to get real ones in your inbox"
+                    aria-label="Jump to the setup command that brings real ones to your inbox"
                     className="absolute inset-0 z-10 h-full w-full cursor-pointer"
-                    onClick={() => playMeep()}
+                    onClick={() => {
+                        onExampleClick()
+                        playMeep()
+                    }}
                 />
             </Tooltip>
         </div>
     )
 }
 
-export function PullRequestPreview(): JSX.Element {
+export function PullRequestPreview({ onExampleClick }: { onExampleClick: () => void }): JSX.Element {
     const landed = landedHoursAgo(2)
-    return <PreviewCard report={{ ...PULL_REQUEST_SAMPLE, created_at: landed, updated_at: landed }} tabKey="pulls" />
+    return (
+        <PreviewCard
+            report={{ ...PULL_REQUEST_SAMPLE, created_at: landed, updated_at: landed }}
+            tabKey="pulls"
+            onExampleClick={onExampleClick}
+        />
+    )
 }
 
-export function ReportPreview(): JSX.Element {
+export function ReportPreview({ onExampleClick }: { onExampleClick: () => void }): JSX.Element {
     const landed = landedHoursAgo(4)
-    return <PreviewCard report={{ ...REPORT_SAMPLE, created_at: landed, updated_at: landed }} tabKey="reports" />
+    return (
+        <PreviewCard
+            report={{ ...REPORT_SAMPLE, created_at: landed, updated_at: landed }}
+            tabKey="reports"
+            onExampleClick={onExampleClick}
+        />
+    )
 }

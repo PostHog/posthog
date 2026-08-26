@@ -495,11 +495,30 @@ const AgentRow = memo(function AgentRow({
                     </div>
                     <span className="truncate text-xs leading-4 text-muted">{agent.watches}</span>
                 </div>
-                {tag && (
+                {toolOff && tool?.enablement ? (
+                    // A live badge, not a dead one: clicking it turns the tool on, the same action the
+                    // expansion offers one disclosure level below.
+                    <Tooltip title={`${tool.toolName} is off, so this source has nothing to read. Turn it on.`}>
+                        <LemonTag
+                            type="warning"
+                            size="small"
+                            forceClickable
+                            icon={enablingTool ? <Spinner /> : undefined}
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                if (!enablingTool) {
+                                    onEnableTool(tool)
+                                }
+                            }}
+                        >
+                            Turn it on
+                        </LemonTag>
+                    </Tooltip>
+                ) : tag ? (
                     <LemonTag type={tag.type} size="small">
                         {tag.label}
                     </LemonTag>
-                )}
+                ) : null}
                 <span className="w-38 shrink-0 truncate text-right text-xs text-muted">
                     {entities.length > 0 && `${enabledCount} of ${entities.length} ${agent.entityNoun} on`}
                 </span>

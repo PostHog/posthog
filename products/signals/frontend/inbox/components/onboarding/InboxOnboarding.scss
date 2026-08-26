@@ -22,3 +22,26 @@
         animation: none;
     }
 }
+
+// A click on an example card scrolls to the setup command and pulses this ring, so the click has a
+// visible answer instead of a silent one.
+.InboxOnboarding__commandPulse {
+    animation: InboxOnboarding__commandPulse 0.9s ease-out 2;
+}
+
+@keyframes InboxOnboarding__commandPulse {
+    0%,
+    100% {
+        box-shadow: 0 0 0 0 transparent;
+    }
+
+    35% {
+        box-shadow: 0 0 0 4px var(--color-accent);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .InboxOnboarding__commandPulse {
+        animation: none;
+    }
+}
