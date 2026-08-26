@@ -412,6 +412,8 @@ class QueryTags(BaseModel):
     exported_asset_id: Optional[int] = None
     export_format: Optional[str] = None
     chargeable: Optional[int] = None
+    # Set when the person-lookup rewrite retargeted this query to the persons table.
+    person_lookup_rewrite: Optional[int] = None
     request_name: Optional[str] = None
     name: Optional[str] = None
     endpoint_version: Optional[int] = None  # Endpoints, the product

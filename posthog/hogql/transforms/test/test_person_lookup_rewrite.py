@@ -60,6 +60,31 @@ class TestPersonLookupRewrite(BaseTest):
         assert "FROM persons" in result
         assert "FROM events" not in result
 
+    def test_rewritten_where_is_table_qualified_against_alias_capture(self):
+        result = self._transform(
+            "select any(person.properties) as id from events where person.id = '019cf684-0000-0000-0000-000000000000'"
+        )
+        assert "FROM persons" in result
+        assert "persons.id" in result
+
+    def test_outer_cte_named_events_shadows_the_table(self):
+        # Printing is impossible here (the shadowed query cannot resolve `person`), which
+        # is the point: a retarget to persons would turn an invalid query into data.
+        node = rewrite_person_lookups(
+            parse_select(
+                "with events as (select 1 as x) "
+                "select properties from "
+                "(select any(person.properties) as properties from events where person.id = '019cf684-0000-0000-0000-000000000000')"
+            )
+        )
+        assert isinstance(node, ast.SelectQuery)
+        assert node.select_from is not None
+        inner = node.select_from.table
+        assert isinstance(inner, ast.SelectQuery)
+        assert inner.select_from is not None
+        assert isinstance(inner.select_from.table, ast.Field)
+        assert inner.select_from.table.chain == ["events"]
+
     @parameterized.expand(
         [
             (
@@ -177,17 +202,22 @@ class TestPersonLookupRewrite(BaseTest):
 
     @parameterized.expand(
         [
-            ("direct_connection_skips", "0198aabb-0000-0000-0000-000000000000", "events"),
-            ("native_schema_rewrites", None, "persons"),
+            ("direct_connection_skips", "0198aabb-0000-0000-0000-000000000000", None, "events"),
+            ("native_schema_rewrites", None, None, "persons"),
+            ("no_override_mode_skips", None, "person_id_no_override_properties_on_events", "events"),
         ]
     )
-    def test_optimizer_gate_respects_direct_connections(self, _name, connection_id, expected_table):
+    def test_optimizer_gate(self, _name, connection_id, poe_mode, expected_table):
+        from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
+
         from posthog.hogql.query import HogQLQueryExecutor
 
+        modifiers = HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode(poe_mode)) if poe_mode else None
         executor = HogQLQueryExecutor(
             query="select any(person.properties) from events where person.id = '019cf684-0000-0000-0000-000000000000'",
             team=self.team,
             connection_id=connection_id,
+            modifiers=modifiers,
         )
         executor._parse_query()
         executor._apply_optimizers()

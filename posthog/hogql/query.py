@@ -13,6 +13,7 @@ from posthog.schema import (
     HogQLQueryModifiers,
     HogQLQueryResponse,
     HogQLVariable,
+    PersonsOnEventsMode,
 )
 
 from posthog.hogql import ast
@@ -216,7 +217,14 @@ class HogQLQueryExecutor:
     def _apply_optimizers(self):
         # Direct connections can expose their own `events` table, and this transform
         # matches `events` by unresolved name, so it must only run on the native schema.
-        if self.query_modifiers.rewritePersonEventLookups and self.connection_id is None:
+        # In the no-override mode `person.id` matches raw event rows, so a merged-away
+        # person's history is reachable there but absent from persons; skip that mode.
+        if (
+            self.query_modifiers.rewritePersonEventLookups
+            and self.connection_id is None
+            and self.query_modifiers.personsOnEventsMode
+            != PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
+        ):
             with self.timings.measure("person_lookup_rewrite"):
                 transformed_node = rewrite_person_lookups(self.select_query)
                 if isinstance(transformed_node, ast.SelectQuery) or isinstance(transformed_node, ast.SelectSetQuery):

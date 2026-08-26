@@ -24,6 +24,8 @@ from posthog.hogql import ast
 from posthog.hogql.base import AST
 from posthog.hogql.visitor import CloningVisitor
 
+from posthog.clickhouse.query_tagging import tag_queries
+
 _T_AST = TypeVar("_T_AST", bound=AST)
 
 # Person-sourced fields that exist on the persons table under the same name.
@@ -36,6 +38,8 @@ def _events_alias(join: ast.JoinExpr) -> Optional[str]:
         join.next_join is not None
         or join.sample is not None
         or join.table_final
+        or join.table_args is not None
+        or join.column_aliases
         or not isinstance(join.table, ast.Field)
         or join.table.chain != ["events"]
     ):
@@ -119,12 +123,15 @@ def _rewrite_predicate(expr: ast.Expr, alias: str) -> Optional[ast.Expr]:
         return None
     if not isinstance(expr.left, ast.Field) or not isinstance(expr.right, ast.Constant):
         return None
+    # Table-qualified so a select alias named `id` cannot capture the field.
     if _person_subchain(expr.left, alias) == ["id"]:
-        return ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=ast.Field(chain=["id"]), right=expr.right)
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq, left=ast.Field(chain=["persons", "id"]), right=expr.right
+        )
     if _is_distinct_id_field(expr.left, alias):
         return ast.CompareOperation(
             op=ast.CompareOperationOp.In,
-            left=ast.Field(chain=["id"]),
+            left=ast.Field(chain=["persons", "id"]),
             right=ast.SelectQuery(
                 select=[ast.Field(chain=["person_id"])],
                 select_from=ast.JoinExpr(table=ast.Field(chain=["person_distinct_ids"])),
@@ -187,12 +194,25 @@ def _try_rewrite(node: ast.SelectQuery) -> Optional[ast.SelectQuery]:
 
 
 class _PersonLookupRewriter(CloningVisitor):
+    def __init__(self):
+        super().__init__(clear_types=True, clear_locations=False)
+        self._cte_scope_names: list[set[str]] = []
+
     def visit_select_query(self, node: ast.SelectQuery):
-        rewritten = _try_rewrite(node)
-        if rewritten is not None:
-            return rewritten
-        return super().visit_select_query(node)
+        # The resolver inherits CTEs from enclosing scopes, so a subquery's `events` can
+        # refer to an outer `WITH events AS (...)` rather than the real table.
+        events_shadowed = any("events" in names for names in self._cte_scope_names)
+        if not events_shadowed:
+            rewritten = _try_rewrite(node)
+            if rewritten is not None:
+                tag_queries(person_lookup_rewrite=1)
+                return rewritten
+        self._cte_scope_names.append(set(node.ctes.keys()) if node.ctes else set())
+        try:
+            return super().visit_select_query(node)
+        finally:
+            self._cte_scope_names.pop()
 
 
 def rewrite_person_lookups(node: _T_AST) -> _T_AST:
-    return _PersonLookupRewriter(clear_types=True, clear_locations=False).visit(node)
+    return _PersonLookupRewriter().visit(node)
