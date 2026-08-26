@@ -505,3 +505,211 @@ class AutoresearchPipelineCreateSerializer(DataclassSerializer):
         if not is_update and not self._value(data, "inference_population"):
             updates["inference_population"] = self._value(data, "training_population", {})
         return replace(data, **updates) if updates else data
+
+
+# ── Validation serializers -------------------------------------------------
+
+
+class ValidationWarningSerializer(serializers.Serializer):
+    code = serializers.CharField(help_text="Machine-readable warning code, e.g. 'low_volume' or 'extreme_imbalance'.")
+    message = serializers.CharField(help_text="Human-readable warning description.")
+    severity = serializers.ChoiceField(
+        choices=["info", "warning", "error"],
+        help_text="Severity level. 'error' blocks creation; 'warning' requires acknowledgement.",
+    )
+
+
+class ValidatePipelineRequestSerializer(serializers.Serializer):
+    target_event = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text=(
+            "Event name to predict, e.g. '$pageview'. Must exist in the team's event schema. "
+            "Omit when predicting an action target (pass target_definition instead)."
+        ),
+    )
+    target_definition = serializers.JSONField(
+        required=False,
+        default=dict,
+        help_text=(
+            'Optional target definition. Pass {"type": "action", "action_id": N} to predict a '
+            "PostHog action (multi-step / property / autocapture matcher) instead of a single event."
+        ),
+    )
+    horizon_days = serializers.IntegerField(
+        default=7,
+        min_value=1,
+        max_value=365,
+        help_text="Predict whether the target event occurs within this many days.",
+    )
+    training_lookback_days = serializers.IntegerField(
+        default=180,
+        min_value=7,
+        max_value=730,
+        help_text="How far back to look for training examples. Default: 180.",
+    )
+    training_population = PopulationDefinitionField(
+        default=dict,
+        help_text="Population filter for training examples. Use {} for all identified users.",
+    )
+    inference_population = PopulationDefinitionField(
+        default=dict,
+        help_text="Population filter for daily scoring. Defaults to training_population if not provided.",
+    )
+
+
+class ValidatePipelineResponseSerializer(serializers.Serializer):
+    can_proceed = serializers.BooleanField(help_text="True if the pipeline definition is valid and training can start.")
+    requires_acknowledgement = serializers.BooleanField(
+        help_text="True if there are non-blocking warnings the user should acknowledge before proceeding."
+    )
+    estimated_training_rows = serializers.IntegerField(
+        allow_null=True,
+        help_text="Estimated number of user-level training rows based on the population and lookback window.",
+    )
+    positive_count = serializers.IntegerField(
+        allow_null=True,
+        help_text="Estimated number of positive examples (users who performed the target event).",
+    )
+    negative_count = serializers.IntegerField(
+        allow_null=True,
+        help_text="Estimated number of negative examples.",
+    )
+    base_rate = serializers.FloatField(
+        allow_null=True,
+        help_text="Fraction of the training population that performed the target event.",
+    )
+    inference_population_size = serializers.IntegerField(
+        allow_null=True,
+        help_text="Estimated number of users in the inference (daily scoring) population.",
+    )
+    warnings = ValidationWarningSerializer(
+        many=True,
+        help_text="List of validation warnings. Check 'severity' — 'error' blocks creation.",
+    )
+    error = serializers.CharField(
+        allow_null=True,
+        help_text="Internal error message if validation itself failed to run.",
+    )
+
+
+# ── Template serializers ───────────────────────────────────────────────────────
+
+
+class TemplateInfoSerializer(serializers.Serializer):
+    key = serializers.CharField(
+        help_text="Template identifier, e.g. 'likely_active_soon'. Pass to autoresearch-resolve-template-create.",
+    )
+    display_name = serializers.CharField(help_text="Human-readable template name.")
+    description = serializers.CharField(help_text="What this template predicts and who it is for.")
+    default_horizon_days = serializers.IntegerField(
+        help_text="Default prediction horizon in days. Can be overridden when resolving.",
+    )
+    requires_user_event = serializers.BooleanField(
+        help_text=(
+            "If true, you must supply a target_event when resolving — the template does not auto-select one. "
+            "Required for 'feature_adoption' and 'repeat_key_behavior'."
+        ),
+    )
+    requires_activity_resolution = serializers.BooleanField(
+        help_text=(
+            "If true, the target event is automatically resolved from your event schema "
+            "($pageview, $screen, or the highest-volume non-noisy event). "
+            "You can override the resolved event when resolving the template."
+        ),
+    )
+    notes = serializers.CharField(help_text="Usage guidance and implementation notes.")
+
+
+@extend_schema_field(
+    {
+        "type": "object",
+        "description": (
+            "Semantic population filter compiled to HogQL by the training/inference harness. "
+            "Supported kinds: 'performed_event_within_days' (users who did event in last N days), "
+            "'person_first_seen_within_days' (new users by first-seen date), "
+            "'active_not_performed_target' (active users who have NOT done the target event), "
+            "'ever_performed_event' (users who have done the target event at least once)."
+        ),
+        "example": {"kind": "performed_event_within_days", "event": "$pageview", "days": 30},
+    }
+)
+class PopulationSpecField(serializers.JSONField):
+    pass
+
+
+class ResolveTemplateRequestSerializer(serializers.Serializer):
+    template_key = serializers.ChoiceField(
+        choices=[
+            "likely_active_soon",
+            "at_risk_of_inactivity",
+            "return_after_first_use",
+            "feature_adoption",
+            "repeat_key_behavior",
+        ],
+        help_text=(
+            "Template to resolve. Use autoresearch-templates-list to see all available templates "
+            "with descriptions. Required."
+        ),
+    )
+    target_event = serializers.CharField(
+        required=False,
+        allow_blank=False,
+        help_text=(
+            "Event or action name to use as the prediction target. "
+            "Required for 'feature_adoption' and 'repeat_key_behavior'. "
+            "Optional override for activity-based templates ('likely_active_soon', "
+            "'at_risk_of_inactivity', 'return_after_first_use') — omit to use the auto-resolved event."
+        ),
+    )
+    horizon_days = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=365,
+        help_text="Override the template's default prediction horizon in days.",
+    )
+
+
+class ResolvedTemplateSerializer(serializers.Serializer):
+    template_key = serializers.CharField(help_text="The template key that was resolved.")
+    display_name = serializers.CharField(help_text="Human-readable template name.")
+    description = serializers.CharField(help_text="What this template predicts.")
+    suggested_name = serializers.CharField(
+        help_text="Suggested pipeline name. Pass as 'name' to autoresearch-create.",
+    )
+    target_event = serializers.CharField(
+        help_text=(
+            "Resolved target event. Pass as 'target_event' to autoresearch-create. "
+            "For activity-based templates this is the auto-resolved activity event (or your override)."
+        ),
+    )
+    resolved_activity_event = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Activity event found in your event schema, populated only for templates that "
+            "auto-resolve the target ('likely_active_soon', 'at_risk_of_inactivity', "
+            "'return_after_first_use'). Null for templates where you supply target_event directly."
+        ),
+    )
+    activity_event_alternatives = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "Other viable activity events found in your schema. "
+            "If the resolved event is not the right signal, re-resolve with one of these as target_event."
+        ),
+    )
+    horizon_days = serializers.IntegerField(help_text="Resolved prediction horizon in days.")
+    training_population = PopulationSpecField(
+        help_text=("Resolved training population filter. Pass as 'training_population' to autoresearch-create."),
+    )
+    inference_population = PopulationSpecField(
+        help_text=(
+            "Resolved inference (daily scoring) population filter. "
+            "Pass as 'inference_population' to autoresearch-create."
+        ),
+    )
+    output_person_property = serializers.CharField(
+        help_text="Suggested person property name for prediction scores. Pass as 'output_person_property' to autoresearch-create.",
+    )
+    notes = serializers.CharField(help_text="Usage notes and guidance for interpreting this resolved config.")

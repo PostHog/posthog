@@ -13,9 +13,10 @@ from dataclasses import fields
 from typing import Any, cast
 
 import structlog
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import viewsets
-from rest_framework.exceptions import NotFound
+from rest_framework.decorators import action
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.fields import empty
 from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
@@ -23,14 +24,24 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from posthog.api.documentation import PostHogAutoSchema
+from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.user import User
 
 from products.autoresearch.backend.facade import api
 from products.autoresearch.backend.facade.access import has_autoresearch_access
-from products.autoresearch.backend.facade.contracts import PipelineNotFound
+from products.autoresearch.backend.facade.contracts import AutoresearchConflict, PipelineNotFound
 
-from .serializers import AutoresearchPipelineCreateSerializer, AutoresearchPipelineSerializer
+from .serializers import (
+    AutoresearchPipelineCreateSerializer,
+    AutoresearchPipelineSerializer,
+    ResolvedTemplateSerializer,
+    ResolveTemplateRequestSerializer,
+    TemplateInfoSerializer,
+    ValidatePipelineRequestSerializer,
+    ValidatePipelineResponseSerializer,
+    resolve_target,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -121,7 +132,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
     schema = FacadePathParamSchema()
     uuid_path_parameters = {"id": "A UUID string identifying this autoresearch pipeline."}
     scope_object = "autoresearch"
-    scope_object_read_actions = ["list", "retrieve"]
+    scope_object_read_actions = ["list", "retrieve", "validate_definition", "list_templates", "resolve_template"]
     scope_object_write_actions = ["create", "update", "partial_update", "destroy"]
     permission_classes = [AutoresearchAccessPermission]
     serializer_class = AutoresearchPipelineSerializer
@@ -190,3 +201,94 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
         except PipelineNotFound:
             raise NotFound("Pipeline not found.")
         return Response(status=204)
+
+    @extend_schema(
+        responses={200: TemplateInfoSerializer(many=True)},
+        summary="List available templates",
+        description=(
+            "Return all built-in autoresearch prediction templates. "
+            "Each entry describes what the template predicts, its default horizon and prediction mode, "
+            "and whether it requires you to supply a target_event. "
+            "After choosing a template, call autoresearch-resolve-template-create to get a fully "
+            "resolved pipeline config ready to pass to autoresearch-create."
+        ),
+    )
+    @action(detail=False, methods=["get"], url_path="templates")
+    def list_templates(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return Response(TemplateInfoSerializer(instance=api.list_templates(), many=True).data)
+
+    @validated_request(
+        request_serializer=ResolveTemplateRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=ResolvedTemplateSerializer,
+                description=(
+                    "Resolved pipeline config. Pass target_event, horizon_days, "
+                    "training_population, inference_population, and output_person_property directly "
+                    "to autoresearch-create. Always run autoresearch-validate-create on the resolved "
+                    "config before creating."
+                ),
+            ),
+            400: OpenApiResponse(
+                description="Unknown template key or missing required target_event override.",
+            ),
+        },
+        summary="Resolve a template",
+        description=(
+            "Resolve a template key and optional overrides into a concrete pipeline config. "
+            "For activity-based templates ('likely_active_soon', 'at_risk_of_inactivity', "
+            "'return_after_first_use'), the target event is auto-resolved from your event schema — "
+            "check resolved_activity_event and activity_event_alternatives, then override if needed. "
+            "For 'feature_adoption' and 'repeat_key_behavior', supply target_event. "
+            "After resolving, call autoresearch-validate-create to check volume and warnings, "
+            "then autoresearch-create to create the pipeline."
+        ),
+    )
+    @action(detail=False, methods=["post"], url_path="resolve-template")
+    def resolve_template(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        data = request.validated_data
+        try:
+            resolved = api.resolve_template(
+                self.team_id,
+                template_key=data["template_key"],
+                target_event_override=data.get("target_event"),
+                horizon_days_override=data.get("horizon_days"),
+            )
+        except AutoresearchConflict as exc:
+            raise ValidationError(str(exc)) from exc
+        return Response(ResolvedTemplateSerializer(instance=resolved).data)
+
+    @validated_request(
+        request_serializer=ValidatePipelineRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=ValidatePipelineResponseSerializer,
+                description="Validation result with volume estimates, base rate, and warnings.",
+            ),
+        },
+        summary="Validate a pipeline definition",
+        description=(
+            "Validate a proposed pipeline's target event and population before creating it. "
+            "Returns volume estimates, base rate, and any warnings. "
+            "Warnings with severity='error' must be resolved before creation can proceed. "
+            "Call this before autoresearch-create."
+        ),
+    )
+    @action(detail=False, methods=["post"], url_path="validate")
+    def validate_definition(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        data = request.validated_data
+        target_event, target_definition = resolve_target(
+            team=self.team,
+            target_event=data.get("target_event", ""),
+            target_definition=data.get("target_definition"),
+        )
+        result = api.validate_definition(
+            self.team_id,
+            target_event=target_event,
+            target_definition=target_definition,
+            horizon_days=data.get("horizon_days", 7),
+            training_lookback_days=data.get("training_lookback_days", 180),
+            training_population=data.get("training_population", {}),
+            inference_population=data.get("inference_population", {}),
+        )
+        return Response(ValidatePipelineResponseSerializer(instance=result).data)
