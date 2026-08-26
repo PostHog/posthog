@@ -161,7 +161,7 @@ test('a universal tripwire claims every known target', () => {
         'devenv/duckgres.yaml',
         '.config/.markdownlint-cli2.jsonc',
         // A workflow nobody has placed in a domain keeps the old radius.
-        '.github/workflows/ci-e2e-playwright.yml',
+        '.github/workflows/ci-security.yaml',
     ]
     for (const file of tripwireFiles) {
         assert.equal(isTripwire(file), true, `${file} should be a tripwire`)
@@ -490,10 +490,138 @@ test('a single-language workflow claims that language rather than everything', (
         computeTargets(['.github/workflows/ci-frontend.yml'], CONTEXT),
         computeTargets(['.oxlintrc.json'], CONTEXT)
     )
+    for (const file of [
+        '.github/workflows/ci-backend.yml',
+        '.github/workflows/ci-python.yml',
+        '.github/workflows/ci-clickhouse-multinode-migrations.yml',
+        '.github/workflows/ci-migrations-service-separation-check.yml',
+        // The backend test-timing pair and the IDOR coverage check run only in
+        // ci-backend and its timing workflow.
+        '.github/scripts/optimize_test_durations.py',
+        '.github/scripts/test_optimize_test_durations.py',
+        '.github/scripts/check-idor-model-coverage.py',
+    ]) {
+        assert.deepEqual(computeTargets([file], CONTEXT), computeTargets(['mypy.ini'], CONTEXT), file)
+    }
+})
+
+// Suites that run the backend and the frontend together used to widen to every
+// lane, which serialized them against rust and the standalone trees no E2E or
+// image build can touch.
+test('a full-stack suite claims both language families and no rust crate', () => {
+    for (const file of [
+        '.github/workflows/ci-e2e-playwright.yml',
+        '.github/workflows/ci-hog.yml',
+        '.github/workflows/container-images-ci.yml',
+        '.github/workflows/cd-sandbox-base-image.yml',
+        '.github/workflows/ci-recording-rasterizer-container.yml',
+        '.github/scripts/report_test_timings.py',
+        'Dockerfile.playwright',
+        'Dockerfile.sandbox',
+    ]) {
+        const targets = computeTargets([file], CONTEXT)
+        for (const target of ['py:core', 'py:product:alpha', 'fe:core', 'node:ingestion', 'svc:mcp']) {
+            assert.equal(targets.includes(target), true, `${target} (from ${file})`)
+        }
+        assert.equal(
+            targets.some((target) => target.startsWith('rust:crate:')),
+            false,
+            file
+        )
+        assert.notDeepEqual(targets, EVERYTHING, file)
+    }
+})
+
+// No required pull-request or merge-queue check runs a release or CD workflow,
+// so no queue combination tests it either way and one shared lane is the
+// honest radius.
+test('release and CD workflows share the deploy lane', () => {
+    for (const file of [
+        '.github/workflows/container-images-cd.yml',
+        '.github/workflows/cd-mcp-image.yml',
+        '.github/workflows/rust-docker-build.yml',
+        '.github/workflows/release-cli.yml',
+        '.github/workflows/publish-hogli.yml',
+        '.github/rust-images.yml',
+        'Dockerfile.llm-analytics',
+    ]) {
+        assert.deepEqual(computeTargets([file], CONTEXT), ['deploy'], file)
+    }
+})
+
+// The hobby smoke test is the only suite that reads the install scripts, so
+// the scripts and the two workflows that run them have to share one lane: a
+// script change and the workflow change that runs it must not merge in
+// parallel.
+test('the hobby scripts and their smoke test share one lane', () => {
+    for (const file of [
+        '.github/workflows/ci-hobby.yml',
+        '.github/workflows/ci-hobby-installer.yml',
+        'bin/hobby-installer/go.mod',
+        'bin/hobby-ci.py',
+        'bin/deploy-hobby',
+    ]) {
+        assert.deepEqual(computeTargets([file], CONTEXT), ['hobby'], file)
+    }
+    // Everything else under bin/ keeps the old radius.
+    assert.deepEqual(computeTargets(['bin/start'], CONTEXT), EVERYTHING)
+})
+
+// The guard is the narrowing direction: a service workflow whose directory is
+// gone must widen rather than claim a lane no other PR can reach.
+test('a service suite workflow claims its service lane and widens without it', () => {
+    assert.deepEqual(computeTargets(['.github/workflows/ci-oauth-proxy.yml'], CONTEXT), ['svc:oauth-proxy'])
+    assert.deepEqual(computeTargets(['.github/workflows/ci-llm-gateway.yml'], CONTEXT), EVERYTHING)
+})
+
+test('desktop workflows claim the desktop product lanes and widen without the product', () => {
+    const withDesktop = { ...CONTEXT, products: [...CONTEXT.products, 'desktop'] }
+    for (const file of ['.github/workflows/desktop-ci.yml', '.github/workflows/desktop-release.yml']) {
+        assert.deepEqual(computeTargets([file], withDesktop), ['fe:product:desktop', 'py:product:desktop'], file)
+    }
+    assert.deepEqual(computeTargets(['.github/workflows/desktop-ci.yml'], CONTEXT), EVERYTHING)
+})
+
+// The Proto CI workflow gates buf lint and the stub drift checks over every
+// tree, which is the same radius the root buf configuration gets.
+test('the proto workflow claims every proto tree rather than everything', () => {
     assert.deepEqual(
-        computeTargets(['.github/workflows/ci-backend.yml'], CONTEXT),
-        computeTargets(['mypy.ini'], CONTEXT)
+        computeTargets(['.github/workflows/ci-proto.yml'], PROTO_CONTEXT),
+        computeTargets(['proto/buf.yaml'], PROTO_CONTEXT)
     )
+})
+
+test('the cli workflow and the reusable release plan share the cli lane', () => {
+    for (const file of ['.github/workflows/ci-cli.yml', '.github/workflows/release.yml']) {
+        assert.deepEqual(computeTargets([file], CONTEXT), computeTargets(['cli/src/main.rs'], CONTEXT), file)
+    }
+})
+
+test('the hogbox preview workflows keep the hogbox tooling lane', () => {
+    for (const file of ['.github/workflows/hogbox-preview-env.yml', '.github/workflows/hogbox-preview-cleanup.yml']) {
+        assert.deepEqual(computeTargets([file], CONTEXT), ['tools:hogbox-preview'], file)
+    }
+})
+
+test('the mcp ui-apps workflow claims the product-surface readers', () => {
+    assert.deepEqual(
+        computeTargets(['.github/workflows/ci-mcp-ui-apps.yml'], CONTEXT),
+        computeTargets(['frontend/src/products.json'], CONTEXT)
+    )
+})
+
+test('the agent-skills workflow claims the python lanes plus the agents lane', () => {
+    const targets = computeTargets(['.github/workflows/ci-agent-skills.yml'], CONTEXT)
+    assert.equal(targets.includes('agents'), true)
+    assert.equal(targets.includes('py:core'), true)
+    assert.equal(targets.includes('fe:core'), false)
+    assert.notDeepEqual(targets, EVERYTHING)
+})
+
+test('the ml-mirror sidecar image and its workflow stay on the node lane', () => {
+    for (const file of ['.github/workflows/ci-ml-mirror-image-scrub-container.yml', 'Dockerfile.ml-mirror-image-scrub']) {
+        assert.deepEqual(computeTargets([file], CONTEXT), ['node:ingestion'], file)
+    }
 })
 
 // Semgrep enforces the languages: declaration on every rule, so it is a sound
@@ -606,6 +734,15 @@ test('every target the rules can emit appears in the enumerated universe', () =>
         '.oxlintrc.json',
         'mypy.ini',
         '.github/workflows/ci-rust.yml',
+        '.github/workflows/ci-e2e-playwright.yml',
+        '.github/workflows/container-images-cd.yml',
+        '.github/workflows/ci-hobby.yml',
+        '.github/workflows/ci-oauth-proxy.yml',
+        '.github/workflows/ci-agent-skills.yml',
+        '.github/workflows/hogbox-preview-env.yml',
+        '.github/workflows/ci-cli.yml',
+        'bin/hobby-ci.py',
+        'Dockerfile.llm-analytics',
     ]
     for (const file of everyRule) {
         const targets = computeTargets([file], CONTEXT)

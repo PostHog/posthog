@@ -142,6 +142,35 @@ const SEMGREP = 'semgrep'
 // lanes, and it degrades to RUST when that list is absent.
 const CARGO_LOCK = 'cargo-lock'
 
+// The nodejs lane on its own, for files whose only reader is the ingestion
+// suite or an image built purely from nodejs/ sources. The rust and proto
+// rules also use it to name that lane without dragging in the frontend.
+const NODE = 'node'
+
+// Suites that run the backend and the frontend together: E2E, Hog, and the
+// builds of the images those suites run inside. Both language families in
+// full, which still leaves the rust crates and the standalone trees free.
+const FULLSTACK = 'fullstack'
+
+// Release and CD workflows. See addDeployLane for why one shared lane is safe.
+const DEPLOY = 'deploy'
+
+// The hobby deployment: its install scripts and the smoke test that runs them.
+const HOBBY = 'hobby'
+
+// The desktop product's own CI and release workflows.
+const DESKTOP = 'desktop'
+
+// ci-cli.yml and the reusable cargo-dist plan it calls, which build the CLI
+// from services/mcp sources. The same pair STANDALONE_TREES gives cli/ itself.
+const CLI_ARTIFACTS = 'cli-artifacts'
+
+// The hogbox preview-environment workflows, which read the hogbox tooling.
+const HOGBOX_PREVIEW = 'hogbox-preview'
+
+// The skills build plus the .agents tree, both gated by ci-agent-skills.yml.
+const AGENT_SKILLS = 'agent-skills'
+
 const TRIPWIRE_RULES = [
     // Markdown in these trees compiles into nothing and no suite reads it, so
     // it is prose like any other. Ahead of the trees themselves, which would
@@ -183,6 +212,70 @@ const TRIPWIRE_RULES = [
     ['.github/workflows/ci-dagster.yml', PYTHON],
     ['.github/workflows/ci-rust.yml', RUST],
     ['.github/workflows/ci-rust-flags-integration.yml', RUST],
+    // These three gate suites that run only Python: the tools and
+    // approval-agent pytest suites, the ClickHouse multinode migration smoke,
+    // and the Django migration separation check.
+    ['.github/workflows/ci-python.yml', PYTHON],
+    ['.github/workflows/ci-clickhouse-multinode-migrations.yml', PYTHON],
+    ['.github/workflows/ci-migrations-service-separation-check.yml', PYTHON],
+    // Suites that run the backend and the frontend together, and the builds of
+    // the images those suites run inside. cd-sandbox-base-image is here rather
+    // than on the deploy lane because it builds on pull requests from product
+    // code, so it is a PR suite despite the cd- name, and it has to precede
+    // the cd-*-image rule below.
+    ['.github/workflows/ci-e2e-playwright.yml', FULLSTACK],
+    ['.github/workflows/ci-e2e-playwright-audit.yml', FULLSTACK],
+    ['.github/workflows/ci-hog.yml', FULLSTACK],
+    ['.github/workflows/container-images-ci.yml', FULLSTACK],
+    ['.github/workflows/cd-sandbox-base-image.yml', FULLSTACK],
+    ['.github/workflows/ci-recording-rasterizer-container.yml', FULLSTACK],
+    // The ml-mirror-image-scrub sidecar is built from nodejs/ sources only.
+    ['.github/workflows/ci-ml-mirror-image-scrub-container.yml', NODE],
+    // The skills build runs through hogli (Python), and the same workflow
+    // gates .agents/, which holds its own lane.
+    ['.github/workflows/ci-agent-skills.yml', AGENT_SKILLS],
+    // buf lint and the stub drift checks span every proto tree, which is the
+    // radius proto/buf.yaml gets.
+    ['.github/workflows/ci-proto.yml', PROTO],
+    // Suites owned by one service directory.
+    ['.github/workflows/ci-llm-gateway.yml', 'service:llm-gateway'],
+    ['.github/workflows/ci-oauth-proxy.yml', 'service:oauth-proxy'],
+    ['.github/workflows/ci-agent-proxy.yml', 'service:agent-proxy'],
+    // The UI apps build reads services/mcp and every products/*/mcp tree,
+    // which are the readers the product-surface domain already names.
+    ['.github/workflows/ci-mcp-ui-apps.yml', PRODUCT_SURFACE],
+    ['.github/workflows/ci-cli.yml', CLI_ARTIFACTS],
+    ['.github/workflows/release.yml', CLI_ARTIFACTS],
+    // The hobby smoke test and the installer CI are the only suites that read
+    // the hobby scripts, so they share the hobby lane with them (the bin/
+    // rules below).
+    ['.github/workflows/ci-hobby.yml', HOBBY],
+    ['.github/workflows/ci-hobby-installer.yml', HOBBY],
+    // The desktop product's whole CI and release family builds and tests only
+    // products/desktop.
+    ['.github/workflows/desktop-*.yml', DESKTOP],
+    // Release and CD workflows: they publish artifacts from master pushes,
+    // tags, or opt-in labels, and none of them is a required check on a pull
+    // request or in the merge queue. See addDeployLane.
+    ['.github/workflows/container-images-cd.yml', DEPLOY],
+    ['.github/workflows/cd-*-image.yml', DEPLOY],
+    ['.github/workflows/rust-docker-build.yml', DEPLOY],
+    ['.github/workflows/release-cli.yml', DEPLOY],
+    ['.github/workflows/publish-hogli.yml', DEPLOY],
+    ['.github/rust-images.yml', DEPLOY],
+    // The hogbox preview environment gates no check, and its deploys read the
+    // hogbox tooling, which owns a lane already.
+    ['.github/workflows/hogbox-preview-env.yml', HOGBOX_PREVIEW],
+    ['.github/workflows/hogbox-preview-cleanup.yml', HOGBOX_PREVIEW],
+    // CI scripts held to the workflows that run them: the backend test-timing
+    // pair and the IDOR coverage check run only in ci-backend and its timing
+    // workflow, while report_test_timings is read by the backend, frontend,
+    // and nodejs workflows alike.
+    ['.github/scripts/optimize_test_durations.py', PYTHON],
+    ['.github/scripts/test_optimize_test_durations.py', PYTHON],
+    ['.github/scripts/check-idor-model-coverage.py', PYTHON],
+    ['.github/scripts/report_test_timings.py', FULLSTACK],
+    ['.github/scripts/test_report_test_timings.py', FULLSTACK],
 
     // Lint rules that run repo-wide: a new rule fails code that merged in a
     // parallel lane, which is the same conflict .oxlintrc.json is here for. The
@@ -269,6 +362,18 @@ const TRIPWIRE_RULES = [
     ['hogli.yaml', UNIVERSAL],
     ['.github/**', UNIVERSAL],
     ['docker-compose*.yml', UNIVERSAL],
+    // Single-purpose images ahead of the blanket: each is read by exactly one
+    // workflow or suite, whose rule above already carries the radius.
+    // Dockerfile.llm-analytics is built only by its master-push CD workflow,
+    // Dockerfile.ml-mirror-image-scrub only from nodejs/ sources, and the
+    // playwright and sandbox images host suites that run both language
+    // families. Dockerfile itself and Dockerfile.node stay on the blanket:
+    // the app image backs hobby and E2E alike, and the node image is mounted
+    // into the shared dev stack.
+    ['Dockerfile.llm-analytics', DEPLOY],
+    ['Dockerfile.ml-mirror-image-scrub', NODE],
+    ['Dockerfile.playwright', FULLSTACK],
+    ['Dockerfile.sandbox', FULLSTACK],
     ['Dockerfile*', UNIVERSAL],
     // Decides what lands in the build context of every image built from the
     // repository root, so it belongs with the Dockerfiles above.
@@ -305,6 +410,17 @@ const TRIPWIRE_RULES = [
     // alongside pytest, so an entry for a flaky frontend test moves a
     // frontend lane.
     ['.test_quarantine.json', UNIVERSAL],
+    // The hobby install scripts, ahead of the bin/ blanket. Only the hobby
+    // smoke test and the installer CI read them, and both workflows sit on the
+    // same lane above, so a hobby change and the workflow change that runs it
+    // stay serialized against each other and nothing else.
+    ['bin/hobby-installer/**', HOBBY],
+    ['bin/hobby-ci.py', HOBBY],
+    ['bin/hobby-ci-setup-user.py', HOBBY],
+    ['bin/deploy-hobby', HOBBY],
+    ['bin/upgrade-hobby', HOBBY],
+    ['bin/migrate-storage-hobby', HOBBY],
+    ['bin/migrate-session-recordings-hobby', HOBBY],
     // bin/ appears in the backend, frontend, and E2E path filters alike.
     ['bin/**', UNIVERSAL],
     ['patches/**', UNIVERSAL],
@@ -1181,7 +1297,7 @@ function allKnownTargets(context) {
     if (!rustGraph || !services) {
         return null
     }
-    const targets = new Set(['py:core', 'fe:core', 'node:ingestion', 'agents'])
+    const targets = new Set(['py:core', 'fe:core', 'node:ingestion', 'agents', 'deploy', 'hobby'])
     for (const product of products) {
         targets.add(pyProduct(product))
         targets.add(feProduct(product))
@@ -1311,14 +1427,69 @@ function addCargoLockLanes(targets, context) {
     return true
 }
 
-// The nodejs lane on its own. No tripwire resolves to it, because a file that
-// can break the ingestion suite can almost always break more than that. The
-// rust and proto rules still need to name it without dragging in the frontend.
-const NODE = 'node'
-
 function addNodeLanes(targets) {
     targets.add('node:ingestion')
     return true
+}
+
+function addFullstackLanes(targets, context) {
+    return addPythonLanes(targets, context) && addJavaScriptLanes(targets, context)
+}
+
+// Release and CD workflows publish artifacts from master pushes, tags, or
+// opt-in labels. No required pull-request or merge-queue check runs them, so a
+// conflict between one of them and any other PR is not a combination the queue
+// can test, and serializing the two buys no coverage. One shared lane, on the
+// same reasoning as repo-config.
+function addDeployLane(targets) {
+    targets.add('deploy')
+    return true
+}
+
+function addHobbyLane(targets) {
+    targets.add('hobby')
+    return true
+}
+
+function addHogboxPreviewLane(targets) {
+    targets.add('tools:hogbox-preview')
+    return true
+}
+
+function addCliArtifactLanes(targets) {
+    targets.add('cli')
+    targets.add('svc:mcp')
+    return true
+}
+
+function addAgentSkillsLanes(targets, context) {
+    targets.add('agents')
+    return addPythonLanes(targets, context)
+}
+
+// The desktop-* workflows build and test only products/desktop, so their
+// radius is that product's two lanes. The guard widens when the product is
+// gone, because the lanes would then name targets no other PR can claim.
+function addDesktopLanes(targets, context) {
+    if (!context.products.includes('desktop')) {
+        return false
+    }
+    targets.add(pyProduct('desktop'))
+    targets.add(feProduct('desktop'))
+    return true
+}
+
+// A workflow that defines one service's suite can be held to that service's
+// lane. The guard widens when the directory no longer exists, so a renamed
+// service does not leave its workflow claiming a lane no other PR can reach.
+function addServiceSuiteLane(service) {
+    return (targets, context) => {
+        if (!context.services || !context.services.includes(service)) {
+            return false
+        }
+        targets.add(`svc:${service}`)
+        return true
+    }
 }
 
 // Each proto tree and the consumers that generate from it. proto/README.md's
@@ -1352,13 +1523,16 @@ const PROTO_TREES = new Map([
 ])
 
 // A file directly under proto/ is treated as impacting all trees, since it's not
-// scoped to a single proto subdirectory. A subdirectory the table does not name
-// has unknown consumers and widens, which is what makes adding a tree without
-// declaring it here safe rather than silent.
+// scoped to a single proto subdirectory, and so is a file outside proto/
+// entirely (the Proto CI workflow reaches this domain that way). A subdirectory
+// the table does not name has unknown consumers and widens, which is what makes
+// adding a tree without declaring it here safe rather than silent.
 function addProtoLanes(targets, context, file) {
     const segments = file.split('/')
     const trees =
-        segments.length === 2 ? [...PROTO_TREES.keys()] : [segments[1]].filter((tree) => PROTO_TREES.has(tree))
+        segments[0] !== 'proto' || segments.length === 2
+            ? [...PROTO_TREES.keys()]
+            : [segments[1]].filter((tree) => PROTO_TREES.has(tree))
     if (trees.length === 0 || !context.rustGraph) {
         return false
     }
@@ -1392,7 +1566,17 @@ const DOMAIN_LANES = new Map([
     [NODE, addNodeLanes],
     [PRODUCT_SURFACE, addProductSurfaceLanes],
     [PROTO, addProtoLanes],
+    [FULLSTACK, addFullstackLanes],
+    [DEPLOY, addDeployLane],
+    [HOBBY, addHobbyLane],
+    [HOGBOX_PREVIEW, addHogboxPreviewLane],
+    [CLI_ARTIFACTS, addCliArtifactLanes],
+    [AGENT_SKILLS, addAgentSkillsLanes],
+    [DESKTOP, addDesktopLanes],
 ])
+for (const service of ['llm-gateway', 'oauth-proxy', 'agent-proxy']) {
+    DOMAIN_LANES.set(`service:${service}`, addServiceSuiteLane(service))
+}
 
 // Returns false when the file's domain is universal, which is the caller's cue
 // to abandon the per-file accumulation and report the whole set.
@@ -1884,7 +2068,14 @@ module.exports = {
     tripwireDomain,
     parseCargoLockCrates,
     ALL,
+    AGENT_SKILLS,
     CARGO_LOCK,
+    CLI_ARTIFACTS,
+    DEPLOY,
+    DESKTOP,
+    FULLSTACK,
+    HOBBY,
+    HOGBOX_PREVIEW,
     JAVASCRIPT,
     NATIVE_BINDING_CONSUMER_LANES,
     NODE,
