@@ -795,14 +795,21 @@ def _is_test_client_call(node: ast.Call) -> bool:
     return receiver is not None and receiver.endswith("client")
 
 
-def _kind_mentions(tree: ast.Module, kinds: _QueryKinds) -> list[tuple[ast.AST, str]]:
+def _kind_mentions(
+    tree: ast.Module, kinds: _QueryKinds, constructors: Mapping[str, str] | None = None
+) -> list[tuple[ast.AST, str]]:
     """Nodes that name a product query kind: a `"X"` or `NodeKind.X` value, or the schema
     constructor `X(...)`.
 
     A bare value counts too: a parametrize row or a constant reaches the dispatcher through a
     variable as often as through a literal `{"kind": ...}`. What separates a drive from a mention
     is whether the enclosing test executes, which `kind_drives` decides. A URL segment or a
-    substring of a longer string is not a value equal to a kind, so it does not count."""
+    substring of a longer string is not a value equal to a kind, so it does not count.
+
+    `constructors` maps the local names the module binds to schema classes (`from posthog.schema
+    import PathsQuery as Query`) back to their kinds; without it, a constructor counts by its own
+    name only."""
+    by_local = {kind: kind for kind in kinds.products} | dict(constructors or {})
     found: list[tuple[ast.AST, str]] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Constant | ast.Attribute):
@@ -811,9 +818,14 @@ def _kind_mentions(tree: ast.Module, kinds: _QueryKinds) -> list[tuple[ast.AST, 
                 found.append((node, kind))
         elif isinstance(node, ast.Call):
             name = _callee_name(node)
-            if name in kinds.products:
-                found.append((node, name))
+            if name in by_local:
+                found.append((node, by_local[name]))
     return found
+
+
+def _kind_constructors(imports: _ImportTable, kinds: _QueryKinds) -> dict[str, str]:
+    """Local name -> kind, for every schema class the module imports under any name."""
+    return {edge.bound: edge.exported for edge in imports.edges if edge.exported in kinds.products}
 
 
 def _kind_of(value: ast.expr, kinds: _QueryKinds) -> str | None:
@@ -881,7 +893,9 @@ class _Executions:
         return False
 
 
-def kind_drives(tree: ast.Module, kinds: _QueryKinds) -> Counter[_KindDrive]:
+def kind_drives(
+    tree: ast.Module, kinds: _QueryKinds, constructors: Mapping[str, str] | None = None
+) -> Counter[_KindDrive]:
     """Drive -> mentions, for every kind this module both builds and executes.
 
     Building alone is not a drive: a test that checks a schema or a formatter constructs the query
@@ -889,7 +903,7 @@ def kind_drives(tree: ast.Module, kinds: _QueryKinds) -> Counter[_KindDrive]:
     a test function counts when that function executes (itself or through a helper it calls); a
     kind built elsewhere, a `setUp` fixture or a class attribute, counts when any function of the
     enclosing class (or of the module, outside a class) executes."""
-    mentions = _kind_mentions(tree, kinds)
+    mentions = _kind_mentions(tree, kinds, constructors)
     if not mentions:
         return Counter()
     parents = _parent_map(tree)
@@ -973,6 +987,7 @@ class _KindHint:
         alternation = _alternation(names)
         pattern = (
             rb"[\"'](?:" + alternation + rb")[\"']|\b(?:" + alternation + rb")\("
+            rb"|\b(?:" + alternation + rb")\s+as\s"
             rb"|NodeKind\.(?:" + _alternation(kinds.members) + rb")\b"
         )
         return cls(reversed_common[::-1].encode(), re.compile(pattern))
@@ -1061,7 +1076,7 @@ def scan_crossing_uses(products: Iterable[str] | None = None) -> list[CrossingUs
                 parents = parents or _parent_map(tree)
                 counts[(label, candidate.dotted, classify_use(node, parents))] += 1
         if is_test and candidate.mentions_query_kind:
-            for drive, count in kind_drives(tree, kinds).items():
+            for drive, count in kind_drives(tree, kinds, _kind_constructors(candidate.imports, kinds)).items():
                 if drive.product in query_products and not candidate.path.is_relative_to(PRODUCTS_DIR / drive.product):
                     counts[
                         (

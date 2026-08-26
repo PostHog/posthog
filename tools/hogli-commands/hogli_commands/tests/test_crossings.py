@@ -442,6 +442,22 @@ class TestGarageDrives:
         module = "BOT_DEFINITIONS = [...]\nLIMIT: int = 5\n_private = 1\n\nclass Runner: ...\n\ndef helper(): ...\n"
         assert crossings._top_level_names(ast.parse(module)) == ["BOT_DEFINITIONS", "LIMIT", "Runner", "helper"]
 
+    def test_aliased_constructor_counts_by_its_kind(self) -> None:
+        source = textwrap.dedent(
+            """
+            from posthog.schema import PathsQuery as Query
+
+            def test_paths(team):
+                get_query_runner(Query(pathsFilter={}), team).calculate()
+            """
+        )
+        imports = crossings._read_imports(source.encode(), "posthog.test")
+        constructors = crossings._kind_constructors(imports, KINDS)
+        assert constructors == {"Query": "PathsQuery"}
+        drives = crossings.kind_drives(ast.parse(source), KINDS, constructors)
+        assert {(d.product, d.kind): n for d, n in drives.items()} == {("product_analytics", "PathsQuery"): 1}
+        assert crossings._KindHint.for_kinds(KINDS).matches(source.encode())
+
     def test_hint_matches_the_enum_form(self) -> None:
         hint = crossings._KindHint.for_kinds(KINDS)
         assert hint.matches(b'client.post(url, {"query": {"kind": NodeKind.PATHS_QUERY}})')
