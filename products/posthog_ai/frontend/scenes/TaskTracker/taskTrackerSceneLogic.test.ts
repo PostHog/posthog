@@ -134,7 +134,7 @@ describe('taskTrackerSceneLogic', () => {
         expect(createBody).toMatchObject({
             branch: null,
             model: 'claude-sonnet-5',
-            initial_permission_mode: 'plan',
+            initial_permission_mode: 'auto',
             pending_user_message: 'do the thing',
         })
         expect(runBody).toBeNull()
