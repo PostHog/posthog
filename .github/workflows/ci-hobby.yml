@@ -34,7 +34,9 @@ jobs:
     changes:
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        if: github.event_name == 'pull_request'
+        # trunk-merge/** heads are skipped: merge-queue PRs are ephemeral and every
+        # constituent PR already ran this in full.
+        if: github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
         name: Determine need to run hobby checks
         outputs:
             should_run: ${{ steps.filter.outputs.hobby == 'true' || steps.check-label.outputs.has_label == 'true' }}
