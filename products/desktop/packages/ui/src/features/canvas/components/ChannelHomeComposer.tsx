@@ -15,6 +15,7 @@ import {
 } from "react";
 import { useConnectivity } from "../../../hooks/useConnectivity";
 import { toast } from "../../../primitives/toast";
+import { spendStopMessage, useSpendStop } from "../../billing/useSpendStop";
 import { useChannelWikiContext } from "../../context-wiki/hooks/useContextWiki";
 import { useContextLayerFlag } from "../../feature-flags/useContextLayerFlag";
 import { useFeatureFlag } from "../../feature-flags/useFeatureFlag";
@@ -382,6 +383,7 @@ export const ChannelHomeComposer = forwardRef<
   );
 
   const isBusy = isCreatingTask;
+  const spendStop = useSpendStop();
 
   return (
     <div className="relative flex w-full flex-col">
@@ -452,7 +454,11 @@ export const ChannelHomeComposer = forwardRef<
           isBusy ||
           !isOnline ||
           (runtime === "pi" ? isPiConfigLoading : isLoading) ||
-          (runtime === "pi" && !currentPiModel)
+          (runtime === "pi" && !currentPiModel) ||
+          spendStop !== null
+        }
+        submitTooltipOverride={
+          spendStop ? spendStopMessage(spendStop) : undefined
         }
         modeOption={runtime === "pi" ? undefined : modeOption}
         onModeChange={runtime === "pi" ? undefined : handleModeChange}

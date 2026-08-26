@@ -107,10 +107,11 @@ _CATEGORY_DEFAULTS: dict[CDCErrorCategory, tuple[str, bool]] = {
         True,
     ),
     CDCErrorCategory.HOST_UNREACHABLE: (
-        "PostHog has no network route to the source database host, so it can't be reached. Check "
-        "that the host and port are correct and reachable from the public internet (PostHog's IP "
-        "addresses allowed through, and the host not resolving to a private or unreachable "
-        "address), then re-enable change data capture.",
+        "PostHog couldn't open a network connection to the source database. Check that the host "
+        "and port are correct, and that the database accepts connections from the public internet "
+        "with PostHog's IP addresses allowed through. If all of that looks right, contact support: "
+        "some hosts resolve to an address PostHog can't reach, which is ours to fix. Re-enable "
+        "change data capture once it's reachable.",
         False,
     ),
     CDCErrorCategory.SSH_TUNNEL_FAILED: (

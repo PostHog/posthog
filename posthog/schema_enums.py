@@ -445,7 +445,6 @@ class AssistantTool(StrEnum):
     SEARCH_ERROR_TRACKING_ISSUES = "search_error_tracking_issues"
     FIND_ERROR_TRACKING_IMPACTFUL_ISSUE_EVENT_LIST = "find_error_tracking_impactful_issue_event_list"
     EXPERIMENT_RESULTS_SUMMARY = "experiment_results_summary"
-    EXPERIMENT_SESSION_REPLAYS_SUMMARY = "experiment_session_replays_summary"
     CREATE_SURVEY = "create_survey"
     EDIT_SURVEY = "edit_survey"
     ANALYZE_SURVEY_RESPONSES = "analyze_survey_responses"
@@ -1459,6 +1458,7 @@ class ExternalDataSourceType(StrEnum):
     EBAY = "Ebay"
     COMMERCETOOLS = "Commercetools"
     LIGHTSPEED_RETAIL = "LightspeedRetail"
+    SHIPMAIL = "Shipmail"
     SHIP_STATION = "ShipStation"
     CONSTANT_CONTACT = "ConstantContact"
     MAILGUN = "Mailgun"
@@ -2595,6 +2595,13 @@ class ExternalDataSourceType(StrEnum):
     DATO_CMS = "DatoCMS"
     WPS_OFFICE = "WPSOffice"
     TERA_BOX = "TeraBox"
+    SIMON_DATA = "SimonData"
+    COMMISSION_JUNCTION = "CommissionJunction"
+    LIVEBLOCKS = "Liveblocks"
+    NATION_BUILDER = "NationBuilder"
+    TANA = "Tana"
+    ZENCHEF = "Zenchef"
+    LOVABLE = "Lovable"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -3348,6 +3355,7 @@ class NodeKind(StrEnum):
     WEB_STATS_TABLE_QUERY = "WebStatsTableQuery"
     WEB_EXTERNAL_CLICKS_TABLE_QUERY = "WebExternalClicksTableQuery"
     WEB_BOTS_TABLE_QUERY = "WebBotsTableQuery"
+    WEB_AGENT_ANALYTICS_QUERY = "WebAgentAnalyticsQuery"
     WEB_GOALS_QUERY = "WebGoalsQuery"
     WEB_VITALS_QUERY = "WebVitalsQuery"
     WEB_VITALS_PATH_BREAKDOWN_QUERY = "WebVitalsPathBreakdownQuery"
@@ -4143,6 +4151,24 @@ class UserProductListReason(StrEnum):
     NEW_PRODUCT = "new_product"
     SALES_LED = "sales_led"
     ONBOARDING_DELEGATED = "onboarding_delegated"
+
+
+class WebAgentAnalyticsQueryType(StrEnum):
+    OVERVIEW = "overview"
+    ISSUES = "issues"
+    PAGE_REQUESTS = "page_requests"
+    TRANSITIONS = "transitions"
+    DEMAND = "demand"
+    ISSUE_VARIANTS = "issue_variants"
+    REQUEST_ANATOMY = "request_anatomy"
+    JOURNEY_SUMMARY = "journey_summary"
+    JOURNEYS = "journeys"
+    JOURNEY_DETAIL = "journey_detail"
+
+
+class WebAgentContentGrouping(StrEnum):
+    EXACT = "exact"
+    NORMALIZED = "normalized"
 
 
 class WebAnalyticsItemKind(StrEnum):

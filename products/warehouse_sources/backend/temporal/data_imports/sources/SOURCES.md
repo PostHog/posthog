@@ -455,6 +455,7 @@ the row lists both.
 | metaplane                        | HTTP                        | requests                                                        | ✅                          |
 | meteostat                        | HTTP                        | requests                                                        | ✅                          |
 | metorial                         | HTTP                        | requests                                                        | ✅                          |
+| metronome                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | microsoft_clarity                | HTTP                        | requests                                                        | ✅                          |
 | mighty_networks                  | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | mistral_ai                       | HTTP                        | requests                                                        | ✅                          |
@@ -619,6 +620,7 @@ the row lists both.
 | servicem8                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | servicenow                       | HTTP                        | requests                                                        | ✅                          |
 | sftp                             | SSH (SFTP)                  | paramiko                                                        | ➖                          |
+| shipmail                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | shippo                           | HTTP                        | requests                                                        | ✅                          |
 | shipstation                      | HTTP                        | requests                                                        | ✅                          |
 | shopify                          | HTTP                        | requests                                                        | ✅                          |
@@ -952,6 +954,7 @@ doesn't conflict with concurrent PRs.
 - codacy
 - codecov
 - collibra
+- commission_junction
 - constant_contact
 - conta_azul
 - contentsquare
@@ -1149,12 +1152,14 @@ doesn't conflict with concurrent PRs.
 - lingo_dev
 - linkedin_pages
 - linnworks
+- liveblocks
 - llama_cloud
 - lodgify
 - logicmonitor
 - logrocket
 - lokalise
 - looker
+- lovable
 - m3ter
 - mailtrap
 - mantle
@@ -1168,7 +1173,6 @@ doesn't conflict with concurrent PRs.
 - merge
 - metricool
 - metriport
-- metronome
 - mews
 - mezmo
 - microsoft_365_usage_reports
@@ -1201,6 +1205,7 @@ doesn't conflict with concurrent PRs.
 - msg91
 - mycase
 - nasa
+- nationbuilder
 - navan
 - neon_crm
 - netsuite
@@ -1345,6 +1350,7 @@ doesn't conflict with concurrent PRs.
 - sideshift
 - signnow
 - sim
+- simon_data
 - simplecast
 - simplesat
 - simpro
@@ -1385,6 +1391,7 @@ doesn't conflict with concurrent PRs.
 - systeme
 - tackle_io
 - talkdesk
+- tana
 - teamup_fitness
 - tebra
 - telli
@@ -1466,6 +1473,7 @@ doesn't conflict with concurrent PRs.
 - zalando_zdirect
 - zapsign
 - zellify
+- zenchef
 - zenefits
 - zenloop
 - zitadel

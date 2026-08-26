@@ -822,11 +822,11 @@ def _resolve_live_sandbox(state: dict[str, Any] | None) -> LiveSandboxLookup:
     if not sandbox_id:
         return LiveSandboxLookup()
     from products.tasks.backend.logic.services.sandbox import (
-        Sandbox,  # noqa: PLC0415 — keep the sandbox service off the import path
+        get_sandbox_class_for_sandbox_id,  # noqa: PLC0415 — keep the sandbox service off the import path
     )
 
     try:
-        sandbox = Sandbox.get_by_id(sandbox_id)
+        sandbox = get_sandbox_class_for_sandbox_id(sandbox_id).get_by_id(sandbox_id)
         if sandbox.is_running():
             return LiveSandboxLookup(sandbox=sandbox)
     except Exception:

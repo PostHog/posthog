@@ -22,7 +22,9 @@ from products.metrics.backend.facade.contracts import MetricFilter, MetricGroupB
 from products.metrics.backend.facade.enums import AttributeScope, FilterOp, MetricAggregation
 from products.metrics.backend.formula import evaluate, parse_formula
 from products.metrics.backend.metric_query_runner import (
+    _INTERVAL_LADDER,
     MetricQueryRunner,
+    _align_to_interval,
     _histogram_quantile,
     _pick_interval,
     attribute_field,
@@ -44,6 +46,33 @@ class TestPickInterval:
     def test_pick_interval(self, _name: str, delta: dt.timedelta, expected: str) -> None:
         start = dt.datetime(2026, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
         assert _pick_interval(start, start + delta) == expected
+
+
+class TestAlignToInterval(ClickhouseTestMixin, APIBaseTest):
+    @parameterized.expand([(name,) for name, _, _ in _INTERVAL_LADDER])
+    def test_matches_clickhouse_bucket_boundaries(self, interval: str) -> None:
+        # The runner snaps date_from onto the bucket grid before querying; if
+        # this floor ever disagrees with toStartOfInterval, first buckets go
+        # partial again.
+        awkward = dt.datetime(2026, 3, 11, 17, 47, 33, 123456, tzinfo=dt.UTC)
+        aligned = _align_to_interval(awkward, interval)
+
+        interval_call = next(expr for name, _, expr in _INTERVAL_LADDER if name == interval)
+        interval_arg = interval_call.args[0]
+        assert isinstance(interval_arg, ast.Constant)
+        interval_sql = f"{interval_call.name}({interval_arg.value})"
+        ((clickhouse_aligned,),) = sync_execute(
+            f"SELECT toStartOfInterval(toDateTime64(%(ts)s, 6, 'UTC'), {interval_sql})",
+            {"ts": awkward.strftime("%Y-%m-%d %H:%M:%S.%f")},
+        )
+        if not isinstance(clickhouse_aligned, dt.datetime):
+            # Week intervals come back as a bare Date.
+            clickhouse_aligned = dt.datetime.combine(clickhouse_aligned, dt.time(), tzinfo=dt.UTC)
+        elif clickhouse_aligned.tzinfo is None:
+            clickhouse_aligned = clickhouse_aligned.replace(tzinfo=dt.UTC)
+
+        self.assertEqual(aligned, clickhouse_aligned)
+        self.assertLessEqual(aligned, awkward)
 
 
 class TestMetricQueryRunner(ClickhouseTestMixin, APIBaseTest):
@@ -206,6 +235,39 @@ class TestMetricQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual([row["value"] for row in runner.run()], [expected])
+
+    def test_unaligned_date_from_reads_the_whole_first_bucket(self):
+        # The viewer's relative presets ("-1h") resolve to now-minus-offset with
+        # second precision, so date_from usually lands inside a bucket. A series
+        # whose only report came before date_from but inside that bucket must
+        # still count — the bucket stands for its whole interval.
+        anchor = (timezone.now() - dt.timedelta(minutes=30)).replace(second=0, microsecond=0)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            points=[(anchor + dt.timedelta(seconds=5), 3.0)],
+            labels={"pod": "a"},
+        )
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            points=[(anchor + dt.timedelta(seconds=40), 4.0)],
+            labels={"pod": "b"},
+        )
+
+        rows = MetricQueryRunner(
+            team=self.team,
+            metric_name="m1",
+            aggregation="sum",
+            date_from=anchor + dt.timedelta(seconds=20),
+            date_to=anchor + dt.timedelta(minutes=1),
+            interval="minute",
+        ).run()
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["value"], 7.0)
+        earliest = dt.datetime.fromisoformat(rows[0]["time"]).astimezone(dt.UTC)
+        self.assertEqual(earliest, anchor)
 
     def test_synthetic_original_timestamp_does_not_split_a_series(self):
         anchor = timezone.now().replace(second=0, microsecond=0)
@@ -821,6 +883,52 @@ class TestRateIncrease(ClickhouseTestMixin, APIBaseTest):
         earliest = dt.datetime.fromisoformat(rows[0]["time"]).astimezone(dt.UTC)
         self.assertEqual(earliest, self.anchor - dt.timedelta(minutes=1))
 
+    @parameterized.expand(
+        [
+            ("increase", [20.0, 20.0, 20.0]),
+            ("rate", [20.0 / 60.0, 20.0 / 60.0, 20.0 / 60.0]),
+        ]
+    )
+    def test_unaligned_date_from_still_charts_a_complete_first_bucket(self, aggregation: str, expected: list[float]):
+        # date_from usually lands inside a bucket (relative presets resolve to
+        # now-minus-offset with second precision). The first bucket must cover
+        # its whole interval, not just the slice after date_from.
+        self._seed_counter([(self.anchor + dt.timedelta(seconds=s), 100.0 + s / 3.0) for s in range(-60, 181, 15)])
+        rows = self._run(
+            aggregation,
+            date_from=self.anchor + dt.timedelta(seconds=20),
+            date_to=self.anchor + dt.timedelta(minutes=3),
+        )
+        for row, expected_value in zip(rows, expected):
+            self.assertAlmostEqual(row["value"], expected_value)
+        self.assertEqual(len(rows), len(expected))
+        earliest = dt.datetime.fromisoformat(rows[0]["time"]).astimezone(dt.UTC)
+        self.assertEqual(earliest, self.anchor)
+
+    def test_bucket_with_no_computable_increase_is_dropped_not_zero(self):
+        # Scraped every 10 minutes: the first in-range sample's predecessor sits
+        # beyond counter_lookback, so its increase is unknowable. Unknown must
+        # be a missing point, not a plotted 0 — the histogram path already
+        # drops such buckets.
+        start = self.anchor - dt.timedelta(minutes=self.anchor.minute % 5)
+        self._seed_counter(
+            [
+                (start - dt.timedelta(minutes=10), 100.0),
+                (start, 200.0),
+                (start + dt.timedelta(minutes=10), 300.0),
+                (start + dt.timedelta(minutes=20), 400.0),
+            ]
+        )
+        rows = self._run(
+            "increase",
+            date_from=start,
+            date_to=start + dt.timedelta(minutes=30),
+            interval="minute_5",
+        )
+        self.assertEqual([row["value"] for row in rows], [100.0, 100.0])
+        earliest = dt.datetime.fromisoformat(rows[0]["time"]).astimezone(dt.UTC)
+        self.assertEqual(earliest, start + dt.timedelta(minutes=10))
+
     def test_rate_divides_by_bucket_seconds(self):
         self._seed_counter(
             [
@@ -1056,6 +1164,29 @@ class TestHistogramQuantileRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertAlmostEqual(rows[0]["value"], 0.3)
         earliest = dt.datetime.fromisoformat(rows[0]["time"]).astimezone(dt.UTC)
         self.assertEqual(earliest, self.anchor - dt.timedelta(minutes=1))
+
+    def test_unaligned_date_from_keeps_the_first_buckets_full_distribution(self):
+        # Growth recorded before date_from but inside the first bucket is part
+        # of that bucket's distribution; clipping at date_from skews the
+        # quantile toward whatever happened to grow last.
+        self._seed_histogram(
+            [
+                (self.anchor, [100, 100, 100, 0]),
+                (self.anchor + dt.timedelta(seconds=20), [110, 100, 100, 0]),
+                (self.anchor + dt.timedelta(seconds=40), [110, 110, 100, 0]),
+            ],
+            temporality="cumulative",
+        )
+        rows = self._run(
+            0.5,
+            date_from=self.anchor + dt.timedelta(seconds=30),
+            date_to=self.anchor + dt.timedelta(minutes=1),
+        )
+        self.assertEqual(len(rows), 1)
+        # Window contribution [10, 10, 0, 0]: p50 sits in the first bucket.
+        self.assertAlmostEqual(rows[0]["value"], 0.1)
+        earliest = dt.datetime.fromisoformat(rows[0]["time"]).astimezone(dt.UTC)
+        self.assertEqual(earliest, self.anchor)
 
     def test_mismatched_bounds_raise(self):
         self._seed_histogram([(self.anchor + dt.timedelta(seconds=0), [1, 1, 1, 0])], temporality="delta")

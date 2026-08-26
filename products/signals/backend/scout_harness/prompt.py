@@ -129,9 +129,8 @@ _HOW_A_RUN_WORKS_HEAD = """# How a run works
 2. **Check what the rest of the fleet has seen.** Call `scout-runs-list` again without `skill_name`, passing `text=<the entity or topic>` once per thing you're about to investigate. That filter is load-bearing: the call returns 20 rows by default, so on a full fleet an unfiltered page covers barely a day and a relevant sibling sorts out of view before you read it. Nothing matches? Move on, rather than reading the fleet's whole recent output. On a match, follow that run's `emitted_report_ids` / `edited_report_ids` into `inbox-reports-retrieve`, or its `emitted_finding_ids` via `scout-runs-emissions-list` for a sibling still on the signal channel, and read the evidence rather than the prose summary. This read is context-gathering only: ignore the tool output's guidance about associating your task with a report (`task_run` artefacts), which applies to a run actually working a report and would staple your run onto a sibling's.
 3. **Investigate.** Use the PostHog MCP read tools to gather evidence, discovering what's available at run time. Your skill body tells you *what* to look at."""
 
-# Rendered into the head's investigate step only when the team's data catalog is enabled, because
-# `system.information_schema.metrics` and `data-catalog-metric-run` don't exist for flag-off teams
-# and unconditioned steering would burn those runs' budget on failing queries.
+# Rendered into the head's investigate step, steering hypotheses that rest on a named measure at
+# `system.information_schema.metrics` and `data-catalog-metric-run` instead of a hand-derived query.
 _METRICS_CATALOG_SCOPE = "When a hypothesis rests on a named, reusable measure, business (revenue, MRR, churn, activation) or operational telemetry computed to monitor or report (cost per run, failure or error rates, latency, throughput),"
 
 _METRICS_CATALOG_RULE = f""" {_METRICS_CATALOG_SCOPE} check the governed metrics catalog first – `SELECT name, description, status, is_drifted FROM system.information_schema.metrics` via `execute-sql` – and run an approved, non-drifted match with `data-catalog-metric-run` rather than hand-deriving it, even when your skill body ships its own SQL for that measure: a governed definition outranks a playbook query, and a number derived outside it must be labeled noncanonical. Cache the lookup outcome in your scratchpad (`catalog:<scope>:<measure>`, match or no-match plus date) and reuse a fresh entry instead of re-querying every run; re-verify an entry roughly a day old, and immediately when a canonical run reports drift or a status change. When the no-match came from a cached entry rather than an in-run lookup, open the derived query's stated context with `governed catalog consulted: no listed metric matched <measure> (noncanonical)` – the scratchpad is invisible to the trace. Schema, availability, and freshness checks stay schema-first; no catalog detour for those."""
@@ -163,9 +162,7 @@ def _governed_metric_listing(governed_metric_names: Sequence[str]) -> str:
     return listing
 
 
-def _how_a_run_works_head(*, data_catalog_enabled: bool, governed_metric_names: Sequence[str] | None = None) -> str:
-    if not data_catalog_enabled:
-        return _HOW_A_RUN_WORKS_HEAD
+def _how_a_run_works_head(*, governed_metric_names: Sequence[str] | None = None) -> str:
     if governed_metric_names is None:
         return _HOW_A_RUN_WORKS_HEAD + _METRICS_CATALOG_RULE
     if not governed_metric_names:
@@ -220,6 +217,8 @@ Good: `dedupe:error_tracking:019de34e`, `pattern:apm:cursor`.
 Bad: `dedupe:error_tracking:019de34e-2026-06-09`, `pattern:apm:scan-2026-06-09-0400`.
 
 Write the `content` as **Markdown** (headings, bullet lists, `inline code` for ids/keys, links). Humans read these entries directly, so structure beats a wall of prose, and it reads verbatim into future prompts just the same.
+
+**Time-boxed memories: set `expires_at` instead of planning to come back.** Most of what you record is durable and should stay, so leave `expires_at` unset by default. But when a memory is only true for a while — a cooldown ("don't re-flag the checkout alert before Friday"), a window you're watching, a caveat that lapses with a migration — pass `expires_at` on the `remember` call and it drops out of searches on its own. A future run that reads it after it should have lapsed is worse than not recording it at all, and the `forget` you promise yourself you'll make rarely happens. Two things to hold: each write carries the whole entry, so re-writing an entry without `expires_at` clears an expiry you set earlier (say so in the content when a memory has become permanent), and a `followup:` entry may not carry one at all — a validate-after date is when to *check* it, not when it stops mattering, so `remember` rejects the combination rather than letting the entry vanish from your queue before you get to it.
 
 **Searching: query the entity, not just your own prefix.** The scratchpad is one keyspace shared by every scout on this team, and `scout-scratchpad-search` matches on key *and* content. Searching only your own `<domain>:` prefix finds your own past work and nothing else. Search the identity of the thing too (the issue id, flag key, page path, account id, event name) and you'll surface what a sibling recorded about the same entity under its own prefix. Each result carries `created_by_skill`, so you can tell your own memory from a sibling's."""
 
@@ -774,7 +773,6 @@ def _signal_tail_sections(
     *,
     followup_section: str,
     structured_output_section: str = "",
-    data_catalog_enabled: bool = False,
     governed_metric_names: Sequence[str] | None = None,
     business_knowledge_maintained: bool = False,
 ) -> list[str]:
@@ -782,7 +780,7 @@ def _signal_tail_sections(
     channel-matched, so it can't live in a static list; `structured_output_section` is likewise
     per-run composed (empty when the config carries no schema)."""
     return [
-        f"{_how_a_run_works_head(data_catalog_enabled=data_catalog_enabled, governed_metric_names=governed_metric_names)}\n{_HOW_A_RUN_WORKS_SIGNAL_STEPS}",
+        f"{_how_a_run_works_head(governed_metric_names=governed_metric_names)}\n{_HOW_A_RUN_WORKS_SIGNAL_STEPS}",
         # Ground rules lead the tail: the untrusted-input rule is stated once there, and the sections
         # that read an untrusted source point back at it rather than restating the reasoning.
         _GROUND_RULES,
@@ -812,7 +810,6 @@ def _report_tail_sections(
     followup_section: str,
     github_read_access: bool = False,
     structured_output_section: str = "",
-    data_catalog_enabled: bool = False,
     governed_metric_names: Sequence[str] | None = None,
     business_knowledge_maintained: bool = False,
 ) -> list[str]:
@@ -828,7 +825,7 @@ def _report_tail_sections(
     `github_read_access` appends the `gh` evidence section only when the sandbox actually got a
     read-only GitHub token — every persona here can set reviewers (edit-only routes unrouted
     reports), so it slots in wherever reviewer guidance lives."""
-    head = _how_a_run_works_head(data_catalog_enabled=data_catalog_enabled, governed_metric_names=governed_metric_names)
+    head = _how_a_run_works_head(governed_metric_names=governed_metric_names)
     if can_emit and can_edit:
         how_a_run_works = f"{head}\n{_REPORT_STEPS_BOTH}\n{_REPORT_CLOSE_OUT_STEP}"
         channel_sections = [
@@ -959,7 +956,6 @@ def build_run_prompt(
     started_at: datetime,
     github_read_access: bool = False,
     structured_output_schema: dict | None = None,
-    data_catalog_enabled: bool = False,
     governed_metric_names: Sequence[str] | None = None,
     mcp_server_names: Sequence[str] | None = None,
     business_knowledge_maintained: bool = False,
@@ -1005,12 +1001,10 @@ def build_run_prompt(
     *How to call tools*; empty or None appends nothing, so a run with no external servers is
     never steered at `ToolSearch` lookups that can't match.
 
-    `data_catalog_enabled` must mirror the team's `product-data-catalog` flag: it renders the
-    governed-metrics catalog-first steering, and the catalog surfaces it names don't exist for
-    flag-off teams (see the note on `_METRICS_CATALOG_RULE`). `governed_metric_names` is the
-    harness-side pre-fetch of the team's approved, non-drifted metric names: a list (even empty)
-    renders the injected listing so the run is catalog-aware without a probe query, and `None`
-    means the lookup was unavailable, falling back to the prose probe-and-cache rule.
+    `governed_metric_names` is the harness-side pre-fetch of the team's approved, non-drifted metric
+    names: a list (even empty) renders the injected listing so the run is catalog-aware without a
+    probe query, and `None` means the lookup was unavailable, falling back to the prose
+    probe-and-cache rule.
 
     `business_knowledge_maintained` must mirror `business_knowledge.is_maintained_for_team`: it
     renders the business-knowledge section, which names tools that only exist in the run's toolset
@@ -1043,7 +1037,6 @@ def build_run_prompt(
             followup_section=followup_section,
             github_read_access=github_read_access,
             structured_output_section=structured_output_section,
-            data_catalog_enabled=data_catalog_enabled,
             governed_metric_names=governed_metric_names,
             business_knowledge_maintained=business_knowledge_maintained,
         )
@@ -1055,7 +1048,6 @@ def build_run_prompt(
         sections = _signal_tail_sections(
             followup_section=followup_section,
             structured_output_section=structured_output_section,
-            data_catalog_enabled=data_catalog_enabled,
             governed_metric_names=governed_metric_names,
             business_knowledge_maintained=business_knowledge_maintained,
         )

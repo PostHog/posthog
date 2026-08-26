@@ -232,26 +232,31 @@ export class ImageFetchRequestMetrics {
     })
     private static readonly lowOriginDiversityPasses = new Counter({
         name: 'ml_image_fetch_low_origin_diversity_passes_total',
-        help: 'Fetch passes that republished queued work because too few origins remained to use request capacity',
+        help: 'Fetch passes that entered low-diversity mode because too few request slots remained',
     })
     private static readonly lowOriginDiversityOrigins = new Histogram({
         name: 'ml_image_fetch_low_origin_diversity_origins',
-        help: 'Origins remaining when a fetch pass started low-diversity republishing',
+        help: 'Origins remaining when a fetch pass entered low-diversity mode',
         buckets: [1, 2, 4, 8, 16, 32, 64],
     })
     private static readonly lowOriginDiversityCandidates = new Histogram({
         name: 'ml_image_fetch_low_origin_diversity_candidates',
-        help: 'Canonical URL jobs remaining when a fetch pass started low-diversity republishing',
+        help: 'Canonical URL jobs remaining when a fetch pass entered low-diversity mode',
         buckets: [1, 8, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16_384, 32_768, 65_536],
+    })
+    private static readonly lowOriginDiversityRequestSlots = new Histogram({
+        name: 'ml_image_fetch_low_origin_diversity_request_slots',
+        help: 'Request slots remaining when a fetch pass entered low-diversity mode',
+        buckets: [1, 2, 4, 8, 16, 32, 48, 64, 128, 256, 300],
     })
     private static readonly batchSchedulableSlots = new Histogram({
         name: 'ml_image_fetch_batch_schedulable_slots',
-        help: 'Request slots that the initial fetch queue can use immediately after origin and registrable-domain concurrency limits',
+        help: 'Request slots that the initial fetch queue can use after live pod and registrable-domain concurrency limits',
         buckets: [1, 2, 4, 8, 16, 32, 64, 128, 256, 300, 512, 1024],
     })
     private static readonly batchSchedulableCapacityRatio = new Histogram({
         name: 'ml_image_fetch_batch_schedulable_capacity_ratio',
-        help: 'Share of the pod request limit that the initial fetch queue can use immediately',
+        help: 'Share of the pod request limit that the initial fetch queue can use after live concurrency limits',
         buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 1],
     })
     /**
@@ -372,10 +377,11 @@ export class ImageFetchRequestMetrics {
     public static observePolicyAndBudgetDecision(blocked: boolean, reason: PolicyAndBudgetReason = 'none'): void {
         this.policyAndBudgetDecisions.labels(blocked ? 'true' : 'false', reason).inc()
     }
-    public static observeLowOriginDiversity(origins: number, candidates: number): void {
+    public static observeLowOriginDiversity(origins: number, candidates: number, requestSlots: number): void {
         this.lowOriginDiversityPasses.inc()
         this.lowOriginDiversityOrigins.observe(origins)
         this.lowOriginDiversityCandidates.observe(candidates)
+        this.lowOriginDiversityRequestSlots.observe(requestSlots)
     }
     public static observeBatchSchedulableCapacity(slots: number, podRequestLimit: number): void {
         const boundedSlots = Math.min(slots, podRequestLimit)
@@ -426,7 +432,7 @@ export class ImageFetchRequestMetrics {
      */
     private static readonly republished = new Counter({
         name: 'ml_image_fetch_republished_total',
-        help: 'URLs published back to Kafka by bounded reason and destination class. "redirect" left the origin. "retry" hit a transient failure and waits in a delay topic. "not_ready" arrived before its wait ended',
+        help: 'URLs published back to Kafka by bounded reason and destination class. "redirect" left the origin. "retry" hit a transient failure and waits in a delay topic. "not_ready" arrived before its wait ended. "low_origin_diversity" returns queued work to the frontier so a later batch can add origins',
         labelNames: ['reason', 'topic'],
     })
     private static readonly republishFailed = new Counter({

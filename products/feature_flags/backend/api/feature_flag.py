@@ -120,6 +120,7 @@ from products.feature_flags.backend.session_recording_links import (
     REPLAY_LINKED_FLAG_DELETE_ERROR,
     replay_linked_flag_ids,
     teams_linking_flag,
+    teams_linking_flag_in_project,
 )
 from products.feature_flags.backend.types import PropertyFilterType
 from products.feature_flags.backend.user_blast_radius import get_user_blast_radius
@@ -1948,23 +1949,38 @@ class FeatureFlagSerializer(
             soft_deleted_qs = soft_deleted_qs.exclude(pk=exclude_pk)
 
         for flag in soft_deleted_qs:
+            if teams_linking_flag_in_project(self.context["project_id"], flag.id).exists():
+                # Hard-deleting fires no save, so nothing relinks the teams gating replay on
+                # this tombstone and they keep the key the new flag is about to claim. Rename
+                # instead and `relink_teams_on_key_change` moves them onto the tombstone. The
+                # blocker check still runs first: renaming a flag an active dependent references
+                # would silently break that dependent, whether or not a team links it for replay.
+                self._raise_if_key_reuse_blocked(flag)
+                flag.key = flag.tombstoned_key()
+                flag.save(update_fields=["key"])
+                continue
             try:
                 flag.delete()
             except (deletion.RestrictedError, deletion.ProtectedError):
-                blockers = []
-                active_experiment_ids = list(flag.experiment_set.filter(deleted=False).values_list("id", flat=True))
-                if active_experiment_ids:
-                    blockers.append(f"active experiment(s) with ID(s): {', '.join(map(str, active_experiment_ids))}")
-                eaf_count = flag.features.count()
-                if eaf_count:
-                    blockers.append(f"{eaf_count} early access feature(s)")
-                if blockers:
-                    raise exceptions.ValidationError(
-                        f"Cannot reuse key '{flag.key}': a soft-deleted flag with this key is still "
-                        f"referenced by {' and '.join(blockers)}. Please contact support."
-                    )
+                self._raise_if_key_reuse_blocked(flag)
                 flag.key = flag.tombstoned_key()
                 flag.save(update_fields=["key"])
+
+    def _raise_if_key_reuse_blocked(self, flag: FeatureFlag) -> None:
+        # An active dependent (Experiment via RESTRICT, EarlyAccessFeature via PROTECT) means the
+        # tombstone can't be freed without silently breaking that dependent, so refuse the reuse.
+        blockers = []
+        active_experiment_ids = list(flag.experiment_set.filter(deleted=False).values_list("id", flat=True))
+        if active_experiment_ids:
+            blockers.append(f"active experiment(s) with ID(s): {', '.join(map(str, active_experiment_ids))}")
+        eaf_count = flag.features.count()
+        if eaf_count:
+            blockers.append(f"{eaf_count} early access feature(s)")
+        if blockers:
+            raise exceptions.ValidationError(
+                f"Cannot reuse key '{flag.key}': a soft-deleted flag with this key is still "
+                f"referenced by {' and '.join(blockers)}. Please contact support."
+            )
 
     def _reraise_duplicate_key_violation(self, exc: IntegrityError) -> NoReturn:
         # The "unique key for team" DB constraint is the authoritative guard on key
@@ -2558,6 +2574,15 @@ class EvaluationReasonSerializer(serializers.Serializer):
         allow_null=True,
         help_text="The index of the condition that matched, if applicable",
     )
+    description = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Human-readable explanation of the evaluation result. Carries the extra signal when the "
+            "reason code is coarse, for example a non-match decided by a behavioral or realtime cohort "
+            "whose membership is not fully evaluated here, which can disagree with the cohort's member list."
+        ),
+    )
 
 
 class FlagEvaluationResultSerializer(serializers.Serializer):
@@ -2706,6 +2731,15 @@ class FeatureFlagTestEvaluationResponseSerializer(serializers.Serializer):
     flag_key = serializers.CharField(help_text="Feature flag key")
     result = serializers.JSONField(help_text="The evaluated value of the feature flag (boolean or variant key string)")
     reason = serializers.CharField(help_text="The reason for the evaluation result")
+    reason_description = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Human-readable explanation of the evaluation result. Set when the reason code is coarse, "
+            "for example a non-match decided by a behavioral or realtime cohort whose membership is not "
+            "fully evaluated here, which can disagree with the cohort's member list."
+        ),
+    )
     condition_index = serializers.IntegerField(
         allow_null=True, help_text="The index of the condition that matched, if applicable"
     )
@@ -4153,6 +4187,7 @@ class FeatureFlagViewSet(
                 "evaluation": {
                     "reason": reason_data.get("code", "unknown"),
                     "condition_index": reason_data.get("condition_index"),
+                    "description": reason_data.get("description"),
                 },
             }
 
@@ -4479,6 +4514,7 @@ class FeatureFlagViewSet(
 
             # Initialize defaults
             condition_index = None
+            reason_description = None
             payload = None
             detailed_conditions: list[dict] = []
             result: bool | str = False
@@ -4496,6 +4532,7 @@ class FeatureFlagViewSet(
 
                     # Extract values from the correct nested structures
                     reason = reason_data.get("code", "unknown") if reason_data else "unknown"
+                    reason_description = reason_data.get("description") if reason_data else None
                     condition_index = reason_data.get("condition_index") if reason_data else None
                     payload = metadata.get("payload") if metadata else None
                     # Extract conditions from flag result (only valid path per Rust FlagDetails contract).
@@ -4552,6 +4589,7 @@ class FeatureFlagViewSet(
                 "flag_key": feature_flag.key,
                 "result": result,
                 "reason": reason,
+                "reason_description": reason_description,
                 "condition_index": condition_index,
                 "payload": payload,
                 "person_properties": _filter_person_properties_for_flag(

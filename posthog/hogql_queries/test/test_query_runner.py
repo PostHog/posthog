@@ -1,3 +1,5 @@
+import time
+import threading
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, Optional
 from zoneinfo import ZoneInfo
@@ -63,6 +65,7 @@ from posthog.hogql_queries.query_runner import (
     shared_insights_execution_mode,
 )
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import OrganizationMembership
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.team.team import Team, WeekStartDay
@@ -199,6 +202,66 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query=TheTestQuery(some_attr="bla"), team=self.team)
 
         self.assertEqual(runner.query, TheTestQuery(some_attr="bla"))
+
+    def test_shared_database_is_reused_and_rebuilt_on_user_change(self):
+        TestQueryRunner = self.setup_test_query_runner_class()
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+
+        first = runner.shared_database
+        assert runner.shared_database is first
+
+        runner.user = self.user
+        runner._on_user_changed()
+        assert runner.shared_database is not first
+
+    def test_shared_database_first_touch_is_thread_safe(self):
+        TestQueryRunner = self.setup_test_query_runner_class()
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+
+        build_count = 0
+
+        def slow_build(*args: Any, **kwargs: Any) -> Any:
+            nonlocal build_count
+            build_count += 1
+            # Holds the first build open past the second thread's None check, so an
+            # implementation without the lock deterministically builds twice.
+            time.sleep(0.05)
+            return mock.MagicMock()
+
+        barrier = threading.Barrier(2)
+        results: list[Any] = [None, None]
+        errors: list[Exception] = []
+
+        def first_touch(index: int) -> None:
+            try:
+                barrier.wait()
+                results[index] = runner.shared_database
+            except Exception as e:
+                errors.append(e)
+
+        with mock.patch.object(Database, "create_for", side_effect=slow_build):
+            threads = [threading.Thread(target=first_touch, args=(index,)) for index in range(2)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+
+        assert errors == []
+        assert build_count == 1
+        assert results[0] is results[1]
+        timing_keys = [key for key in runner.timings.to_dict() if "build_shared_database" in key]
+        assert timing_keys == ["./build_shared_database"]
+
+    def test_shared_database_kill_switch_disables_sharing(self):
+        TestQueryRunner = self.setup_test_query_runner_class()
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+
+        with override_instance_config("HOGQL_SHARED_INSIGHT_DATABASE_ENABLED", False):
+            first = runner.shared_database
+            second = runner.shared_database
+
+        assert first is not second
+        assert runner.shared_database is runner.shared_database
 
     def test_init_with_query_dict(self):
         TestQueryRunner = self.setup_test_query_runner_class()
