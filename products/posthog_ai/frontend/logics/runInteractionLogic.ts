@@ -30,6 +30,7 @@ import {
     type WarmTaskResumeRequestApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
+import { apiErrorReason } from '../lib/load-error'
 import { type AttachedContextItem, attachedContextItemKey } from '../types/contextTypes'
 import type { PermissionRequestRecord } from '../types/streamTypes'
 import { contextItemLine, wrapWithPosthogContext } from '../utils/posthogContextBlock'
@@ -821,7 +822,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     // The SSE echo (`pushHumanMessage`) reopens the turn — always the raw text the user typed.
                     actions.pushHumanMessage(content)
                     markPendingContextSent(pendingContext)
-                } catch {
+                } catch (failure) {
                     actions.releaseApplyBackTargets(streamKey)
                     // Restore unsent content for retry, preserving send order — draft content goes back ahead of
                     // anything typed during the failed send, queue content re-stages ahead of anything staged since.
@@ -832,7 +833,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     } else {
                         actions.prependQueuedMessage(content)
                     }
-                    lemonToast.error('Failed to send message. Please try again.')
+                    lemonToast.error(apiErrorReason(failure) ?? 'Failed to send message. Please try again.')
                 } finally {
                     actions.setSending(false)
                 }
@@ -896,9 +897,9 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     } else {
                         actions.releaseApplyBackTargets(streamKey)
                     }
-                } catch {
+                } catch (failure) {
                     actions.releaseApplyBackTargets(claimedStreamKey)
-                    lemonToast.error('Failed to start a new run. Please try again.')
+                    lemonToast.error(apiErrorReason(failure) ?? 'Failed to start a new run. Please try again.')
                 } finally {
                     actions.setStartingRun(false)
                 }
