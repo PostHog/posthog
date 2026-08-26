@@ -10,7 +10,7 @@ import { parentPort } from 'node:worker_threads'
 import { UndecodableImageError } from './blur.ts'
 import { ImageOptOutError } from './image-input.ts'
 import { advancedScrub, loadModels } from './scrub.ts'
-import { type ScrubJob, type ScrubReply } from './worker-protocol.ts'
+import { type ScrubFailure, type ScrubJob, type ScrubReply } from './worker-protocol.ts'
 
 if (!parentPort) {
     throw new Error('scrub-worker must be started as a worker thread')
@@ -38,17 +38,13 @@ port.on('message', (job: ScrubJob) => {
         .catch((error: unknown) => {
             // Structured clone drops the prototype, so the one distinction the HTTP layer acts on
             // (422 permanent versus 500 retriable) has to travel as data rather than as a class.
-            port.postMessage({
-                id: job.id,
-                failure: {
-                    message: error instanceof Error ? error.message : String(error),
-                    kind:
-                        error instanceof ImageOptOutError
-                            ? 'opt-out'
-                            : error instanceof UndecodableImageError
-                              ? 'undecodable'
-                              : 'failed',
-                },
-            } satisfies ScrubReply)
+            const message = error instanceof Error ? error.message : String(error)
+            const failure: ScrubFailure =
+                error instanceof ImageOptOutError
+                    ? { message, kind: 'opt-out' as const }
+                    : error instanceof UndecodableImageError
+                      ? { message, kind: 'undecodable' as const, reason: error.reason }
+                      : { message, kind: 'failed' as const }
+            port.postMessage({ id: job.id, failure } satisfies ScrubReply)
         })
 })
