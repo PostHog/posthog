@@ -1307,7 +1307,9 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     def _get_run_or_404(self, pk) -> tasks_contracts.TaskRunDetailDTO:
         task_id = self._ensure_task_accessible()
-        run = tasks_facade.get_task_run_detail(pk, task_id, self.team_id)
+        run = tasks_facade.get_task_run_detail(
+            pk, task_id, self.team_id, include_agent_state=self._is_sandbox_agent_request(task_id)
+        )
         if run is None:
             raise NotFound()
         return run
@@ -2477,6 +2479,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 description="PostHog Desktop access is required to message this run's agent",
             ),
             404: OpenApiResponse(description="Task run not found"),
+            409: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="Task run workflow has ended",
+            ),
             429: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
                 description="Organization reached its PostHog Desktop usage limit",
@@ -2584,17 +2590,17 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             except ComputeBillingLimitExceeded as error:
                 return compute_quota_limit_response(error.reason)
             except Exception:
-                # A synchronous web request can't retry the way the Temporal
-                # follow-up path does, so a transient signalling failure surfaces
-                # as the same gateway error as a terminal one below.
                 logger.warning("Failed to queue user message for task run %s", pk)
-                signal_result = False
+                return Response(
+                    TaskRunErrorResponseSerializer({"error": "Failed to queue user message for task run"}).data,
+                    status=status.HTTP_502_BAD_GATEWAY,
+                )
             if signal_result is None:
                 raise NotFound()
             if signal_result is False:
                 return Response(
-                    TaskRunErrorResponseSerializer({"error": "Failed to queue user message for task run"}).data,
-                    status=status.HTTP_502_BAD_GATEWAY,
+                    TaskRunErrorResponseSerializer({"error": "Task run workflow has ended"}).data,
+                    status=status.HTTP_409_CONFLICT,
                 )
 
             # A warm Run has now received a human message — drop the warm flag so the warm-pool cap
@@ -2676,6 +2682,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 connection_token=connection.connection_token,
                 sandbox_connect_token=connection.sandbox_connect_token,
                 payload=command_payload,
+                sandbox_token_param=connection.sandbox_token_param,
             )
 
             tasks_facade.capture_relay_command_telemetry(
@@ -2741,6 +2748,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         - http://127.0.0.1:{port} (Docker sandboxes)
         - https://*.modal.run (Modal sandboxes)
         - https://*.modal.host (Modal connect token sandboxes)
+        - the exact host of settings.HOGLAND_API_URL (hogland box proxy)
         """
         from urllib.parse import urlparse
 
@@ -2759,6 +2767,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ):
             return True
 
+        hogland_host = urlparse(settings.HOGLAND_API_URL).hostname if settings.HOGLAND_API_URL else None
+        if parsed.scheme == "https" and hogland_host and parsed.hostname == hogland_host:
+            return True
+
         return False
 
     @staticmethod
@@ -2767,6 +2779,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         connection_token: str | None,
         sandbox_connect_token: str | None,
         payload: dict,
+        sandbox_token_param: str = "_modal_connect_token",
     ) -> http_requests.Response:
         headers = {
             "Content-Type": "application/json",
@@ -2775,13 +2788,13 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         command_url = f"{sandbox_url.rstrip('/')}/command"
 
-        # Modal connect tokens use Authorization: Bearer for tunnel auth,
+        # Tunnel/proxy tokens use Authorization: Bearer at the provider edge,
         # which conflicts with the JWT auth the agent server expects.
-        # Pass the Modal token as a query parameter instead so both
-        # auth mechanisms can coexist.
+        # Pass the provider token as a query parameter instead so both
+        # auth mechanisms can coexist (Modal: _modal_connect_token; hogland: token).
         params = {}
         if sandbox_connect_token:
-            params["_modal_connect_token"] = sandbox_connect_token
+            params[sandbox_token_param] = sandbox_connect_token
 
         return http_requests.post(
             command_url,

@@ -103,7 +103,7 @@ class EvaluationContext(BaseModel):
             kwargs.setdefault("posthog_distinct_id", self.distinct_id)
             return await original_create(*args, **kwargs)
 
-        client.chat.completions.create = patched_create  # type: ignore
+        client.chat.completions.create = patched_create
 
         return TracedLLMClient(
             openai=client,
