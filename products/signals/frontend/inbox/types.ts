@@ -265,13 +265,13 @@ export const INBOX_REPORT_SECTION_LABEL: Record<InboxReportSectionKey, string> =
     'not-actionable': 'Not actionable',
 }
 
-/** One line per section, shown under its header while the section is open. */
+/** One line per section, shown as a tooltip when hovering its header. */
 export const INBOX_REPORT_SECTION_DESCRIPTION: Record<InboxReportSectionKey, string> = {
     monitoring: 'Reports with a pull request open, ready for you to review and merge on GitHub.',
     'needs-decision': 'Reports an agent can act on that have no pull request yet.',
     resolved: 'Reports fixed by a merged pull request, or marked resolved.',
     dismissed:
-        'Reports you dismissed, and reports whose pull request was closed without merging. Restore any of them to your inbox.',
+        'Reports you dismissed, and reports whose pull request was closed without merging. Most can be restored to your inbox.',
     'not-actionable':
         'Reports judged not actionable because they are too vague, lack supporting evidence, or describe expected behavior.',
 }
