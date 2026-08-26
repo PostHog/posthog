@@ -59,11 +59,18 @@ export function applyCodexModelAccess(
 
 export async function registerCodexSubscriptionAtBoot(
   fetchStatus: () => Promise<CodexSubscriptionStatus>,
+  flagEnabled: boolean,
 ): Promise<void> {
   await settingsHydrated();
   const status = await fetchStatus();
+  // Mirror the session gate: without the flag, sessions run on the gateway
+  // regardless of the persisted setting, so report the gateway too. Otherwise a
+  // user who opted in before a flag rollback keeps reporting own-subscription.
+  const access: CodexModelAccess = flagEnabled
+    ? useSettingsStore.getState().codexModelAccess
+    : "posthog-gateway";
   registerCodexSubscription({
-    access: useSettingsStore.getState().codexModelAccess,
+    access,
     connected: status.appLoggedIn,
   });
 }

@@ -1,7 +1,9 @@
 import type { Contribution } from "@posthog/di/contribution";
+import { CODEX_OWN_SUBSCRIPTION_FLAG } from "@posthog/shared";
 import { registerCodexSubscriptionAtBoot } from "@posthog/ui/features/settings/useCodexSubscription";
 import {
   initializePostHog,
+  posthogFeatureFlags,
   registerAppVersion,
   registerHostInfo,
 } from "@posthog/ui/shell/posthogAnalyticsImpl";
@@ -35,8 +37,12 @@ export class AnalyticsBootContribution implements Contribution {
         log.warn("Failed to register host info super properties", { error });
       }
       try {
-        await registerCodexSubscriptionAtBoot(() =>
-          trpcClient.agent.codexSubscriptionStatus.query(),
+        const codexFlagEnabled =
+          posthogFeatureFlags.isEnabled(CODEX_OWN_SUBSCRIPTION_FLAG) ||
+          import.meta.env.DEV;
+        await registerCodexSubscriptionAtBoot(
+          () => trpcClient.agent.codexSubscriptionStatus.query(),
+          codexFlagEnabled,
         );
       } catch (error) {
         log.warn("Failed to register codex subscription super properties", {
