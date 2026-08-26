@@ -9341,12 +9341,19 @@ export namespace Schemas {
       display_label: string;
     }
 
+    /**
+     * @nullable
+     */
+    export type AlertCheckError = {[key: string]: string} | null;
+
     export interface AlertCheck {
       readonly id: string;
       readonly created_at: string;
       /** @nullable */
       readonly calculated_value: number | null;
       readonly state: AlertCheckStateEnum;
+      /** @nullable */
+      readonly error: AlertCheckError;
       readonly targets_notified: boolean;
       readonly anomaly_scores: unknown;
       readonly triggered_points: unknown;
