@@ -412,3 +412,13 @@ class TestStatusStream(ClickhouseTestMixin, BaseTest):
         assert row["status_event_team_id"] == self.team.id
         assert row["dismissal_reason"] == reason
         assert row["wrong_dismissal_count"] == 0
+
+    def test_tied_tenants_count_and_report_the_same_team(self):
+        # Two tenants' buckets with the same last timestamp: whichever wins the tie, the count and
+        # the team the provenance check reads must come from the same selection, or a forged wrong
+        # dismissal could be counted while the genuine tenant passes provenance.
+        self._transition(T1, "ready", "suppressed", "analysis_wrong", team_id=999)
+        self._transition(T1, "ready", "suppressed", "already_fixed")
+
+        row = self._status_row()
+        assert row["wrong_dismissal_count"] == (0 if row["status_event_team_id"] == self.team.id else 1)

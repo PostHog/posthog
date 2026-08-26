@@ -5,12 +5,19 @@ import pytest
 
 import numpy as np
 import pandas as pd
+import dagster
 import xgboost as xgb
+from botocore.exceptions import ClientError
+
+from posthog import settings
 
 from products.signals.backend.ranking.features import FEATURE_NAMES, feature_frame, feature_vector
+from products.signals.dags.inbox_ranking.dataset.dag import LABELS_TABLE, STATE_TABLE
 from products.signals.dags.inbox_ranking.training.dag import (
     _delete_other_objects,
     champion_object_key,
+    inbox_ranking_training_examples,
+    load_snapshots,
     model_object_key,
     snapshot_dates,
 )
@@ -374,6 +381,27 @@ def test_rerun_removes_stale_head_files_but_keeps_what_it_just_wrote():
     client = _FakeS3([*written, folder + "action.ubj", "inbox_ranking/inbox_ranking_models/v1/champion.json"])
     assert _delete_other_objects(client, "bucket", folder, written) == [folder + "action.ubj"]
     assert client.keys == written | {"inbox_ranking/inbox_ranking_models/v1/champion.json"}
+
+
+class _EmptyS3:
+    def get_object(self, *, Bucket, Key):
+        raise ClientError({"Error": {"Code": "NoSuchKey"}}, "GetObject")
+
+
+def test_load_snapshots_fails_without_the_requested_partition():
+    dates = snapshot_dates("2026-08-19", 2)
+    assert load_snapshots(_EmptyS3(), "bucket", "inbox_ranking", dates) == {}
+    with pytest.raises(dagster.Failure, match="2026-08-19"):
+        load_snapshots(_EmptyS3(), "bucket", "inbox_ranking", dates, required=dates[-1])
+
+
+def test_examples_depend_on_the_whole_lookback_window():
+    # An asset backfill must not run examples(D) before the older state and labels days exist.
+    for upstream in (STATE_TABLE, LABELS_TABLE):
+        mapping = inbox_ranking_training_examples.get_partition_mapping(dagster.AssetKey(upstream))
+        assert isinstance(mapping, dagster.TimeWindowPartitionMapping)
+        assert mapping.start_offset == -settings.INBOX_RANKING_TRAINING_LOOKBACK_DAYS
+        assert mapping.end_offset == 0
 
 
 def test_model_key_layout_is_stable():

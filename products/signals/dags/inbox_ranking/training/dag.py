@@ -132,9 +132,14 @@ def snapshot_dates(partition_key: str, lookback_days: int) -> list[datetime.date
     return [end - datetime.timedelta(days=offset) for offset in range(lookback_days, -1, -1)]
 
 
-def load_snapshots(client, bucket: str, prefix: str, dates: list[datetime.date]) -> dict[datetime.date, Snapshot]:
+def load_snapshots(
+    client, bucket: str, prefix: str, dates: list[datetime.date], *, required: datetime.date | None = None
+) -> dict[datetime.date, Snapshot]:
     """The report-state and labels snapshots that exist for `dates`, indexed by report_id. Days
-    missing either object are skipped: the example builder treats a gap as unknowable labels."""
+    missing either object are skipped: the example builder treats a gap as unknowable labels.
+    `required` is the one day that must be present; the training job is scheduled independently
+    of the dataset job, so without it a failed dataset run would yield a candidate named after a
+    day it never saw."""
     snapshots: dict[datetime.date, Snapshot] = {}
     for date in dates:
         key = date.isoformat()
@@ -147,6 +152,8 @@ def load_snapshots(client, bucket: str, prefix: str, dates: list[datetime.date])
         label_columns = [column for column in _LABEL_COLUMNS if column in labels.column_names]
         labels_frame = labels.select(["report_id", *label_columns]).to_pandas().set_index("report_id")
         snapshots[date] = assemble_snapshot(date, state_frame, labels_frame)
+    if required is not None and required not in snapshots:
+        raise dagster.Failure(f"state and labels snapshots for {required.isoformat()} are required but missing")
     return snapshots
 
 
@@ -154,7 +161,24 @@ def examples_table(examples: pd.DataFrame) -> pa.Table:
     return pa.Table.from_pandas(examples[list(EXAMPLE_COLUMNS)], preserve_index=False)
 
 
-@dagster.asset(name=EXAMPLES_TABLE, deps=[STATE_TABLE, LABELS_TABLE], **COMMON_ASSET_KWARGS)
+# The examples for dt=D read every snapshot back to D-lookback. The default same-partition mapping
+# would let an asset backfill run examples(D) as soon as state(D) and labels(D) exist, while the
+# older days it needs are still pending. Partitions before the label epoch have no upstream to map to.
+_LOOKBACK_MAPPING = dagster.TimeWindowPartitionMapping(
+    start_offset=-settings.INBOX_RANKING_TRAINING_LOOKBACK_DAYS,
+    end_offset=0,
+    allow_nonexistent_upstream_partitions=True,
+)
+
+
+@dagster.asset(
+    name=EXAMPLES_TABLE,
+    deps=[
+        dagster.AssetDep(STATE_TABLE, partition_mapping=_LOOKBACK_MAPPING),
+        dagster.AssetDep(LABELS_TABLE, partition_mapping=_LOOKBACK_MAPPING),
+    ],
+    **COMMON_ASSET_KWARGS,
+)
 def inbox_ranking_training_examples(context: dagster.AssetExecutionContext) -> None:
     if skip_unconfigured(context):
         return
@@ -162,7 +186,7 @@ def inbox_ranking_training_examples(context: dagster.AssetExecutionContext) -> N
     bucket, prefix, client = dataset_bucket(), settings.INBOX_RANKING_DATASET_S3_PREFIX, s3_client()
 
     dates = snapshot_dates(partition_key, settings.INBOX_RANKING_TRAINING_LOOKBACK_DAYS)
-    snapshots = load_snapshots(client, bucket, prefix, dates)
+    snapshots = load_snapshots(client, bucket, prefix, dates, required=dates[-1])
     context.log.info(f"{len(snapshots)} of {len(dates)} snapshots present")
     backfilled_rows = sum(int((~point_in_time_mask(snap.state, snap.date)).sum()) for snap in snapshots.values())
     if backfilled_rows:

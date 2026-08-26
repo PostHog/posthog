@@ -388,14 +388,19 @@ SELECT
     -- label-only row can have: reports outside this dag's region have no Postgres state and no
     -- embedding here. Deliberately *not* merged into report_team_id, which is a US team id by
     -- construction — team ids are per-region, so an EU 42 and a US 42 are different teams and
-    -- nothing on the event says which region emitted it.
-    toInt(argMax(coalesce(event_team_id, ''), last_timestamp)) AS status_event_team_id
+    -- nothing on the event says which region emitted it. Read from the window column rather than
+    -- selected again, so the tenant the provenance check sees is the one the aggregates above
+    -- filtered on, even when two tenants' buckets tie on last_timestamp.
+    toInt(any(latest_event_team_id)) AS status_event_team_id
 FROM (
     SELECT
         *,
         -- The team the latest transition reported, on every bucket row, so an aggregate above can
-        -- filter on it (ClickHouse does not allow an aggregate inside another aggregate).
-        argMax(coalesce(event_team_id, ''), last_timestamp) OVER (PARTITION BY report_id) AS latest_event_team_id
+        -- filter on it (ClickHouse does not allow an aggregate inside another aggregate). The
+        -- tenant is the tie-breaker so the selection is deterministic.
+        argMax(
+            coalesce(event_team_id, ''), tuple(last_timestamp, coalesce(event_team_id, ''))
+        ) OVER (PARTITION BY report_id) AS latest_event_team_id
     FROM (
     SELECT
         min(events.timestamp) AS first_timestamp,
