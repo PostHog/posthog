@@ -3339,6 +3339,92 @@ class WarmTaskResponseSerializer(serializers.Serializer):
     )
 
 
+class WarmTaskResumeRequestSerializer(serializers.Serializer):
+    """Request body for warming a successor to an existing terminal task run."""
+
+    resume_from_run_id = serializers.UUIDField(
+        help_text="ID of the task's latest terminal run whose snapshot and conversation should be resumed.",
+    )
+    runtime_adapter = serializers.ChoiceField(
+        choices=[adapter.value for adapter in RuntimeAdapter],
+        required=False,
+        default=None,
+        help_text="Agent runtime adapter to start before the next message is submitted.",
+    )
+    model = serializers.CharField(
+        required=False,
+        default=None,
+        allow_blank=False,
+        help_text="LLM model to start before the next message is submitted.",
+    )
+    reasoning_effort = serializers.ChoiceField(
+        choices=[effort.value for effort in PUBLIC_REASONING_EFFORTS],
+        required=False,
+        default=None,
+        help_text="Reasoning effort to apply when the warmed successor receives its first message.",
+    )
+    initial_permission_mode = serializers.ChoiceField(
+        choices=ALL_INITIAL_PERMISSION_MODE_CHOICES,
+        required=False,
+        default=None,
+        help_text="Initial permission mode for the warmed successor's agent session.",
+    )
+
+    def validate(self, attrs):
+        errors: dict[str, str] = {}
+        runtime_adapter = attrs.get("runtime_adapter")
+        model = attrs.get("model")
+        if (runtime_adapter is None) != (model is None):
+            missing_field = "runtime_adapter" if runtime_adapter is None else "model"
+            errors[missing_field] = "This field is required when selecting a cloud runtime."
+
+        initial_permission_mode = attrs.get("initial_permission_mode")
+        if initial_permission_mode is not None:
+            if runtime_adapter is None:
+                errors["initial_permission_mode"] = "This field requires runtime_adapter to be set."
+            else:
+                allowed_permission_modes = (
+                    list(CODEX_INITIAL_PERMISSION_MODE_CHOICES)
+                    if runtime_adapter == RuntimeAdapter.CODEX.value
+                    else list(INITIAL_PERMISSION_MODE_CHOICES)
+                )
+                if initial_permission_mode not in allowed_permission_modes:
+                    allowed_values = ", ".join(f"'{value}'" for value in allowed_permission_modes)
+                    errors["initial_permission_mode"] = (
+                        f"Invalid choice '{initial_permission_mode}' for runtime_adapter "
+                        f"'{runtime_adapter}'. Supported values: {allowed_values}."
+                    )
+
+        reasoning_effort_error = get_reasoning_effort_error(
+            runtime_adapter=runtime_adapter,
+            model=model,
+            reasoning_effort=attrs.get("reasoning_effort"),
+        )
+        if reasoning_effort_error is not None:
+            errors["reasoning_effort"] = reasoning_effort_error
+            _capture_rejected_reasoning_effort(
+                self.context,
+                runtime_adapter=runtime_adapter,
+                model=model,
+                reasoning_effort=attrs.get("reasoning_effort"),
+                error=reasoning_effort_error,
+            )
+
+        model_access_error = get_model_access_error(model, distinct_id=request_distinct_id(self.context))
+        if model_access_error is not None:
+            errors["model"] = model_access_error
+        if errors:
+            raise serializers.ValidationError(errors)
+        return attrs
+
+
+class WarmTaskResumeResponseSerializer(serializers.Serializer):
+    """Response for a successfully warmed successor run on an existing task."""
+
+    task_id = serializers.UUIDField(help_text="ID of the existing task being resumed.")
+    run_id = serializers.UUIDField(help_text="ID of the idling successor run that submit will activate.")
+
+
 class TaskRunStartRequestSerializer(serializers.Serializer):
     pending_user_message = serializers.CharField(
         required=False,

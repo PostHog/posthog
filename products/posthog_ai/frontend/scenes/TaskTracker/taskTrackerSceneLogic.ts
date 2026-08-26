@@ -290,10 +290,10 @@ export interface taskTrackerSceneLogicActions {
     } // taskWarmLogic
     noteDraft: (
         hasText: boolean,
-        request: WarmTaskRequestApi
+        request: import('../../logics/taskWarmLogic').TaskWarmRequest
     ) => {
         hasText: boolean
-        request: WarmTaskRequestApi
+        request: import('../../logics/taskWarmLogic').TaskWarmRequest
     } // taskWarmLogic
     releaseWarm: () => {
         value: true

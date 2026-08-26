@@ -3,8 +3,8 @@ import posthog from 'posthog-js'
 
 import { projectLogic } from 'scenes/projectLogic'
 
-import { tasksRunsCancelCreate, tasksWarmCreate } from 'products/tasks/frontend/generated/api'
-import type { WarmTaskRequestApi } from 'products/tasks/frontend/generated/api.schemas'
+import { tasksRunsCancelCreate, tasksWarmCreate, tasksWarmResumeCreate } from 'products/tasks/frontend/generated/api'
+import type { WarmTaskRequestApi, WarmTaskResumeRequestApi } from 'products/tasks/frontend/generated/api.schemas'
 
 /** Debounce before warming, measured from the keystroke that first made the draft non-empty. */
 const WARM_DEBOUNCE_MS = 250
@@ -26,14 +26,26 @@ export interface WarmLease {
 export interface TaskWarmLogicProps {
     /** Matches `taskTrackerSceneLogicProps.panelId` so each composer instance owns its own lease. */
     panelId?: string
+    taskId?: string
+    resumeFromRunId?: string
 }
+
+export type TaskWarmRequest = WarmTaskRequestApi | WarmTaskResumeRequestApi
 
 /**
  * Build the lease key from the fields the backend matches a warm Run on. Reasoning effort is
  * deliberately excluded: activation applies the final effort before the first turn, so changing it must
  * not throw the warm away (`_find_idling_warm_run` omits it from the match for the same reason).
  */
-export function warmLeaseKey(request: WarmTaskRequestApi): string {
+export function warmLeaseKey(request: TaskWarmRequest): string {
+    if ('resume_from_run_id' in request) {
+        return [
+            request.resume_from_run_id,
+            request.runtime_adapter ?? '',
+            request.model ?? '',
+            request.initial_permission_mode ?? '',
+        ].join('|')
+    }
     return [
         request.repository ?? '',
         (request.repositories ?? []).join(','),
@@ -84,13 +96,13 @@ export interface taskWarmLogicActions {
     }
     noteDraft: (
         hasText: boolean,
-        request: WarmTaskRequestApi
+        request: TaskWarmRequest
     ) => {
         hasText: boolean
-        request: WarmTaskRequestApi
+        request: TaskWarmRequest
     }
-    prewarm: (request: WarmTaskRequestApi) => {
-        request: WarmTaskRequestApi
+    prewarm: (request: TaskWarmRequest) => {
+        request: TaskWarmRequest
     }
     releaseWarm: () => {
         value: true
@@ -125,15 +137,15 @@ export type taskWarmLogicType = MakeLogicType<
 export const taskWarmLogic = kea<taskWarmLogicType>([
     path(['products', 'posthog_ai', 'frontend', 'logics', 'taskWarmLogic']),
     props({} as TaskWarmLogicProps),
-    key((props) => props.panelId ?? 'scene'),
+    key((props) => props.panelId ?? ([props.taskId, props.resumeFromRunId].filter(Boolean).join(':') || 'scene')),
 
     connect({
         values: [projectLogic, ['currentProjectId']],
     }),
 
     actions({
-        noteDraft: (hasText: boolean, request: WarmTaskRequestApi) => ({ hasText, request }),
-        prewarm: (request: WarmTaskRequestApi) => ({ request }),
+        noteDraft: (hasText: boolean, request: TaskWarmRequest) => ({ hasText, request }),
+        prewarm: (request: TaskWarmRequest) => ({ request }),
         releaseWarm: true,
         consumeWarm: true,
         setWarmLease: (lease: WarmLease | null) => ({ lease }),
@@ -148,7 +160,7 @@ export const taskWarmLogic = kea<taskWarmLogicType>([
         ],
     }),
 
-    listeners(({ actions, values, cache }) => ({
+    listeners(({ actions, values, cache, props }) => ({
         noteDraft: ({ hasText, request }) => {
             if (!hasText) {
                 // Draft emptied — drop a pending warm and schedule a release, so a user who clears the
@@ -223,7 +235,13 @@ export const taskWarmLogic = kea<taskWarmLogicType>([
             cache.pendingWarmRequest = null
             cache.consumedWhileWarming = false
             try {
-                const warm = await tasksWarmCreate(String(values.currentProjectId), request)
+                const warm = props.taskId
+                    ? await tasksWarmResumeCreate(
+                          String(values.currentProjectId),
+                          props.taskId,
+                          request as WarmTaskResumeRequestApi
+                      )
+                    : await tasksWarmCreate(String(values.currentProjectId), request as WarmTaskRequestApi)
                 if (cache.consumedWhileWarming) {
                     // A submit consumed the warm while this POST was open. The backend's create may have
                     // matched and activated this very Run for the submit, so installing a lease on it

@@ -27,6 +27,7 @@ import {
     type ModelChoiceApi,
     type ReasoningEffortEnumApi,
     RuntimeAdapterEnumApi,
+    type WarmTaskResumeRequestApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
 import { type AttachedContextItem, attachedContextItemKey } from '../types/contextTypes'
@@ -36,6 +37,7 @@ import { attachedContextLogic } from './attachedContextLogic'
 import { modelCatalogueLogic } from './modelCatalogueLogic'
 import { isTerminalRunStatus, runStreamLogic } from './runStreamLogic'
 import type { RunStatus } from './runStreamLogic'
+import { taskWarmLogic } from './taskWarmLogic'
 import { toolStreamEventsLogic } from './toolStreamEventsLogic'
 
 export interface RunInteractionLogicProps {
@@ -165,6 +167,15 @@ export interface runInteractionLogicActions {
               }
             | undefined
     } // runStreamLogic
+    handleTerminalStatus: (status: {
+        errorMessage?: string | null
+        replayedFromHistory?: boolean
+        status: RunStatus
+    }) => {
+        errorMessage?: string | null | undefined
+        replayedFromHistory?: boolean | undefined
+        status: RunStatus
+    } // runStreamLogic
     markTurnComplete: () => {
         value: true
     } // runStreamLogic
@@ -188,6 +199,16 @@ export interface runInteractionLogicActions {
     setCurrentMode: (mode: string) => {
         mode: string
     } // runStreamLogic
+    consumeWarm: () => {
+        value: true
+    } // taskWarmLogic
+    noteDraft: (
+        hasText: boolean,
+        request: import('./taskWarmLogic').TaskWarmRequest
+    ) => {
+        hasText: boolean
+        request: import('./taskWarmLogic').TaskWarmRequest
+    } // taskWarmLogic
     claimApplyBackTargets: (streamKey: string) => {
         streamKey: string
     } // toolStreamEventsLogic
@@ -402,11 +423,14 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                 'cancelRun',
                 'markTurnComplete',
                 'setCurrentMode',
+                'handleTerminalStatus',
             ],
             attachedContextLogic,
             ['markContextSent'],
             toolStreamEventsLogic,
             ['claimApplyBackTargets', 'transferApplyBackTargets', 'releaseApplyBackTargets'],
+            taskWarmLogic({ taskId: props.taskId, resumeFromRunId: props.runId }),
+            ['noteDraft', 'consumeWarm'],
         ],
     })),
 
@@ -679,6 +703,20 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
     }),
 
     listeners(({ actions, values, props }) => {
+        const noteTerminalDraft = (): void => {
+            if (!values.isTerminal) {
+                return
+            }
+            const createRequest = buildRunCreateRequest(
+                values.catalogue,
+                values.selectedModel,
+                values.selectedEffort,
+                values.selectedMode,
+                { resume_from_run_id: props.runId }
+            )
+            actions.noteDraft(Boolean(values.composerForm.draft.trim()), createRequest as WarmTaskResumeRequestApi)
+        }
+
         // Record the non-text refs just wrapped into a send under the task, so no later send anywhere in
         // the task's resume chain (including the next run after a terminal-run send) re-inflates them.
         const markPendingContextSent = (pendingContext: AttachedContextItem[]): void => {
@@ -807,7 +845,14 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                 if (resolvedEffort !== currentEffort) {
                     actions.setEffort(resolvedEffort)
                 }
+                noteTerminalDraft()
             },
+
+            setEffort: noteTerminalDraft,
+            setMode: noteTerminalDraft,
+            setComposerFormValue: noteTerminalDraft,
+            setComposerFormValues: noteTerminalDraft,
+            handleTerminalStatus: noteTerminalDraft,
 
             startNewRun: async ({ content }) => {
                 if (values.startingRun || !content.trim() || values.currentProjectId == null) {
@@ -833,6 +878,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                             pending_user_message: wrapWithPosthogContext(content, pendingContext),
                         }
                     )
+                    actions.consumeWarm()
                     const result = await tasksRunCreate(String(values.currentProjectId), props.taskId, createRequest)
                     actions.resetComposerForm()
                     markPendingContextSent(pendingContext)
