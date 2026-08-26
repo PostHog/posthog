@@ -23,7 +23,8 @@ _ENVIRONMENT = OpenApiParameter(
     location=OpenApiParameter.QUERY,
     required=False,
     description="Exact deploy environment to scope to (from the response's `environments` list). Omit to scope "
-    "to production-marked deployments, falling back to all environments when none are marked production.",
+    "to production-marked deployments, falling back to every persistent (non-transient) environment when none "
+    "are marked production.",
 )
 
 _GITHUB_TEAM = OpenApiParameter(

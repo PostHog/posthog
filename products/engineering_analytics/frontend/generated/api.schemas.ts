@@ -868,9 +868,9 @@ export interface DoraOverviewApi {
     merge_to_deploy_series: MergeToDeployBucketApi[]
     /** False when the deployments/deployment_statuses tables aren't synced for the selected repo; every other field is then empty or null, never a fake zero. */
     deploy_data_available: boolean
-    /** What the environment filter resolved to: 'production' (deployments GitHub marks production_environment), 'all' (nothing in the window was marked production), or the exact environment name passed. */
+    /** What the environment filter resolved to: 'production' (deployments GitHub marks production_environment), 'persistent' (nothing was marked production, so every non-transient environment counts), or the exact environment name passed. Transient environments (ephemeral per-PR previews) never join a default scope. */
     environment_scope: string
-    /** Distinct environments deployed to in the scan window, most-deployed first — the environment picker's options. */
+    /** Distinct persistent environments deployed to in the scan window, most-deployed first — the environment picker's options. Transient environments are omitted but stay reachable by exact name. */
     environments: string[]
     /** True when the optional team-membership snapshot is synced. When false, a github_team filter cannot be honored and the merge-to-deploy figures go empty rather than silently unfiltered. */
     has_membership_data: boolean
@@ -1734,7 +1734,7 @@ export type EngineeringAnalyticsDoraParams = {
      */
     date_to?: string
     /**
-     * Exact deploy environment to scope to (from the response's `environments` list). Omit to scope to production-marked deployments, falling back to all environments when none are marked production.
+     * Exact deploy environment to scope to (from the response's `environments` list). Omit to scope to production-marked deployments, falling back to every persistent (non-transient) environment when none are marked production.
      */
     environment?: string
     /**

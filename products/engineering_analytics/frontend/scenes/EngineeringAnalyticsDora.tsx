@@ -28,10 +28,16 @@ export function EngineeringAnalyticsDora(): JSX.Element {
     const firstLoad = doraLoading && !dora
     const deployDataMissing = !!dora && !dora.deploy_data_available
 
+    const scopeLabel =
+        !dora || dora.environment_scope === 'production'
+            ? 'production'
+            : dora.environment_scope === 'persistent'
+              ? 'all persistent environments'
+              : dora.environment_scope
     const environmentOptions = [
         {
             value: null as string | null,
-            label: dora?.environment_scope === 'all' ? 'All environments' : 'Production',
+            label: dora?.environment_scope === 'persistent' ? 'All persistent environments' : 'Production',
         },
         ...(dora?.environments ?? []).map((name) => ({ value: name as string | null, label: name })),
     ]
@@ -44,10 +50,12 @@ export function EngineeringAnalyticsDora(): JSX.Element {
         <div className="flex flex-col gap-4">
             <ScopeBar repoSlot={<SourceScopeChip />} />
             {deployDataMissing ? (
-                <LemonBanner type="info">
-                    Deploy data isn't synced yet. Enable the deployments and deployment statuses endpoints on your
-                    GitHub source to see DORA metrics.
-                </LemonBanner>
+                <div data-attr="engineering-analytics-dora-no-deploy-data">
+                    <LemonBanner type="info">
+                        Deploy data isn't synced yet. Enable the deployments and deployment statuses endpoints on your
+                        GitHub source to see DORA metrics.
+                    </LemonBanner>
+                </div>
             ) : (
                 <div className="flex flex-wrap items-center gap-2">
                     <LemonSelect
@@ -79,7 +87,7 @@ export function EngineeringAnalyticsDora(): JSX.Element {
                     value={dora?.deployments_per_day}
                     previousValue={dora?.deployments_per_day_prev}
                     formatValue={(value) => `${value.toFixed(1)}/day`}
-                    tooltip={`Successful deployments per day in the ${dora?.environment_scope ?? 'production'} scope: ${dora?.deployment_count ?? 0} in this window.`}
+                    tooltip={`Successful deployments per day in the ${scopeLabel} scope: ${dora?.deployment_count ?? 0} in this window.`}
                     loading={firstLoad}
                     emptyText="No successful deployments in this window."
                 />
@@ -130,13 +138,15 @@ export function EngineeringAnalyticsDora(): JSX.Element {
                             : 'No deploy data for this window.'}
                     </div>
                 ) : (
-                    <MergeToDeployBoxPlot buckets={boxPlotBuckets} formatSeconds={compactAgeLabel} />
+                    <div data-attr="engineering-analytics-dora-box-plot">
+                        <MergeToDeployBoxPlot buckets={boxPlotBuckets} formatSeconds={compactAgeLabel} />
+                    </div>
                 )}
             </Section>
             <Section
                 id="deployment-frequency"
                 title="Deployments over time"
-                note={`Successful deployments per bucket in the ${dora?.environment_scope ?? 'production'} scope.`}
+                note={`Successful deployments per bucket in the ${scopeLabel} scope.`}
                 busy={doraLoading && !!dora}
             >
                 {firstLoad ? (

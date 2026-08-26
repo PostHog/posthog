@@ -163,10 +163,13 @@ _LEAD_TIME_SERIES_SELECT = f"""
     LIMIT 40000
 """
 
+# Transient environments (ephemeral per-PR previews on this repo) are excluded from the picker
+# options and the default scope: a busy repo deploys previews hundreds of times a week, which
+# would swamp every deploy count. An exact ``environment`` filter can still reach one by name.
 _ENVIRONMENTS_SELECT = f"""
     SELECT environment, max(is_production_environment) AS is_production, count() AS n
     FROM __DEPLOYMENTS_SOURCE__ AS d
-    WHERE d.created_at >= {{prev_from}} __DATE_TO_CREATED__
+    WHERE d.created_at >= {{prev_from}} AND NOT d.is_transient_environment __DATE_TO_CREATED__
     GROUP BY environment
     ORDER BY n DESC, environment ASC
     LIMIT {_ENVIRONMENTS_LIMIT}
@@ -195,13 +198,15 @@ class _EnvironmentScope:
 
 def _resolve_environment_scope(environment: str | None, environments: list[tuple[str, bool]]) -> _EnvironmentScope:
     """Pick the deploy population: the caller's exact environment when given; otherwise the
-    deployments GitHub marks production; otherwise (nothing marked production) every environment,
-    so a repo that never sets the flag still gets numbers instead of a false zero."""
+    deployments GitHub marks production; otherwise every persistent (non-transient) environment,
+    so a repo that never sets the production flag still gets numbers instead of a false zero.
+    Transient environments never join a default scope: they are ephemeral per-PR previews, and
+    on this repo they outnumber real deploys by an order of magnitude."""
     if environment:
         return _EnvironmentScope(scope=environment, predicate="d.environment = {environment}")
     if any(is_production for _, is_production in environments):
         return _EnvironmentScope(scope="production", predicate="d.is_production_environment")
-    return _EnvironmentScope(scope="all", predicate="true")
+    return _EnvironmentScope(scope="persistent", predicate="NOT d.is_transient_environment")
 
 
 def _empty_overview(

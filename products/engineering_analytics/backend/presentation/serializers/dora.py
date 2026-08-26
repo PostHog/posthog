@@ -84,12 +84,14 @@ class DoraOverviewSerializer(DataclassSerializer):
             },
             "environment_scope": {
                 "help_text": "What the environment filter resolved to: 'production' (deployments GitHub marks "
-                "production_environment), 'all' (nothing in the window was marked production), or the exact "
-                "environment name passed."
+                "production_environment), 'persistent' (nothing was marked production, so every non-transient "
+                "environment counts), or the exact environment name passed. Transient environments (ephemeral "
+                "per-PR previews) never join a default scope."
             },
             "environments": {
-                "help_text": "Distinct environments deployed to in the scan window, most-deployed first — "
-                "the environment picker's options."
+                "help_text": "Distinct persistent environments deployed to in the scan window, most-deployed "
+                "first — the environment picker's options. Transient environments are omitted but stay "
+                "reachable by exact name."
             },
             "has_membership_data": {
                 "help_text": "True when the optional team-membership snapshot is synced. When false, a "

@@ -23,7 +23,9 @@ from products.engineering_analytics.backend.tests._github_fixtures import (
 )
 
 
-def _deployment_row(deployment_id: int, sha: str, environment: str, created_at: str, *, production: bool) -> dict:
+def _deployment_row(
+    deployment_id: int, sha: str, environment: str, created_at: str, *, production: bool, transient: bool = False
+) -> dict:
     return {
         "id": deployment_id,
         "sha": sha,
@@ -35,7 +37,7 @@ def _deployment_row(deployment_id: int, sha: str, environment: str, created_at: 
         "creator": "{}",
         "payload": "{}",
         "production_environment": production,
-        "transient_environment": False,
+        "transient_environment": transient,
         "created_at": created_at,
         "updated_at": created_at,
     }
@@ -229,6 +231,33 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
         assert result.merge_to_deploy_series == []
         # Deploy-scoped figures are unaffected.
         assert result.deployment_count == 2
+
+    def test_persistent_fallback_excludes_transient_environments(self):
+        # Nothing is production-marked (this repo's real shape), so the default scope falls back
+        # to persistent environments — the ephemeral per-PR preview deploys must stay out of the
+        # counts and the picker options.
+        curated = self._curated(
+            self.team,
+            deployment_rows=[
+                _deployment_row(1, "sha-a", "prod-us", "2026-01-12 09:30:00", production=False),
+                _deployment_row(2, "sha-b", "preview-pr-123", "2026-01-12 09:30:00", production=False, transient=True),
+            ],
+            status_rows=[
+                _status_row(11, 1, "success", "prod-us", "2026-01-12 10:00:00"),
+                _status_row(21, 2, "success", "preview-pr-123", "2026-01-12 10:00:00"),
+            ],
+            # One never-merged PR keeps the seeded CSV non-empty without joining any deploy.
+            pr_rows=[_pr_row(1, "alice", "open", 0, "2026-01-11 08:00:00")],
+        )
+        result = query_dora_overview(
+            curated=curated,
+            date_from=datetime(2026, 1, 10, tzinfo=UTC),
+            date_to=datetime(2026, 1, 20, tzinfo=UTC),
+        )
+
+        assert result.environment_scope == "persistent"
+        assert result.environments == ["prod-us"]
+        assert result.deployment_count == 1
 
     def test_exact_environment_scope(self):
         curated = self._seeded_curated(member_rows=None)

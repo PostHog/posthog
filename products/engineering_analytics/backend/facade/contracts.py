@@ -1215,10 +1215,12 @@ class DoraOverview:
     # False when the deployments/deployment_statuses tables aren't synced for the selected repo.
     deploy_data_available: bool
     # What the environment filter resolved to: 'production' (deployments GitHub marks
-    # production_environment), 'all' (no deploy in the window was marked production), or the exact
-    # environment name the caller passed.
+    # production_environment), 'persistent' (no deploy in the window was marked production, so
+    # every non-transient environment counts), or the exact environment name the caller passed.
+    # Transient environments (ephemeral per-PR previews) never join a default scope.
     environment_scope: str
-    # Distinct environments deployed to in the scan window, most-deployed first — the picker's options.
+    # Distinct persistent environments deployed to in the scan window, most-deployed first — the
+    # picker's options. Transient environments are omitted but stay reachable by exact name.
     environments: list[str]
     # True when the optional team-membership snapshot is synced (the github_team filter's substrate).
     has_membership_data: bool
