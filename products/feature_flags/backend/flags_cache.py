@@ -1158,9 +1158,9 @@ def _shadow_compare_enabled(team_id: int) -> bool:
     Unlike `_route_to_kafka`, an unresolvable flag ticks no TOMBSTONE_COUNTER.
     Local evaluation cannot resolve SHADOW_COMPARE_FLAG for as long as the flag
     does not exist in PostHog, so a tick would fire on every Celery-owned rebuild,
-    holding a constant high rate on a panel that means "rare anomaly".
-    `_route_to_kafka` reads the same client first, so a wedged polling thread
-    still shows up there.
+    holding a constant high rate on a panel that means "rare anomaly". A client
+    that is actually broken raises instead, and `publish_shadow_invalidation`
+    logs that.
     """
     try:
         return feature_enabled_or_false(
@@ -1211,10 +1211,16 @@ def publish_shadow_invalidation(team_id: int) -> None:
     try:
         routed_to_kafka = _evaluate_kafka_routing_flag(team_id)
     except Exception:
-        # Deliberately silent. This runs once per rebuild, so a broken flag client
-        # would log at fleet rate, and the only cost of skipping is a gap in parity
-        # evidence. `_route_to_kafka` still reports the same failure from the
-        # signal-handler path.
+        # A raising client means something is broken, unlike an unresolved flag,
+        # which is routine while SHADOW_COMPARE_FLAG does not exist. This is the
+        # only signal that shadow volume went to zero on the worker, because the
+        # web process runs a separate client and reports under its own event.
+        logger.warning(
+            "flags_cache_shadow_routing_evaluation_failed",
+            team_id=team_id,
+            flag=KAFKA_ROUTING_FLAG,
+            exc_info=True,
+        )
         return
 
     # Only an explicit False means Celery owns this team. `None` means local

@@ -986,6 +986,18 @@ class TestShadowInvalidationPublishing(SimpleTestCase):
         assert mock_logger.warning.call_args.args[0] == "flags_cache_invalidation_produce_failed"
         assert mock_logger.warning.call_args.kwargs["shadow"] is True
 
+    @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
+    @patch("products.feature_flags.backend.flags_cache.posthoganalytics.feature_enabled")
+    def test_inert_while_the_shadow_flag_does_not_exist(self, mock_feature_enabled, mock_produce):
+        # The state this ships in. The routing flag resolves, because it is live for
+        # the canary projects. SHADOW_COMPARE_FLAG does not exist yet, so local
+        # evaluation cannot resolve it and returns None.
+        mock_feature_enabled.side_effect = lambda key, *a, **kw: False if key == KAFKA_ROUTING_FLAG else None
+
+        publish_shadow_invalidation(self.TEAM_ID)
+
+        mock_produce.assert_not_called()
+
     @patch("products.feature_flags.backend.flags_cache.TOMBSTONE_COUNTER")
     @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
     @patch("products.feature_flags.backend.flags_cache._shadow_compare_enabled")
@@ -1004,20 +1016,24 @@ class TestShadowInvalidationPublishing(SimpleTestCase):
         mock_shadow_gate.assert_not_called()
         mock_produce.assert_not_called()
 
+    @patch("products.feature_flags.backend.flags_cache.logger")
     @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
     @patch("products.feature_flags.backend.flags_cache._shadow_compare_enabled")
     @patch(
         "products.feature_flags.backend.flags_cache._evaluate_kafka_routing_flag",
         side_effect=RuntimeError("flag client down"),
     )
-    def test_routing_evaluation_failure_publishes_nothing(self, mock_gate, mock_shadow_gate, mock_produce):
-        # Not raising is the assertion. An escape here reaches the tail of
-        # update_team_service_flags_cache and makes Celery retry a build that
-        # already wrote the cache.
+    def test_routing_evaluation_failure_publishes_nothing(self, mock_gate, mock_shadow_gate, mock_produce, mock_logger):
+        # Not raising is the assertion. The task sets no autoretry_for, so an escape
+        # does not re-run the build. It marks the task FAILURE and posts a Sentry
+        # error per rebuild, fleet-wide, for a telemetry failure.
         publish_shadow_invalidation(self.TEAM_ID)
 
         mock_shadow_gate.assert_not_called()
         mock_produce.assert_not_called()
+        # The shadow gate never runs, so its own warning cannot fire. This is the
+        # only record that the worker stopped publishing.
+        assert mock_logger.warning.call_args.args[0] == "flags_cache_shadow_routing_evaluation_failed"
 
     @patch("products.feature_flags.backend.flags_cache.logger")
     @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
