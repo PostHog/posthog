@@ -302,6 +302,11 @@ export function defaultScannerName(teamName: string | null | undefined, scannerT
     return teamName ? `${teamName} ${type}` : `New ${type}`
 }
 
+/** The summarize button resolves against these; every other type belongs to the sidebar's scanner picker. */
+export function isSummarizerScanner(scanner: ReplayScannerApi): boolean {
+    return scanner.scanner_type === 'summarizer'
+}
+
 export function scannerTypeLabel(scannerType: ScannerType | null | undefined): string {
     if (!scannerType) {
         return '—'
