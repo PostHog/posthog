@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 import tempfile
 import importlib.util
@@ -7,6 +8,7 @@ from pathlib import Path
 from types import ModuleType
 
 import unittest
+from unittest import mock
 
 from parameterized import parameterized
 
@@ -307,6 +309,43 @@ class TestSnobBackendTestSelectionShadow(unittest.TestCase):
         selection = _load_selection_module()
 
         self.assertEqual(selection.segments_for_test_file(path), frozenset(expected))
+
+    @parameterized.expand(
+        [
+            (
+                "compat_targets_set",
+                "posthog/clickhouse ee/clickhouse",
+                ["ee/clickhouse/test_g.py", "posthog/clickhouse/test_b.py"],
+            ),
+            ("no_compat_targets", "", []),
+        ]
+    )
+    def test_selected_files_by_segment_reads_compat_targets_from_the_env(
+        self, _name: str, targets: str, expected_compat: list[str]
+    ) -> None:
+        selection = _load_selection_module()
+
+        selected = [
+            "ee/clickhouse/test_g.py",
+            "posthog/clickhouse/test_b.py",
+            "posthog/dags/test_e.py",
+            "posthog/models/test_a.py",
+            "posthog/temporal/tests/test_c.py",
+            "products/warehouse_sources/backend/test_d.py",
+        ]
+
+        with mock.patch.dict(os.environ, {"CLICKHOUSE_COMPAT_PYTEST_TARGETS": targets}):
+            by_segment = selection.selected_files_by_segment(selected)
+
+        self.assertEqual(
+            by_segment,
+            {
+                "core": ["ee/clickhouse/test_g.py", "posthog/clickhouse/test_b.py", "posthog/models/test_a.py"],
+                "poe": ["ee/clickhouse/test_g.py", "posthog/clickhouse/test_b.py"],
+                "temporal": ["posthog/temporal/tests/test_c.py"],
+                "compat": expected_compat,
+            },
+        )
 
     def test_narrowable_baseline_excludes_turbo_product_tests(self) -> None:
         selection = _load_selection_module()
