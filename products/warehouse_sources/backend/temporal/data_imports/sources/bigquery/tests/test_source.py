@@ -1019,7 +1019,7 @@ def test_bigquery_get_columns_trims_whitespace_in_identifiers():
     BigQueryImplementation().get_columns(fake_client, config, names=None)
 
     sql = fake_client.query.call_args.args[0]
-    assert "`524098457564.bigquery_aloalo.INFORMATION_SCHEMA.COLUMNS`" in sql
+    assert "`524098457564.bigquery_aloalo`.INFORMATION_SCHEMA.COLUMNS" in sql
     assert " bigquery_aloalo" not in sql
     assert " 524098457564" not in sql
     assert fake_client.query.call_args.kwargs["project"] == "524098457564"
@@ -1028,7 +1028,10 @@ def test_bigquery_get_columns_trims_whitespace_in_identifiers():
 def test_bigquery_get_columns_qualifies_information_schema_with_dataset_project():
     """When the dataset lives in a different project (`dataset_project`), the INFORMATION_SCHEMA
     reference must carry that project — an unqualified `dataset.INFORMATION_SCHEMA.*` makes BigQuery
-    reject the job with "ProjectId must be non-empty"."""
+    reject the job with "ProjectId must be non-empty". The backtick-quoted identifier must close
+    after the dataset (matching `get_primary_keys`/`get_leading_index_columns`) rather than wrapping
+    `INFORMATION_SCHEMA.COLUMNS` inside it too — quoting the whole path as one identifier stops
+    BigQuery from resolving it as the INFORMATION_SCHEMA view and raises the same error again."""
     fake_client = mock.MagicMock()
     fake_client.query.return_value.result.return_value = []
 
@@ -1040,7 +1043,8 @@ def test_bigquery_get_columns_qualifies_information_schema_with_dataset_project(
     BigQueryImplementation().get_columns(fake_client, config, names=None)
 
     sql = fake_client.query.call_args.args[0]
-    assert "`dataset-project.posthog_export.INFORMATION_SCHEMA.COLUMNS`" in sql
+    assert "`dataset-project.posthog_export`.INFORMATION_SCHEMA.COLUMNS" in sql
+    assert "INFORMATION_SCHEMA.COLUMNS`" not in sql
     assert fake_client.query.call_args.kwargs["project"] == "dataset-project"
 
 
