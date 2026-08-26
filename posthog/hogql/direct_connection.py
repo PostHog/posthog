@@ -10,12 +10,12 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.ph_client import feature_enabled_or_false
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.shared_link_user import SharedLinkUser
 from posthog.synthetic_user import SyntheticUser
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
-from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLMode
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceAccessMethod, ManagedWarehouseSQLMode
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -116,7 +116,7 @@ def get_direct_connection_source(
     # boundary and reads any upstream table, so raw queries are pure-direct only. Pure-direct
     # sources have no restricted catalog to bypass; the whole external database is the intended
     # surface.
-    if require_pure_direct and source.access_method != ExternalDataSource.AccessMethod.DIRECT:
+    if require_pure_direct and source.access_method != ExternalDataSourceAccessMethod.DIRECT:
         return None
 
     if (

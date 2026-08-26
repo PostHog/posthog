@@ -124,7 +124,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         alert_id = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()["id"]
 
         with mock.patch(
-            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_object",
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_object",
             side_effect=deny_insight,
         ):
             create = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request)
@@ -157,7 +157,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
 
         # Deny viewer access to every insight by emptying the viewable-insight queryset.
         with mock.patch(
-            "posthog.rbac.user_access_control.UserAccessControl.filter_queryset_by_access_level",
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
             side_effect=lambda queryset, *args, **kwargs: queryset.none(),
         ):
             retrieve = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert_id}")
@@ -381,6 +381,57 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         body = response.json()
         assert len(body["checks"]) == expected_count
         assert body["checks_total"] == total_checks
+
+    def test_retrieve_check_includes_allowlisted_error_code(self) -> None:
+        creation_request = {
+            "insight": self.insight["id"],
+            "subscribed_users": [self.user.id],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+            "name": "error code test",
+        }
+        alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
+        alert_obj = AlertConfiguration.objects.get(id=alert["id"])
+        AlertCheck.objects.create(
+            alert_configuration=alert_obj,
+            calculated_value=None,
+            state=AlertState.ERRORED,
+            error={"code": "email_unavailable", "message": "Email delivery is unavailable."},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["checks"][0]["error"] == {
+            "code": "email_unavailable",
+            "message": "Email delivery is unavailable.",
+        }
+
+    def test_retrieve_check_hides_internal_error_message(self) -> None:
+        creation_request = {
+            "insight": self.insight["id"],
+            "subscribed_users": [self.user.id],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+            "name": "internal error test",
+        }
+        alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
+        alert_obj = AlertConfiguration.objects.get(id=alert["id"])
+        AlertCheck.objects.create(
+            alert_configuration=alert_obj,
+            calculated_value=None,
+            state=AlertState.ERRORED,
+            error={"message": "ClickHouse failed to connect to internal.example.com"},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["checks"][0]["error"] == {
+            "message": "This alert encountered an error. Check the alert configuration and try again."
+        }
 
     @parameterized.expand(
         [
@@ -1738,6 +1789,24 @@ class TestAlertTestDelivery(APIBaseTest):
         mock_email_message.return_value.add_recipient.assert_called_once_with(email=self.user.email)
         mock_email_message.return_value.send.assert_called_once_with()
         mock_trigger.assert_not_called()
+
+    @mock.patch("products.alerts.backend.presentation.views.alert.is_email_available", return_value=False)
+    @mock.patch(
+        "products.alerts.backend.presentation.views.alert.send_test_alert_email",
+        side_effect=RuntimeError("email unavailable"),
+    )
+    def test_returns_email_unavailable_when_email_delivery_is_not_configured(
+        self, _mock_email, _mock_available
+    ) -> None:
+        alert = AlertConfiguration.objects.get(id=self.alert["id"])
+        AlertSubscription.objects.create(alert_configuration=alert, user=self.user)
+
+        response = self.client.post(f"/api/projects/{self.team.id}/alerts/{self.alert['id']}/test-delivery/")
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE, response.content
+        assert response.json() == {
+            "detail": "Email delivery is unavailable for this instance. Configure email settings before trying again."
+        }
 
     @mock.patch(
         "products.alerts.backend.presentation.views.alert.send_test_alert_email",

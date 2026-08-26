@@ -465,7 +465,10 @@ export function processAgentConversationEvent(
   }
 
   if (event.type === "progress") {
-    handleProgress(b, event, event.timestamp, false);
+    handleProgress(b, event, event.timestamp, {
+      waitForRunStarted: false,
+      appendOnSetupRestart: true,
+    });
     return;
   }
 
@@ -1010,7 +1013,10 @@ function handleProgress(
   b: ItemBuilder,
   rawParams: unknown,
   ts: number,
-  waitForRunStarted = true,
+  options?: {
+    waitForRunStarted?: boolean;
+    appendOnSetupRestart?: boolean;
+  },
 ) {
   const params = rawParams as
     | {
@@ -1024,6 +1030,18 @@ function handleProgress(
   if (!params?.step || !params.label || !params.group) return;
 
   const status = normalizeStepStatus(params.status);
+  const existingCard = b.progressCards.get(params.group);
+  const previousAgentStatus = existingCard?.steps.get("agent")?.status;
+  const startsNewSetup =
+    options?.appendOnSetupRestart === true &&
+    params.step === "sandbox" &&
+    status === "in_progress" &&
+    previousAgentStatus !== undefined &&
+    previousAgentStatus !== "in_progress";
+  if (startsNewSetup) {
+    b.progressCards.delete(params.group);
+  }
+
   const card = ensureProgressCardForGroup(b, params.group, ts);
   if (!card) return;
   if (card.itemIndex < b.lowestTouchedProgressIndex) {
@@ -1035,7 +1053,7 @@ function handleProgress(
     label: params.label,
     detail: params.detail,
   });
-  syncProgressCard(card, b, waitForRunStarted);
+  syncProgressCard(card, b, options?.waitForRunStarted);
 }
 
 function normalizeStepStatus(raw: string | undefined): StepStatus {

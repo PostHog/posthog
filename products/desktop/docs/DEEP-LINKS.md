@@ -96,15 +96,16 @@ posthog-code://task/abc123?comment=thread-1&scope=desktop_canvas&item=canvas-9
 
 An **https** bridge also exists for links sent outside the app (e.g. comment Slack DMs): `<instance>/code/task/<taskId>` resolves to a web interstitial in PostHog Cloud, which fires this scheme — forwarding the `comment`, `scope`, and `item` params — or offers the desktop-app download.
 
-### `posthog-code://inbox/<reportId>`
+### `posthog-code://inbox[/<reportId>]`
 
-Open a specific inbox report.
+Open Self-driving, or a specific report inside it.
 
 | Segment | Required | Description |
 |---|---|---|
-| `<reportId>` | Yes | Inbox report ID |
+| `<reportId>` | No | Inbox report ID. Omit to open the inbox itself. |
 
 ```
+posthog-code://inbox
 posthog-code://inbox/report_abc123
 ```
 

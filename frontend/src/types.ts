@@ -8,7 +8,6 @@ import { LayoutItem } from 'react-grid-layout'
 import { LemonTableColumns } from '@posthog/lemon-ui'
 
 import { PaginatedResponse } from 'lib/api'
-import { ChartDataset, ChartType, InteractionItem } from 'lib/Chart'
 import { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import { HedgehogActorOptions } from 'lib/components/HedgehogMode/types'
 import { SessionRecordingTriggerGroupsConfig, UrlTriggerConfig } from 'lib/components/IngestionControls/types'
@@ -72,6 +71,7 @@ import type {
     QuickFilterType,
     RecordingOrder,
     RecordingsQuery,
+    ResolvedDateRangeResponse,
     RevenueAnalyticsConfig,
     SharingConfigurationSettings,
     TileFilters,
@@ -1734,6 +1734,8 @@ export interface PersonListParams {
     distinct_id?: string
     include_total?: boolean // PostHog 3000-only
     limit?: number
+    /** Names the ClickHouse query so `api.cancelQuery` can stop it. Up to 128 characters. */
+    client_query_id?: string
 }
 
 export type SearchableEntity =
@@ -2640,6 +2642,7 @@ export interface InsightModel extends Cacheable, WithAccessControl {
     query_status?: QueryStatus
     is_cached?: boolean
     filter_override_context?: InsightFilterOverrideContextApi | null
+    resolved_date_range?: ResolvedDateRangeResponse | null
     /** Only used when creating objects */
     _create_in_folder?: string | null
 }
@@ -5271,65 +5274,45 @@ export interface ProjectTreeBreadcrumb extends BreadcrumbBase {
 }
 export type Breadcrumb = LinkBreadcrumb | RenamableBreadcrumb | SymbolBreadcrumb | ProjectTreeBreadcrumb
 
-export type GraphDataset = ChartDataset<ChartType> &
-    Partial<
-        Pick<
-            TrendResult,
-            | 'count'
-            | 'label'
-            | 'days'
-            | 'labels'
-            | 'data'
-            | 'compare'
-            | 'compare_label'
-            | 'status'
-            | 'action'
-            | 'actions'
-            | 'breakdown_value'
-            | 'persons_urls'
-            | 'persons'
-            | 'filter'
-        >
-    > & {
-        /** Used in filtering out visibility of datasets. Set internally by chart.js */
-        id: number
-        /** Toggled on to draw incompleteness lines in LineGraph.tsx */
-        dotted?: boolean
-        /** Array of breakdown values used only in ActionsHorizontalBar/ActionsPie.tsx data */
-        breakdownValues?: (string | number | string[] | undefined)[]
-        /** Array of breakdown labels used only in ActionsHorizontalBar/ActionsPie.tsx data */
-        breakdownLabels?: (string | number | undefined)[]
-        /** Array of compare labels used only in ActionsHorizontalBar/ActionsPie.tsx data */
-        compareLabels?: (CompareLabelType | undefined | null)[]
-        /** Array of persons used only in (ActionsHorizontalBar|ActionsPie).tsx */
-        personsValues?: (Person | undefined | null)[]
-        index?: number
-        /** Value (count) for specific data point; only valid in the context of an xy intercept */
-        pointValue?: number
-        /** Value (count) for specific data point; only valid in the context of an xy intercept */
-        personUrl?: string
-        /** Action/event filter defition */
-        action?: ActionFilter | null
-        yAxisID?: string
-    }
-
-export type GraphPoint = InteractionItem & { dataset: GraphDataset }
-
-interface PointsPayload {
-    pointsIntersectingLine: GraphPoint[]
-    pointsIntersectingClick: GraphPoint[]
-    clickedPointNotLine: boolean
-    referencePoint: GraphPoint
-}
-
-export interface GraphPointPayload {
-    points: PointsPayload
-    index: number
-    value?: number
-    /** Contains the dataset for all the points in the same x-axis point; allows switching between matching points in the x-axis */
-    crossDataset?: GraphDataset[]
-    /** ID for the currently selected series */
-    seriesId?: number
+export type GraphDataset = Partial<
+    Pick<
+        TrendResult,
+        | 'count'
+        | 'label'
+        | 'days'
+        | 'labels'
+        | 'data'
+        | 'compare'
+        | 'compare_label'
+        | 'status'
+        | 'action'
+        | 'actions'
+        | 'breakdown_value'
+        | 'persons_urls'
+        | 'persons'
+        | 'filter'
+    >
+> & {
+    /** Used in filtering out visibility of datasets. Set internally by chart.js */
+    id: number
+    /** Toggled on to draw incompleteness lines in LineGraph.tsx */
+    dotted?: boolean
+    /** Array of breakdown values used only in ActionsHorizontalBar/ActionsPie.tsx data */
+    breakdownValues?: (string | number | string[] | undefined)[]
+    /** Array of breakdown labels used only in ActionsHorizontalBar/ActionsPie.tsx data */
+    breakdownLabels?: (string | number | undefined)[]
+    /** Array of compare labels used only in ActionsHorizontalBar/ActionsPie.tsx data */
+    compareLabels?: (CompareLabelType | undefined | null)[]
+    /** Array of persons used only in (ActionsHorizontalBar|ActionsPie).tsx */
+    personsValues?: (Person | undefined | null)[]
+    index?: number
+    /** Value (count) for specific data point; only valid in the context of an xy intercept */
+    pointValue?: number
+    /** Value (count) for specific data point; only valid in the context of an xy intercept */
+    personUrl?: string
+    /** Action/event filter defition */
+    action?: ActionFilter | null
+    yAxisID?: string
 }
 
 export enum CompareLabelType {
@@ -6638,6 +6621,8 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
      */
     enabled_columns?: string[] | null
     available_columns?: { name: string; data_type?: string; is_nullable?: boolean }[]
+    /** Exact source identifiers are available for sources that project columns upstream. */
+    source_column_metadata_available?: boolean
     /**
      * Predicates ANDed onto the source query so only matching rows sync.
      * `null` means "sync all rows". Applied on the next sync — not retroactive.
@@ -6658,6 +6643,7 @@ export interface ExternalDataSchemaSourceSummary {
     access_method?: ExternalDataSource['access_method']
     supports_column_selection?: boolean
     supports_row_filters?: boolean
+    requires_exact_column_metadata?: boolean
     user_access_level: AccessControlLevel | null
     /** The source's effective vendor API version — what schemas without an override sync on */
     api_version?: string | null
@@ -6956,6 +6942,7 @@ export type RawBatchExportRun = {
         | 'ContinuedAsNew'
         | 'Failed'
         | 'FailedRetryable'
+        | 'FailedBilling'
         | 'Terminated'
         | 'TimedOut'
         | 'Running'
@@ -6978,6 +6965,7 @@ export type BatchExportRun = {
         | 'ContinuedAsNew'
         | 'Failed'
         | 'FailedRetryable'
+        | 'FailedBilling'
         | 'Terminated'
         | 'TimedOut'
         | 'Running'

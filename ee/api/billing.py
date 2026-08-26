@@ -28,9 +28,10 @@ from posthog.permissions import (
     get_authenticator_scopes,
     posthog_feature_flag_enabled,
 )
-from posthog.rbac.user_access_control import UserAccessControl, visible_teams_for_user
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_trusted_client_ip, relative_date_parse
+
+from products.access_control.backend.facade.user_access_control import UserAccessControl, visible_teams_for_user
 
 from ee.billing.billing_manager import BillingManager
 from ee.billing.billing_types import USAGE_TYPE_VALUES
