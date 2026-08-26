@@ -8,6 +8,7 @@ import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
+from rest_framework.exceptions import APIException, NotFound, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -73,8 +74,7 @@ class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         to asynchronously execute the evaluation.
         """
         serializer = EvaluationRunRequestSerializer(data=request.data)
-        if not serializer.is_valid():
-            return Response({"error": serializer.errors}, status=400)
+        serializer.is_valid(raise_exception=True)
 
         evaluation_id = str(serializer.validated_data["evaluation_id"])
         target_event_id = str(serializer.validated_data["target_event_id"])
@@ -86,7 +86,7 @@ class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         try:
             evaluation = Evaluation.objects.get(id=evaluation_id, team_id=self.team_id, deleted=False)
         except Evaluation.DoesNotExist:
-            return Response({"error": f"Evaluation {evaluation_id} not found"}, status=404)
+            raise NotFound(f"Evaluation {evaluation_id} not found")
 
         self.check_object_permissions(request, evaluation)
 
@@ -95,14 +95,10 @@ class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         # verdict with $ai_target_type "generation_uuid" under that evaluation's name — which then
         # counts towards its pass rate while being invisible on the trace or session it belongs to.
         if evaluation.target != EvaluationTarget.GENERATION.value:
-            return Response(
-                {
-                    "error": (
-                        f"This evaluation runs on the whole {evaluation.target}, so it can't be re-run against a "
-                        "single generation."
-                    )
-                },
-                status=400,
+            raise ValidationError(
+                f"This evaluation runs on the whole {evaluation.target}, so it can't be re-run against a "
+                "single generation.",
+                code="evaluation_target_mismatch",
             )
 
         # Fetch event data from ClickHouse using available keys
@@ -126,14 +122,11 @@ class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         try:
             event_data = self._fetch_event_for_evaluation(where_clauses, params)
         except AIEventsExpiredError:
-            return Response(
-                {
-                    "error": f"Event {target_event_id} is past the ai_events retention window and can no longer be evaluated"
-                },
-                status=404,
+            raise NotFound(
+                f"Event {target_event_id} is past the ai_events retention window and can no longer be evaluated"
             )
         except AIEventsNotFoundError:
-            return Response({"error": f"Event {target_event_id} not found"}, status=404)
+            raise NotFound(f"Event {target_event_id} not found")
 
         # Build workflow inputs
         inputs = RunEvaluationInputs(
@@ -204,7 +197,9 @@ class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 target_event_id=target_event_id,
                 error=str(e),
             )
-            return Response({"error": "Failed to start evaluation"}, status=500)
+            # The frontend prefixes this with the action name, so "Failed to start evaluation" here
+            # would read back as "Run evaluation failed: Failed to start evaluation".
+            raise APIException("The evaluation service is unavailable. Try again in a moment.") from e
 
     def _fetch_event_for_evaluation(self, where_clauses: list[str], params: dict[str, object]) -> dict:
         """Fetch the target event with its heavy AI columns from ai_events.

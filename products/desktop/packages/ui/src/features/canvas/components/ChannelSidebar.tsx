@@ -13,8 +13,6 @@ import {
   channelItemSortEvent,
   channelItemSources,
   DEFAULT_CHANNEL_ITEM_FILTERS,
-  DEFAULT_CHANNEL_ITEM_GROUPING,
-  DEFAULT_CHANNEL_ITEM_SORT,
   filterChannelItems,
   groupChannelItems,
   hasActiveChannelItemFilters,
@@ -67,6 +65,7 @@ import { SidebarKbdHint } from "@posthog/ui/features/sidebar/components/items/Si
 import { MarqueeOverlay } from "@posthog/ui/features/sidebar/components/MarqueeOverlay";
 import { SidebarBulkActionBar } from "@posthog/ui/features/sidebar/components/SidebarBulkActionBar";
 import { SidebarItem } from "@posthog/ui/features/sidebar/components/SidebarItem";
+import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { taskDragSiblings } from "@posthog/ui/features/sidebar/taskDrag";
 import { useTaskSelectionStore } from "@posthog/ui/features/sidebar/taskSelectionStore";
 import { useBulkArchiveConfirm } from "@posthog/ui/features/sidebar/useBulkArchiveConfirm";
@@ -199,7 +198,7 @@ function RecentSectionHeader({
             ))}
           </TabsList>
         </Tabs>
-        <>
+        <div className="ml-auto flex items-center gap-0.5">
           <Button
             variant="default"
             size="icon-xs"
@@ -224,7 +223,7 @@ function RecentSectionHeader({
             showRunFilters={showRunFilters}
             active={filtersActive}
           />
-        </>
+        </div>
       </div>
       {searchOpen && (
         <div className="px-1 pb-1">
@@ -356,13 +355,12 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
   const setTab = (next: ChannelTab) => setChosenTab({ channelId, tab: next });
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [rawFilters, setFilters] = useState<ChannelItemFilters>(
-    DEFAULT_CHANNEL_ITEM_FILTERS,
-  );
-  const [sort, setSort] = useState<ChannelItemSort>(DEFAULT_CHANNEL_ITEM_SORT);
-  const [rawGrouping, setGrouping] = useState<ChannelItemGrouping>(
-    DEFAULT_CHANNEL_ITEM_GROUPING,
-  );
+  const rawFilters = useSidebarStore((state) => state.channelItemFilters);
+  const setFilters = useSidebarStore((state) => state.setChannelItemFilters);
+  const sort = useSidebarStore((state) => state.channelItemSort);
+  const setSort = useSidebarStore((state) => state.setChannelItemSort);
+  const rawGrouping = useSidebarStore((state) => state.channelItemGrouping);
+  const setGrouping = useSidebarStore((state) => state.setChannelItemGrouping);
   // Canvases carry no repository, so grouping by one would file the whole tab
   // under a single heading. Neutralised as well as hidden, the way the run
   // filters above are.
@@ -780,7 +778,7 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
               // menu displays: a choice made under one tab has to survive a
               // write made under another.
               onFilterChange={(key, value) =>
-                setFilters((prev) => ({ ...prev, [key]: value }))
+                setFilters({ ...rawFilters, [key]: value })
               }
               onClearFilters={() => setFilters(DEFAULT_CHANNEL_ITEM_FILTERS)}
               sort={sort}
@@ -797,65 +795,64 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
         )}
         {/* Pin and unpin stay reachable from the row's menu and its context
             menu, so the drag adds no keyboard-only path. */}
-        <>
-          {/* biome-ignore lint/a11y/noStaticElementInteractions: drag-and-drop container */}
-          <div
-            aria-busy={isLoading}
-            className="scroll-mask-4 min-h-0 flex-1 overflow-y-auto px-2 pt-1 pb-2"
-            onDragOver={pinDrag.listProps.onDragOver}
-            onDrop={pinDrag.listProps.onDrop}
-          >
-            {listState === "loading" && <ChannelItemsSkeleton />}
 
-            {listState === "unavailable" && (
-              <Empty className="border-0 py-6">
-                <EmptyHeader>
-                  <EmptyMedia variant="icon">
-                    <PackageIcon size={18} />
-                  </EmptyMedia>
-                  <EmptyTitle>Space unavailable</EmptyTitle>
-                  <EmptyDescription>
-                    It may have been deleted, or belong to another project.
-                  </EmptyDescription>
-                </EmptyHeader>
-              </Empty>
-            )}
+        {/* biome-ignore lint/a11y/noStaticElementInteractions: drag-and-drop container */}
+        <div
+          aria-busy={isLoading}
+          className="scroll-mask-4 min-h-0 flex-1 overflow-y-auto px-2 pt-1 pb-2"
+          onDragOver={pinDrag.listProps.onDragOver}
+          onDrop={pinDrag.listProps.onDrop}
+        >
+          {listState === "loading" && <ChannelItemsSkeleton />}
 
-            {showHeader &&
-              (listState === "empty" ? (
-                <TabEmptyState tab={tab} />
-              ) : sections.length > 0 ? (
-                <div className="flex flex-col gap-px">
-                  {/* Always mounted, empty or not. Inserting the run on
+          {listState === "unavailable" && (
+            <Empty className="border-0 py-6">
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <PackageIcon size={18} />
+                </EmptyMedia>
+                <EmptyTitle>Space unavailable</EmptyTitle>
+                <EmptyDescription>
+                  It may have been deleted, or belong to another project.
+                </EmptyDescription>
+              </EmptyHeader>
+            </Empty>
+          )}
+
+          {showHeader &&
+            (listState === "empty" ? (
+              <TabEmptyState tab={tab} />
+            ) : sections.length > 0 ? (
+              <div className="flex flex-col gap-px">
+                {/* Always mounted, empty or not. Inserting the run on
                     dragstart restructures the list under the dragged row, and
                     Chromium ends the drag on the spot: dragstart, then dragend,
                     before the pointer moves. Growing one already there is
                     fine. */}
-                  {pinnedRun()}
-                  {datedSections.map((section) => (
-                    <Fragment key={section.key}>
-                      {section.label && <MenuLabel>{section.label}</MenuLabel>}
-                      {section.items.map((item) => taskRow(item, true))}
-                    </Fragment>
-                  ))}
-                </div>
-              ) : (
-                <Empty className="border-0 py-6">
-                  <EmptyHeader>
-                    <EmptyMedia variant="icon">
-                      <MagnifyingGlass size={18} />
-                    </EmptyMedia>
-                    <EmptyTitle>No matches</EmptyTitle>
-                    <EmptyDescription>
-                      Try a different search or clear the filters.
-                    </EmptyDescription>
-                  </EmptyHeader>
-                </Empty>
-              ))}
-          </div>
-          <ChannelsFab channelId={channelId} />
-          <MarqueeOverlay rect={marquee} />
-        </>
+                {pinnedRun()}
+                {datedSections.map((section) => (
+                  <Fragment key={section.key}>
+                    {section.label && <MenuLabel>{section.label}</MenuLabel>}
+                    {section.items.map((item) => taskRow(item, true))}
+                  </Fragment>
+                ))}
+              </div>
+            ) : (
+              <Empty className="border-0 py-6">
+                <EmptyHeader>
+                  <EmptyMedia variant="icon">
+                    <MagnifyingGlass size={18} />
+                  </EmptyMedia>
+                  <EmptyTitle>No matches</EmptyTitle>
+                  <EmptyDescription>
+                    Try a different search or clear the filters.
+                  </EmptyDescription>
+                </EmptyHeader>
+              </Empty>
+            ))}
+        </div>
+        <ChannelsFab channelId={channelId} />
+        <MarqueeOverlay rect={marquee} />
       </div>
 
       {/* Below the list rather than floating over it: the bottom rows are where
