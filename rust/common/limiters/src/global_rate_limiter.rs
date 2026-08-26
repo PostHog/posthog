@@ -330,6 +330,25 @@ pub struct CacheEntry {
     pub pressure: f64,
 }
 
+/// What `check_limit_internal` decided inside the per-key cache lock. The
+/// upsert closure fills it and returns the new entry; metrics and `queue_sync`
+/// run after the closure returns, so the locked section stays pure.
+#[derive(Default)]
+struct HotPathDecision {
+    /// The key had an entry before this request. Drives `is_limited`: a first
+    /// sighting is always allowed.
+    existed: bool,
+    /// Effective level with this request's count included.
+    level: f64,
+    /// Time since the last Redis read, for the staleness histogram. `None`
+    /// for a never-synced entry.
+    staleness_ms: Option<f64>,
+    /// The level sat under the sync floor, so no read was queued.
+    floor_blocked: bool,
+    /// A Redis read is due for this key.
+    sync_due: bool,
+}
+
 /// Compute the effective level of a cache entry with leaky bucket decay.
 ///
 /// The estimate decays the last-known global count by the leak rate and adds
@@ -465,6 +484,10 @@ pub enum EvalResult {
 #[derive(Clone)]
 pub struct GlobalRateLimiterImpl {
     config: GlobalRateLimiterConfig,
+    /// Every runtime writer goes through `entry().and_upsert_with`, which moka
+    /// serializes per key. A plain `insert` does not take that lock, so a
+    /// get-modify-insert anywhere can overwrite a fresh fleet estimate with a
+    /// stale copy. Tests may still seed with `insert` before concurrent access.
     cache: Cache<String, CacheEntry>,
     update_tx: Option<mpsc::Sender<UpdateRequest>>,
     pending_sync: Arc<DashSet<String>>,
@@ -658,77 +681,119 @@ impl GlobalRateLimiterImpl {
             self.enqueue_update(key, count, ts);
         }
 
-        // Check local cache
-        let (level, entry_exists) = if let Some(mut entry) = self.cache.get(key) {
-            let level = effective_level(&entry, leak_rate, now_instant);
+        // Read the local cache and record this request's count in one atomic
+        // per-key step. Both writers of this cache, here and the tick's
+        // `process_read_results`, go through `entry().and_upsert_with`, which
+        // moka serializes per key. A plain `insert` does not take that lock, so
+        // a get-modify-insert here could overwrite a fresh fleet estimate the
+        // tick had just written with this request's stale copy.
+        //
+        // The closure runs under moka's per-key lock, so it only computes: it
+        // fills `decision` and returns the new entry. Metrics and `queue_sync`,
+        // which touches the DashSet the tick iterates, run after it returns.
+        let mut decision = HotPathDecision::default();
+        self.cache
+            .entry(key.to_string())
+            .and_upsert_with(|existing| match existing {
+                Some(existing) => {
+                    let mut entry = existing.into_value();
+                    decision.existed = true;
 
-            // Record staleness for observability. A never-synced entry has no
-            // staleness to report; it is covered by the sync decision below.
-            if let Some(synced_at) = entry.synced_at {
-                let staleness_ms = now_instant.duration_since(synced_at).as_millis() as f64;
-                metrics::histogram!(GLOBAL_RATE_LIMITER_SYNC_STALENESS_HISTOGRAM, "scope" => self.scope).record(staleness_ms);
-            }
+                    // The level before this request is what the floor and the
+                    // tier cadence are judged on.
+                    let level = effective_level(&entry, leak_rate, now_instant);
+                    decision.staleness_ms = entry
+                        .synced_at
+                        .map(|synced_at| now_instant.duration_since(synced_at).as_millis() as f64);
 
-            // Sync decision. The absolute floor is checked first: a key this far
-            // under its threshold cannot be limited whatever the other nodes
-            // report, so the round trip buys nothing and the key space is large
-            // enough that those round trips are the dominant cost. Above the
-            // floor the pressure tier sets the cadence, and a key that clears the
-            // floor while still idle-tier syncs on the Low cadence rather than
-            // never -- otherwise a key that is hot across the fleet but cold on
-            // any single node would never be discovered.
-            if self.sync_floor_blocks(level, threshold) {
-                metrics::counter!(GLOBAL_RATE_LIMITER_CACHE_COUNTER, "scope" => self.scope, "result" => "hit")
+                    // Sync decision. The absolute floor is checked first: a key
+                    // this far under its threshold cannot be limited whatever
+                    // the other nodes report, so the round trip buys nothing and
+                    // the key space is large enough that those round trips are
+                    // the dominant cost. Above the floor the pressure tier sets
+                    // the cadence, and a key that clears the floor while still
+                    // idle-tier syncs on the Low cadence rather than never --
+                    // otherwise a key that is hot across the fleet but cold on
+                    // any single node would never be discovered.
+                    if self.below_sync_floor(level, threshold) {
+                        decision.floor_blocked = true;
+                    } else {
+                        let effective_pressure = (level / threshold as f64).max(entry.pressure);
+                        let tier_interval =
+                            tier_sync_interval(effective_pressure, self.config.sync_interval)
+                                .unwrap_or_else(|| self.config.sync_interval.mul_f64(4.0));
+
+                        // A never-synced entry is due immediately. Its level is
+                        // local only, so the fleet count behind it is unknown,
+                        // and waiting a tier interval to find out delays every
+                        // verdict on the key by that long. Keys below the floor
+                        // never reach this branch, so this does not sync the
+                        // long tail of one-off keys.
+                        decision.sync_due = match entry.synced_at {
+                            None => true,
+                            Some(synced_at) => {
+                                now_instant.duration_since(synced_at) > tier_interval
+                            }
+                        };
+                    }
+
+                    entry.local_pending += count;
+                    decision.level = effective_level(&entry, leak_rate, now_instant);
+                    entry
+                }
+                None => {
+                    // Cache miss: no prior data, so allow through, start
+                    // tracking local_pending, and queue a sync once the count
+                    // clears the floor.
+                    decision.existed = false;
+                    if self.below_sync_floor(count as f64, threshold) {
+                        decision.floor_blocked = true;
+                    } else {
+                        decision.sync_due = true;
+                    }
+                    decision.level = count as f64;
+                    CacheEntry {
+                        estimated_count: 0.0,
+                        synced_at: None,
+                        local_pending: count,
+                        pressure: 0.0,
+                    }
+                }
+            });
+
+        // Side effects, replayed from the decision outside the key lock. The
+        // counter mapping matches the branches the closure replaced: a hit
+        // counts as `sync_queued` or `hit`, a miss as `miss`, and a level under
+        // the floor records the skipped read on either path.
+        if let Some(staleness_ms) = decision.staleness_ms {
+            metrics::histogram!(GLOBAL_RATE_LIMITER_SYNC_STALENESS_HISTOGRAM, "scope" => self.scope)
+                .record(staleness_ms);
+        }
+        if decision.floor_blocked {
+            metrics::counter!(
+                GLOBAL_RATE_LIMITER_SYNC_SKIPPED_COUNTER,
+                "scope" => self.scope,
+                "reason" => "below_floor",
+            )
+            .increment(1);
+        }
+        if decision.existed {
+            if decision.sync_due {
+                self.queue_sync(key);
+                metrics::counter!(GLOBAL_RATE_LIMITER_CACHE_COUNTER, "scope" => self.scope, "result" => "sync_queued")
                     .increment(1);
             } else {
-                let effective_pressure = (level / threshold as f64).max(entry.pressure);
-                let tier_interval =
-                    tier_sync_interval(effective_pressure, self.config.sync_interval)
-                        .unwrap_or_else(|| self.config.sync_interval.mul_f64(4.0));
-
-                // A never-synced entry is due immediately. Its level is local
-                // only, so the fleet count behind it is unknown, and waiting a
-                // tier interval to find out delays every verdict on the key by
-                // that long. Keys below the floor never reach this branch, so
-                // this does not sync the long tail of one-off keys.
-                let due = match entry.synced_at {
-                    None => true,
-                    Some(synced_at) => now_instant.duration_since(synced_at) > tier_interval,
-                };
-                if due {
-                    self.queue_sync(key);
-                    metrics::counter!(GLOBAL_RATE_LIMITER_CACHE_COUNTER, "scope" => self.scope, "result" => "sync_queued")
-                        .increment(1);
-                } else {
-                    metrics::counter!(GLOBAL_RATE_LIMITER_CACHE_COUNTER, "scope" => self.scope, "result" => "hit")
-                        .increment(1);
-                }
+                metrics::counter!(GLOBAL_RATE_LIMITER_CACHE_COUNTER, "scope" => self.scope, "result" => "hit")
+                    .increment(1);
             }
-
-            // Increment local_pending and recompute level with this request included
-            entry.local_pending += count;
-            let level = effective_level(&entry, leak_rate, now_instant);
-            self.cache.insert(key.to_string(), entry);
-
-            (level, true)
         } else {
-            // Cache miss: no prior data, allow through and queue sync
-            metrics::counter!(GLOBAL_RATE_LIMITER_CACHE_COUNTER, "scope" => self.scope, "result" => "miss").increment(1);
-
-            // Insert a fresh entry so subsequent requests have local_pending tracked
-            let entry = CacheEntry {
-                estimated_count: 0.0,
-                synced_at: None,
-                local_pending: count,
-                pressure: 0.0,
-            };
-            self.cache.insert(key.to_string(), entry);
-            if !self.sync_floor_blocks(count as f64, threshold) {
+            metrics::counter!(GLOBAL_RATE_LIMITER_CACHE_COUNTER, "scope" => self.scope, "result" => "miss")
+                .increment(1);
+            if decision.sync_due {
                 self.queue_sync(key);
             }
-
-            (count as f64, false)
-        };
+        }
+        let (level, entry_exists) = (decision.level, decision.existed);
 
         // Determine if key is rate limited
         let is_limited = entry_exists && level >= threshold as f64;
@@ -751,8 +816,9 @@ impl GlobalRateLimiterImpl {
     }
 
     /// True when `level` sits below the sync floor for this key's threshold,
-    /// meaning a Redis round trip cannot change any enforcement decision.
-    /// Records the skip so the saving is visible next to `cache_counts_total`.
+    /// meaning a Redis round trip cannot change any enforcement decision. Pure,
+    /// because it runs inside the cache's per-key lock; the caller records the
+    /// skip so the saving stays visible next to `cache_counts_total`.
     ///
     /// The configured floor is capped at 1% of the key's own threshold. The
     /// floor is a per-node level, so a fleet of N nodes can hide at most
@@ -763,21 +829,12 @@ impl GlobalRateLimiterImpl {
     /// sync, making the override unenforceable.
     ///
     /// A configured floor of 0 disables the check entirely.
-    fn sync_floor_blocks(&self, level: f64, threshold: u64) -> bool {
+    fn below_sync_floor(&self, level: f64, threshold: u64) -> bool {
         if self.config.min_sync_floor == 0 {
             return false;
         }
         let effective_floor = self.config.min_sync_floor.min((threshold / 100).max(1));
-        if level >= effective_floor as f64 {
-            return false;
-        }
-        metrics::counter!(
-            GLOBAL_RATE_LIMITER_SYNC_SKIPPED_COUNTER,
-            "scope" => self.scope,
-            "reason" => "below_floor",
-        )
-        .increment(1);
-        true
+        level < effective_floor as f64
     }
 
     /// Queue a key for background Redis sync, bounded by
@@ -1411,15 +1468,38 @@ impl GlobalRateLimiterImpl {
             let pressure = estimated / threshold as f64;
             let new_tier = PressureTier::from_pressure(pressure);
 
-            // Single lookup: emit estimate drift + tier transition for the prior entry.
-            if let Some(old_entry) = cache.get(key) {
-                let leak_rate = config.leak_rate_for(threshold);
-                let local_estimate = effective_level(&old_entry, leak_rate, now_instant);
+            // Same per-key lock as the hot path, so a request that read this
+            // entry before the write cannot overwrite it with a pre-sync copy.
+            // The closure only captures what the metrics below need.
+            let leak_rate = config.leak_rate_for(threshold);
+            let mut prior: Option<(f64, PressureTier)> = None;
+            cache.entry(key.clone()).and_upsert_with(|existing| {
+                if let Some(existing) = existing {
+                    let old_entry = existing.value();
+                    prior = Some((
+                        effective_level(old_entry, leak_rate, now_instant),
+                        PressureTier::from_pressure(old_entry.pressure),
+                    ));
+                }
+                // estimated_count from Redis already includes events this node
+                // wrote across prior ticks. Reset local_pending to avoid
+                // double-counting. Events arriving during the MGET window
+                // (~100ms) are lost from the local estimate but will be written
+                // to Redis on the next tick.
+                CacheEntry {
+                    estimated_count: estimated,
+                    synced_at: Some(now_instant),
+                    local_pending: 0,
+                    pressure,
+                }
+            });
+
+            // Emit estimate drift + tier transition for the prior entry.
+            if let Some((local_estimate, old_tier)) = prior {
                 let drift = (local_estimate - estimated).abs() / threshold as f64;
                 metrics::histogram!(GLOBAL_RATE_LIMITER_ESTIMATE_DRIFT_HISTOGRAM, "scope" => scope)
                     .record(drift);
 
-                let old_tier = PressureTier::from_pressure(old_entry.pressure);
                 if old_tier != new_tier {
                     metrics::counter!(
                         GLOBAL_RATE_LIMITER_TIER_TRANSITIONS_COUNTER,
@@ -1430,20 +1510,6 @@ impl GlobalRateLimiterImpl {
                     .increment(1);
                 }
             }
-
-            // estimated_count from Redis already includes events this node wrote
-            // across prior ticks. Reset local_pending to avoid double-counting.
-            // Events arriving during the MGET window (~100ms) are lost from the
-            // local estimate but will be written to Redis on the next tick.
-            cache.insert(
-                key.clone(),
-                CacheEntry {
-                    estimated_count: estimated,
-                    synced_at: Some(now_instant),
-                    local_pending: 0,
-                    pressure,
-                },
-            );
         }
     }
 
@@ -1888,6 +1954,34 @@ mod tests {
         assert_eq!(
             entry.local_pending, 5,
             "local_pending should be incremented by count"
+        );
+
+        // A request that lands after a tick's Redis read must build on that
+        // read, not replace it: the fleet estimate and sync time survive and
+        // only local_pending moves. [prev=3, current=7] at 50% of the window
+        // gives 3 * 0.5 + 7 = 8.5, so the level with the request is 12.5.
+        let now = DateTime::from_timestamp(90, 0).unwrap();
+        let results: Vec<Option<Vec<u8>>> = vec![Some(b"7".to_vec()), Some(b"3".to_vec())];
+        GlobalRateLimiterImpl::process_read_results(
+            &limiter.config,
+            &limiter.cache,
+            &["key_b".to_string()],
+            &results,
+            now,
+            "test",
+        );
+        let _ = limiter.check_limit("key_b", 4, None).await;
+
+        let entry = limiter.cache.get("key_b").unwrap();
+        assert_eq!(entry.local_pending, 4, "the request's count is recorded");
+        assert!(
+            entry.synced_at.is_some(),
+            "the request must not revert the entry to never-synced"
+        );
+        assert!(
+            (entry.estimated_count - 8.5).abs() < 0.01,
+            "the request must keep the fleet estimate from the read, got {}",
+            entry.estimated_count
         );
     }
 
@@ -2750,6 +2844,49 @@ mod tests {
                 "local_pending should be 0 after sync regardless of prior value ({prior_pending})"
             );
         }
+
+        // The same through the real request path: a never-synced entry that
+        // check_limit created is replaced by the read, so local_pending resets
+        // and the entry is marked synced.
+        // `new` spawns the background task, so it needs a runtime even though
+        // the tick is parked and never runs.
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let limiter = rt.block_on(async {
+            let client = Arc::new(MockRedisClient::new());
+            GlobalRateLimiterImpl::new(
+                GlobalRateLimiterConfig {
+                    // Park the background drain so only this call touches the cache.
+                    tick_interval: Duration::from_secs(3600),
+                    ..test_config()
+                },
+                vec![client],
+            )
+            .unwrap()
+        });
+        rt.block_on(async {
+            let _ = limiter.check_limit("key", 7, None).await;
+        });
+        let before = limiter.cache.get("key").unwrap();
+        assert_eq!(before.local_pending, 7);
+        assert!(before.synced_at.is_none());
+
+        let sync_keys = vec!["key".to_string()];
+        let results: Vec<Option<Vec<u8>>> = vec![Some(b"5".to_vec()), Some(b"2".to_vec())];
+        GlobalRateLimiterImpl::process_read_results(
+            &config,
+            &limiter.cache,
+            &sync_keys,
+            &results,
+            now,
+            "test",
+        );
+
+        let after = limiter.cache.get("key").unwrap();
+        assert_eq!(after.local_pending, 0, "the read resets local_pending");
+        assert!(after.synced_at.is_some(), "the read marks the entry synced");
     }
 
     // --- Tier distribution scan tests ---
