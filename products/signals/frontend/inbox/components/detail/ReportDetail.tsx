@@ -57,17 +57,15 @@ import { SuggestedReviewersSection } from './SuggestedReviewersSection'
 
 /**
  * Status / priority / actionability badges for a report's detail header. Mirrors desktop `InboxDetailFrame`.
- * The judgment rationale (when present) is sourced from the detail logic's loaded artefacts and surfaced by
- * a circled help icon overlaying the chip's top-right corner; the chip is then hoverable for the rationale.
+ * The actionability rationale reads as selectable text under the badges via `ActionabilityRationale`, so a
+ * reader can copy it or paste it into an agent.
  */
 export function ReportDetailBadges({
     report,
     priorityExplanation,
-    actionabilityExplanation,
 }: {
     report: SignalReport
     priorityExplanation?: string | null
-    actionabilityExplanation?: string | null
 }): JSX.Element {
     return (
         <>
@@ -75,13 +73,22 @@ export function ReportDetailBadges({
             {!isStatusRedundantWithActionability(report.status, report.actionability) && (
                 <SignalReportStatusBadge status={report.status} />
             )}
-            <SignalReportActionabilityBadge
-                actionability={report.actionability}
-                explanation={actionabilityExplanation}
-            />
+            <SignalReportActionabilityBadge actionability={report.actionability} />
             <SignalReportBillingBadge report={report} />
         </>
     )
+}
+
+/**
+ * The actionability judgment rationale as plain, selectable body text, shown beside the badge. The badge
+ * itself only shows the category label, so this is where a reader reads, copies, or quotes the reasoning.
+ */
+export function ActionabilityRationale({ explanation }: { explanation?: string | null }): JSX.Element | null {
+    const text = explanation?.trim()
+    if (!text) {
+        return null
+    }
+    return <p className="m-0 text-xs leading-relaxed text-tertiary max-w-prose">{text}</p>
 }
 
 /** Shared explainer for the signal count in the meta line and the Evidence section. */
@@ -96,12 +103,10 @@ const SIGNALS_TOOLTIP =
 function ReportDetailMeta({
     report,
     evidenceCount,
-    actionabilityExplanation,
     scoutSkillName,
 }: {
     report: SignalReport
     evidenceCount: number
-    actionabilityExplanation?: string | null
     /** Authoring scout's raw skill slug, when scout-authored — its name links to the scout off the "Scout" chip. */
     scoutSkillName?: string | null
 }): JSX.Element {
@@ -138,10 +143,7 @@ function ReportDetailMeta({
     return (
         <div className="flex items-center gap-x-2 gap-y-1.5 flex-wrap text-xs text-tertiary leading-none select-none">
             {showStatus && <SignalReportStatusBadge status={report.status} />}
-            <SignalReportActionabilityBadge
-                actionability={report.actionability}
-                explanation={actionabilityExplanation}
-            />
+            <SignalReportActionabilityBadge actionability={report.actionability} />
             <SignalReportBillingBadge report={report} />
             <span className="flex items-center gap-2 flex-wrap min-w-0">
                 {stats.map((node, i) => (
@@ -472,9 +474,9 @@ export function InboxDetailFrame({
                             <ReportDetailMeta
                                 report={report}
                                 evidenceCount={evidenceCount}
-                                actionabilityExplanation={actionabilityExplanation}
                                 scoutSkillName={report.scout_name}
                             />
+                            <ActionabilityRationale explanation={actionabilityExplanation} />
                         </div>
                     </div>
                     <div className="flex items-center gap-2 @2xl:shrink-0">

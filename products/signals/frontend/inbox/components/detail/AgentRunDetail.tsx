@@ -33,7 +33,7 @@ import { knownSourceProductEntries, SourceProductIconRow } from '../badges/sourc
 import { resolveRunVariant, RunStatusIndicator } from '../cards/runStatusVariant'
 import { DetailSection } from './DetailSection'
 import { ReportActivitySection } from './ReportActivitySection'
-import { ReportDetailBadges } from './ReportDetail'
+import { ActionabilityRationale, ReportDetailBadges } from './ReportDetail'
 import { ReportTasksSection } from './ReportTasksSection'
 import { RunLogContainer } from './RunLogContainer'
 
@@ -318,19 +318,18 @@ export function AgentRunDetail({ report }: { report: SignalReport }): JSX.Elemen
 
     return (
         <div className="@container w-full max-w-[calc(160ch+5rem)] mx-auto px-6 py-5 text-sm">
-            <div className="flex items-center gap-2 flex-wrap mb-4">
-                <ReportDetailBadges
-                    report={report}
-                    priorityExplanation={priorityExplanation}
-                    actionabilityExplanation={actionabilityExplanation}
-                />
-                {isReResearch && (
-                    <Tooltip title="A prior research run on this report already completed. This is another attempt.">
-                        <LemonTag size="small" type="warning" className="cursor-help select-none">
-                            Re-research
-                        </LemonTag>
-                    </Tooltip>
-                )}
+            <div className="flex flex-col gap-2 mb-4">
+                <div className="flex items-center gap-2 flex-wrap">
+                    <ReportDetailBadges report={report} priorityExplanation={priorityExplanation} />
+                    {isReResearch && (
+                        <Tooltip title="A prior research run on this report already completed. This is another attempt.">
+                            <LemonTag size="small" type="warning" className="cursor-help select-none">
+                                Re-research
+                            </LemonTag>
+                        </Tooltip>
+                    )}
+                </div>
+                <ActionabilityRationale explanation={actionabilityExplanation} />
             </div>
 
             <div className="grid grid-cols-1 @4xl:grid-cols-[minmax(0,80ch)_minmax(0,1fr)] gap-5">
