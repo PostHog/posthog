@@ -520,10 +520,20 @@ class BaselineOverview:
     generated_at: datetime
 
 
-# How far back the page scores. One window serves three jobs: it is the rate
-# denominator, the recency test, and the width of the per-day activity strip,
-# so a row's number and its strip can never describe different spans.
+# How far back the page reads. Sets the width of the per-day activity strip and
+# the span `headroom` looks over, where more days mean better evidence of the
+# worst case a snapshot can produce.
 FLAKINESS_WINDOW_DAYS = 30
+
+# How far back the rates count, inside that window. Shorter on purpose, and
+# shorter than the strip: the rates decide whether a snapshot is failing *now*,
+# and a quarantine over one that stopped failing three weeks ago has to become
+# liftable rather than keep reporting the failures it used to have.
+#
+# The default branch lands a run every few minutes on an active repo, so a week
+# is hundreds of runs. That is far more than a rate needs, and widening it only
+# blunts the signal.
+FLAKINESS_RATE_DAYS = 7
 
 # Hard-failure rate at or above which a snapshot is broken rather than flaky.
 # The two need different actions: a flaky snapshot wants a quarantine or a

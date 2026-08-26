@@ -23,7 +23,7 @@ import { ActivityCell } from '../components/FlakinessActivityCell'
 import { MarginCell } from '../components/FlakinessMarginCell'
 import { QuarantineCell } from '../components/FlakinessQuarantineCell'
 import { StateCell } from '../components/FlakinessStateCell'
-import { FLAKE_WINDOW_DAYS, FlakinessStatRow } from '../components/FlakinessStatRow'
+import { FLAKE_RATE_DAYS, FlakinessStatRow } from '../components/FlakinessStatRow'
 import { QuarantineAction } from '../components/QuarantineAction'
 import { RepoSwitcher } from '../components/RepoSwitcher'
 import { SnapshotFacetSidebar } from '../components/SnapshotFacetSidebar'
@@ -112,9 +112,9 @@ export function VisualReviewFlakinessScene(): JSX.Element {
 
             <LemonBanner type="info">
                 A snapshot that renders differently from its baseline either fails the run, or stays under the diff
-                threshold and gets absorbed as an allowed variant. Rates below count the last {FLAKE_WINDOW_DAYS} days
-                of runs on the default branch. Being absorbed is not the same as being stable: it holds only while the
-                diff stays under the threshold, which is what the threshold column shows.
+                threshold and gets absorbed as an allowed variant. Rates below count the last {FLAKE_RATE_DAYS} days of
+                runs on the default branch. Being absorbed is not the same as being stable: it holds only while the diff
+                stays under the threshold, which is what the threshold column shows.
             </LemonBanner>
 
             {!loadError && <FlakinessStatRow counts={statCounts} preset={filters.preset} onChange={setPreset} />}

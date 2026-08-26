@@ -135,8 +135,12 @@ Developers can also manually tolerate a snapshot from the UI.
 **Quarantine** — known-flaky identifiers can be quarantined per repo and run type.
 Quarantined snapshots are still captured and diffed but excluded from gating.
 
-**Flakiness tab** — scores each snapshot identity on the share of the last 30 days of default-branch runs that rendered it differently from its baseline.
+**Flakiness tab** — scores each snapshot identity on the share of the last 7 days of default-branch runs that rendered it differently from its baseline.
 The share is split in two, because the two cost different things: a `hard` run failed the gate and blocked whoever was merging, and a `soft` run was absorbed by a toleration and blocked nobody.
+`hard` counts every result that is not `unchanged`, matching what `gating._is_unresolved` blocks on: a diff over a threshold, a baseline that was never committed or was dropped from the file, and a baseline whose story no longer renders.
+
+Rows are read over 30 days but rated over 7.
+The rate has to lapse before the history does, so a quarantine over a snapshot that stopped failing last week becomes liftable while the activity strip still shows what it used to do.
 
 The states are an urgency ladder, and each rung asks for a different fix:
 

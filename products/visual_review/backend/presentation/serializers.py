@@ -8,6 +8,7 @@ from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from ..facade.contracts import (
+    FLAKINESS_RATE_DAYS,
     FLAKINESS_WINDOW_DAYS,
     PIXEL_DIFF_THRESHOLD_PERCENT,
     AddSnapshotsInput,
@@ -338,19 +339,21 @@ class FlakinessEntrySerializer(DataclassSerializer):
     )
     hard_count = serializers.IntegerField(
         help_text=(
-            f"Default-branch runs in the last {FLAKINESS_WINDOW_DAYS} days where this snapshot "
-            "failed the gate, so somebody could not merge until it was resolved."
+            f"Default-branch runs in the last {FLAKINESS_RATE_DAYS} days where this snapshot failed "
+            "the gate, so somebody could not merge until it was resolved. Counts every result that "
+            "is not `unchanged`: a diff over a threshold, a baseline that was never committed or "
+            "was dropped, and a baseline whose story no longer renders."
         )
     )
     soft_count = serializers.IntegerField(
         help_text=(
-            f"Default-branch runs in the last {FLAKINESS_WINDOW_DAYS} days where this snapshot "
+            f"Default-branch runs in the last {FLAKINESS_RATE_DAYS} days where this snapshot "
             "rendered differently from its baseline and a toleration absorbed it, blocking nobody."
         )
     )
     window_runs = serializers.IntegerField(
         help_text=(
-            f"Completed default-branch runs of this run type in the last {FLAKINESS_WINDOW_DAYS} "
+            f"Completed default-branch runs of this run type in the last {FLAKINESS_RATE_DAYS} "
             "days. The rate denominator, so a reader can tell 2 failures out of 3 runs from 2 out "
             "of 300."
         )
@@ -367,9 +370,10 @@ class FlakinessEntrySerializer(DataclassSerializer):
         allow_null=True,
         required=False,
         help_text=(
-            "Last default-branch run in the window that rendered this snapshot differently from "
-            "its baseline, whether the gate failed or a toleration absorbed it. Null when every "
-            "run in the window matched the baseline exactly."
+            f"Last default-branch run in the last {FLAKINESS_WINDOW_DAYS} days that rendered this "
+            "snapshot differently from its baseline, whether the gate failed or a toleration "
+            "absorbed it. Reads over the full window rather than the rate span, so a snapshot that "
+            "stopped failing still reports when it last did. Null when nothing happened at all."
         ),
     )
     avg_diff_percentage = serializers.FloatField(
@@ -383,7 +387,12 @@ class FlakinessEntrySerializer(DataclassSerializer):
     worst_soft_diff_percentage = serializers.FloatField(
         allow_null=True,
         required=False,
-        help_text=("Largest pixel diff any absorbed run in the window produced. Null when nothing was absorbed."),
+        help_text=(
+            f"Largest pixel diff any absorbed run in the last {FLAKINESS_WINDOW_DAYS} days "
+            "produced. Reads the full window rather than the rate span, because it asks for the "
+            "worst case a snapshot can produce and more days are better evidence of that. Null "
+            "when nothing was absorbed."
+        ),
     )
     headroom = serializers.FloatField(
         allow_null=True,

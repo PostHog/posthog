@@ -1,9 +1,9 @@
 export type FlakinessPreset = 'needs_decision' | 'broken' | 'unstable' | 'at_risk' | 'noisy' | 'quarantined'
 
-// Mirrors `FLAKINESS_WINDOW_DAYS` in
+// Mirrors `FLAKINESS_RATE_DAYS` in
 // `products/visual_review/backend/facade/contracts.py`. Keep in sync, because
 // the backend value is the rate denominator and this constant drives the copy.
-export const FLAKE_WINDOW_DAYS = 30
+export const FLAKE_RATE_DAYS = 7
 
 const COLOR_BY_PRESET: Record<FlakinessPreset, string> = {
     needs_decision: 'var(--primary-3000)',
@@ -23,7 +23,7 @@ const STATS: Array<{ value: FlakinessPreset; label: string; description: string 
     {
         value: 'broken',
         label: 'Broken',
-        description: 'Fails nearly every run, so the baseline is wrong',
+        description: 'Fails nearly every run, so its baseline is wrong or missing',
     },
     {
         value: 'unstable',

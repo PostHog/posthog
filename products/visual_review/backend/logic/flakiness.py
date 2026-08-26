@@ -24,6 +24,7 @@ from ..facade.contracts import (
     FLAKINESS_MAX_ENTRIES,
     FLAKINESS_MIN_HEADROOM,
     FLAKINESS_MIN_WINDOW_RUNS,
+    FLAKINESS_RATE_DAYS,
     FLAKINESS_WINDOW_DAYS,
     PIXEL_DIFF_THRESHOLD_PERCENT,
 )
@@ -39,7 +40,18 @@ from . import run_queries
 # The split matters because only one of them is a promise. A snapshot that is
 # always absorbed is not stable, it is under a line, and it stays under only
 # while its diff does. `headroom` below measures how much of that line is left.
-_HARD = Q(result=SnapshotResult.CHANGED)
+#
+# `_HARD` is every result that is not UNCHANGED, which is what `gating.
+# _is_unresolved` gates on. CHANGED alone would miss the two quieter ways a
+# snapshot fails: NEW, when its baseline was never committed or was dropped
+# from the file, and REMOVED, when the baseline outlived the story. Both fail
+# every run until somebody acts, and a quarantine hides them exactly as it
+# hides a CHANGED one.
+#
+# Review state is not consulted. It would matter for a snapshot a human
+# tolerated or approved, and nobody reviews default-branch runs: they are
+# `RunPurpose.OBSERVE` and never approvable.
+_HARD = Q(result__in=(SnapshotResult.CHANGED, SnapshotResult.NEW, SnapshotResult.REMOVED))
 _SOFT = Q(
     result=SnapshotResult.UNCHANGED,
     classification_reason__in=(ClassificationReason.TOLERATED_HASH, ClassificationReason.BELOW_THRESHOLD),
@@ -72,16 +84,23 @@ def get_flakiness_overview(repo_id: UUID) -> _FlakinessRaw:
     Scoring, and why it is a rate:
       A count cannot separate one bad afternoon from a chronic flake, and a
       "did anything happen recently" flag scores one failure in a week the same
-      as five hundred. So each identity is scored on the share of window runs
-      that rendered it differently from its baseline, split into the runs that
+      as five hundred. So each identity is scored on the share of runs that
+      rendered it differently from its baseline, split into the runs that
       failed the gate and the runs a toleration absorbed.
 
+      Rates cover `FLAKINESS_RATE_DAYS`, which is shorter than the window the
+      rows are read over. They answer whether a snapshot is failing now, and a
+      quarantine over one that stopped failing weeks ago has to become liftable
+      rather than keep scoring on failures it no longer produces. The daily
+      series still spans the whole window, so a run of failures that predates
+      the rate span is visible in the strip.
+
       The denominator is every completed default-branch run of that run type in
-      the window, not the runs that rendered this identity. Counting the latter
-      needs a scan of every snapshot row in the window, which is the shape
-      `baseline_overview` records as too slow to serve per request. The
+      the rate span, not the runs that rendered this identity. Counting the
+      latter needs a scan of every snapshot row in the window, which is the
+      shape `baseline_overview` records as too slow to serve per request. The
       approximation only understates, and only for an identity that appeared
-      partway through the window.
+      partway through the span.
 
       Rates ignore which baseline a run compared against. On the default branch
       a legitimate change does not produce a `CHANGED` row at all: the code and
@@ -118,9 +137,9 @@ def get_flakiness_overview(repo_id: UUID) -> _FlakinessRaw:
       - 1 query for active quarantines
       - 1 query for the universe runs (one row per run_type, indexed)
       - 1 values-only query for the current baseline hash per identifier
-      - 1 grouped query for the window's run count per run type
+      - 1 grouped query for the rate span's run count per run type
       - 1 grouped query for hard activity per identity and day, which the
-        `snapshot_run_result` index serves because CHANGED rows are rare
+        `snapshot_run_result` index serves because non-unchanged rows are rare
       - 1 grouped query for variant count and mean diff
       - 1 grouped query for soft activity per identity and day, bounded to the
         identifiers that can produce a row
@@ -220,14 +239,14 @@ def get_flakiness_overview(repo_id: UUID) -> _FlakinessRaw:
         run__created_at__gte=window_start_at,
     )
 
-    # The rate denominator. Aggregated in the database rather than counted from
-    # rows, because only the per-run-type total is needed.
-    window_runs_by_type: dict[str, int] = dict(
+    # The rate denominator, per run type. Counted only over the rate window,
+    # which is the span the numerators are summed over too.
+    rate_runs_by_type: dict[str, int] = dict(
         Run.objects.filter(
             repo_id=repo_id,
             branch__in=run_queries._DEFAULT_BRANCHES,
             status=RunStatus.COMPLETED,
-            created_at__gte=window_start_at,
+            created_at__gte=now - timedelta(days=FLAKINESS_RATE_DAYS),
         )
         .values("run_type")
         .annotate(run_count=Count("id"))
@@ -286,6 +305,7 @@ def get_flakiness_overview(repo_id: UUID) -> _FlakinessRaw:
     soft_activity = _read_activity(in_window=in_window, match=_SOFT, identifiers=reportable_identifiers)
 
     strip_start = today - timedelta(days=FLAKINESS_WINDOW_DAYS - 1)
+    rate_start = today - timedelta(days=FLAKINESS_RATE_DAYS - 1)
 
     # When each baseline last moved. A real flip on the default branch leaves a
     # CHANGED or REMOVED row in the run that introduced it, because later runs
@@ -343,11 +363,17 @@ def get_flakiness_overview(repo_id: UUID) -> _FlakinessRaw:
         if stats is None and quarantine is None and hard is None:
             continue
 
-        hard_count = hard.total if hard is not None else 0
-        soft_count = soft.total if soft is not None else 0
+        # Counts and rates describe the rate window; the daily series below
+        # covers the whole read window, so the strip can show a run of failures
+        # that started before the rates would notice it.
+        hard_count = _count_since(hard, rate_start)
+        soft_count = _count_since(soft, rate_start)
         # Never below what was actually observed, so a rate cannot exceed 1.0
-        # when an identity outlived its run type's window count.
-        window_runs = max(window_runs_by_type.get(key.run_type, 0), hard_count + soft_count)
+        # when an identity outlived its run type's run count.
+        window_runs = max(rate_runs_by_type.get(key.run_type, 0), hard_count + soft_count)
+        # Headroom reads the whole window rather than the rate span: it asks
+        # for the worst case a snapshot can produce, and more days are better
+        # evidence of that.
         worst_soft_diff = soft.worst_diff_percentage if soft is not None else None
         hard_rate = _rate(hard_count, window_runs)
         headroom = _headroom(worst_soft_diff)
@@ -544,6 +570,17 @@ def _read_activity(
     }
 
 
+def _count_since(activity: _Activity | None, start: date) -> int:
+    """Runs on or after `start`, summed from the per-day buckets already read.
+
+    The daily grouping means the rate span costs no extra query: it is a slice
+    of the series the strip renders.
+    """
+    if activity is None:
+        return 0
+    return sum(count for day, count in activity.daily.items() if day >= start)
+
+
 def _rate(count: int, window_runs: int) -> float:
     """Share of the window's runs, or 0.0 when the window holds no runs."""
     return count / window_runs if window_runs else 0.0
@@ -618,10 +655,11 @@ def _needs_decision(
     only the last two are testable here.
 
     Turns on hard failures rather than on variants. A quarantine is opened for
-    a snapshot that fails the gate, and a snapshot only fails the gate when its
-    diff is over a threshold, which is the one case that records no variant at
-    all. Reading variants therefore said "gone clean, lift it" about every
-    snapshot still failing every run, and lifting it turned the gate red again.
+    a snapshot that fails the gate, and the ways a snapshot fails the gate -
+    a diff over a threshold, a missing baseline, a missing render - are exactly
+    the ways that record no variant at all. Reading variants therefore said
+    "gone clean, lift it" about every snapshot still failing every run, and
+    lifting it turned the gate red again.
     """
     if quarantine is None:
         return False

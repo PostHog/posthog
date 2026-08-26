@@ -10,7 +10,7 @@ const STATE_TAG: Record<
     broken: {
         label: 'Broken',
         type: 'danger',
-        title: 'Fails nearly every run. Its baseline no longer matches what the story renders, so fix the baseline rather than quarantine it.',
+        title: 'Fails nearly every run. Its baseline no longer matches what the story renders, or it never got one, so fix the baseline rather than quarantine it.',
     },
     unstable: {
         label: 'Unstable',

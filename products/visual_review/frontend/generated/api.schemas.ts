@@ -130,18 +130,18 @@ export const FlakinessStateEnumApi = {
 export interface FlakinessEntryApi {
     /** Distinct alternate hashes the classifier can still match for this snapshot's current baseline. Reads as how many different images this snapshot is currently allowed to produce. Resets when the baseline moves, because tolerations recorded against an old baseline hash can never match again. */
     variant_count: number
-    /** Default-branch runs in the last 30 days where this snapshot failed the gate, so somebody could not merge until it was resolved. */
+    /** Default-branch runs in the last 7 days where this snapshot failed the gate, so somebody could not merge until it was resolved. Counts every result that is not `unchanged`: a diff over a threshold, a baseline that was never committed or was dropped, and a baseline whose story no longer renders. */
     hard_count: number
-    /** Default-branch runs in the last 30 days where this snapshot rendered differently from its baseline and a toleration absorbed it, blocking nobody. */
+    /** Default-branch runs in the last 7 days where this snapshot rendered differently from its baseline and a toleration absorbed it, blocking nobody. */
     soft_count: number
-    /** Completed default-branch runs of this run type in the last 30 days. The rate denominator, so a reader can tell 2 failures out of 3 runs from 2 out of 300. */
+    /** Completed default-branch runs of this run type in the last 7 days. The rate denominator, so a reader can tell 2 failures out of 3 runs from 2 out of 300. */
     window_runs: number
     /** `hard_count` over `window_runs`. The denominator counts every run of this run type, so a snapshot that only started rendering partway through the window reads lower than it is. */
     hard_rate: number
     /** `soft_count` over `window_runs`. */
     soft_rate: number
     /**
-     * Last default-branch run in the window that rendered this snapshot differently from its baseline, whether the gate failed or a toleration absorbed it. Null when every run in the window matched the baseline exactly.
+     * Last default-branch run in the last 30 days that rendered this snapshot differently from its baseline, whether the gate failed or a toleration absorbed it. Reads over the full window rather than the rate span, so a snapshot that stopped failing still reports when it last did. Null when nothing happened at all.
      * @nullable
      */
     last_flaked_at?: string | null
@@ -151,7 +151,7 @@ export interface FlakinessEntryApi {
      */
     avg_diff_percentage?: number | null
     /**
-     * Largest pixel diff any absorbed run in the window produced. Null when nothing was absorbed.
+     * Largest pixel diff any absorbed run in the last 30 days produced. Reads the full window rather than the rate span, because it asks for the worst case a snapshot can produce and more days are better evidence of that. Null when nothing was absorbed.
      * @nullable
      */
     worst_soft_diff_percentage?: number | null

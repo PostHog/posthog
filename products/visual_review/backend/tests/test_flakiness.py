@@ -31,6 +31,7 @@ from products.visual_review.backend.facade import api as vr_api
 from products.visual_review.backend.facade.contracts import (
     FLAKINESS_EXPIRY_SOON_DAYS,
     FLAKINESS_MIN_WINDOW_RUNS,
+    FLAKINESS_RATE_DAYS,
     FLAKINESS_WINDOW_DAYS,
     PIXEL_DIFF_THRESHOLD_PERCENT,
 )
@@ -54,12 +55,16 @@ EXACT = "exact"
 SOFT_MINT = "soft_mint"
 SOFT_MATCH = "soft_match"
 HARD = "hard"
+HARD_NEW = "hard_new"
+HARD_REMOVED = "hard_removed"
 
 _OUTCOMES = {
     EXACT: (SnapshotResult.UNCHANGED, ClassificationReason.EXACT),
     SOFT_MINT: (SnapshotResult.UNCHANGED, ClassificationReason.BELOW_THRESHOLD),
     SOFT_MATCH: (SnapshotResult.UNCHANGED, ClassificationReason.TOLERATED_HASH),
     HARD: (SnapshotResult.CHANGED, ""),
+    HARD_NEW: (SnapshotResult.NEW, ""),
+    HARD_REMOVED: (SnapshotResult.REMOVED, ""),
 }
 
 
@@ -140,6 +145,7 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
         diff_percentage: float | None = None,
         run_type: str = RunType.STORYBOOK,
         branch: str = "master",
+        baseline_hash: str = CURRENT_BASELINE,
     ) -> None:
         """`count` default-branch runs that each rendered `identifier` that way.
 
@@ -152,7 +158,13 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
             else:
                 run = _mk_run(self.repo, branch=branch, run_type=run_type, superseded_by=self.master_run)
                 Run.objects.filter(id=run.id).update(created_at=timezone.now() - age)
-            _mk_snapshot(run, identifier=identifier, outcome=outcome, diff_percentage=diff_percentage)
+            _mk_snapshot(
+                run,
+                identifier=identifier,
+                outcome=outcome,
+                diff_percentage=diff_percentage,
+                baseline_hash=baseline_hash,
+            )
 
     def _mk_variant(
         self,
@@ -204,6 +216,34 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
 
         assert entry is not None
         assert entry.variant_count == 0
+        assert entry.hard_count == 21
+        assert entry.flakiness_state == FlakinessState.BROKEN
+        assert entry.needs_decision is False
+
+    @parameterized.expand(
+        [
+            ("a_diff_over_the_threshold", HARD, CURRENT_BASELINE),
+            # A dropped baseline leaves no hash to compare against, which is
+            # what the real quarantined snapshots in this repo look like.
+            ("a_baseline_that_was_never_committed", HARD_NEW, ""),
+            ("a_story_that_stopped_rendering", HARD_REMOVED, CURRENT_BASELINE),
+        ]
+    )
+    def test_every_way_of_failing_the_gate_keeps_a_quarantine_in_place(
+        self, _name: str, outcome: str, baseline_hash: str
+    ):
+        # `gating._is_unresolved` fails the gate on every result that is not
+        # UNCHANGED, so counting only CHANGED left the same bug in the two
+        # quieter cases. A story whose baseline was dropped from the file comes
+        # back NEW on every run, which is what a real quarantined snapshot in
+        # this repo does, and it blocks a merge exactly like a CHANGED one.
+        _mk_snapshot(self.master_run, identifier="muted", outcome=outcome, baseline_hash=baseline_hash)
+        self._render("muted", outcome=outcome, count=20, baseline_hash=baseline_hash)
+        self._mk_quarantine("muted")
+
+        entry = self._entry("muted")
+
+        assert entry is not None
         assert entry.hard_count == 21
         assert entry.flakiness_state == FlakinessState.BROKEN
         assert entry.needs_decision is False
@@ -324,11 +364,19 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("older_than_the_window", timedelta(days=FLAKINESS_WINDOW_DAYS + 5), 0),
-            ("inside_the_window", timedelta(days=FLAKINESS_WINDOW_DAYS - 5), 3),
+            ("inside_the_rate_span", timedelta(days=FLAKINESS_RATE_DAYS - 2), 3, 3),
+            ("older_than_the_rate_span", timedelta(days=FLAKINESS_RATE_DAYS + 2), 0, 3),
+            ("older_than_the_window", timedelta(days=FLAKINESS_WINDOW_DAYS + 5), 0, 0),
         ]
     )
-    def test_activity_is_bounded_to_the_window(self, _name: str, age: timedelta, expected_hard: int):
+    def test_rates_read_the_rate_span_and_the_strip_reads_the_window(
+        self, _name: str, age: timedelta, expected_hard: int, expected_strip: int
+    ):
+        # The rate has to lapse before the strip does. A quarantine over a
+        # snapshot that stopped failing last week must become liftable, and
+        # scoring it over the whole window would keep reporting failures it no
+        # longer produces. The strip still shows them, so the history is not
+        # lost, just no longer counted against it.
         _mk_snapshot(self.master_run, identifier="story")
         self._render("story", outcome=HARD, count=3, age=age)
         self._mk_quarantine("story")  # keeps the row listed once activity ages out
@@ -337,6 +385,8 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
 
         assert entry is not None
         assert entry.hard_count == expected_hard
+        assert sum(entry.daily_hard_counts) == expected_strip
+        assert entry.needs_decision is (expected_hard == 0)
 
     def test_activity_on_a_pr_branch_does_not_count(self):
         # A PR rendering a difference is a property of that branch, not evidence
