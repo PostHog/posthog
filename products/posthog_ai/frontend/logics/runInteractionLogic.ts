@@ -202,6 +202,9 @@ export interface runInteractionLogicActions {
     consumeWarm: () => {
         value: true
     } // taskWarmLogic
+    releaseWarm: () => {
+        value: true
+    } // taskWarmLogic
     noteDraft: (
         hasText: boolean,
         request: import('./taskWarmLogic').TaskWarmRequest
@@ -430,7 +433,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             toolStreamEventsLogic,
             ['claimApplyBackTargets', 'transferApplyBackTargets', 'releaseApplyBackTargets'],
             taskWarmLogic({ taskId: props.taskId, resumeFromRunId: props.runId }),
-            ['noteDraft', 'consumeWarm'],
+            ['noteDraft', 'consumeWarm', 'releaseWarm'],
         ],
     })),
 
@@ -704,7 +707,10 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
 
     listeners(({ actions, values, props }) => {
         const noteTerminalDraft = (): void => {
-            if (!values.isTerminal) {
+            // Consent gates warming as it gates sending: a warm boots a cloud sandbox and restores
+            // the task's repository snapshot, so typing must not start one before the organization
+            // accepts AI data processing.
+            if (!values.isTerminal || !values.dataProcessingAccepted) {
                 return
             }
             const createRequest = buildRunCreateRequest(
@@ -905,6 +911,10 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                 actions.setClearing(true)
                 try {
                     await tasksRunsClearConversationCreate(String(values.currentProjectId), props.taskId, props.runId)
+                    // Any successor held right now was warmed before this boundary was written, so its
+                    // restored session still carries the conversation the clear just removed. Hand it
+                    // back; the next keystroke warms a fresh one on the cleared state.
+                    actions.releaseWarm()
                     actions.resetComposerForm()
                     // A finished run has no live stream to echo these back, so paint them from here.
                     // They match what the backend persisted, so a later replay folds the same thread.

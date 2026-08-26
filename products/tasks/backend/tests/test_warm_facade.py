@@ -996,6 +996,78 @@ class TestWarmTaskResumeSandbox(APIBaseTest):
         warm_run.refresh_from_db()
         assert "await_user_message" not in warm_run.state
 
+    def _terminal_run(self, task: Task) -> TaskRun:
+        terminal = task.create_run(
+            mode="interactive",
+            branch="main",
+            extra_state={
+                "pr_base_branch": "main",
+                "runtime_adapter": "claude",
+                "model": "claude-sonnet-5",
+                "initial_permission_mode": "plan",
+            },
+        )
+        terminal.status = TaskRun.Status.CANCELLED
+        terminal.save(update_fields=["status"])
+        return terminal
+
+    def _warm_resume(self, task: Task, terminal: TaskRun):
+        with (
+            patch("products.tasks.backend.logic.services.warm.is_team_limited", return_value=False),
+            patch("products.tasks.backend.logic.services.warm.execute_task_processing_workflow"),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            return facade.warm_task_resume_sandbox(
+                task.id,
+                self.team.id,
+                self.user.id,
+                resume_from_run_id=terminal.id,
+                runtime_adapter="claude",
+                model="claude-sonnet-5",
+                initial_permission_mode="plan",
+            )
+
+    def test_warms_again_after_a_successor_is_released(self):
+        # A released successor is terminal and sits in front of its own source, so a source fence that
+        # only accepts the source or a live warm would leave the task unable to warm for the rest of
+        # its life — and releases are routine: an emptied draft, a changed model, leaving the composer.
+        task = Task.objects.create(
+            team=self.team,
+            title="",
+            description="",
+            origin_product=Task.OriginProduct.POSTHOG_AI,
+            created_by=self.user,
+        )
+        terminal = self._terminal_run(task)
+
+        first = self._warm_resume(task, terminal)
+        assert first is not None
+        released = TaskRun.objects.get(id=first.run_id)
+        released.status = TaskRun.Status.CANCELLED
+        released.save(update_fields=["status"])
+
+        second = self._warm_resume(task, terminal)
+
+        assert second is not None
+        assert second.run_id != first.run_id
+        # The replacement resumes from the original terminal run, not from the successor handed back.
+        assert TaskRun.objects.get(id=second.run_id).state["resume_from_run_id"] == str(terminal.id)
+
+    def test_does_not_warm_from_a_source_the_task_has_moved_past(self):
+        # The relaxation above must not become a wildcard: a terminal run that is not a released
+        # successor of the named source still means the task moved on.
+        task = Task.objects.create(
+            team=self.team,
+            title="",
+            description="",
+            origin_product=Task.OriginProduct.POSTHOG_AI,
+            created_by=self.user,
+        )
+        terminal = self._terminal_run(task)
+        self._terminal_run(task)
+
+        assert self._warm_resume(task, terminal) is None
+
 
 class TestRunTaskWarmActivation(APIBaseTest):
     """The normal run path activates an idling warm Run instead of dispatching a fresh workflow."""
@@ -1127,6 +1199,37 @@ class TestRunTaskWarmActivation(APIBaseTest):
         assert task.runs.count() == 2
         run.refresh_from_db()
         assert run.state.get("await_user_message") is True  # warm run untouched
+
+    def test_resume_successor_is_not_activated_for_a_run_that_asks_for_no_resume(self):
+        # A successor's filesystem was restored from the run it resumes, so handing it to a request
+        # that named no resume source would silently start "fresh" work on inherited state.
+        task, predecessor = self._warm_run()
+        predecessor.status = TaskRun.Status.CANCELLED
+        predecessor.save(update_fields=["status"])
+        run = task.create_run(
+            mode="interactive",
+            extra_state={
+                "await_user_message": True,
+                "branch": "main",
+                "resume_from_run_id": str(predecessor.id),
+            },
+            branch="main",
+        )
+        with (
+            patch(f"{FACADE}.signal_task_run_user_message") as m_signal,
+            patch(f"{FACADE}._trigger_task_processing_workflow") as m_trigger,
+        ):
+            facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={"mode": "interactive", "branch": "main", "pending_user_message": "do it"},
+            )
+
+        m_signal.assert_not_called()
+        m_trigger.assert_called_once()
+        run.refresh_from_db()
+        assert run.state.get("await_user_message") is True
 
     def test_sandbox_environment_mismatch_does_not_activate_warm_run(self):
         warm_environment = SandboxEnvironment.objects.create(
