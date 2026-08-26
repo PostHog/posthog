@@ -255,6 +255,36 @@ class ClickhouseCluster:
         self.__client_settings = client_settings
         self.__retry_policy = retry_policy
         self.__connection_overrides = dict(connection_overrides) if connection_overrides else {}
+        # Kept so `sibling` can build a handle for another cluster from the same connection.
+        self.__bootstrap_client = bootstrap_client
+        self.__extra_host_infos = list(extra_hosts) if extra_hosts else []
+        self.__siblings: dict[str, ClickhouseCluster] = {}
+
+    def sibling(self, cluster: str) -> ClickhouseCluster:
+        """A handle addressing ``cluster``, carrying this one's connection settings.
+
+        ``shards`` covers exactly one cluster, so a caller holding a table stored on another one
+        cannot dispatch to it through this instance. Deriving the second handle here rather than
+        from a second resource keeps host, credentials, client settings and retry policy in one
+        place: a handle assembled anywhere else can drift from the one the job already holds.
+
+        Memoized, because discovery costs a query per cluster and callers resolve the same table
+        once per op. Raises whatever the server says when no such cluster is defined here.
+        """
+        if cluster == self.__data_cluster_name:
+            return self
+        sibling = self.__siblings.get(cluster)
+        if sibling is None:
+            sibling = self.__siblings[cluster] = ClickhouseCluster(
+                self.__bootstrap_client,
+                extra_hosts=self.__extra_host_infos,
+                logger=self.__logger,
+                client_settings=self.__client_settings,
+                cluster=cluster,
+                retry_policy=self.__retry_policy,
+                connection_overrides=self.__connection_overrides,
+            )
+        return sibling
 
     def __get_cluster_hosts(self, client: Client, cluster: str, retry_policy: RetryPolicy | None = None):
         get_cluster_hosts_fn = lambda client: client.execute(
