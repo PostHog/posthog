@@ -5684,6 +5684,7 @@ dependencies = [
     { name = "pixelhog" },
     { name = "playwright" },
     { name = "polars" },
+    { name = "posthog-hogland" },
     { name = "posthog-owners" },
     { name = "posthoganalytics" },
     { name = "protobuf" },
@@ -5961,8 +5962,9 @@ requires-dist = [
     { name = "pixelhog", specifier = "~=1.2.0" },
     { name = "playwright", specifier = "~=1.60.0" },
     { name = "polars", specifier = "==1.37.1" },
+    { name = "posthog-hogland", specifier = "==0.3.1" },
     { name = "posthog-owners", editable = "tools/owners" },
-    { name = "posthoganalytics", specifier = "==7.43.1" },
+    { name = "posthoganalytics", specifier = "==7.44.0" },
     { name = "protobuf", specifier = "~=5.29.6" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.2.4" },
     { name = "psycopg2-binary", specifier = "==2.9.10" },
@@ -6099,6 +6101,20 @@ sentiment = [
 ]
 
 [[package]]
+name = "posthog-hogland"
+version = "0.3.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "httpx" },
+    { name = "httpx-sse" },
+    { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/41/ec/dc5991a1015bf2beeb901d023f784be17322162b5011ef6e2b49eb2051f6/posthog_hogland-0.3.1.tar.gz", hash = "sha256:6cffa11ebc66c3f6cb4a38f8aadfd59ec658969fdb0f111a2bf9d81e5501d6c4", size = 46155, upload-time = "2026-07-06T08:55:16.003Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d2/69/57f187f0497072a2d776417514b69959bbeb79c939a9d0a369cd81a04ccf/posthog_hogland-0.3.1-py3-none-any.whl", hash = "sha256:cd565d9839163d6f5567952c7e8b998d88123b02aaa8f86df3daafdefbc11c00", size = 34955, upload-time = "2026-07-06T08:55:14.798Z" },
+]
+
+[[package]]
 name = "posthog-owners"
 version = "0.1.0"
 source = { editable = "tools/owners" }
@@ -6122,7 +6138,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "posthoganalytics"
-version = "7.43.1"
+version = "7.44.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "backoff" },
@@ -6130,9 +6146,9 @@ dependencies = [
     { name = "requests" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/0d/c2/3f2a968f48581628a5e94b09ac3b0fe3e843b9701c2bebe7211d4fa2b49e/posthoganalytics-7.43.1.tar.gz", hash = "sha256:84d524fee44bbd5cc2e1e5efea678a6e7be7a5c0ff9733ec27f14cdd70781b45", size = 478892, upload-time = "2026-08-25T12:55:38.644Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/02/6a/e6b8b6b77eff817efcf289844de1d1fb8376f464511eda623dbf90f87a3d/posthoganalytics-7.44.0.tar.gz", hash = "sha256:a19ef1989f57142a5adfec7734211a6e8597062c263b190a849e0fbae003a003", size = 479553, upload-time = "2026-08-25T16:32:37.121Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/20/ed/95e5da82cfd04e8febeadd571f8947bd9d246db736ee1131e08b91bf5505/posthoganalytics-7.43.1-py3-none-any.whl", hash = "sha256:870b76abb2dc046eb13f2bf0e21351b23d414506793c00503505257cb22b5db4", size = 570325, upload-time = "2026-08-25T12:55:36.352Z" },
+    { url = "https://files.pythonhosted.org/packages/f7/68/3adba13380d78af225e25c500fc91a94a0cac58cf1baa6c9d042147f2cb0/posthoganalytics-7.44.0-py3-none-any.whl", hash = "sha256:44bb1afd48dca06d1207c363db4800b1c92fbfe3fd639790df856bb826be5cea", size = 570982, upload-time = "2026-08-25T16:32:35.134Z" },
 ]
 
 [[package]]
