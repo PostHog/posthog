@@ -50,6 +50,9 @@ tools:
     metrics-has-metrics-retrieve:
         operation: metrics_has_metrics_retrieve
         enabled: false
+    metrics-overview-retrieve:
+        operation: metrics_overview_retrieve
+        enabled: false
     metrics-samples-create:
         operation: metrics_samples_create
         enabled: false

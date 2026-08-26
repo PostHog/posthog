@@ -2558,6 +2558,15 @@ class EvaluationReasonSerializer(serializers.Serializer):
         allow_null=True,
         help_text="The index of the condition that matched, if applicable",
     )
+    description = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Human-readable explanation of the evaluation result. Carries the extra signal when the "
+            "reason code is coarse, for example a non-match decided by a behavioral or realtime cohort "
+            "whose membership is not fully evaluated here, which can disagree with the cohort's member list."
+        ),
+    )
 
 
 class FlagEvaluationResultSerializer(serializers.Serializer):
@@ -2706,6 +2715,15 @@ class FeatureFlagTestEvaluationResponseSerializer(serializers.Serializer):
     flag_key = serializers.CharField(help_text="Feature flag key")
     result = serializers.JSONField(help_text="The evaluated value of the feature flag (boolean or variant key string)")
     reason = serializers.CharField(help_text="The reason for the evaluation result")
+    reason_description = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Human-readable explanation of the evaluation result. Set when the reason code is coarse, "
+            "for example a non-match decided by a behavioral or realtime cohort whose membership is not "
+            "fully evaluated here, which can disagree with the cohort's member list."
+        ),
+    )
     condition_index = serializers.IntegerField(
         allow_null=True, help_text="The index of the condition that matched, if applicable"
     )
@@ -4153,6 +4171,7 @@ class FeatureFlagViewSet(
                 "evaluation": {
                     "reason": reason_data.get("code", "unknown"),
                     "condition_index": reason_data.get("condition_index"),
+                    "description": reason_data.get("description"),
                 },
             }
 
@@ -4479,6 +4498,7 @@ class FeatureFlagViewSet(
 
             # Initialize defaults
             condition_index = None
+            reason_description = None
             payload = None
             detailed_conditions: list[dict] = []
             result: bool | str = False
@@ -4496,6 +4516,7 @@ class FeatureFlagViewSet(
 
                     # Extract values from the correct nested structures
                     reason = reason_data.get("code", "unknown") if reason_data else "unknown"
+                    reason_description = reason_data.get("description") if reason_data else None
                     condition_index = reason_data.get("condition_index") if reason_data else None
                     payload = metadata.get("payload") if metadata else None
                     # Extract conditions from flag result (only valid path per Rust FlagDetails contract).
@@ -4552,6 +4573,7 @@ class FeatureFlagViewSet(
                 "flag_key": feature_flag.key,
                 "result": result,
                 "reason": reason,
+                "reason_description": reason_description,
                 "condition_index": condition_index,
                 "payload": payload,
                 "person_properties": _filter_person_properties_for_flag(
