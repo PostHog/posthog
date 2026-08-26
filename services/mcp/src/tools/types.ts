@@ -15,6 +15,18 @@ export type SessionState = {
     uuid: string
 }
 
+// Per-MCP-session context, keyed on the protocol session id (not the token).
+// `activeOrgId`/`activeProjectId` record an in-session switch-organization /
+// switch-project; `appliedPin*` record the request pin the session last saw so
+// the resolver can tell a resent pin from a genuinely changed one. See
+// RequestStateResolver.applyPinnedContext.
+export type SessionScopedState = {
+    activeProjectId: string | undefined
+    activeOrgId: string | undefined
+    appliedPinProjectId: string | undefined
+    appliedPinOrgId: string | undefined
+}
+
 export type CachedUser = ApiUser
 export type CachedOrg = Schemas.OrganizationBasic
 export type CachedProject = Schemas.ProjectBackwardCompat
@@ -22,13 +34,6 @@ export type CachedProject = Schemas.ProjectBackwardCompat
 export type State = {
     projectId: string | undefined
     orgId: string | undefined
-    // The org/project last applied from an explicit request pin (the
-    // `x-posthog-*` headers / `?organization_id=` / `?project_id=` params).
-    // Session-scoped, so each session tracks the pin it has already applied and
-    // an in-session `switch-project` isn't reverted by the pin being resent on
-    // every subsequent request. See RequestStateResolver.applyPinnedContext.
-    pinnedProjectId: string | undefined
-    pinnedOrgId: string | undefined
     distinctId: string | undefined
     region: CloudRegion | undefined
     apiKey: ApiRedactedPersonalApiKey | undefined
@@ -119,6 +124,13 @@ export type Context = {
      * stateManager when not provided.
      */
     trackEvent: (event: AnalyticsEvent, properties?: Record<string, unknown>) => Promise<void>
+    /**
+     * Record an in-session context switch so a pinned connection's resent pin
+     * doesn't revert it (see RequestStateResolver.applyPinnedContext). Absent
+     * when the request carries no MCP session id — there is no cross-request
+     * session state to record for.
+     */
+    setSessionActiveContext?: (updates: { orgId?: string; projectId?: string }) => Promise<void>
     /**
      * Which PostHog connection this context runs through, when it runs through one at all. Set only
      * by the forwarded context (see lib/connection-forwarding.ts); absent on a local call.
