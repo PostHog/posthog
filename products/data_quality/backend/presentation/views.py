@@ -234,10 +234,14 @@ class _QualityGatedViewSet(TeamAndOrgViewSetMixin):
 
         Keyed on the identities each run pinned, so the suites reporting on it are withheld by the
         same rule the routes serving it apply. Each distinct recording is judged once and every
-        identity in the page resolves in one pass, so the scan stays small however long the history
-        is. A referencing run that pinned nothing is matched too, since what it read cannot be
-        established.
+        identity resolves in one pass. A referencing run that pinned nothing is matched too, since
+        what it read cannot be established.
+
+        Only the types that can read past their own subject reach the scan. A run of any other type
+        pinned an empty list, or pinned nothing and falls back to its type, so it is readable
+        whatever it recorded -- and the aggregation this narrows runs over the team's whole history.
         """
+        runs = runs.filter(check_type__in=api.referencing_check_types())
         recordings = list(runs.values_list("check_type", "referenced_subjects").distinct())
         current_names = api.resolve_subject_names(
             self.team_id, api.pinned_subject_refs(recorded for _, recorded in recordings)

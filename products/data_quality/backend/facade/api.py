@@ -40,6 +40,7 @@ from ..logic.subject_access import (
     pinned_subjects,
     referenced_subject_names,
     referenced_subjects,
+    referencing_check_types,
     run_reads_unreadable_subject,
     unconfirmable_subject_names,
 )
@@ -82,6 +83,7 @@ __all__ = [
     "quality_audit_mode",
     "referenced_subject_names",
     "referenced_subjects",
+    "referencing_check_types",
     "related_subject_ref",
     "resolve_subject",
     "resolve_subject_names",

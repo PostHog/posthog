@@ -1179,11 +1179,19 @@ def _without_denied_runs(team_id: int, runs: Any, denied: set[str]) -> Any:
     therefore cannot rewrite what its history discloses, and deleting a subject cannot free its name
     for something else to answer for it. A referencing run that pinned nothing predates the
     recording and is withheld rather than assumed harmless.
+
+    Only the types that can read past their own subject reach the recording scan. A run of any other
+    type is readable whatever it recorded, and the aggregation this narrows runs over the team's
+    whole retained history before the window applies.
     """
     from products.data_quality.backend.facade import api as data_quality  # noqa: PLC0415
 
     subjects = set(runs.values_list("subject_type", "subject_uuid", "subject_name").distinct())
-    recordings = list(runs.values_list("check_type", "referenced_subjects").distinct())
+    recordings = list(
+        runs.filter(check_type__in=data_quality.referencing_check_types())
+        .values_list("check_type", "referenced_subjects")
+        .distinct()
+    )
     current_names = data_quality.resolve_subject_names(
         team_id,
         [data_quality.subject_identity(subject_type, subject_uuid) for subject_type, subject_uuid, _ in subjects]

@@ -9,6 +9,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
+from posthog.test.db_context_capturing import capture_db_queries
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
@@ -380,6 +381,36 @@ class TestDataQualityRunAPI(APIBaseTest):
         assert rows["stripe_charges"]["subject_schema_id"] == str(schema.id)
         # A view on no DAG has no node page; the row renders its name as plain text.
         assert rows["customers"]["subject_node_id"] is None
+
+    def test_the_overview_authorizes_a_definition_once_however_many_checks_share_it(self) -> None:
+        # The overview lists every check in the project unpaginated, so authorizing a definition per
+        # row costs a query per row for every relationships check and a HogQL parse per custom_sql
+        # one. The verdict depends on the definition alone, so the extra rows must cost nothing.
+        target = self._make_view("targets")
+        config = {"to_subject_type": SubjectType.VIEW, "to_subject_uuid": str(target.id), "to_column": "id"}
+        self._deny_orders()
+        self._sharing_checks(config, count=1)
+        # Warms the instance settings and team config the first request of any test would pay for.
+        self.client.get(self.checks_url)
+
+        with capture_db_queries() as one_check:
+            assert self.client.get(self.checks_url).status_code == status.HTTP_200_OK
+        self._sharing_checks(config, count=5)
+        with capture_db_queries() as six_checks:
+            listed = self.client.get(self.checks_url)
+
+        assert len(listed.json()["results"]) == 6
+        assert len(six_checks.captured_queries) == len(one_check.captured_queries)
+
+    def _sharing_checks(self, config: dict, count: int) -> None:
+        """Checks on the allowed subject that all read the same second subject."""
+        for _ in range(count):
+            self._check(
+                self.customers,
+                check_type=CheckType.RELATIONSHIPS,
+                column_name=f"customer_{uuid4().hex[:8]}",
+                config=config,
+            )
 
     def test_resolving_where_subjects_live_does_not_grow_with_the_project(self) -> None:
         # The overview lists every check in the project, so a query per row is a query per table in
