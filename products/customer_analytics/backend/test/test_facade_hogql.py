@@ -7,24 +7,33 @@
 from uuid import uuid4
 
 from posthog.test.base import NonAtomicBaseTest
+from unittest.mock import Mock
 
 from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import ExpressionField, LazyJoin, Table
-from posthog.hogql.errors import QueryError
+from posthog.hogql.errors import QueryError, TableAccessDeniedError
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.models import OrganizationMembership, TaggedItem, User
 from posthog.models.organization import AvailableFeature
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.conversations.backend.models import EmailThread, EmailThreadAccountLink
 from products.customer_analytics.backend.facade.hogql import (
+    account_channel_summaries,
     account_custom_property_values,
     account_custom_property_values_history,
+    account_email_thread_links,
+    account_email_threads,
+    account_email_threads_join,
+    account_meetings,
     account_resource_notebooks,
+    account_support_tickets_join,
     account_tagged_items,
     accounts,
     custom_property_definitions,
@@ -37,6 +46,7 @@ from products.customer_analytics.backend.facade.hogql import (
 )
 from products.customer_analytics.backend.models import (
     Account,
+    AccountChannelSummary,
     CustomPropertyDefinition,
     CustomPropertyValue,
     FeatureRequest,
@@ -46,6 +56,7 @@ from products.customer_analytics.backend.models import (
     FeatureRequestProductArea,
     FeatureRequestProductAreaLink,
 )
+from products.customer_analytics.backend.models.meeting import Meeting
 from products.notebooks.backend.models import ResourceNotebook
 
 
@@ -58,6 +69,10 @@ class TestFacadeHogqlSystemTables(SimpleTestCase):
             ("account_custom_property_values_history", account_custom_property_values_history, CustomPropertyValue),
             ("account_tagged_items", account_tagged_items, TaggedItem),
             ("account_resource_notebooks", account_resource_notebooks, ResourceNotebook),
+            ("account_meetings", account_meetings, Meeting),
+            ("account_channel_summaries", account_channel_summaries, AccountChannelSummary),
+            ("account_email_threads", account_email_threads, EmailThread),
+            ("account_email_thread_links", account_email_thread_links, EmailThreadAccountLink),
             ("feature_requests", feature_requests, FeatureRequest),
             ("feature_request_product_areas", feature_request_product_areas, FeatureRequestProductArea),
             ("feature_request_account_links", feature_request_account_links, FeatureRequestAccountLink),
@@ -81,6 +96,25 @@ class TestFacadeHogqlSystemTables(SimpleTestCase):
             f"system.{table.name} exposes {sorted(missing)}, which no longer exist as columns on "
             f"{model.__name__}. Update the PostgresTable def in facade/hogql.py to match the model."
         )
+
+
+class TestAccountCommunicationHogqlAccess(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("email_threads", account_email_threads_join),
+            ("support_tickets", account_support_tickets_join),
+        ]
+    )
+    def test_ticket_access_is_required(self, _name, resolver) -> None:
+        access_control = Mock()
+        access_control.check_access_level_for_resource.return_value = False
+        context = HogQLContext(database=Mock(user_access_control=access_control))
+        join_to_add = Mock(fields_accessed={"count": ["count"]})
+
+        with self.assertRaises(TableAccessDeniedError):
+            resolver(join_to_add, context, Mock())
+
+        access_control.check_access_level_for_resource.assert_called_once_with("ticket", "viewer")
 
 
 class TestFeatureRequestHogqlAccess(NonAtomicBaseTest):
