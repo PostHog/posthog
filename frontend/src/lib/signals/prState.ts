@@ -28,7 +28,14 @@ export function derivePrState(status: SignalReportStatus | string, prMerged: boo
     if (prMerged) {
         return 'merged'
     }
-    if (status === SignalReportStatus.FAILED) {
+    // A terminal report no longer points at an open PR: dismiss and resolve close the report's open
+    // implementation PR, a report suppressed by its PR closing without merging is closed by
+    // definition, and a failed report's PR never landed. Only a live report still has an open PR.
+    if (
+        status === SignalReportStatus.FAILED ||
+        status === SignalReportStatus.SUPPRESSED ||
+        status === SignalReportStatus.RESOLVED
+    ) {
         return 'closed'
     }
     return 'open'
