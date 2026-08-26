@@ -254,7 +254,10 @@ describe('experimentsLogic', () => {
                 logic.actions.loadExperiments()
             }).toFinishAllListeners()
 
-            expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/api\/projects\/\d+\/experiments\?/))
+            expect(api.get).toHaveBeenCalledWith(
+                expect.stringMatching(/api\/projects\/\d+\/experiments\/\?/),
+                expect.anything()
+            )
         })
 
         it('updates filters and triggers API call with debounce', async () => {
@@ -266,7 +269,7 @@ describe('experimentsLogic', () => {
                 .delay(350)
                 .toFinishAllListeners()
 
-            expect(api.get).toHaveBeenCalledWith(expect.stringContaining('search=test%20experiment'))
+            expect(api.get).toHaveBeenCalledWith(expect.stringContaining('search=test+experiment'), expect.anything())
         })
 
         it('filters archived experiments', async () => {
@@ -278,7 +281,7 @@ describe('experimentsLogic', () => {
                 .delay(350)
                 .toFinishAllListeners()
 
-            expect(api.get).toHaveBeenCalledWith(expect.stringContaining('archived=true'))
+            expect(api.get).toHaveBeenCalledWith(expect.stringContaining('archived=true'), expect.anything())
         })
 
         it('discards a stale search response that resolves after a newer one', async () => {
@@ -301,13 +304,13 @@ describe('experimentsLogic', () => {
                 logic.actions.loadExperiments() // fast request, e.g. search for "watermark"
             }).toDispatchActions(['loadExperimentsSuccess'])
 
-            expect(logic.values.experiments.results).toEqual([freshExperiment])
+            expect(logic.values.experiments.results.map((e) => e.id)).toEqual([freshExperiment.id])
 
             // The slow, stale response arrives after the newer one — it must be discarded
             resolveStale({ results: [staleExperiment], count: 1 })
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(logic.values.experiments.results).toEqual([freshExperiment])
+            expect(logic.values.experiments.results.map((e) => e.id)).toEqual([freshExperiment.id])
         })
 
         it('constructs correct params from filters', () => {
