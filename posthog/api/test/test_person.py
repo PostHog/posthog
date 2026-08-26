@@ -217,16 +217,20 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         flush_persons_and_events()
 
+        # `limit=1` fills the page with the single match, so a page-full paginator would offer a
+        # second page. Following it would leave the fast path and run the ClickHouse search for
+        # results that cannot exist.
         for url, expected in [
-            (f"/api/person/?search={person.uuid}", person),
-            ("/api/person/?search=someone@gmail.com", person),
-            (f"/api/person/?search={anonymous_distinct_id}", anonymous),
-            ("/api/person/?distinct_id=someone@gmail.com", person),
+            (f"/api/person/?search={person.uuid}&limit=1", person),
+            ("/api/person/?search=someone@gmail.com&limit=1", person),
+            (f"/api/person/?search={anonymous_distinct_id}&limit=1", anonymous),
+            ("/api/person/?distinct_id=someone@gmail.com&limit=1", person),
         ]:
             with self.subTest(url=url), self.capture_select_queries() as clickhouse_queries:
                 response = self.client.get(url)
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
                 self.assertEqual([result["id"] for result in response.json()["results"]], [str(expected.uuid)])
+                self.assertIsNone(response.json()["next"])
             self.assertEqual(clickhouse_queries, [])
 
     def test_search_by_exact_identifier_still_applies_other_filters(self) -> None:
