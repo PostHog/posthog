@@ -1789,7 +1789,7 @@ class UserAccessControl:
             # The event carries no object ids and no emails. Aggregate counts are enough for the migration.
             posthoganalytics.capture(
                 distinct_id=self._user.distinct_id,
-                event="most_specific_access_control_decision_diverged",
+                event="most specific access control decision diverged",
                 properties={
                     "kind": kind,
                     "resource": resource,
