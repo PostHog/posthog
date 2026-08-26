@@ -1,6 +1,6 @@
 ---
 name: integrating-with-posthog-ai
-description: 'Make a PostHog product surface work with the PostHog AI agent from the frontend. Use when injecting scene or entity context into PostHog AI, attaching context items, adding custom instructions or a skill to the agent prompt, making a page react to the agent (reloading after a tool call, applying an agent edit back into an open form or editor while the side panel is open), or rendering a product tool card or widget inside a PostHog AI thread. Also use when deciding between attached context and an MCP tool, or when a scene should open the PostHog AI side panel with context. Covers attachedContextLogic, useAttachedContext, trusted vs untrusted context, toolStreamEventsLogic, useToolStreamListener, useMcpToolApplyBack, registerToolRenderers, and useSceneAgentPanel.'
+description: 'Wire a PostHog product surface into the PostHog AI agent from the frontend. Use when attaching scene or entity context, injecting instructions to steer the agent, reacting to the agent calling a tool, applying an agent edit back into an open form, or rendering a product tool card in a thread.'
 ---
 
 # Integrating a product with PostHog AI
@@ -18,12 +18,15 @@ Injected context carries _references_, not data. A reference the agent cannot re
 
 ## Pick the seam
 
-| The job                                                                   | Seam                 | Import from  | Reference                                                         |
-| ------------------------------------------------------------------------- | -------------------- | ------------ | ----------------------------------------------------------------- |
-| The agent should know what the user is looking at, including unsaved work | Attached context     | `api/logics` | [injecting-context.md](references/injecting-context.md)           |
-| The agent should be told how to behave here, or handed a skill            | Trusted instructions | `api/logics` | [injecting-instructions.md](references/injecting-instructions.md) |
-| The page should update when the agent does something                      | Tool-event bus       | `api/logics` | [reacting-to-tool-calls.md](references/reacting-to-tool-calls.md) |
-| Your tool's calls should render as a real card, not the generic fallback  | Tool registry        | `api/tools`  | [rendering-widgets.md](references/rendering-widgets.md)           |
+| The job                                                                                                      | Seam                 | Import from                        | Use it?                         | Reference                                                         |
+| ------------------------------------------------------------------------------------------------------------ | -------------------- | ---------------------------------- | ------------------------------- | ----------------------------------------------------------------- |
+| The agent should know what the user is looking at, including unsaved work                                    | Attached context     | `api/logics`                       | **Recommended**                 | [injecting-context.md](references/injecting-context.md)           |
+| Steer how the agent behaves here — which tools to prefer, what "this" means on this page, or hand it a skill | Trusted instructions | `api/logics`                       | **Recommended**                 | [injecting-instructions.md](references/injecting-instructions.md) |
+| The page should update when the agent does something                                                         | Tool-event bus       | `api/logics`                       | **Recommended**                 | [reacting-to-tool-calls.md](references/reacting-to-tool-calls.md) |
+| Your tool's calls should render as a real card, not the generic fallback                                     | Tool registry        | `api/tools`                        | **Recommended**                 | [rendering-widgets.md](references/rendering-widgets.md)           |
+| Build your own agent UI out of the thread, composer, and stream primitives                                   | Run primitives       | `api/runSurface`, `api/primitives` | **Not recommended** — see below | `products/posthog_ai/frontend/README.md`                          |
+
+The first four are the product integration. The fifth exists for the three surfaces that _host_ an agent run — the Max scene, the signals inbox, and the tasks runner — not for products that want to cooperate with one. Reaching for it by default is the main way this goes wrong.
 
 Whole scene at once: `useSceneAgentPanel({ sceneKey, contextItems, headlines })` from `frontend/src/scenes/max/useSceneAgentPanel.ts` bundles context, welcome headlines, and gated auto-open of the side panel. Start there for a scene; drop to the individual hooks for one component. `products/workflows/frontend/Workflows/WorkflowScene.tsx` is the exemplar.
 

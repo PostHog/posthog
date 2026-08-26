@@ -37,14 +37,34 @@ If you truly must interpolate an identifier, allowlist its shape first — that 
 
 ## Injecting a skill and a tool catalog
 
-The richest use of trusted context is handing the agent everything it needs up front, so it does not spend turns discovering tools or reading skill files. `workflowAgentContext.ts` attaches four things:
+**The two things worth putting in trusted context are your product's MCP tool names and its skills** — both of which already exist in the repo as build-time sources, which is exactly what makes them safe here.
+
+- **Skills** come from the skill build pipeline in `products/*/skills/`. Your product's skills are already written, linted, and shipped to external agents; embedding one gives the web agent the same job-to-be-done guidance a Claude Code user gets. See `/writing-skills`.
+- **MCP tool names and descriptions** come from your `products/<name>/mcp/tools.yaml` and the generated schemas. Naming the tools up front stops the agent burning turns on discovery. See `/implementing-mcp-tools`.
+
+The richest use of trusted context is handing the agent both up front, so it does not spend turns discovering tools or reading skill files. `workflowAgentContext.ts` attaches four things:
 
 1. A **preamble** telling the agent the skill and tool catalog are already embedded, so it should call tools directly rather than go looking.
 2. The **skill content** itself, embedded as a string.
 3. One instruction item **per MCP tool**, each carrying the tool's name and description.
 4. A visible `type: 'skill'` chip so the user can see (and detach) what was attached.
 
-All of it comes from a generated module (`../generated/agentContext`) that pulls the skill markdown and tool descriptions out of the repo at build time. That is what makes them safe as trusted strings: they are our own source, not runtime data. Do not hand-copy skill text into a component — generate it, so it cannot drift from the skill it claims to be.
+### Generate the payload, never hand-copy it
+
+All of it comes from `products/<product>/frontend/generated/agentContext.ts`, built by
+`services/mcp/scripts/build-scene-tool-context.ts` and regenerated with `hogli build:openapi`. That script
+reads two sources at build time:
+
+- `products/<product>/mcp/*.yaml` — which tools are enabled, with their live descriptions.
+- `products/<product>/skills/<skill>/` — the skill markdown, named file by file (`SKILL.md` plus whichever
+  `references/*.md` are worth embedding).
+
+To get one for your product, add an entry to that script's config: the output path, the tool YAML files with
+a const name each, and the skill directories with the files to embed. The workflows entry is the model.
+
+This is what makes the payload safe as trusted text: it is our own source, checked into the repo, not runtime
+data. It is also what keeps it honest — hand-copied skill text or a pasted tool description silently drifts
+from the skill or tool it claims to describe, and nothing catches it.
 
 Tie the whole bundle together with a shared `dismissGroup` so the visible chip and the hidden payload detach as one.
 
