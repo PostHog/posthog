@@ -23744,6 +23744,7 @@ export namespace Schemas {
      * * `SideShift` - SideShift
      * * `DuckLake` - DuckLake
      * * `Starburst` - Starburst
+     * * `Trino` - Trino
      * * `Easybill` - Easybill
      * * `Bexio` - Bexio
      * * `Umami` - Umami
@@ -25068,6 +25069,7 @@ export namespace Schemas {
       SideShift: 'SideShift',
       DuckLake: 'DuckLake',
       Starburst: 'Starburst',
+      Trino: 'Trino',
       Easybill: 'Easybill',
       Bexio: 'Bexio',
       Umami: 'Umami',
@@ -26406,6 +26408,7 @@ export namespace Schemas {
        * * `SideShift` - SideShift
        * * `DuckLake` - DuckLake
        * * `Starburst` - Starburst
+       * * `Trino` - Trino
        * * `Easybill` - Easybill
        * * `Bexio` - Bexio
        * * `Umami` - Umami
@@ -28432,6 +28435,7 @@ export namespace Schemas {
        * * `SideShift` - SideShift
        * * `DuckLake` - DuckLake
        * * `Starburst` - Starburst
+       * * `Trino` - Trino
        * * `Easybill` - Easybill
        * * `Bexio` - Bexio
        * * `Umami` - Umami
@@ -30175,6 +30179,7 @@ export namespace Schemas {
      * * `redshift` - redshift
      * * `clickhouse` - clickhouse
      * * `motherduck` - motherduck
+     * * `trino` - trino
      */
     export type EngineEnum = typeof EngineEnum[keyof typeof EngineEnum];
 
@@ -30187,6 +30192,7 @@ export namespace Schemas {
       Redshift: 'redshift',
       Clickhouse: 'clickhouse',
       Motherduck: 'motherduck',
+      Trino: 'trino',
     } as const;
 
     export interface EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra {
@@ -35244,7 +35250,8 @@ export namespace Schemas {
        * * `snowflake` - snowflake
        * * `redshift` - redshift
        * * `clickhouse` - clickhouse
-       * * `motherduck` - motherduck */
+       * * `motherduck` - motherduck
+       * * `trino` - trino */
       readonly engine: EngineEnum | null;
       /** The source type (e.g. 'Postgres', 'MySQL', 'Snowflake').
        *
@@ -36504,6 +36511,7 @@ export namespace Schemas {
        * * `SideShift` - SideShift
        * * `DuckLake` - DuckLake
        * * `Starburst` - Starburst
+       * * `Trino` - Trino
        * * `Easybill` - Easybill
        * * `Bexio` - Bexio
        * * `Umami` - Umami
@@ -37862,6 +37870,7 @@ export namespace Schemas {
        * * `SideShift` - SideShift
        * * `DuckLake` - DuckLake
        * * `Starburst` - Starburst
+       * * `Trino` - Trino
        * * `Easybill` - Easybill
        * * `Bexio` - Bexio
        * * `Umami` - Umami
@@ -38064,7 +38073,8 @@ export namespace Schemas {
        * * `snowflake` - snowflake
        * * `redshift` - redshift
        * * `clickhouse` - clickhouse
-       * * `motherduck` - motherduck */
+       * * `motherduck` - motherduck
+       * * `trino` - trino */
       readonly engine: EngineEnum | null;
       /** @nullable */
       readonly last_run_at: string | null;
@@ -60784,7 +60794,8 @@ export namespace Schemas {
        * * `snowflake` - snowflake
        * * `redshift` - redshift
        * * `clickhouse` - clickhouse
-       * * `motherduck` - motherduck */
+       * * `motherduck` - motherduck
+       * * `trino` - trino */
       readonly engine?: EngineEnum | null;
       /** @nullable */
       readonly last_run_at?: string | null;
@@ -77087,6 +77098,7 @@ export namespace Schemas {
        * * `SideShift` - SideShift
        * * `DuckLake` - DuckLake
        * * `Starburst` - Starburst
+       * * `Trino` - Trino
        * * `Easybill` - Easybill
        * * `Bexio` - Bexio
        * * `Umami` - Umami
@@ -78453,6 +78465,7 @@ export namespace Schemas {
        * * `SideShift` - SideShift
        * * `DuckLake` - DuckLake
        * * `Starburst` - Starburst
+       * * `Trino` - Trino
        * * `Easybill` - Easybill
        * * `Bexio` - Bexio
        * * `Umami` - Umami
@@ -79809,6 +79822,7 @@ export namespace Schemas {
        * * `SideShift` - SideShift
        * * `DuckLake` - DuckLake
        * * `Starburst` - Starburst
+       * * `Trino` - Trino
        * * `Easybill` - Easybill
        * * `Bexio` - Bexio
        * * `Umami` - Umami

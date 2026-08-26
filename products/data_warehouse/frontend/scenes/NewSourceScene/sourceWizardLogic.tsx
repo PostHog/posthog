@@ -1780,6 +1780,7 @@ export interface sourceWizardLogicActions {
             | 'Trello'
             | 'Tremendous'
             | 'TriggerDev'
+            | 'Trino'
             | 'TripleWhale'
             | 'TrunkIo'
             | 'TrustPilot'

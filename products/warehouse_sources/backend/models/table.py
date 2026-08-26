@@ -24,6 +24,7 @@ from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.direct_redshift_table import DirectRedshiftTable
 from posthog.hogql.database.direct_snowflake_table import DirectSnowflakeTable
+from posthog.hogql.database.direct_trino_table import DirectTrinoTable
 from posthog.hogql.database.models import DatabaseField, FieldOrTable, StructDatabaseField
 from posthog.hogql.database.s3_table import (
     DataWarehouseTable as HogQLDataWarehouseTable,
@@ -700,6 +701,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         | DirectRedshiftTable
         | DirectClickHouseTable
         | DirectMotherDuckTable
+        | DirectTrinoTable
     ):
         # Deferred: importing data_warehouse's facade at module scope creates an import cycle
         # (data_warehouse models -> this model package -> data_warehouse.facade.sources -> ...).
@@ -721,6 +723,9 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             DIRECT_SNOWFLAKE_CATALOG_OPTION,
             DIRECT_SNOWFLAKE_SCHEMA_OPTION,
             DIRECT_SNOWFLAKE_TABLE_OPTION,
+            DIRECT_TRINO_CATALOG_OPTION,
+            DIRECT_TRINO_SCHEMA_OPTION,
+            DIRECT_TRINO_TABLE_OPTION,
         )
 
         columns = self.columns or {}
@@ -860,6 +865,38 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 motherduck_database=motherduck_database,
                 motherduck_schema=motherduck_schema,
                 motherduck_table_name=motherduck_table_name,
+                external_data_source_id=str(self.external_data_source_id),
+                connection_metadata=self.external_data_source.connection_metadata,
+                has_complete_columns=self._direct_columns_are_complete(),
+            )
+
+        if (
+            self.external_data_source
+            and self.external_data_source.is_direct_query
+            and self.external_data_source.direct_engine == "trino"
+        ):
+            job_inputs = self.external_data_source.job_inputs or {}
+            trino_catalog = (
+                self.options.get(DIRECT_TRINO_CATALOG_OPTION)
+                if isinstance(self.options.get(DIRECT_TRINO_CATALOG_OPTION), str)
+                else job_inputs.get("catalog", "")
+            )
+            trino_schema = (
+                self.options.get(DIRECT_TRINO_SCHEMA_OPTION)
+                if isinstance(self.options.get(DIRECT_TRINO_SCHEMA_OPTION), str)
+                else job_inputs.get("schema", "")
+            )
+            trino_table_name = (
+                self.options.get(DIRECT_TRINO_TABLE_OPTION)
+                if isinstance(self.options.get(DIRECT_TRINO_TABLE_OPTION), str)
+                else self.name
+            )
+            return DirectTrinoTable(
+                name=self.name,
+                fields=fields,
+                trino_catalog=trino_catalog,
+                trino_schema=trino_schema,
+                trino_table_name=trino_table_name,
                 external_data_source_id=str(self.external_data_source_id),
                 connection_metadata=self.external_data_source.connection_metadata,
                 has_complete_columns=self._direct_columns_are_complete(),
@@ -1065,9 +1102,13 @@ def get_table_by_schema_id(schema_id: str, team_id: int):
     return ExternalDataSchema.objects.get(id=schema_id, team_id=team_id).table
 
 
-@database_sync_to_async
-def acreate_datawarehousetable(**kwargs):
+def create_datawarehousetable(**kwargs: Any) -> DataWarehouseTable:
     return DataWarehouseTable.objects.create(**kwargs)
+
+
+@database_sync_to_async
+def acreate_datawarehousetable(**kwargs: Any) -> DataWarehouseTable:
+    return create_datawarehousetable(**kwargs)
 
 
 @database_sync_to_async
