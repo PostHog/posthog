@@ -58,8 +58,14 @@ async def setup_row_tracking(team_id: int, schema_id: uuid.UUID | str) -> None:
         if not redis:
             return
 
-        await redis.hset(_get_hash_key(team_id), str(schema_id), 0)
-        await redis.expire(_get_hash_key(team_id), 60 * 60 * 24 * 7)  # 7 day expire
+        try:
+            await redis.hset(_get_hash_key(team_id), str(schema_id), 0)
+            await redis.expire(_get_hash_key(team_id), 60 * 60 * 24 * 7)  # 7 day expire
+        except redis_exceptions.RedisError as e:
+            # A successful ping doesn't guarantee later commands succeed (e.g. Redis
+            # refusing writes because it can't persist an RDB snapshot). Row tracking is
+            # best-effort, so a command failing here shouldn't fail the whole import.
+            capture_exception(e)
 
 
 async def increment_rows(team_id: int, schema_id: uuid.UUID | str, rows: int) -> None:
@@ -67,7 +73,10 @@ async def increment_rows(team_id: int, schema_id: uuid.UUID | str, rows: int) ->
         if not redis:
             return
 
-        await redis.hincrby(_get_hash_key(team_id), str(schema_id), rows)
+        try:
+            await redis.hincrby(_get_hash_key(team_id), str(schema_id), rows)
+        except redis_exceptions.RedisError as e:
+            capture_exception(e)
 
 
 async def decrement_rows(team_id: int, schema_id: uuid.UUID | str, rows: int) -> None:
@@ -75,18 +84,21 @@ async def decrement_rows(team_id: int, schema_id: uuid.UUID | str, rows: int) ->
         if not redis:
             return
 
-        if not await redis.hexists(_get_hash_key(team_id), str(schema_id)):
-            return
+        try:
+            if not await redis.hexists(_get_hash_key(team_id), str(schema_id)):
+                return
 
-        value = await redis.hget(_get_hash_key(team_id), str(schema_id))
-        if not value:
-            return
+            value = await redis.hget(_get_hash_key(team_id), str(schema_id))
+            if not value:
+                return
 
-        value_int = int(value)
-        if value_int - rows < 0:
-            await redis.hset(_get_hash_key(team_id), str(schema_id), 0)
-        else:
-            await redis.hincrby(_get_hash_key(team_id), str(schema_id), -rows)
+            value_int = int(value)
+            if value_int - rows < 0:
+                await redis.hset(_get_hash_key(team_id), str(schema_id), 0)
+            else:
+                await redis.hincrby(_get_hash_key(team_id), str(schema_id), -rows)
+        except redis_exceptions.RedisError as e:
+            capture_exception(e)
 
 
 async def finish_row_tracking(team_id: int, schema_id: uuid.UUID | str) -> None:
@@ -94,7 +106,10 @@ async def finish_row_tracking(team_id: int, schema_id: uuid.UUID | str) -> None:
         if not redis:
             return
 
-        await redis.hdel(_get_hash_key(team_id), str(schema_id))
+        try:
+            await redis.hdel(_get_hash_key(team_id), str(schema_id))
+        except redis_exceptions.RedisError as e:
+            capture_exception(e)
 
 
 async def get_rows(team_id: int, schema_id: uuid.UUID | str) -> int:
@@ -102,10 +117,13 @@ async def get_rows(team_id: int, schema_id: uuid.UUID | str) -> int:
         if not redis:
             return 0
 
-        if await redis.hexists(_get_hash_key(team_id), str(schema_id)):
-            value = await redis.hget(_get_hash_key(team_id), str(schema_id))
-            if value:
-                return int(value)
+        try:
+            if await redis.hexists(_get_hash_key(team_id), str(schema_id)):
+                value = await redis.hget(_get_hash_key(team_id), str(schema_id))
+                if value:
+                    return int(value)
+        except redis_exceptions.RedisError as e:
+            capture_exception(e)
 
         return 0
 
@@ -115,8 +133,12 @@ async def get_all_rows_for_team(team_id: int) -> int:
         if not redis:
             return 0
 
-        pairs = await redis.hgetall(_get_hash_key(team_id))
-        return sum(int(v) for v in pairs.values())
+        try:
+            pairs = await redis.hgetall(_get_hash_key(team_id))
+            return sum(int(v) for v in pairs.values())
+        except redis_exceptions.RedisError as e:
+            capture_exception(e)
+            return 0
 
 
 # To be removed after 2025-11-06

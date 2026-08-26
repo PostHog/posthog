@@ -171,27 +171,24 @@ class TestContextLayerAPI(APIBaseTest):
         response = self.client.get(f"{self.base_url}/channel-pages/{uuid4()}/")
         assert response.status_code == 404
 
-    def test_enable_is_blocked_for_orgs_with_private_projects(self, _flag) -> None:
-        self.team.access_control = True
-        self.team.save()
-        response = self.client.post(f"{self.base_url}/enable/")
-        assert response.status_code == 400
-        body = response.json()
-        assert body["code"] == "private_projects"
-        assert self.team.name in body["detail"]
+    @parameterized.expand(["legacy flag", "rbac deny row"])
+    def test_a_private_project_does_not_block_the_wiki(self, representation, _flag) -> None:
+        # Both representations of a private project used to refuse enablement
+        # outright, which locked out every organization that had restricted one.
+        if representation == "legacy flag":
+            self.team.access_control = True
+            self.team.save()
+        else:
+            AccessControl.objects.create(
+                team=self.team,
+                resource="project",
+                resource_id=str(self.team.id),
+                access_level="none",
+            )
 
-    def test_enable_is_blocked_for_orgs_with_rbac_private_projects(self, _flag) -> None:
-        AccessControl.objects.create(
-            team=self.team,
-            resource="project",
-            resource_id=str(self.team.id),
-            access_level="none",
-        )
-        response = self.client.post(f"{self.base_url}/enable/")
-        assert response.status_code == 400
-        body = response.json()
-        assert body["code"] == "private_projects"
-        assert self.team.name in body["detail"]
+        self._enable()
+
+        assert self.client.get(f"{self.base_url}/tree/").status_code == 200
 
     def test_same_named_spaces_are_scoped_to_their_projects(self, _flag) -> None:
         with team_scope(self.team.id):
@@ -679,17 +676,6 @@ class TestContextLayerAPI(APIBaseTest):
         )
         assert response.status_code == 409
         assert "merge commits" in response.json()["detail"]
-
-    def test_wiki_goes_dark_when_a_project_becomes_private(self, _flag) -> None:
-        self._enable()
-        assert self.client.get(f"{self.base_url}/tree/").status_code == 200
-
-        self.team.access_control = True
-        self.team.save()
-
-        assert self.client.get(f"{self.base_url}/tree/").status_code == 403
-        assert self.client.get(f"{self.base_url}/pages/", {"path": "AGENTS.md"}).status_code == 403
-        assert self.client.get(f"{self.base_url}/export/").status_code == 403
 
     def test_export_returns_a_download_url(self, _flag) -> None:
         head = self._enable()
