@@ -1,8 +1,6 @@
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from posthog.dataclasses import frozen
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
     DependentEndpointConfig,
 )
@@ -38,7 +36,10 @@ class BodyFanoutConfig:
     body_param: str
 
 
-@frozen
+# frozen=False: MetronomeEndpointConfig is passed as `endpoint_configs: Mapping[str, FanoutEndpointLike]`,
+# and mypy treats a frozen dataclass's fields as read-only, which is incompatible with that
+# Protocol's plain (read-write) attributes.
+@dataclass(frozen=False)
 class MetronomeEndpointConfig:
     name: str
     path: str
