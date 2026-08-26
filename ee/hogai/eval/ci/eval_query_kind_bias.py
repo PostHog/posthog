@@ -14,6 +14,13 @@ PostHog's.
 
 Scored on query kind alone. Whether the query is *correct* is already covered
 by the per-kind evals; these cases only ask which runner the agent picked.
+
+``eval_query_kind_bias_control`` runs the other direction, and the three suites
+above are not readable without it. An agent that answers every question with a
+trend scores full marks on them, which reads as "no bias" when it means "the
+agent ignored the question". The control cases need row listings or per-row
+window functions, which no typed runner can express, so SQL is the only correct
+answer and a low control score means the typed suites are measuring nothing.
 """
 
 import pytest
@@ -80,6 +87,25 @@ RETENTION_CASES = [
 ]
 
 
+# Negative controls. Each needs raw rows or a per-row window function, neither
+# of which trends, funnels, or retention can express — so there is no judgment
+# call about whether SQL is right here.
+CONTROL_CASES = [
+    EvalCase(
+        input="List the 10 largest files by file_size_b from uploaded_file, with their file_name",
+        expected=NodeKind.HOG_QL_QUERY,
+    ),
+    EvalCase(
+        input="For each account, show the first and last logged_in timestamp",
+        expected=NodeKind.HOG_QL_QUERY,
+    ),
+    EvalCase(
+        input="What is the median file_size_b on uploaded_file, and which accounts upload above it?",
+        expected=NodeKind.HOG_QL_QUERY,
+    ),
+]
+
+
 @pytest.mark.django_db
 async def eval_query_kind_bias_trends(call_root_for_insight_generation, pytestconfig):
     await MaxPublicEval(
@@ -109,5 +135,16 @@ async def eval_query_kind_bias_retention(call_root_for_insight_generation, pytes
         task=call_root_for_insight_generation,
         scores=[QueryKindSelection(expected=NodeKind.RETENTION_QUERY)],
         data=RETENTION_CASES,
+        pytestconfig=pytestconfig,
+    )
+
+
+@pytest.mark.django_db
+async def eval_query_kind_bias_control(call_root_for_insight_generation, pytestconfig):
+    await MaxPublicEval(
+        experiment_name="query_kind_bias_control",
+        task=call_root_for_insight_generation,
+        scores=[QueryKindSelection(expected=NodeKind.HOG_QL_QUERY)],
+        data=CONTROL_CASES,
         pytestconfig=pytestconfig,
     )
