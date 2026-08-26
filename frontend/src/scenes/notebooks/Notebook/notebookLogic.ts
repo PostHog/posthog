@@ -293,6 +293,7 @@ export interface notebookLogicValues {
     autosavePaused: boolean
     cachedInlineQueryResultsByNodeId: Record<string, AnyResponseType>
     cachedInsightsByShortId: Record<string, InsightModel>
+    canEditNotebook: boolean
     canvasFiltersOverride: any
     containerSize: 'medium' | 'small'
     content: JSONContent
@@ -660,12 +661,12 @@ export interface notebookLogicMeta {
         duckSqlNodeIndices: (content: JSONContent) => Map<string, number>
         hogqlSqlNodeIndices: (content: JSONContent) => Map<string, number>
         isShowingLeftColumn: (showHistory: boolean) => boolean
-        isEditable: (
-            shouldBeEditable: boolean,
+        canEditNotebook: (
             previewContent: JSONContent | null,
             notebook: NotebookType | null,
             mode: NotebookLogicMode
         ) => boolean
+        isEditable: (shouldBeEditable: boolean, canEditNotebook: boolean) => boolean
         isShared: (arg: any) => boolean
         cachedInsightsByShortId: (arg: any) => Record<string, InsightModel>
         cachedInlineQueryResultsByNodeId: (arg: any) => Record<string, AnyResponseType>
@@ -703,7 +704,7 @@ export const notebookLogic = kea<notebookLogicType>([
                 item_id: props.shortId,
             }),
             ['comments', 'selectedCommentId'],
-            notebookKernelInfoLogic({ shortId: props.shortId }),
+            notebookKernelInfoLogic({ shortId: props.shortId, mode: props.mode }),
             ['kernelInfo'],
             notebookSettingsLogic,
             ['showKernelInfo'],
@@ -1377,23 +1378,27 @@ export const notebookLogic = kea<notebookLogicType>([
 
         isShowingLeftColumn: [(s) => [s.showHistory], (showHistory: boolean) => showHistory],
 
+        // Whether this reader may change the notebook at all, independent of the view/edit toggle.
+        // A canvas is local to the reader, so it always qualifies. A history preview never does,
+        // because it shows a version the reader is not editing. Gate a control that has to work in
+        // view mode on this rather than on `isEditable`, which is false whenever the editors are
+        // off screen.
+        canEditNotebook: [
+            (s) => [s.previewContent, s.notebook, s.mode],
+            (previewContent: JSONContent | null, notebook: NotebookType | null, mode: NotebookLogicMode) =>
+                mode === 'canvas' ||
+                (!previewContent &&
+                    !!notebook?.user_access_level &&
+                    accessLevelSatisfied(
+                        AccessControlResourceType.Notebook,
+                        notebook.user_access_level,
+                        AccessControlLevel.Editor
+                    )),
+        ],
+
         isEditable: [
-            (s) => [s.shouldBeEditable, s.previewContent, s.notebook, s.mode],
-            (
-                shouldBeEditable: boolean,
-                previewContent: JSONContent | null,
-                notebook: NotebookType | null,
-                mode: NotebookLogicMode
-            ) =>
-                shouldBeEditable &&
-                (mode === 'canvas' ||
-                    (!previewContent &&
-                        !!notebook?.user_access_level &&
-                        accessLevelSatisfied(
-                            AccessControlResourceType.Notebook,
-                            notebook.user_access_level,
-                            AccessControlLevel.Editor
-                        ))),
+            (s) => [s.shouldBeEditable, s.canEditNotebook],
+            (shouldBeEditable: boolean, canEditNotebook: boolean) => shouldBeEditable && canEditNotebook,
         ],
 
         isShared: [() => [(_, props) => props.cachedNotebook], (cachedNotebook): boolean => !!cachedNotebook],

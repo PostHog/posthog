@@ -1,6 +1,7 @@
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { ConcurrencyController } from '~/common/utils/concurrencyController'
 import { logger } from '~/common/utils/logger'
+import { CAPTURE_TIMESTAMP_HEADER } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/image-transport'
 
 import {
     FetchCandidate,
@@ -109,7 +110,10 @@ export class FrontierPublisher {
             throw new Error('an image publish needs response bytes and a content type')
         }
         const bytes = result.bytes
-        const headers: Record<string, string> = { 'content-type': result.contentType }
+        const headers: Record<string, string> = {
+            'content-type': result.contentType,
+            [CAPTURE_TIMESTAMP_HEADER]: String(candidate.firstSeenAtMs),
+        }
         if (result.contentEncoding) {
             headers['content-encoding'] = result.contentEncoding
         }
@@ -165,7 +169,9 @@ class BufferedRepublishBatch implements RepublishBatch {
                 remainingHops,
                 notBeforeMs: destination.delayMs > 0 ? Date.now() + destination.delayMs : 0,
                 republishCount: candidate.republishCount + 1,
-                lastRepublishReason: reason,
+                lastRepublishReason: reason === 'low_origin_diversity' ? candidate.lastRepublishReason : reason,
+                lowOriginDiversityDeferred:
+                    reason === 'low_origin_diversity' ? true : candidate.lowOriginDiversityDeferred,
             },
             reason,
             destination,

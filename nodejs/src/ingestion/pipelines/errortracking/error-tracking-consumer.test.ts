@@ -11,7 +11,7 @@ import { PersonReadRepository } from '~/common/persons/repositories/person-repos
 import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
 import { IngestionTestInfra, createIngestionTestInfra } from '~/tests/helpers/ingestion-e2e'
-import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { PipelineEvent, Team } from '~/types'
 
 import { ErrorTrackingConsumer, ErrorTrackingHogTransformer } from './error-tracking-consumer'
@@ -234,9 +234,8 @@ describe('ErrorTrackingConsumer', () => {
         jest.spyOn(Date.prototype, 'toISOString').mockReturnValue(fixedTime.toISO()!)
 
         offsetIncrementer = 0
-        await resetTestDatabase()
         infra = await createIngestionTestInfra()
-        team = await getFirstTeam(infra.postgres)
+        team = (await createTestTeamFixture(infra.postgres)).team
 
         consumer = await createConsumer(infra)
     })

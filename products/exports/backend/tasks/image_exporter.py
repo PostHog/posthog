@@ -34,6 +34,7 @@ from posthog.tasks.exporter import EXPORT_TIMER
 from posthog.utils import absolute_uri
 
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.exports.backend.facade.api import export_limit_context
 from products.exports.backend.models.exported_asset import ExportedAsset, get_render_access_token, save_content
 from products.exports.backend.tasks.exporter_utils import log_error_if_site_url_not_reachable
 from products.exports.backend.tasks.failure_handler import (
@@ -635,6 +636,7 @@ def export_image(
                     exported_asset.team,
                     exported_asset.export_context["source"],
                     execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+                    limit_context=export_limit_context(exported_asset.export_context),
                     # Background render (no request user); attribute the read to the export owner.
                     user=exported_asset.created_by,
                 )
