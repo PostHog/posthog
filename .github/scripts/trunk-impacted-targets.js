@@ -300,8 +300,6 @@ const TRIPWIRE_RULES = [
     // product's own owners.yaml is not here: it keeps its product lane.
     ['tools/owners/**', UNIVERSAL],
     ['owners.yaml', UNIVERSAL],
-    // pytest-split timing data, and nothing else reads it.
-    ['.test_durations', PYTHON],
     // Left universal: the quarantine list covers all three suites at once, and
     // playwright.quarantine.ts and replay-shared's jest.config.js read it
     // alongside pytest, so an entry for a flaky frontend test moves a
