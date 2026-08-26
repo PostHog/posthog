@@ -19,6 +19,7 @@ from functools import partial
 from django.conf import settings
 
 from clickhouse_driver import Client
+from clickhouse_driver.errors import ServerException
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import NodeRole
@@ -36,6 +37,9 @@ from posthog.models.flag_evaluations.sql import (
 )
 
 COVERAGE_DOC = "docs/internal/clickhouse-deletion-coverage.md"
+
+# ClickHouse's CLUSTER_DOESNT_EXIST, which clickhouse_driver does not name.
+_CLUSTER_DOESNT_EXIST = 701
 
 
 class DeletionCoverageError(Exception):
@@ -74,10 +78,12 @@ class DeletionTarget:
 
     data_table: str
     read_table: str
-    # Name of the Django setting holding the cluster its storage table is on, for the refusal
-    # message and for the per-cluster dispatch that does not exist yet. Reachability is decided by
-    # probing the hosts, not by comparing this against the handle's cluster: two cluster names can
-    # cover the same nodes, which is what the dev stack and CI do.
+    # Name of the Django setting holding the cluster its storage table is on. A target naming a
+    # cluster the job's handle does not address is swept through a sibling handle for that cluster.
+    # Reachability is still decided by probing the hosts, not by comparing this against the handle's
+    # cluster: two cluster names can cover the same nodes, which is what the dev stack and CI do.
+    # Anything that may live elsewhere must also be ``optional``, since that is what makes the
+    # storage table's presence a question rather than an assumption.
     cluster_setting: str = "CLICKHOUSE_CLUSTER"
     # Guarded on system.tables: the table sits behind a migration that may not have run everywhere.
     optional: bool = False
@@ -120,6 +126,19 @@ class DeletionTarget:
         if not events or self.stored_events is None:
             return True
         return not self.stored_events.isdisjoint(events)
+
+
+@dataclass(frozen=True, kw_only=True)
+class TargetPlacement:
+    """A target and the cluster handle whose shards carry its storage table.
+
+    Sweeps dispatch per shard, and a handle enumerates the shards of exactly one cluster, so the
+    two travel together: reading the target off one handle and dispatching it on another is the
+    mistake this pairing exists to prevent.
+    """
+
+    target: DeletionTarget
+    cluster: ClickhouseCluster
 
 
 EVENTS = DeletionTarget(
@@ -217,34 +236,90 @@ def _assert_no_rows_behind_the_proxy(cluster: ClickhouseCluster, target: Deletio
     )
 
 
-def is_present(cluster: ClickhouseCluster, target: DeletionTarget) -> bool:
-    """Whether this handle can sweep the target, refusing rather than skipping when it cannot.
+def _any_data_node_has(cluster: ClickhouseCluster, table: str) -> bool:
+    """Whether any data node of ``cluster`` carries ``table``.
 
-    ``any`` data node rather than ``all``: on a partially-migrated cluster the mutation fails loudly
-    on the hosts missing the table, which is preferable to silently skipping a deletion.
+    ``any`` rather than ``all``: on a partially-migrated cluster the mutation fails loudly on the
+    hosts missing the table, which is preferable to silently skipping a deletion.
     """
-    if not target.optional:
-        return True
-    results = cluster.map_hosts_by_role(partial(_table_exists, table=target.data_table), NodeRole.DATA).result()
-    if any(results.values()):
-        return True
+    results = cluster.map_hosts_by_role(partial(_table_exists, table=table), NodeRole.DATA).result()
+    return any(results.values())
+
+
+def _sibling_holding(cluster: ClickhouseCluster, target: DeletionTarget) -> ClickhouseCluster | None:
+    """A handle for the target's own cluster, when that cluster is defined here and carries it."""
+    if target.cluster_name == cluster.data_cluster_name:
+        return None
+    try:
+        sibling = cluster.sibling(target.cluster_name)
+    except ServerException as exc:
+        if exc.code != _CLUSTER_DOESNT_EXIST:
+            raise
+        # No such cluster here, which is every deployment the split that moves this table has not
+        # reached: local, CI, self-hosted. Leave the verdict to the proxy check.
+        return None
+    return sibling if _any_data_node_has(sibling, target.data_table) else None
+
+
+def placement_for(cluster: ClickhouseCluster, target: DeletionTarget) -> TargetPlacement | None:
+    """Where ``target`` can be swept from, refusing rather than skipping when nowhere can.
+
+    Reachability is settled by probing hosts, never by comparing cluster names: two names can
+    cover the same nodes, which is what the dev stack and CI do. So the handle in hand is tried
+    first, and a sibling is built only for a table it does not carry.
+    """
+    if not target.optional or _any_data_node_has(cluster, target.data_table):
+        return TargetPlacement(target=target, cluster=cluster)
+
+    sibling = _sibling_holding(cluster, target)
+    if sibling is not None:
+        return TargetPlacement(target=target, cluster=sibling)
+
     _assert_no_rows_behind_the_proxy(cluster, target)
-    return False
+    return None
 
 
-def resolve_targets(
+def dispatchable_here(cluster: ClickhouseCluster, target: DeletionTarget) -> bool:
+    """Whether ``cluster``'s own shards carry ``target``, for sweeps bound to a single handle.
+
+    Refuses instead of answering False when another cluster's shards carry it. A caller fanning
+    out over ``cluster.shards`` cannot reach those rows, and skipping them would report work it
+    never did.
+    """
+    placement = placement_for(cluster, target)
+    if placement is None:
+        return False
+    if placement.cluster is cluster:
+        return True
+    raise UnreachableTargetError(
+        f"{target.data_table} is stored on cluster {target.cluster_name!r}, which this sweep has no "
+        f"way to reach: it dispatches per shard of {cluster.data_cluster_name!r}. Running without "
+        f"it would report an erasure that did not happen. See {COVERAGE_DOC}."
+    )
+
+
+def resolve_placements(
+    cluster: ClickhouseCluster, targets: Sequence[DeletionTarget] = PERSONAL_DATA_TARGETS
+) -> list[TargetPlacement]:
+    """Every target that can be swept, each paired with the handle that reaches it.
+
+    Raises rather than narrowing when one that cannot be reached still holds rows; see
+    ``placement_for``.
+    """
+    placements = (placement_for(cluster, target) for target in targets)
+    return [placement for placement in placements if placement is not None]
+
+
+def resolve_targets_here(
     cluster: ClickhouseCluster, targets: Sequence[DeletionTarget] = PERSONAL_DATA_TARGETS
 ) -> list[DeletionTarget]:
-    """The subset of ``targets`` this handle can sweep.
-
-    Raises rather than narrowing when one it cannot sweep still holds rows; see ``is_present``.
-    """
-    return [target for target in targets if is_present(cluster, target)]
+    """The subset of ``targets`` ``cluster``'s own shards carry; see ``dispatchable_here``."""
+    return [target for target in targets if dispatchable_here(cluster, target)]
 
 
 def personal_data_tables(cluster: ClickhouseCluster) -> list[str]:
     """Every physical table a person, team, or queued-uuid deletion must sweep."""
-    return [target.data_table for target in resolve_targets(cluster)]
+    return [target.data_table for target in resolve_targets_here(cluster)]
 
 
 def resolve_data_targets_via_sync_execute(targets: Sequence[DeletionTarget]) -> list[DeletionTarget]:
