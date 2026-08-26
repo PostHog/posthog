@@ -74,7 +74,7 @@ function TicketMessageRow({ message }: { message: SupportTicketMessage }) {
   return (
     <ChatMessage align={align}>
       <ChatMessageContent>
-        <ChatMessageHeader>
+        <ChatMessageHeader className="gap-1.5">
           <Text className="font-medium text-[12px]">
             {messageAuthorLabel(message)}
           </Text>
@@ -92,8 +92,11 @@ function TicketMessageRow({ message }: { message: SupportTicketMessage }) {
 
         <ChatBubble
           align={align}
-          variant={fromUs && !isNote ? "muted" : "outline"}
-          className={cn(isNote && "border-(--amber-6) bg-(--amber-3)")}
+          variant="outline"
+          className={cn(
+            "bg-card",
+            isNote && "border-(--amber-6) bg-(--amber-3)",
+          )}
         >
           <ChatBubbleContent>
             {isNote && (
