@@ -789,7 +789,12 @@ class ClickHousePrinter(BasePrinter):
 
         # Can we compare constants?
         if isinstance(node.left, ast.Constant) and isinstance(node.right, ast.Constant) and constant_lambda is not None:
-            return "1" if constant_lambda(node.left.value, node.right.value) else "0"
+            try:
+                return "1" if constant_lambda(node.left.value, node.right.value) else "0"
+            except TypeError:
+                raise QueryError(
+                    f"Cannot compare '{type(node.left.value).__name__}' and '{type(node.right.value).__name__}' values"
+                )
 
         # Special cases when we should not add any null checks
         if in_join_constraint or not_nullable or in_index_hint:
