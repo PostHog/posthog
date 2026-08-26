@@ -1089,7 +1089,11 @@ jobs:
     check-migrations:
         needs: [changes]
         if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.migrations == 'true'
-        timeout-minutes: 20
+        # On master this job replays the full migration history from scratch to
+        # produce the schema dump every PR job restores. That replay grows with
+        # every merged migration, so the limit needs headroom over it: it is
+        # there to cancel a hang, not to cap how long the history takes.
+        timeout-minutes: 40
         name: Validate migrations
         runs-on: depot-ubuntu-24.04
         steps:
