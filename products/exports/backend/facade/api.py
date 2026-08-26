@@ -13,11 +13,11 @@ from temporalio.common import WorkflowIDReusePolicy
 from posthog.hogql.constants import LimitContext
 
 from posthog.models import Team, User
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.storage import object_storage
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.exports.workflows import ExportAssetWorkflow, ExportAssetWorkflowInputs
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.exports.backend.models.exported_asset import (
     DATASET_EXPORT_KIND as DATASET_EXPORT_KIND,
     ExportedAsset,

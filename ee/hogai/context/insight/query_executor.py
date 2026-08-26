@@ -49,8 +49,9 @@ from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import EventSource
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES, ExecutionMode
 from posthog.models import Team
-from posthog.rbac.user_access_control import UserAccessControlError
 from posthog.sync import database_sync_to_async
+
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
 
 from ee.hogai.context.insight.format import (
     NULL_MARKER,

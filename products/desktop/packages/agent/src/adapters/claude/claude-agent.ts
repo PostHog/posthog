@@ -575,11 +575,14 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     userMessage.uuid = promptUuid;
     const isLocalOnlyCommand = !!command && LOCAL_ONLY_COMMANDS.has(command);
 
-    if (this.session.clearing) {
-      // A /clear is swapping the SDK query underneath. Wait for it to settle
-      // so this prompt lands on the fresh input stream, not the retired one
-      // (a failed clear sets queryClosed, which the check below rejects).
-      await this.session.clearing;
+    if (this.session.querySwap) {
+      // A /clear or refreshSession is swapping the SDK query underneath. Wait
+      // for it to settle so this prompt lands on the fresh input stream, not
+      // the retired one (a failed swap sets queryClosed, which the check
+      // below rejects). Not the last gate: the awaits before enqueue (slash
+      // commands, pre-prompt local-tools) leave this prompt off turnQueue, so
+      // a swap can still start there and must be re-checked before enqueue.
+      await this.session.querySwap;
     }
 
     if (command && !isLocalOnlyCommand) {
@@ -652,6 +655,18 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       turn.resolve = resolve;
       turn.reject = reject;
     });
+
+    if (this.session.querySwap) {
+      // A swap started during this method's pre-enqueue awaits (the prompt is
+      // not yet on turnQueue, so the entry-point refusals don't see it); fail
+      // before enqueue rather than push the turn into a retiring stream.
+      turn.reject(RequestError.internalError(undefined, SESSION_ENDED_MESSAGE));
+      return response;
+    }
+    if (this.session.queryClosed) {
+      turn.reject(RequestError.internalError(undefined, SESSION_ENDED_MESSAGE));
+      return response;
+    }
 
     this.session.turnQueue.push(turn);
     this.dispatchQueuedInput(this.session);
@@ -1596,12 +1611,13 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     if (session.queryClosed) {
       return;
     }
-    if (session.clearing) {
-      // A /clear is swapping the SDK query: there is no turn to cancel, and
-      // interrupting the half-initialized replacement would corrupt the swap.
-      // A wedged clear self-limits: retireQuery's interrupt() and the new
-      // query's init are both time-bounded (see retireQuery, performClear).
-      this.logger.debug("Ignoring cancel while a /clear is in progress", {
+    if (session.querySwap) {
+      // A /clear or refreshSession is swapping the SDK query: there is no turn
+      // to cancel, and interrupting the half-initialized replacement would
+      // corrupt the swap. A wedged swap self-limits: retireQuery's interrupt()
+      // and the new query's init are both time-bounded (see retireQuery,
+      // performClear).
+      this.logger.debug("Ignoring cancel while a query swap is in progress", {
         sessionId: this.sessionId,
       });
       return;
@@ -1742,6 +1758,30 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
   }
 
   /**
+   * Claim the session's query-swap slot, run `fn`, and release the slot when
+   * it settles. The claim is synchronous — `fn` must run synchronously up to
+   * its own first await — so the flag is visible before any other ACP handler
+   * can interleave (handlers are not serialized). Waiters only need
+   * settlement, so the stored promise never rejects; a failure still surfaces
+   * through the returned promise.
+   */
+  private async withQuerySwap<T>(
+    session: Session,
+    fn: () => Promise<T>,
+  ): Promise<T> {
+    const swap = fn();
+    session.querySwap = swap.then(
+      () => undefined,
+      () => undefined,
+    );
+    try {
+      return await swap;
+    } finally {
+      session.querySwap = undefined;
+    }
+  }
+
+  /**
    * `/clear` — drop the conversation and start over in place.
    *
    * The SDK's own /clear is not forwarded (see UPSTREAM.md "Hide /clear");
@@ -1758,11 +1798,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     if (session.queryClosed) {
       throw RequestError.internalError(undefined, SESSION_ENDED_MESSAGE);
     }
-    // A second /clear mid-swap would race the same session fields
+    // A second swap mid-swap would race the same session fields
     // (query/input/abortController) and orphan a live SDK query; a clear
     // mid-turn would rip the query out from under the active prompt.
-    const refusal = session.clearing
-      ? "A conversation clear is already in progress."
+    const refusal = session.querySwap
+      ? "A session refresh or conversation clear is already in progress. Wait for it to finish and try again."
       : session.activeTurn !== null || session.turnQueue.length > 0
         ? "Cannot clear the conversation while a turn is in progress. Wait for it to finish (or cancel it) and try again."
         : null;
@@ -1777,25 +1817,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       return { stopReason: "end_turn" };
     }
 
-    // Claim the session synchronously, before the first await: ACP handlers
-    // are not serialized, so a prompt/cancel/second clear can arrive at any
-    // await point of the swap. They key off this flag (see Session.clearing).
-    // performClear runs synchronously up to its first await, so the claim is
-    // visible before any other handler can interleave. Waiters only need
-    // settlement; a failure still surfaces through the returned promise.
-    const clear = this.performClear(params, session);
-    session.clearing = clear.then(
-      () => undefined,
-      () => undefined,
+    return this.withQuerySwap(session, () =>
+      this.performClear(params, session),
     );
-    try {
-      return await clear;
-    } finally {
-      session.clearing = undefined;
-    }
   }
 
-  /** Body of {@link clearConversation}; only runs holding `session.clearing`. */
   private async performClear(
     params: PromptRequest,
     session: Session,
@@ -2103,14 +2129,14 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     }
   }
 
-  private async refreshSession(
+  private refreshSession(
     mcpServers: Record<string, McpServerConfig>,
   ): Promise<void> {
     const prev = this.session;
-    if (prev.clearing) {
+    if (prev.querySwap) {
       throw new RequestError(
         -32002,
-        "Cannot refresh session while a conversation clear is in progress",
+        "Cannot refresh session while a query swap (refresh or /clear) is in progress",
       );
     }
     if (prev.activeTurn !== null || prev.turnQueue.length > 0) {
@@ -2126,59 +2152,87 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       );
     }
 
+    return this.withQuerySwap(prev, () =>
+      this.performRefresh(prev, mcpServers),
+    );
+  }
+
+  /** Body of {@link refreshSession}; see {@link withQuerySwap} for the claim
+   *  contract. */
+  private async performRefresh(
+    prev: Session,
+    mcpServers: Record<string, McpServerConfig>,
+  ): Promise<void> {
     this.logger.info("Refreshing session with fresh MCP servers", {
       serverCount: Object.keys(mcpServers).length,
       sessionId: this.sessionId,
     });
 
-    await this.retireQuery(prev);
+    // Declared outside the try so the catch can tear down a half-built
+    // replacement; assigned inside, where retireQuery also runs so a failure
+    // anywhere in the swap gets the same close-out (mirrors performClear).
+    let newQuery: Query | undefined;
+    let newAbortController: AbortController | undefined;
+    try {
+      await this.retireQuery(prev);
 
-    // Reuse every option from the running session; swap mcpServers, re-root
-    // identity on `resume` instead of `sessionId`, and give the new Query a
-    // fresh AbortController.
-    const newAbortController = new AbortController();
-    const { sessionId: _drop, ...rest } = prev.queryOptions;
+      // Reuse every option from the running session; swap mcpServers, re-root
+      // identity on `resume` instead of `sessionId`, and give the new Query a
+      // fresh AbortController.
+      newAbortController = new AbortController();
+      const { sessionId: _drop, ...rest } = prev.queryOptions;
 
-    // Rebuild the in-process ("sdk") server fresh; reusing the prior instance
-    // throws "Already connected to a transport" and drops the signed-commit tools.
-    const freshInProcess = prev.buildInProcessMcpServers();
-    if (Object.keys(freshInProcess).length > 0) {
-      this.logger.info("Rebuilt in-process MCP servers on refresh", {
-        sessionId: this.sessionId,
-        servers: Object.keys(freshInProcess),
-      });
-    }
+      // Rebuild the in-process ("sdk") server fresh; reusing the prior instance
+      // throws "Already connected to a transport" and drops the signed-commit tools.
+      const freshInProcess = prev.buildInProcessMcpServers();
+      if (Object.keys(freshInProcess).length > 0) {
+        this.logger.info("Rebuilt in-process MCP servers on refresh", {
+          sessionId: this.sessionId,
+          servers: Object.keys(freshInProcess),
+        });
+      }
 
-    const newOptions: Options = {
-      ...rest,
-      mcpServers: { ...mcpServers, ...freshInProcess },
-      resume: prev.sdkSessionId,
-      forkSession: false,
-      abortController: newAbortController,
-      // `rest.model` is the creation-time value; the user may have switched
-      // models since, so re-root the new Query on the live session model.
-      ...(prev.modelId && { model: toSdkModelId(prev.modelId) }),
-    };
+      const newOptions: Options = {
+        ...rest,
+        mcpServers: { ...mcpServers, ...freshInProcess },
+        resume: prev.sdkSessionId,
+        forkSession: false,
+        abortController: newAbortController,
+        // `rest.model` is the creation-time value; the user may have switched
+        // models since, so re-root the new Query on the live session model.
+        ...(prev.modelId && { model: toSdkModelId(prev.modelId) }),
+      };
 
-    const newInput = new Pushable<SDKUserMessage>();
-    const newQuery = query({ prompt: newInput, options: newOptions });
+      const newInput = new Pushable<SDKUserMessage>();
+      newQuery = query({ prompt: newInput, options: newOptions });
 
-    prev.query = newQuery;
-    prev.input = newInput;
-    prev.queryOptions = newOptions;
-    prev.abortController = newAbortController;
+      prev.query = newQuery;
+      prev.input = newInput;
+      prev.queryOptions = newOptions;
+      prev.abortController = newAbortController;
 
-    const result = await withTimeout(
-      newQuery.initializationResult(),
-      SESSION_VALIDATION_TIMEOUT_MS,
-    );
-    if (result.result === "timeout") {
-      this.terminateQuery(newQuery, newAbortController);
-      throw new RequestError(
-        -32603,
-        `Session refresh timed out after ${SESSION_VALIDATION_TIMEOUT_MS}ms`,
-        { sessionId: this.sessionId },
+      const result = await withTimeout(
+        newQuery.initializationResult(),
+        SESSION_VALIDATION_TIMEOUT_MS,
       );
+      if (result.result === "timeout") {
+        throw new Error(
+          `Session refresh timed out after ${SESSION_VALIDATION_TIMEOUT_MS}ms`,
+        );
+      }
+    } catch (error) {
+      // The old query is already retired and the new one is unproven, so any
+      // failure here — retireQuery, timeout, or SDK init rejection — leaves
+      // the session unusable. Tear down any replacement that was allocated
+      // and close the session out (same as performClear) rather than leaving
+      // it half-swapped: queryClosed gates every later prompt into
+      // SESSION_ENDED.
+      if (newQuery && newAbortController) {
+        this.terminateQuery(newQuery, newAbortController);
+      }
+      prev.queryClosed = true;
+      const message = error instanceof Error ? error.message : String(error);
+      throw new RequestError(-32603, message, { sessionId: this.sessionId });
     }
 
     this.refreshMcpMetadata(newQuery);

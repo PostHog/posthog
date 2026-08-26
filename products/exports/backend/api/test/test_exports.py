@@ -36,6 +36,7 @@ from posthog.settings import (
 from posthog.tasks import exporter
 from posthog.temporal.session_replay.rasterize_recording.types import RASTERIZE_WORKFLOW_TIMEOUT
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.facade.api import EXPORT_WORKFLOW_TIMEOUT
@@ -45,8 +46,6 @@ from products.exports.backend.tasks.failure_handler import FAILURE_TYPE_SYSTEM, 
 from products.exports.backend.tasks.image_exporter import export_image
 from products.product_analytics.backend.facade.models import Insight
 from products.product_analytics.backend.presentation.insight import InsightSerializer
-
-from ee.models.rbac.access_control import AccessControl
 
 TEST_ROOT_BUCKET = "test_exports"
 
