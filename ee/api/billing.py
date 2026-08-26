@@ -43,6 +43,8 @@ logger = structlog.get_logger(__name__)
 BILLING_SERVICE_JWT_AUD = "posthog:license-key"
 OWNER_ONLY_BILLING_FLAG = "owner-only-billing"
 MEMBER_BILLING_USAGE_SPEND_READ_ACCESS_FLAG = "member-billing-usage-spend-read-access"
+BILLING_LIMIT_CURRENT_USAGE_OVERRIDES_FLAG = "billing-limit-current-usage-overrides"
+BILLING_LIMIT_CURRENT_USAGE_OVERRIDE_KEYS = ("posthog_code_credits",)
 
 
 def _owner_only_billing_enabled(user: User, organization: Organization) -> Optional[bool]:
@@ -91,6 +93,51 @@ def _member_billing_usage_spend_read_access_enabled(user: User, organization: Or
     except Exception as e:
         capture_exception(e, {"organization_id": organization.id, "flag": MEMBER_BILLING_USAGE_SPEND_READ_ACCESS_FLAG})
         return False
+
+
+def _billing_limit_current_usage_overrides_enabled(user: User, organization: Organization) -> bool:
+    if not user.distinct_id:
+        return False
+
+    try:
+        return (
+            posthog_feature_flag_enabled(
+                BILLING_LIMIT_CURRENT_USAGE_OVERRIDES_FLAG,
+                str(user.distinct_id),
+                organization_id=organization.id,
+            )
+            is True
+        )
+    except Exception as e:
+        capture_exception(e, {"organization_id": organization.id, "flag": BILLING_LIMIT_CURRENT_USAGE_OVERRIDES_FLAG})
+        return False
+
+
+def _usage_value_for_billing_limit_override(usage_key: str, usage: dict[str, Any], field: str) -> int:
+    value = usage.get(field)
+    if value is None:
+        return 0
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValidationError(f"Invalid current usage value for {usage_key}.{field}.")
+    return value
+
+
+def _current_usage_overrides_by_usage_key(organization: Organization) -> dict[str, int]:
+    usage_summary = organization.usage or {}
+    overrides: dict[str, int] = {}
+
+    for usage_key in BILLING_LIMIT_CURRENT_USAGE_OVERRIDE_KEYS:
+        usage = usage_summary.get(usage_key)
+        if usage is None:
+            continue
+        if not isinstance(usage, dict):
+            raise ValidationError(f"Invalid current usage summary for {usage_key}.")
+
+        overrides[usage_key] = _usage_value_for_billing_limit_override(
+            usage_key, usage, "usage"
+        ) + _usage_value_for_billing_limit_override(usage_key, usage, "todays_usage")
+
+    return overrides
 
 
 def user_has_billing_usage_spend_read_access(user: User, organization: Organization) -> bool:
@@ -444,6 +491,10 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 body = {}
                 if custom_limits_usd:
                     body["custom_limits_usd"] = custom_limits_usd
+                    if _billing_limit_current_usage_overrides_enabled(self.request.user, org):
+                        current_usage_overrides = _current_usage_overrides_by_usage_key(org)
+                        if current_usage_overrides:
+                            body["current_usage_overrides_by_usage_key"] = current_usage_overrides
                 if reset_limit_next_period:
                     body["reset_limit_next_period"] = reset_limit_next_period
 
