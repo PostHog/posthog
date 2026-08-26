@@ -95,9 +95,8 @@ in `frontend/src/scenes/web-analytics/common.ts`):
 | `$screen`   | Mobile app screens, for projects with a mobile SDK              |
 | `$http_log` | Server access logs, where non-JS crawlers and AI agents show up |
 
-Match that set in every measurement query. The gap is not small: on a project with server-log
-ingestion, `$http_log` routinely carries orders of magnitude more bot hits than `$pageview`,
-so a pageview-only query can understate automated traffic by a factor of tens.
+Match that set in every measurement query. Where `$http_log` is ingested it usually carries
+most of the bot volume, so a pageview-only query can report a small fraction of it as the total.
 
 Two things to check before running the recipes:
 
@@ -111,8 +110,16 @@ Two things to check before running the recipes:
   asks "why don't I see GPTBot when I know it's crawling us?", missing `$http_log` ingestion
   is almost always the answer.
 
-The `Requests` GroupNode below is how the Web analytics UI itself combines these events into
-one series. Reuse it rather than adding one series per event, which splits the breakdown.
+Both recipes below combine the events with a `Requests` GroupNode, the same shape the Web
+analytics UI uses. Prefer it over one series per event, which splits the breakdown across
+series. Drop any `nodes` entry, and any event in the SQL `IN` list, that the project doesn't
+capture.
+
+The recipes use the `breakdowns` array, because the `query-trends` tool rejects the older
+`breakdown` / `breakdown_type` pair. Two consequences worth knowing: results come back with
+`breakdown_value` as a single-element list (`["Googlebot"]`, with the plain string in `label`),
+and saved insights built in the UI, along with the **exploring-live-traffic** skill, still use
+the older pair. Both forms are valid on `TrendsQuery` itself.
 
 ## Recipes
 
@@ -156,8 +163,6 @@ Break the combined request series down by `$virt_traffic_type`:
 }
 ```
 
-Drop any `nodes` entry for an event the project doesn't capture.
-
 ### Which bots / operators are hitting us
 
 Filter to bots and break down by name (or `$virt_bot_operator` for company-level):
@@ -185,22 +190,24 @@ Filter to bots and break down by name (or `$virt_bot_operator` for company-level
 }
 ```
 
-This is the recipe most sensitive to the event set. Named crawlers show up almost entirely
-in `$http_log`, so running it on `$pageview` alone returns a near-empty list, which reads as
+This is the recipe most sensitive to the event set. Named crawlers show up mainly in
+`$http_log`, so running it on `$pageview` alone can return a near-empty list, which reads as
 "no bots crawl us".
 
 ### Measure AI-agent traffic specifically
 
 Filter `$virt_traffic_type` `exact` `AI Agent`, break down by `$virt_bot_operator` to see
 which tools (OpenAI, Anthropic, Perplexity, …) read your site and which pages they hit.
-Use the same combined `Requests` series: AI crawlers are server-side, so a pageview-only
-version of this query mostly returns AI assistants browsing on a user's behalf and misses
-the crawlers.
+Use the same combined `Requests` series. Nearly every user agent in this bucket is a
+server-side fetcher, including the `ai_assistant` ones that act for a live user, so a
+pageview-only version of this query returns close to nothing.
 
 ### Raw SQL equivalents
 
 ```sql
--- human pageviews only
+-- Human pageviews only. Stays on $pageview on purpose: excluding bots from a human metric
+-- only has to cover the event that metric already counts. Measuring bots is the case that
+-- needs the full event set.
 SELECT count() AS human_pageviews
 FROM events
 WHERE event = '$pageview'
@@ -217,7 +224,8 @@ WHERE event IN ('$pageview', '$screen', '$http_log')
 GROUP BY bot, operator
 ORDER BY hits DESC
 
--- automated share of traffic, split by event so the $http_log contribution is visible
+-- Automated share of traffic. Splits by event on purpose, unlike the insight recipes above,
+-- so you can see how much each event contributes and whether $http_log is ingested at all.
 SELECT
     event,
     getTrafficType(coalesce(nullIf(properties.$raw_user_agent, ''), properties.$user_agent)) AS traffic_type,
@@ -228,10 +236,6 @@ GROUP BY event, traffic_type
 ORDER BY hits DESC
 ```
 
-The first query keeps `event = '$pageview'` on purpose. Excluding bots from a human metric
-only has to cover the event that metric already counts. Measuring bots is the case that needs
-the full event set.
-
 ## Gotchas
 
 - **Needs a captured user agent.** Classification is computed at query time from the event's
@@ -239,11 +243,13 @@ the full event set.
   restrict `dateRange.date_from`. The one requirement is that a user agent was captured; events
   from sources that never set one can't be classified (and empty UAs fall through to
   `Automation` / `no_user_agent`, below).
-- **The Live tab counts a wider event set.** Its bot tiles also include `$pageleave` and
-  `$autocapture` (`BOT_ELIGIBLE_EVENTS` in
+- **Live tab numbers are not comparable to these recipes.** Its backfill counts a wider event
+  set that also includes `$pageleave` and `$autocapture` (`BOT_ELIGIBLE_EVENTS` in
   `frontend/src/scenes/web-analytics/LiveMetricsDashboard/LiveWebAnalyticsMetricsTypes.tsx`),
-  so live numbers run higher than a historical query built from the three events above. Say
-  which set a number came from when comparing the two.
+  and its streamed half counts any bot event at all. Its bot share also divides by every
+  eligible event, not just bot ones, so the two numbers move in different directions. When a
+  user asks why the Live tab and a historical chart disagree, explain the event sets rather
+  than treating either as wrong.
 - **`isLikelyBot` is "likely".** Detection is a user-agent heuristic — some bots spoof
   real browser UAs, and some legit tools use bot-like ones. Treat it as best-effort, not
   ground truth.
