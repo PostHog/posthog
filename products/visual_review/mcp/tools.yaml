@@ -45,25 +45,31 @@ tools:
                     - repo_id
         feature_flag: visual-review
         response:
+            # Paths are rooted at the response envelope, not at an entry: this is a
+            # retrieve, so the filter runs once over the whole body rather than per
+            # item. Entry-level paths alone match nothing and return an empty object.
             include:
-                - identifier
-                - run_type
-                - flakiness_state
-                - hard_count
-                - soft_count
-                - window_runs
-                - hard_rate
-                - soft_rate
-                - headroom
-                - worst_soft_diff_percentage
-                - variant_count
-                - last_flaked_at
-                - baseline_age_days
-                - is_quarantined
-                - needs_decision
-                - quarantine.reason
-                - quarantine.expires_at
-                - quarantine.created_at
+                - totals
+                - truncated
+                - generated_at
+                - entries.*.identifier
+                - entries.*.run_type
+                - entries.*.flakiness_state
+                - entries.*.hard_count
+                - entries.*.soft_count
+                - entries.*.window_runs
+                - entries.*.hard_rate
+                - entries.*.soft_rate
+                - entries.*.headroom
+                - entries.*.worst_soft_diff_percentage
+                - entries.*.variant_count
+                - entries.*.last_flaked_at
+                - entries.*.baseline_age_days
+                - entries.*.is_quarantined
+                - entries.*.needs_decision
+                - entries.*.quarantine.reason
+                - entries.*.quarantine.expires_at
+                - entries.*.quarantine.created_at
             selectable: true
             informational_wrapper:
                 tag: visual-review-data
