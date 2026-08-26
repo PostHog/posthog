@@ -22,7 +22,7 @@ describe('EventIngestionRestrictionDetails', () => {
     it('reports an unfiltered restriction as applying to all events', () => {
         render(<EventIngestionRestrictionDetails restrictions={[restriction({})]} />)
         expect(screen.getByText('Events dropped')).toBeTruthy()
-        expect(screen.getByText('Applies to all events in analytics events')).toBeTruthy()
+        expect(screen.getByText('Applies to all events in analytics')).toBeTruthy()
     })
 
     it('lists every scope filter and pipeline, and notes that filters combine', () => {
@@ -39,7 +39,7 @@ describe('EventIngestionRestrictionDetails', () => {
             />
         )
         expect(screen.getByText('Person processing disabled')).toBeTruthy()
-        expect(screen.getByText('Applies to some events in session recordings, AI events')).toBeTruthy()
+        expect(screen.getByText('Applies to some events in session recordings, AI')).toBeTruthy()
         expect(screen.getByText('Only these 2 distinct IDs:')).toBeTruthy()
         expect(screen.getByText('Only this event name:')).toBeTruthy()
         expect(screen.getByText('u1')).toBeTruthy()

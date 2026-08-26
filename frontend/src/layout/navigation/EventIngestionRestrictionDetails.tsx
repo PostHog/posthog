@@ -20,11 +20,11 @@ const RESTRICTION_EFFECTS: Partial<Record<string, { label: string; description: 
 }
 
 const PIPELINE_LABELS: Record<PipelinesEnumApi, string> = {
-    analytics: 'analytics events',
+    analytics: 'analytics',
     session_recordings: 'session recordings',
     errortracking: 'error tracking',
     clientwarnings: 'client warnings',
-    ai: 'AI events',
+    ai: 'AI',
 }
 
 const MAX_VALUES_SHOWN = 20
@@ -53,9 +53,9 @@ function ScopeFilterValues({ filter }: { filter: ScopeFilter }): JSX.Element {
             </div>
             <div className="flex flex-wrap gap-1">
                 {filter.values.slice(0, MAX_VALUES_SHOWN).map((value) => (
-                    <code key={value} className="text-xs break-all">
+                    <LemonTag key={value} type="muted" size="small" className="font-mono break-all">
                         {value}
-                    </code>
+                    </LemonTag>
                 ))}
                 {hidden > 0 && <span className="text-secondary text-xs">and {hidden} more</span>}
             </div>
