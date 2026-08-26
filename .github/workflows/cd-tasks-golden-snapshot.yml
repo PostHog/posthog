@@ -69,6 +69,55 @@ concurrency:
     cancel-in-progress: false
 
 jobs:
+    # Resolve and validate the workflow_dispatch `ref` input in an UNPRIVILEGED
+    # job, before any credentialed job checks that tree out. A blank ref resolves
+    # to the literal `master` branch. A non-blank value must be a full 40-char
+    # commit SHA that GitHub's compare API confirms is already an ancestor of
+    # master — anything else fails here. This stops a collaborator pointing `ref`
+    # at a branch that carries a modified bake-golden.sh / setup-golden.sh and
+    # having it run in the credentialed bake job (hogland CLI App key, tailnet
+    # join, hogland/prod OIDC). render_skills and bake check out
+    # needs.validate_ref.outputs.ref, never the raw input. The
+    # `github.ref == 'refs/heads/master'` gate on every privileged job below is
+    # defense in depth (a branch copy can strip it); the durable fix is hogland
+    # pinning `ref` in the github_oidc TrustMapping — see GOLDEN_CI_RUNBOOK.md.
+    validate_ref:
+        if: github.ref == 'refs/heads/master'
+        name: Validate the requested ref
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        permissions:
+            contents: read
+        outputs:
+            ref: ${{ steps.resolve.outputs.ref }}
+        steps:
+            - name: Resolve and validate ref
+              id: resolve
+              env:
+                  REQUESTED_REF: ${{ github.event.inputs.ref }}
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  set -euo pipefail
+                  if [[ -z "$REQUESTED_REF" ]]; then
+                      echo "ref=master" >> "$GITHUB_OUTPUT"
+                      echo "::notice::No ref supplied; baking from the master branch"
+                      exit 0
+                  fi
+                  if [[ ! "$REQUESTED_REF" =~ ^[0-9a-f]{40}$ ]]; then
+                      echo "::error::ref must be a full 40-character commit SHA (got '$REQUESTED_REF')"
+                      exit 1
+                  fi
+                  # compare master...<ref>: ahead_by counts commits in <ref> that
+                  # master does not contain. Zero => <ref> is an ancestor of (or
+                  # identical to) master. A non-existent SHA 404s and fails here.
+                  ahead_by=$(gh api "repos/${GITHUB_REPOSITORY}/compare/master...${REQUESTED_REF}" --jq '.ahead_by')
+                  if [[ "$ahead_by" != "0" ]]; then
+                      echo "::error::ref ${REQUESTED_REF} is not an ancestor of master (ahead_by=${ahead_by}); only merged commits may be baked"
+                      exit 1
+                  fi
+                  echo "ref=${REQUESTED_REF}" >> "$GITHUB_OUTPUT"
+                  echo "::notice::ref ${REQUESTED_REF} confirmed an ancestor of master"
+
     # Render the agent skills the golden ships, the same way the sandbox-base image
     # build does (cd-sandbox-base-image.yml's build_skills job): stand up a DB,
     # uv sync, migrate, `hogli build:skills` to render the .md.j2 templates, then
@@ -78,7 +127,8 @@ jobs:
     # Shares the master arm gate so an unarmed nightly does not pay for a full DB
     # render; when it skips, the bake job (needs) skips too, keeping the no-op.
     render_skills:
-        if: vars.HOG_TASKS_GOLDEN_ENABLED == 'true'
+        needs: validate_ref
+        if: vars.HOG_TASKS_GOLDEN_ENABLED == 'true' && github.ref == 'refs/heads/master'
         name: Render agent skills from source
         runs-on: ubuntu-latest
         timeout-minutes: 30
@@ -89,7 +139,7 @@ jobs:
             - name: Check out posthog
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  ref: ${{ github.event.inputs.ref || github.sha }}
+                  ref: ${{ needs.validate_ref.outputs.ref }}
 
             - name: Start Docker services
               env:
@@ -193,12 +243,20 @@ jobs:
         # service-account principal + github_oidc TrustMapping + tailnet reach
         # and sets HOG_TASKS_GOLDEN_ENABLED=true. Mirrors golden-snapshots.yml's
         # HOG_GOLDEN_ENABLED gate. `needs: render_skills` — when render skips
-        # (unarmed), this skips too.
-        needs: render_skills
-        if: vars.HOG_TASKS_GOLDEN_ENABLED == 'true'
+        # (unarmed), this skips too. `needs: validate_ref` to check out its
+        # validated ref, never the raw workflow_dispatch input.
+        needs: [validate_ref, render_skills]
+        if: vars.HOG_TASKS_GOLDEN_ENABLED == 'true' && github.ref == 'refs/heads/master'
         name: Bake and promote the tasks golden snapshot
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 150 # 90m bake + smoke (cold restore) + buffer
+        # Job-level permissions replace the workflow defaults, so re-declare the
+        # contents/id-token the bake needs and add actions:read for the
+        # quiet-deploy-window guard's Actions API query.
+        permissions:
+            contents: read
+            id-token: write # mint OIDC for the tailnet join AND the hogplane bearer
+            actions: read # read hogland rollout runs for the quiet-window guard
         strategy:
             fail-fast: false
             matrix:
@@ -227,7 +285,7 @@ jobs:
             - name: Check out posthog
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  ref: ${{ github.event.inputs.ref || github.sha }}
+                  ref: ${{ needs.validate_ref.outputs.ref }}
 
             # Skip clusters not requested when running manually with the input set.
             - name: Filter cluster
@@ -279,12 +337,25 @@ jobs:
                   owner: PostHog
                   repositories: hogland
 
+            # Build the CLI from a released, immutable tag, never a moving branch
+            # like main — a rebuilt CLI must be reproducible across bakes.
+            - name: Require a pinned hogland CLI tag
+              if: env.skip != 'true'
+              env:
+                  CLI_REF: ${{ vars.HOGLAND_CLI_REF }}
+              run: |
+                  set -euo pipefail
+                  if [[ -z "$CLI_REF" || "$CLI_REF" != *-cli ]]; then
+                      echo "::error::HOGLAND_CLI_REF must be a released v*-cli tag (got '${CLI_REF:-<unset>}'); a moving branch like main is not allowed"
+                      exit 1
+                  fi
+
             - name: Check out hogland CLI source
               if: env.skip != 'true'
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   repository: PostHog/hogland
-                  ref: ${{ vars.HOGLAND_CLI_REF || 'main' }}
+                  ref: ${{ vars.HOGLAND_CLI_REF }}
                   token: ${{ steps.hogland-token.outputs.token }}
                   path: hogland-src
 
@@ -338,6 +409,48 @@ jobs:
                   fi
                   echo "version=$version" >> "$GITHUB_OUTPUT"
 
+            # Quiet-deploy-window guard (mirrors hogland golden-snapshots.yml):
+            # do not bake while a hogd rollout is in flight, or within 900s of the
+            # last one — a rollout racing the bake orphans the seed box and wastes
+            # the run. Reads PostHog/hogland's Actions with the hogland App token
+            # (actions:read). Operator sets HOGLAND_ROLLOUT_WORKFLOW to the rollout
+            # workflow file name; unset or an API error fails OPEN (a racing
+            # rollout only wastes a run, it cannot corrupt the alias). See runbook.
+            - name: Wait for a quiet hogd rollout window
+              if: env.skip != 'true'
+              env:
+                  GH_TOKEN: ${{ steps.hogland-token.outputs.token }}
+                  ROLLOUT_WORKFLOW: ${{ vars.HOGLAND_ROLLOUT_WORKFLOW }}
+              run: |
+                  set -euo pipefail
+                  if [[ -z "$ROLLOUT_WORKFLOW" ]]; then
+                      echo "::notice::HOGLAND_ROLLOUT_WORKFLOW unset; skipping the quiet-window guard"
+                      exit 0
+                  fi
+                  deadline=$(( $(date +%s) + 900 )) # wait at most 15m for the window
+                  while :; do
+                      in_progress=$(gh api "repos/PostHog/hogland/actions/workflows/${ROLLOUT_WORKFLOW}/runs?status=in_progress&per_page=1" --jq '.total_count' 2>/dev/null || echo "error")
+                      if [[ "$in_progress" == "error" ]]; then
+                          echo "::notice::could not read hogland rollout runs (App token may lack actions:read); proceeding"
+                          exit 0
+                      fi
+                      last_completed=$(gh api "repos/PostHog/hogland/actions/workflows/${ROLLOUT_WORKFLOW}/runs?status=completed&per_page=1" --jq '.workflow_runs[0].updated_at // empty' 2>/dev/null || echo "")
+                      since=999999
+                      if [[ -n "$last_completed" ]]; then
+                          since=$(( $(date +%s) - $(date -u -d "$last_completed" +%s 2>/dev/null || echo 0) ))
+                      fi
+                      if [[ "$in_progress" == "0" && "$since" -ge 900 ]]; then
+                          echo "::notice::quiet window: no in-progress rollout, ${since}s since the last"
+                          break
+                      fi
+                      if [[ "$(date +%s)" -ge "$deadline" ]]; then
+                          echo "::error::hogd rollout window did not go quiet within 15m (in_progress=${in_progress}, since=${since}s); not baking"
+                          exit 1
+                      fi
+                      echo "rollout active (in_progress=${in_progress}, ${since}s since last); waiting 30s"
+                      sleep 30
+                  done
+
             # Build into the CANDIDATE alias — no live consumer points at this
             # name, so a bad build can't poison task runs. bake-golden.sh boots a
             # bare seed box from box primitives, streams the payload (guards + cpu
@@ -380,10 +493,35 @@ jobs:
             - name: Promote candidate to default
               id: promote
               if: env.skip != 'true'
+              env:
+                  CLUSTER: ${{ matrix.cluster }}
               run: |
                   set -euo pipefail
                   SNAP_ID=$(hogland snapshot resolve posthog-tasks-candidate | jq -r .snapshot_id)
-                  hogland snapshot alias "$SNAP_ID" posthog-tasks-default
+                  # Retry the alias PUT: a concurrent repoint returns 500 (not a
+                  # clean 409), so a transient collision must not fail the promote.
+                  promoted=0
+                  for attempt in 1 2 3 4 5; do
+                      if hogland snapshot alias "$SNAP_ID" posthog-tasks-default; then
+                          promoted=1
+                          break
+                      fi
+                      echo "alias PUT attempt ${attempt} failed; retrying in $((attempt * 5))s" >&2
+                      sleep $((attempt * 5))
+                  done
+                  if [[ "$promoted" != "1" ]]; then
+                      echo "::error::failed to repoint posthog-tasks-default after 5 attempts"
+                      exit 1
+                  fi
+                  # Confirm the live alias now resolves to our snapshot IN THIS
+                  # cluster — the CLI targets this matrix cluster's HOG_HOST, so a
+                  # bake that landed in the wrong cluster fails here instead of
+                  # going green (the alias name is shared across clusters).
+                  resolved=$(hogland snapshot resolve posthog-tasks-default | jq -r .snapshot_id)
+                  if [[ "$resolved" != "$SNAP_ID" ]]; then
+                      echo "::error::posthog-tasks-default in cluster ${CLUSTER} resolves to ${resolved}, expected ${SNAP_ID}"
+                      exit 1
+                  fi
                   echo "snapshot_id=$SNAP_ID" >> "$GITHUB_OUTPUT"
 
             # Dated archive alias for rollback. Reuse the snapshot id the promote
@@ -409,12 +547,14 @@ jobs:
               if: env.skip != 'true'
               env:
                   CLUSTER: ${{ matrix.cluster }}
+                  HOG_HOST: ${{ matrix.hog_host }}
                   SNAPSHOT_ID: ${{ steps.promote.outputs.snapshot_id }}
                   HEALTHY_SECONDS: ${{ steps.smoke.outputs.healthy_seconds }}
               run: |
                   {
                     echo "### tasks golden snapshot: $CLUSTER"
                     echo ""
+                    echo "- cluster: \`$CLUSTER\` ($HOG_HOST)"
                     echo "- promoted snapshot \`$SNAPSHOT_ID\` -> alias \`posthog-tasks-default\`"
                     echo "- smoke create->contract: ${HEALTHY_SECONDS}s"
                   } >> "$GITHUB_STEP_SUMMARY"

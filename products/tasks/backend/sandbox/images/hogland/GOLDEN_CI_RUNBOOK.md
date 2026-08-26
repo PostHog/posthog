@@ -16,6 +16,14 @@ same contents into a hogland snapshot, it does not change the container image.
 
 ## What the workflow does
 
+0. `validate_ref` job (unprivileged, no secrets) — resolves the
+   `workflow_dispatch` `ref` input before any credentialed job checks that tree
+   out. Blank resolves to the literal `master` branch; a non-blank value must be
+   a full 40-char commit SHA that the GitHub compare API confirms is already an
+   ancestor of `master`, else the job fails. `render_skills` and `bake` check out
+   `needs.validate_ref.outputs.ref`, never the raw input, and every privileged
+   job additionally gates on `github.ref == 'refs/heads/master'`. This closes the
+   `ref` RCE in the workflow YAML (see "Known open security issues").
 1. `render_skills` job — renders the agent skills the golden ships, the same way
    the sandbox-base image build does (`cd-sandbox-base-image.yml`'s `build_skills`
    job): stands up a DB, `uv sync`s, migrates, runs `hogli build:skills` to expand
@@ -45,15 +53,14 @@ same contents into a hogland snapshot, it does not change the container image.
    is running with the container-style env), and deletes it. A smoke failure
    skips promotion, leaving `posthog-tasks-default` on the previous known-good
    snapshot.
-7. On success, re-points `posthog-tasks-default` at the candidate's snapshot and
+7. On success, re-points `posthog-tasks-default` at the candidate's snapshot
+   (retrying the alias PUT, since a concurrent repoint returns 500 not 409),
+   confirms the live alias resolves to that snapshot in the expected cluster, and
    stamps a dated archive alias `posthog-tasks-default-YYYYMMDD` for rollback.
 
-> ⚠️ **Open security issue, not yet fixed in the workflow YAML** — see
-> "Known open security issues" near the bottom of this runbook.
-> `render_skills` and `bake` currently check out
-> `github.event.inputs.ref || github.sha` directly with no validation. Do not
-> treat the description above as a statement that this is safe to dispatch
-> from an untrusted branch today.
+Before the bake step, a quiet-deploy-window guard waits for no in-progress hogd
+rollout and >=900s since the last one, mirroring hogland's `golden-snapshots.yml`
+(see "Repo config" for `HOGLAND_ROLLOUT_WORKFLOW`).
 
 The matrix covers **dev** and **prod-us**. **prod-eu is deferred** to the EU
 rollout — see "Adding prod-eu" below.
@@ -66,15 +73,19 @@ These are hogland runtime-cluster data, not repo config. They mirror the
 For **each** cluster the workflow targets (dev, then prod-us):
 
 1. **Service-account principal.** Create a `svc-ci-tasks-golden` principal via
-   `POST /v1/service-accounts` on that cluster's hogplane.
+   `POST /v1/service-accounts` on that cluster's hogplane. This endpoint is
+   admin-only and has no CLI; it mints a name of the form `svc-<slug>-<rand>`, so
+   the random suffix is expected — do **not** read it as a failure.
 2. **`github_oidc` TrustMapping.** Map this repo's workflow to that principal:
    `{repo: PostHog/posthog, workflow: cd-tasks-golden-snapshot.yml}` →
    `svc-ci-tasks-golden`. TrustMappings are per-cluster runtime data — the dev
    mapping grants nothing in prod-us, so create it again per cluster. Without it
    the OIDC mint succeeds and hogplane returns 401. **Pin `ref: refs/heads/master`
-   if hogplane's TrustMapping schema supports it** — see "Known open security
-   issues" below; nothing in the workflow file itself restricts dispatch to
-   `master` today, so this per-cluster mapping is the only real backstop.
+   once hogplane's TrustMapping schema supports it** (PostHog/hogland#419) — this
+   is the durable fix for the branch-dispatch class of attack. The workflow's own
+   `validate_ref` job + per-job `github.ref == 'refs/heads/master'` gates raise
+   the bar, but a branch copy of the workflow can strip in-file gates, so the
+   TrustMapping ref pin is the backstop that cannot be bypassed from the repo.
 3. **OIDC audience.** The mint audience is the per-cluster literal in the
    workflow's matrix, kept equal to `hogplane.githubOIDCAudience` in that
    cluster's values file:
@@ -97,8 +108,15 @@ For **each** cluster the workflow targets (dev, then prod-us):
   - `HOG_TASKS_GOLDEN_PROD_ENABLED=true` — second arm for prod-targeting
     clusters. The prod-us leg stays a no-op until this is set, so it does not
     fail nightly before its own principal + TrustMapping exist.
-  - `HOGLAND_CLI_REF` (optional) — the `PostHog/hogland` ref to build the CLI
-    from. Defaults to `main`.
+  - `HOGLAND_CLI_REF` (**required**) — the `PostHog/hogland` ref to build the CLI
+    from. Must be a released `v*-cli` tag; the workflow fails if it is unset or
+    not a `*-cli` tag (a moving branch like `main` is not reproducible).
+  - `HOGLAND_ROLLOUT_WORKFLOW` (optional) — the hogd rollout workflow file name in
+    `PostHog/hogland` (e.g. `rollout.yml`) that the quiet-window guard polls. Unset
+    skips the guard. The guard reads `PostHog/hogland` Actions with the hogland App
+    token, so that App installation needs `actions:read` on hogland; without it the
+    guard fails open (a racing rollout only wastes a run, it cannot corrupt the
+    alias).
   - `TS_HOGLAND_CI_CLIENT_ID`, `TS_HOGLAND_CI_AUDIENCE` — shared with
     `hogbox-preview-env.yml`; already present if preview is provisioned.
 - **Secrets** — a GitHub App with read access to `PostHog/hogland` (for the CLI
@@ -109,11 +127,12 @@ For **each** cluster the workflow targets (dev, then prod-us):
 
 - Manual: Actions → "Tasks Golden Snapshot CD" → Run workflow. Leave `cluster`
   blank to bake every armed cluster, or set it to `dev` / `prod-us` to bake one.
-  Leave `ref` blank to render the skills from the workflow's checkout ref, or set
-  it to a branch or SHA to bake a reproducible golden from that ref. **Until the
-  open issue below is fixed, only ever dispatch this with `ref` blank or a SHA
-  you have personally verified is merged into `master`** — the workflow does not
-  verify this for you yet.
+  Leave `ref` blank to render from `master`, or set it to a full commit SHA that
+  is already merged into `master`. `validate_ref` enforces this: a blank ref
+  resolves to `master`, a non-blank value must be a full 40-char SHA that is an
+  ancestor of `master`, and anything else (a branch name, an unmerged SHA) fails
+  the run before any credentialed job starts. Dispatch only works from `master`
+  (every privileged job gates on `github.ref == 'refs/heads/master'`).
 - Nightly: the `schedule` cron fires daily but only bakes armed clusters,
   rendering from `master`.
 
@@ -131,8 +150,9 @@ hogland snapshot alias <snapshot_id> posthog-tasks-default
 
 1. Provision the prerequisites above in the prod-eu cluster: a
    `svc-ci-tasks-golden` principal, a `github_oidc` TrustMapping
-   `{repo: PostHog/posthog, workflow: cd-tasks-golden-snapshot.yml}`, and the
-   audience `hogland.prod-eu.posthog.dev`.
+   `{repo: PostHog/posthog, workflow: cd-tasks-golden-snapshot.yml}` (pin
+   `ref: refs/heads/master` once PostHog/hogland#419 lands), and the audience
+   `hogland.prod-eu.posthog.dev`.
 2. Append a matrix entry in the workflow (host + audience) and confirm the prod
    arming gate covers it.
 3. Confirm `tag:hogland-ci` reaches the prod-eu `tag:hogplane` device.
@@ -142,58 +162,65 @@ hogland snapshot alias <snapshot_id> posthog-tasks-default
 - **No live bake has run.** The scripts and workflow are lint- and
   shellcheck-clean, but a real bake needs a cluster, the tailnet, and the
   principal — none of which exist in local dev. First armed run is the real test.
-- **Smoke asserts the daemon env, not a real hog-exec child.** `smoke-golden.sh`
-  reads the running hogpanion daemon's live `/proc/<MainPID>/environ` — the env
-  its hog-exec children inherit — and asserts `IS_SANDBOX=1`, a `/opt/posthog/bin`
-  first `PATH`, and `PYTHONPATH`. This catches a hogpanion that never re-exec'd
-  with the drop-in, which an SSH login shell would hide (PAM feeds it
-  `/etc/environment`). It does not yet spawn a command _through_ hogpanion's exec
-  API and assert on the child directly. Wiring that (via `hogland box exec` or the
-  in-box exec endpoint) is the intended upgrade once the CLI surface is confirmed.
-  The daemon-env assert also depends on the sandbox ssh user being root (it reads
-  another process's `/proc` environ); the task sandbox runs as root.
-- **No quiet-deploy-window guard.** hogland's own golden workflow waits for a
-  quiet hogd rollout window; this workflow does not (that needs cross-repo API
-  access to hogland's deploy runs). A hogd rollout racing the bake orphans the
-  seed box, which fails the in-box SSH steps and skips promotion — safe, but a
-  wasted run. Consider adding the guard in a later phase.
-- **The golden tracks the render ref (default this workflow's checkout ref).**
-  The `render_skills` job checks out PostHog at that ref and renders the skills
-  from it, and `setup-golden.sh` reconstructs `Dockerfile.sandbox-base` from the
-  same checkout — so the ref is the one knob for what the golden tracks. On the
-  nightly schedule this is `master`; pass the `ref` `workflow_dispatch` input to
-  bake from a specific branch or SHA for a reproducible golden. `@posthog/agent`
-  is decoupled from the ref: the workflow resolves the latest published version
-  and pins it into the bake, so the golden's agent-server is reproducible without
-  depending on any image.
+- **Smoke asserts the daemon env, and best-effort the exec API.** `smoke-golden.sh`
+  reads the running hogpanion daemon's live `/proc/<MainPID>/environ` (via `sudo`;
+  the box ssh user is `hog`) — the env its hog-exec children inherit — and asserts
+  `IS_SANDBOX=1`, a `/opt/posthog/bin` first `PATH`, and `PYTHONPATH`. This catches
+  a hogpanion that never re-exec'd with the drop-in, which an SSH login shell would
+  hide (PAM feeds it `/etc/environment`). It also now attempts a trivial command
+  through `POST /v1/hogboxes/{id}/exec` — the production reach path — but that
+  assertion **fails open** on `000/404/501` (the request path may predate the CLI
+  surface). Once PostHog/hogland#422 lands a `box exec`/`box cp` verb and the exec
+  contract is confirmed, make the exec assertion a hard gate.
+- **Quiet-deploy-window guard is provisional.** The guard polls
+  `PostHog/hogland` Actions for the `HOGLAND_ROLLOUT_WORKFLOW` runs and waits for a
+  quiet window, but **fails open** when the var is unset or the hogland App lacks
+  `actions:read` on hogland. Set `HOGLAND_ROLLOUT_WORKFLOW` and grant the App
+  `actions:read` to arm it. A racing rollout without the guard only wastes a run
+  (it orphans the seed box and skips promotion), it cannot corrupt the alias.
+- **The golden tracks the render ref (default `master`).** The `render_skills` job
+  checks out PostHog at the validated ref and renders the skills from it, and
+  `setup-golden.sh` reconstructs `Dockerfile.sandbox-base` from the same checkout —
+  so the ref is the one knob for what the golden tracks. On the nightly schedule
+  this is `master`; pass the `ref` `workflow_dispatch` input (a merged SHA) for a
+  reproducible golden. `@posthog/agent` is decoupled from the ref: the workflow
+  resolves the latest published version and pins it into the bake.
 
-## Known open security issues (tracked, not yet fixed in the workflow YAML)
+## Known open security issues
 
-Both issues below were raised in PR review and are real. They are **not yet
-fixed in `cd-tasks-golden-snapshot.yml`** as of this revision — fixing them
-requires editing a file under `.github/workflows/`, which needs a maintainer
-with write access to that path; this note exists so the gap is documented
-rather than silently left for the next reader to rediscover.
+The `ref` RCE and branch-dispatch findings from PR review are now **mitigated in
+`cd-tasks-golden-snapshot.yml`**: the unprivileged `validate_ref` job resolves and
+ancestor-checks the `ref` input before any credentialed checkout, and every
+privileged job gates on `github.ref == 'refs/heads/master'`. The residual, durable
+gap is hogland-owned:
 
-- **`ref` workflow_dispatch input is checked out with no validation.**
-  `render_skills` and `bake` both do `ref: ${{ github.event.inputs.ref ||
-github.sha }}` and then run `hogli build:skills`, `bake-golden.sh`, and
-  `setup-golden.sh` from that checkout, in a job that (once armed) holds the
-  hogland CLI App private key, a tailnet join, and hogland/prod OIDC. Any
-  collaborator who can `workflow_dispatch` this workflow can point `ref` at a
-  branch carrying a modified script and have it run with those credentials.
-  Fix: add a job that resolves `ref` before checkout — blank → `master`;
-  otherwise require a full commit SHA confirmed (e.g. via the GitHub compare
-  API) to already be an ancestor of `master` — and point both checkouts at
-  that job's output instead of the raw input.
-- **Branch dispatch bypasses deployment review.** Because GitHub runs whatever
-  copy of this workflow lives on the ref you dispatch it from, and includes
-  that ref in the OIDC token's claims, a collaborator can push a branch with a
-  modified copy of this workflow (e.g. with the arming-variable gate removed)
-  and dispatch it from that branch. If hogplane's `github_oidc` TrustMapping
-  only checks `(repo, workflow)` and not `ref`, that branch mints an accepted
-  token. An `if: github.ref == 'refs/heads/master'` gate added to every job in
-  this file would raise the bar (a branch would then also have to remove that
-  check), but the only fix that cannot be bypassed by editing the workflow file
-  is pinning `ref: refs/heads/master` in hogplane's `github_oidc` TrustMapping
-  for every cluster (see "Per-cluster prerequisites" above).
+- **Branch dispatch — durable fix is hogland-side (PostHog/hogland#419).** The
+  in-file `github.ref == 'refs/heads/master'` gates raise the bar, but a branch
+  copy of the workflow can strip them. The fix that cannot be bypassed from the
+  repo is pinning `ref: refs/heads/master` in each cluster's `github_oidc`
+  TrustMapping. Until #419 lands and the mapping is pinned, treat the in-workflow
+  gates as the only barrier and keep dispatch discipline (dispatch only from
+  `master`).
+- **Alias namespace is global and unprotected (PostHog/hogland#420).** Alias PUT
+  checks only new-snapshot ownership and DELETE checks nothing, so a
+  `svc-ci-tasks-golden` principal on prod-us could repoint or delete
+  `devbox-golden` / `posthog-preview-golden`. **Keep prod-us UNARMED
+  (`HOG_TASKS_GOLDEN_PROD_ENABLED` unset) until #420 lands.** dev is acceptable to
+  arm meanwhile.
+
+## hogland dependencies (filed issues)
+
+Items owned by the hogland team, filed from this review. Not blockers for merging
+the workflow (it is a no-op until armed), but referenced above:
+
+- **PostHog/hogland#419** — `github_oidc` TrustMapping cannot pin a `ref` (durable
+  branch-dispatch fix). Gates arming prod-us safely.
+- **PostHog/hogland#420** — alias namespace PUT/DELETE unprotected. Keep prod-us
+  unarmed until fixed.
+- **PostHog/hogland#421** — batch `/exec` advertises a 6h timeout but caps at 60s.
+- **PostHog/hogland#422** — add a `box cp` / files-API delivery (removes SSH+sudo
+  from the bake) and a `box exec` verb (`hogland box exec` does not exist today,
+  so the smoke uses a raw `POST .../exec` that fails open).
+- **PostHog/hogland#423** — snapshot chunks are never GC'd (a daily bake leaks
+  ~10-25 GiB). Must be reference-aware, **not** a bucket-wide expiry rule (that
+  caused the 2026-08-06 preview outage).

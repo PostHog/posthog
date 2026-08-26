@@ -66,8 +66,8 @@ ca-certificates gnupg sudo"
 
 # Dockerfile ENVs, made visible to every login/exec process. /etc/environment
 # covers PAM sessions; the systemd drop-in covers the box's agent daemon, whose
-# services do not read /etc/environment. EnvironmentFile=-/etc/hogbox-env keeps
-# the per-box create(env=...) values reaching exec processes on restore.
+# services do not read /etc/environment. Per-box create(env=...) values reach
+# exec children through the adapter's per-exec env, not this drop-in.
 STATIC_ENV_PATH="/opt/posthog/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 log() { printf '[setup-golden] %s\n' "$*" >&2; }
@@ -215,22 +215,18 @@ PYTHONPATH="/tmp/workspace"
 PATH="${STATIC_ENV_PATH}"
 EOF
 # Lay down the agent-daemon drop-in so exec processes inherit the container-style
-# env plus the per-box /etc/hogbox-env, then restart the daemon so the snapshot
-# captures a hogpanion already re-exec'd with the new env.
+# env, then restart the daemon so the snapshot captures a hogpanion already
+# re-exec'd with the new env.
 if [ -d /etc/systemd/system ]; then
     dropin_dir=/etc/systemd/system/hogpanion.service.d
     mkdir -p "$dropin_dir"
-    # EnvironmentFile is listed BEFORE the Environment= guard vars on purpose:
-    # systemd applies these directives in file order and a later assignment for
-    # the same key wins, so a user-supplied /etc/hogbox-env can only override
-    # non-guard-critical keys, never PATH/AGENTSH_SERVER/IS_SANDBOX/PYTHONPATH.
-    # filter_user_sandbox_env_vars (products/tasks/backend/constants.py) does not
-    # reserve PATH, so this ordering is the guard against a per-box PATH override
-    # routing hog-exec children through /usr/bin/git instead of the wrapped
-    # /opt/posthog/bin/git.
+    # No EnvironmentFile= here. A per-box /etc/hogbox-env would let an unreserved
+    # key such as PATH override these guard vars (EnvironmentFile settings win
+    # over Environment= regardless of order), routing hog-exec children through
+    # /usr/bin/git instead of the wrapped /opt/posthog/bin/git. Per-box env still
+    # reaches exec children through the adapter's per-exec env, not this drop-in.
     cat > "$dropin_dir/posthog-env.conf" <<EOF
 [Service]
-EnvironmentFile=-/etc/hogbox-env
 Environment="DEBIAN_FRONTEND=noninteractive"
 Environment="TZ=UTC"
 Environment="GH_TELEMETRY=false"
@@ -246,27 +242,33 @@ EOF
     # lack IS_SANDBOX=1, the /opt/posthog/bin-first PATH (git/gh guards), and
     # PYTHONPATH. This script runs under hogpanion's cgroup, so a direct restart
     # would kill it mid-bake; fire the restart from a detached transient unit and
-    # then poll until the daemon is back with a NEW main pid before returning.
+    # then poll until the daemon is back and reporting ready before returning.
     if systemctl cat hogpanion.service >/dev/null 2>&1; then
         old_pid="$(systemctl show hogpanion.service -p MainPID --value 2>/dev/null || echo 0)"
         systemd-run --collect --unit=hogpanion-reload --on-active=2 \
             systemctl restart hogpanion.service
-        restarted=0
-        for _ in $(seq 1 60); do
+        # Gate on hogpanion reporting READY, not just on a new MainPID. hogpanion
+        # is Type=simple: the pid changes at execve, but `ready` only flips true
+        # after runBoot finishes, so a pid-only wait can snapshot a half-booted
+        # daemon. Require a NEW pid (proves the restart fired, not the old still-
+        # ready daemon) AND the status endpoint reporting ready:true.
+        ready=0
+        for _ in $(seq 1 90); do
             new_pid="$(systemctl show hogpanion.service -p MainPID --value 2>/dev/null || echo 0)"
             if systemctl is-active --quiet hogpanion.service \
-                && [ -n "$new_pid" ] && [ "$new_pid" != "0" ] && [ "$new_pid" != "$old_pid" ]; then
-                restarted=1
+                && [ -n "$new_pid" ] && [ "$new_pid" != "0" ] && [ "$new_pid" != "$old_pid" ] \
+                && curl -sf http://localhost:7682/status 2>/dev/null | jq -e '.ready == true' >/dev/null 2>&1; then
+                ready=1
                 break
             fi
             sleep 1
         done
-        if [ "$restarted" != "1" ]; then
-            echo "hogpanion did not restart with the env drop-in (old pid ${old_pid})" >&2
+        if [ "$ready" != "1" ]; then
+            echo "hogpanion did not restart and report ready with the env drop-in (old pid ${old_pid})" >&2
             systemctl status hogpanion.service --no-pager || true
             exit 1
         fi
-        log "hogpanion restarted (pid ${old_pid} -> ${new_pid}) with the env drop-in"
+        log "hogpanion restarted (pid ${old_pid} -> ${new_pid}) and reported ready with the env drop-in"
     else
         log "hogpanion.service not present; skipping restart (drop-in applies on next start)"
     fi
@@ -282,4 +284,16 @@ agentsh --version
 test -x /scripts/node_modules/.bin/agent-server
 test -x /opt/posthog/bin/git
 test -x /opt/posthog/bin/gh
+
+# LAST step: strip the ephemeral CI ssh key so it does not persist into the
+# snapshot and therefore into every restored task box. Production restores with
+# access_type: none, and hogpanion returns early on an empty key list, so a
+# non-empty authorized_keys from the bake would survive into live boxes. Truncate
+# every user's authorized_keys the bake could have populated. This is the final
+# action: no SSH step runs after it (the current session stays open; box snapshot
+# is driven over the hogplane API, not SSH).
+for ak in /home/hog/.ssh/authorized_keys /root/.ssh/authorized_keys; do
+    [ -f "$ak" ] && : >"$ak"
+done
+log "truncated CI ssh authorized_keys"
 log "setup-golden complete"

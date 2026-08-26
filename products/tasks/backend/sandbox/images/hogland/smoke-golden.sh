@@ -38,8 +38,10 @@ log() { printf '[tasks-smoke] %s\n' "$*" >&2; }
 SMOKE_BOX_NAME=golden-smoke-tasks
 SMOKE_BOX_ID=""
 
+# List across ALL kinds, not just ours: hogplane's name-uniqueness check
+# (ensureBoxNameUnique) scans every kind, so match by name only.
 resolve_smoke_box_id() {
-    hogland box list --kind posthog-tasks-smoke 2>/dev/null \
+    hogland box list 2>/dev/null \
         | jq -r --arg n "$SMOKE_BOX_NAME" 'map(select(.spec.name == $n)) | .[0].id // empty' 2>/dev/null \
         || true
 }
@@ -80,14 +82,19 @@ create_t0=$(date +%s)
 # --name gives teardown a handle that survives never learning the id. No sizing
 # flags — restore inherits cpus/mem/disk from the snapshot.
 create_rc=0
+# --kind ci: registered kind (2h TTL backstop) so a killed runner cannot leak a
+#   64 GiB box forever. --access-type ssh-private: keep the box off the public
+#   internet; the runner reaches it over the tailnet. --timeout 30m: a 64 GiB
+#   restore may wait on Karpenter for a node.
 box_json=$(
     hogland box create \
         --snapshot-id "alias:$ALIAS" \
         --ssh-key "${SSH_KEY}.pub" \
         --name "$SMOKE_BOX_NAME" \
-        --kind posthog-tasks-smoke \
+        --kind ci \
+        --access-type ssh-private \
         --no-connect \
-        --timeout 15m
+        --timeout 30m
 ) || create_rc=$?
 SMOKE_BOX_ID=$(printf '%s' "$box_json" | jq -r '.id // empty' 2>/dev/null || true)
 if [[ "$create_rc" -ne 0 ]]; then
@@ -156,8 +163,9 @@ fi
 # from setup-golden.sh's drop-in. We read the DAEMON's live /proc environ, not a
 # login shell: PAM feeds an SSH shell /etc/environment, so a shell would look
 # correct even when the daemon never re-exec'd with the drop-in (the exact bug a
-# missing hogpanion restart causes). MainPID + /proc/<pid>/environ need root; the
-# task sandbox's ssh user is root. `systemctl show` of the unit config is the
+# missing hogpanion restart causes). Reading another process's /proc/<pid>/environ
+# needs root; the box's ssh user is `hog`, which has passwordless sudo, so the
+# environ read goes through sudo. `systemctl show` of the unit config is the
 # secondary, weaker signal (config loaded, not necessarily applied to the live
 # process). Reaching a real hog-exec child through hogpanion's exec API is the
 # ideal upgrade — see GOLDEN_CI_RUNBOOK.md's known-gaps.
@@ -168,7 +176,7 @@ pid=$(systemctl show hogpanion.service -p MainPID --value 2>/dev/null || echo 0)
 if [ -z "$pid" ] || [ "$pid" = "0" ]; then
     echo "hogpanion has no running MainPID" >&2; exit 1
 fi
-environ=$(tr "\0" "\n" < "/proc/$pid/environ")
+environ=$(sudo cat "/proc/$pid/environ" | tr "\0" "\n")
 printf "%s\n" "$environ" | grep -qx "IS_SANDBOX=1" || { echo "daemon env missing IS_SANDBOX=1" >&2; exit 1; }
 printf "%s\n" "$environ" | grep -q "^PATH=/opt/posthog/bin:" || { echo "daemon PATH does not start with /opt/posthog/bin" >&2; exit 1; }
 printf "%s\n" "$environ" | grep -q "^PYTHONPATH=" || { echo "daemon env missing PYTHONPATH" >&2; exit 1; }
@@ -180,6 +188,50 @@ systemctl show hogpanion.service -p Environment -p EnvironmentFiles --no-pager >
 if ! ssh_assert "$daemon_env_probe"; then
     log "FAIL: hogpanion daemon env is not the container-style env (restart likely did not take before snapshot)"
     exit 1
+fi
+
+# (d) exec API: production reaches a task box only through hogpanion's exec API
+# (POST /v1/hogboxes/{id}/exec), never SSH. Assert a trivial command round-trips
+# through it so a golden that works over SSH but not via exec is caught. HOG_HOST
+# + HOG_TOKEN_COMMAND come from the workflow's bake-job env. Fail OPEN only when
+# the endpoint is unreachable/unimplemented (000/404/501) — the request path may
+# predate the CLI surface; a reachable endpoint that mis-executes is a hard fail.
+if [[ -n "${HOG_HOST:-}" && -n "${HOG_TOKEN_COMMAND:-}" ]]; then
+    log "asserting box reachable via hogpanion exec API"
+    exec_token=$(eval "$HOG_TOKEN_COMMAND" 2>/dev/null || true)
+    if [[ -z "$exec_token" ]]; then
+        log "WARN: could not mint bearer for the exec assertion; relying on SSH assertions"
+    else
+        exec_out=$(mktemp)
+        exec_body='{"command":["/bin/sh","-c","echo golden-exec-ok"],"timeout_seconds":30}'
+        http_code=$(curl -sS -o "$exec_out" -w '%{http_code}' \
+            -X POST "$HOG_HOST/v1/hogboxes/$SMOKE_BOX_ID/exec" \
+            -H "Authorization: bearer $exec_token" \
+            -H 'Content-Type: application/json' \
+            -d "$exec_body" 2>/dev/null || echo 000)
+        case "$http_code" in
+            2*)
+                if grep -q 'golden-exec-ok' "$exec_out"; then
+                    log "exec API round-trip ok"
+                else
+                    log "FAIL: exec API returned $http_code but its output lacked the marker"
+                    cat "$exec_out" >&2 || true
+                    rm -f "$exec_out"
+                    exit 1
+                fi
+                ;;
+            000 | 404 | 501)
+                log "WARN: exec API unreachable/unimplemented (HTTP $http_code); relying on SSH assertions. Enable once the exec contract is confirmed (see runbook)."
+                ;;
+            *)
+                log "FAIL: exec API POST returned HTTP $http_code"
+                cat "$exec_out" >&2 || true
+                rm -f "$exec_out"
+                exit 1
+                ;;
+        esac
+        rm -f "$exec_out"
+    fi
 fi
 
 elapsed=$(( $(date +%s) - create_t0 ))

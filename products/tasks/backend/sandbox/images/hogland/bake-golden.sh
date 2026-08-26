@@ -61,8 +61,11 @@ done
 SEED_BOX_NAME=golden-seed-tasks
 SEED_BOX_ID=""
 
+# List across ALL kinds, not just ours: hogplane's name-uniqueness check
+# (ensureBoxNameUnique) scans every kind, so a same-named box of another kind
+# would wedge the create. Match by name only so the pre-clean finds it.
 resolve_seed_box_id() {
-    hogland box list --kind posthog-tasks-seed 2>/dev/null \
+    hogland box list 2>/dev/null \
         | jq -r --arg n "$SEED_BOX_NAME" 'map(select(.spec.name == $n)) | .[0].id // empty' 2>/dev/null \
         || true
 }
@@ -102,16 +105,26 @@ fi
 # learning the id.
 log "creating seed box (cold boot, $BOX_CPUS cpu / $BOX_MEM_MIB MiB / $BOX_DISK_GIB GiB)"
 create_rc=0
+# --kind ci: a registered kind carries a 2h TTL backstop, so a killed runner
+#   cannot leak a 64 GiB box forever (posthog-tasks-seed is unregistered, TTL 0).
+# --access-type ssh-private: keep the box off the public internet; the runner
+#   reaches it over the tailnet (default ssh-public DNATs a public port).
+# --disk-mbps 0 --disk-iops 0: match hogland's own bakes (CLI defaults 125MB/s /
+#   3000 IOPS otherwise).
+# --timeout 30m: a cold 64 GiB box may wait on Karpenter to provision a node.
 box_json=$(
     hogland box create \
         --ssh-key "${SSH_KEY}.pub" \
         --name "$SEED_BOX_NAME" \
-        --kind posthog-tasks-seed \
+        --kind ci \
+        --access-type ssh-private \
         --cpus "$BOX_CPUS" \
         --memory-mib "$BOX_MEM_MIB" \
         --disk-gib "$BOX_DISK_GIB" \
+        --disk-mbps 0 \
+        --disk-iops 0 \
         --no-connect \
-        --timeout 15m
+        --timeout 30m
 ) || create_rc=$?
 SEED_BOX_ID=$(printf '%s' "$box_json" | jq -r '.id // empty' 2>/dev/null || true)
 if [[ "$create_rc" -ne 0 ]]; then
@@ -148,12 +161,14 @@ done
 log "ssh reachable"
 
 # Stream one local file to a path in the box over SSH, chmod it, and verify the
-# byte count landed. Only `cat` is needed in the box — no scp/sftp, no public
-# host. Usage: deliver <local-path> <box-path> <mode>
+# byte count landed. The box's ssh user is `hog` (not root), so the write goes
+# through passwordless sudo — target paths like /opt/posthog/bin are root-owned.
+# `sudo tee` is the delivery primitive; no scp/sftp, no public host. Usage:
+# deliver <local-path> <box-path> <mode>
 deliver() {
     local src="$1" dst="$2" mode="$3" dir size remote_size
     dir=$(dirname "$dst")
-    if ! "${ssh_base[@]}" "mkdir -p '$dir' && cat > '$dst' && chmod '$mode' '$dst'" < "$src"; then
+    if ! "${ssh_base[@]}" "sudo mkdir -p '$dir' && sudo tee '$dst' >/dev/null && sudo chmod '$mode' '$dst'" < "$src"; then
         log "FAIL: could not deliver $src -> $dst"
         exit 1
     fi
@@ -187,8 +202,12 @@ log "running setup-golden.sh in the box"
 # arbitrary commands in the box.
 printf -v agent_version_escaped '%q' "$AGENT_VERSION"
 setup_rc=0
+# The ssh user is `hog`; setup-golden.sh installs apt packages, writes
+# /etc/environment and the systemd drop-in, and restarts hogpanion — all root
+# work — so run it through passwordless sudo. The env assignments precede the
+# command so sudo carries them into setup-golden.sh's environment.
 "${ssh_base[@]}" \
-    "AGENT_VERSION=$agent_version_escaped SKILLS_TARBALL=/tmp/golden-skills.tar.gz INSTALL_SKILLS=/tmp/install-skills.sh bash /tmp/setup-golden.sh" \
+    "sudo AGENT_VERSION=$agent_version_escaped SKILLS_TARBALL=/tmp/golden-skills.tar.gz INSTALL_SKILLS=/tmp/install-skills.sh bash /tmp/setup-golden.sh" \
     || setup_rc=$?
 if [[ "$setup_rc" -ne 0 ]]; then
     log "FAIL: setup-golden.sh exited $setup_rc in the box; not snapshotting"
