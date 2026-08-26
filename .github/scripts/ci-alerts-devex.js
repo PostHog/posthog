@@ -50,8 +50,9 @@ const RUN_INDEX_MAX_LAG_MINUTES = 180
 const STALE_PAGE_RETRIES = 2
 const STALE_PAGE_RETRY_DELAY_MS = 15000
 // Cloud agent ("loop") that diagnoses a fresh incident and answers in its Slack thread.
+// Project 2 owns the loop, the same project the links above point at.
 // See docs/internal/master-red-diagnosis-loop.md for the loop's own configuration.
-const POSTHOG_API_BASE = 'https://us.posthog.com'
+const LOOPS_API_BASE = 'https://us.posthog.com/api/projects/2/loops'
 const DIAGNOSIS_TIMEOUT_MS = 10000
 
 const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -284,6 +285,35 @@ async function findActiveIncident(slack, channel) {
     return null
 }
 
+// What the agent is told about the incident. Everything here reaches the run's prompt fenced as
+// data, never as instructions, so a commit message cannot steer it.
+function buildDiagnosisPayload({
+    channel,
+    threadTs,
+    repository,
+    since,
+    blocking,
+    commitStreakCount,
+    latestCommit,
+    allFailingRunsUrl,
+}) {
+    return {
+        slack: { channel, thread_ts: threadTs },
+        repository,
+        since,
+        failing_workflows: blocking.map((b) => ({
+            name: b.name,
+            workflow_file: b.workflow_file,
+            run_url: b.run_url,
+            red_for_minutes: b.redForMins,
+            consecutive_failures: b.consecutive_failures,
+        })),
+        red_commit_streak: commitStreakCount,
+        latest_commit: latestCommit,
+        all_failing_runs_url: allFailingRunsUrl,
+    }
+}
+
 // Fire the diagnosis loop against a just-opened incident, so the agent answers in the incident's
 // own thread while a human is still reading the alert. Best-effort by design: the alert is the
 // product here, so a loop that is unconfigured, disabled, rate-capped or unreachable must never
@@ -299,11 +329,8 @@ async function fireDiagnosisLoop({ fetchImpl, core, threadTs, payload }) {
         return null
     }
     const doFetch = fetchImpl || fetch
-    const projectId = process.env.POSTHOG_PROJECT_ID || '2'
-    const base = process.env.POSTHOG_API_BASE || POSTHOG_API_BASE
-    const url = `${base}/api/projects/${projectId}/loops/${loopId}/trigger/`
     try {
-        const res = await doFetch(url, {
+        const res = await doFetch(`${LOOPS_API_BASE}/${loopId}/trigger/`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -572,21 +599,16 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
                 fetchImpl: _fetch,
                 core,
                 threadTs: posted.ts,
-                payload: {
-                    slack: { channel, thread_ts: posted.ts },
+                payload: buildDiagnosisPayload({
+                    channel,
+                    threadTs: posted.ts,
                     repository: `${owner}/${repo}`,
                     since,
-                    failing_workflows: blocking.map((b) => ({
-                        name: b.name,
-                        workflow_file: b.workflow_file,
-                        run_url: b.run_url,
-                        red_for_minutes: b.redForMins,
-                        consecutive_failures: b.consecutive_failures,
-                    })),
-                    red_commit_streak: commitActive ? commitStreakCount : 0,
-                    latest_commit: latestCommit,
-                    all_failing_runs_url: allFailingRunsUrl,
-                },
+                    blocking,
+                    commitStreakCount: commitActive ? commitStreakCount : 0,
+                    latestCommit,
+                    allFailingRunsUrl,
+                }),
             })
             action = 'create'
         } else {

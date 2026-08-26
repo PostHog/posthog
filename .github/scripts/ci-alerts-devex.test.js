@@ -154,8 +154,6 @@ function run(github, { history = [], now = minutes(0), env = {}, fetchImpl } = {
         COMMIT_FAILURE_STREAK_THRESHOLD: '10',
         DIAGNOSIS_LOOP_ID: '',
         POSTHOG_PROJECT_SECRET_API_KEY: '',
-        POSTHOG_PROJECT_ID: '2',
-        POSTHOG_API_BASE: 'https://us.posthog.com',
         ...env,
     })
     return ciAlertsDevex(
@@ -713,10 +711,15 @@ describe('ci-alerts-devex', () => {
             assert.equal(options.headers['Idempotency-Key'], 'master-red-111.222')
             const payload = JSON.parse(options.body)
             assert.equal(payload.slack.thread_ts, '111.222')
-            assert.deepEqual(
-                payload.failing_workflows.map((w) => w.name),
-                ['Backend CI']
-            )
+            assert.deepEqual(payload.failing_workflows, [
+                {
+                    name: 'Backend CI',
+                    workflow_file: 'ci-backend.yml',
+                    run_url: 'https://github.com/runs/Backend CI/0',
+                    red_for_minutes: 20,
+                    consecutive_failures: 5,
+                },
+            ])
         })
 
         it('does not re-fire while an incident stays open', async () => {

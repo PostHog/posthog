@@ -47,7 +47,6 @@ env:
     # incident's Slack thread. Unset (or a missing POSTHOG_PROJECT_SECRET_API_KEY) disables the
     # fire and leaves the alert itself untouched. See docs/internal/master-red-diagnosis-loop.md.
     DIAGNOSIS_LOOP_ID: ''
-    POSTHOG_PROJECT_ID: '2'
     # The master ruleset's required status checks that run on master push — a failure
     # here means master is genuinely broken. Hand-synced with the ruleset; there is no
     # automated reconciliation, so update this when the required checks change.

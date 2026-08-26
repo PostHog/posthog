@@ -60,7 +60,7 @@ Create the loop once in the product, in project 2, then put its id in `DIAGNOSIS
 | `behaviors.create_prs`            | `false`               | Report-only to start. See "Opening fix PRs" below.                                                                       |
 | `overlap_policy`                  | `skip`                | A long outage must not stack up rival runs.                                                                              |
 | `connectors.mcp_installation_ids` | Slack                 | How the run answers in the incident thread.                                                                              |
-| `connectors.posthog_mcp_scopes`   | read                  | Reads engineering analytics for CI history.                                                                              |
+| `connectors.posthog_mcp_scopes`   | `read_only`           | Reads engineering analytics for CI history.                                                                              |
 | `skill_bundles`                   | none                  | The sandbox clones this repo, so the run reads `.agents/skills/debugging-ci-failures` directly and cannot drift from it. |
 
 Instructions, kept short because the checked-in skill carries the method:
