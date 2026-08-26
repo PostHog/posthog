@@ -271,6 +271,7 @@ describe('ImageBatcher', () => {
 
     it('drops a URL image whose bytes do not match its Kafka content-type', async () => {
         let scrubCalls = 0
+        const incSkipped = jest.spyOn(ImageScrubConsumerMetrics, 'incSkipped')
         const batcher = new ImageBatcher(
             new FakeStore() as unknown as ImageShardStore,
             new FakeOffsets(),
@@ -291,6 +292,7 @@ describe('ImageBatcher', () => {
         )
 
         expect(scrubCalls).toBe(0)
+        expect(incSkipped).toHaveBeenCalledWith('content_type_mismatch')
     })
 
     it('does not store offsets when the shard write fails (at-least-once replay)', async () => {
@@ -670,11 +672,13 @@ describe('ImageBatcher', () => {
             0
         )
         const broken = Buffer.from('broken')
+        const incSkipped = jest.spyOn(ImageScrubConsumerMetrics, 'incSkipped')
 
         await batcher.handleBatch([msg(0, 0, pt(1), broken)], 1)
         await batcher.handleBatch([msg(0, 1, pt(1), broken)], 2)
 
         expect(calls).toBe(1)
+        expect(incSkipped).toHaveBeenCalledWith('sidecar_rejected')
     })
 
     it('dedupMaxRefs 0 disables the cross-batch cache but never intra-batch dedup', async () => {

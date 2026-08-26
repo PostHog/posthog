@@ -467,7 +467,7 @@ export class ImageBatcher {
                     throw error
                 }
                 this.rememberContentAddressedRef(planned)
-                ImageScrubConsumerMetrics.incSkipped()
+                ImageScrubConsumerMetrics.incSkipped(error.reason)
                 return null
             }
         }
@@ -492,7 +492,7 @@ export class ImageBatcher {
             // Null is a verdict on these bytes. Inline refs are content-addressed, so their later
             // copies cannot succeed. URL refs stay eligible because a recrawl can carry new bytes.
             this.rememberContentAddressedRef(planned)
-            ImageScrubConsumerMetrics.incSkipped()
+            ImageScrubConsumerMetrics.incSkipped('sidecar_rejected')
             return null
         }
         ImageScrubConsumerMetrics.incScrubbed()

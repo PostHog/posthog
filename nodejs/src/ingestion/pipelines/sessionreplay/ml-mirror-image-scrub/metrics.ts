@@ -1,6 +1,9 @@
 import { Counter, Gauge, Histogram } from 'prom-client'
 
+import { type ImageTransportRejectionReason } from './image-transport'
 import { ScrubWaitReason } from './scrub-client'
+
+export type ImageScrubSkipReason = ImageTransportRejectionReason | 'sidecar_rejected'
 
 export class ImageScrubConsumerMetrics {
     private static readonly scrubbed = new Counter({
@@ -9,7 +12,8 @@ export class ImageScrubConsumerMetrics {
     })
     private static readonly skipped = new Counter({
         name: 'ml_mirror_image_scrub_consumer_skipped_total',
-        help: 'Images skipped because the sidecar rejected them as undecodable (resolve to nothing)',
+        help: 'Images permanently skipped by bounded reason. sidecar_rejected is split by the sidecar outcome metrics',
+        labelNames: ['reason'],
     })
     private static readonly deduped = new Counter({
         name: 'ml_mirror_image_scrub_consumer_deduped_total',
@@ -156,8 +160,8 @@ export class ImageScrubConsumerMetrics {
     public static incScrubbed(): void {
         this.scrubbed.inc()
     }
-    public static incSkipped(): void {
-        this.skipped.inc()
+    public static incSkipped(reason: ImageScrubSkipReason): void {
+        this.skipped.labels(reason).inc()
     }
     public static incScrubWait(reason: ScrubWaitReason): void {
         this.scrubWaits.labels(reason).inc()
