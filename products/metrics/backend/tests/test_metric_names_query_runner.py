@@ -256,15 +256,27 @@ class TestMetricsValuesAPI(ClickhouseTestMixin, APIBaseTest):
         [
             # Omitting the param and sending it empty mean different things, and the
             # only thing carrying that difference over the wire is the query string.
-            ("omitted", "", {"http.duration", "jobs.processed", "orphan.metric"}),
+            ("omitted", "", {"http.duration", "jobs.processed", "orphan.metric", "padded.metric"}),
             ("one service", "&service=web", {"http.duration"}),
             ("several services", "&service=web,worker", {"http.duration", "jobs.processed"}),
             ("empty, the unnamed sender group", "&service=", {"orphan.metric"}),
+            # An empty entry must not widen the scope to the unnamed senders, which is
+            # what a trailing or repeated comma would otherwise smuggle in.
+            ("a trailing comma", "&service=web,", {"http.duration"}),
+            ("a repeated comma", "&service=web,,worker", {"http.duration", "jobs.processed"}),
+            # Service names are arbitrary user data, so trimming an entry would make a
+            # padded name unselectable while the filter bar still offers it.
+            ("a padded name, sent padded", "&service=%20padded%20", {"padded.metric"}),
         ]
     )
     def test_values_service_param(self, _name: str, query: str, expected: set[str]):
         anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
-        for service, metric_name in (("web", "http.duration"), ("worker", "jobs.processed"), ("", "orphan.metric")):
+        for service, metric_name in (
+            ("web", "http.duration"),
+            ("worker", "jobs.processed"),
+            ("", "orphan.metric"),
+            (" padded ", "padded.metric"),
+        ):
             seed_metric(
                 team_id=self.team.id,
                 metric_name=metric_name,

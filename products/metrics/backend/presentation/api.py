@@ -410,11 +410,16 @@ class _MetricValuesParamsSerializer(serializers.Serializer):
         allow_blank=True,
         default=None,
         max_length=1024,
+        # CharField trims by default, which would strip the padding off a service whose
+        # name carries it and quietly scope the picker to a name that reports nothing.
+        trim_whitespace=False,
         help_text=(
             "Comma-separated services to narrow the list to, e.g. `service=web,worker`. "
-            "Omit for every service. Send it empty to select only series whose sender "
-            "did not set `service.name`. A service name containing a comma cannot be "
-            "selected."
+            "Omit for every service. Send it empty, and only empty, to select the series "
+            "whose sender did not set `service.name`. Names are matched exactly, so they "
+            "are neither trimmed nor unescaped: a service whose name contains a comma "
+            "cannot be selected, and one padded with spaces must be sent padded. Empty "
+            "entries are dropped, so a trailing or repeated comma is ignored."
         ),
     )
 
@@ -424,7 +429,17 @@ class _MetricValuesParamsSerializer(serializers.Serializer):
         # sending it empty scopes to the senders that set no service name.
         if value is None:
             return []
-        return [service.strip() for service in value.split(",")]
+        if value == "":
+            return [""]
+        # Empty entries are dropped rather than passed through, so `web,` scopes to
+        # `web` instead of silently widening to the unnamed senders as well. The cost
+        # is that the unnamed group can only be selected alone — an inherent limit of
+        # comma-joining values that may themselves be empty.
+        #
+        # Entries are used verbatim: `service.name` is arbitrary user data, so trimming
+        # would make a name padded with spaces impossible to select while the filter bar
+        # still shows it, which is a silently-empty picker rather than a visibly wrong one.
+        return [service for service in value.split(",") if service]
 
 
 class _MetricNameSerializer(serializers.Serializer):

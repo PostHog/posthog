@@ -93791,7 +93791,7 @@ export namespace Schemas {
      */
     limit?: number;
     /**
-     * Comma-separated services to narrow the list to, e.g. `service=web,worker`. Omit for every service. Send it empty to select only series whose sender did not set `service.name`. A service name containing a comma cannot be selected.
+     * Comma-separated services to narrow the list to, e.g. `service=web,worker`. Omit for every service. Send it empty, and only empty, to select the series whose sender did not set `service.name`. Names are matched exactly, so they are neither trimmed nor unescaped: a service whose name contains a comma cannot be selected, and one padded with spaces must be sent padded. Empty entries are dropped, so a trailing or repeated comma is ignored.
      * @maxLength 1024
      */
     service?: string;
