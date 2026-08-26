@@ -1,4 +1,4 @@
-export type FlakinessPreset = 'needs_decision' | 'broken' | 'unstable' | 'at_risk' | 'noisy' | 'quarantined'
+export type FlakinessPreset = 'needs_decision' | 'broken' | 'unstable' | 'at_risk' | 'quiet' | 'quarantined'
 
 // Mirrors `FLAKINESS_RATE_DAYS` in
 // `products/visual_review/backend/facade/contracts.py`. Keep in sync, because
@@ -10,7 +10,7 @@ const COLOR_BY_PRESET: Record<FlakinessPreset, string> = {
     broken: 'var(--danger)',
     unstable: 'var(--warning-dark)',
     at_risk: 'var(--warning)',
-    noisy: 'var(--muted)',
+    quiet: 'var(--muted)',
     quarantined: 'var(--brand-blue)',
 }
 
@@ -36,9 +36,9 @@ const STATS: Array<{ value: FlakinessPreset; label: string; description: string 
         description: 'Passes, but its diff is already close to the threshold',
     },
     {
-        value: 'noisy',
-        label: 'Noisy',
-        description: 'Renders variants, absorbed with room to spare',
+        value: 'quiet',
+        label: 'Quiet',
+        description: 'Absorbed with room to spare, or nothing failing now',
     },
     {
         value: 'quarantined',
@@ -55,10 +55,16 @@ interface FlakinessStatRowProps {
 
 /**
  * The six populations this scene can show, ordered by how much attention each
- * one wants. Every tile is a filter, and together they cover every listed row,
- * so a snapshot the page decided to report is always reachable from one of
- * them. There is still no "all snapshots" tile: that would repeat the Snapshots
- * tab and open thousands of rows with nothing to act on.
+ * one wants.
+ *
+ * Together they have to cover every listed row. `quiet` is the catch-all that
+ * makes that hold: it takes both `noisy` and `clean`, because a row can be
+ * listed for history the rate span no longer counts and would otherwise show
+ * in the totals while no tile could reach it. The State column still names the
+ * precise state, so nothing is lost by grouping them here.
+ *
+ * There is still no "all snapshots" tile: that would repeat the Snapshots tab
+ * and open thousands of rows with nothing to act on.
  */
 export function FlakinessStatRow({ counts, preset, onChange }: FlakinessStatRowProps): JSX.Element {
     return (

@@ -199,6 +199,9 @@ export interface FlakinessEntryApi {
     is_quarantined: boolean
 }
 
+/**
+ * Listed identifiers per run type, so one suite's noise can be told from another's.
+ */
 export type FlakinessTotalsApiByRunType = { [key: string]: number }
 
 export interface FlakinessTotalsApi {
@@ -214,6 +217,9 @@ export interface FlakinessTotalsApi {
     at_risk: number
     /** Identifiers whose `flakiness_state` is `noisy`. */
     noisy: number
+    /** Identifiers whose `flakiness_state` is `clean`. They are listed because they carry live variants or older history, and reported here so every listed entry is reachable. */
+    clean: number
+    /** Listed identifiers per run type, so one suite's noise can be told from another's. */
     by_run_type: FlakinessTotalsApiByRunType
     quarantined: number
     needs_decision: number

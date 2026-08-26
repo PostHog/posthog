@@ -643,6 +643,10 @@ class FlakinessTotals:
     unstable: int
     at_risk: int
     noisy: int
+    # Listed, but nothing failing or absorbed inside the rate span. A row
+    # reaches this state by carrying live variants, or history further back in
+    # the read window, so it is reported rather than silently unreachable.
+    clean: int
     quarantined: int
     needs_decision: int
     by_run_type: dict[str, int]

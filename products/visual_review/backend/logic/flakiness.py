@@ -52,9 +52,19 @@ from . import run_queries
 # tolerated or approved, and nobody reviews default-branch runs: they are
 # `RunPurpose.OBSERVE` and never approvable.
 _HARD = Q(result__in=(SnapshotResult.CHANGED, SnapshotResult.NEW, SnapshotResult.REMOVED))
-_SOFT = Q(
-    result=SnapshotResult.UNCHANGED,
-    classification_reason__in=(ClassificationReason.TOLERATED_HASH, ClassificationReason.BELOW_THRESHOLD),
+#
+# The matched half is restricted to auto-minted rows. A human or agent
+# toleration can deliberately accept a diff well over the threshold, and the
+# classifier copies that percentage onto every later match, so counting those
+# would drive `headroom` to zero and label a snapshot somebody already signed
+# off on as `at_risk`. `BELOW_THRESHOLD` needs no such filter: only the
+# threshold path writes it.
+_SOFT = Q(result=SnapshotResult.UNCHANGED) & (
+    Q(classification_reason=ClassificationReason.BELOW_THRESHOLD)
+    | Q(
+        classification_reason=ClassificationReason.TOLERATED_HASH,
+        tolerated_hash_match__reason=ToleratedReason.AUTO_THRESHOLD,
+    )
 )
 
 
@@ -232,6 +242,8 @@ def get_flakiness_overview(repo_id: UUID) -> _FlakinessRaw:
     # hundreds of default-branch runs in a month, and the same predicate
     # already serves the neighbouring queries here.
     window_start_at = now - timedelta(days=FLAKINESS_WINDOW_DAYS)
+    strip_start = today - timedelta(days=FLAKINESS_WINDOW_DAYS - 1)
+    rate_start = today - timedelta(days=FLAKINESS_RATE_DAYS - 1)
     in_window = Q(
         run__repo_id=repo_id,
         run__branch__in=run_queries._DEFAULT_BRANCHES,
@@ -239,14 +251,19 @@ def get_flakiness_overview(repo_id: UUID) -> _FlakinessRaw:
         run__created_at__gte=window_start_at,
     )
 
-    # The rate denominator, per run type. Counted only over the rate window,
-    # which is the span the numerators are summed over too.
+    # The rate denominator, per run type, over the same calendar days the
+    # numerators are summed over. A timestamp cutoff here instead would cover
+    # part of one more day than `_count_since` reads, so the oldest partial
+    # day's runs would sit in the denominator while their failures did not
+    # reach the numerator. That deflates every rate, and late in the day it can
+    # drop a snapshot failing every run below the `broken` band and mark a
+    # quarantine decision-ready while its last failure is still inside the span.
     rate_runs_by_type: dict[str, int] = dict(
         Run.objects.filter(
             repo_id=repo_id,
             branch__in=run_queries._DEFAULT_BRANCHES,
             status=RunStatus.COMPLETED,
-            created_at__gte=now - timedelta(days=FLAKINESS_RATE_DAYS),
+            created_at__date__gte=rate_start,
         )
         .values("run_type")
         .annotate(run_count=Count("id"))
@@ -303,9 +320,6 @@ def get_flakiness_overview(repo_id: UUID) -> _FlakinessRaw:
     # matched a live variant or minted one, and either way the identifier is
     # already in the list.
     soft_activity = _read_activity(in_window=in_window, match=_SOFT, identifiers=reportable_identifiers)
-
-    strip_start = today - timedelta(days=FLAKINESS_WINDOW_DAYS - 1)
-    rate_start = today - timedelta(days=FLAKINESS_RATE_DAYS - 1)
 
     # When each baseline last moved. A real flip on the default branch leaves a
     # CHANGED or REMOVED row in the run that introduced it, because later runs
@@ -456,6 +470,7 @@ def get_flakiness_overview(repo_id: UUID) -> _FlakinessRaw:
         totals_unstable=sum(1 for row in rows if row.state == FlakinessState.UNSTABLE),
         totals_at_risk=sum(1 for row in rows if row.state == FlakinessState.AT_RISK),
         totals_noisy=sum(1 for row in rows if row.state == FlakinessState.NOISY),
+        totals_clean=sum(1 for row in rows if row.state == FlakinessState.CLEAN),
         totals_quarantined=sum(1 for row in rows if row.quarantine is not None),
         totals_needs_decision=sum(1 for row in rows if row.needs_decision),
         by_run_type=dict(Counter(row.run_type for row in rows)),
@@ -510,6 +525,7 @@ def _quarantine_only_raw(
         totals_unstable=0,
         totals_at_risk=0,
         totals_noisy=0,
+        totals_clean=len(rows),
         # Totals count the whole population, as they do on the normal path, so
         # the tiles stay right when the list is capped.
         totals_quarantined=len(rows),
@@ -768,6 +784,7 @@ class _FlakinessRaw:
     totals_unstable: int
     totals_at_risk: int
     totals_noisy: int
+    totals_clean: int
     totals_quarantined: int
     totals_needs_decision: int
     by_run_type: dict[str, int]
@@ -784,6 +801,7 @@ class _FlakinessRaw:
             totals_unstable=0,
             totals_at_risk=0,
             totals_noisy=0,
+            totals_clean=0,
             totals_quarantined=0,
             totals_needs_decision=0,
             by_run_type={},

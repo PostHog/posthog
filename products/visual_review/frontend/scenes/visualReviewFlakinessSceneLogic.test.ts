@@ -19,6 +19,7 @@ const overview: FlakinessOverviewApi = {
         unstable: 231,
         at_risk: 63,
         noisy: 604,
+        clean: 812,
         quarantined: 47,
         needs_decision: 12,
         by_run_type: {},
@@ -58,7 +59,7 @@ describe('visualReviewFlakinessSceneLogic', () => {
                 broken: 18,
                 unstable: 231,
                 at_risk: 63,
-                noisy: 604,
+                quiet: 1416,
                 quarantined: 47,
             })
         })
@@ -77,8 +78,9 @@ describe('visualReviewFlakinessSceneLogic', () => {
         // for, and an unrecognized value has to land somewhere workable rather
         // than filter every row away.
         it.each([
-            ['noisy', 'noisy'],
-            ['settled', 'noisy'],
+            ['quiet', 'quiet'],
+            ['settled', 'quiet'],
+            ['noisy', 'quiet'],
             ['broken', 'broken'],
             ['nonsense', 'needs_decision'],
         ])('resolves %s to the %s preset', async (hashValue, expected) => {

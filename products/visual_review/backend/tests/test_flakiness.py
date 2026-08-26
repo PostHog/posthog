@@ -146,6 +146,7 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
         run_type: str = RunType.STORYBOOK,
         branch: str = "master",
         baseline_hash: str = CURRENT_BASELINE,
+        tolerated_hash_match: ToleratedHash | None = None,
     ) -> None:
         """`count` default-branch runs that each rendered `identifier` that way.
 
@@ -164,6 +165,7 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
                 outcome=outcome,
                 diff_percentage=diff_percentage,
                 baseline_hash=baseline_hash,
+                tolerated_hash_match=tolerated_hash_match,
             )
 
     def _mk_variant(
@@ -319,9 +321,9 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
         # line is a hard failure waiting for the next unrelated restyle, and it
         # must not read the same as one with 250x of margin.
         _mk_snapshot(self.master_run, identifier="jittery")
-        self._mk_variant(identifier="jittery", alternate_hash="a")
-        self._render("jittery", outcome=SOFT_MATCH, count=5, diff_percentage=0.01)
-        self._render("jittery", outcome=SOFT_MATCH, diff_percentage=worst_diff)
+        variant = self._mk_variant(identifier="jittery", alternate_hash="a")
+        self._render("jittery", outcome=SOFT_MATCH, count=5, diff_percentage=0.01, tolerated_hash_match=variant)
+        self._render("jittery", outcome=SOFT_MATCH, diff_percentage=worst_diff, tolerated_hash_match=variant)
 
         entry = self._entry("jittery")
 
@@ -353,14 +355,59 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
         # only one reason loses either every first occurrence or every snapshot
         # that cycles through variants it already recorded.
         _mk_snapshot(self.master_run, identifier="jittery")
-        self._mk_variant(identifier="jittery", alternate_hash="a")
-        self._render("jittery", outcome=outcome, count=3, diff_percentage=0.02)
+        variant = self._mk_variant(identifier="jittery", alternate_hash="a")
+        self._render(
+            "jittery",
+            outcome=outcome,
+            count=3,
+            diff_percentage=0.02,
+            tolerated_hash_match=variant if outcome == SOFT_MATCH else None,
+        )
 
         entry = self._entry("jittery")
 
         assert entry is not None
         assert entry.soft_count == 3
         assert entry.last_flaked_at is not None
+
+    def test_a_deliberate_toleration_is_not_counted_as_rendering_noise(self):
+        # A human or agent toleration can accept a diff well over the pixel
+        # threshold, and the classifier copies that percentage onto every later
+        # match. Counting those as absorbed noise drove headroom to zero and
+        # labelled a snapshot somebody had already signed off on as at risk.
+        _mk_snapshot(self.master_run, identifier="accepted")
+        human = self._mk_variant(identifier="accepted", alternate_hash="a", reason=ToleratedReason.HUMAN)
+        auto = self._mk_variant(identifier="accepted", alternate_hash="b", diff_percentage=0.01)
+        for tolerated in (human, human, auto):
+            run = self._mk_default_branch_run(age=timedelta(hours=1))
+            _mk_snapshot(
+                run,
+                identifier="accepted",
+                outcome=SOFT_MATCH,
+                diff_percentage=12.0 if tolerated is human else 0.01,
+                tolerated_hash_match=tolerated,
+            )
+
+        entry = self._entry("accepted")
+
+        assert entry is not None
+        assert entry.soft_count == 1  # only the auto-minted match
+        assert entry.worst_soft_diff_percentage == 0.01
+        assert entry.flakiness_state == FlakinessState.NOISY
+
+    def test_the_rate_denominator_covers_the_same_days_as_its_numerator(self):
+        # The numerator is summed from per-day buckets while the denominator was
+        # counted from a timestamp, so the oldest partial day put runs in the
+        # denominator whose failures never reached the numerator. Every rate
+        # came out low, and how low depended on the time of day.
+        _mk_snapshot(self.master_run, identifier="story", outcome=HARD)
+        self._render("story", outcome=HARD, count=6, age=timedelta(days=FLAKINESS_RATE_DAYS - 1, hours=12))
+
+        entry = self._entry("story")
+
+        assert entry is not None
+        assert entry.hard_count == entry.window_runs
+        assert entry.hard_rate == 1.0
 
     @parameterized.expand(
         [
@@ -559,8 +606,8 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
         _mk_snapshot(self.master_run, identifier="muted")
         self._mk_quarantine("muted")
         _mk_snapshot(self.master_run, identifier="noisy")
-        self._mk_variant(identifier="noisy", alternate_hash="a")
-        self._render("noisy", outcome=SOFT_MATCH, count=5, diff_percentage=0.01)
+        variant = self._mk_variant(identifier="noisy", alternate_hash="a")
+        self._render("noisy", outcome=SOFT_MATCH, count=5, diff_percentage=0.01, tolerated_hash_match=variant)
 
         result = vr_api.get_flakiness_overview(self.repo.id)
 
@@ -587,9 +634,9 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
 
     def test_the_activity_strip_is_dense_split_and_places_today_last(self):
         _mk_snapshot(self.master_run, identifier="flaky")
-        self._mk_variant(identifier="flaky", alternate_hash="a")
+        variant = self._mk_variant(identifier="flaky", alternate_hash="a")
         self._render("flaky", outcome=HARD, age=timedelta(0))
-        self._render("flaky", outcome=SOFT_MATCH, age=timedelta(0), diff_percentage=0.01)
+        self._render("flaky", outcome=SOFT_MATCH, age=timedelta(0), diff_percentage=0.01, tolerated_hash_match=variant)
         self._render("flaky", outcome=HARD, age=timedelta(days=FLAKINESS_WINDOW_DAYS + 10))
 
         entry = self._entry("flaky")
@@ -624,8 +671,8 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
         _mk_snapshot(self.master_run, identifier="wrecked", outcome=HARD)
         self._render("wrecked", outcome=HARD, count=20)
         _mk_snapshot(self.master_run, identifier="jittery")
-        self._mk_variant(identifier="jittery", alternate_hash="a")
-        self._render("jittery", outcome=SOFT_MATCH, diff_percentage=0.01)
+        variant = self._mk_variant(identifier="jittery", alternate_hash="a")
+        self._render("jittery", outcome=SOFT_MATCH, diff_percentage=0.01, tolerated_hash_match=variant)
         _mk_snapshot(self.master_run, identifier="stable")
         self._mk_quarantine("wrecked")
 
@@ -640,8 +687,8 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
 
     def test_endpoint_serializes_the_overview(self):
         _mk_snapshot(self.master_run, identifier="flaky")
-        self._mk_variant(identifier="flaky", alternate_hash="a", diff_percentage=0.04)
-        self._render("flaky", outcome=SOFT_MATCH, diff_percentage=0.04)
+        variant = self._mk_variant(identifier="flaky", alternate_hash="a", diff_percentage=0.04)
+        self._render("flaky", outcome=SOFT_MATCH, diff_percentage=0.04, tolerated_hash_match=variant)
 
         url = f"/api/projects/{self.team.id}/visual_review/repos/{self.repo.id}/flakiness/"
         response = self.client.get(url)

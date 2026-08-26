@@ -150,7 +150,10 @@ The states are an urgency ladder, and each rung asks for a different fix:
 | `unstable` | Fails some runs and not others                                 | Stabilize the story, or quarantine it       |
 | `at_risk`  | Never fails, but its worst absorbed diff is near the threshold | Fix it before it starts failing             |
 | `noisy`    | Renders variants, absorbed with room to spare                  | Nothing                                     |
-| `clean`    | Matched its baseline on every run in the window                | Nothing                                     |
+| `clean`    | Nothing failing or absorbed inside the rate span               | Nothing                                     |
+
+The page groups `noisy` and `clean` under one "Quiet" tile, so every listed entry is reachable from some tile.
+A row can be listed for history the rate span no longer counts, and it would otherwise sit in the totals with no way to display it.
 
 `at_risk` exists because always being absorbed is not a safety property.
 A snapshot passes only while it stays under both diff thresholds, so one absorbed at 0.01% will never cross and one absorbed just under the line is a hard failure waiting for the next unrelated restyle.

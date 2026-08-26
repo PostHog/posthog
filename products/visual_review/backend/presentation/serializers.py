@@ -473,7 +473,16 @@ class FlakinessTotalsSerializer(DataclassSerializer):
     unstable = serializers.IntegerField(help_text="Identifiers whose `flakiness_state` is `unstable`.")
     at_risk = serializers.IntegerField(help_text="Identifiers whose `flakiness_state` is `at_risk`.")
     noisy = serializers.IntegerField(help_text="Identifiers whose `flakiness_state` is `noisy`.")
-    by_run_type = serializers.DictField(child=serializers.IntegerField())
+    clean = serializers.IntegerField(
+        help_text=(
+            "Identifiers whose `flakiness_state` is `clean`. They are listed because they carry live "
+            "variants or older history, and reported here so every listed entry is reachable."
+        )
+    )
+    by_run_type = serializers.DictField(
+        child=serializers.IntegerField(),
+        help_text="Listed identifiers per run type, so one suite's noise can be told from another's.",
+    )
 
     class Meta:
         dataclass = FlakinessTotals

@@ -391,6 +391,7 @@ def get_flakiness_overview(repo_id: UUID) -> contracts.FlakinessOverview:
         unstable=raw.totals_unstable,
         at_risk=raw.totals_at_risk,
         noisy=raw.totals_noisy,
+        clean=raw.totals_clean,
         quarantined=raw.totals_quarantined,
         needs_decision=raw.totals_needs_decision,
         by_run_type=raw.by_run_type,

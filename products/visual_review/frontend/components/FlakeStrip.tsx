@@ -38,17 +38,22 @@ function tickClassName(count: number, { isFaint, isHard }: { isFaint: boolean; i
  * what the day axis is for.
  */
 export function FlakeStrip({ dailyHardCounts, dailySoftCounts, baselineMovedDayIndex }: FlakeStripProps): JSX.Element {
-    const hardTotal = dailyHardCounts.reduce((sum, count) => sum + count, 0)
-    const softTotal = dailySoftCounts.reduce((sum, count) => sum + count, 0)
-    const windowStart = dayjs().subtract(dailyHardCounts.length - 1, 'day')
+    // Defaulted because a rolling deploy can hand this component a response from
+    // a pod that predates these fields, and a bare reduce would take the whole
+    // table down rather than one strip.
+    const hard = dailyHardCounts ?? []
+    const soft = dailySoftCounts ?? []
+    const hardTotal = hard.reduce((sum, count) => sum + count, 0)
+    const softTotal = soft.reduce((sum, count) => sum + count, 0)
+    const windowStart = dayjs().subtract(Math.max(hard.length, 1) - 1, 'day')
     const summary =
         hardTotal === 0 && softTotal === 0
-            ? `No difference from the baseline in the last ${dailyHardCounts.length} days`
-            : `${hardTotal} failing and ${softTotal} absorbed in the last ${dailyHardCounts.length} days, since ${windowStart.format('MMM D')}`
+            ? `No difference from the baseline in the last ${hard.length} days`
+            : `${hardTotal} failing and ${softTotal} absorbed in the last ${hard.length} days, since ${windowStart.format('MMM D')}`
 
     const rows: Array<{ counts: number[]; isHard: boolean }> = [
-        { counts: dailyHardCounts, isHard: true },
-        { counts: dailySoftCounts, isHard: false },
+        { counts: hard, isHard: true },
+        { counts: soft, isHard: false },
     ]
 
     return (

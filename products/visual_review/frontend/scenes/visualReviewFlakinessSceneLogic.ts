@@ -71,8 +71,10 @@ function matchesPreset(entry: DecoratedEntry, preset: FlakinessPreset): boolean 
         case 'broken':
         case 'unstable':
         case 'at_risk':
-        case 'noisy':
             return entry.flakiness_state === preset
+        // The catch-all. See `FlakinessStatRow` for why these two share a tile.
+        case 'quiet':
+            return entry.flakiness_state === 'noisy' || entry.flakiness_state === 'clean'
         case 'quarantined':
             return entry.is_quarantined
         case 'needs_decision':
@@ -125,14 +127,14 @@ function applyFilters(
     })
 }
 
-const PRESETS: readonly FlakinessPreset[] = ['needs_decision', 'broken', 'unstable', 'at_risk', 'noisy', 'quarantined']
+const PRESETS: readonly FlakinessPreset[] = ['needs_decision', 'broken', 'unstable', 'at_risk', 'quiet', 'quarantined']
 
 // `settled` was this page's name for "has variants, none recently" before it
-// scored on failure rate. Links carrying it predate that, and `noisy` is where
+// scored on failure rate. Links carrying it predate that, and `quiet` is where
 // those rows live now.
 function presetFromHash(value: string | undefined): FlakinessPreset {
-    if (value === 'settled') {
-        return 'noisy'
+    if (value === 'settled' || value === 'noisy') {
+        return 'quiet'
     }
     return PRESETS.includes(value as FlakinessPreset) ? (value as FlakinessPreset) : EMPTY_FILTERS.preset
 }
@@ -392,7 +394,7 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
                 broken: overview?.totals.broken ?? 0,
                 unstable: overview?.totals.unstable ?? 0,
                 at_risk: overview?.totals.at_risk ?? 0,
-                noisy: overview?.totals.noisy ?? 0,
+                quiet: (overview?.totals.noisy ?? 0) + (overview?.totals.clean ?? 0),
                 quarantined: overview?.totals.quarantined ?? 0,
             }),
         ],
