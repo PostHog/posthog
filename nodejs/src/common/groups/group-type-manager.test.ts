@@ -4,7 +4,7 @@ import { GroupTypeManager } from '~/common/groups/group-type-manager'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { captureTeamEvent } from '~/common/utils/posthog'
-import { createTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { createTeam, createTestTeamFixture, getTeam } from '~/tests/helpers/sql'
 import { Hub, ProjectId, TeamId } from '~/types'
 
 jest.mock('~/common/utils/posthog', () => ({
@@ -16,10 +16,14 @@ const TEST_TIMESTAMP = DateTime.fromISO('2020-01-01T00:00:00.000Z', { zone: 'utc
 describe('GroupTypeManager()', () => {
     let hub: Hub
     let groupTypeManager: GroupTypeManager
+    let teamId: TeamId
+    let projectId: ProjectId
 
     beforeEach(async () => {
         hub = await createHub()
-        await resetTestDatabase()
+        const fixture = await createTestTeamFixture(hub.postgres)
+        teamId = fixture.team.id as TeamId
+        projectId = fixture.team.project_id
         groupTypeManager = new GroupTypeManager(hub.groupRepository, hub.teamManager)
 
         jest.spyOn(hub.postgres, 'query')
@@ -33,23 +37,23 @@ describe('GroupTypeManager()', () => {
         it('fetches and caches the group types', async () => {
             jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27 11:00:05').getTime())
 
-            let groupTypes = await groupTypeManager.fetchGroupTypes(2 as ProjectId)
+            let groupTypes = await groupTypeManager.fetchGroupTypes(projectId)
             expect(groupTypes).toEqual({})
 
             jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27 11:00:25').getTime())
-            await hub.groupRepository.insertGroupType(2, 2 as ProjectId, 'foo', 0, TEST_TIMESTAMP)
-            await hub.groupRepository.insertGroupType(2, 2 as ProjectId, 'bar', 1, TEST_TIMESTAMP)
+            await hub.groupRepository.insertGroupType(teamId, projectId, 'foo', 0, TEST_TIMESTAMP)
+            await hub.groupRepository.insertGroupType(teamId, projectId, 'bar', 1, TEST_TIMESTAMP)
 
             jest.mocked(hub.postgres.query).mockClear()
 
-            groupTypes = await groupTypeManager.fetchGroupTypes(2 as ProjectId)
+            groupTypes = await groupTypeManager.fetchGroupTypes(projectId)
 
             expect(groupTypes).toEqual({})
             expect(hub.postgres.query).toHaveBeenCalledTimes(0)
 
             jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27 11:00:36').getTime())
 
-            groupTypes = await groupTypeManager.fetchGroupTypes(2 as ProjectId)
+            groupTypes = await groupTypeManager.fetchGroupTypes(projectId)
 
             expect(groupTypes).toEqual({
                 foo: 0,
@@ -59,50 +63,50 @@ describe('GroupTypeManager()', () => {
         })
 
         it('fetches group types that have been inserted', async () => {
-            expect(await groupTypeManager.fetchGroupTypes(2 as ProjectId)).toEqual({})
-            expect(await hub.groupRepository.insertGroupType(2, 2 as ProjectId, 'g0', 0, TEST_TIMESTAMP)).toEqual([
+            expect(await groupTypeManager.fetchGroupTypes(projectId)).toEqual({})
+            expect(await hub.groupRepository.insertGroupType(teamId, projectId, 'g0', 0, TEST_TIMESTAMP)).toEqual([
                 0,
                 true,
             ])
-            expect(await hub.groupRepository.insertGroupType(2, 2 as ProjectId, 'g1', 1, TEST_TIMESTAMP)).toEqual([
+            expect(await hub.groupRepository.insertGroupType(teamId, projectId, 'g1', 1, TEST_TIMESTAMP)).toEqual([
                 1,
                 true,
             ])
-            groupTypeManager['loader'].markForRefresh('2')
-            expect(await groupTypeManager.fetchGroupTypes(2 as ProjectId)).toEqual({ g0: 0, g1: 1 })
+            groupTypeManager['loader'].markForRefresh(String(projectId))
+            expect(await groupTypeManager.fetchGroupTypes(projectId)).toEqual({ g0: 0, g1: 1 })
         })
 
         it('handles conflicting by index when inserting and limits', async () => {
-            expect(await hub.groupRepository.insertGroupType(2, 2 as ProjectId, 'g0', 0, TEST_TIMESTAMP)).toEqual([
+            expect(await hub.groupRepository.insertGroupType(teamId, projectId, 'g0', 0, TEST_TIMESTAMP)).toEqual([
                 0,
                 true,
             ])
-            expect(await hub.groupRepository.insertGroupType(2, 2 as ProjectId, 'g1', 0, TEST_TIMESTAMP)).toEqual([
+            expect(await hub.groupRepository.insertGroupType(teamId, projectId, 'g1', 0, TEST_TIMESTAMP)).toEqual([
                 1,
                 true,
             ])
-            expect(await hub.groupRepository.insertGroupType(2, 2 as ProjectId, 'g2', 0, TEST_TIMESTAMP)).toEqual([
+            expect(await hub.groupRepository.insertGroupType(teamId, projectId, 'g2', 0, TEST_TIMESTAMP)).toEqual([
                 2,
                 true,
             ])
-            expect(await hub.groupRepository.insertGroupType(2, 2 as ProjectId, 'g3', 1, TEST_TIMESTAMP)).toEqual([
+            expect(await hub.groupRepository.insertGroupType(teamId, projectId, 'g3', 1, TEST_TIMESTAMP)).toEqual([
                 3,
                 true,
             ])
-            expect(await hub.groupRepository.insertGroupType(2, 2 as ProjectId, 'g4', 0, TEST_TIMESTAMP)).toEqual([
+            expect(await hub.groupRepository.insertGroupType(teamId, projectId, 'g4', 0, TEST_TIMESTAMP)).toEqual([
                 4,
                 true,
             ])
-            expect(await hub.groupRepository.insertGroupType(2, 2 as ProjectId, 'g5', 0, TEST_TIMESTAMP)).toEqual([
+            expect(await hub.groupRepository.insertGroupType(teamId, projectId, 'g5', 0, TEST_TIMESTAMP)).toEqual([
                 null,
                 false,
             ])
-            expect(await hub.groupRepository.insertGroupType(2, 2 as ProjectId, 'g6', 0, TEST_TIMESTAMP)).toEqual([
+            expect(await hub.groupRepository.insertGroupType(teamId, projectId, 'g6', 0, TEST_TIMESTAMP)).toEqual([
                 null,
                 false,
             ])
 
-            expect(await groupTypeManager.fetchGroupTypes(2 as ProjectId)).toEqual({
+            expect(await groupTypeManager.fetchGroupTypes(projectId)).toEqual({
                 g0: 0,
                 g1: 1,
                 g2: 2,
@@ -113,24 +117,24 @@ describe('GroupTypeManager()', () => {
 
         it('handles conflict by name when inserting', async () => {
             expect(
-                await hub.groupRepository.insertGroupType(2, 2 as ProjectId, 'group_name', 0, TEST_TIMESTAMP)
+                await hub.groupRepository.insertGroupType(teamId, projectId, 'group_name', 0, TEST_TIMESTAMP)
             ).toEqual([0, true])
             expect(
-                await hub.groupRepository.insertGroupType(2, 2 as ProjectId, 'group_name', 0, TEST_TIMESTAMP)
+                await hub.groupRepository.insertGroupType(teamId, projectId, 'group_name', 0, TEST_TIMESTAMP)
             ).toEqual([0, false])
             expect(
-                await hub.groupRepository.insertGroupType(2, 2 as ProjectId, 'group_name', 0, TEST_TIMESTAMP)
+                await hub.groupRepository.insertGroupType(teamId, projectId, 'group_name', 0, TEST_TIMESTAMP)
             ).toEqual([0, false])
-            expect(await hub.groupRepository.insertGroupType(2, 2 as ProjectId, 'foo', 0, TEST_TIMESTAMP)).toEqual([
+            expect(await hub.groupRepository.insertGroupType(teamId, projectId, 'foo', 0, TEST_TIMESTAMP)).toEqual([
                 1,
                 true,
             ])
-            expect(await hub.groupRepository.insertGroupType(2, 2 as ProjectId, 'foo', 0, TEST_TIMESTAMP)).toEqual([
+            expect(await hub.groupRepository.insertGroupType(teamId, projectId, 'foo', 0, TEST_TIMESTAMP)).toEqual([
                 1,
                 false,
             ])
 
-            expect(await groupTypeManager.fetchGroupTypes(2 as ProjectId)).toEqual({ group_name: 0, foo: 1 })
+            expect(await groupTypeManager.fetchGroupTypes(projectId)).toEqual({ group_name: 0, foo: 1 })
         })
     })
 
@@ -143,24 +147,24 @@ describe('GroupTypeManager()', () => {
             ['__proto__', '__proto__', null],
             ['constructor', 'constructor', null],
         ])('resolves %s without creating a mapping', async (_name, groupType, expected) => {
-            await hub.groupRepository.insertGroupType(2, 2 as ProjectId, 'g0', 0, TEST_TIMESTAMP)
+            await hub.groupRepository.insertGroupType(teamId, projectId, 'g0', 0, TEST_TIMESTAMP)
             jest.mocked(hub.groupRepository.insertGroupType).mockClear()
 
-            expect(await groupTypeManager.lookupGroupTypeIndex(2 as ProjectId, groupType)).toEqual(expected)
+            expect(await groupTypeManager.lookupGroupTypeIndex(projectId, groupType)).toEqual(expected)
             expect(hub.groupRepository.insertGroupType).not.toHaveBeenCalled()
         })
     })
 
     describe('fetchGroupTypeIndex()', () => {
         it('fetches an already existing value', async () => {
-            await hub.groupRepository.insertGroupType(2, 2 as ProjectId, 'foo', 0, TEST_TIMESTAMP)
-            await hub.groupRepository.insertGroupType(2, 2 as ProjectId, 'bar', 1, TEST_TIMESTAMP)
+            await hub.groupRepository.insertGroupType(teamId, projectId, 'foo', 0, TEST_TIMESTAMP)
+            await hub.groupRepository.insertGroupType(teamId, projectId, 'bar', 1, TEST_TIMESTAMP)
 
             jest.mocked(hub.postgres.query).mockClear()
             jest.mocked(hub.groupRepository.insertGroupType).mockClear()
 
-            expect(await groupTypeManager.fetchGroupTypeIndex(2, 2 as ProjectId, 'foo', TEST_TIMESTAMP)).toEqual(0)
-            expect(await groupTypeManager.fetchGroupTypeIndex(2, 2 as ProjectId, 'bar', TEST_TIMESTAMP)).toEqual(1)
+            expect(await groupTypeManager.fetchGroupTypeIndex(teamId, projectId, 'foo', TEST_TIMESTAMP)).toEqual(0)
+            expect(await groupTypeManager.fetchGroupTypeIndex(teamId, projectId, 'bar', TEST_TIMESTAMP)).toEqual(1)
 
             expect(hub.postgres.query).toHaveBeenCalledTimes(1)
             expect(hub.groupRepository.insertGroupType).toHaveBeenCalledTimes(0)
@@ -168,17 +172,17 @@ describe('GroupTypeManager()', () => {
         })
 
         it('inserts value if it does not exist yet at next index, resets cache', async () => {
-            await hub.groupRepository.insertGroupType(2, 2 as ProjectId, 'foo', 0, TEST_TIMESTAMP)
+            await hub.groupRepository.insertGroupType(teamId, projectId, 'foo', 0, TEST_TIMESTAMP)
 
             jest.mocked(hub.groupRepository.insertGroupType).mockClear()
             jest.mocked(hub.postgres.query).mockClear()
 
-            expect(await groupTypeManager.fetchGroupTypeIndex(2, 2 as ProjectId, 'second', TEST_TIMESTAMP)).toEqual(1)
+            expect(await groupTypeManager.fetchGroupTypeIndex(teamId, projectId, 'second', TEST_TIMESTAMP)).toEqual(1)
 
             expect(hub.groupRepository.insertGroupType).toHaveBeenCalledTimes(1)
             expect(hub.postgres.query).toHaveBeenCalledTimes(3) // FETCH + INSERT + Team lookup
 
-            const team = await getTeam(hub.postgres, 2)
+            const team = await getTeam(hub.postgres, teamId)
             expect(captureTeamEvent).toHaveBeenCalledWith(
                 expect.objectContaining({ id: team?.id }),
                 'group type ingested',
@@ -188,70 +192,70 @@ describe('GroupTypeManager()', () => {
                 }
             )
 
-            expect(await groupTypeManager.fetchGroupTypeIndex(2, 2 as ProjectId, 'third', TEST_TIMESTAMP)).toEqual(2)
+            expect(await groupTypeManager.fetchGroupTypeIndex(teamId, projectId, 'third', TEST_TIMESTAMP)).toEqual(2)
             jest.mocked(hub.postgres.query).mockClear()
 
-            expect(await groupTypeManager.fetchGroupTypes(2 as ProjectId)).toEqual({
+            expect(await groupTypeManager.fetchGroupTypes(projectId)).toEqual({
                 foo: 0,
                 second: 1,
                 third: 2,
             })
-            expect(await groupTypeManager.fetchGroupTypeIndex(2, 2 as ProjectId, 'second', TEST_TIMESTAMP)).toEqual(1)
-            expect(await groupTypeManager.fetchGroupTypeIndex(2, 2 as ProjectId, 'third', TEST_TIMESTAMP)).toEqual(2)
+            expect(await groupTypeManager.fetchGroupTypeIndex(teamId, projectId, 'second', TEST_TIMESTAMP)).toEqual(1)
+            expect(await groupTypeManager.fetchGroupTypeIndex(teamId, projectId, 'third', TEST_TIMESTAMP)).toEqual(2)
 
             expect(hub.postgres.query).toHaveBeenCalledTimes(1)
         })
 
         it('handles raciness for inserting a new group', async () => {
-            expect(await groupTypeManager.fetchGroupTypes(2 as ProjectId)).toEqual({})
+            expect(await groupTypeManager.fetchGroupTypes(projectId)).toEqual({})
 
-            await hub.groupRepository.insertGroupType(2, 2 as ProjectId, 'foo', 0, TEST_TIMESTAMP) // Emulate another thread inserting foo
-            expect(await groupTypeManager.fetchGroupTypeIndex(2, 2 as ProjectId, 'second', TEST_TIMESTAMP)).toEqual(1)
-            expect(await groupTypeManager.fetchGroupTypes(2 as ProjectId)).toEqual({
+            await hub.groupRepository.insertGroupType(teamId, projectId, 'foo', 0, TEST_TIMESTAMP) // Emulate another thread inserting foo
+            expect(await groupTypeManager.fetchGroupTypeIndex(teamId, projectId, 'second', TEST_TIMESTAMP)).toEqual(1)
+            expect(await groupTypeManager.fetchGroupTypes(projectId)).toEqual({
                 foo: 0,
                 second: 1,
             })
         })
 
         it('handles raciness for when same group type has already been inserted for team and project', async () => {
-            expect(await groupTypeManager.fetchGroupTypes(2 as ProjectId)).toEqual({})
+            expect(await groupTypeManager.fetchGroupTypes(projectId)).toEqual({})
 
             // Emulate another thread inserting group types, with both team and project the same
-            await hub.groupRepository.insertGroupType(2, 2 as ProjectId, 'foo', 0, TEST_TIMESTAMP)
-            await hub.groupRepository.insertGroupType(2, 2 as ProjectId, 'bar', 0, TEST_TIMESTAMP)
+            await hub.groupRepository.insertGroupType(teamId, projectId, 'foo', 0, TEST_TIMESTAMP)
+            await hub.groupRepository.insertGroupType(teamId, projectId, 'bar', 0, TEST_TIMESTAMP)
 
-            expect(await groupTypeManager.fetchGroupTypeIndex(2, 2 as ProjectId, 'bar', TEST_TIMESTAMP)).toEqual(1)
-            expect(await groupTypeManager.fetchGroupTypes(2 as ProjectId)).toEqual({
+            expect(await groupTypeManager.fetchGroupTypeIndex(teamId, projectId, 'bar', TEST_TIMESTAMP)).toEqual(1)
+            expect(await groupTypeManager.fetchGroupTypes(projectId)).toEqual({
                 foo: 0,
                 bar: 1,
             })
         })
 
         it('handles raciness for when same group type has already been inserted for project', async () => {
-            const otherTeamId = await createTeam(hub.postgres, 2 as ProjectId)
+            const otherTeamId = await createTeam(hub.postgres, projectId)
 
-            expect(await groupTypeManager.fetchGroupTypes(2 as ProjectId)).toEqual({})
+            expect(await groupTypeManager.fetchGroupTypes(projectId)).toEqual({})
 
             // Emulate another thread inserting group types, with the project the same
-            await hub.groupRepository.insertGroupType(2, 2 as ProjectId, 'foo', 0, TEST_TIMESTAMP)
-            await hub.groupRepository.insertGroupType(otherTeamId, 2 as ProjectId, 'bar', 0, TEST_TIMESTAMP)
+            await hub.groupRepository.insertGroupType(teamId, projectId, 'foo', 0, TEST_TIMESTAMP)
+            await hub.groupRepository.insertGroupType(otherTeamId, projectId, 'bar', 0, TEST_TIMESTAMP)
 
-            expect(await groupTypeManager.fetchGroupTypeIndex(2, 2 as ProjectId, 'bar', TEST_TIMESTAMP)).toEqual(1)
-            expect(await groupTypeManager.fetchGroupTypes(2 as ProjectId)).toEqual({
+            expect(await groupTypeManager.fetchGroupTypeIndex(teamId, projectId, 'bar', TEST_TIMESTAMP)).toEqual(1)
+            expect(await groupTypeManager.fetchGroupTypes(projectId)).toEqual({
                 foo: 0,
                 bar: 1,
             })
         })
 
         it('returns null once limit is met', async () => {
-            await hub.groupRepository.insertGroupType(2, 2 as ProjectId, 'g0', 0, TEST_TIMESTAMP)
-            await hub.groupRepository.insertGroupType(2, 2 as ProjectId, 'g1', 1, TEST_TIMESTAMP)
-            await hub.groupRepository.insertGroupType(2, 2 as ProjectId, 'g2', 2, TEST_TIMESTAMP)
-            await hub.groupRepository.insertGroupType(2, 2 as ProjectId, 'g3', 3, TEST_TIMESTAMP)
-            await hub.groupRepository.insertGroupType(2, 2 as ProjectId, 'g4', 4, TEST_TIMESTAMP)
+            await hub.groupRepository.insertGroupType(teamId, projectId, 'g0', 0, TEST_TIMESTAMP)
+            await hub.groupRepository.insertGroupType(teamId, projectId, 'g1', 1, TEST_TIMESTAMP)
+            await hub.groupRepository.insertGroupType(teamId, projectId, 'g2', 2, TEST_TIMESTAMP)
+            await hub.groupRepository.insertGroupType(teamId, projectId, 'g3', 3, TEST_TIMESTAMP)
+            await hub.groupRepository.insertGroupType(teamId, projectId, 'g4', 4, TEST_TIMESTAMP)
 
-            expect(await groupTypeManager.fetchGroupTypeIndex(2, 2 as ProjectId, 'new', TEST_TIMESTAMP)).toEqual(null)
-            expect(await groupTypeManager.fetchGroupTypes(2 as ProjectId)).toEqual({
+            expect(await groupTypeManager.fetchGroupTypeIndex(teamId, projectId, 'new', TEST_TIMESTAMP)).toEqual(null)
+            expect(await groupTypeManager.fetchGroupTypes(projectId)).toEqual({
                 g0: 0,
                 g1: 1,
                 g2: 2,
@@ -263,36 +267,34 @@ describe('GroupTypeManager()', () => {
         it('stamps created_at from the provided event timestamp', async () => {
             const eventTimestamp = DateTime.fromISO('2020-01-01T00:00:00.000Z', { zone: 'utc' })
 
-            expect(
-                await groupTypeManager.fetchGroupTypeIndex(2 as TeamId, 2 as ProjectId, 'foo', eventTimestamp)
-            ).toEqual(0)
+            expect(await groupTypeManager.fetchGroupTypeIndex(teamId, projectId, 'foo', eventTimestamp)).toEqual(0)
 
             const { rows } = await hub.postgres.query(
                 PostgresUse.PERSONS_WRITE,
-                "SELECT created_at FROM posthog_grouptypemapping WHERE project_id = 2 AND group_type = 'foo'",
-                undefined,
+                "SELECT created_at FROM posthog_grouptypemapping WHERE project_id = $1 AND group_type = 'foo'",
+                [projectId],
                 'fetchCreatedAt'
             )
             expect(DateTime.fromISO(rows[0].created_at).toMillis()).toEqual(eventTimestamp.toMillis())
         })
 
         it('uses next available index after a group type is deleted', async () => {
-            await hub.groupRepository.insertGroupType(2 as TeamId, 2 as ProjectId, 'A', 0, TEST_TIMESTAMP)
-            await hub.groupRepository.insertGroupType(2 as TeamId, 2 as ProjectId, 'B', 1, TEST_TIMESTAMP)
-            await hub.groupRepository.insertGroupType(2 as TeamId, 2 as ProjectId, 'C', 2, TEST_TIMESTAMP)
-            await hub.groupRepository.insertGroupType(2 as TeamId, 2 as ProjectId, 'D', 3, TEST_TIMESTAMP)
-            await hub.groupRepository.insertGroupType(2 as TeamId, 2 as ProjectId, 'E', 4, TEST_TIMESTAMP)
+            await hub.groupRepository.insertGroupType(teamId, projectId, 'A', 0, TEST_TIMESTAMP)
+            await hub.groupRepository.insertGroupType(teamId, projectId, 'B', 1, TEST_TIMESTAMP)
+            await hub.groupRepository.insertGroupType(teamId, projectId, 'C', 2, TEST_TIMESTAMP)
+            await hub.groupRepository.insertGroupType(teamId, projectId, 'D', 3, TEST_TIMESTAMP)
+            await hub.groupRepository.insertGroupType(teamId, projectId, 'E', 4, TEST_TIMESTAMP)
 
             // Simulate deleting group type E (@ index 4). this is normally performed by a
             // Django API endpoint which involves cache-busting, too. (we'll manually do this later)
             await hub.postgres.query(
                 PostgresUse.PERSONS_WRITE,
-                "DELETE FROM posthog_grouptypemapping WHERE project_id = 2 AND team_id = 2 AND group_type = 'E'",
-                undefined,
+                "DELETE FROM posthog_grouptypemapping WHERE project_id = $1 AND team_id = $2 AND group_type = 'E'",
+                [projectId, teamId],
                 'deleteGroupType'
             )
 
-            expect(await groupTypeManager.fetchGroupTypes(2 as ProjectId)).toEqual({
+            expect(await groupTypeManager.fetchGroupTypes(projectId)).toEqual({
                 A: 0,
                 B: 1,
                 C: 2,
@@ -301,10 +303,8 @@ describe('GroupTypeManager()', () => {
             })
 
             // Creating a new group type F should get index 4 (the now-free slot at the end)
-            expect(
-                await groupTypeManager.fetchGroupTypeIndex(2 as TeamId, 2 as ProjectId, 'F', TEST_TIMESTAMP)
-            ).toEqual(4)
-            expect(await groupTypeManager.fetchGroupTypes(2 as ProjectId)).toEqual({
+            expect(await groupTypeManager.fetchGroupTypeIndex(teamId, projectId, 'F', TEST_TIMESTAMP)).toEqual(4)
+            expect(await groupTypeManager.fetchGroupTypes(projectId)).toEqual({
                 A: 0,
                 B: 1,
                 C: 2,
@@ -315,14 +315,14 @@ describe('GroupTypeManager()', () => {
             // Simulate deleting group type C (@ index 2)
             await hub.postgres.query(
                 PostgresUse.PERSONS_WRITE,
-                "DELETE FROM posthog_grouptypemapping WHERE project_id = 2 AND team_id = 2 AND group_type = 'C'",
-                undefined,
+                "DELETE FROM posthog_grouptypemapping WHERE project_id = $1 AND team_id = $2 AND group_type = 'C'",
+                [projectId, teamId],
                 'deleteGroupType'
             )
-            // Bust the cache for project 2 as we've made a call to `.fetchGroupTypes()` earlier
+            // Bust the cache as we've made a call to `.fetchGroupTypes()` earlier
             // that cached the state of the group types.
-            groupTypeManager['loader'].markForRefresh('2')
-            expect(await groupTypeManager.fetchGroupTypes(2 as ProjectId)).toEqual({
+            groupTypeManager['loader'].markForRefresh(String(projectId))
+            expect(await groupTypeManager.fetchGroupTypes(projectId)).toEqual({
                 A: 0,
                 B: 1,
                 // C: 2,  // C is now deleted
@@ -331,10 +331,8 @@ describe('GroupTypeManager()', () => {
             })
 
             // Creating a new group type G should get index 2 (the now-free slot)
-            expect(
-                await groupTypeManager.fetchGroupTypeIndex(2 as TeamId, 2 as ProjectId, 'G', TEST_TIMESTAMP)
-            ).toEqual(2)
-            expect(await groupTypeManager.fetchGroupTypes(2 as ProjectId)).toEqual({
+            expect(await groupTypeManager.fetchGroupTypeIndex(teamId, projectId, 'G', TEST_TIMESTAMP)).toEqual(2)
+            expect(await groupTypeManager.fetchGroupTypes(projectId)).toEqual({
                 A: 0,
                 B: 1,
                 G: 2,

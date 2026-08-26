@@ -39,8 +39,11 @@ jobs:
         runs-on: ubuntu-24.04
         timeout-minutes: 10
         # Skip on workflow_dispatch — always build everything (escape hatch)
+        # Skipped on trunk-merge/** branches: merge-queue PRs are ephemeral, nothing
+        # pulls images pushed for them, and each constituent PR already built its own.
         if: >-
             github.event_name != 'workflow_dispatch' &&
+            !startsWith(github.head_ref, 'trunk-merge/') &&
             (github.event_name != 'pull_request' ||
              github.event.pull_request.head.repo.full_name == github.repository)
         permissions:
@@ -78,8 +81,11 @@ jobs:
         # and a skipped need would otherwise cascade a skip here. !cancelled() covers that
         # while still stopping the build after manual workflow cancellation.
         # Run unless affected explicitly found zero images ('none') or failed.
+        # The trunk-merge guard is repeated here because a skipped 'affected' leaves
+        # image-filter empty, which this condition would otherwise treat as buildable.
         if: |
             !cancelled() &&
+            !startsWith(github.head_ref, 'trunk-merge/') &&
             (github.event_name != 'pull_request' ||
              github.event.pull_request.head.repo.full_name == github.repository) &&
             needs.affected.result != 'failure' &&
@@ -126,9 +132,6 @@ jobs:
                     - release: capture-replay
                       digest_key: capture
                       values_key: image
-                    - release: cyclotron
-                      digest_key: cyclotron-janitor
-                      values_key: janitor_image
                     - release: property-defs-rs
                       digest_key: property-defs-rs
                       values_key: image
@@ -203,6 +206,9 @@ jobs:
                       values_key: image
                     - release: hypercache-server
                       digest_key: hypercache-server
+                      values_key: image
+                    - release: usage-ingestion
+                      digest_key: usage-ingestion
                       values_key: image
         steps:
             - name: check if image was built

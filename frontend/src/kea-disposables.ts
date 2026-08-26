@@ -19,11 +19,19 @@ export type DisposablesManager = {
     registry: Map<string, DisposableEntry>
     keyCounter: number
     logicPath: string
+    /**
+     * True once the logic has begun its final unmount. It is set before the registered cleanups
+     * run, so a cleanup that wakes a continuation already sees an inert manager. `add` and
+     * `dispose` do nothing from that point on, which is what lets async work that outlives the
+     * unmount call them unconditionally. Read it when the continuation itself must stop early,
+     * for instance before reading `values` on a logic whose reducers are already detached.
+     */
+    isDisposed: boolean
 }
 
 // Type for logic with disposables added
 type LogicWithCache = BuiltLogic & {
-    cache: { disposables?: DisposablesManager | null; [key: string]: any }
+    cache: { disposables?: DisposablesManager; [key: string]: any }
 }
 
 // Global state for visibility tracking
@@ -110,14 +118,15 @@ const initializeDisposablesManager = (logic: LogicWithCache): void => {
         return
     }
 
-    const getManager = (): DisposablesManager => logic.cache.disposables!
-
     const manager: DisposablesManager = {
         registry: new Map(),
         keyCounter: 0,
         logicPath: logic.pathString,
+        isDisposed: false,
         add: (setup: SetupFunction, key?: string, options?: DisposableOptions) => {
-            const manager = getManager()
+            if (manager.isDisposed) {
+                return
+            }
             const disposableKey = key ?? `__auto_${manager.keyCounter++}`
             const disposableOptions: DisposableOptions = { pauseOnPageHidden: true, ...options }
 
@@ -154,7 +163,9 @@ const initializeDisposablesManager = (logic: LogicWithCache): void => {
             }
         },
         dispose: (key: string) => {
-            const manager = getManager()
+            if (manager.isDisposed) {
+                return false
+            }
             if (!manager.registry.has(key)) {
                 return false
             }
@@ -258,6 +269,12 @@ const initializeDisposablesManager = (logic: LogicWithCache): void => {
  * // Stop polling without unmounting
  * cache.disposables.dispose('pollingInterval')
  * ```
+ *
+ * ## Safe to call after unmount
+ *
+ * `add` and `dispose` become no-ops once the logic unmounts, so a listener or loader that resumes
+ * after the unmount can call them without a null check. When such a continuation must also skip
+ * work of its own (dispatching an action, reading `values`), branch on `cache.disposables.isDisposed`.
  */
 export const disposablesPlugin: KeaPlugin = {
     name: 'disposables',
@@ -268,16 +285,25 @@ export const disposablesPlugin: KeaPlugin = {
         },
         beforeUnmount(logic) {
             const typedLogic = logic as LogicWithCache
+            const manager = typedLogic.cache.disposables
             // Only dispose on final unmount when logic.isMounted() becomes false
-            if (!typedLogic.isMounted() && typedLogic.cache.disposables) {
+            if (!typedLogic.isMounted() && manager && !manager.isDisposed) {
                 // Unregister from global visibility tracking
-                globalVisibilityState.allManagers.delete(typedLogic.cache.disposables)
+                globalVisibilityState.allManagers.delete(manager)
 
-                // Clean up all disposables
-                typedLogic.cache.disposables.registry.forEach((entry) => {
+                // Marked before the cleanups run, so that anything a cleanup wakes up (an aborted
+                // request resuming inside a `finally`, for instance) sees an inert manager rather
+                // than re-registering a resource on a logic that is going away.
+                manager.isDisposed = true
+
+                // Clean up all disposables. The manager itself stays on the cache instead of being
+                // nulled, because async work that outlives the unmount still reaches for
+                // `cache.disposables.dispose(...)`, and a null there throws a TypeError out of the
+                // continuation rather than doing nothing.
+                manager.registry.forEach((entry) => {
                     safeCleanup(entry.cleanup, typedLogic.pathString)
                 })
-                typedLogic.cache.disposables = null
+                manager.registry.clear()
 
                 // Detach global listener if no more managers
                 detachGlobalVisibilityListener()

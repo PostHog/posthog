@@ -1,6 +1,7 @@
 import { useDroppable } from "@dnd-kit/react";
 import { Plus, SquareSplitHorizontalIcon, X } from "@phosphor-icons/react";
 import { useHostTRPCClient } from "@posthog/host-router/react";
+import { CONTENT_CHROME_RIGHT_VAR } from "@posthog/ui/features/navigation/rightPanelSide";
 import { PanelDropZones } from "@posthog/ui/features/panels/components/PanelDropZones";
 import type { SplitDirection } from "@posthog/ui/features/panels/panelLayoutStore";
 import type { PanelContent } from "@posthog/ui/features/panels/panelTypes";
@@ -21,8 +22,10 @@ const hiddenTabStyle: React.CSSProperties = {
   top: 0,
   left: 0,
   visibility: "hidden",
+  contentVisibility: "hidden",
   pointerEvents: "none",
 };
+const MAX_MOUNTED_TABS = 5;
 
 interface TabBarButtonProps {
   ariaLabel: string;
@@ -94,8 +97,8 @@ export const TabbedPanel: React.FC<TabbedPanelProps> = ({
   const hostClient = useHostTRPCClient();
   const [mountedTabs, setMountedTabs] = useState<{
     scopeKey: string;
-    tabIds: Set<string>;
-  }>(() => ({ scopeKey: mountScopeKey, tabIds: new Set() }));
+    tabIds: string[];
+  }>(() => ({ scopeKey: mountScopeKey, tabIds: [] }));
 
   useEffect(() => {
     if (!content.activeTabId) return;
@@ -103,16 +106,49 @@ export const TabbedPanel: React.FC<TabbedPanelProps> = ({
       if (current.scopeKey !== mountScopeKey) {
         return {
           scopeKey: mountScopeKey,
-          tabIds: new Set([content.activeTabId]),
+          tabIds: [content.activeTabId],
         };
       }
-      if (current.tabIds.has(content.activeTabId)) return current;
+      const nextTabIds = current.tabIds.filter(
+        (tabId) => tabId !== content.activeTabId,
+      );
+      nextTabIds.push(content.activeTabId);
       return {
         scopeKey: mountScopeKey,
-        tabIds: new Set(current.tabIds).add(content.activeTabId),
+        tabIds: nextTabIds.slice(-MAX_MOUNTED_TABS),
       };
     });
   }, [content.activeTabId, mountScopeKey]);
+
+  const mountedTabIds =
+    mountedTabs.scopeKey === mountScopeKey
+      ? mountedTabs.tabIds
+          .filter((tabId) => tabId !== content.activeTabId)
+          .concat(content.activeTabId ?? [])
+          .slice(-MAX_MOUNTED_TABS)
+      : content.activeTabId
+        ? [content.activeTabId]
+        : [];
+  const mountedTabIdSet = new Set(mountedTabIds);
+  const mountedTabContent = content.tabs.reduce<React.ReactNode[]>(
+    (renderedTabs, tab) => {
+      if (tab.id !== content.activeTabId && !mountedTabIdSet.has(tab.id)) {
+        return renderedTabs;
+      }
+      renderedTabs.push(
+        <div
+          key={tab.id}
+          style={
+            tab.id === content.activeTabId ? activeTabStyle : hiddenTabStyle
+          }
+        >
+          {tab.component}
+        </div>,
+      );
+      return renderedTabs;
+    },
+    [],
+  );
 
   const handleSplitClick = async () => {
     const result = await hostClient.contextMenu.showSplitContextMenu.mutate();
@@ -191,6 +227,7 @@ export const TabbedPanel: React.FC<TabbedPanelProps> = ({
           <Flex
             ref={tabBarRef}
             className="scrollbar-overlay absolute top-0 right-0 left-0 h-[36px] items-start"
+            style={{ right: `var(${CONTENT_CHROME_RIGHT_VAR}, 0px)` }}
           >
             {content.tabs.map((tab, index) => (
               <PanelTab
@@ -240,6 +277,7 @@ export const TabbedPanel: React.FC<TabbedPanelProps> = ({
             <Flex
               align="center"
               className="absolute top-0 right-0 h-[32px] border-b border-b-(--gray-6) border-l border-l-(--gray-6) bg-(--color-background)"
+              style={{ right: `var(${CONTENT_CHROME_RIGHT_VAR}, 0px)` }}
             >
               {rightContent}
               {onClosePanel && (
@@ -272,25 +310,7 @@ export const TabbedPanel: React.FC<TabbedPanelProps> = ({
       >
         {content.tabs.length > 0 &&
         content.tabs.some((t) => t.id === content.activeTabId) ? (
-          content.tabs
-            .filter(
-              (tab) =>
-                tab.id === content.activeTabId ||
-                (mountedTabs.scopeKey === mountScopeKey &&
-                  mountedTabs.tabIds.has(tab.id)),
-            )
-            .map((tab) => (
-              <div
-                key={tab.id}
-                style={
-                  tab.id === content.activeTabId
-                    ? activeTabStyle
-                    : hiddenTabStyle
-                }
-              >
-                {tab.component}
-              </div>
-            ))
+          mountedTabContent
         ) : emptyState ? (
           emptyState
         ) : (

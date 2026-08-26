@@ -69,11 +69,22 @@ from posthog_owners import OwnersResolver
 
 logger = logging.getLogger("report_test_timings")
 
+
+def find_repo_root(path: Path) -> Path:
+    """Find the checkout root without depending on this script's directory depth."""
+    for parent in path.resolve().parents:
+        if (parent / "owners.yaml").is_file() and (parent / ".github").is_dir():
+            return parent
+    raise RuntimeError(f"Could not find the repository root from {path}")
+
+
+REPO_ROOT = find_repo_root(Path(__file__))
 DEFAULT_OTLP_ENDPOINT = "https://us.i.posthog.com/i/v1/traces"
 Runner = Literal["pytest", "jest"]
 
 DEFAULT_RUNNER: Runner = "pytest"
 SERVICE_NAMES: dict[Runner, str] = {"pytest": "ci-backend", "jest": "ci-frontend"}
+SUITE_SERVICE_NAMES: dict[str, str] = {"nodejs": "ci-nodejs", "replay-shared": "ci-frontend"}
 INSTRUMENTATION_NAME = "posthog-ci-test-timings"
 INSTRUMENTATION_VERSION = "0.1.0"
 JEST_QUARANTINE_SIGNAL_GLOB = "posthog-jest-quarantine-*.jsonl"
@@ -92,8 +103,9 @@ class TestCase:
     end: datetime
     outcome: str  # passed | failed | error | skipped | xfailed | rerun_passed
     attempts: int  # 1 + number of pytest-rerunfailures retries before final outcome
-    file: str  # normalized repo-relative test file; '' when JUnit omitted or escaped the repo
-    selector: str  # runnable runner-specific selector; '' when JUnit omitted the file
+    file: str  # normalized repo-relative test file; '' when no checked-in file can be found
+    file_source: Literal["junit", "inferred", "missing"]
+    selector: str  # runnable runner-specific selector; '' when the file cannot be found
 
 
 @dataclass(frozen=True)
@@ -127,6 +139,11 @@ class Shard:
     # the trace exporter can emit it as its own span instead of letting it visually
     # collapse into the first test. Zero when the plugin didn't run (external shards).
     setup_seconds: float = 0.0
+    # Per-testsuite (per test file for jest) launch+teardown seconds: suite wall time
+    # minus that file's testcase durations, one entry per testsuite in XML order. Module
+    # load, setupFilesAfterEnv, worker boot, per-file teardown — wall time no test is
+    # billed for. Works in both serial and parallel layouts.
+    file_launch_seconds: list[float] | None = None
 
 
 # ---------- artifact directory parsing ----------
@@ -135,7 +152,7 @@ class Shard:
 def split_artifact_name(name_parts: list[str]) -> tuple[str, str]:
     if not name_parts:
         return "", ""
-    if name_parts[0] in ("backend", "frontend") and len(name_parts) > 1:
+    if name_parts[0] in ("backend", "frontend", "nodejs") and len(name_parts) > 1:
         return name_parts[0], "-".join(name_parts[1:])
     return "-".join(name_parts), "-".join(name_parts)
 
@@ -271,25 +288,66 @@ def to_pytest_selector(file: str, classname: str, name: str) -> str:
     return ""
 
 
-def normalize_jest_file(file: str) -> str:
-    """Normalize Jest's frontend-working-directory path into a repo-relative path."""
+def normalize_jest_file(file: str, jest_root: str = "frontend") -> str:
+    """Normalize Jest's working-directory-relative path into a repo-relative path.
+
+    The jest cwd differs per suite: frontend tests run from ``frontend/`` (their ``file``
+    attribute escapes to siblings as ``../products/...``), nodejs tests from ``nodejs/``,
+    and replay-shared from ``common/replay-shared/``. Joining onto the wrong root either
+    mangles the path or drops the file as un-normalizable, so the root follows the
+    artifact's suite.
+    """
     if not file:
         return ""
-    normalized = posixpath.normpath(posixpath.join("frontend", file.replace("\\", "/")))
+    normalized = posixpath.normpath(posixpath.join(jest_root, file.replace("\\", "/")))
     if normalized == ".." or normalized.startswith("../") or normalized.startswith("/"):
         return ""
     return normalized
 
 
-def test_identity(runner: Runner, file: str, classname: str, name: str) -> tuple[str, str, str]:
-    """Return normalized (file, stable id, runnable selector) for one runner's JUnit shape."""
+def jest_root_for_suite(suite: str) -> str:
+    if suite == "nodejs":
+        return "nodejs"
+    if suite == "replay-shared":
+        return "common/replay-shared"
+    return "frontend"
+
+
+def infer_pytest_file(classname: str) -> str:
+    """Find a safe pytest file path from a JUnit classname."""
+    parts = classname.split(".")
+    if not parts or any(not part or "/" in part or "\\" in part for part in parts):
+        return ""
+
+    for module_length in range(len(parts), 0, -1):
+        candidate = REPO_ROOT.joinpath(*parts[:module_length]).with_suffix(".py")
+        if candidate.is_file():
+            return candidate.relative_to(REPO_ROOT).as_posix()
+
+    for module_length, part in enumerate(parts, start=1):
+        if part.startswith("test_") or part.endswith("_test"):
+            return Path(*parts[:module_length]).with_suffix(".py").as_posix()
+    return ""
+
+
+def test_identity(
+    runner: Runner, file: str, classname: str, name: str, jest_root: str = "frontend"
+) -> tuple[str, str, str, Literal["junit", "inferred", "missing"]]:
+    """Return normalized file, stable id, selector, and file source for one runner's JUnit shape."""
     if runner == "jest":
-        normalized_file = normalize_jest_file(file)
+        normalized_file = normalize_jest_file(file, jest_root)
         selector = f"{normalized_file}::{name}" if normalized_file and name else ""
-        return normalized_file, selector or name, selector
-    # Products run pytest with `--rootdir ../..`, so `file`/`classname` are already
-    # repo-relative (`products/<name>/...`) — no prefixing needed here.
-    return file, to_pytest_nodeid(classname, name), to_pytest_selector(file, classname, name)
+        file_source: Literal["junit", "inferred", "missing"] = "junit" if normalized_file else "missing"
+        return normalized_file, selector or name, selector, file_source
+
+    normalized_file = file or infer_pytest_file(classname)
+    file_source = "junit" if file else "inferred" if normalized_file else "missing"
+    return (
+        normalized_file,
+        to_pytest_nodeid(classname, name),
+        to_pytest_selector(normalized_file, classname, name),
+        file_source,
+    )
 
 
 def product_name(junit_filename: str) -> str:
@@ -314,6 +372,8 @@ def product_shard_info(info: ArtifactInfo, junit_filename: str) -> ArtifactInfo:
 
 
 _FLAT_JEST_JUNIT_NAME = re.compile(r"^junit-(?P<segment>.+)-(?P<chunk>\d+)\.xml$")
+_FLAT_NODEJS_JUNIT_NAME = re.compile(r"^junit-nodejs-(?P<chunk>\d+)\.xml$")
+_FLAT_NODEJS_VARIANT_JUNIT_NAME = re.compile(r"^junit-nodejs-(?P<segment>.+)\.xml$")
 
 
 def flat_shard_info(info: ArtifactInfo, junit_filename: str, runner: Runner) -> ArtifactInfo:
@@ -326,6 +386,26 @@ def flat_shard_info(info: ArtifactInfo, junit_filename: str, runner: Runner) -> 
     """
     if not info.flat or runner != "jest":
         return info
+    match = _FLAT_NODEJS_JUNIT_NAME.match(junit_filename)
+    if match is not None:
+        return replace(
+            info,
+            suite="nodejs",
+            segment=f"shard-{match.group('chunk')}",
+            group=int(match.group("chunk")),
+            total=None,
+            attempt=current_run_attempt(),
+        )
+    match = _FLAT_NODEJS_VARIANT_JUNIT_NAME.match(junit_filename)
+    if match is not None:
+        return replace(
+            info,
+            suite="nodejs",
+            segment=match.group("segment"),
+            group=None,
+            total=None,
+            attempt=current_run_attempt(),
+        )
     match = _FLAT_JEST_JUNIT_NAME.match(junit_filename)
     if match is None:
         return info
@@ -410,29 +490,44 @@ def parse_shard(
     if not suite_elements:
         return None
 
+    info = flat_shard_info(product_shard_info(info, xml_path.name), xml_path.name, runner)
+    jest_root = jest_root_for_suite(info.suite)
+
+    # jest-junit writes one <testsuite> per test file, each with a real start timestamp
+    # and its own `perfStats.runtime` as `time`, in both serial and parallel layouts — so
+    # the same parsing path serves both and no serial-specific reconstruction is needed.
     tests: list[TestCase] = []
-    suite_windows: list[tuple[datetime, datetime]] = []
+    file_durations: list[float] = []
+    file_launch_seconds: list[float] = []
     setup_seconds = 0.0
+    # Per-suite timestamps for wall bounds. jest-junit gives each testsuite (= test file)
+    # its own start timestamp + per-file `time` (= perfStats.runtime), so the union of
+    # per-suite spans is the shard's wall in both serial and parallel layouts. Per-file
+    # launch+teardown is suite_time - sum(test durations): module load, setupFilesAfterEnv,
+    # worker boot, per-file teardown. That's the "time wasted in setup" signal.
+    per_suite_anchor: list[tuple[datetime | None, float, float]] = []
+    suite_spans: list[tuple[datetime, datetime]] = []
     for suite_elem in suite_elements:
         suite_start = parse_iso_utc(suite_elem.get("timestamp", ""))
-        if suite_start is None:
-            continue
         try:
-            wall_seconds = max(0.0, float(suite_elem.get("time", "0")))
+            suite_wall = max(0.0, float(suite_elem.get("time", "0")))
         except ValueError:
-            wall_seconds = 0.0
+            suite_wall = 0.0
+        if suite_start is not None:
+            suite_spans.append((suite_start, suite_start + timedelta(seconds=suite_wall)))
         properties = parse_testsuite_properties(suite_elem)
         try:
             suite_setup_seconds = max(0.0, float(properties.get("posthog.setup_seconds", "0")))
         except ValueError:
             suite_setup_seconds = 0.0
-        suite_setup_seconds = min(suite_setup_seconds, wall_seconds)
+        suite_setup_seconds = min(suite_setup_seconds, suite_wall)
         setup_seconds += suite_setup_seconds
-        cursor = suite_start + timedelta(seconds=suite_setup_seconds)
+        per_suite_anchor.append((suite_start, suite_setup_seconds, suite_wall))
+        file_testcase_seconds = 0.0
         for tc in suite_elem.iter("testcase"):
             classname = tc.get("classname", "")
             name = tc.get("name", "")
-            file, nodeid, selector = test_identity(runner, tc.get("file", ""), classname, name)
+            file, nodeid, selector, file_source = test_identity(runner, tc.get("file", ""), classname, name, jest_root)
             outcome, attempts = classify_testcase(tc)
             if outcome == "passed" and nodeid in quarantined_test_ids:
                 outcome = "xfailed"
@@ -446,40 +541,64 @@ def parse_shard(
                         duration += max(0.0, float(child.get("time", "0")))
                     except ValueError:
                         pass
-            test_start = cursor
-            test_end = cursor + timedelta(seconds=duration)
-            cursor = test_end
+            file_testcase_seconds += duration
             tests.append(
                 TestCase(
                     nodeid=nodeid,
                     classname=classname,
                     name=name,
                     file=file,
+                    file_source=file_source,
                     selector=selector,
                     duration_seconds=duration,
-                    start=test_start,
-                    end=test_end,
+                    start=datetime.min,
+                    end=datetime.min,
                     outcome=outcome,
                     attempts=attempts,
                 )
             )
-        suite_windows.append((suite_start, suite_start + timedelta(seconds=wall_seconds)))
+        file_durations.append(file_testcase_seconds)
+        file_launch_seconds.append(max(0.0, suite_wall - file_testcase_seconds))
 
-    if not suite_windows:
+    if not file_durations:
         return None
-    start = min(window[0] for window in suite_windows)
-    end = max(window[1] for window in suite_windows)
+
+    # Wall bounds from the union of per-suite spans (works for both serial and parallel
+    # layouts: serial suites tile, parallel suites overlap — either way the span extrema
+    # bound the run).
+    if not suite_spans:
+        return None
+    start = min(span[0] for span in suite_spans)
+    end = max(span[1] for span in suite_spans)
     wall_seconds = (end - start).total_seconds()
-    testcase_seconds = sum(t.duration_seconds for t in tests)
+    testcase_seconds = sum(file_durations)
+
+    # Per-test windows: each suite's tests run contiguously from that suite's own
+    # (timestamp + setup gap) anchor — the historical behavior for both runners.
+    tests_with_windows: list[TestCase] = []
+    cursor_index = 0
+    for suite_index, suite_elem in enumerate(suite_elements):
+        case_count = sum(1 for _ in suite_elem.iter("testcase"))
+        suite_test_start, suite_setup, _ = per_suite_anchor[suite_index]
+        anchor = suite_test_start + timedelta(seconds=suite_setup) if suite_test_start is not None else None
+        for _ in range(case_count):
+            test = tests[cursor_index]
+            base = anchor if anchor is not None else start
+            repl = replace(test, start=base, end=base + timedelta(seconds=test.duration_seconds))
+            anchor = repl.end
+            tests_with_windows.append(repl)
+            cursor_index += 1
+
     return Shard(
-        info=flat_shard_info(product_shard_info(info, xml_path.name), xml_path.name, runner),
+        info=info,
         junit_filename=xml_path.name,
         start=start,
         end=end,
         testcase_seconds=testcase_seconds,
         overhead_seconds=max(0.0, wall_seconds - testcase_seconds),
-        tests=tests,
+        tests=tests_with_windows,
         setup_seconds=setup_seconds,
+        file_launch_seconds=file_launch_seconds,
     )
 
 
@@ -534,6 +653,7 @@ def filter_shards(
             overhead_seconds=s.overhead_seconds,
             tests=kept_tests(s),
             setup_seconds=s.setup_seconds,
+            file_launch_seconds=s.file_launch_seconds,
         )
         for s in shards
     ]
@@ -695,6 +815,12 @@ def emit_traces(shards: list[Shard], endpoint: str, token: str, runner: Runner =
     run_id = os.environ.get("GITHUB_RUN_ID", "0")
     run_attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "1")
     service_name = SERVICE_NAMES[runner]
+    suites = {shard.info.suite for shard in shards}
+    if runner == "jest" and suites:
+        # Prefer a jest sub-suite label (ci-nodejs, ci-frontend) when the artifact run is
+        # homogeneous; GITHUB_WORKFLOW's real value still rides on ci.workflow either way.
+        if len(suites) == 1:
+            service_name = SUITE_SERVICE_NAMES.get(next(iter(suites)), service_name)
     workflow = os.environ.get("GITHUB_WORKFLOW", "") or service_name
 
     id_generator = _FixedTraceIdGenerator()
@@ -760,6 +886,9 @@ def _emit_shard_span(
             test_span.set_attribute("test.attempts", test.attempts)
             test_span.set_attribute("test.classname", test.classname)
             test_span.set_attribute("test.name", test.name)
+            if test.file:
+                test_span.set_attribute("test.file", test.file)
+            test_span.set_attribute("test.file_source", test.file_source)
             if test.selector:
                 test_span.set_attribute("test.selector", test.selector)
             owner_team = owner_of(test.file)
@@ -774,6 +903,87 @@ def _emit_shard_span(
         shard_span.set_status(Status(StatusCode.ERROR))
     shard_span.end(end_time=_to_ns(shard.end))
     return has_error
+
+
+# ---------- timings JSON ----------
+
+TIMINGS_SCHEMA_VERSION = 1
+
+
+def _percentile(sorted_values: list[float], fraction: float) -> float:
+    """Nearest-rank percentile; the values come in pre-sorted."""
+    if not sorted_values:
+        return 0.0
+    index = min(len(sorted_values) - 1, max(0, math.ceil(fraction * len(sorted_values)) - 1))
+    return sorted_values[index]
+
+
+def shard_metrics(shard: Shard) -> dict[str, Any]:
+    """Per-job (one JUnit XML) timings payload consumed by bin/report-jest-timings."""
+    info = shard.info
+    wall_seconds = (shard.end - shard.start).total_seconds()
+
+    # Per-file launch+teardown, aligned to the distinct-file order the suites emit.
+    # filter_shards drops tests but keeps file_launch_seconds aligned by construction
+    # only when the kept tests preserve every file's first appearance, so rebuild the
+    # expensive split from the full shard whenever it's still consistent, and degrade
+    # to shard-level totals otherwise.
+    launch_overhead: dict[str, float] = {}
+    if shard.file_launch_seconds:
+        files = list(dict.fromkeys(t.file for t in shard.tests))
+        if len(files) == len(shard.file_launch_seconds):
+            launch_overhead = {file: max(0.0, v) for file, v in zip(files, shard.file_launch_seconds)}
+    launch_seconds = sum(launch_overhead.values()) if launch_overhead else sum(shard.file_launch_seconds or [])
+
+    durations = sorted(t.duration_seconds for t in shard.tests)
+    slowest = sorted(shard.tests, key=lambda t: t.duration_seconds, reverse=True)
+    result: dict[str, Any] = {
+        "suite": info.suite,
+        "segment": info.segment,
+        "group": info.group,
+        "total": info.total,
+        "junit_filename": shard.junit_filename,
+        "test_count": len(shard.tests),
+        "file_count": len(launch_overhead) if launch_overhead else len(dict.fromkeys(t.file for t in shard.tests)),
+        "wall_seconds": round(wall_seconds, 3),
+        "testcase_seconds": round(shard.testcase_seconds, 3),
+        "overhead_seconds": round(shard.overhead_seconds, 3),
+        "launch_seconds": round(launch_seconds, 3),
+        "median_test_seconds": round(_percentile(durations, 0.5), 3),
+        "p90_test_seconds": round(_percentile(durations, 0.9), 3),
+        "max_test_seconds": round(durations[-1] if durations else 0.0, 3),
+        "slowest_tests": [
+            {
+                "name": t.name,
+                "file": t.file,
+                "duration_seconds": round(t.duration_seconds, 3),
+                "start_offset_seconds": round((t.start - shard.start).total_seconds(), 3)
+                if t.start != datetime.min
+                else None,
+                "outcome": t.outcome,
+            }
+            for t in slowest
+        ],
+    }
+    if launch_overhead:
+        result["per_file_launch_overhead_seconds"] = {k: round(v, 3) for k, v in sorted(launch_overhead.items())}
+    return result
+
+
+def build_timings_report(shards: list[Shard], artifacts_root: Path, runner: Runner) -> dict[str, Any]:
+    """Assemble the machine-readable payload, ordered dt-start for downstream diffing."""
+    suites = sorted({shard.info.suite for shard in shards})
+    return {
+        "schema_version": TIMINGS_SCHEMA_VERSION,
+        "runner": runner,
+        "captured_at": datetime.now(tz=UTC).isoformat(),
+        "artifacts_root": str(artifacts_root),
+        "suites": suites,
+        "shards": [
+            shard_metrics(shard)
+            for shard in sorted(shards, key=lambda s: (s.info.suite, s.info.segment or "", s.info.group or 0))
+        ],
+    }
 
 
 # ---------- CLI ----------
@@ -814,6 +1024,14 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "--signals-only",
         action="store_true",
         help="emit failures and recovery evidence, but omit ordinary passing tests",
+    )
+    parser.add_argument(
+        "--timings",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="write per-shard timings JSON to PATH, then exit (no OTLP emission). Pass '-'"
+        " to print to stdout. Used by the test-speed report jobs and bin/report-jest-timings.",
     )
     return parser.parse_args(argv)
 
@@ -858,6 +1076,19 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     if not shards:
+        return 0
+
+    if args.timings is not None:
+        # Metrics need the full unfiltered run, not the signal-trimmed emission set.
+        full_shards = collect_shards(args.artifacts_root, args.runner)
+        if run_attempt > 1:
+            full_shards, _ = partition_run_attempt(full_shards, run_attempt)
+        payload = json.dumps(build_timings_report(full_shards, args.artifacts_root, args.runner), indent=2)
+        if str(args.timings) == "-":
+            sys.stdout.write(payload + "\n")
+        else:
+            args.timings.write_text(payload + "\n")
+            logger.info("wrote timings for %d shards to %s", len(full_shards), args.timings)
         return 0
 
     if args.dry_run or os.environ.get("DRY_RUN") == "1":

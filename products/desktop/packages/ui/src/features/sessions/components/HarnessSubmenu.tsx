@@ -18,12 +18,14 @@ const harnessLabels: Record<AgentHarness, string> = {
 interface HarnessSubmenuProps {
   value: AgentHarness;
   includePi?: boolean;
+  closeOnChange?: boolean;
   onChange: (harness: AgentHarness) => void;
 }
 
 export function HarnessSubmenu({
   value,
   includePi,
+  closeOnChange = true,
   onChange,
 }: HarnessSubmenuProps): React.JSX.Element {
   return (
@@ -47,12 +49,16 @@ export function HarnessSubmenu({
             }
           }}
         >
-          <DropdownMenuRadioItem value="claude">
+          <DropdownMenuRadioItem value="claude" closeOnClick={closeOnChange}>
             Claude Code
           </DropdownMenuRadioItem>
-          <DropdownMenuRadioItem value="codex">Codex</DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="codex" closeOnClick={closeOnChange}>
+            Codex
+          </DropdownMenuRadioItem>
           {includePi && (
-            <DropdownMenuRadioItem value="pi">Pi</DropdownMenuRadioItem>
+            <DropdownMenuRadioItem value="pi" closeOnClick={closeOnChange}>
+              Pi
+            </DropdownMenuRadioItem>
           )}
         </DropdownMenuRadioGroup>
       </DropdownMenuSubContent>

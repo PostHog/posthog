@@ -42,6 +42,9 @@ tools:
     hog-flows-assets-retrieve:
         operation: hog_flows_assets_retrieve
         enabled: false
+    hog-flows-batch-jobs-cancel-create:
+        operation: hog_flows_batch_jobs_cancel_create
+        enabled: false
     hog-flows-batch-jobs-create:
         operation: hog_flows_batch_jobs_create
         enabled: false
@@ -59,6 +62,12 @@ tools:
         enabled: false
     hog-flows-email-sending-suspension-retrieve:
         operation: hog_flows_email_sending_suspension_retrieve
+        enabled: false
+    hog-flows-invocation-results-count-retrieve:
+        operation: hog_flows_invocation_results_count_retrieve
+        enabled: false
+    hog-flows-invocations-cancel-create:
+        operation: hog_flows_invocations_cancel_create
         enabled: false
     hog-flows-invocations-create:
         operation: hog_flows_invocations_create
@@ -142,9 +151,13 @@ tools:
             editor. Two traps that save but break: (1) a conditional_branch condition needs a 'filters' wrapper —
             {filters:{properties:[...]}}, not {properties:[...]} on the condition; omitting it passes save but the
             editor flags it and the branch won't evaluate your condition. (2) Never hand-author bytecode anywhere; send
-            properties/hash and the server compiles it. A 'batch' trigger broadcasts to an audience
-            (config.filters.properties: person-property conditions and/or cohort references), one run per matching
-            person, and does NOT fire on enable: dispatch with workflows-run-batch or attach a schedule with
+            properties/hash and the server compiles it. For '$account_custom_property_changed', current_value is
+            polymorphic. To target multiple property types, repeat that event in filters.events: nested properties in
+            each event entry are ANDed, while event entries are ORed. For example, one entry can pair property_name=Plan
+            with current_value=enterprise and another can pair property_name=Seats with current_value greater than 5; do
+            not put one shared current_value condition in top-level properties. A 'batch' trigger broadcasts to an
+            audience (config.filters.properties: person-property conditions and/or cohort references), one run per
+            matching person, and does NOT fire on enable: dispatch with workflows-run-batch or attach a schedule with
             workflows-schedule-create. Behavioral targeting ('did event X at least N times over the last M days') is
             unsupported; reject it and explain why.
         ui_app: workflow
@@ -426,7 +439,8 @@ tools:
             To test a specific branch, set current_action_id to that node. Skip delay nodes by jumping to the action
             after them, since delays are not simulated. Pass test data via globals (typically {event, person, groups}).
             Async actions (HTTP/email/SMS/push) are mocked by default; set mock_async_functions=false to fire real side
-            effects. Returns the step's execution trace. Set use_draft=true to test a workflow's staged draft instead of
+            effects. The trigger step evaluates its filters against globals and returns status=skipped when they do not
+            match. Returns the step's execution trace. Set use_draft=true to test a workflow's staged draft instead of
             its live config — always do this before workflows-publish. use_draft requires a staged draft to exist
             (workflows-get shows it in 'draft'); on a workflow with nothing staged, omit it.
         exclude_params:

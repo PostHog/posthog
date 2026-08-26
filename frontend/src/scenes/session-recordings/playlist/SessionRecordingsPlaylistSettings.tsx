@@ -6,11 +6,9 @@ import { IconChevronRight, IconEllipsis, IconEye, IconInfo, IconPlus, IconSort, 
 import { LemonBadge, LemonButton, LemonCheckbox, LemonInput, LemonModal, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { SettingsBar, SettingsMenu } from 'lib/components/PanelSettings/PanelSettings'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu/LemonMenu'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { matchesConfirmationText } from 'lib/utils/confirmationText'
 import { sessionRecordingCollectionsLogic } from 'scenes/session-recordings/collections/sessionRecordingCollectionsLogic'
@@ -501,7 +499,6 @@ export function SessionRecordingsPlaylistTopSettings({
         handleBulkMarkAsViewed,
         handleBulkMarkAsNotViewed,
     } = useActions(sessionRecordingsPlaylistLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const recordings = type === 'filters' ? otherRecordings : pinnedRecordings
     const checked = recordings.length > 0 && selectedRecordingsIds.length === recordings.length
@@ -510,8 +507,6 @@ export function SessionRecordingsPlaylistTopSettings({
         AccessControlResourceType.SessionRecording,
         AccessControlLevel.Editor
     )
-
-    const visionEnabled = !!featureFlags[FEATURE_FLAGS.REPLAY_VISION]
 
     const getActionsMenuItems = (): LemonMenuItem[] => {
         const menuItems: LemonMenuItem[] = [
@@ -544,14 +539,12 @@ export function SessionRecordingsPlaylistTopSettings({
             'data-attr': 'mark-as-not-viewed',
         })
 
-        if (visionEnabled) {
-            // Custom item so the scanner list opens on hover (the nested `items` API is click-only).
-            menuItems.push({
-                key: 'bulk-scan-recordings',
-                label: () => <BulkScanMenuItem />,
-                custom: true,
-            })
-        }
+        // Custom item so the scanner list opens on hover (the nested `items` API is click-only).
+        menuItems.push({
+            key: 'bulk-scan-recordings',
+            label: () => <BulkScanMenuItem />,
+            custom: true,
+        })
 
         menuItems.push({
             label: 'Delete',

@@ -1,0 +1,72 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "breakdowns": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "JSON-encoded array of dimensions to break down by, NOT a comma-separated string. Valid dimensions are \"type\" (by usage type) and \"team\" (by project). Pass `[\"type\"]` for per-usage-type series, or `[\"type\",\"team\"]` for per-project series within each usage type. Team breakdowns require \"type\"; do not pass `[\"team\"]` by itself. Omit for a single aggregate series. Sending a bare string like \"type,team\" will fail with a 400 error."
+        },
+        "end_date": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "End date (YYYY-MM-DD), inclusive. Pass this whenever start_date is set; use today's date if the user did not name one."
+        },
+        "interval": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Time bucket size, one of \"day\" or \"week\". Default \"day\"."
+        },
+        "start_date": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Start date (YYYY-MM-DD). For open-ended investigations, choose an explicit recent window such as the last 30 days. If you use \"all\", also pass end_date."
+        },
+        "team_ids": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "JSON-encoded array of numeric team (project) IDs to filter by, NOT a comma-separated string. Pass as e.g. `[1,2]`. Omit for every project this request can see: all org teams for full billing-access callers, or the member's visible/project-scoped teams for member read-only callers."
+        },
+        "usage_types": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "JSON-encoded array of usage type identifiers to filter on, NOT a comma-separated string. Pass as e.g. `[\"event_count_in_period\"]` or `[\"event_count_in_period\",\"recording_count_in_period\"]`. Omit for all usage types."
+        }
+    },
+    "type": "object"
+}

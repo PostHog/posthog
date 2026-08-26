@@ -6,12 +6,14 @@ import { SavedInsightsTable } from 'scenes/saved-insights/SavedInsightsTable'
 
 export type MarkdownNotebookSavedInsightPickerProps = {
     isOpen: boolean
+    title?: string
     onClose: () => void
     onSelect: (shortId: string, title: string) => void
 }
 
 export function MarkdownNotebookSavedInsightPicker({
     isOpen,
+    title = 'Add insight to notebook',
     onClose,
     onSelect,
 }: MarkdownNotebookSavedInsightPickerProps): JSX.Element {
@@ -19,7 +21,7 @@ export function MarkdownNotebookSavedInsightPicker({
 
     return (
         <LemonModal
-            title="Add insight to notebook"
+            title={title}
             onClose={onClose}
             isOpen={isOpen}
             footer={

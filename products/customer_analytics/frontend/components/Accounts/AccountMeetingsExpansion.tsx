@@ -157,7 +157,8 @@ const STATUS_TAG_TYPE = {
 
 export function AccountMeetingsExpansion({ accountId }: { accountId: string }): JSX.Element {
     const logic = accountMeetingsLogic({ accountId })
-    const { meetingsResult, meetingsResultLoading, searchTerm, page, matchingEditorOpen } = useValues(logic)
+    const { canEditMeetingMatching, meetingsResult, meetingsResultLoading, searchTerm, page, matchingEditorOpen } =
+        useValues(logic)
     const { setSearchTerm, setPage, openMatchingEditor } = useActions(logic)
 
     if (meetingsResult === NOT_LOADED) {
@@ -230,6 +231,7 @@ export function AccountMeetingsExpansion({ accountId }: { accountId: string }): 
                     controlled: true,
                     pageSize: PAGE_SIZE,
                     currentPage: page,
+                    useUrl: false,
                     entryCount: count,
                     onForward: () => setPage(page + 1),
                     onBackward: () => setPage(page - 1),
@@ -255,6 +257,9 @@ export function AccountMeetingsExpansion({ accountId }: { accountId: string }): 
                     type="secondary"
                     icon={<IconPencil />}
                     active={matchingEditorOpen}
+                    disabledReason={
+                        canEditMeetingMatching ? undefined : 'Only project admins can edit meeting matching.'
+                    }
                     data-attr="edit-meeting-matching"
                     onClick={openMatchingEditor}
                 >

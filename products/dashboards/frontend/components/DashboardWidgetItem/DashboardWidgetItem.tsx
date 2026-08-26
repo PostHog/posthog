@@ -24,6 +24,7 @@ import {
 } from '../../widget_types/catalog'
 import { useWidgetAvailability } from '../../widget_types/widgetAvailability'
 import {
+    userCanMutateConversationsTicketsOnDashboard,
     userCanMutateErrorTrackingIssuesOnDashboard,
     userHasDashboardWidgetProductAccess,
 } from '../../widgetProductAccess'
@@ -188,6 +189,7 @@ function DashboardWidgetItemContent({
               }
             : undefined,
         canMutateErrorTrackingIssues: userCanMutateErrorTrackingIssuesOnDashboard(!!canEditDashboard),
+        canMutateConversationsTickets: userCanMutateConversationsTicketsOnDashboard(!!canEditDashboard),
         onUpdateConfig: canUpdateWidgetTileConfig
             ? async (config) => {
                   await onUpdateWidgetTile({ config })

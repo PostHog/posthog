@@ -1,12 +1,15 @@
-from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
+
+from posthog.dataclasses import frozen
+
+from products.access_control.backend.models.role import RoleMembership
 
 
-@dataclass
+@frozen
 class PolicyDecision:
     """Result of policy evaluation"""
 
-    result: str
+    result: Literal["ALLOW", "DENY", "REQUIRE_APPROVAL"]
     reason: str
     message: str
     approvers: dict
@@ -291,20 +294,15 @@ class PolicyEngine:
 
         # Check bypass_roles (RBAC roles)
         if bypass_role_ids:
-            try:
-                from ee.models.rbac.role import RoleMembership
-            except ImportError:
-                pass
-            else:
-                user_role_ids = {
-                    str(rid)
-                    for rid in RoleMembership.objects.filter(
-                        user=actor,
-                        role__organization=org,
-                    ).values_list("role_id", flat=True)
-                }
-                if user_role_ids & set(bypass_role_ids):
-                    return True
+            user_role_ids = {
+                str(rid)
+                for rid in RoleMembership.objects.filter(
+                    user=actor,
+                    role__organization=org,
+                ).values_list("role_id", flat=True)
+            }
+            if user_role_ids & set(bypass_role_ids):
+                return True
 
         return False
 
@@ -322,11 +320,6 @@ class PolicyEngine:
             return True
 
         if approver_config.get("roles"):
-            try:
-                from ee.models.rbac.role import RoleMembership
-            except ImportError:
-                return False
-
             org = context.get("organization")
             if not org:
                 return False

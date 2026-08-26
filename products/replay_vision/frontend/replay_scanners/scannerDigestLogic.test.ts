@@ -8,7 +8,7 @@ import { scannerDigestLogic } from './scannerDigestLogic'
 
 const DIGEST = {
     id: 'd1',
-    name: 'Daily digest: my-scanner',
+    name: 'Featured digest: my-scanner',
     scanner: 's1',
     enabled: true,
     is_scanner_digest: true,
@@ -112,7 +112,7 @@ describe('scannerDigestLogic', () => {
             .toDispatchActions(['createDigestSuccess', 'addAction', 'loadLatestRunSuccess'])
             .toFinishAllListeners()
         expect(body).toMatchObject({
-            name: 'Daily digest: my-scanner',
+            name: 'Featured digest: my-scanner',
             scanner: 's1',
             is_scanner_digest: true,
             trigger_config: { rrule: 'FREQ=DAILY;BYHOUR=8;BYMINUTE=0' },

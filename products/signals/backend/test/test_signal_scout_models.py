@@ -119,6 +119,8 @@ class TestSignalScoutModels(_ScoutTeamScopedTestMixin, BaseTest):
             delivery_id=str(emission.id),
             integration_id=17,
             channel="CSCOUTS|#scout-findings",
+            edit_note=None,
+            thread_reports=False,
         )
 
     def test_enabling_scout_logs_activity(self) -> None:

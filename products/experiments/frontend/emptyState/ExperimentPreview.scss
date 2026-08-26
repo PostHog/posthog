@@ -1,0 +1,419 @@
+@import '../../../../frontend/src/lib/components/ProductEmptyState/previewMixins';
+
+.ExpPreview {
+    --exp-preview-accent: var(--empty-state-accent, var(--color-primary-500));
+    --exp-preview-control: var(--color-text-tertiary);
+
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+
+    // Hidden variant state. Direct children of .ExpPreview so `:checked ~` reaches both cards.
+    &__radio {
+        position: absolute;
+        width: 0;
+        height: 0;
+        pointer-events: none;
+        opacity: 0;
+    }
+
+    &__card,
+    &__app {
+        overflow: hidden;
+        background: var(--color-bg-surface-primary);
+        border: 1px solid var(--color-border-primary);
+        border-radius: var(--radius);
+    }
+
+    &__head {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        padding: 0.5rem 0.75rem;
+        border-bottom: 1px solid var(--color-border-primary);
+    }
+
+    &__title {
+        font-family: var(--font-mono);
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+
+    &__running {
+        display: inline-flex;
+        gap: 0.25rem;
+        align-items: center;
+        margin-right: auto;
+        font-size: 0.6875rem;
+        font-weight: 600;
+        color: var(--color-green-500);
+    }
+
+    &__running-dot {
+        width: 6px;
+        height: 6px;
+        background: var(--color-green-500);
+        border-radius: 50%;
+        animation: ExpPreview__pulse 1.8s ease-in-out infinite;
+    }
+
+    &__variants {
+        display: flex;
+        flex-direction: column;
+        padding: 0.25rem 0.5rem;
+    }
+
+    &__variant {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        padding: 0.4375rem 0.5rem;
+        cursor: pointer;
+        user-select: none;
+        border: 1px solid transparent;
+        border-radius: var(--radius);
+        transition:
+            background-color 150ms ease,
+            border-color 150ms ease;
+    }
+
+    &__variant:hover {
+        background: var(--color-bg-fill-highlight-50);
+    }
+
+    // Radio dots make the rows read as selectable, and their colors tie each variant
+    // to its interval in the chart below.
+    &__vradio {
+        position: relative;
+        flex-shrink: 0;
+        width: 12px;
+        height: 12px;
+        border: 1.5px solid;
+        border-radius: 50%;
+
+        &::after {
+            position: absolute;
+            inset: 2px;
+            content: '';
+            border-radius: 50%;
+            transition: transform 150ms ease;
+            transform: scale(0);
+        }
+    }
+
+    &__vradio--control {
+        border-color: var(--exp-preview-control);
+
+        &::after {
+            background: var(--exp-preview-control);
+        }
+    }
+
+    &__vradio--test {
+        border-color: var(--exp-preview-accent);
+
+        &::after {
+            background: var(--exp-preview-accent);
+        }
+    }
+
+    &__variant-name {
+        font-family: var(--font-mono);
+        font-size: 0.75rem;
+        color: var(--color-text-primary);
+    }
+
+    &__variant-users {
+        margin-left: auto;
+        font-size: 0.625rem;
+        color: var(--color-text-tertiary);
+    }
+
+    &__variant-metric {
+        min-width: 2.25rem;
+        font-family: var(--font-mono);
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-align: right;
+    }
+
+    &__badge {
+        padding: 0 0.375rem;
+        font-size: 0.625rem;
+        font-weight: 700;
+        color: var(--color-green-600);
+        text-transform: uppercase;
+        background: color-mix(in oklab, var(--color-green-500) 14%, transparent);
+        border-radius: 999px;
+    }
+
+    &__chart {
+        padding: 0.25rem 0.75rem 0;
+    }
+
+    &__chart-svg {
+        display: block;
+        width: 100%;
+        height: auto;
+    }
+
+    &__chart-caption {
+        padding: 0.125rem 0 0.5rem;
+        font-size: 0.625rem;
+        color: var(--color-text-tertiary);
+    }
+
+    &__axis {
+        stroke: color-mix(in oklab, var(--color-text-secondary) 50%, transparent);
+        stroke-dasharray: 3 3;
+        stroke-width: 1;
+    }
+
+    &__int {
+        transition: opacity 200ms ease;
+    }
+
+    &__int-bar {
+        transform-box: fill-box;
+        transform-origin: center;
+        animation: ExpPreview__grow 700ms ease-out both;
+    }
+
+    &__int-dot {
+        animation: ExpPreview__fade 300ms ease 450ms both;
+    }
+
+    &__int--control &__int-bar {
+        fill: color-mix(in oklab, var(--exp-preview-control) 30%, transparent);
+        animation-delay: 100ms;
+    }
+
+    &__int--control &__int-dot {
+        fill: var(--exp-preview-control);
+    }
+
+    &__int--test &__int-bar {
+        fill: color-mix(in oklab, var(--exp-preview-accent) 35%, transparent);
+        animation-delay: 250ms;
+    }
+
+    &__int--test &__int-dot {
+        fill: var(--exp-preview-accent);
+        transform-box: fill-box;
+        transform-origin: center;
+        animation:
+            ExpPreview__fade 300ms ease 450ms both,
+            ExpPreview__dot-pulse 2.4s ease-in-out 1s infinite;
+    }
+
+    &__prob {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 0.25rem 0.625rem;
+        align-items: center;
+        padding: 0.5rem 0.75rem 0.625rem;
+        border-top: 1px solid var(--color-border-primary);
+    }
+
+    &__prob-label {
+        font-size: 0.6875rem;
+        color: var(--color-text-secondary);
+    }
+
+    &__prob-value {
+        font-family: var(--font-mono);
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+
+    &__track {
+        grid-column: 1 / -1;
+        height: 6px;
+        overflow: hidden;
+        background: var(--color-fill-secondary);
+        border-radius: 999px;
+    }
+
+    &__fill {
+        display: block;
+        width: var(--w);
+        height: 100%;
+        background: color-mix(in oklab, var(--exp-preview-accent) 45%, transparent);
+        border-radius: 999px;
+        transform-origin: left;
+        animation: ExpPreview__grow 900ms ease-out;
+    }
+
+    &__fill--winner {
+        background: var(--exp-preview-accent);
+    }
+
+    // Browser chrome for the mini app.
+    &__chrome {
+        display: flex;
+        gap: 0.3125rem;
+        align-items: center;
+        padding: 0.4375rem 0.75rem;
+        background: var(--color-bg-surface-secondary);
+        border-bottom: 1px solid var(--color-border-primary);
+    }
+
+    &__url {
+        margin-right: auto;
+        margin-left: 0.375rem;
+        font-family: var(--font-mono);
+        font-size: 0.625rem;
+        color: var(--color-text-tertiary);
+    }
+
+    // Which variant this user landed in, mirrored in the mini app's chrome.
+    &__pill {
+        display: none;
+        padding: 0 0.375rem;
+        font-family: var(--font-mono);
+        font-size: 0.625rem;
+        background: color-mix(in oklab, var(--exp-preview-accent) 12%, transparent);
+        border-radius: 999px;
+
+        @include preview-accent-text(var(--exp-preview-accent));
+    }
+
+    &__screen {
+        display: flex;
+        flex-direction: column;
+        gap: 0.625rem;
+        padding: 0.875rem;
+    }
+
+    &__cta {
+        display: none;
+        padding: 0.5rem 0.75rem;
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-align: center;
+        border-radius: var(--radius);
+    }
+
+    &__cta--control {
+        background: var(--color-fill-secondary);
+    }
+
+    &__cta--test {
+        color: var(--color-bg-surface-primary);
+        background: var(--exp-preview-accent);
+    }
+
+    &__conv {
+        display: none;
+        margin-top: -0.25rem;
+        font-size: 0.625rem;
+        color: var(--color-text-secondary);
+        text-align: center;
+    }
+
+    &__hint {
+        font-size: 0.6875rem;
+        color: var(--color-text-tertiary);
+        text-align: center;
+    }
+
+    @include preview-chrome-dot;
+}
+
+// Selected variant, driven purely by the hidden radios.
+#exp-preview-control:checked ~ .ExpPreview__card .ExpPreview__variant--control,
+#exp-preview-test:checked ~ .ExpPreview__card .ExpPreview__variant--test {
+    background: color-mix(in oklab, var(--exp-preview-accent) 8%, transparent);
+    border-color: color-mix(in oklab, var(--exp-preview-accent) 40%, transparent);
+}
+
+#exp-preview-control:checked ~ .ExpPreview__card .ExpPreview__vradio--control::after,
+#exp-preview-test:checked ~ .ExpPreview__card .ExpPreview__vradio--test::after {
+    transform: scale(1);
+}
+
+// Nudge attention at the leading variant's radio until it's been picked.
+.ExpPreview:not(.ExpPreview--static) #exp-preview-test:not(:checked) ~ .ExpPreview__card .ExpPreview__vradio--test {
+    animation: ExpPreview__nudge 2.4s ease-in-out infinite;
+}
+
+// The chart spotlights the selected variant's interval.
+#exp-preview-control:checked ~ .ExpPreview__card .ExpPreview__int--test,
+#exp-preview-test:checked ~ .ExpPreview__card .ExpPreview__int--control {
+    opacity: 0.35;
+}
+
+// The mini app renders the selected variant's experience.
+#exp-preview-control:checked ~ .ExpPreview__app .ExpPreview__cta--control,
+#exp-preview-test:checked ~ .ExpPreview__app .ExpPreview__cta--test,
+#exp-preview-control:checked ~ .ExpPreview__app .ExpPreview__conv--control,
+#exp-preview-test:checked ~ .ExpPreview__app .ExpPreview__conv--test,
+#exp-preview-control:checked ~ .ExpPreview__app .ExpPreview__pill--control,
+#exp-preview-test:checked ~ .ExpPreview__app .ExpPreview__pill--test {
+    display: block;
+}
+
+// The radios stay keyboard-focusable while visually hidden, so the variant row they
+// label needs a visible focus indicator (WCAG 2.4.7).
+#exp-preview-control:focus-visible ~ .ExpPreview__card .ExpPreview__variant--control,
+#exp-preview-test:focus-visible ~ .ExpPreview__card .ExpPreview__variant--test {
+    outline: 2px solid var(--exp-preview-accent);
+    outline-offset: 1px;
+}
+
+@keyframes ExpPreview__grow {
+    from {
+        transform: scaleX(0);
+    }
+
+    to {
+        transform: scaleX(1);
+    }
+}
+
+@keyframes ExpPreview__fade {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes ExpPreview__dot-pulse {
+    0%,
+    100% {
+        transform: scale(1);
+    }
+
+    50% {
+        transform: scale(1.5);
+    }
+}
+
+@keyframes ExpPreview__pulse {
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.35;
+    }
+}
+
+@keyframes ExpPreview__nudge {
+    0%,
+    100% {
+        box-shadow: 0 0 0 0 color-mix(in oklab, var(--exp-preview-accent) 45%, transparent);
+    }
+
+    50% {
+        box-shadow: 0 0 0 4px color-mix(in oklab, var(--exp-preview-accent) 20%, transparent);
+    }
+}
+
+// Storybook snapshots and reduced motion drop all ambient motion; selecting a
+// variant still works (transitions only).
+@include preview-motion-guards('ExpPreview');

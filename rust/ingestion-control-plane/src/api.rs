@@ -14,10 +14,12 @@ use uuid::Uuid;
 
 use k8s_awareness::DiscoveredPod;
 
+use crate::etcd;
 use crate::jobs::{AnalysisRequest, JobView};
 use crate::kafka::browse::{self, BrowseParams, BrowseStop, MessageFilter, MessageRecord};
 use crate::kafka::client;
 use crate::kafka::lag::{self, ConsumerTarget, GroupLag, LagOverview};
+use crate::personhog;
 use crate::proxy;
 use crate::state::AppState;
 use crate::ui;
@@ -311,6 +313,123 @@ async fn get_messages(
     }))
 }
 
+/// The configured etcd handle, or 503 when `ETCD_ENDPOINTS` is unset.
+fn etcd_handle(state: &AppState) -> Result<Arc<crate::etcd::EtcdHandle>, ApiError> {
+    state
+        .etcd
+        .clone()
+        .ok_or_else(|| ApiError::unavailable("etcd tools are disabled (ETCD_ENDPOINTS not set)"))
+}
+
+async fn etcd_client(state: &AppState) -> Result<etcd_client::Client, ApiError> {
+    etcd_handle(state)?
+        .client()
+        .await
+        .map_err(|e| ApiError::unavailable(format!("etcd unreachable: {e:#}")))
+}
+
+/// Every explorer operation must stay under one of the configured allowed
+/// prefixes, so a deployment can scope what this unauthenticated-but-
+/// internal tool may touch.
+fn validated_etcd_key<'a>(state: &AppState, key: &'a str) -> Result<&'a str, ApiError> {
+    if key.is_empty() {
+        return Err(ApiError::bad_request("key must not be empty"));
+    }
+    let allowed = state.config.etcd_allowed_prefix_list();
+    if !allowed.iter().any(|prefix| key.starts_with(prefix)) {
+        return Err(ApiError::bad_request(format!(
+            "key '{key}' is outside the allowed prefixes {allowed:?}"
+        )));
+    }
+    Ok(key)
+}
+
+#[derive(Deserialize)]
+struct EtcdKeysQuery {
+    prefix: String,
+    from_key: Option<String>,
+    limit: Option<i64>,
+}
+
+async fn etcd_list_keys(
+    State(state): State<AppState>,
+    Query(query): Query<EtcdKeysQuery>,
+) -> Result<Json<etcd::KeyList>, ApiError> {
+    validated_etcd_key(&state, &query.prefix)?;
+    let limit = query.limit.unwrap_or(500).clamp(1, 1000);
+    let client = etcd_client(&state).await?;
+    let list = etcd::list_keys(&client, &query.prefix, query.from_key.as_deref(), limit)
+        .await
+        .map_err(|e| ApiError::upstream(format!("etcd list failed: {e:#}")))?;
+    Ok(Json(list))
+}
+
+#[derive(Deserialize)]
+struct EtcdKeyQuery {
+    key: String,
+}
+
+async fn etcd_get_key(
+    State(state): State<AppState>,
+    Query(query): Query<EtcdKeyQuery>,
+) -> Result<Json<etcd::KeyDetail>, ApiError> {
+    validated_etcd_key(&state, &query.key)?;
+    let client = etcd_client(&state).await?;
+    let detail = etcd::get_key(&client, &query.key)
+        .await
+        .map_err(|e| ApiError::upstream(format!("etcd get failed: {e:#}")))?
+        .ok_or_else(|| ApiError::not_found(format!("no key '{}'", query.key)))?;
+    Ok(Json(detail))
+}
+
+#[derive(Deserialize)]
+struct EtcdPutRequest {
+    key: String,
+    value: String,
+}
+
+async fn etcd_put_key(
+    State(state): State<AppState>,
+    Json(request): Json<EtcdPutRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    validated_etcd_key(&state, &request.key)?;
+    let client = etcd_client(&state).await?;
+    let revision = etcd::put_key(&client, &request.key, &request.value)
+        .await
+        .map_err(|e| ApiError::upstream(format!("etcd put failed: {e:#}")))?;
+    Ok(Json(json!({ "revision": revision })))
+}
+
+async fn etcd_delete_key(
+    State(state): State<AppState>,
+    Query(query): Query<EtcdKeyQuery>,
+) -> Result<StatusCode, ApiError> {
+    validated_etcd_key(&state, &query.key)?;
+    let client = etcd_client(&state).await?;
+    let deleted = etcd::delete_key(&client, &query.key)
+        .await
+        .map_err(|e| ApiError::upstream(format!("etcd delete failed: {e:#}")))?;
+    if deleted {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err(ApiError::not_found(format!("no key '{}'", query.key)))
+    }
+}
+
+async fn personhog_topology(
+    State(state): State<AppState>,
+) -> Result<Json<personhog::TopologyView>, ApiError> {
+    let client = etcd_client(&state).await?;
+    let deadlines = personhog::Deadlines {
+        handoff: Duration::from_secs(state.config.personhog_handoff_deadline_secs),
+        warming: Duration::from_secs(state.config.personhog_warming_deadline_secs),
+    };
+    let view = personhog::fetch_topology(&client, &state.config.personhog_etcd_prefix, &deadlines)
+        .await
+        .map_err(|e| ApiError::upstream(format!("personhog topology failed: {e:#}")))?;
+    Ok(Json(view))
+}
+
 #[derive(Serialize)]
 struct PodsResponse {
     pods: Vec<DiscoveredPod>,
@@ -337,6 +456,12 @@ pub fn router(state: AppState) -> Router {
             get(get_analysis).delete(cancel_analysis),
         )
         .route("/api/pods", get(list_pods))
+        .route("/api/etcd/keys", get(etcd_list_keys))
+        .route(
+            "/api/etcd/key",
+            get(etcd_get_key).put(etcd_put_key).delete(etcd_delete_key),
+        )
+        .route("/api/personhog/topology", get(personhog_topology))
         // The consumer debug UI is served per pod; its relative `debug/...`
         // fetches resolve to the proxy route below. Pods are addressed by
         // namespace + name so identical names across lanes cannot collide.

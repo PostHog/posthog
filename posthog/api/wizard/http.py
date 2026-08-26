@@ -231,6 +231,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
                     "project_api_key": "mock-project-api-key",
                     "host": "http://localhost:8010",
                     "user_distinct_id": "mock-user-id",
+                    "team_id": 1,
                 }
                 cache.set(key, wizard_data, SETUP_WIZARD_CACHE_TIMEOUT)
 
@@ -241,11 +242,13 @@ class SetupWizardViewSet(viewsets.ViewSet):
                 raise AuthenticationFailed("Setup wizard not authenticated. Please login first")
 
             distinct_id = wizard_data.get("user_distinct_id")
+            team_id = wizard_data.get("team_id")
 
             trace_id = trace_id or hashlib.sha256(hash.encode()).hexdigest()
 
         else:
-            result = OAuthAccessTokenAuthentication().authenticate(request)
+            authenticator = OAuthAccessTokenAuthentication()
+            result = authenticator.authenticate(request)
 
             if not result:
                 raise AuthenticationFailed("Invalid access token.")
@@ -256,6 +259,8 @@ class SetupWizardViewSet(viewsets.ViewSet):
                 raise AuthenticationFailed("Invalid access token.")
 
             distinct_id = user.distinct_id
+            scoped_team_ids = authenticator.access_token.scoped_teams or []
+            team_id = scoped_team_ids[0] if len(scoped_team_ids) == 1 else None
 
             trace_id = request.headers.get("X-PostHog-Trace-Id") or hashlib.sha256(distinct_id.encode()).hexdigest()
 
@@ -304,6 +309,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
                 posthog_properties={
                     "ai_product": "wizard",
                     "ai_feature": "query",
+                    "team_id": team_id,
                 },
             )
 
@@ -338,12 +344,13 @@ class SetupWizardViewSet(viewsets.ViewSet):
                 model=model,
                 seed=MODEL_SEED,
                 messages=messages,
-                response_format={"type": "json_schema", "json_schema": json_schema},  # type: ignore
+                response_format={"type": "json_schema", "json_schema": json_schema},
                 posthog_distinct_id=distinct_id,
                 posthog_trace_id=trace_id,
                 posthog_properties={
                     "ai_product": "wizard",
                     "ai_feature": "query",
+                    "team_id": team_id,
                 },
                 temperature=1.0,
             )
@@ -412,6 +419,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
                 )
 
             project_api_token = project.passthrough_team.api_token
+            team_id = project.passthrough_team.id
         except Project.DoesNotExist as e:
             capture_exception(
                 e,
@@ -428,6 +436,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
             "project_api_key": project_api_token,
             "host": get_api_host(),
             "user_distinct_id": request.user.distinct_id,
+            "team_id": team_id,
         }
 
         cache.set(cache_key, wizard_data, SETUP_WIZARD_CACHE_TIMEOUT)

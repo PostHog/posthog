@@ -1,31 +1,16 @@
 import './SupportEditor.scss'
 
-import { JSONContent, getSchema } from '@tiptap/core'
-import { Node as ProseMirrorNode } from '@tiptap/pm/model'
+import { JSONContent } from '@tiptap/core'
 import { EditorContent } from '@tiptap/react'
 import { useEffect, useMemo } from 'react'
 
 import { useRichContentEditor } from 'lib/components/RichContentEditor'
 import { cn } from 'lib/utils/css-classes'
 
+import { isRenderableRichContent } from './isRenderableRichContent'
 import { SUPPORT_PREVIEW_EXTENSIONS } from './SupportEditor'
 import { SupportMarkdown } from './SupportMarkdown'
 import { useImageLightbox } from './useImageLightbox'
-
-let previewSchema: ReturnType<typeof getSchema> | null = null
-
-function isRenderableRichContent(content: JSONContent | null): content is JSONContent {
-    if (!content) {
-        return false
-    }
-    try {
-        previewSchema = previewSchema ?? getSchema([...SUPPORT_PREVIEW_EXTENSIONS])
-        ProseMirrorNode.fromJSON(previewSchema, content).check()
-        return true
-    } catch {
-        return false
-    }
-}
 
 export interface SupportRichContentPreviewProps {
     content: JSONContent | null

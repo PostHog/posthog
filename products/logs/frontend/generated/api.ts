@@ -11,6 +11,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     ExplainRequestApi,
     LogsAlertConfigurationApi,
+    LogsAlertConfigurationDetailApi,
     LogsAlertCreateDestinationApi,
     LogsAlertDeleteDestinationApi,
     LogsAlertDestinationResponseApi,
@@ -36,6 +37,8 @@ import type {
     LogsSamplingRuleSimulateResponseApi,
     LogsSamplingRulesListParams,
     LogsSamplingRulesReorderCreateParams,
+    LogsSeriesBandsRequestApi,
+    LogsSeriesBandsResponseApi,
     LogsValuesRetrieveParams,
     LogsViewApi,
     LogsViewsListParams,
@@ -141,8 +144,8 @@ export const logsAlertsRetrieve = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<LogsAlertConfigurationApi> => {
-    return apiMutator<LogsAlertConfigurationApi>(getLogsAlertsRetrieveUrl(projectId, id), {
+): Promise<LogsAlertConfigurationDetailApi> => {
+    return apiMutator<LogsAlertConfigurationDetailApi>(getLogsAlertsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
@@ -324,6 +327,27 @@ export const logsAnomaliesScanCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(logsAnomalyScanRequestApi),
+    })
+}
+
+export const getLogsAnomaliesSeriesBandsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/anomalies/series_bands/`
+}
+
+/**
+ * Returns the last 7 days of log volume for every (namespace, environment, severity) series of one service, with a time-of-week expected band derived from the prior weeks of the volume rollup. Synchronous and read only.
+ * @summary Per-series log volume with expected bands
+ */
+export const logsAnomaliesSeriesBandsCreate = async (
+    projectId: string,
+    logsSeriesBandsRequestApi: LogsSeriesBandsRequestApi,
+    options?: RequestInit
+): Promise<LogsSeriesBandsResponseApi> => {
+    return apiMutator<LogsSeriesBandsResponseApi>(getLogsAnomaliesSeriesBandsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsSeriesBandsRequestApi),
     })
 }
 

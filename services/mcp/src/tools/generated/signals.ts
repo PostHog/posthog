@@ -548,6 +548,9 @@ const scoutConfigCreate = (): ToolBase<typeof ScoutConfigCreateSchema, Schemas.S
         if (params.structured_output_schema !== undefined) {
             body['structured_output_schema'] = params.structured_output_schema
         }
+        if (params.mcp_gateway_server_ids !== undefined) {
+            body['mcp_gateway_server_ids'] = params.mcp_gateway_server_ids
+        }
         if (params.skill_name !== undefined) {
             body['skill_name'] = params.skill_name
         }
@@ -648,6 +651,9 @@ const scoutConfigUpdate = (): ToolBase<typeof ScoutConfigUpdateSchema, WithPostH
         }
         if (params.tags !== undefined) {
             body['tags'] = params.tags
+        }
+        if (params.mcp_gateway_server_ids !== undefined) {
+            body['mcp_gateway_server_ids'] = params.mcp_gateway_server_ids
         }
         const result = await context.api.request<Schemas.SignalScoutConfig>({
             method: 'PATCH',
@@ -758,6 +764,9 @@ const scoutEditReport = (): ToolBase<typeof ScoutEditReportSchema, Schemas.EditR
         if (params.charts !== undefined) {
             body['charts'] = params.charts
         }
+        if (params.suggested_prompts !== undefined) {
+            body['suggested_prompts'] = params.suggested_prompts
+        }
         const result = await context.api.request<Schemas.EditReportResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/edit-report/`,
@@ -809,6 +818,9 @@ const scoutEmitReport = (): ToolBase<typeof ScoutEmitReportSchema, Schemas.EmitR
         }
         if (params.charts !== undefined) {
             body['charts'] = params.charts
+        }
+        if (params.suggested_prompts !== undefined) {
+            body['suggested_prompts'] = params.suggested_prompts
         }
         const result = await context.api.request<Schemas.EmitReportResponse>({
             method: 'POST',
@@ -1165,6 +1177,9 @@ const scoutScratchpadRemember = (): ToolBase<typeof ScoutScratchpadRememberSchem
         if (params.run_id !== undefined) {
             body['run_id'] = params.run_id
         }
+        if (params.expires_at !== undefined) {
+            body['expires_at'] = params.expires_at
+        }
         const result = await context.api.request<Schemas.ScratchpadEntry>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/scratchpad/`,
@@ -1191,6 +1206,7 @@ const scoutScratchpadSearch = (): ToolBase<
                 content_max_chars: params.content_max_chars,
                 date_from: params.date_from,
                 date_to: params.date_to,
+                include_expired: params.include_expired,
                 key: params.key,
                 keys_only: params.keys_only,
                 limit: params.limit,
@@ -1238,6 +1254,9 @@ const signalsScoutConfigCreate = (): ToolBase<typeof SignalsScoutConfigCreateSch
         }
         if (params.structured_output_schema !== undefined) {
             body['structured_output_schema'] = params.structured_output_schema
+        }
+        if (params.mcp_gateway_server_ids !== undefined) {
+            body['mcp_gateway_server_ids'] = params.mcp_gateway_server_ids
         }
         if (params.skill_name !== undefined) {
             body['skill_name'] = params.skill_name
@@ -1349,6 +1368,9 @@ const signalsScoutConfigUpdate = (): ToolBase<
         if (params.tags !== undefined) {
             body['tags'] = params.tags
         }
+        if (params.mcp_gateway_server_ids !== undefined) {
+            body['mcp_gateway_server_ids'] = params.mcp_gateway_server_ids
+        }
         const result = await context.api.request<Schemas.SignalScoutConfig>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/${encodeURIComponent(String(params.id))}/`,
@@ -1385,6 +1407,9 @@ const signalsScoutEditReport = (): ToolBase<typeof SignalsScoutEditReportSchema,
         }
         if (params.charts !== undefined) {
             body['charts'] = params.charts
+        }
+        if (params.suggested_prompts !== undefined) {
+            body['suggested_prompts'] = params.suggested_prompts
         }
         const result = await context.api.request<Schemas.EditReportResponse>({
             method: 'POST',
@@ -1437,6 +1462,9 @@ const signalsScoutEmitReport = (): ToolBase<typeof SignalsScoutEmitReportSchema,
         }
         if (params.charts !== undefined) {
             body['charts'] = params.charts
+        }
+        if (params.suggested_prompts !== undefined) {
+            body['suggested_prompts'] = params.suggested_prompts
         }
         const result = await context.api.request<Schemas.EmitReportResponse>({
             method: 'POST',
@@ -1698,6 +1726,9 @@ const signalsScoutScratchpadRemember = (): ToolBase<
         if (params.run_id !== undefined) {
             body['run_id'] = params.run_id
         }
+        if (params.expires_at !== undefined) {
+            body['expires_at'] = params.expires_at
+        }
         const result = await context.api.request<Schemas.ScratchpadEntry>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/scratchpad/`,
@@ -1724,6 +1755,7 @@ const signalsScoutScratchpadSearch = (): ToolBase<
                 content_max_chars: params.content_max_chars,
                 date_from: params.date_from,
                 date_to: params.date_to,
+                include_expired: params.include_expired,
                 key: params.key,
                 keys_only: params.keys_only,
                 limit: params.limit,

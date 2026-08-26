@@ -98,6 +98,12 @@ export function resolveSoundUrl(
   return SOUND_URLS[sound as Exclude<BuiltInCompletionSound, "none">] ?? null;
 }
 
+export function playTrashSound(): void {
+  const audio = new Audio(dropUrl);
+  audio.volume = 0.35;
+  void audio.play().catch(() => undefined);
+}
+
 export function playCompletionSound(
   sound: CompletionSound,
   volume = 80,

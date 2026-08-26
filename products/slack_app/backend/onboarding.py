@@ -129,21 +129,30 @@ def _sources_blocks(integration: Integration) -> list[dict]:
     )
 
     sources = onboarding_sources(integration.team_id)
+    tickable = [source for source in sources if source.togglable]
     options = [
         {
             "text": {"type": "mrkdwn", "text": f"*{source.label}*: {source.description}"},
             "value": source.key,
         }
-        for source in sources
+        for source in tickable
     ]
     checkboxes: dict = {"type": "checkboxes", "action_id": INBOX_SOURCES_CHECKBOXES_ACTION, "options": options}
-    initial = [option for option, source in zip(options, sources) if source.enabled]
+    initial = [option for option, source in zip(options, tickable) if source.enabled]
     if initial:
         checkboxes["initial_options"] = initial
-    return [
+    blocks = [
         _section("*2. Choose what I watch* :eyes:\nTick the signals I should monitor and investigate."),
         {"type": "actions", "block_id": f"{INBOX_SOURCES_BLOCK_PREFIX}:{integration.id}", "elements": [checkboxes]},
     ]
+    # Sources set up elsewhere have no checkbox, so say what's already watching. Without this the
+    # step reads as done with nothing ticked.
+    elsewhere = [source.label for source in sources if not source.togglable and source.enabled]
+    if elsewhere:
+        blocks.append(
+            {"type": "context", "elements": [{"type": "mrkdwn", "text": f"Already watching: {', '.join(elsewhere)}"}]}
+        )
+    return blocks
 
 
 def _channel_blocks(integration: Integration, slack: SlackIntegration, *, done: bool) -> list[dict]:
@@ -424,9 +433,8 @@ def mark_channel_joined(
     _maybe_complete(integration, slack_user_id)
 
 
-def apply_sources_selection(integration: Integration, slack_user_id: str, selected_keys: list[str]) -> list[str]:
-    """Sync the team's sources to the new selection. Returns the labels of any that couldn't be turned
-    on (AI data processing not approved yet)."""
+def apply_sources_selection(integration: Integration, slack_user_id: str, selected_keys: list[str]) -> None:
+    """Sync the team's sources to the new selection."""
     from products.signals.backend.facade.api import (
         set_sources,  # noqa: PLC0415 — keeps the signals stack off the slack import path
     )
@@ -434,13 +442,10 @@ def apply_sources_selection(integration: Integration, slack_user_id: str, select
     user_id = _resolve_onboarding_user(SlackIntegration(integration), integration, slack_user_id)
     if user_id is None:
         # Can't tie the clicker to an org member — don't mutate team state.
-        return []
-    blocked = set_sources(integration.team_id, user_id, selected_keys)
-    capture_slack_event(
-        integration, EVENT_SOURCE_ENABLED, slack_user_id=slack_user_id, selected=list(selected_keys), blocked=blocked
-    )
+        return
+    set_sources(integration.team_id, user_id, selected_keys)
+    capture_slack_event(integration, EVENT_SOURCE_ENABLED, slack_user_id=slack_user_id, selected=list(selected_keys))
     _maybe_complete(integration, slack_user_id, user_id)
-    return blocked
 
 
 def approve_ai_data_processing(integration: Integration, slack_user_id: str) -> bool:

@@ -1,0 +1,362 @@
+@layer components {
+    .quill-questionnaire {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+        width: 100%;
+        min-width: 0;
+    }
+
+    /*
+     * Reserves its own line and a fixed measure so `Question 2 of 5` rolling over to `Question 10 of
+     * 12` doesn't shift the item below it.
+     */
+    .quill-questionnaire__progress {
+        width: fit-content;
+        min-width: 14ch;
+        min-height: 1lh;
+        font-size: var(--text-xs, 0.75rem);
+        font-weight: 500;
+        font-variant-numeric: tabular-nums;
+        color: var(--muted-foreground);
+    }
+
+    /* A `fieldset`, stripped of the native chrome — the question's grouping is semantic, not visual. */
+    .quill-questionnaire__item {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+        min-width: 0;
+        padding: 0;
+        border: 0;
+        outline: none;
+    }
+
+    /*
+     * The title is the fieldset's `legend`, which sits in the border box rather than the flex flow, so
+     * the item's `gap` never lands under it. A margin does the work instead — but only when no
+     * description follows, since the description is the flex flow's first child and carries the gap.
+     */
+    .quill-questionnaire__title {
+        font-size: var(--text-sm, 0.875rem);
+        font-weight: 500;
+        line-height: 1.375;
+        color: var(--foreground);
+        text-wrap: pretty;
+    }
+
+    .quill-questionnaire__title:not(:has(~ [data-slot='questionnaire-description'])) {
+        margin-block-end: 0.75rem;
+    }
+
+    .quill-questionnaire__description {
+        margin: 0;
+        font-size: var(--text-xs, 0.75rem);
+        line-height: 1.625;
+        color: var(--muted-foreground);
+        text-wrap: pretty;
+    }
+
+    .quill-questionnaire__choices {
+        display: grid;
+        gap: 0.5rem;
+        min-width: 0;
+    }
+
+    /*
+     * A row is a `label` wrapping its own control, so the whole row is the hit target — start-aligned,
+     * because a choice that carries a description is two lines and its indicator belongs beside the
+     * first.
+     */
+    .quill-questionnaire__choice {
+        position: relative;
+        display: flex;
+        gap: 0.5rem;
+        align-items: flex-start;
+        min-width: 0;
+        padding-block: 0.4375rem;
+        padding-inline: 0.5rem;
+        font-size: var(--text-xs, 0.75rem);
+        line-height: 1.375;
+        text-align: start;
+        cursor: pointer;
+        user-select: none;
+        background-color: transparent;
+        border: 1px solid var(--input);
+        border-radius: var(--radius-sm);
+        outline: none;
+        transition:
+            color 0.15s ease,
+            background-color 0.15s ease,
+            border-color 0.15s ease;
+    }
+
+    :is(.dark, [theme='dark']) .quill-questionnaire__choice {
+        background-color: color-mix(in oklab, var(--input) 20%, transparent);
+    }
+
+    .quill-questionnaire__choice:hover {
+        background-color: color-mix(in oklab, var(--muted) 50%, transparent);
+    }
+
+    /*
+     * The native control is the row's only focusable element, and it's invisible — so the row wears its
+     * focus ring on the control's behalf.
+     */
+    .quill-questionnaire__choice:has(> input:focus-visible) {
+        border-color: color-mix(in oklab, var(--ring) 50%, transparent);
+        box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 30%, transparent);
+    }
+
+    .quill-questionnaire__choice[data-checked] {
+        background-color: color-mix(in oklab, var(--success) 30%, transparent);
+        border-color: color-mix(in oklab, var(--success-foreground) 40%, transparent);
+    }
+
+    .quill-questionnaire__choice[data-invalid] {
+        border-color: color-mix(in oklab, var(--destructive-foreground) 30%, transparent);
+    }
+
+    .quill-questionnaire__choice[data-disabled] {
+        pointer-events: none;
+        cursor: not-allowed;
+        opacity: 0.5;
+    }
+
+    /*
+     * Covers the row rather than sitting in it: clicks anywhere land on the real radio/checkbox, so
+     * native selection, form participation, and the arrow-key roving all keep working.
+     */
+    .quill-questionnaire__choice-input {
+        position: absolute;
+        inset: 0;
+        z-index: 10;
+        width: 100%;
+        height: 100%;
+        cursor: pointer;
+        opacity: 0;
+    }
+
+    /*
+     * The visible box. It only mirrors the hidden control's state, so it takes no pointer events —
+     * a click on it is a click on the row.
+     */
+    .quill-questionnaire__choice-indicator {
+        position: relative;
+        display: flex;
+        flex-shrink: 0;
+        align-items: center;
+        justify-content: center;
+        width: 0.875rem;
+        height: 0.875rem;
+        pointer-events: none;
+        border: 1px solid var(--input);
+        border-radius: 3px;
+    }
+
+    :is(.dark, [theme='dark']) .quill-questionnaire__choice-indicator {
+        background-color: color-mix(in oklab, var(--input) 30%, transparent);
+    }
+
+    /* One answer or several is the control's business; the shape is what tells the reader which. */
+    .quill-questionnaire__choice[data-type='radio'] .quill-questionnaire__choice-indicator {
+        border-radius: 9999px;
+    }
+
+    .quill-questionnaire__choice[data-checked] .quill-questionnaire__choice-indicator {
+        color: var(--primary-foreground);
+        background-color: var(--primary);
+        border-color: var(--primary);
+    }
+
+    .quill-questionnaire__choice-indicator-dot,
+    .quill-questionnaire__choice-indicator-check {
+        display: none;
+    }
+
+    .quill-questionnaire__choice[data-checked][data-type='radio'] .quill-questionnaire__choice-indicator-dot {
+        display: block;
+        width: 0.375rem;
+        height: 0.375rem;
+        background-color: var(--primary-foreground);
+        border-radius: 9999px;
+    }
+
+    .quill-questionnaire__choice[data-checked][data-type='checkbox'] .quill-questionnaire__choice-indicator-check {
+        display: block;
+        width: 0.625rem;
+        height: 0.625rem;
+    }
+
+    .quill-questionnaire__choice-label {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        gap: 0.0625rem;
+        min-width: 0;
+        font-weight: 500;
+        line-height: 1.375;
+    }
+
+    .quill-questionnaire__choice-description {
+        font-weight: 400;
+        color: var(--muted-foreground);
+    }
+
+    /*
+     * Same geometry and ink as `Kbd`, which is what it is — the key that picks this answer. It isn't a
+     * `Kbd` element because the primitive owns the node, so it borrows `buttonVariants` for the chrome
+     * and only the sizing lives here.
+     */
+    .quill-questionnaire__choice-shortcut {
+        min-width: 1.25rem;
+        padding-inline: 0.25rem;
+        margin-inline-start: auto;
+        font-family: var(--font-q-sans, ui-sans-serif, system-ui, sans-serif);
+        font-weight: 500;
+        line-height: 1;
+        color: var(--muted-foreground);
+        pointer-events: none;
+        user-select: none;
+        border-radius: 0.25rem;
+    }
+
+    /*
+     * A freeform answer sits with the fixed choices rather than after them, so "or write your own" reads
+     * as one more row in the same list.
+     */
+    .quill-questionnaire__input-wrapper {
+        position: relative;
+        width: 100%;
+        min-width: 0;
+    }
+
+    /* Matches a choice row at rest — the group's own fill would read as a heavier row than the others. */
+    .quill-questionnaire__input-wrapper > .quill-questionnaire__input-group {
+        background-color: transparent;
+    }
+
+    :is(.dark, [theme='dark']) .quill-questionnaire__input-wrapper > .quill-questionnaire__input-group {
+        background-color: color-mix(in oklab, var(--input) 20%, transparent);
+    }
+
+    /* Lines the field up with the choices: same indicator offset, same gap before the text. */
+    .quill-questionnaire__input-wrapper
+        .quill-questionnaire__input-group
+        > [data-slot='input-group-addon'][data-align='inline-start'] {
+        padding-inline: 0.5rem 0;
+    }
+
+    .quill-questionnaire__input-wrapper .quill-questionnaire__input-group:has(> [data-align='inline-start']) > input {
+        padding-inline-start: 0.5rem;
+    }
+
+    /*
+     * The engine's input keeps its own `data-slot`, so the group's control-scoped focus rule can't see
+     * it — the row wears the ring itself, the way a choice row does for its overlaid control.
+     */
+    .quill-questionnaire__input-wrapper .quill-questionnaire__input-group:has(> input:focus-visible) {
+        border-color: color-mix(in oklab, var(--ring) 50%, transparent);
+        box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 30%, transparent);
+    }
+
+    /* Outranks the dark rule above it, which would otherwise hold the neutral fill under the tint. */
+    .quill-questionnaire__input-wrapper > .quill-questionnaire__input-group[data-filled] {
+        background-color: color-mix(in oklab, var(--success) 20%, transparent);
+        border-color: color-mix(in oklab, var(--success-foreground) 40%, transparent);
+    }
+
+    .quill-questionnaire__input-indicator {
+        position: relative;
+        display: flex;
+        flex-shrink: 0;
+        align-items: center;
+        justify-content: center;
+        width: 0.875rem;
+        height: 0.875rem;
+        pointer-events: none;
+        border: 1px solid var(--input);
+        border-radius: 9999px;
+    }
+
+    :is(.dark, [theme='dark']) .quill-questionnaire__input-indicator {
+        background-color: color-mix(in oklab, var(--input) 30%, transparent);
+    }
+
+    /* The field has no control of its own, so the shape comes from the answers it sits with. */
+    .quill-questionnaire__choices:has([data-type='checkbox']) .quill-questionnaire__input-indicator {
+        border-radius: 3px;
+    }
+
+    .quill-questionnaire__input-group[data-filled] .quill-questionnaire__input-indicator {
+        color: var(--primary-foreground);
+        background-color: var(--primary);
+        border-color: var(--primary);
+    }
+
+    .quill-questionnaire__input-indicator-dot,
+    .quill-questionnaire__input-indicator-check {
+        display: none;
+    }
+
+    .quill-questionnaire__input-group[data-filled] .quill-questionnaire__input-indicator-dot {
+        display: block;
+        width: 0.375rem;
+        height: 0.375rem;
+        background-color: var(--primary-foreground);
+        border-radius: 9999px;
+    }
+
+    .quill-questionnaire__choices:has([data-type='checkbox'])
+        .quill-questionnaire__input-group[data-filled]
+        .quill-questionnaire__input-indicator-dot {
+        display: none;
+    }
+
+    .quill-questionnaire__choices:has([data-type='checkbox'])
+        .quill-questionnaire__input-group[data-filled]
+        .quill-questionnaire__input-indicator-check {
+        display: block;
+        width: 0.625rem;
+        height: 0.625rem;
+    }
+
+    .quill-questionnaire__error {
+        font-size: var(--text-xs, 0.75rem);
+        line-height: 1.625;
+        color: var(--destructive-foreground);
+    }
+
+    /*
+     * Three columns — a stretchy one, then two that hug — so Previous stays pinned to the start while
+     * Skip and Next hug the end and don't move when the other appears. `min-height` holds the row open
+     * on the first and last items, where some of those buttons aren't rendered at all.
+     */
+    .quill-questionnaire__actions {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto auto;
+        gap: 0.5rem;
+        align-items: center;
+        width: 100%;
+        min-height: 1.75rem;
+    }
+
+    .quill-questionnaire__previous {
+        grid-row-start: 1;
+        grid-column-start: 1;
+        justify-self: start;
+    }
+
+    .quill-questionnaire__skip {
+        grid-row-start: 1;
+        grid-column-start: 2;
+        justify-self: end;
+    }
+
+    .quill-questionnaire__next,
+    .quill-questionnaire__submit {
+        grid-row-start: 1;
+        grid-column-start: 3;
+        justify-self: end;
+    }
+}

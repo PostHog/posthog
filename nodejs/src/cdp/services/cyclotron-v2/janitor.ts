@@ -407,6 +407,7 @@ export class CyclotronV2Janitor {
             distinctId: row.distinct_id,
             personId: row.person_id,
             actionId: row.action_id,
+            cancelRequestedAt: null,
             ack: () => Promise.resolve(),
             fail: () => Promise.resolve(),
             reschedule: () => Promise.resolve(),

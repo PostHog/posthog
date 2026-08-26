@@ -25,7 +25,9 @@ class SetupWizardTests(APIBaseTest):
         self.hash = "testhash"
         self.cache_key = f"{SETUP_WIZARD_CACHE_PREFIX}{self.hash}"
         cache.set(
-            self.cache_key, {"project_api_key": "test-key", "host": "http://localhost:8010"}, SETUP_WIZARD_CACHE_TIMEOUT
+            self.cache_key,
+            {"project_api_key": "test-key", "host": "http://localhost:8010", "team_id": self.team.id},
+            SETUP_WIZARD_CACHE_TIMEOUT,
         )
 
     def test_initialize_creates_hash(self):
@@ -118,6 +120,39 @@ class SetupWizardTests(APIBaseTest):
         )
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"data": {"foo": "bar"}}
+        assert mock_openai_instance.chat.completions.create.call_args.kwargs["posthog_properties"] == {
+            "ai_product": "wizard",
+            "ai_feature": "query",
+            "team_id": self.team.id,
+        }
+
+    @patch("posthog.api.wizard.http.posthoganalytics.default_client", MagicMock())
+    @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
+    @patch("posthog.api.wizard.http.OpenAI")
+    def test_query_endpoint_uses_oauth_scoped_team(self, mock_openai, mock_authentication):
+        mock_openai_instance = mock_openai.return_value
+        mock_openai_instance.chat.completions.create.return_value = MagicMock(
+            choices=[MagicMock(message=MagicMock(content=json.dumps({"foo": "bar"})))]
+        )
+        mock_authenticator = mock_authentication.return_value
+        mock_authenticator.authenticate.return_value = (self.user, None)
+        mock_authenticator.access_token.scoped_teams = [self.team.id]
+
+        response = self.client.post(
+            self.query_url,
+            data=json.dumps(
+                {"message": "test", "json_schema": {"type": "object", "properties": {"name": {"type": "number"}}}}
+            ),
+            content_type="application/json",
+            headers={"authorization": "Bearer pha_test"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert mock_openai_instance.chat.completions.create.call_args.kwargs["posthog_properties"] == {
+            "ai_product": "wizard",
+            "ai_feature": "query",
+            "team_id": self.team.id,
+        }
 
     @patch("posthog.api.wizard.http.posthoganalytics.default_client", MagicMock())
     @patch("posthog.api.wizard.http.OpenAI")
@@ -193,7 +228,11 @@ class SetupWizardTests(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"data": {"result": "gemini_success"}}
-        mock_client_instance.models.generate_content.assert_called_once()
+        assert mock_client_instance.models.generate_content.call_args.kwargs["posthog_properties"] == {
+            "ai_product": "wizard",
+            "ai_feature": "query",
+            "team_id": self.team.id,
+        }
 
     def test_query_endpoint_rejects_invalid_model(self):
         response = self.client.post(
@@ -247,6 +286,7 @@ class SetupWizardTests(APIBaseTest):
         assert cached_data["project_api_key"] == "mock-project-api-key"
         assert cached_data["host"] == "http://localhost:8010"
         assert cached_data["user_distinct_id"] == "mock-user-id"
+        assert cached_data["team_id"] == 1
 
     @patch("django.conf.settings.DEBUG", True)
     @patch("posthog.api.wizard.http.posthoganalytics.default_client", MagicMock())
@@ -283,6 +323,7 @@ class SetupWizardTests(APIBaseTest):
         assert cached_data["project_api_key"] == "mock-project-api-key"
         assert cached_data["host"] == "http://localhost:8010"
         assert cached_data["user_distinct_id"] == "mock-user-id"
+        assert cached_data["team_id"] == 1
 
     @patch("django.conf.settings.DEBUG", False)
     @patch("posthog.api.wizard.http.posthoganalytics.default_client", MagicMock())
@@ -397,6 +438,7 @@ class SetupWizardTests(APIBaseTest):
         self.assertEqual(updated_data["project_api_key"], self.team.api_token)
         self.assertEqual(updated_data["host"], get_api_host())
         self.assertEqual(updated_data["user_distinct_id"], self.user.distinct_id)
+        self.assertEqual(updated_data["team_id"], self.team.id)
 
     @override_settings(
         CACHES={

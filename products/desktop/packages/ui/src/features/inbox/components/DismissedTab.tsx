@@ -11,7 +11,6 @@ import { InboxLoadMore } from "@posthog/ui/features/inbox/components/InboxLoadMo
 import { ReportCard } from "@posthog/ui/features/inbox/components/ReportCard";
 import { useInboxDismissedReports } from "@posthog/ui/features/inbox/hooks/useInboxDismissedReports";
 import { useInboxRestoreReport } from "@posthog/ui/features/inbox/hooks/useInboxRestoreReport";
-import { Flex } from "@radix-ui/themes";
 
 /**
  * Archive tab: terminal reports, newest first — ones the user archived
@@ -27,15 +26,15 @@ export function DismissedTab() {
 
   if (isLoading && reports.length === 0) {
     return (
-      <Flex direction="column" gap="4" className="mx-auto max-w-4xl px-6 py-4">
+      <div className="@container mx-auto flex w-full max-w-4xl flex-col gap-4 px-6 py-4">
         <CardSkeleton count={4} variant="cards" />
-      </Flex>
+      </div>
     );
   }
 
   if (reports.length === 0) {
     return (
-      <Flex direction="column" className="mx-auto max-w-4xl px-6 py-4">
+      <div className="mx-auto flex w-full max-w-4xl flex-col px-6 py-4">
         <Empty className="mx-auto max-w-md py-16">
           <EmptyHeader>
             <EmptyMedia variant="icon">
@@ -49,12 +48,12 @@ export function DismissedTab() {
             </EmptyDescription>
           </EmptyHeader>
         </Empty>
-      </Flex>
+      </div>
     );
   }
 
   return (
-    <Flex direction="column" gap="3" className="mx-auto max-w-4xl px-6 py-4">
+    <div className="@container mx-auto flex w-full max-w-4xl flex-col gap-3 px-6 py-4">
       {reports.map((report) => (
         <ReportCard
           key={report.id}
@@ -69,6 +68,6 @@ export function DismissedTab() {
         isFetchingNextPage={isFetchingNextPage}
         onLoadMore={() => void fetchNextPage({ cancelRefetch: false })}
       />
-    </Flex>
+    </div>
   );
 }

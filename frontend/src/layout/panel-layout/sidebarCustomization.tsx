@@ -50,7 +50,7 @@ export const SIDEBAR_CUSTOMIZABLE_SECTIONS: SidebarCustomizableSection[] = [
             { key: 'home', label: 'Home', description: 'Opens your homepage.', icon: <IconHome /> },
             {
                 key: 'inbox',
-                label: 'Inbox',
+                label: 'Self-driving',
                 description: 'Reports and signals that need your attention.',
                 icon: <IconNotification />,
                 flag: FEATURE_FLAGS.PRODUCT_AUTONOMY,

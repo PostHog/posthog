@@ -1,6 +1,11 @@
-// @ts-expect-error jsdom ships no bundled types; only the test harness needs it
+// jsdom ships no types and this workspace does not install @types/jsdom, but
+// the posthog repo root does, and local runs pick it up through node_modules
+// traversal. The import is untyped only in workspace-only installs (CI), so an
+// expect-error directive would be "unused" locally; only a ts-ignore fits both.
+// biome-ignore lint/suspicious/noTsIgnore: the auto-fix (an expect-error directive) breaks repo-root installs (see above)
+// @ts-ignore
 import { JSDOM } from "jsdom";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { injectArtifactHtmlCommentBridge } from "./artifactHtmlCommentBridge";
 import { COMMENT_ACTION_BUTTON_THEMES } from "./selectionCommentAction";
 
@@ -86,7 +91,12 @@ function activateAction(dom: JSDOM): void {
   const element = actionButton(dom);
   if (!element) throw new Error("missing comment action");
   element.dispatchEvent(
-    new dom.window.MouseEvent("mousedown", { bubbles: true, composed: true }),
+    new dom.window.MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      detail: 1,
+    }),
   );
 }
 
@@ -159,18 +169,8 @@ describe("artifactHtmlCommentBridge", () => {
     pressOn(dom, "p");
     selectParagraph(dom);
     releaseOn(dom, "p");
-    const button = actionButton(dom);
-    if (!button) throw new Error("missing comment action");
-    button.getBoundingClientRect = () =>
-      ({
-        top: 32,
-        left: 118,
-        right: 222,
-        bottom: 60,
-        width: 104,
-        height: 28,
-      }) as DOMRect;
-
+    pressAction(dom);
+    dom.window.getSelection()?.removeAllRanges();
     activateAction(dom);
 
     expect(messages).toHaveLength(1);
@@ -193,15 +193,111 @@ describe("artifactHtmlCommentBridge", () => {
         height: 20,
       },
       triggerRect: {
-        top: 32,
-        left: 118,
-        right: 222,
-        bottom: 60,
-        width: 104,
-        height: 28,
+        top: expect.any(Number),
+        left: expect.any(Number),
+        right: expect.any(Number),
+        bottom: expect.any(Number),
+        width: expect.any(Number),
+        height: expect.any(Number),
       },
     });
     expect(actionButton(dom)?.style.display).toBe("none");
+    dom.window.close();
+  });
+
+  it("updates the active composer position when the artifact scrolls", () => {
+    const dom = loadBridgeDocument(
+      "<html><body><p>some selectable text here</p></body></html>",
+    );
+    const messages: Array<Record<string, unknown>> = [];
+    dom.window.postMessage = ((message: Record<string, unknown>) => {
+      messages.push(message);
+    }) as typeof dom.window.postMessage;
+
+    pressOn(dom, "p");
+    selectParagraph(dom);
+    const range = dom.window.getSelection()?.getRangeAt(0);
+    if (!range) throw new Error("missing selected range");
+    let top = 50;
+    range.getClientRects = () =>
+      [
+        {
+          top,
+          left: 70,
+          right: 110,
+          bottom: top + 10,
+          width: 40,
+          height: 10,
+        },
+      ] as unknown as DOMRectList;
+    releaseOn(dom, "p");
+    pressAction(dom);
+    dom.window.getSelection()?.removeAllRanges();
+    activateAction(dom);
+
+    top = 20;
+    dom.window.document.dispatchEvent(new dom.window.Event("scroll"));
+
+    expect(messages.at(-1)).toMatchObject({
+      type: "selection-position",
+      rect: { top: 20, right: 110, bottom: 30 },
+    });
+    const positionCount = messages.filter(
+      (message) => message.type === "selection-position",
+    ).length;
+
+    dom.window.dispatchEvent(
+      new dom.window.MessageEvent("message", {
+        data: {
+          marker: BRIDGE_MARKER,
+          channel: CHANNEL,
+          type: "selection-dismissed",
+        },
+        source: dom.window as unknown as MessageEventSource,
+      }),
+    );
+    top = 10;
+    dom.window.document.dispatchEvent(new dom.window.Event("scroll"));
+
+    expect(
+      messages.filter((message) => message.type === "selection-position"),
+    ).toHaveLength(positionCount);
+    dom.window.close();
+  });
+
+  it("locates each navigation request only once", () => {
+    const dom = loadBridgeDocument("<html><body><p>text</p></body></html>");
+    const scrollIntoView = vi.fn();
+    dom.window.Element.prototype.scrollIntoView = scrollIntoView;
+    const send = (data: Record<string, unknown>) =>
+      dom.window.dispatchEvent(
+        new dom.window.MessageEvent("message", {
+          data: { marker: BRIDGE_MARKER, channel: CHANNEL, ...data },
+          source: dom.window as unknown as MessageEventSource,
+        }),
+      );
+
+    send({
+      type: "comments",
+      items: [
+        {
+          id: "comment-1",
+          anchor: {
+            kind: "text",
+            quote: "text",
+            prefix: "",
+            suffix: "",
+            start: 0,
+            end: 4,
+          },
+        },
+      ],
+    });
+    send({ type: "locate", id: "comment-1", nonce: 1 });
+    send({ type: "locate", id: "comment-1", nonce: 1 });
+    send({ type: "locate", id: "comment-1", nonce: 2 });
+
+    expect(scrollIntoView).toHaveBeenCalledTimes(2);
     dom.window.close();
   });
 
@@ -238,7 +334,7 @@ describe("artifactHtmlCommentBridge", () => {
             type: "theme",
             theme,
           },
-          source: dom.window,
+          source: dom.window as unknown as MessageEventSource,
         }),
       );
     };

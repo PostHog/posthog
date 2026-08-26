@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { isIgnoredSkillEntry } from "@posthog/shared";
 import { parseSkillFrontmatter } from "./parse-skill-frontmatter";
 import type { SkillFileEntry, SkillInfo, SkillSource } from "./schemas";
 
@@ -136,6 +137,8 @@ export async function getMarketplaceInstallPaths(): Promise<string[]> {
 /**
  * Recursively lists regular files inside a skill directory. Symlinks are
  * skipped so a crafted skill cannot expose files outside its directory.
+ * Ignored entries (dot-directories and junk like node_modules) are excluded,
+ * applying the same ignore rule as the bundlers.
  */
 export async function listSkillFiles(
   skillDir: string,
@@ -147,6 +150,14 @@ export async function listSkillFiles(
     const entries = await fs.promises.readdir(dir, { withFileTypes: true });
     for (const entry of entries) {
       if (files.length >= maxFiles) return;
+      if (
+        isIgnoredSkillEntry(
+          entry.name,
+          entry.isDirectory() ? "directory" : "file",
+        )
+      ) {
+        continue;
+      }
       const relPath = prefix ? `${prefix}/${entry.name}` : entry.name;
       const fullPath = path.join(dir, entry.name);
       if (entry.isDirectory()) {

@@ -7,7 +7,7 @@ use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
 use assignment_coordination::leader_election::{self, LeaderElectionConfig};
-use assignment_coordination::strategy::AssignmentStrategy;
+use assignment_coordination::strategy::{AssignmentStrategy, Member};
 use assignment_coordination::util;
 use k8s_awareness::types::ControllerKind;
 use k8s_awareness::{DepartureReason, K8sAwareness};
@@ -443,6 +443,7 @@ impl Assigner {
         // Use registered set for liveness: a Draining consumer is alive and
         // needs the handoff protocol, not a direct reassignment.
         let registered_set: HashSet<&str> = registered.iter().map(|s| s.as_str()).collect();
+        let members = Member::active_all(&ready_consumers);
 
         for config in &topic_configs {
             let current_assignments = store.list_assignments_for_topic(&config.topic).await?;
@@ -451,11 +452,8 @@ impl Assigner {
                 .map(|a| (a.partition, a.owner.clone()))
                 .collect();
 
-            let desired = strategy.compute_assignments(
-                &current_map,
-                &ready_consumers,
-                config.partition_count,
-            );
+            let desired =
+                strategy.compute_assignments(&current_map, &members, config.partition_count);
             let moves = util::compute_required_handoffs(&current_map, &desired);
 
             if !moves.is_empty() || current_map.len() != desired.len() {

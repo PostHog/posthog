@@ -231,17 +231,35 @@ async def a_external_data_workflow_exists(id: str) -> bool:
 
 def pause_external_data_schedule(id: str):
     temporal = sync_connect()
-    pause_schedule(temporal, schedule_id=id)
+    try:
+        pause_schedule(temporal, schedule_id=id)
+    except temporalio.service.RPCError as e:
+        # Swallow error if schedule does not exist already
+        if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+            return
+        raise
 
 
 def unpause_external_data_schedule(id: str):
     temporal = sync_connect()
-    unpause_schedule(temporal, schedule_id=id)
+    try:
+        unpause_schedule(temporal, schedule_id=id)
+    except temporalio.service.RPCError as e:
+        # Swallow error if schedule does not exist already
+        if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+            return
+        raise
 
 
 async def a_unpause_external_data_schedule(id: str):
     temporal = await async_connect()
-    await a_unpause_schedule(temporal, schedule_id=id)
+    try:
+        await a_unpause_schedule(temporal, schedule_id=id)
+    except temporalio.service.RPCError as e:
+        # Swallow error if schedule does not exist already
+        if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+            return
+        raise
 
 
 def delete_external_data_schedule(schedule_id: str):
@@ -604,6 +622,25 @@ async def is_cdc_extraction_schedule_paused(source_id: str) -> bool:
             return False
         raise
     return desc.schedule.state.paused
+
+
+@async_to_sync
+async def cdc_extraction_schedule_has_running_action(source_id: str) -> bool:
+    """Whether an extraction run started by the source's schedule is still executing.
+
+    Pausing a schedule stops future firings but not a workflow already running — anything that
+    must not race an in-flight extraction (the buffered-ingress rollback) has to wait on this
+    after pausing. A missing schedule has nothing running.
+    """
+    schedule_id = _get_cdc_extraction_schedule_id(source_id)
+    temporal = await async_connect()
+    try:
+        desc = await describe_schedule(temporal, schedule_id=schedule_id)
+    except temporalio.service.RPCError as e:
+        if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+            return False
+        raise
+    return bool(desc.info.running_actions)
 
 
 @async_to_sync

@@ -20,10 +20,10 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl
 from posthog.scopes import APIScopeObject
 from posthog.sync import database_sync_to_async, database_sync_to_async_pool
 
+from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 from products.replay_vision.backend.api.delivery import archive_delivery, provision_delivery
 from products.replay_vision.backend.api.scanners import ReplayScannerSerializer
 from products.replay_vision.backend.api.trigger import WorkflowStartOutcome, start_process_vision_action_workflow
@@ -35,7 +35,6 @@ from products.replay_vision.backend.embeddings import (
     EMBEDDING_PRODUCT,
     OBSERVATION_EMBEDDING_MODEL,
 )
-from products.replay_vision.backend.feature_flag import is_replay_vision_actions_enabled, is_replay_vision_enabled
 from products.replay_vision.backend.impact import compute_scanner_impact, create_affected_cohort
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
@@ -44,14 +43,17 @@ from products.replay_vision.backend.models.vision_action import ActionMode, Visi
 from products.replay_vision.backend.observation_formatting import EVENT_ID_CITATION_RE, format_line, read_output
 from products.replay_vision.backend.queries.scanner_volume_estimate import (
     ESTIMATE_STALE_AFTER,
+    PREVIEW_ESTIMATE_BUDGET,
     estimate_scanner_session_volume,
     project_monthly_observations,
 )
-from products.replay_vision.backend.quota import compute_quota_snapshot
+from products.replay_vision.backend.quota import compute_quota_snapshot, quota_state
 from products.replay_vision.backend.scanner_access import (
+    accessible_observations,
+    can_read_targeted_experiment,
     is_uuid,
+    readable_observation_scanner_ids,
     scanner_for_reading_observations,
-    scanners_for_reading_observations,
     selection_target_ids,
 )
 from products.replay_vision.backend.scanner_config import scanner_config_error
@@ -64,6 +66,7 @@ from products.replay_vision.backend.scanning import (
 )
 from products.replay_vision.backend.tag_suggestions import suggest_classifier_tags
 from products.replay_vision.backend.tags import clickhouse_slugify_sql, slugify_tag
+from products.replay_vision.backend.temporal.metrics import record_scanner_limit_reached
 
 from ee.hogai.tool import MaxTool
 from ee.hogai.utils.untrusted import as_untrusted_data, neutralize_markup
@@ -202,14 +205,8 @@ class ReplayVisionGatesMixin:
         return self.needs_confirmation
 
     @database_sync_to_async
-    def _is_enabled(self) -> bool:
-        return is_replay_vision_enabled(self._user, self._team)
-
-    @database_sync_to_async
-    def _gates(self) -> tuple[bool, bool]:
-        """Both preconditions on one hop. `_is_enabled` can be a network flag evaluation, so running it
-        in series ahead of the consent read costs two dispatches for one decision."""
-        return is_replay_vision_enabled(self._user, self._team), is_ai_data_processing_approved(self._team.id)
+    def _consent_given(self) -> bool:
+        return is_ai_data_processing_approved(self._team.id)
 
     def _scanner_for(self, scanner_id: str, level: AccessControlLevel = "editor") -> "ReplayScanner | None":
         """A saved scanner this user may act on at `level`.
@@ -250,7 +247,8 @@ class ReplayVisionGatesMixin:
         return action
 
     def _observation_for(self, observation_id: str, level: AccessControlLevel = "editor") -> "ReplayObservation | None":
-        """An observation this user may act on at `level`. Observations inherit their scanner's RBAC."""
+        """An observation this user may act on at `level`. Observations inherit their scanner's RBAC,
+        and an experiment scanner's observations also need access to the experiment in their snapshot."""
         if not is_uuid(observation_id):
             return None
         observation = (
@@ -260,21 +258,11 @@ class ReplayVisionGatesMixin:
             observation.scanner, level
         ):
             return None
+        if not accessible_observations(
+            self.user_access_control, self._team.id, ReplayObservation.objects.filter(pk=observation.pk)
+        ).exists():
+            return None
         return observation
-
-    @database_sync_to_async
-    def _actions_enabled(self) -> bool:
-        return is_replay_vision_enabled(self._user, self._team) and is_replay_vision_actions_enabled(
-            self._user, self._team
-        )
-
-    @staticmethod
-    def _not_enabled() -> tuple[str, dict[str, Any]]:
-        return "Replay Vision is not enabled for this project.", {"error": "not_enabled"}
-
-    @staticmethod
-    def _actions_not_enabled() -> tuple[str, dict[str, Any]]:
-        return "Replay Vision actions are not enabled for this project.", {"error": "not_enabled"}
 
     @staticmethod
     def _no_ai_consent() -> tuple[str, dict[str, Any]]:
@@ -301,9 +289,6 @@ class DraftReplayVisionScannerPromptTool(ReplayVisionGatesMixin, MaxTool):
         return [("session_recording", "editor")]
 
     async def _arun_impl(self, prompt: str, scanner_type: str | None = None) -> tuple[str, dict[str, Any]]:
-        if not await self._is_enabled():
-            return self._not_enabled()
-
         cleaned = prompt.strip()
         if not cleaned:
             return "No prompt to apply. Please provide the drafted prompt text.", {"error": "empty_prompt"}
@@ -351,17 +336,15 @@ class SummarizeReplayVisionSummariesTool(ReplayVisionGatesMixin, MaxTool):
 
     @database_sync_to_async
     def _fetch_and_format(self, scanner_id: str) -> tuple[str, dict[str, Any]]:
-        # Gate on the product flag, matching the Vision API viewsets — the tool must not return
-        # data when Replay Vision is disabled for the org.
-        if not is_replay_vision_enabled(self._user, self._team):
-            return self._not_enabled()
-
         scanner = scanner_for_reading_observations(self._team.id, scanner_id)
         if scanner is None:
             return f"Scanner {scanner_id} not found.", {"error": "not_found"}
         # Summaries inherit the scanner's RBAC — a team member without viewer access to this scanner
         # must not read its recording-derived output. Treat as not-found so we don't leak existence.
-        if not self.user_access_control.check_access_level_for_object(scanner, "viewer"):
+        # An experiment scanner also needs access to its targeted experiment.
+        if not self.user_access_control.check_access_level_for_object(
+            scanner, "viewer"
+        ) or not can_read_targeted_experiment(self.user_access_control, self._team.id, scanner):
             return f"Scanner {scanner_id} not found.", {"error": "forbidden"}
         if scanner.scanner_type != ScannerType.SUMMARIZER:
             # Never interpolate the user-editable scanner name into tool output — it's outside the data fence.
@@ -587,11 +570,6 @@ class SearchReplayVisionObservationsTool(ReplayVisionGatesMixin, MaxTool):
         """Sync gate + scope resolution — runs before the embedding HTTP call. Returns
         `(scope, None)` when search should proceed, or `(None, short_circuit)` when the caller should return
         the short-circuit (content, artifact) tuple as-is. Exactly one half is non-None."""
-        # Gate on the product flag, matching the Vision API viewsets — the tool must not return
-        # data when Replay Vision is disabled for the org.
-        if not is_replay_vision_enabled(self._user, self._team):
-            return None, ("Replay Vision is not enabled for this project.", {"error": "not_enabled"})
-
         scope = self._resolve_scanner_scope(scanner_id)
         if scope is None:
             # `not found` doubles as `no access` so we never leak a scanner's existence.
@@ -629,11 +607,15 @@ class SearchReplayVisionObservationsTool(ReplayVisionGatesMixin, MaxTool):
 
         observations = {
             str(obs.id): obs
-            for obs in ReplayObservation.objects.filter(
-                team_id=self._team.id,
-                scanner_id__in=scanner_ids,
-                status=ObservationStatus.SUCCEEDED,
-                id__in=ordered_ids,
+            for obs in accessible_observations(
+                self.user_access_control,
+                self._team.id,
+                ReplayObservation.objects.filter(
+                    team_id=self._team.id,
+                    scanner_id__in=scanner_ids,
+                    status=ObservationStatus.SUCCEEDED,
+                    id__in=ordered_ids,
+                ),
             )
             .select_related("scanner")
             .only("id", "session_id", "scanner_result", "created_at", "scanner__name")
@@ -668,15 +650,19 @@ class SearchReplayVisionObservationsTool(ReplayVisionGatesMixin, MaxTool):
                 # A model-supplied non-UUID would raise ValidationError deeper in the ORM (alert noise); treat as not-found.
                 return None
             scanner = scanner_for_reading_observations(self._team.id, scanner_uuid)
-            # Observations inherit the scanner's RBAC — treat missing access as not-found.
-            if scanner is None or not self.user_access_control.check_access_level_for_object(scanner, "viewer"):
+            # Observations inherit the scanner's RBAC, and an experiment scanner also needs access to
+            # its targeted experiment — treat either miss as not-found.
+            if (
+                scanner is None
+                or not self.user_access_control.check_access_level_for_object(scanner, "viewer")
+                or not can_read_targeted_experiment(self.user_access_control, self._team.id, scanner)
+            ):
                 return None
             # The scanner name is user-editable and the header sits outside the data fence, so keep it out of
             # tool output entirely (stored-injection guard); the searcher already knows which scanner they're on.
             return [str(scanner.id)], "the selected Replay Vision scanner", False
-        readable = self.user_access_control.filter_queryset_by_access_level(
-            scanners_for_reading_observations(self._team.id)
-        ).values_list("id", flat=True)
+        # Experiment access included, and the experiment lookup batched into one query.
+        readable = readable_observation_scanner_ids(self.user_access_control, self._team.id)
         return [str(sid) for sid in readable], "your Replay Vision scanners", True
 
     def _rank_observation_ids(
@@ -769,7 +755,7 @@ def _truncate(text: str, limit: int = 120) -> str:
 def _credit_sentence(team: Team, cost: int, lead: str = "about") -> str:
     """Credits and dollars against what's left. One phrasing, so a conversation never prices the same
     number two different ways."""
-    return _price(cost, compute_quota_snapshot(team.organization_id).remaining, lead)
+    return _price(cost, quota_state(team.organization_id).remaining, lead)
 
 
 def _price(cost: int, remaining: int | None, lead: str = "about") -> str:
@@ -799,6 +785,11 @@ def _scan_summary(started: int, results: list[dict[str, str]]) -> str:
         parts.append(f"{counts['already_running']} were already being scanned.")
     if counts.get("skipped_quota"):
         parts.append(f"{counts['skipped_quota']} were skipped: the monthly credit budget is used up.")
+    if counts.get("skipped_scanner_limit"):
+        parts.append(
+            f"{counts['skipped_scanner_limit']} were skipped: this scanner reached its own credit limit. "
+            "Scanning resumes when its billing period resets."
+        )
     if counts.get("skipped_limit"):
         parts.append(f"{counts['skipped_limit']} were skipped: too many scans already running.")
     if counts.get("failed"):
@@ -892,9 +883,6 @@ class ScanReplayVisionSessionsTool(ReplayVisionGatesMixin, MaxTool):
         scanner_id: str | None = None,
         scanner_type: str = "monitor",
     ) -> tuple[str, dict[str, Any]]:
-        enabled, consent = await self._gates()
-        if not enabled:
-            return self._not_enabled()
         sessions = _dedup(session_ids)
         if not sessions:
             return "No session ids to scan.", {"error": "no_sessions"}
@@ -904,7 +892,7 @@ class ScanReplayVisionSessionsTool(ReplayVisionGatesMixin, MaxTool):
                 "Narrow the selection and try again.",
                 {"error": "too_many_sessions"},
             )
-        if not consent:
+        if not await self._consent_given():
             return self._no_ai_consent()
         return await self._start_scan(sessions, prompt, scanner_id, scanner_type)
 
@@ -917,6 +905,8 @@ class ScanReplayVisionSessionsTool(ReplayVisionGatesMixin, MaxTool):
             if scanner is None:
                 return f"Scanner {scanner_id} not found.", {"error": "not_found"}
             started, results = scan_existing_scanner(scanner=scanner, session_ids=sessions, user=self._user)
+            if any(result["scan_outcome"] == "skipped_scanner_limit" for result in results):
+                record_scanner_limit_reached("max_tool")
             return _scan_summary(started, results), {"scan_id": str(scanner.id), "results": results}
 
         if not prompt or not prompt.strip():
@@ -975,8 +965,6 @@ class GetReplayVisionQuotaTool(ReplayVisionGatesMixin, MaxTool):
         return [("replay_scanner", "viewer")]
 
     async def _arun_impl(self) -> tuple[str, dict[str, Any]]:
-        if not await self._is_enabled():
-            return self._not_enabled()
         return await self._read()
 
     @database_sync_to_async
@@ -1044,10 +1032,7 @@ class RetryReplayVisionObservationTool(ReplayVisionGatesMixin, MaxTool):
         return f"**Scan recording {observation.session_id} again**, replacing the failed result. This spends {spend}"
 
     async def _arun_impl(self, observation_id: str) -> tuple[str, dict[str, Any]]:
-        enabled, consent = await self._gates()
-        if not enabled:
-            return self._not_enabled()
-        if not consent:
+        if not await self._consent_given():
             return self._no_ai_consent()
         return await self._retry(observation_id)
 
@@ -1237,12 +1222,9 @@ class CreateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
         scale_max: float | None = None,
         length: str | None = None,
     ) -> tuple[str, dict[str, Any]]:
-        is_on, consent = await self._gates()
-        if not is_on:
-            return self._not_enabled()
         # Not gated on `enabled`: the serializer refuses to create either kind without consent, so
         # checking only for enabled ones turned the disabled path into an unhandled exception.
-        if not consent:
+        if not await self._consent_given():
             return self._no_ai_consent()
         return await self._create(
             name, prompt, scanner_type, sampling_rate, enabled, tags, scale_min, scale_max, length
@@ -1264,7 +1246,7 @@ class CreateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
         resolved_type = scanner_type if scanner_type in VALID_SCANNER_TYPES else ScannerType.MONITOR
         # Through the serializer, not ReplayScanner.objects.create: it owns the sampling-rate floor below
         # which a scanner silently never scans, the unique-name race, the estimate refresh, the built-in
-        # daily digest, and the lifecycle event. A scanner Max makes should be the same object the UI makes.
+        # featured digest, and the lifecycle event. A scanner Max makes should be the same object the UI makes.
         serializer = ReplayScannerSerializer(
             data={
                 "name": name.strip(),
@@ -1356,10 +1338,6 @@ class CreateReplayVisionActionTool(ReplayVisionGatesMixin, MaxTool):
     async def _arun_impl(
         self, scanner_id: str, name: str, cadence: str = "daily", focus: str | None = None
     ) -> tuple[str, dict[str, Any]]:
-        # Actions sit behind their own flag, and the API 404s without it. Checking only the product flag
-        # would let Max create a scheduled job on a project that can't see or manage it.
-        if not await self._actions_enabled():
-            return self._actions_not_enabled()
         return await self._create(scanner_id, name, cadence, focus)
 
     @database_sync_to_async
@@ -1506,11 +1484,8 @@ class UpdateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
         prompt: str | None = None,
         sampling_rate: float | None = None,
     ) -> tuple[str, dict[str, Any]]:
-        is_on, consent = await self._gates()
-        if not is_on:
-            return self._not_enabled()
         # The serializer refuses to enable without consent, so answer rather than raise.
-        if enabled is True and not consent:
+        if enabled is True and not await self._consent_given():
             return self._no_ai_consent()
         return await self._update(scanner_id, enabled, name, prompt, sampling_rate)
 
@@ -1590,8 +1565,6 @@ class ListReplayVisionScannersTool(ReplayVisionGatesMixin, MaxTool):
         return [("replay_scanner", "viewer")]
 
     async def _arun_impl(self, enabled_only: bool = False) -> tuple[str, dict[str, Any]]:
-        if not await self._is_enabled():
-            return self._not_enabled()
         return await self._list(enabled_only)
 
     @database_sync_to_async
@@ -1672,8 +1645,6 @@ class DeleteReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
         )
 
     async def _arun_impl(self, scanner_id: str) -> tuple[str, dict[str, Any]]:
-        if not await self._is_enabled():
-            return self._not_enabled()
         return await self._delete(scanner_id)
 
     @database_sync_to_async
@@ -1724,8 +1695,6 @@ class EstimateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
         return [("replay_scanner", "viewer"), ("session_recording", "viewer")]
 
     async def _arun_impl(self, scanner_id: str, sampling_rate: float | None = None) -> tuple[str, dict[str, Any]]:
-        if not await self._is_enabled():
-            return self._not_enabled()
         return await self._estimate(scanner_id, sampling_rate)
 
     def _cached_projection(self, scanner: ReplayScanner, rate: float) -> int | None:
@@ -1756,16 +1725,19 @@ class EstimateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
             try:
                 estimate = estimate_scanner_session_volume(
                     team=self._team,
-                    query=scanner.recordings_query(),
+                    query=scanner.targeted_recordings_query(),
+                    # The exposure filter's access check runs as whoever is asking Max.
+                    user=self._user,
                     sampling_mode=scanner.sampling_mode,
                     ch_user=ClickHouseUser.REPLAY_VISION,
+                    budget=PREVIEW_ESTIMATE_BUDGET,
                 )
             except Exception:
                 logger.exception("replay_vision.max_tools.estimate_failed", scanner_id=scanner_id)
                 return "Couldn't work out the volume for that scanner just now.", {"error": "estimate_failed"}
             observations = project_monthly_observations(estimate, rate)
         cost = observation_credits_for_model(scanner.model) * observations
-        remaining = compute_quota_snapshot(self._team.organization_id).remaining
+        remaining = quota_state(self._team.organization_id).remaining
         return (
             f"About {observations} recordings a month at {rate:.0%} sampling, costing roughly "
             f"{_price(cost, remaining, lead='')}".strip(),
@@ -1812,8 +1784,6 @@ class ReadReplayVisionActionsTool(ReplayVisionGatesMixin, MaxTool):
         return [("vision_action", "viewer"), ("session_recording", "viewer")]
 
     async def _arun_impl(self, action_id: str | None = None) -> tuple[str, dict[str, Any]]:
-        if not await self._actions_enabled():
-            return self._actions_not_enabled()
         return await self._read(action_id)
 
     @database_sync_to_async
@@ -1936,8 +1906,6 @@ class UpdateReplayVisionActionTool(ReplayVisionGatesMixin, MaxTool):
     async def _arun_impl(
         self, action_id: str, enabled: bool | None = None, name: str | None = None, cadence: str | None = None
     ) -> tuple[str, dict[str, Any]]:
-        if not await self._actions_enabled():
-            return self._actions_not_enabled()
         return await self._update(action_id, enabled, name, cadence)
 
     @database_sync_to_async
@@ -2013,8 +1981,6 @@ class DeleteReplayVisionActionTool(ReplayVisionGatesMixin, MaxTool):
         )
 
     async def _arun_impl(self, action_id: str) -> tuple[str, dict[str, Any]]:
-        if not await self._actions_enabled():
-            return self._actions_not_enabled()
         return await self._delete(action_id)
 
     @database_sync_to_async
@@ -2062,10 +2028,7 @@ class RunReplayVisionActionTool(ReplayVisionGatesMixin, MaxTool):
         )
 
     async def _arun_impl(self, action_id: str) -> tuple[str, dict[str, Any]]:
-        if not await self._actions_enabled():
-            return self._actions_not_enabled()
-        _, consent = await self._gates()
-        if not consent:
+        if not await self._consent_given():
             return self._no_ai_consent()
         return await self._run_now(action_id)
 
@@ -2127,8 +2090,6 @@ class LabelReplayVisionObservationTool(ReplayVisionGatesMixin, MaxTool):
     async def _arun_impl(
         self, observation_id: str, is_correct: bool, feedback: str | None = None
     ) -> tuple[str, dict[str, Any]]:
-        if not await self._is_enabled():
-            return self._not_enabled()
         return await self._label(observation_id, is_correct, feedback)
 
     @database_sync_to_async
@@ -2212,8 +2173,6 @@ class AnalyzeReplayVisionImpactTool(ReplayVisionGatesMixin, MaxTool):
         max_score: float | None = None,
         create_cohort: bool = False,
     ) -> tuple[str, dict[str, Any]]:
-        if not await self._is_enabled():
-            return self._not_enabled()
         return await self._analyze(scanner_id, window_days, tag, min_score, max_score, create_cohort)
 
     @database_sync_to_async
@@ -2295,13 +2254,11 @@ class SuggestReplayVisionTagsTool(ReplayVisionGatesMixin, MaxTool):
         return [("replay_scanner", "viewer"), ("session_recording", "viewer")]
 
     async def _arun_impl(self, scanner_id: str) -> tuple[str, dict[str, Any]]:
-        if not await self._is_enabled():
-            return self._not_enabled()
         scanner = await self._resolve(scanner_id)
         if scanner is None:
             return f"Scanner {scanner_id} not found.", {"error": "not_found"}
         if scanner.scanner_type != ScannerType.CLASSIFIER:
-            return "Only classifier scanners have a tag vocabulary.", {"error": "not_a_classifier"}
+            return "Only classifier scanners have categories.", {"error": "not_a_classifier"}
         # Pooled rather than thread-sensitive: the model call carries a 90s timeout, and the shared
         # executor would queue every other database operation behind it. Still connection-managed,
         # because the suggestion path reads observations and event definitions.

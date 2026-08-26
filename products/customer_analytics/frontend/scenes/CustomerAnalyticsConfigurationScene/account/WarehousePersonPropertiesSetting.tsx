@@ -1,16 +1,19 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPencil, IconPlus, IconRefresh, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTableColumns, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { IconExternal, IconPencil, IconPlus, IconRefresh, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonTable, LemonTableColumns, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TZLabel } from 'lib/components/TZLabel'
 import { TeamMembershipLevel } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
+import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
+import { urls } from 'scenes/urls'
 
 import type {
     CustomPropertyDefinitionApi,
+    CustomPropertySourceApi,
     CustomPropertySyncRunApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
@@ -48,11 +51,53 @@ const LABELS_BY_TARGET: Record<'person' | 'group', ProfileLabels> = {
 }
 
 function RunCount({ value }: { value: number }): JSX.Element {
-    return <span className={value ? 'font-medium' : 'text-secondary'}>{value}</span>
+    return <span className={value ? 'font-medium' : 'text-secondary'}>{humanFriendlyNumber(value)}</span>
 }
 
-// Run history for one source, loaded lazily when its row is expanded.
-function ProfilePropertyRuns({ sourceId, labels }: { sourceId: string; labels: ProfileLabels }): JSX.Element {
+// The updated share, as a whole percent. 100% has to mean every changed row landed, so a near-miss
+// stays at 99% instead of rounding up, and a tiny share reads as <1% instead of collapsing to 0%.
+function updatedShare(existing: number, changed: number): string | null {
+    if (changed <= 0) {
+        return null
+    }
+    if (existing >= changed) {
+        return '100%'
+    }
+    const share = existing / changed
+    if (share < 0.01) {
+        return '<1%'
+    }
+    return percentage(Math.min(share, 0.99), 0)
+}
+
+// Whether the source reads a materialized view rather than a synced table.
+function bindsAView(source: CustomPropertySourceApi): boolean {
+    return !!source.saved_query && !source.external_data_schema
+}
+
+// Where the bound table or view's own run history lives. Null when the source has no warehouse
+// binding, or when the caller can't view what it reads.
+function sourceRunsUrl(source: CustomPropertySourceApi): string | null {
+    if (bindsAView(source)) {
+        return source.saved_query ? urls.sqlEditor({ view_id: source.saved_query }) : null
+    }
+    if (!source.external_data_source || !source.external_data_schema) {
+        return null
+    }
+    return urls.dataWarehouseSourceSchema(source.external_data_source, source.external_data_schema, 'syncs')
+}
+
+// Run history for one source, loaded lazily when its row is expanded. `syncsUrl` points at the
+// warehouse table's own sync history, where a run that rode a failing import shows the real error.
+function ProfilePropertyRuns({
+    sourceId,
+    labels,
+    syncsUrl,
+}: {
+    sourceId: string
+    labels: ProfileLabels
+    syncsUrl: string | null
+}): JSX.Element {
     const { runsBySourceId, runsLoadingBySourceId } = useValues(customPropertyDefinitionsLogic)
     const runs = runsBySourceId[sourceId] ?? []
 
@@ -101,18 +146,26 @@ function ProfilePropertyRuns({ sourceId, labels }: { sourceId: string; labels: P
             title: 'Updated',
             tooltip: `How many ${labels.entityPlural} this run updated, out of the rows whose mapped values changed. Rows that already hold the values last sent are skipped, even on a full refresh.`,
             align: 'right',
-            render: (_, run) => (
-                <span className="whitespace-nowrap">
-                    <RunCount value={run.existing} />
-                    <span className="text-secondary"> of {run.changed} changed</span>
-                </span>
-            ),
+            render: (_, run) => {
+                const share = updatedShare(run.existing, run.changed)
+                return (
+                    <span className="whitespace-nowrap">
+                        <RunCount value={run.existing} />
+                        <span className="text-secondary">
+                            {' '}
+                            of {humanFriendlyNumber(run.changed)} changed{share ? ` (${share})` : ''}
+                        </span>
+                    </span>
+                )
+            },
         },
         {
             title: `Skipped (no ${labels.entity})`,
             tooltip: `Changed rows dropped because their key column value matched no existing ${labels.entity}. The most common reason a property never shows up.`,
             align: 'right',
-            render: (_, run) => <span className="text-secondary">{run.skipped_missing_person}</span>,
+            render: (_, run) => (
+                <span className="text-secondary">{humanFriendlyNumber(run.skipped_missing_person)}</span>
+            ),
         },
         {
             title: 'Started',
@@ -125,6 +178,22 @@ function ProfilePropertyRuns({ sourceId, labels }: { sourceId: string; labels: P
                 run.finished_at ? <TZLabel time={run.finished_at} /> : <span className="text-secondary">—</span>,
         },
     ]
+
+    if (syncsUrl) {
+        columns.push({
+            title: '',
+            width: 0,
+            render: () => (
+                <LemonButton
+                    size="small"
+                    icon={<IconExternal />}
+                    to={syncsUrl}
+                    targetBlank
+                    tooltip="Open this table's sync history in the data warehouse to see import errors"
+                />
+            ),
+        })
+    }
 
     return (
         <LemonTable
@@ -172,6 +241,24 @@ function WarehouseProfilePropertiesSetting({ targetType }: { targetType: 'person
             title: 'Name',
             dataIndex: 'name',
             render: (_, definition) => <span className="font-semibold">{definition.name}</span>,
+        },
+        {
+            title: 'Reads',
+            tooltip: 'The warehouse table or materialized view this property reads its values from.',
+            render: (_, definition) => {
+                const source = definition.source
+                const name = source?.saved_query_name ?? source?.table_name
+                if (!source || !name) {
+                    return <span className="text-secondary">—</span>
+                }
+                const url = sourceRunsUrl(source)
+                return (
+                    <span className="flex items-center gap-2">
+                        {url ? <Link to={url}>{name}</Link> : <span>{name}</span>}
+                        <LemonTag type="muted">{bindsAView(source) ? 'View' : 'Table'}</LemonTag>
+                    </span>
+                )
+            },
         },
         {
             title: labels.keyColumn,
@@ -228,7 +315,9 @@ function WarehouseProfilePropertiesSetting({ targetType }: { targetType: 'person
                 const tooltipTitle =
                     [
                         status.tooltip,
-                        affected != null ? `${affected} ${labels.entityPlural} affected on the last run` : null,
+                        affected != null
+                            ? `${humanFriendlyNumber(affected)} ${labels.entityPlural} affected on the last run`
+                            : null,
                     ]
                         .filter(Boolean)
                         .join(' — ') || undefined
@@ -330,7 +419,11 @@ function WarehouseProfilePropertiesSetting({ targetType }: { targetType: 'person
                     onRowExpand: (definition) => definition.source && loadRuns({ sourceId: definition.source.id }),
                     expandedRowRender: (definition) =>
                         definition.source ? (
-                            <ProfilePropertyRuns sourceId={definition.source.id} labels={labels} />
+                            <ProfilePropertyRuns
+                                sourceId={definition.source.id}
+                                labels={labels}
+                                syncsUrl={sourceRunsUrl(definition.source)}
+                            />
                         ) : null,
                 }}
                 emptyState={`No warehouse-backed ${labels.entity} properties yet. Add one to sync warehouse columns onto ${labels.entityPlural}.`}

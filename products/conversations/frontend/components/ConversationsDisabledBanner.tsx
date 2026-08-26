@@ -1,15 +1,61 @@
+import posthog from 'posthog-js'
+
+import * as superheroPng from '@posthog/brand/hoggies/png/superhero'
 import { IconOpenSidebar } from '@posthog/icons'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
-import { SupportHeroHog } from 'lib/components/hedgehogs'
+import { pngHoggie } from 'lib/brand/hoggies'
 import { urls } from 'scenes/urls'
+
+const HedgehogSuperhero = pngHoggie(superheroPng)
+
+type SupportActivationButtonProps = {
+    source: 'support_empty_state' | 'dashboard_widget'
+    className?: string
+    widgetType?: string
+    widgetId?: string
+    dashboardId?: number | null
+    onClick?: () => void
+}
+
+export function SupportActivationButton({
+    source,
+    className,
+    widgetType,
+    widgetId,
+    dashboardId,
+    onClick,
+}: SupportActivationButtonProps): JSX.Element {
+    return (
+        <LemonButton
+            className={className ?? 'hidden @md:flex'}
+            type="primary"
+            to={urls.supportSettings()}
+            onClick={() => {
+                sessionStorage.setItem(
+                    'support_activation_source',
+                    JSON.stringify({ source, widget_type: widgetType, widget_id: widgetId, dashboard_id: dashboardId })
+                )
+                posthog.capture('support activation started', {
+                    source,
+                    widget_type: widgetType,
+                    widget_id: widgetId,
+                    dashboard_id: dashboardId,
+                })
+                onClick?.()
+            }}
+        >
+            Enable
+        </LemonButton>
+    )
+}
 
 export function ConversationsDisabledBanner(): JSX.Element {
     return (
         <LemonBanner type="info" hideIcon={true}>
             <div className="flex gap-8 p-8 lg:flex-row justify-center flex-wrap">
                 <div className="hidden lg:flex justify-center items-center w-full lg:w-50">
-                    <SupportHeroHog className="h-[200px] w-[200px]" />
+                    <HedgehogSuperhero className="h-[200px] w-[200px]" />
                 </div>
                 <div className="flex flex-col gap-2 flex-shrink max-w-180">
                     <h2 className="text-lg font-semibold">Welcome to Support</h2>
@@ -36,9 +82,7 @@ export function ConversationsDisabledBanner(): JSX.Element {
                         </li>
                     </ul>
                     <div className="flex items-center gap-x-4 gap-y-2 flex-wrap">
-                        <LemonButton className="hidden @md:flex" type="primary" to={urls.supportSettings()}>
-                            Enable
-                        </LemonButton>
+                        <SupportActivationButton source="support_empty_state" />
                         <LemonButton
                             type="tertiary"
                             sideIcon={<IconOpenSidebar className="w-4 h-4" />}

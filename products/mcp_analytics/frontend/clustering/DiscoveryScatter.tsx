@@ -2,9 +2,11 @@ import { useValues } from 'kea'
 
 import { Tooltip } from '@posthog/lemon-ui'
 
+import { useChartTheme } from 'lib/charts/hooks'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { ScatterPoint, fitDomain, mcpClusteringLogic } from './mcpClusteringLogic'
+import { PRIMARY_SERIES, seriesColor } from './seriesColors'
 
 const WIDTH = 640
 const HEIGHT = 280
@@ -34,7 +36,8 @@ function radius(callCount: number, maxCalls: number): number {
  * undersells what the tool does.
  */
 export function DiscoveryScatter(): JSX.Element | null {
-    const { scatterPoints, tools, fitMedian, discoveryMedian } = useValues(mcpClusteringLogic)
+    const { scatterPoints, scopedTools, fitMedian, discoveryMedian } = useValues(mcpClusteringLogic)
+    const theme = useChartTheme()
 
     if (scatterPoints.length === 0) {
         return (
@@ -53,7 +56,10 @@ export function DiscoveryScatter(): JSX.Element | null {
     const maxCalls = Math.max(...scatterPoints.map((p) => p.callCount))
     const plotX: [number, number] = [PAD.left, WIDTH - PAD.right]
     const plotY: [number, number] = [HEIGHT - PAD.bottom, PAD.top]
-    const unplotted = tools.length - scatterPoints.length
+    // Counted against the scoped tools the plot draws from, not every tool in the snapshot,
+    // or a category filter leaves the footnote claiming more omissions than there are tools.
+    const unplotted = scopedTools.length - scatterPoints.length
+    const bubbleColor = seriesColor(theme, PRIMARY_SERIES)
 
     return (
         <div className="bg-surface-primary border rounded p-4 flex flex-col gap-2">
@@ -148,9 +154,9 @@ export function DiscoveryScatter(): JSX.Element | null {
                             cx={scale(point.fit, xDomain, plotX)}
                             cy={scale(point.discoveryRatePct, [0, 100], plotY)}
                             r={radius(point.callCount, maxCalls)}
-                            fill="var(--accent)"
+                            fill={bubbleColor}
                             fillOpacity={0.55}
-                            stroke="var(--accent)"
+                            stroke={bubbleColor}
                             className="cursor-help"
                         />
                     </Tooltip>
@@ -158,8 +164,8 @@ export function DiscoveryScatter(): JSX.Element | null {
             </svg>
             {unplotted > 0 ? (
                 <span className="text-[10px] text-muted">
-                    {unplotted} tool{unplotted === 1 ? ' is' : 's are'} not plotted: they lack a captured description or
-                    enough advertised sessions to measure discovery.
+                    {unplotted} tool{unplotted === 1 ? '' : 's'} not plotted: no captured description, or too few
+                    advertised sessions to measure discovery.
                 </span>
             ) : null}
         </div>

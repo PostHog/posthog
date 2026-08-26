@@ -31,7 +31,12 @@ TELNYX_ENDPOINTS: dict[str, TelnyxEndpoint] = {
         name="MessagingDetailRecords",
         table_name="messaging_detail_records",
         record_type="messaging",
-        primary_key=["uuid"],
+        # SMS/MMS records carry `uuid`, but RCS records (`agent_name`/`product_name` present
+        # instead) carry no `uuid` field at all, only `id`. The writer already merges on
+        # whichever configured key survives into a given batch, so listing both lets each
+        # record shape merge on its own identifier instead of failing incremental syncs on tables
+        # that mix RCS in with SMS/MMS.
+        primary_key=["uuid", "id"],
         partition_key="created_at",
         incremental_field="created_at",
     ),

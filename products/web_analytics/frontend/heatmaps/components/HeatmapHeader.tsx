@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonInput, LemonLabel } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, LemonLabel, LemonTag } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 
@@ -23,6 +23,7 @@ export function HeatmapHeader(): JSX.Element {
         displayUrl,
         displayUrlIsPattern,
         type,
+        source,
         userAccessLevel,
     } = useValues(heatmapLogic)
     const { iframeBanner, dataUrl, isBrowserUrlAuthorized } = useValues(heatmapsBrowserLogic)
@@ -36,7 +37,10 @@ export function HeatmapHeader(): JSX.Element {
             <div className="flex-none md:flex justify-between items-end gap-2 w-full">
                 <div className="flex flex-col gap-3 flex-1 min-w-0">
                     <div>
-                        <LemonLabel>Page URL</LemonLabel>
+                        <div className="flex items-center gap-2">
+                            <LemonLabel>Page URL</LemonLabel>
+                            {source === 'toolbar' && <LemonTag type="highlight">Captured from toolbar</LemonTag>}
+                        </div>
                         <div className="flex gap-2 items-start">
                             <LemonInput
                                 size="small"

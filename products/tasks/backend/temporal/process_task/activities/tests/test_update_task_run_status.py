@@ -3,16 +3,24 @@ from unittest.mock import patch
 
 from asgiref.sync import async_to_sync
 from temporalio.exceptions import ApplicationError
+from temporalio.testing import ActivityEnvironment
 
 from products.tasks.backend.models import Loop, TaskRun
 from products.tasks.backend.temporal.process_task.activities.update_task_run_status import (
     SANDBOX_GONE_STATE_KEY,
+    TIMED_OUT_INACTIVITY_STATE_KEY,
     TIMED_OUT_WALL_CLOCK_STATE_KEY,
     UpdateTaskRunStatusInput,
     update_task_run_status,
 )
 
 TOKEN_USAGE = {"input_tokens": 1200, "output_tokens": 300, "total_tokens": 1500, "turns": 3}
+
+
+async def _run_update_task_run_status(
+    activity_environment: ActivityEnvironment, input_data: UpdateTaskRunStatusInput
+) -> None:
+    await activity_environment.run(update_task_run_status, input_data)
 
 
 @pytest.mark.requires_secrets
@@ -85,6 +93,28 @@ class TestUpdateTaskRunStatusActivity:
         assert test_task_run.state.get("timed_out_inactivity") is True
         # Merge, not replace: pre-existing state keys survive the marker write.
         assert test_task_run.state.get("existing_key") == "kept"
+
+    @pytest.mark.django_db(transaction=True)
+    def test_timed_out_unclaimed_prewarm_soft_deletes_task(
+        self, activity_environment: ActivityEnvironment, test_task_run: TaskRun
+    ) -> None:
+        test_task_run.task.title = ""
+        test_task_run.task.description = ""
+        test_task_run.task.save(update_fields=["title", "description", "updated_at"])
+        test_task_run.state = {"prewarmed": True, "await_user_message": True}
+        test_task_run.save(update_fields=["state", "updated_at"])
+
+        async_to_sync(_run_update_task_run_status)(
+            activity_environment,
+            UpdateTaskRunStatusInput(
+                run_id=str(test_task_run.id),
+                status=TaskRun.Status.COMPLETED,
+                timed_out_inactivity=True,
+            ),
+        )
+
+        test_task_run.task.refresh_from_db()
+        assert test_task_run.task.deleted is True
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
@@ -162,10 +192,57 @@ class TestUpdateTaskRunStatusActivity:
         assert props["usage_turns"] == 3
         assert props["rtk_enabled"] is True
         assert props["run_environment"] == test_task_run.environment
+        assert props["termination_reason"] is None
         mock_record.assert_called_once()
         assert mock_record.call_args.kwargs["rtk_enabled"] is True
         assert mock_record.call_args.kwargs["runtime_adapter"] == "codex"
         assert mock_record.call_args.kwargs["status"] == status
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
+        "status,timed_out_inactivity,timeout_marker,expected_event,expected_reason",
+        [
+            (TaskRun.Status.COMPLETED, True, None, "task_run_completed", TIMED_OUT_INACTIVITY_STATE_KEY),
+            (
+                TaskRun.Status.FAILED,
+                False,
+                TIMED_OUT_WALL_CLOCK_STATE_KEY,
+                "task_run_failed",
+                TIMED_OUT_WALL_CLOCK_STATE_KEY,
+            ),
+        ],
+    )
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_terminal_analytics_carries_termination_reason(
+        self,
+        mock_capture,
+        activity_environment,
+        test_task_run,
+        status,
+        timed_out_inactivity,
+        timeout_marker,
+        expected_event,
+        expected_reason,
+    ):
+        input_data = UpdateTaskRunStatusInput(
+            run_id=str(test_task_run.id),
+            status=status,
+            timed_out_inactivity=timed_out_inactivity,
+            timeout_marker=timeout_marker,
+            agent_active_at_termination=False,
+            end_of_turn_received=True,
+            last_agent_heartbeat_at="2026-08-19T10:00:00+00:00",
+            seconds_since_last_agent_heartbeat=1800.0,
+        )
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+
+        captured = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == expected_event]
+        properties = captured[0].kwargs["properties"]
+        assert properties["termination_reason"] == expected_reason
+        assert properties["agent_active_at_termination"] is False
+        assert properties["end_of_turn_received"] is True
+        assert properties["last_agent_heartbeat_at"] == "2026-08-19T10:00:00+00:00"
+        assert properties["seconds_since_last_agent_heartbeat"] == 1800.0
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
@@ -206,11 +283,7 @@ class TestUpdateTaskRunStatusActivity:
         assert len(completed) == 1
 
     @pytest.mark.django_db(transaction=True)
-    def test_terminal_transition_updates_loop_bookkeeping_exactly_once(self, activity_environment, test_task_run):
-        # This activity is how workflow-driven loop runs reach a terminal status, so it must
-        # drive loop bookkeeping (last_run_status, consecutive_failures -> auto-pause) — the
-        # HTTP PATCH path is never taken for these. A repeat of the same terminal update must
-        # not double-count.
+    def test_terminal_retry_completes_loop_bookkeeping_exactly_once(self, activity_environment, test_task_run):
         loop = Loop(
             team=test_task_run.team,
             created_by=test_task_run.task.created_by,
@@ -220,7 +293,9 @@ class TestUpdateTaskRunStatusActivity:
         )
         loop.save()
         test_task_run.state = {**(test_task_run.state or {}), "loop_id": str(loop.id)}
-        test_task_run.save(update_fields=["state"])
+        test_task_run.status = TaskRun.Status.FAILED
+        test_task_run.error_message = "sandbox crashed"
+        test_task_run.save(update_fields=["state", "status", "error_message"])
 
         input_data = UpdateTaskRunStatusInput(
             run_id=str(test_task_run.id), status=TaskRun.Status.FAILED, error_message="sandbox crashed"

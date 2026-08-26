@@ -30,7 +30,14 @@ import {
   Skeleton,
 } from "@posthog/quill";
 import { MCP_TOOL_PERMISSION_OPTIONS } from "@posthog/shared";
+import type { Task } from "@posthog/shared/domain-types";
+import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
+import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { useUsageLimitStore } from "@posthog/ui/features/billing/usageLimitStore";
+import {
+  spendStopMessage,
+  useSpendStop,
+} from "@posthog/ui/features/billing/useSpendStop";
 import { PromptInput } from "@posthog/ui/features/message-editor/components/PromptInput";
 import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
 import { PermissionSelector } from "@posthog/ui/features/permissions/PermissionSelector";
@@ -69,8 +76,7 @@ import {
 const log = logger.scope("pi-session-view");
 
 interface PiSessionViewProps {
-  taskId: string;
-  taskRunId?: string;
+  task: Task;
   isCloud: boolean;
 }
 
@@ -87,13 +93,23 @@ type SetMessagingMode = ReturnType<
 >["setMode"];
 
 function usePiSessionConnection(
-  taskId: string,
-  taskRunId: string | undefined,
+  task: Task,
+  isTaskAuthor: boolean | undefined,
 ): void {
   const controller = useService<PiSessionController>(PI_SESSION_CONTROLLER);
+  const taskId = task.id;
+  const taskRunId = task.latest_run?.id;
+
+  useEffect(() => {
+    controller.setNotificationContext(taskId, {
+      taskTitle: task.title,
+      isTaskAuthor,
+    });
+  }, [controller, isTaskAuthor, task.title, taskId]);
+
   useEffect(() => {
     void controller.ensureConnected(taskId, taskRunId).catch(() => {});
-    return () => controller.disconnect(taskId);
+    return () => controller.release(taskId);
   }, [controller, taskId, taskRunId]);
 }
 
@@ -317,7 +333,9 @@ function usePiSubmit(
       );
       void controller
         .submit(taskId, message, isStreaming, messagingMode, pendingConfig)
-        .then(() => onSuccess(action))
+        .then(() => {
+          onSuccess(action);
+        })
         .catch((error) => {
           handleControllerError(
             error,
@@ -453,11 +471,15 @@ function usePiRemoveQueue(
   }, [controller, taskId]);
 }
 
-export function PiSessionView({
-  taskId,
-  taskRunId,
-  isCloud,
-}: PiSessionViewProps) {
+export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
+  const taskId = task.id;
+  const taskRunId = task.latest_run?.id;
+  const authenticatedClient = useOptionalAuthenticatedClient();
+  const { data: currentUser } = useCurrentUser({ client: authenticatedClient });
+  const isTaskAuthor =
+    currentUser?.uuid && task.created_by?.uuid
+      ? currentUser.uuid === task.created_by.uuid
+      : undefined;
   const piSessionController = useService<PiSessionController>(
     PI_SESSION_CONTROLLER,
   );
@@ -495,7 +517,7 @@ export function PiSessionView({
     [],
   );
 
-  usePiSessionConnection(taskId, taskRunId);
+  usePiSessionConnection(task, isTaskAuthor);
   usePiExtensionConnection(
     taskId,
     taskRunId,
@@ -582,6 +604,8 @@ export function PiSessionView({
     },
     [mcpPermission, piSessionController, taskId],
   );
+
+  const spendStop = useSpendStop();
 
   if (!session) {
     return <TaskDetailSkeleton />;
@@ -723,7 +747,9 @@ export function PiSessionView({
         ) : (
           <PromptInput
             sessionId={taskId}
-            toolbarEndSlot={<ContextUsageIndicator usage={contextUsage} />}
+            toolbarEndSlot={
+              <ContextUsageIndicator usage={contextUsage} taskId={taskId} />
+            }
             taskId={taskId}
             repoPath={repoPath}
             placeholder="Type a message..."
@@ -734,7 +760,8 @@ export function PiSessionView({
               !status ||
               !isOnline ||
               hasQueuedMessage ||
-              isAuthRestoring
+              isAuthRestoring ||
+              spendStop !== null
             }
             submitTooltipOverride={
               !isOnline
@@ -743,7 +770,9 @@ export function PiSessionView({
                   ? "Restoring authentication"
                   : hasQueuedMessage
                     ? "A message is already queued"
-                    : undefined
+                    : spendStop
+                      ? spendStopMessage(spendStop)
+                      : undefined
             }
             enableBashMode
             enableCommands

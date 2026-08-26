@@ -89,6 +89,14 @@ if (isDev) {
   );
 }
 
+// Chromium's Local Network Access checks treat the dev artifact origin
+// (localhost) as local network and the sandboxed canvas iframe's opaque origin
+// as public, so the artifact navigation is blocked with no way to grant the
+// permission. Production artifact origins are public and unaffected.
+if (isDev) {
+  app.commandLine.appendSwitch("disable-features", "LocalNetworkAccessChecks");
+}
+
 crashReporter.start({ uploadToServer: false });
 
 // Force IPv4 resolution when "localhost" is used so the agent hits 127.0.0.1

@@ -1,0 +1,29 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "event_uuid": {
+            "description": "The UUID (`id`) of the specific event within the trace to parse.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "name": {
+            "description": "Short human-readable name for the recipe, shown in the parser editor.",
+            "maxLength": 255,
+            "minLength": 1,
+            "type": "string"
+        },
+        "trace_id": {
+            "description": "The `$ai_trace_id` of the trace containing the event to parse.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "yaml_source": {
+            "description": "The recipe as raw YAML. Call `llma-parser-recipe-reference` first for the DSL syntax and worked examples. The server compiles and validates this against the exact event before saving.",
+            "maxLength": 100000,
+            "minLength": 1,
+            "type": "string"
+        }
+    },
+    "required": ["name", "yaml_source", "trace_id", "event_uuid"],
+    "type": "object"
+}

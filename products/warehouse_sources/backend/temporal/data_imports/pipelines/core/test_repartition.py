@@ -1,4 +1,5 @@
 import os
+import json
 import asyncio
 import datetime
 import itertools
@@ -23,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.par
     append_partition_key_to_table,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (
+    REWRITE_BATCH_READAHEAD,
     RepartitionBudgetExceededError,
     RepartitionSupersededError,
     RepartitionTarget,
@@ -31,6 +33,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
     repartition_table_in_place,
     select_coarsen_target,
     select_repartition_target,
+)
+from products.warehouse_sources.backend.temporal.data_imports.workload_report import (
+    _redis_client,
+    run_key,
+    workload_reporting,
 )
 
 logger = structlog.get_logger(__name__)
@@ -47,6 +54,9 @@ def _schema(**kwargs):
         "incremental_field": None,
         "incremental_field_type": None,
         "schema_metadata": None,
+        "repartition_rewrite": None,
+        "set_repartition_rewrite": Mock(),
+        "clear_repartition_rewrite": Mock(),
     }
     defaults.update(kwargs)
     return SimpleNamespace(**defaults)
@@ -84,8 +94,7 @@ def _write_month_partitioned(path: str, rows: list[tuple[int, datetime.datetime]
     )
     result = append_partition_key_to_table(table, None, None, ["created_at"], "datetime", "month", logger)
     assert result is not None
-    partitioned, *_ = result
-    deltalake.write_deltalake(path, partitioned, partition_by=PARTITION_KEY)
+    deltalake.write_deltalake(path, result.table, partition_by=PARTITION_KEY)
     return deltalake.DeltaTable(path)
 
 
@@ -211,7 +220,8 @@ class TestSelectRepartitionTarget:
                 {"partition_mode": None, "primary_key_columns": ["id"]},
                 {None: 5000},
                 1000,
-                {"partition_mode": None, "partition_keys": ["id"]},
+                # The sized count is what makes md5 reachable when auto-detection finds nothing else.
+                {"partition_mode": None, "partition_keys": ["id"], "partition_count": 5},
             ),
             (
                 "unpartitioned_without_keys_noop",
@@ -415,9 +425,8 @@ class TestSelectCoarsenTarget:
                 table, None, None, ["created_at"], "datetime", partition_format, logger
             )
             assert result is not None
-            partitioned, *_ = result
             sizes: dict[str | None, int] = {}
-            for key in partitioned.column(PARTITION_KEY).to_pylist():
+            for key in result.table.column(PARTITION_KEY).to_pylist():
                 sizes[key] = sizes.get(key, 0) + 1
             return sizes
 
@@ -442,9 +451,8 @@ class TestSelectCoarsenTarget:
                 table, None, None, ["created_at"], "datetime", partition_format, logger
             )
             assert result is not None
-            partitioned, *_ = result
             sizes: dict[str | None, int] = {}
-            for key in partitioned.column(PARTITION_KEY).to_pylist():
+            for key in result.table.column(PARTITION_KEY).to_pylist():
                 sizes[key] = sizes.get(key, 0) + 1
             return sizes
 
@@ -525,6 +533,127 @@ class TestRewriteIntoTemp:
         for key in new_sizes:
             assert key is not None and len(key) == len("2024-01-05")
 
+    def test_reports_buffered_bytes_to_the_workload_reporter(self, tmp_path):
+        # Dropping this hook makes rewrites invisible to the OOM classifier's culprit rule.
+        rows = [(1, datetime.datetime(2024, 1, 5)), (2, datetime.datetime(2024, 1, 20))]
+        old_delta = _write_month_partitioned(str(tmp_path / "src"), rows)
+
+        with workload_reporting(team_id=1, schema_id="s-rw", run_id="repartition:rw-test", host="pod-rw"):
+            asyncio.run(
+                _rewrite_into_temp(
+                    old_delta=old_delta,
+                    temp_uri=str(tmp_path / "tmp"),
+                    storage_options={},
+                    target=RepartitionTarget(
+                        partition_keys=["created_at"],
+                        trigger_reason="test",
+                        partition_mode="datetime",
+                        partition_format="day",
+                    ),
+                    batch_size=1,
+                    logger=logger,
+                )
+            )
+
+        redis = _redis_client()
+        assert redis is not None
+        sample = json.loads(redis.get(run_key("repartition:rw-test")))
+        assert sample["peak_buffer_bytes"] > 0
+
+    def test_scanner_bounds_readahead_so_the_scan_cannot_outrun_the_buffer(self, tmp_path):
+        # The default 16-batch prefetch is invisible to the coalescing buffer.
+        rows = [(i, datetime.datetime(2024, 1, 1 + (i % 28))) for i in range(40)]
+        old_delta = _write_month_partitioned(str(tmp_path / "src"), rows)
+        captured: dict = {}
+        real_scanner = old_delta.to_pyarrow_dataset().scanner
+
+        def spy(**kwargs):
+            captured.update(kwargs)
+            return real_scanner(**kwargs)
+
+        with patch.object(deltalake.DeltaTable, "to_pyarrow_dataset") as dataset:
+            dataset.return_value = SimpleNamespace(scanner=spy)
+            asyncio.run(
+                _rewrite_into_temp(
+                    old_delta=old_delta,
+                    temp_uri=str(tmp_path / "tmp"),
+                    storage_options={},
+                    target=RepartitionTarget(
+                        partition_keys=["created_at"],
+                        trigger_reason="test",
+                        partition_mode="datetime",
+                        partition_format="day",
+                    ),
+                    batch_size=10,
+                    logger=logger,
+                )
+            )
+
+        assert captured["batch_readahead"] == REWRITE_BATCH_READAHEAD
+        assert "fragment_readahead" not in captured
+
+    def test_progress_is_checkpointed_before_any_deadline(self, tmp_path):
+        # The deadline handler is the only other place a checkpoint is written, and an OOM-killed
+        # worker never reaches it, so a rewrite that dies mid-flight must already have one.
+        rows = [(i, datetime.datetime(2024, 1, 1 + (i % 28))) for i in range(40)]
+        old_delta = _write_month_partitioned(str(tmp_path / "src"), rows)
+        saved: list[tuple[int, str | None]] = []
+
+        async def save_checkpoint(rows_so_far, resolved_target):
+            saved.append((rows_so_far, resolved_target.partition_format))
+
+        asyncio.run(
+            _rewrite_into_temp(
+                old_delta=old_delta,
+                temp_uri=str(tmp_path / "tmp"),
+                storage_options={},
+                target=RepartitionTarget(
+                    partition_keys=["created_at"],
+                    trigger_reason="test",
+                    partition_mode="datetime",
+                    partition_format="day",
+                ),
+                batch_size=1,
+                logger=logger,
+                save_checkpoint=save_checkpoint,
+                checkpoint_interval_seconds=0,
+            )
+        )
+
+        assert saved, "a rewrite that commits must checkpoint without waiting for the deadline"
+        # Backed by rows actually committed to temp, and carrying the resolved scheme the resume needs.
+        assert saved[-1][0] > 0
+        assert saved[-1][1] == "day"
+
+    def test_a_failing_checkpoint_does_not_fail_the_rewrite(self, tmp_path):
+        # Losing a checkpoint costs redone work on the next attempt; failing the rewrite costs the
+        # whole thing.
+        rows = [(1, datetime.datetime(2024, 1, 5)), (2, datetime.datetime(2024, 1, 20))]
+        old_delta = _write_month_partitioned(str(tmp_path / "src"), rows)
+
+        async def exploding_checkpoint(rows_so_far, resolved_target):
+            raise RuntimeError("pooler dropped")
+
+        rows_written, _ = asyncio.run(
+            _rewrite_into_temp(
+                old_delta=old_delta,
+                temp_uri=str(tmp_path / "tmp"),
+                storage_options={},
+                target=RepartitionTarget(
+                    partition_keys=["created_at"],
+                    trigger_reason="test",
+                    partition_mode="datetime",
+                    partition_format="day",
+                ),
+                batch_size=1,
+                logger=logger,
+                save_checkpoint=exploding_checkpoint,
+                checkpoint_interval_seconds=0,
+            )
+        )
+
+        assert rows_written == len(rows)
+
     def test_stops_mid_stream_once_the_deadline_passes(self, tmp_path):
         rows = [
             (1, datetime.datetime(2024, 1, 5)),
@@ -541,7 +670,10 @@ class TestRewriteIntoTemp:
         # the deadline for the early reads and every later read is over it.
         clock = Mock(side_effect=itertools.chain([0.0] * 4, itertools.repeat(100.0)))
 
-        with patch.object(repartition_module, "time", Mock(monotonic=clock)):
+        with (
+            patch.object(repartition_module, "time", Mock(monotonic=clock)),
+            patch.object(repartition_module, "REWRITE_BUFFER_MAX_ROWS", 2),
+        ):
             with pytest.raises(RepartitionBudgetExceededError):
                 asyncio.run(
                     _rewrite_into_temp(
@@ -566,6 +698,57 @@ class TestRewriteIntoTemp:
         # least one batch per source file, so batch boundaries follow the source layout.
         written = deltalake.DeltaTable(temp_uri).to_pyarrow_table().num_rows
         assert 0 < written < len(rows)
+
+    def test_resume_from_a_prefix_completes_the_table_exactly_once(self, tmp_path):
+        # A budget-exceeded rewrite leaves temp holding a scan-ordered prefix. Resuming with
+        # skip_rows=<prefix length> must append exactly the remaining rows: every source row present
+        # once, none duplicated, none dropped. This is the fix's core guarantee, and it also guards the
+        # assumption the skip relies on — that the scan order is stable across the two passes. A
+        # reordering would re-write rows already in temp and skip others, which this catches.
+        rows = [(i, datetime.datetime(2024, 1, 1) + datetime.timedelta(days=3 * i)) for i in range(8)]
+        live = _write_month_partitioned(str(tmp_path / "live"), rows)
+        temp_uri = str(tmp_path / "tmp")
+        target = RepartitionTarget(
+            partition_keys=["created_at"], trigger_reason="t", partition_mode="datetime", partition_format="day"
+        )
+
+        # Stop the first pass after the buffer has flushed once, so temp holds a partial prefix.
+        clock = Mock(side_effect=itertools.chain([0.0] * 4, itertools.repeat(100.0)))
+        with (
+            patch.object(repartition_module, "time", Mock(monotonic=clock)),
+            patch.object(repartition_module, "REWRITE_BUFFER_MAX_ROWS", 2),
+        ):
+            with pytest.raises(RepartitionBudgetExceededError):
+                asyncio.run(
+                    _rewrite_into_temp(
+                        old_delta=live,
+                        temp_uri=temp_uri,
+                        storage_options={},
+                        target=target,
+                        batch_size=2,
+                        logger=logger,
+                        deadline=50.0,
+                    )
+                )
+        partial = deltalake.DeltaTable(temp_uri).to_pyarrow_table().num_rows
+        assert 0 < partial < len(rows)
+
+        asyncio.run(
+            _rewrite_into_temp(
+                old_delta=live,
+                temp_uri=temp_uri,
+                storage_options={},
+                target=target,
+                batch_size=2,
+                logger=logger,
+                skip_rows=partial,
+            )
+        )
+
+        final = deltalake.DeltaTable(temp_uri).to_pyarrow_table()
+        # Count plus set: every source id present exactly once (equal count rules out duplicates).
+        assert final.num_rows == len(rows)
+        assert set(final.column("id").to_pylist()) == set(range(len(rows)))
 
     def test_a_finished_rewrite_beats_the_deadline(self, tmp_path):
         # One source file, one batch, so the reader is exhausted on the second loop iteration. The
@@ -651,6 +834,72 @@ class TestRewriteIntoTemp:
         assert resolved.partition_mode == "datetime"
         assert resolved.partition_keys == ["created_at"]
 
+    def test_uuid_key_without_a_datetime_column_resolves_md5(self, tmp_path):
+        # The production failure: a UUID primary key and no `created_at`-style column matches none of
+        # the detectors, so the rewrite died with "No supported partition mode" and the table stayed
+        # unpartitioned, over budget, and OOM-killing its pod on every merge.
+        rows = 10
+        table = pa.table(
+            {
+                "id": pa.array([f"0198d931-1efe-73b9-aad5-feb84ed767{i:02d}" for i in range(rows)], type=pa.string()),
+                "endTimestamp": pa.array(
+                    [datetime.datetime(2024, 1, (i % 27) + 1) for i in range(rows)], type=pa.timestamp("us")
+                ),
+            }
+        )
+        deltalake.write_deltalake(str(tmp_path / "src"), table)
+        old_delta = deltalake.DeltaTable(str(tmp_path / "src"))
+
+        rows_written, resolved = asyncio.run(
+            _rewrite_into_temp(
+                old_delta=old_delta,
+                temp_uri=str(tmp_path / "tmp"),
+                storage_options={},
+                target=RepartitionTarget(
+                    partition_keys=["id"], trigger_reason="test", partition_mode=None, partition_count=4
+                ),
+                batch_size=3,
+                logger=logger,
+            )
+        )
+
+        assert rows_written == rows
+        assert resolved.partition_mode == "md5"
+        # Hashing the primary key, not the timestamp: a primary key never changes, so a row keeps its
+        # bucket when a later merge updates it.
+        assert resolved.partition_keys == ["id"]
+
+    def test_datetime_still_wins_over_the_md5_fallback(self, tmp_path):
+        # The count only supplies a floor. A table auto-detection can partition properly must still
+        # get that scheme, or every table would collapse onto hashed buckets.
+        rows = 10
+        table = pa.table(
+            {
+                "id": pa.array([f"0198d931-1efe-73b9-aad5-feb84ed767{i:02d}" for i in range(rows)], type=pa.string()),
+                "created_at": pa.array(
+                    [datetime.datetime(2024, 1, (i % 27) + 1) for i in range(rows)], type=pa.timestamp("us")
+                ),
+            }
+        )
+        deltalake.write_deltalake(str(tmp_path / "src"), table)
+        old_delta = deltalake.DeltaTable(str(tmp_path / "src"))
+
+        _rows_written, resolved = asyncio.run(
+            _rewrite_into_temp(
+                old_delta=old_delta,
+                temp_uri=str(tmp_path / "tmp"),
+                storage_options={},
+                target=RepartitionTarget(
+                    partition_keys=["id"], trigger_reason="test", partition_mode=None, partition_count=4
+                ),
+                batch_size=3,
+                logger=logger,
+            )
+        )
+
+        assert resolved.partition_mode == "datetime"
+        assert resolved.partition_keys == ["created_at"]
+
     def test_batch_with_real_null_in_non_nullable_column_is_backfilled_not_crashed(self, tmp_path):
         # The live table's own declared schema can mark a column non-nullable (e.g. a source NOT
         # NULL constraint recorded on first sync) while a scanned batch still carries an actual
@@ -682,7 +931,7 @@ class TestRewriteIntoTemp:
 
         old_delta = SimpleNamespace(
             to_pyarrow_dataset=lambda: SimpleNamespace(
-                scanner=lambda batch_size: SimpleNamespace(to_reader=lambda: _FakeReader(batch_table))
+                scanner=lambda **kwargs: SimpleNamespace(to_reader=lambda: _FakeReader(batch_table))
             ),
             schema=lambda: deltalake.Schema.from_arrow(live_pa_schema),
         )
@@ -1221,6 +1470,153 @@ class TestResumeWithInvalidTemp:
         assert result["outcome"] == "completed"
 
 
+class TestRewriteCheckpointResume:
+    """A rewrite that runs out of activity budget checkpoints its half-built temp so the next attempt
+    resumes instead of re-streaming from row 0 — the loop that used to leave large tables giving up
+    terminally. The checkpoint is fenced on the live Delta version: the sync's merge runs after a
+    swallowed repartition failure, so a resume is only safe while live is unchanged."""
+
+    def _base_schema(self, **kwargs):
+        return _schema(
+            id="s1",
+            repartition_swap=None,
+            set_repartition_swap=Mock(),
+            clear_repartition_swap=Mock(),
+            clear_repartition_pending=Mock(),
+            set_repartition_rewrite=Mock(),
+            clear_repartition_rewrite=Mock(),
+            set_partitioning_enabled=Mock(),
+            stamp_last_repartition_at=Mock(),
+            **kwargs,
+        )
+
+    def test_budget_exceeded_checkpoints_the_partial_temp(self, tmp_path):
+        # On budget exhaustion the partial temp, its row count, the resolved scheme, and the live
+        # version are recorded so a later attempt can resume — and the error still propagates so the
+        # activity records the attempt.
+        live = _write_month_partitioned(
+            str(tmp_path / "live"), [(1, datetime.datetime(2024, 1, 5)), (2, datetime.datetime(2024, 2, 2))]
+        )
+        table_ref = _make_table_ref(get_delta_table=AsyncMock(return_value=live))
+        target = RepartitionTarget(
+            partition_keys=["created_at"], trigger_reason="t", partition_mode="datetime", partition_format="day"
+        )
+        schema = self._base_schema()
+
+        with (
+            patch.object(repartition_module, "aget_s3_client", return_value=_FakeS3CM(_fake_s3())),
+            patch.object(repartition_module, "_purge_stale_temp_tables", new=AsyncMock()),
+            patch.object(repartition_module, "_current_claim_token", return_value="tok"),
+            patch.object(repartition_module, "_valid_delta_row_count", new=AsyncMock(return_value=1)),
+            patch.object(repartition_module, "save_repartition_checkpoint_if_claimed", return_value=True) as saved,
+            patch.object(
+                repartition_module,
+                "_rewrite_into_temp",
+                new=AsyncMock(
+                    side_effect=RepartitionBudgetExceededError("out of budget", rows_written=1, resolved=target)
+                ),
+            ),
+        ):
+            with pytest.raises(RepartitionBudgetExceededError):
+                asyncio.run(
+                    repartition_table_in_place(
+                        table_ref=table_ref, schema=schema, target=target, logger=logger, claim_token="tok"
+                    )
+                )
+
+        saved.assert_called_once()
+        # Fenced on the claim this attempt holds, so a superseded worker cannot write here.
+        assert saved.call_args.kwargs["claim_token"] == "tok"
+        checkpoint = saved.call_args.kwargs["checkpoint"]
+        assert checkpoint["rows_written"] == 1
+        assert checkpoint["live_version"] == live.version()
+        assert checkpoint["target"]["partition_format"] == "day"
+        assert checkpoint["temp_uri"].endswith("__repartitioned_tok")
+
+    def test_resumes_when_the_live_version_still_matches(self, tmp_path):
+        # Version matches → resume: append from the recorded offset into the checkpoint's own temp,
+        # without sweeping temps (a fresh rebuild would discard the prefix).
+        live = _write_month_partitioned(
+            str(tmp_path / "live"),
+            [
+                (1, datetime.datetime(2024, 1, 5)),
+                (2, datetime.datetime(2024, 2, 2)),
+                (3, datetime.datetime(2024, 3, 3)),
+            ],
+        )
+        table_ref = _make_table_ref(get_delta_table=AsyncMock(return_value=live))
+        target = RepartitionTarget(
+            partition_keys=["created_at"], trigger_reason="t", partition_mode="datetime", partition_format="day"
+        )
+        schema = self._base_schema(
+            repartition_rewrite={
+                "temp_uri": "s3://bucket/live__repartitioned_old",
+                "rows_written": 1,
+                "target": target.to_dict(),
+                "live_version": live.version(),
+            },
+        )
+
+        with (
+            patch.object(repartition_module, "_purge_stale_temp_tables", new=AsyncMock()) as purge,
+            patch.object(repartition_module, "_current_claim_token", return_value="tok"),
+            # First read validates the checkpoint temp (1 row); second validates the completed rewrite.
+            patch.object(repartition_module, "_valid_delta_row_count", new=AsyncMock(side_effect=[1, 3])),
+            patch.object(repartition_module, "_rewrite_into_temp", new=AsyncMock(return_value=(2, target))) as rewrite,
+            patch.object(repartition_module, "_swap_temp_into_live", new=AsyncMock()),
+        ):
+            result = asyncio.run(
+                repartition_table_in_place(
+                    table_ref=table_ref, schema=schema, target=target, logger=logger, claim_token="tok"
+                )
+            )
+
+        purge.assert_not_awaited()  # the prefix must not be swept
+        assert rewrite.await_args_list[0].kwargs["temp_uri"] == "s3://bucket/live__repartitioned_old"
+        assert rewrite.await_args_list[0].kwargs["skip_rows"] == 1
+        schema.clear_repartition_rewrite.assert_called_once()  # obsolete once temp is complete
+        assert result["outcome"] == "completed"
+
+    def test_discards_the_checkpoint_when_the_live_version_moved_on(self, tmp_path):
+        # Version moved on (a merge committed between attempts) → the recorded prefix no longer lines up
+        # with the current scan. The checkpoint must be discarded and a fresh rebuild started into our
+        # own claim-scoped temp, never resumed — resuming would swap misaligned data over live.
+        live = _write_month_partitioned(
+            str(tmp_path / "live"), [(1, datetime.datetime(2024, 1, 5)), (2, datetime.datetime(2024, 2, 2))]
+        )
+        table_ref = _make_table_ref(get_delta_table=AsyncMock(return_value=live))
+        target = RepartitionTarget(
+            partition_keys=["created_at"], trigger_reason="t", partition_mode="datetime", partition_format="day"
+        )
+        schema = self._base_schema(
+            repartition_rewrite={
+                "temp_uri": "s3://bucket/live__repartitioned_old",
+                "rows_written": 1,
+                "target": target.to_dict(),
+                "live_version": live.version() + 999,
+            },
+        )
+
+        with (
+            patch.object(repartition_module, "aget_s3_client", return_value=_FakeS3CM(_fake_s3())),
+            patch.object(repartition_module, "_purge_stale_temp_tables", new=AsyncMock()) as purge,
+            patch.object(repartition_module, "_current_claim_token", return_value="tok"),
+            patch.object(repartition_module, "_valid_delta_row_count", new=AsyncMock(side_effect=[1, 2])),
+            patch.object(repartition_module, "_rewrite_into_temp", new=AsyncMock(return_value=(2, target))) as rewrite,
+            patch.object(repartition_module, "_swap_temp_into_live", new=AsyncMock()),
+        ):
+            asyncio.run(
+                repartition_table_in_place(
+                    table_ref=table_ref, schema=schema, target=target, logger=logger, claim_token="tok"
+                )
+            )
+
+        schema.clear_repartition_rewrite.assert_called()  # stale checkpoint dropped
+        purge.assert_awaited_once()  # fresh rebuild sweeps orphans
+        assert rewrite.await_args_list[0].kwargs["temp_uri"].endswith("__repartitioned_tok")
+        assert rewrite.await_args_list[0].kwargs["skip_rows"] == 0
+
+
 class TestClaimFencing:
     """A heartbeat-timed-out attempt keeps running as a zombie while its Temporal retry starts; both
     used to write into the same temp table and corrupt each other (headless `_delta_log`, inflated row
@@ -1312,9 +1708,12 @@ class TestClaimFencing:
         assert rows_written == 24
         assert ensure.await_count == 1
 
-    def test_rewrite_coalesces_batches_into_one_commit(self, tmp_path):
-        # Commits must scale with data size, not source file count: under one batch_size worth of
-        # rows the whole rewrite lands as a single commit, losing no rows.
+    @pytest.mark.parametrize("batch_size", [50_000, 2])
+    def test_rewrite_coalesces_batches_into_one_commit(self, batch_size, tmp_path):
+        # Commits must scale with data size, not source file count or scan batch count: under one
+        # buffer's worth of rows the whole rewrite lands as a single commit, losing no rows. A scan
+        # batch size the buffer bound is derived from would cap the buffer at one batch and commit
+        # per batch instead, which is a throughput floor, not just extra versions.
         rows = [(i, datetime.datetime(2024, 1 + (i % 12), 5)) for i in range(1, 37)]
         live = _write_month_partitioned(str(tmp_path / "live"), rows)
         assert len(measure_partition_bytes(live)) == 12
@@ -1329,7 +1728,7 @@ class TestClaimFencing:
                 temp_uri=temp_uri,
                 storage_options={},
                 target=target,
-                batch_size=50_000,
+                batch_size=batch_size,
                 logger=logger,
             )
         )
@@ -1337,7 +1736,8 @@ class TestClaimFencing:
         temp = deltalake.DeltaTable(temp_uri)
         assert rows_written == 36
         assert temp.to_pyarrow_dataset().count_rows() == 36
-        # Version 0 is the sole commit; one-per-source-file would leave version 11.
+        # Version 0 is the sole commit; one-per-source-file would leave version 11, and
+        # one-per-scan-batch would leave version 17 at batch_size=2.
         assert temp.version() == 0
 
     def test_rewrite_of_empty_source_writes_nothing(self, tmp_path):
@@ -1399,12 +1799,12 @@ class TestClaimFencing:
         assert temp.to_pyarrow_dataset().count_rows() == 24
         assert temp.version() > 0
 
-    def test_rewrite_never_buffers_beyond_batch_size(self, tmp_path):
+    def test_rewrite_never_buffers_beyond_its_row_bound(self, tmp_path):
         # Appending before the size check lets a nearly-full buffer take another full-sized batch, so
-        # peak memory reaches ~2x batch_size — a regression on the one-batch bound the rewrite held
-        # before it coalesced, in the module that exists because oversized in-memory data OOMs the
-        # worker. Four 6-row source files against batch_size=10 catch it: flushing after the append
-        # writes commits of 12 rows, flushing before it keeps every commit within the bound.
+        # peak memory reaches ~2x the bound, in the module that exists because oversized in-memory
+        # data OOMs the worker. Four 6-row source files against a 10-row bound catch it: flushing
+        # after the append writes commits of 12 rows, flushing before it keeps every commit within
+        # the bound.
         rows = [(i, datetime.datetime(2024, 1 + (i % 4), 5)) for i in range(1, 25)]
         live = _write_month_partitioned(str(tmp_path / "live"), rows)
         assert len(measure_partition_bytes(live)) == 4
@@ -1413,16 +1813,17 @@ class TestClaimFencing:
             partition_keys=["created_at"], trigger_reason="t", partition_mode="datetime", partition_format="day"
         )
         temp_uri = str(tmp_path / "temp")
-        rows_written, _ = asyncio.run(
-            _rewrite_into_temp(
-                old_delta=live,
-                temp_uri=temp_uri,
-                storage_options={},
-                target=target,
-                batch_size=10,
-                logger=logger,
+        with patch.object(repartition_module, "REWRITE_BUFFER_MAX_ROWS", 10):
+            rows_written, _ = asyncio.run(
+                _rewrite_into_temp(
+                    old_delta=live,
+                    temp_uri=temp_uri,
+                    storage_options={},
+                    target=target,
+                    batch_size=2,
+                    logger=logger,
+                )
             )
-        )
 
         temp = deltalake.DeltaTable(temp_uri)
         assert rows_written == 24

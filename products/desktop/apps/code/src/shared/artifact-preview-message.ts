@@ -39,6 +39,10 @@ export function sanitizeArtifactBridgeMessage(
     channel: value.channel,
   };
   if (value.type === "ready") return { ...base, type: "ready" };
+  if (value.type === "selection-position") {
+    const rect = finiteRect(value.rect);
+    return rect ? { ...base, type: "selection-position", rect } : null;
+  }
   if (
     value.type === "activate" &&
     boundedString(value.id, MAX_ID_LENGTH) &&

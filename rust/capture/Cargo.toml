@@ -68,6 +68,9 @@ hmac = { workspace = true }
 
 [dev-dependencies]
 capture = { path = ".", features = ["test-utils"] }
+# `test-util` enables the paused clock (`start_paused`) the body drain deadline
+# tests use, so they assert the timeout without sleeping in real time.
+tokio = { workspace = true, features = ["test-util"] }
 assert-json-diff = { workspace = true }
 brotli = "8"
 zstd = "0.13"
@@ -75,7 +78,6 @@ common-continuous-profiling = { path = "../common/continuous_profiling" }
 anyhow = { workspace = true }
 axum-test-helper = { git = "https://github.com/posthog/axum-test-helper.git" }
 futures = { workspace = true }
-httparse = "1.8"
 metrics-util = { workspace = true }
 once_cell = { workspace = true }
 rand = { workspace = true }

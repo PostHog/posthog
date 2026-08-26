@@ -105,10 +105,11 @@ pub struct Config {
     pub topic_heatmap: String,
     pub topic_client_ingestion_warning: String,
 
-    /// Optional dedicated topic for `$ai_*` events. Not meant to be set via
-    /// per-sink env: setup injects the deployment-level `CAPTURE_ANALYTICS_AI_EVENTS_TOPIC` into
+    /// Dedicated topic for `$ai_*` events. Not meant to be set via per-sink
+    /// env: setup injects the deployment-level `CAPTURE_ANALYTICS_AI_EVENTS_TOPIC` into
     /// every sink config, overwriting whatever the env parse produced.
-    pub topic_ai: Option<String>,
+    #[envconfig(default = "events_plugin_ingestion_ai")]
+    pub topic_ai: String,
 
     /// Optional overflow topic for the AI lane. Like `topic_ai`, injected at
     /// setup from the deployment-level `CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC`; unset
@@ -168,7 +169,7 @@ impl Config {
             Destination::ExceptionErrorTracking => Some(&self.topic_exception),
             Destination::HeatmapMain => Some(&self.topic_heatmap),
             Destination::ClientIngestionWarning => Some(&self.topic_client_ingestion_warning),
-            Destination::AiEvents => self.topic_ai.as_deref(),
+            Destination::AiEvents => Some(&self.topic_ai),
             Destination::AiEventsOverflow => self.topic_ai_overflow.as_deref(),
             Destination::Custom(t) => Some(t.as_str()),
             Destination::Drop => None,
@@ -401,10 +402,13 @@ mod tests {
     }
 
     #[test]
-    fn topic_ai_absent_defaults_to_none() {
+    fn topic_ai_defaults() {
         let cfg = Config::init_from_hashmap(&required_kafka_env()).unwrap();
-        assert_eq!(cfg.topic_ai, None);
-        assert_eq!(cfg.topic_for(&Destination::AiEvents), None);
+        assert_eq!(cfg.topic_ai, "events_plugin_ingestion_ai");
+        assert_eq!(
+            cfg.topic_for(&Destination::AiEvents),
+            Some("events_plugin_ingestion_ai")
+        );
         assert_eq!(cfg.topic_ai_overflow, None);
         assert_eq!(cfg.topic_for(&Destination::AiEventsOverflow), None);
     }
@@ -426,7 +430,7 @@ mod tests {
         // Set the field directly, mirroring how setup injects CAPTURE_ANALYTICS_AI_EVENTS_TOPIC
         // into sink configs after env loading.
         let mut cfg = Config::init_from_hashmap(&required_kafka_env()).unwrap();
-        cfg.topic_ai = Some("ai_events".to_string());
+        cfg.topic_ai = "ai_events".to_string();
         assert_eq!(cfg.topic_for(&Destination::AiEvents), Some("ai_events"));
     }
 }

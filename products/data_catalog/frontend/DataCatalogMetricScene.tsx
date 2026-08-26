@@ -2,25 +2,33 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { ReactNode, useState } from 'react'
 
-import { IconCheck, IconGraph, IconPencil, IconPlay, IconRefresh, IconServer, IconTrash } from '@posthog/icons'
+import {
+    IconCheck,
+    IconGraph,
+    IconPencil,
+    IconPlay,
+    IconRefresh,
+    IconServer,
+    IconSparkles,
+    IconTrash,
+} from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDialog, LemonDivider, LemonTag } from '@posthog/lemon-ui'
 
-import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { LemonTextAreaMarkdown } from 'lib/lemon-ui/LemonTextArea/LemonTextAreaMarkdown'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
+import { autoRunMaxPrompt } from 'scenes/max/maxPrompt'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import {
     SceneMenuBar,
@@ -30,9 +38,11 @@ import {
 } from '~/layout/scenes/components/SceneMenuBar'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ScenePanel, ScenePanelActionsSection, ScenePanelInfoSection } from '~/layout/scenes/SceneLayout'
-import { InsightShortId } from '~/types'
+import { InsightShortId, SidePanelTab } from '~/types'
 
-import { humanizeDefinitionKind, METRIC_DESCRIPTION_MAX_LENGTH } from './common'
+import { humanizeDefinitionKind, METRIC_DESCRIPTION_MAX_LENGTH, validateMetricName } from './common'
+import { MetricDefinition } from './components/MetricDefinition'
+import { buildMetricRunPrompt } from './components/RunMetricWithAIButton'
 import {
     dataCatalogMetricSceneLogic,
     DataCatalogMetricSceneLogicProps,
@@ -65,13 +75,26 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
         approveMetric,
         refreshMetricFromInsight,
         deleteMetric,
+        renameMetric,
         updateMetric,
         loadRunResult,
         setEditingDefinition,
         setDraftMarkdown,
+        startEditingMarkdown,
     } = useActions(dataCatalogMetricSceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
+    const { openSidePanel } = useActions(sidePanelStateLogic)
+    const { isMaxAvailable } = useValues(maxGlobalLogic)
+
+    const runMarkdownMetricWithAI = (): void => {
+        if (!metric) {
+            return
+        }
+        // Still record the run server-side so last run time and run analytics stay accurate.
+        loadRunResult()
+        openSidePanel(SidePanelTab.Max, autoRunMaxPrompt(buildMetricRunPrompt(metric.name)))
+    }
 
     if (metricLoading && !metric) {
         return <Spinner className="text-2xl" />
@@ -83,6 +106,7 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
     const sourceShortId = metric.source_insight_short_id
     const definitionSql = definitionField(metric, 'query')
     const isApproved = metric.status === 'approved'
+    const isMarkdownMetric = metric.definition_kind === 'MarkdownDefinition'
 
     const confirmAndUpdate = (patch: Partial<DataCatalogMetricApi>): void => {
         if (!isApproved) {
@@ -104,9 +128,35 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
     const confirmDelete = (): void => {
         LemonDialog.open({
             title: 'Delete metric?',
-            content: <div className="text-sm text-secondary">Deleting {metric.name} cannot be undone.</div>,
+            content: (
+                <div className="text-sm text-secondary">
+                    This deletes {metric.name} and makes its name available for a new metric. Queries and links that
+                    reference it will stop working.
+                </div>
+            ),
             primaryButton: { children: 'Delete', status: 'danger', onClick: deleteMetric },
             secondaryButton: { children: 'Cancel' },
+        })
+    }
+
+    const openRenameDialog = (): void => {
+        LemonDialog.openForm({
+            title: 'Rename metric',
+            initialValues: { name: metric.name },
+            content: (
+                <div className="flex flex-col gap-2">
+                    <div className="text-sm text-secondary">
+                        Anything that references this metric by name, like saved SQL queries, API calls, or links, will
+                        stop working until it is updated. The old name becomes available for a new metric.
+                        {isApproved && ' Renaming also sets the metric back to proposed, so it needs approving again.'}
+                    </div>
+                    <LemonField name="name" label="Name">
+                        <LemonInput data-attr="data-catalog-metric-rename-input" autoFocus />
+                    </LemonField>
+                </div>
+            ),
+            errors: { name: (value) => validateMetricName(value ?? '') },
+            onSubmit: ({ name: newName }) => renameMetric(newName),
         })
     }
 
@@ -139,12 +189,28 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
                   },
               ]
             : []),
+        isMarkdownMetric
+            ? {
+                  key: 'run',
+                  label: 'Run with AI',
+                  icon: <IconSparkles />,
+                  onClick: runMarkdownMetricWithAI,
+                  disabledReason: isMaxAvailable ? undefined : 'PostHog AI is not available on this instance',
+              }
+            : {
+                  key: 'run',
+                  label: 'Run metric',
+                  icon: <IconPlay />,
+                  onClick: loadRunResult,
+                  disabledReason: metric.definition_kind ? undefined : 'This metric has no runnable definition yet',
+              },
         {
-            key: 'run',
-            label: 'Run metric',
-            icon: <IconPlay />,
-            onClick: loadRunResult,
-            disabledReason: metric.definition_kind ? undefined : 'This metric has no runnable definition yet',
+            key: 'rename',
+            label: 'Rename',
+            icon: <IconPencil />,
+            onClick: openRenameDialog,
+            disabledReason: mutating ? 'Working' : undefined,
+            opensFloatingUi: true,
         },
         ...(definitionSql
             ? [
@@ -264,10 +330,15 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
                     runResultLoading={runResultLoading}
                     onDraftMarkdown={setDraftMarkdown}
                     onEdit={setEditingDefinition}
+                    onStartEditingMarkdown={startEditingMarkdown}
                     onSaveMarkdown={(markdown) =>
                         confirmAndUpdate({ definition: { kind: 'MarkdownDefinition', markdown } })
                     }
                     onRun={loadRunResult}
+                    onRunWithAI={runMarkdownMetricWithAI}
+                    runWithAIDisabledReason={
+                        isMaxAvailable ? undefined : 'PostHog AI is not available on this instance'
+                    }
                 />
             </SceneContent>
 
@@ -401,226 +472,5 @@ function UnitEditor({ unit, onSave }: { unit: string; onSave: (unit: string) => 
                 </LemonButton>
             </div>
         </LemonField.Pure>
-    )
-}
-
-function MetricDefinition({
-    metric,
-    editingDefinition,
-    draftMarkdown,
-    saving,
-    runResult,
-    runResultLoading,
-    onDraftMarkdown,
-    onEdit,
-    onSaveMarkdown,
-    onRun,
-}: {
-    metric: DataCatalogMetricApi
-    editingDefinition: boolean
-    draftMarkdown: string
-    saving: boolean
-    runResult: DataCatalogMetricRunResult | null
-    runResultLoading: boolean
-    onDraftMarkdown: (value: string) => void
-    onEdit: (editing: boolean) => void
-    onSaveMarkdown: (markdown: string) => void
-    onRun: () => void
-}): JSX.Element {
-    const kind = metric.definition_kind
-    const sql = definitionField(metric, 'query')
-
-    const runButton = (
-        <LemonButton
-            type="primary"
-            size="small"
-            icon={<IconPlay />}
-            loading={runResultLoading}
-            disabledReason={kind ? undefined : 'This metric has no runnable definition yet'}
-            onClick={onRun}
-        >
-            Run metric
-        </LemonButton>
-    )
-    const results = runResult ? <RunResult runResult={runResult} /> : null
-
-    if (kind === 'HogQLQuery') {
-        return (
-            <Section title="Definition">
-                <CodeSnippet language={Language.SQL}>{sql}</CodeSnippet>
-                <div className="flex gap-2">
-                    {runButton}
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        icon={<IconServer />}
-                        to={urls.sqlEditor({ source: 'metric', metricName: metric.name })}
-                    >
-                        Open in SQL editor
-                    </LemonButton>
-                </div>
-                {results}
-            </Section>
-        )
-    }
-
-    if (kind === 'MarkdownDefinition') {
-        return (
-            <Section title="Definition">
-                {editingDefinition ? (
-                    <>
-                        <LemonTextAreaMarkdown value={draftMarkdown} onChange={onDraftMarkdown} />
-                        <div className="flex gap-2">
-                            <LemonButton
-                                type="primary"
-                                size="small"
-                                loading={saving}
-                                onClick={() => onSaveMarkdown(draftMarkdown)}
-                            >
-                                Save
-                            </LemonButton>
-                            <LemonButton type="secondary" size="small" onClick={() => onEdit(false)}>
-                                Cancel
-                            </LemonButton>
-                        </div>
-                    </>
-                ) : (
-                    <>
-                        <LemonMarkdown disableImages>
-                            {definitionField(metric, 'markdown') || '_No instructions yet._'}
-                        </LemonMarkdown>
-                        <div className="flex gap-2">
-                            {runButton}
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                icon={<IconPencil />}
-                                onClick={() => onEdit(true)}
-                            >
-                                Edit
-                            </LemonButton>
-                        </div>
-                        {results}
-                    </>
-                )}
-            </Section>
-        )
-    }
-
-    if (!kind) {
-        return (
-            <Section title="Definition">
-                <LemonBanner type="info">
-                    This metric is a stub with no definition. Add one to make it runnable.
-                    <div className="flex gap-2 mt-2">
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            to={urls.sqlEditor({ source: 'metric', metricName: metric.name })}
-                        >
-                            Write SQL
-                        </LemonButton>
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            loading={saving}
-                            onClick={() => onSaveMarkdown('1. Describe how to calculate this metric')}
-                        >
-                            Write markdown
-                        </LemonButton>
-                    </div>
-                </LemonBanner>
-            </Section>
-        )
-    }
-
-    return (
-        <Section title="Definition">
-            <p className="text-secondary">
-                This metric is derived from an insight. Edit the query in the insight, then refresh the metric.
-            </p>
-            <div className="flex gap-2">
-                {runButton}
-                {metric.source_insight_short_id && (
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        icon={<IconGraph />}
-                        to={urls.insightView(metric.source_insight_short_id as InsightShortId)}
-                    >
-                        View source insight
-                    </LemonButton>
-                )}
-            </div>
-            {results}
-        </Section>
-    )
-}
-
-interface DataCatalogMetricRunResult {
-    results?: unknown
-    instructions?: string | null
-    compiled_query?: string | null
-}
-
-function RunResult({ runResult }: { runResult: DataCatalogMetricRunResult }): JSX.Element {
-    return (
-        <div className="flex flex-col gap-2">
-            {runResult.instructions ? (
-                <LemonMarkdown disableImages>{runResult.instructions}</LemonMarkdown>
-            ) : (
-                <ResultsTable results={runResult.results} />
-            )}
-            {runResult.compiled_query && (
-                <LemonCollapse
-                    panels={[
-                        {
-                            key: 'compiled',
-                            header: 'Compiled query',
-                            content: <CodeSnippet language={Language.SQL}>{runResult.compiled_query}</CodeSnippet>,
-                        },
-                    ]}
-                />
-            )}
-        </div>
-    )
-}
-
-function ResultsTable({ results }: { results: unknown }): JSX.Element {
-    const rows = Array.isArray(results) ? results : []
-    if (rows.length === 0) {
-        return <p className="text-secondary">No results.</p>
-    }
-    const first = rows[0]
-    if (first && typeof first === 'object' && !Array.isArray(first)) {
-        const keys = Object.keys(first as Record<string, unknown>)
-        return (
-            <LemonTable
-                dataSource={rows as Record<string, unknown>[]}
-                columns={keys.map((columnKey) => ({
-                    title: columnKey,
-                    key: columnKey,
-                    render: (_: unknown, row: Record<string, unknown>) => formatCell(row[columnKey]),
-                }))}
-                size="small"
-            />
-        )
-    }
-    return <CodeSnippet language={Language.JSON}>{JSON.stringify(results, null, 2)}</CodeSnippet>
-}
-
-function formatCell(value: unknown): string {
-    if (value == null) {
-        return ''
-    }
-    return typeof value === 'object' ? JSON.stringify(value) : String(value)
-}
-
-function Section({ title, children }: { title: string; children: ReactNode }): JSX.Element {
-    return (
-        <div className="flex flex-col gap-2">
-            <h3 className="mb-0">{title}</h3>
-            {children}
-        </div>
     )
 }

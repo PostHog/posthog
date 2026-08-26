@@ -3,7 +3,9 @@ import './PropertyFilters.scss'
 import { BindLogic, useActions, useValues } from 'kea'
 import React, { useState } from 'react'
 
+import { BehavioralPropertyFilterRow } from 'lib/components/PropertyFilters/components/BehavioralPropertyFilterRow'
 import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
+import { isBehavioralPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import {
     AllowedProperties,
     ExcludedOperators,
@@ -13,14 +15,16 @@ import {
     TaxonomicFilterProps,
 } from 'lib/components/TaxonomicFilter/types'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LogicalRowDivider } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
 
 import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema/schema-general'
-import { AnyPropertyFilter, FilterLogicalOperator } from '~/types'
+import { AnyPropertyFilter, FilterLogicalOperator, PropertyDefinition } from '~/types'
 
 import { FilterRow } from './components/FilterRow'
 import { OperatorValueSelectProps } from './components/OperatorValueSelect'
 import { propertyFilterLogic } from './propertyFilterLogic'
+import { PropertyFilterInternalProps } from './types'
 
 export interface PropertyFiltersProps {
     endpoint?: string | null
@@ -65,6 +69,17 @@ export interface PropertyFiltersProps {
      * (`TAXONOMIC_FILTER_MENU_REBUILD`).
      */
     triggerVariant?: 'button' | 'input'
+    staticValueOptions?: PropertyFilterInternalProps['staticValueOptions']
+    /** Override inferred property definitions for contexts where one event key is polymorphic. */
+    propertyDefinitionsOverride?: PropertyDefinition[]
+    /** Keep the selected key fixed while leaving its operator and value editable. */
+    propertyKeyEditable?: boolean
+    singleLine?: boolean
+    showRemoveButton?: boolean
+    /** Rendered after the last row. Receives a callback that appends to this filter's own bound
+     * logic, so the caller doesn't have to rebuild the list from possibly-stale props. */
+    addFilterSuffix?: ((addFilter: (property: AnyPropertyFilter) => void) => JSX.Element) | null
+    addFilterDivider?: boolean
 }
 
 export function PropertyFilters({
@@ -104,14 +119,22 @@ export function PropertyFilters({
     operatorAllowlist,
     hogQLGlobals,
     triggerVariant = 'button',
+    staticValueOptions,
+    propertyDefinitionsOverride,
+    propertyKeyEditable,
+    singleLine,
+    showRemoveButton = true,
+    addFilterSuffix,
+    addFilterDivider = false,
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey, sendAllKeyUpdates }
     const { filters, filtersWithNew, filterIds, filterIdsWithNew } = useValues(propertyFilterLogic(logicProps))
     const { remove, setFilter } = useActions(propertyFilterLogic(logicProps))
     const [allowOpenOnInsert, setAllowOpenOnInsert] = useState<boolean>(false)
 
-    const displayedFilters = allowNew && editable ? filtersWithNew : filters
-    const displayedFilterIds = allowNew && editable ? filterIdsWithNew : filterIds
+    const showNewFilterRow = allowNew && editable
+    const displayedFilters = showNewFilterRow ? filtersWithNew : filters
+    const displayedFilterIds = showNewFilterRow ? filterIdsWithNew : filterIds
 
     // do not open on initial render, only open if newly inserted
     useOnMountEffect(() => setAllowOpenOnInsert(true))
@@ -129,8 +152,14 @@ export function PropertyFilters({
                         return (
                             <React.Fragment key={displayedFilterIds[index]}>
                                 {logicalRowDivider && index > 0 && index !== displayedFilters.length - 1 && (
-                                    <LogicalRowDivider logicalOperator={FilterLogicalOperator.And} />
+                                    <LogicalRowDivider
+                                        logicalOperator={propertyGroupType ?? FilterLogicalOperator.And}
+                                    />
                                 )}
+                                {addFilterDivider &&
+                                    showNewFilterRow &&
+                                    index === displayedFilters.length - 1 &&
+                                    filters.length > 0 && <LemonDivider className="my-1 w-full" />}
                                 <FilterRow
                                     item={item}
                                     index={index}
@@ -143,43 +172,62 @@ export function PropertyFilters({
                                     labelClassName={buttonClassName}
                                     size={buttonSize}
                                     onRemove={remove}
+                                    showRemoveButton={showRemoveButton}
                                     orFiltering={orFiltering}
                                     editable={editable}
-                                    filterComponent={(onComplete) => (
-                                        <TaxonomicPropertyFilter
-                                            pageKey={pageKey}
-                                            index={index}
-                                            filters={filters}
-                                            setFilter={setFilter}
-                                            onComplete={onComplete}
-                                            orFiltering={orFiltering}
-                                            taxonomicGroupTypes={taxonomicGroupTypes}
-                                            metadataSource={metadataSource}
-                                            eventNames={eventNames}
-                                            schemaColumns={schemaColumns}
-                                            dataWarehouseTableName={dataWarehouseTableName}
-                                            propertyGroupType={propertyGroupType}
-                                            disablePopover={disablePopover || orFiltering}
-                                            addText={addText}
-                                            hasRowOperator={hasRowOperator}
-                                            propertyAllowList={propertyAllowList}
-                                            excludedProperties={excludedProperties}
-                                            taxonomicFilterOptionsFromProp={taxonomicFilterOptionsFromProp}
-                                            allowRelativeDateOptions={allowRelativeDateOptions}
-                                            excludedOperators={excludedOperators}
-                                            selectingKeyOnly={selectingKeyOnly}
-                                            hideBehavioralCohorts={hideBehavioralCohorts}
-                                            size={buttonSize}
-                                            addFilterDocLink={addFilterDocLink}
-                                            editable={editable}
-                                            operatorAllowlist={operatorAllowlist}
-                                            hogQLGlobals={hogQLGlobals}
-                                            triggerVariant={triggerVariant}
-                                        />
-                                    )}
+                                    filterComponent={(onComplete) =>
+                                        isBehavioralPropertyFilter(item) ? (
+                                            <BehavioralPropertyFilterRow
+                                                filter={item}
+                                                onChange={(filter) => setFilter(index, filter)}
+                                                editable={editable}
+                                                size={buttonSize}
+                                            />
+                                        ) : (
+                                            <TaxonomicPropertyFilter
+                                                pageKey={pageKey}
+                                                index={index}
+                                                filters={filters}
+                                                setFilter={setFilter}
+                                                onComplete={onComplete}
+                                                orFiltering={orFiltering}
+                                                taxonomicGroupTypes={taxonomicGroupTypes}
+                                                metadataSource={metadataSource}
+                                                eventNames={eventNames}
+                                                schemaColumns={schemaColumns}
+                                                dataWarehouseTableName={dataWarehouseTableName}
+                                                propertyGroupType={propertyGroupType}
+                                                disablePopover={disablePopover || orFiltering}
+                                                addText={addText}
+                                                hasRowOperator={hasRowOperator}
+                                                propertyAllowList={propertyAllowList}
+                                                excludedProperties={excludedProperties}
+                                                taxonomicFilterOptionsFromProp={taxonomicFilterOptionsFromProp}
+                                                allowRelativeDateOptions={allowRelativeDateOptions}
+                                                excludedOperators={excludedOperators}
+                                                selectingKeyOnly={selectingKeyOnly}
+                                                hideBehavioralCohorts={hideBehavioralCohorts}
+                                                size={buttonSize}
+                                                addFilterDocLink={addFilterDocLink}
+                                                editable={editable}
+                                                operatorAllowlist={operatorAllowlist}
+                                                hogQLGlobals={hogQLGlobals}
+                                                triggerVariant={triggerVariant}
+                                                staticValueOptions={staticValueOptions}
+                                                propertyDefinitionsOverride={propertyDefinitionsOverride}
+                                                propertyKeyEditable={propertyKeyEditable}
+                                                singleLine={singleLine}
+                                            />
+                                        )
+                                    }
                                     errorMessage={errorMessages && errorMessages[index]}
                                     openOnInsert={allowOpenOnInsert && openOnInsert}
                                     disabledReason={disabledReason}
+                                    suffix={
+                                        showNewFilterRow && index === displayedFilters.length - 1 && addFilterSuffix
+                                            ? addFilterSuffix((property) => setFilter(filters.length, property))
+                                            : null
+                                    }
                                 />
                             </React.Fragment>
                         )

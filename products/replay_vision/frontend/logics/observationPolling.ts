@@ -13,11 +13,12 @@ interface ObservationPollDisposables {
 export function scheduleObservationPoll(
     disposables: ObservationPollDisposables,
     shouldPoll: boolean,
-    poll: () => void
+    poll: () => void,
+    intervalMs: number = POLL_INTERVAL_MS
 ): void {
     if (shouldPoll) {
         disposables.add(() => {
-            const id = setTimeout(poll, POLL_INTERVAL_MS)
+            const id = setTimeout(poll, intervalMs)
             return () => clearTimeout(id)
         }, POLL_KEY)
     } else {

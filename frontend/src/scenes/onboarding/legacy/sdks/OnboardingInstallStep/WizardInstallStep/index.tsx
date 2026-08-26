@@ -25,10 +25,10 @@ import { WizardInstallIntro } from './WizardInstallIntro'
 // active cloud run renders inside it (WizardCloudRunBlock pins to the run's progress), so the
 // failed-run "Run it yourself" fallback keeps working — the mode state must not unmount mid-recovery.
 function LegacyInstallOptions({ wizardOverrides }: { wizardOverrides?: WizardOverrides }): JSX.Element {
-    const { reportSelfDrivingOnboardingInstallModeSelected } = useActions(onboardingEventUsageLogic)
+    const { reportOnboardingInstallModeSelected } = useActions(onboardingEventUsageLogic)
     return (
         <WizardInstallOptions
-            onModeSelected={reportSelfDrivingOnboardingInstallModeSelected}
+            onModeSelected={reportOnboardingInstallModeSelected}
             // The cloud runner only executes the base integration program, not dedicated subcommands,
             // so a dedicated-program step neither offers a run nor lets one queued elsewhere take over.
             offerCloudRun={!wizardOverrides}
@@ -165,7 +165,7 @@ function WizardInstallShell({
             continueDisabledReason={continueDisabledReason}
             showSkip={showSkip}
             actions={
-                <div className="pr-2">
+                <div className="pr-2 min-w-0">
                     <RealtimeCheckIndicator
                         teamPropertyToVerify={teamPropertyToVerify}
                         listeningForName={listeningForName}

@@ -1,7 +1,9 @@
+import micromatch from "micromatch";
 import { describe, expect, it } from "vitest";
 import {
   asarUnpackGlobs,
   buildExternals,
+  koffiPackageFor,
   macOnlyNativeModules,
   packagedFileGlobs,
   requiredNativeModules,
@@ -26,6 +28,73 @@ describe("watcherPackageFor", () => {
     // bug that left the Windows watcher binary unstaged.
     expect(watcherPackageFor("win", 1)).toBeNull();
     expect(watcherPackageFor("darwin", 1)).toBeNull();
+  });
+});
+
+describe("koffiPackageFor", () => {
+  it.each([
+    ["mac", 1, "@koromix/koffi-darwin-x64"],
+    ["mac", 3, "@koromix/koffi-darwin-arm64"],
+  ])("maps platform=%s arch=%i to %s", (platform, arch, expected) => {
+    expect(koffiPackageFor(platform, arch as number)).toBe(expected);
+  });
+
+  it.each([
+    ["windows", 1],
+    ["linux", 3],
+    ["darwin", 3],
+  ])(
+    "returns null for platform=%s, which never stages koffi",
+    (platform, arch) => {
+      // koffi only reads the macOS window list, and electron-builder names that
+      // platform "mac" — "darwin" is the same mistake that once left the Windows
+      // watcher binary unstaged.
+      expect(koffiPackageFor(platform, arch as number)).toBeNull();
+    },
+  );
+});
+
+/**
+ * Arch-specific packages are named by watcherPackageFor / koffiPackageFor rather
+ * than by any list, so nothing gives them a glob automatically. electron-builder
+ * drops all of node_modules and re-includes only these globs, so a scope nobody
+ * covers is stripped and its prebuilt binary never reaches the app — and the only
+ * symptom is the feature failing in a packaged build. @koromix shipped that way.
+ */
+describe("staged arch-specific binaries reach the packaged app", () => {
+  it.each([
+    ["@parcel/watcher-darwin-arm64", "watcher.node"],
+    ["@parcel/watcher-linux-x64-glibc", "watcher.node"],
+    ["@parcel/watcher-win32-x64", "watcher.node"],
+    ["@koromix/koffi-darwin-arm64", "darwin_arm64/koffi.node"],
+    ["@koromix/koffi-darwin-x64", "darwin_x64/koffi.node"],
+  ])("packages and unpacks %s", (pkg, binary) => {
+    const path = `node_modules/${pkg}/${binary}`;
+
+    expect(micromatch.isMatch(path, packagedFileGlobs)).toBe(true);
+    // A .node inside the asar cannot be dlopened, so being packaged is only half
+    // of reaching the app.
+    expect(micromatch.isMatch(path, asarUnpackGlobs)).toBe(true);
+  });
+
+  it("covers every package the stagers can name", () => {
+    const staged = [
+      ...["mac", "windows", "linux"].flatMap((platform) =>
+        [1, 3].map((arch) => watcherPackageFor(platform, arch)),
+      ),
+      ...["mac", "windows", "linux"].flatMap((platform) =>
+        [1, 3].map((arch) => koffiPackageFor(platform, arch)),
+      ),
+    ].filter((pkg): pkg is string => pkg !== null);
+
+    for (const pkg of staged) {
+      expect(
+        micromatch.isMatch(
+          `node_modules/${pkg}/package.json`,
+          packagedFileGlobs,
+        ),
+      ).toBe(true);
+    }
   });
 });
 

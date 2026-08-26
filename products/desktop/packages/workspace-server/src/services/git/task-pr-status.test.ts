@@ -47,7 +47,7 @@ describe("TaskPrStatusService.getTaskPrStatus (missing worktree directory)", () 
     const result = await service.getTaskPrStatus("task-1", null);
     await new Promise((resolve) => setImmediate(resolve));
 
-    expect(result).toEqual({ prState: null, hasDiff: false });
+    expect(result).toEqual({ prState: null, hasDiff: false, prUrl: null });
     expect(gitService.getDiffStats).not.toHaveBeenCalled();
   });
 });

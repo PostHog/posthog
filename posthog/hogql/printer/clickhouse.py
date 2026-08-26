@@ -749,9 +749,13 @@ class ClickHousePrinter(BasePrinter):
                 return f"ifNull({op}, 1)"
             return op
         elif node.op == ast.CompareOperationOp.GlobalIn:
-            pass
+            return op
         elif node.op == ast.CompareOperationOp.GlobalNotIn:
-            pass
+            # Mirror NotIn above: GLOBAL only changes where the set is built, never the
+            # null semantics, so a nullable left keeps rows on NULL exactly like NOT IN.
+            if nullable_left and not not_nullable and not in_join_constraint and not in_index_hint:
+                return f"ifNull({op}, 1)"
+            return op
         elif node.op == ast.CompareOperationOp.Regex:
             value_if_both_sides_are_null = True
         elif node.op == ast.CompareOperationOp.NotRegex:

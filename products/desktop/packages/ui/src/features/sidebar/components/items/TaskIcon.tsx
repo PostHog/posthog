@@ -11,9 +11,9 @@ import {
   GitPullRequest,
   HandPalm,
   Lifebuoy,
+  MagnifyingGlass,
   Pause,
   PushPin,
-  Robot,
   SlackLogo,
   WarningCircle,
 } from "@phosphor-icons/react";
@@ -50,7 +50,7 @@ const ORIGIN_PRODUCT_META: Record<string, OriginProductMeta> = {
   session_summaries: { Icon: FilmSlate, label: "Session summary" },
   error_tracking: { Icon: Bug, label: "Error tracking" },
   eval_clusters: { Icon: Flask, label: "Evals" },
-  automation: { Icon: Robot, label: "Automation" },
+  task_analysis: { Icon: MagnifyingGlass, label: "Task analysis" },
 };
 
 export function getOriginProductMeta(
@@ -312,7 +312,7 @@ export function TaskIcon({
 
   if (needsPermission) {
     return (
-      <Tooltip content="Needs permission" side="right">
+      <Tooltip content="Needs your input" side="right">
         <span className="flex items-center justify-center">
           <HandPalm size={size} color="var(--blue-11)" />
         </span>

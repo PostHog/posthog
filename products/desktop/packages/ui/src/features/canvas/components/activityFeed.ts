@@ -1,16 +1,38 @@
 import type { TaskActivityItem } from "@posthog/core/canvas/taskActivity";
+import { formatShortDayLabel, getLocalDayKey } from "@posthog/shared";
+
+export interface ActivityDayGroup<T> {
+  key: string;
+  label: string;
+  items: T[];
+}
+
+export function groupActivityItemsByDay<T extends { activityAt: string }>(
+  items: readonly T[],
+  now: Date = new Date(),
+): ActivityDayGroup<T>[] {
+  const groups = new Map<string, ActivityDayGroup<T>>();
+  for (const item of items) {
+    const timestamp = Math.min(new Date(item.activityAt).getTime(), +now);
+    const key = `day:${getLocalDayKey(timestamp)}`;
+    const group = groups.get(key);
+    if (group) {
+      group.items.push(item);
+      continue;
+    }
+    groups.set(key, {
+      key,
+      label: formatShortDayLabel(timestamp, now),
+      items: [item],
+    });
+  }
+  return [...groups.values()];
+}
 
 export function getUnreadActivityItems(
   items: TaskActivityItem[],
 ): TaskActivityItem[] {
   return items.filter((item) => item.isUnread);
-}
-
-export function getVisibleActivityItems(
-  items: TaskActivityItem[],
-  commentsEnabled: boolean,
-): TaskActivityItem[] {
-  return commentsEnabled ? items : items.filter((item) => !item.commentId);
 }
 
 export function activityReadPayload(items: TaskActivityItem[]) {
@@ -28,19 +50,4 @@ export function markLoadedReadLabel(
   return loadedUnreadCount === unreadCount
     ? "Mark all as read"
     : "Mark visible as read";
-}
-
-export function activityUnreadTotalForLabel({
-  commentsEnabled,
-  unreadCount,
-  loadedVisibleUnread,
-  hasNextPage,
-}: {
-  commentsEnabled: boolean;
-  unreadCount: number;
-  loadedVisibleUnread: number;
-  hasNextPage: boolean;
-}): number {
-  if (commentsEnabled) return unreadCount;
-  return loadedVisibleUnread + (hasNextPage ? 1 : 0);
 }

@@ -10,7 +10,7 @@ import { currentSessionId } from 'lib/internalMetrics'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { objectClean } from 'lib/utils/objects'
-import { shouldCancelQuery } from 'lib/utils/requests'
+import { isDeterministicClientError, shouldCancelQuery } from 'lib/utils/requests'
 import { toParams } from 'lib/utils/url'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
@@ -379,6 +379,10 @@ export async function getInsightWithRetry(
         } catch (e: any) {
             if (shouldCancelQuery(e)) {
                 throw e // Re-throw cancellation errors
+            }
+
+            if (isDeterministicClientError(e)) {
+                throw e // A 4xx won't change on retry, so surface it immediately
             }
 
             attempt++

@@ -23,8 +23,7 @@ use personhog_proto::personhog::types::v1::{
     DeleteGroupTypeMappingResponse, DeleteGroupTypeMappingsBatchForTeamRequest,
     DeleteGroupTypeMappingsBatchForTeamResponse, DeleteGroupsBatchForTeamRequest,
     DeleteGroupsBatchForTeamResponse, DeleteHashKeyOverridesByTeamsRequest,
-    DeleteHashKeyOverridesByTeamsResponse, DeletePersonlessDistinctIdsBatchForTeamRequest,
-    DeletePersonlessDistinctIdsBatchForTeamResponse, DeletePersonsBatchForTeamRequest,
+    DeleteHashKeyOverridesByTeamsResponse, DeletePersonsBatchForTeamRequest,
     DeletePersonsBatchForTeamResponse, DeletePersonsRequest, DeletePersonsResponse,
     GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
@@ -445,15 +444,6 @@ impl PersonHogReplica for TestReplicaService {
         Ok(Response::new(DeletePersonsBatchForTeamResponse {
             deleted_count: 0,
         }))
-    }
-
-    async fn delete_personless_distinct_ids_batch_for_team(
-        &self,
-        _request: Request<DeletePersonlessDistinctIdsBatchForTeamRequest>,
-    ) -> Result<Response<DeletePersonlessDistinctIdsBatchForTeamResponse>, Status> {
-        Ok(Response::new(
-            DeletePersonlessDistinctIdsBatchForTeamResponse { deleted_count: 0 },
-        ))
     }
 
     async fn split_person(

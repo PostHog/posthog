@@ -17,6 +17,8 @@ import { SignalSourcesPanel } from './SignalSourcesPanel'
 interface PanelState {
     // Armed sources
     errorTrackingArmed: boolean
+    /** Replay Vision arms per scanner, so this stands in for "the first scanner emits signals". */
+    replayVisionArmed: boolean
     sessionReplayArmed: boolean
     supportArmed: boolean
     aiObservabilityArmed: boolean
@@ -30,6 +32,7 @@ interface PanelState {
     hasExceptionEvents: boolean
     hasAiEvents: boolean
     hasAnalyticsEvents: boolean
+    eventDefinitionsUnavailable: boolean
 }
 
 function sourceConfig(
@@ -66,13 +69,35 @@ function sourceConfigsFor(state: PanelState): SignalSourceConfig[] {
     ]
 }
 
-function eventDefinitionsFor(state: PanelState): { name: string }[] {
+/** Two scanners so the roster's per-scanner list has both an on and an off row to render. */
+function scannersFor(state: PanelState): Record<string, unknown>[] {
+    return [
+        {
+            id: 'scanner-checkout',
+            name: 'Checkout confusion',
+            description: 'Watches for hesitation and repeated attempts on the checkout step.',
+            scanner_type: 'monitor',
+            enabled: true,
+            emits_signals: state.replayVisionArmed,
+        },
+        {
+            id: 'scanner-onboarding',
+            name: 'Onboarding drop-off',
+            description: 'Sorts abandoned onboarding sessions into reasons.',
+            scanner_type: 'classifier',
+            enabled: true,
+            emits_signals: false,
+        },
+    ]
+}
+
+function eventDefinitionsFor(state: PanelState): { name: string; last_seen_at: string }[] {
     const names = [
         ...(state.hasExceptionEvents ? ['$exception'] : []),
         ...(state.hasAiEvents ? ['$ai_generation', '$ai_trace'] : []),
         ...(state.hasAnalyticsEvents ? ['$pageview', '$autocapture'] : []),
     ]
-    return names.map((name) => ({ name }))
+    return names.map((name) => ({ name, last_seen_at: new Date().toISOString() }))
 }
 
 function PanelHarness(state: PanelState): JSX.Element {
@@ -88,15 +113,22 @@ function PanelHarness(state: PanelState): JSX.Element {
                 },
             ],
             '/api/projects/:team_id/signals/source_configs/': () => [200, { results: sourceConfigsFor(state) }],
-            '/api/projects/:team_id/event_definitions/': () => [
-                200,
-                {
-                    count: eventDefinitionsFor(state).length,
-                    next: null,
-                    previous: null,
-                    results: eventDefinitionsFor(state),
-                },
-            ],
+            '/api/projects/:team_id/vision/scanners/': () => {
+                const results = scannersFor(state)
+                return [200, { count: results.length, next: null, previous: null, results }]
+            },
+            '/api/projects/:team_id/event_definitions/': () =>
+                state.eventDefinitionsUnavailable
+                    ? [500, { detail: "Couldn't check recent data." }]
+                    : [
+                          200,
+                          {
+                              count: eventDefinitionsFor(state).length,
+                              next: null,
+                              previous: null,
+                              results: eventDefinitionsFor(state),
+                          },
+                      ],
             '/api/environments/:team_id/external_data_sources/': () => [
                 200,
                 { count: 0, next: null, previous: null, results: [] },
@@ -129,6 +161,7 @@ const meta: Meta<typeof PanelHarness> = {
     },
     args: {
         errorTrackingArmed: true,
+        replayVisionArmed: true,
         sessionReplayArmed: true,
         supportArmed: false,
         aiObservabilityArmed: false,
@@ -140,6 +173,7 @@ const meta: Meta<typeof PanelHarness> = {
         hasExceptionEvents: true,
         hasAiEvents: false,
         hasAnalyticsEvents: true,
+        eventDefinitionsUnavailable: false,
     },
 }
 export default meta
@@ -153,6 +187,7 @@ export const Playground: Story = {}
 export const ArmedButToolsOff: Story = {
     args: {
         errorTrackingArmed: true,
+        replayVisionArmed: true,
         sessionReplayArmed: true,
         supportArmed: true,
         exceptionAutocaptureOn: false,
@@ -168,6 +203,7 @@ export const ArmedButToolsOff: Story = {
 export const ArmingBlocked: Story = {
     args: {
         errorTrackingArmed: false,
+        replayVisionArmed: false,
         sessionReplayArmed: false,
         supportArmed: false,
         aiObservabilityArmed: false,
@@ -186,6 +222,7 @@ export const ArmingBlocked: Story = {
 export const EverythingHealthy: Story = {
     args: {
         errorTrackingArmed: true,
+        replayVisionArmed: true,
         sessionReplayArmed: true,
         supportArmed: true,
         aiObservabilityArmed: true,
@@ -200,10 +237,11 @@ export const EverythingHealthy: Story = {
     },
 }
 
-/** Tools on but no events yet: the usage lines read "No data yet". */
-export const ToolsOnNoDataYet: Story = {
+/** Tools on but no recent events show the setup link. */
+export const ToolsOnNoRecentData: Story = {
     args: {
         errorTrackingArmed: true,
+        replayVisionArmed: true,
         sessionReplayArmed: true,
         supportArmed: true,
         aiObservabilityArmed: true,
@@ -214,6 +252,17 @@ export const ToolsOnNoDataYet: Story = {
         hasExceptionEvents: false,
         hasAiEvents: false,
         hasAnalyticsEvents: false,
+    },
+}
+
+/** A failed event-definition check shows the retry action without marking tools as off. */
+export const EventDefinitionsUnavailable: Story = {
+    args: {
+        errorTrackingArmed: true,
+        aiObservabilityArmed: true,
+        productAnalyticsArmed: true,
+        exceptionAutocaptureOn: false,
+        eventDefinitionsUnavailable: true,
     },
 }
 

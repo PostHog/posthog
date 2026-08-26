@@ -18,19 +18,19 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tags_context
-from posthog.dags.common.owners import JobOwners
 from posthog.hogql_queries.property_values_query_runner import PropertyValuesQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.job_owners import JobOwners
 from posthog.models import Team, User
 from posthog.models.health_issue import HealthIssue
 from posthog.queries.property_values import get_person_property_values_for_key
-from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.scopes import APIScopeObject
 from posthog.sync import database_sync_to_async, database_sync_to_async_pool
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 from posthog.temporal.health_checks.processing import _process_batch_detection
 from posthog.temporal.health_checks.registry import HEALTH_CHECKS, ensure_registry_loaded, get_detect_fn
 
+from products.access_control.backend.facade.user_access_control import AccessControlLevel
 from products.replay_vision.backend.facade.api import fetch_page_session_observations
 from products.web_analytics.backend.api.heatmaps_api import (
     DEFAULT_QUERY,
@@ -138,7 +138,7 @@ class WebAnalyticsFilterOptionsToolkit(TaxonomyAgentToolkit):
             query=PropertyValuesQuery(property_type=PropertyType.EVENT, property_key=property_name),
             user=self._user,
         )
-        response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+        response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE, user=self._user)
         return [item.name for item in getattr(response, "results", []) or []]
 
 

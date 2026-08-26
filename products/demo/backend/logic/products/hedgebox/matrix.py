@@ -81,7 +81,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentToSavedMetric,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.product_analytics.backend.models.insight import Insight, InsightViewed
+from products.product_analytics.backend.facade.models import Insight, InsightViewed
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, get_or_create_datawarehouse_credential
 
 from .models import HedgeboxAccount, HedgeboxPerson
@@ -2433,7 +2433,11 @@ class HedgeboxMatrix(Matrix):
             existing_table.deleted_at = None
             if existing_table.created_by_id is None:
                 existing_table.created_by = user
-            existing_table.save()
+            # url_pattern is computed above from source_team_id/table_name, not request input, and
+            # credential is a real value from get_or_create_datawarehouse_credential (never None) -
+            # but the guard reads the row's prior DB state, so a stale credential-less row from
+            # before this function existed would still trip it without this declared explicitly.
+            existing_table.save(internally_computed_url_pattern=True)
             return
 
         DataWarehouseTable.objects.create(
@@ -2445,6 +2449,7 @@ class HedgeboxMatrix(Matrix):
             columns=columns,
             options={"csv_allow_double_quotes": True},
             created_by=user,
+            created_via=DataWarehouseTable.CreatedVia.DEMO,
         )
 
     @classmethod

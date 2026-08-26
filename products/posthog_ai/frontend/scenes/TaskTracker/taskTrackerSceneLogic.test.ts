@@ -96,6 +96,7 @@ describe('taskTrackerSceneLogic', () => {
         // state). Dropping either regresses follow-up streaming / loses the first prompt.
         expect(runBody).toMatchObject({
             mode: 'interactive',
+            // Both runtimes default to Auto, so a new task starts working without a plan approval.
             initial_permission_mode: 'auto',
             pending_user_message: 'do the thing',
         })
@@ -213,6 +214,9 @@ describe('taskTrackerSceneLogic', () => {
                     branch: null,
                     status: TaskRunStatus.COMPLETED,
                     environment: TaskRunEnvironment.CLOUD,
+                    runtime_adapter: null,
+                    model: null,
+                    reasoning_effort: null,
                     log_url: null,
                     error_message: null,
                     output: null,

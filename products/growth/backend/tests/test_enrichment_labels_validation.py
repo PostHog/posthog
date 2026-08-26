@@ -204,7 +204,7 @@ class TestIsUnknownOutput(SimpleTestCase):
         ]
     )
     def test_is_unknown_output(self, _name: str, output: dict[str, Any], expected: bool) -> None:
-        # A schema with no boolean output field has no verdict key for _unknown_output to write,
+        # A schema with no boolean output field has no verdict key for unknown_output to write,
         # so counting unknowns by checking a verdict key misses every skipped row under it.
         assert is_unknown_output(output) is expected
 
