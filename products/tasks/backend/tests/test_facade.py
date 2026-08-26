@@ -305,7 +305,9 @@ class TestFacadeReadsAndMappers(TestCase):
         task = self._make_task(origin_product=Task.OriginProduct.POSTHOG_AI, runtime=Task.Runtime.PI)
         self.assertEqual(
             facade.task_control_runtime_and_origin(task.id, self.team.id, self.user.id),
-            (Task.Runtime.PI.value, Task.OriginProduct.POSTHOG_AI.value),
+            facade.ControlVisibleTask(
+                runtime=Task.Runtime.PI.value, origin_product=Task.OriginProduct.POSTHOG_AI.value
+            ),
         )
 
         # An experiments task is readable across the team but only its creator may drive it, so the
