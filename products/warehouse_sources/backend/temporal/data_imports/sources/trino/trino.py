@@ -13,11 +13,16 @@ if TYPE_CHECKING:
 
 
 TRINO_SYSTEM_SCHEMAS = ("information_schema",)
+TRINO_CREDENTIALS_REQUIRE_TLS_VERIFICATION_ERROR = (
+    "Turn on TLS certificate verification to use password or JWT authentication."
+)
 
 
 def trino_error_to_message(error: Exception) -> str:
     message = str(error).strip()
     lowered = message.lower()
+    if message == TRINO_CREDENTIALS_REQUIRE_TLS_VERIFICATION_ERROR:
+        return message
     if "authentication" in lowered or "unauthorized" in lowered or "401" in lowered:
         return "Trino rejected the credentials. Check the username and authentication details."
     if "catalog" in lowered and ("not found" in lowered or "does not exist" in lowered):
@@ -52,8 +57,11 @@ def _authentication(config: TrinoSourceConfig) -> Any:
 def connect_trino(config: TrinoSourceConfig) -> Iterator[Connection]:
     from trino.dbapi import connect  # noqa: PLC0415 — keeps the optional driver off startup paths
 
-    if not config.use_ssl and config.auth_type.selection != "none":
-        raise ValueError("Password and JWT authentication require HTTPS.")
+    if config.auth_type.selection != "none":
+        if not config.use_ssl:
+            raise ValueError("Password and JWT authentication require HTTPS.")
+        if not config.verify_ssl:
+            raise ValueError(TRINO_CREDENTIALS_REQUIRE_TLS_VERIFICATION_ERROR)
 
     redacted = tuple(
         value for value in (config.auth_type.password, config.auth_type.token) if isinstance(value, str) and value

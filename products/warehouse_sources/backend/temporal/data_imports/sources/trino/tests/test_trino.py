@@ -7,8 +7,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.trino.source import TrinoSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.trino.trino import (
+    TRINO_CREDENTIALS_REQUIRE_TLS_VERIFICATION_ERROR,
     connect_trino,
     discover_trino_schemas,
+    trino_error_to_message,
 )
 
 
@@ -55,6 +57,53 @@ def test_connect_trino_rejects_credentials_over_http() -> None:
     with pytest.raises(ValueError, match="require HTTPS"):
         with connect_trino(_config(use_ssl=False)):
             pass
+
+
+@pytest.mark.parametrize(
+    "auth_type",
+    [
+        TrinoAuthTypeConfig(user="posthog", selection="password", password="secret"),
+        TrinoAuthTypeConfig(user="posthog", selection="jwt", token="token"),
+    ],
+    ids=["password", "jwt"],
+)
+def test_connect_trino_rejects_credentials_without_tls_verification(auth_type: TrinoAuthTypeConfig) -> None:
+    with (
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.trino.trino.make_tracked_session"
+        ) as mock_session,
+        pytest.raises(ValueError, match=TRINO_CREDENTIALS_REQUIRE_TLS_VERIFICATION_ERROR),
+        connect_trino(_config(auth_type=auth_type, verify_ssl=False)),
+    ):
+        pass
+
+    mock_session.assert_not_called()
+
+
+def test_connect_trino_allows_unverified_connection_without_credentials() -> None:
+    connection = MagicMock()
+    session = MagicMock()
+    auth_type = TrinoAuthTypeConfig(user="posthog", selection="none")
+
+    with (
+        patch("trino.dbapi.connect", return_value=connection) as mock_connect,
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.trino.trino.make_tracked_session",
+            return_value=session,
+        ),
+        connect_trino(_config(auth_type=auth_type, verify_ssl=False)),
+    ):
+        pass
+
+    assert session.verify is False
+    assert mock_connect.call_args.kwargs["auth"] is None
+    assert mock_connect.call_args.kwargs["verify"] is False
+
+
+def test_trino_error_to_message_preserves_tls_verification_action() -> None:
+    error = ValueError(TRINO_CREDENTIALS_REQUIRE_TLS_VERIFICATION_ERROR)
+
+    assert trino_error_to_message(error) == TRINO_CREDENTIALS_REQUIRE_TLS_VERIFICATION_ERROR
 
 
 def test_connect_trino_closes_tracked_session_when_connect_fails() -> None:
