@@ -8,9 +8,9 @@
 # Test modules and migrations are out of scope on both: a migration reaches a model through the
 # historical registry, which is the only way a migration can.
 # And the kind `drives(<Kind or Name>)`, read from tests only: a test outside the product that
-# executes a query runner in the product's backend/hogql_queries/ garage, by the query kind it
-# builds and runs, or by the name it imports from there. While a line stands for a garage,
-# `hogli product:lint` keeps it in the contract-check inputs.
+# executes a query runner in the product's wiring location backend/hogql_queries/, by the query
+# kind it builds and runs, or by the name it imports from there. While a line stands for a
+# location, `hogli product:lint` keeps that location in the contract-check inputs.
 #
 # Counts may only go down, and a line that disappears must be deleted here too.
 # A new line needs a doctrine amendment, not a baseline edit.

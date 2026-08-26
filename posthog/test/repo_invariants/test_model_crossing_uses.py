@@ -9,10 +9,10 @@ it resolves through the Django app registry, so no import linter can see the edg
 out of scope on that channel.
 
 `drives(...)` lines read tests only: a test outside a product that executes a query runner in the
-product's `backend/hogql_queries/` garage, `drives(<Kind>)` for a query kind it builds and runs and
-`drives(<Name>)` for anything it imports from there. `hogli product:lint` keeps
-that garage in the product's contract-check inputs while a line stands, so the isolated-test skip
-stays sound; a new line is a new outside test driving product code, which belongs in the product.
+product's wiring location `backend/hogql_queries/`. `drives(<Kind>)` is a query kind the test builds
+and runs; `drives(<Name>)` is a name it imports from there. `hogli product:lint` keeps that location
+in the product's contract-check inputs while a line stands, so the isolated tests stay sound. A new
+line is a new outside test that drives product code, and that test belongs in the product.
 
 The check is strict equality, not "no worse than": a line that disappears must be deleted from the
 file in the same change, so the file can never go stale behind the code.

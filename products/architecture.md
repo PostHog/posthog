@@ -100,9 +100,10 @@ These cross the boundary as classes — allowed only under all three rules:
 2. **Designated location.**
    The implementation lives in the product's wiring location — `backend/hogql_queries/`, `backend/max_tools.py`, `backend/temporal/`, `backend/tasks/` (a flat `backend/tasks.py` also qualifies) — and isolated products keep those locations in their `backend:contract-check` inputs, so any change to a wiring implementation still re-runs the full suite.
    The full suite matters only while a test outside the product executes what lives there.
-   For `backend/hogql_queries/` that is measured: core dispatches runners by query kind, so `hogli product:crossings` reads the dispatch table and records every outside test that runs one of the product's kinds, or imports anything from the location, as a `drives(...)` line in the crossings baseline.
+   For `backend/hogql_queries/` that is measured.
+   Core dispatches runners by query kind, so `hogli product:crossings` reads the dispatch table and records every outside test that runs one of the product's kinds, or imports anything from the location, as a `drives(...)` line in the crossings baseline.
    `hogli product:lint` keeps the location in the inputs while a line for it stands, and lets it go when none does.
-   Nothing is declared: move the driving tests into the product, regenerate the baseline, and the input may leave.
+   Nothing is declared. Move the driving tests into the product, regenerate the baseline, and the input may leave.
    The other locations stay in the inputs by presence until their channel (Celery task names, Temporal workflow names, Max tool names) is read the same way.
 3. **Validated registration.**
    Registration points check `issubclass(cls, Base)` and reject anything else.
@@ -161,7 +162,9 @@ Production code may not add one.
 
 **The ratchet.**
 `products/model_crossing_uses_baseline.txt` records every disallowed use still in the tree: one line for each model class, consumer module, kind, and count.
-`drives(...)` lines record the tests outside a product that execute its query runners, keyed by the product's `backend/hogql_queries/` location instead of a class; they are read from test modules only, and a new one is a new test driving product code from outside, which belongs in the product.
+`drives(...)` lines record the tests outside a product that execute its query runners.
+They are keyed by the product's `backend/hogql_queries/` location instead of a class, and read from test modules only.
+A new line is a new outside test that drives product code, and that test belongs in the product.
 A repo-invariant test compares that file against a fresh scan, in both directions.
 A count can go down.
 A count must not go up.

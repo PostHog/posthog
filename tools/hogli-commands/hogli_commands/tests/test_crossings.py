@@ -381,5 +381,5 @@ class TestGarageDrives:
             "product_analytics.Insight posthog.api.sharing instance-many(all) 1\n"
             "web_analytics:backend/hogql_queries/ posthog.test.test_y drives(WebOverviewQueryRunner) 1\n"
         )
-        assert crossings.driven_garages("product_analytics", baseline) == {"backend/hogql_queries/"}
-        assert crossings.driven_garages("error_tracking", baseline) == frozenset()
+        assert crossings.driven_wiring_locations("product_analytics", baseline) == {"backend/hogql_queries/"}
+        assert crossings.driven_wiring_locations("error_tracking", baseline) == frozenset()

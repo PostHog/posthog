@@ -23,12 +23,13 @@ on purpose, so counting its fixtures would measure the fixture, not the coupling
 `apps.get_model` in a test fixture uncounted; it is still a dependency with the import edge removed,
 not a sanctioned door.
 
-The third channel is the opposite: it reads tests only. Core drives a product's query runners by the
-query's kind string, so a test outside the product can execute a runner in `backend/hogql_queries/`
-with no import. The isolated-test skip is sound for that garage only while no such test exists, so
-every one is counted as the disallowed kind `drives(<Kind>)`, and `hogli product:lint` keeps the
-garage in the contract-check inputs while a line for it stands. A test that imports anything the
-garage defines (through the facade or directly) is counted the same way, as `drives(<Name>)`.
+The third channel reads tests only. Core runs a product's query runners by the query's kind string.
+A test outside the product can therefore execute a runner in the wiring location
+`backend/hogql_queries/` with no import. The isolated tests are sound for that location only while
+no such test exists. Each such test is counted as the disallowed kind `drives(<Kind>)`, and
+`hogli product:lint` keeps the location in the contract-check inputs while a line for it stands. A
+test that imports anything the location defines, through the facade or directly, is counted as
+`drives(<Name>)`.
 """
 
 from __future__ import annotations
@@ -45,7 +46,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .ast_helpers import ast_parse_safe, get_model_names
-from .isolation import COMPUTED_GARAGES, MODEL_CROSSINGS, facade_model_crossings
+from .isolation import COMPUTED_WIRING_LOCATIONS, MODEL_CROSSINGS, facade_model_crossings
 from .paths import PRODUCTS_DIR, REPO_ROOT
 
 # Where Python that can consume a product model lives. Everything else at the repo root is
@@ -596,20 +597,20 @@ def _get_model_uses(tree: ast.Module, product_by_label: dict[str, str], label_by
 
 
 # ---------------------------------------------------------------------------
-# Garages driven from outside the product
+# Wiring locations that tests outside the product drive
 # ---------------------------------------------------------------------------
 
 
 # Core's query dispatch table: `if kind == "X": from products.<p>... import XRunner`, and the
-# garage the runners it dispatches to live in. The kind channel is what makes that garage
-# computable, so it must be one of the computed set. Some branches compare against the
-# `NodeKind` enum instead of a literal; its values are read off the generated enum module.
+# wiring location that holds the runners it dispatches to. The kind channel is what makes that
+# location computable, so it must be in the computed set. Some branches compare against the
+# `NodeKind` enum instead of a literal; the enum values are read off the generated module.
 QUERY_DISPATCHER = REPO_ROOT / "posthog" / "hogql_queries" / "query_runner.py"
 NODE_KIND_ENUM = REPO_ROOT / "posthog" / "schema_enums.py"
 _NODE_KIND_CLASS_RE = re.compile(r"^class NodeKind\(.*?\):\n(.*?)(?=^class |\Z)", re.MULTILINE | re.DOTALL)
 _ENUM_MEMBER_RE = re.compile(r"^\s+(\w+)\s*=\s*[\"'](\w+)[\"']", re.MULTILINE)
-QUERY_GARAGE = "backend/hogql_queries/"
-assert QUERY_GARAGE in COMPUTED_GARAGES
+QUERY_WIRING_LOCATION = "backend/hogql_queries/"
+assert QUERY_WIRING_LOCATION in COMPUTED_WIRING_LOCATIONS
 
 # The calls that hand a query to core's dispatcher, and so execute whichever runner owns its kind.
 DISPATCH_CALLS: frozenset[str] = frozenset(
@@ -621,21 +622,21 @@ DISPATCH_CALLS: frozenset[str] = frozenset(
 TEST_CLIENT_METHODS: frozenset[str] = frozenset({"get", "post", "put", "patch", "delete"})
 
 
-def garage_label(product: str, garage: str) -> str:
-    """The baseline label of one product's garage, e.g. `product_analytics:backend/hogql_queries/`."""
-    return f"{product}:{garage}"
+def wiring_location_label(product: str, location: str) -> str:
+    """The baseline label of one product's wiring location, e.g. `product_analytics:backend/hogql_queries/`."""
+    return f"{product}:{location}"
 
 
 @dataclass(frozen=True, slots=True, order=True)
-class _Garage:
-    """One computed garage of one product."""
+class _WiringLocation:
+    """One computed wiring location of one product."""
 
     product: str
     location: str
 
     @property
     def label(self) -> str:
-        return garage_label(self.product, self.location)
+        return wiring_location_label(self.product, self.location)
 
 
 @dataclass(frozen=True, slots=True)
@@ -696,10 +697,10 @@ def product_query_kinds(products: Iterable[str] | None = None) -> dict[str, str]
     return kinds
 
 
-def _garage_exports(product: str, garage: str) -> dict[_Export, str]:
-    """Every top-level class or function a garage module defines, labeled with its garage."""
-    label = garage_label(product, garage)
-    root = PRODUCTS_DIR / product / garage.rstrip("/")
+def _wiring_location_exports(product: str, location: str) -> dict[_Export, str]:
+    """Every top-level class or function a module in the wiring location defines, labeled with the location."""
+    label = wiring_location_label(product, location)
+    root = PRODUCTS_DIR / product / location.rstrip("/")
     paths = sorted(root.rglob("*.py")) if root.is_dir() else [root] if root.is_file() else []
     exports: dict[_Export, str] = {}
     for path in paths:
@@ -819,25 +820,26 @@ def kind_drives(tree: ast.Module, kinds: dict[str, str]) -> Counter[_KindDrive]:
     return found
 
 
-def _garage_targets(products: list[str] | None) -> set[_Garage]:
-    """Every computed garage that exists, in the products the scan covers.
+def _wiring_location_targets(products: list[str] | None) -> set[_WiringLocation]:
+    """Every computed wiring location that exists, in the products the scan covers.
 
-    Every product with the directory counts, not only those in the dispatch table: the import
-    channel applies to all of them, and a garage the scan never looked at must not read as clean."""
+    Every product with the directory counts, not only the products in the dispatch table. The
+    import channel applies to all of them, and a location the scan did not read must not count as
+    clean."""
     owners = [d.name for d in PRODUCTS_DIR.iterdir() if d.is_dir()] if products is None else products
     return {
-        _Garage(product, garage)
-        for garage in COMPUTED_GARAGES
+        _WiringLocation(product, location)
+        for location in COMPUTED_WIRING_LOCATIONS
         for product in owners
-        if (PRODUCTS_DIR / product / garage.rstrip("/")).exists()
+        if (PRODUCTS_DIR / product / location.rstrip("/")).exists()
     }
 
 
-def driven_garages(product: str, path: Path | None = None) -> frozenset[str]:
-    """The computed garages of `product` that some outside test drives, per the crossings baseline.
+def driven_wiring_locations(product: str, path: Path | None = None) -> frozenset[str]:
+    """The computed wiring locations of `product` that a test outside the product drives.
 
-    The baseline is the evidence the lint reads: the repo-invariant test keeps it equal to a fresh
-    scan, so a garage with no line here has no outside driver in the tree."""
+    Read from the crossings baseline. The baseline is the evidence the lint reads: the repo-invariant
+    test keeps it equal to a fresh scan, so a location with no line here has no outside driver."""
     prefix = f"{product}:"
     return frozenset(
         line.split(" ", 1)[0].removeprefix(prefix)
@@ -848,7 +850,7 @@ def driven_garages(product: str, path: Path | None = None) -> frozenset[str]:
 
 @functools.lru_cache(maxsize=4)
 def _baseline_lines(path: Path) -> tuple[str, ...]:
-    """Read once per process: `product:lint --all` asks for every product's garages in one run."""
+    """Read once per process: `product:lint --all` asks for every product's locations in one run."""
     return tuple(read_baseline(path))
 
 
@@ -897,26 +899,27 @@ def _reads_class_off_module(source: bytes, aliases: dict[str, str], class_names:
 def scan_crossing_uses(products: Iterable[str] | None = None) -> list[CrossingUse]:
     """Every use of every crossing class in consumer code, sorted, one entry per kind per module.
 
-    Plus every `apps.get_model` reference to any product model from outside the owning product,
-    and, from test modules only, every drive of a computed garage: `drives(<Kind>)` for a query
-    kind the test builds and runs (see `kind_drives`), `drives(<Name>)` for an import of anything
-    the garage defines, by any re-export path. One pass over the tree serves all three channels."""
+    Plus every `apps.get_model` reference to any product model from outside the owning product.
+    Plus, from test modules only, every drive of a computed wiring location: `drives(<Kind>)` for a
+    query kind the test builds and runs (see `kind_drives`), `drives(<Name>)` for an import of
+    anything the location defines, by any re-export path. One pass over the tree serves all three
+    channels."""
     # Consumed more than once below; a generator argument would silently empty the later passes.
     products = list(products) if products is not None else None
     classes = crossing_classes(products)
     owning_dir = {c.label: PRODUCTS_DIR / c.product for c in classes}
     owning_dir |= {label: PRODUCTS_DIR / product for label, product in product_model_labels(products).items()}
     kinds = product_query_kinds(products)
-    garages = _garage_targets(products)
-    owning_dir |= {garage.label: PRODUCTS_DIR / garage.product for garage in garages}
+    locations = _wiring_location_targets(products)
+    owning_dir |= {location.label: PRODUCTS_DIR / location.product for location in locations}
     if not owning_dir:
         return []
 
     seeds = {_Export(c.defining_module, c.class_name): c.label for c in classes}
-    for garage in sorted(garages):
-        seeds |= _garage_exports(garage.product, garage.location)
-    # Tests are read for garage exports only and consumer code for model classes only, so a test
-    # that imports a model class (most API tests do) is never parsed for nothing.
+    for location in sorted(locations):
+        seeds |= _wiring_location_exports(location.product, location.location)
+    # Tests are read for wiring-location exports only, and consumer code for model classes only.
+    # A test that imports a model class (most API tests do) is then never parsed for nothing.
     names_by_scope = {
         True: {export.name for export, label in seeds.items() if ":" in label},
         False: {export.name for export, label in seeds.items() if ":" not in label},
@@ -924,7 +927,7 @@ def scan_crossing_uses(products: Iterable[str] | None = None) -> list[CrossingUs
     candidates = _candidates(_KindHint.for_kinds(kinds) if kinds else None)
     origins = _grow_origins(candidates, seeds)
     origin_modules = {export.module for export in origins}
-    query_products = {garage.product for garage in garages if garage.location == QUERY_GARAGE}
+    query_products = {location.product for location in locations if location.location == QUERY_WIRING_LOCATION}
     product_by_label = _app_labels()
     # Django resolves a model name case-insensitively, so the get_model scan matches on the lowered form.
     label_by_lower = {label.lower(): label for label in owning_dir}
@@ -955,7 +958,7 @@ def scan_crossing_uses(products: Iterable[str] | None = None) -> list[CrossingUs
         for node, label in _class_nodes(tree, names, aliases, origins):
             if (":" in label) != is_test or candidate.path.is_relative_to(owning_dir[label]):
                 continue
-            # A test drives whatever it imports from a garage; a model class use is classified.
+            # A test drives whatever it imports from a wiring location; a model class use is classified.
             if is_test:
                 name = node.id if isinstance(node, ast.Name) else node.attr
                 counts[(label, candidate.dotted, f"drives({name})")] += 1
@@ -965,9 +968,13 @@ def scan_crossing_uses(products: Iterable[str] | None = None) -> list[CrossingUs
         if is_test and candidate.mentions_query_kind:
             for drive, count in kind_drives(tree, kinds).items():
                 if drive.product in query_products and not candidate.path.is_relative_to(PRODUCTS_DIR / drive.product):
-                    counts[(garage_label(drive.product, QUERY_GARAGE), candidate.dotted, f"drives({drive.kind})")] += (
-                        count
-                    )
+                    counts[
+                        (
+                            wiring_location_label(drive.product, QUERY_WIRING_LOCATION),
+                            candidate.dotted,
+                            f"drives({drive.kind})",
+                        )
+                    ] += count
         if not is_test and candidate.mentions_get_model:
             for label, count in _get_model_uses(tree, product_by_label, label_by_lower).items():
                 if not candidate.path.is_relative_to(owning_dir[label]):
@@ -1051,9 +1058,9 @@ BASELINE_HEADER = """\
 # Test modules and migrations are out of scope on both: a migration reaches a model through the
 # historical registry, which is the only way a migration can.
 # And the kind `drives(<Kind or Name>)`, read from tests only: a test outside the product that
-# executes a query runner in the product's backend/hogql_queries/ garage, by the query kind it
-# builds and runs, or by the name it imports from there. While a line stands for a garage,
-# `hogli product:lint` keeps it in the contract-check inputs.
+# executes a query runner in the product's wiring location backend/hogql_queries/, by the query
+# kind it builds and runs, or by the name it imports from there. While a line stands for a
+# location, `hogli product:lint` keeps that location in the contract-check inputs.
 #
 # Counts may only go down, and a line that disappears must be deleted here too.
 # A new line needs a doctrine amendment, not a baseline edit.
