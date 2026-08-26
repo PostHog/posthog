@@ -37,18 +37,29 @@ The sweep finds nothing to mutate and reports success, while the proxy every ver
 
 Two gates keep that from passing silently.
 
-- `is_present` refuses a registered target whose storage table is on no data node here while its Distributed proxy still returns rows (`UnreachableTargetError`). Absent from everywhere and empty is still treated as not yet migrated, which is the ordinary pre-rollout state.
+- `placement_for` refuses a registered target whose storage table is on no data node of any cluster reachable from here while its Distributed proxy still returns rows (`UnreachableTargetError`). Absent from everywhere and empty is still treated as not yet migrated, which is the ordinary pre-rollout state.
 - `assert_sweep_complete` runs after the immediate person-removal and event-removal sweeps and counts survivors through the proxy, so rows a mutation never reached fail the request instead of completing it (`UnsweptRowsError`).
 
 Both gates probe hosts rather than compare cluster names.
 Two cluster names can cover the same nodes, which is what the dev stack and CI do, so a name comparison would refuse deployments that can in fact sweep the table.
-`DeletionTarget.cluster_setting` names where a storage table lives for the refusal message and for the dispatch below; it does not decide reachability.
+`DeletionTarget.cluster_setting` names where a storage table lives, and `ClickhouseCluster.sibling` turns that name into a handle; neither decides reachability.
 `sharded_events_json` carries `CLICKHOUSE_EVENTS_CLUSTER`, which names the `events` cluster.
 
-Neither gate makes an off-cluster table sweepable.
-Reaching one needs a second handle built with `get_cluster(cluster=...)`, and every sweep loop reading its shards from the handle that holds the target rather than from the one the job was given.
-The pending-deletes dictionary the `deletes_job` predicate joins against has to be bootstrapped on that second cluster too.
-None of that exists yet.
+## Dispatching to a target's own cluster
+
+`resolve_placements` pairs each target with the handle whose shards carry it: the job's own handle where the table is local, a sibling derived from it where it is not.
+The handle in hand is probed first, so a deployment whose tables are all on one cluster never builds a second one.
+
+Sweeps that iterate placements dispatch each target over `placement.cluster.shards`:
+
+- `delete_person_events_op`
+- `execute_event_deletion`, immediate mode
+
+The rest are bound to a single handle and refuse rather than skip when a target has moved off it (`dispatchable_here`, `UnreachableTargetError`):
+
+- Property removal. Its staging table is host-local and its fan-out is one op per shard of one cluster.
+- The deferred queue fill. Both halves of its `INSERT` are host-local: the source table it reads and the `adhoc_events_deletion` queue it writes.
+- `deletes_job`. Its mutation predicate joins a pending-deletes dictionary that would have to be bootstrapped on the second cluster first — created, populated from Postgres, replicated, loaded and checksum-verified.
 
 ## Covered tables
 
@@ -133,6 +144,6 @@ Keeping the fork downstream of person resolution is the contract, tracked on #81
 
 Register it in `PERSONAL_DATA_TARGETS`, with capability flags reflecting what its schema can actually take and what the sweep code actually implements: `accepts_property_rewrite` needs the rewrite machinery to reach the table, not just assignable columns.
 If it is not going to be swept, add it to `TTL_ONLY_TABLES` with the window you are accepting.
-If its storage lives on a cluster other than the one the deletion jobs connect to, it cannot be swept at all today; see "Reach" above before registering it.
+If its storage lives on a cluster other than the one the deletion jobs connect to, give it a `cluster_setting` naming that cluster and mark it `optional`; see "Reach" and "Dispatching" above for which sweeps then reach it and which refuse.
 
 `posthog/clickhouse/test/test_deletion_coverage.py` fails on any storage table that declares `person_properties` and appears in neither list, so the decision has to be made rather than skipped.
