@@ -536,6 +536,66 @@ class TestCreateObservationActivity:
         exists = ReplayObservation.objects.filter(scanner=scanner, session_id="sess-scanner-limit").exists()
         assert exists is expect_created
 
+    def _admit(self, scanner: ReplayScanner, session_id: str) -> CreateObservationOutput:
+        return create_observation_activity(
+            CreateObservationInputs(
+                scanner_id=scanner.id,
+                team_id=scanner.team_id,
+                session_id=session_id,
+                triggered_by=ObservationTrigger.SCHEDULE,
+                triggered_by_user_id=None,
+                workflow_id=f"wf-{session_id}",
+            )
+        )
+
+    def test_fresh_admission_cache_admits_without_running_the_budget_aggregates(self) -> None:
+        # The fast path is the point of the cache: an admission inside the TTL must not re-run
+        # compute_scanner_budget, or every capped admission pays the aggregate queries again.
+        scanner = _make_scanner(credit_limit=1_000)
+        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 1_000_000):
+            assert self._admit(scanner, "sess-cache-warmup").was_created
+            with patch(
+                "products.replay_vision.backend.temporal.activities.create_observation.compute_scanner_budget",
+                side_effect=AssertionError("aggregates ran on a fresh cache"),
+            ):
+                assert self._admit(scanner, "sess-cache-fast").was_created
+
+    def test_warm_cache_admission_still_refuses_at_the_limit(self) -> None:
+        # The cold path refuses via fresh aggregates (covered above); this pins the warm path: the
+        # first admission's cached spend must refuse the second, not just the next refresh.
+        credits = observation_credits_for_model(ScannerModel.GEMINI_3_7_FLASH.value)
+        scanner = _make_scanner(credit_limit=credits)
+        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 1_000_000):
+            assert self._admit(scanner, "sess-warm-a").was_created
+            assert not self._admit(scanner, "sess-warm-b").was_created
+        assert ReplayObservation.objects.filter(scanner=scanner, status=ObservationStatus.PENDING).count() == 1
+
+    def test_admission_cache_from_a_previous_period_does_not_block_a_new_period(self) -> None:
+        # A period rollover must invalidate the cache: a scanner that exhausted last period's cap
+        # admits again once the period turns, even while the stale cache still reads as exhausted.
+        scanner = _make_scanner(credit_limit=100)
+        ReplayScanner.all_origins.filter(pk=scanner.pk).update(
+            admission_budget_used=100,
+            admission_credits_since_refresh=50,
+            admission_budget_refreshed_at=timezone.now(),
+            admission_budget_period_start=timezone.now() - dt.timedelta(days=400),
+        )
+        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 1_000_000):
+            assert self._admit(scanner, "sess-rollover").was_created
+
+    def test_failed_insert_refunds_its_cached_admission(self) -> None:
+        # The cached counter must stay transactional with the insert: an increment that survived a
+        # rolled-back insert would make a cap that fits one observation refuse the retry forever.
+        credits = observation_credits_for_model(ScannerModel.GEMINI_3_7_FLASH.value)
+        scanner = _make_scanner(credit_limit=credits)
+        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 1_000_000):
+            with (
+                patch.object(ReplayObservation.objects, "create", side_effect=RuntimeError("insert failed")),
+                pytest.raises(RuntimeError),
+            ):
+                self._admit(scanner, "sess-refund")
+            assert self._admit(scanner, "sess-refund").was_created
+
     def test_concurrent_admissions_cannot_exceed_scanner_credit_limit(self) -> None:
         # Two applies for different sessions race with a cap that fits exactly one observation. Without the
         # per-scanner lock both read a used=0 budget, both pass, and both reserve a PENDING row (overshoot).
@@ -560,7 +620,7 @@ class TestCreateObservationActivity:
             except ApplicationError as e:
                 if e.type != SCANNER_ADMISSION_BUSY_ERROR_TYPE:
                     raise
-                # The NOWAIT lock refused the loser outright; in production Temporal retries it and the
+                # The lock timeout refused the loser; in production Temporal retries it and the
                 # re-run reads the winner's spend. Either way the cap held: nothing was admitted.
                 created[session_id] = False
             finally:
