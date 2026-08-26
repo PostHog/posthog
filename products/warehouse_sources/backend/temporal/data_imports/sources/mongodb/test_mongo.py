@@ -378,7 +378,7 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
                 "bad auth : authentication failed, full error: {'ok': 0, 'errmsg': 'bad auth : "
                 "authentication failed', 'code': 8000, 'codeName': 'AtlasError'}",
             ),
-            # Our own error for a view whose pipeline drops _id — retrying reads the same _id-less
+            # Our own error for a view whose pipeline drops _id. Retrying reads the same _id-less
             # documents forever, so it must be classified non-retryable.
             ("document_missing_id", MONGO_DOCUMENT_MISSING_ID_ERROR),
             ("dns_failure", "The DNS query name does not exist: example.mongodb.net."),
