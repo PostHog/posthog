@@ -1,6 +1,7 @@
 /* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 // Imported from the source module rather than the `@posthog/lemon-ui` barrel so that the
 // spy below replaces `.error` on the same `lemonToast` singleton that `paymentEntryLogic`
@@ -11,8 +12,11 @@ import { billingLogic } from 'scenes/billing/billingLogic'
 import { paymentEntryLogic } from 'scenes/billing/paymentEntryLogic'
 
 import { useMocks } from '~/mocks/jest'
+import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { BillingType } from '~/types'
+
+import { PLATFORM_PACKAGE_SUBSCRIPTION_SURVEY_ID } from './constants'
 
 const seedBilling = async (billing: Partial<BillingType> | null): Promise<void> => {
     useMocks({ get: { '/api/billing': () => [200, billing ?? {}] } })
@@ -101,6 +105,25 @@ describe('paymentEntryLogic', () => {
             expect(toastErrorSpy).not.toHaveBeenCalled()
             expect(logic.values.paymentEntryModalOpen).toBe(false)
         })
+
+        it('displays the platform package survey after activation', async () => {
+            setupActivate([200, { success: true }])
+            const displaySurveySpy = jest.spyOn(posthog, 'displaySurvey')
+
+            await expectLogic(logic, () =>
+                logic.actions.startPaymentEntryFlow(
+                    { type: ProductKey.PLATFORM_AND_SUPPORT } as BillingType['products'][number],
+                    '/project/1/replay/home'
+                )
+            ).toFinishAllListeners()
+
+            expect(displaySurveySpy).toHaveBeenCalledWith(PLATFORM_PACKAGE_SUBSCRIPTION_SURVEY_ID, {
+                displayType: 'popover',
+                ignoreConditions: true,
+                ignoreDelay: true,
+            })
+            displaySurveySpy.mockRestore()
+        })
     })
 
     describe('startPaymentEntryFlow — new customer (no customer_id)', () => {
@@ -116,7 +139,23 @@ describe('paymentEntryLogic', () => {
             expect(activate).not.toHaveBeenCalled()
             expect(logic.values.paymentEntryModalOpen).toBe(true)
             expect(logic.values.redirectPath).toBe('/foo')
+            expect(logic.values.platformPackageUpgrade).toBe(false)
             expect(toastErrorSpy).not.toHaveBeenCalled()
+        })
+
+        it('remembers a platform package upgrade through payment authorization', async () => {
+            await seedBilling({ subscription_level: 'free' })
+            logic = paymentEntryLogic()
+            logic.mount()
+
+            await expectLogic(logic, () =>
+                logic.actions.startPaymentEntryFlow(
+                    { type: ProductKey.PLATFORM_AND_SUPPORT } as BillingType['products'][number],
+                    '/foo'
+                )
+            ).toFinishAllListeners()
+
+            expect(logic.values.platformPackageUpgrade).toBe(true)
         })
     })
 })

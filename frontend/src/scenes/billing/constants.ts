@@ -46,6 +46,8 @@ export const CODE_PLAN_ALPHA_PRO = 'posthog-code-pro-0-20260422'
 export const CODE_PRO_PLAN_PREFIX = 'posthog-code-pro-'
 export const CODE_FREE_PLAN_PREFIX = 'posthog-code-free'
 
+export const PLATFORM_PACKAGE_SUBSCRIPTION_SURVEY_ID = '01a03e65-8196-0000-85df-88d220b55d28'
+
 // Date after which billing for data pipelines ends and add-on upgrades/downgrades are disabled,
 // in sync with billing_end_date of data_pipelines in billing plans config
 export const DATA_PIPELINES_CUTOFF_DATE = '2025-09-10'
