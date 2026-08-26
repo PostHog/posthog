@@ -153,7 +153,7 @@ function run(github, { history = [], now = minutes(0), env = {}, fetchImpl } = {
         ACTIVITY_WINDOW_MINUTES: '120',
         COMMIT_FAILURE_STREAK_THRESHOLD: '10',
         DIAGNOSIS_LOOP_ID: '',
-        POSTHOG_PROJECT_SECRET_API_KEY: '',
+        POSTHOG_API_KEY: '',
         ...env,
     })
     return ciAlertsDevex(
@@ -163,7 +163,7 @@ function run(github, { history = [], now = minutes(0), env = {}, fetchImpl } = {
 }
 
 // Env that arms the diagnosis loop fire.
-const diagnosisEnv = { DIAGNOSIS_LOOP_ID: 'loop-uuid', POSTHOG_PROJECT_SECRET_API_KEY: 'phs_test' }
+const diagnosisEnv = { DIAGNOSIS_LOOP_ID: 'loop-uuid', POSTHOG_API_KEY: 'test_key' }
 
 // Five consecutive Backend CI failures: the streak arm, which opens an incident.
 const redMaster = () =>
@@ -706,7 +706,7 @@ describe('ci-alerts-devex', () => {
             assert.equal(fetchImpl.calls.length, 1)
             const [url, options] = fetchImpl.calls[0]
             assert.equal(url, 'https://us.posthog.com/api/projects/2/loops/loop-uuid/trigger/')
-            assert.equal(options.headers.Authorization, 'Bearer phs_test')
+            assert.equal(options.headers.Authorization, 'Bearer test_key')
             // Keyed on the anchor ts, so a retried job reuses the first run instead of racing a second.
             assert.equal(options.headers['Idempotency-Key'], 'master-red-111.222')
             const payload = JSON.parse(options.body)

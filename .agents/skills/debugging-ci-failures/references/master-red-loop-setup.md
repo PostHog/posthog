@@ -46,12 +46,18 @@ Notes on the choices:
 
 ## Arm the workflow
 
-Two values, both scoped to project 2:
+Store a PostHog key with the `loop:write` scope as the repository secret `CI_ALERTS_POSTHOG_API_KEY`, then set `DIAGNOSIS_LOOP_ID` in `.github/workflows/ci-alerts-devex.yml` to the loop's id.
 
-1. Mint a project secret API key at `us.posthog.com/project/2/settings/environment-secret-api-keys` with the `loop:write` scope. That scope exists for this call: see the comment on `("loop", "write")` in `posthog/scopes.py`. The settings page is gated on the `PROJECT_SECRET_API_KEYS` flag and asks you to reauthenticate.
-2. Store the `phs_` value as the repository secret `POSTHOG_DEVEX_LOOP_SECRET_API_KEY`, and set `DIAGNOSIS_LOOP_ID` in `.github/workflows/ci-alerts-devex.yml` to the loop's id.
+Either kind of key authenticates the call, and they differ in who owns them:
 
-A project secret API key is project-wide, so a leaked key can fire any loop in project 2. Treat it accordingly.
+| Key                    | Mint it at                                        | Constraint                                                                                                                       |
+| ---------------------- | ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Personal API key       | `/settings/user-api-keys`                         | Must belong to the loop's owner. `fire_loop_api_for_user` matches on `created_by_id`, so a key from anyone else is refused.      |
+| Project secret API key | `/project/2/settings/environment-secret-api-keys` | Needs admin membership on the project, and the `PROJECT_SECRET_API_KEYS` flag. Fires any loop in the project, not just this one. |
+
+The project secret key is the durable choice: it survives its creator leaving, which is what that model exists for. A personal key is refused the moment ownership of the loop moves, and dies with the account. Start with whichever you can mint; the workflow only reads a token from the secret and does not care which kind it is.
+
+Attribution is the same either way. The run executes as the loop's owner, and the PSAK path passes no actor at all.
 
 ## Turning it off
 

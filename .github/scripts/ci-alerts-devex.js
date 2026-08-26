@@ -324,9 +324,9 @@ function buildDiagnosisPayload({
 // second tick that races the same anchor reuses the first run instead of starting a rival one.
 async function fireDiagnosisLoop({ fetchImpl, core, threadTs, payload }) {
     const loopId = process.env.DIAGNOSIS_LOOP_ID
-    const apiKey = process.env.POSTHOG_PROJECT_SECRET_API_KEY
+    const apiKey = process.env.POSTHOG_API_KEY
     if (!loopId || !apiKey) {
-        core.info('Diagnosis loop not configured (DIAGNOSIS_LOOP_ID / POSTHOG_PROJECT_SECRET_API_KEY): skipped')
+        core.info('Diagnosis loop not configured (DIAGNOSIS_LOOP_ID / POSTHOG_API_KEY): skipped')
         return null
     }
     const doFetch = fetchImpl || fetch
