@@ -68,8 +68,9 @@ _MAX_CACHEABLE_PACKFILE_BYTES = 16_000_000
 # not by what the team owns. The count limit lives with the other bundle policy in packaging.
 MAX_BUNDLE_BYTES = 5_000_000
 
-# Skipped-skill names are unbounded for a heavy user, so the warning logs a fixed sample plus the
-# full count rather than every name (mirrors the count-only X-Skills-Skipped header).
+# A heavy user can skip very many skills, so the walk keeps only a fixed-size sample of their names
+# plus a running count — never a list proportional to the skip total. The warning logs that sample
+# and count; the response header carries the count only.
 _SKIPPED_LOG_SAMPLE_SIZE = 20
 
 
@@ -219,7 +220,7 @@ class SkillBundle:
     zip_bytes: bytes
     included: list[str]
     dropped_count: int
-    skipped: list[str]
+    skipped_count: int
 
 
 BundleContent = Literal["stub", "full"]
@@ -229,7 +230,8 @@ BundleContent = Literal["stub", "full"]
 class _BundleWalk:
     trees: dict[str, FileTree]
     dropped_count: int
-    skipped: list[str]
+    skipped_count: int
+    skipped_sample: list[str]
 
 
 def _octet_length(expression: F | Cast) -> Func:
@@ -295,13 +297,13 @@ def build_skill_bundle(
     limit = min(limit, MAX_BUNDLE_SKILLS)
     walk = _walk_stubs(candidates, limit) if content == "stub" else _walk_full(candidates, limit)
 
-    if walk.skipped:
+    if walk.skipped_count:
         logger.warning(
             "skills_bundle_skipped",
             team_id=team.id,
             user_id=user.id,
-            skipped_count=len(walk.skipped),
-            skills_sample=walk.skipped[:_SKIPPED_LOG_SAMPLE_SIZE],
+            skipped_count=walk.skipped_count,
+            skills_sample=walk.skipped_sample,
         )
     if walk.dropped_count:
         logger.warning(
@@ -312,30 +314,44 @@ def build_skill_bundle(
         zip_bytes=build_skills_bundle_zip(walk.trees),
         included=list(walk.trees),
         dropped_count=walk.dropped_count,
-        skipped=walk.skipped,
+        skipped_count=walk.skipped_count,
     )
 
 
-def _dropped_count(candidates: QuerySet[LLMSkill], trees: dict[str, FileTree], skipped: list[str]) -> int:
+def _dropped_count(candidates: QuerySet[LLMSkill], trees: dict[str, FileTree], skipped_count: int) -> int:
     # Every candidate the walk did not include or skip was dropped at the cap. One count query
     # instead of holding the tail of names in memory for a user with thousands of skills.
-    return candidates.count() - len(trees) - len(skipped)
+    return candidates.count() - len(trees) - skipped_count
+
+
+def _record_skip(count: int, sample: list[str], name: str) -> int:
+    """Bump the skip count and keep only a fixed-size sample of names, so the retained list never
+    grows with the number of skipped skills. Returns the new count."""
+    if len(sample) < _SKIPPED_LOG_SAMPLE_SIZE:
+        sample.append(name)
+    return count + 1
 
 
 def _walk_stubs(candidates: QuerySet[LLMSkill], limit: int) -> _BundleWalk:
     trees: dict[str, FileTree] = {}
-    skipped: list[str] = []
+    skipped_count = 0
+    skipped_sample: list[str] = []
     for row in _candidate_batches(candidates.values("name", "description", "version")):
         if len(trees) >= limit:
-            return _BundleWalk(trees=trees, dropped_count=_dropped_count(candidates, trees, skipped), skipped=skipped)
+            return _BundleWalk(
+                trees=trees,
+                dropped_count=_dropped_count(candidates, trees, skipped_count),
+                skipped_count=skipped_count,
+                skipped_sample=skipped_sample,
+            )
         name = row["name"]
         if not _name_and_description_are_valid(name, row["description"]):
-            skipped.append(name)
+            skipped_count = _record_skip(skipped_count, skipped_sample, name)
             continue
         trees[name] = build_skill_stub_tree(
             SkillStub(name=name, description=row["description"], version=row["version"])
         )
-    return _BundleWalk(trees=trees, dropped_count=0, skipped=skipped)
+    return _BundleWalk(trees=trees, dropped_count=0, skipped_count=skipped_count, skipped_sample=skipped_sample)
 
 
 def _name_and_description_are_valid(name: str, description: str) -> bool:
@@ -391,7 +407,8 @@ def _walk_full(candidates: QuerySet[LLMSkill], limit: int) -> _BundleWalk:
     )
 
     trees: dict[str, FileTree] = {}
-    skipped: list[str] = []
+    skipped_count = 0
+    skipped_sample: list[str] = []
     total_bytes = 0
     capped = False
     for candidate in _candidate_batches(sized):
@@ -402,7 +419,7 @@ def _walk_full(candidates: QuerySet[LLMSkill], limit: int) -> _BundleWalk:
         # Skips are decided before the cap so an invalid skill never caps the bundle. Validity is
         # cheap: the name and description are in the row, and the paths are a small query.
         if not _name_and_description_are_valid(name, candidate["description"]):
-            skipped.append(name)
+            skipped_count = _record_skip(skipped_count, skipped_sample, name)
             continue
         sized_files = list(
             LLMSkillFile.objects.filter(skill_id=candidate["id"])
@@ -410,7 +427,7 @@ def _walk_full(candidates: QuerySet[LLMSkill], limit: int) -> _BundleWalk:
             .values_list("path", "content_bytes")
         )
         if not _bundle_paths_are_safe([path for path, _ in sized_files]):
-            skipped.append(name)
+            skipped_count = _record_skip(skipped_count, skipped_sample, name)
             continue
         # The stored bytes are a floor for the rendered tree, so a skill that fails here would fail
         # the exact check below too. Checking first keeps its content out of memory entirely.
@@ -428,7 +445,7 @@ def _walk_full(candidates: QuerySet[LLMSkill], limit: int) -> _BundleWalk:
         files = list(LLMSkillFile.objects.filter(skill=skill).order_by("path"))
         export = skill_to_export(skill, files)
         if validate_for_export(export):
-            skipped.append(name)
+            skipped_count = _record_skip(skipped_count, skipped_sample, name)
             continue
         tree = build_skill_tree(export)
         tree_bytes = file_tree_bytes(tree, prefix=f"{name}/")
@@ -437,5 +454,7 @@ def _walk_full(candidates: QuerySet[LLMSkill], limit: int) -> _BundleWalk:
             break
         total_bytes += tree_bytes
         trees[name] = tree
-    dropped_count = _dropped_count(candidates, trees, skipped) if capped else 0
-    return _BundleWalk(trees=trees, dropped_count=dropped_count, skipped=skipped)
+    dropped_count = _dropped_count(candidates, trees, skipped_count) if capped else 0
+    return _BundleWalk(
+        trees=trees, dropped_count=dropped_count, skipped_count=skipped_count, skipped_sample=skipped_sample
+    )

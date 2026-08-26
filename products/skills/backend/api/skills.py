@@ -841,7 +841,7 @@ class LLMSkillViewSet(
         # Counts only: names are unbounded and would blow past proxy header limits for heavy users.
         response["X-Skills-Included"] = str(len(bundle.included))
         response["X-Skills-Dropped"] = str(bundle.dropped_count)
-        response["X-Skills-Skipped"] = str(len(bundle.skipped))
+        response["X-Skills-Skipped"] = str(bundle.skipped_count)
         return response
 
     @extend_schema(request=LLMSkillImportSerializer, responses={201: LLMSkillSerializer})

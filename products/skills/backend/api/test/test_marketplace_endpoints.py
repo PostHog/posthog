@@ -373,7 +373,9 @@ class TestSkillBundle(APIBaseTest):
         self._fetch(limit=1)
 
         # Skipped rows do not count toward the limit, so a limit-sized page would add a query per row.
-        assert queries_with_skipped_rows(1) == queries_with_skipped_rows(5)
+        # Compare past the log-sample size too: the header must report the true skip count, not the
+        # bounded sample the walk retains.
+        assert queries_with_skipped_rows(1) == queries_with_skipped_rows(adapters._SKIPPED_LOG_SAMPLE_SIZE + 5)
 
     def test_skill_archived_while_the_bundle_is_built_is_left_out_not_fatal(self):
         self._create_skill("stays")
