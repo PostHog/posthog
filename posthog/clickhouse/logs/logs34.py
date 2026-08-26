@@ -414,13 +414,14 @@ def KAFKA_LOGS34_AVRO_MV_SELECT():
 FROM {db}.{KAFKA_TABLE_NAME}"""
 
 
-def KAFKA_LOGS34_AVRO_MV():
+def KAFKA_LOGS34_AVRO_MV(to_table: str = TABLE_NAME):
     db = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
-    # Writes into `writable_logs34` — the Distributed(logs, posthog, logs34) table that lives on the
-    # ingestion-events nodes and forwards to the logs cluster's `logs34`. The events nodes host the
-    # Kafka table + this MV but not `logs34` itself, so the MV cannot target `logs34` directly.
+    # `to_table` defaults to `logs34` so the historical migration 0280 (which creates this MV on the
+    # logs nodes, where `logs34` is local) keeps working when replayed. Migration 0304 passes
+    # `writable_logs34` — the Distributed(logs, posthog, logs34) table on the ingestion-events nodes —
+    # because `logs34` itself is not local there.
     return f"""
-CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.kafka_logs34_avro_mv TO {db}.writable_logs34
+CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.kafka_logs34_avro_mv TO {db}.{to_table}
 (
     `uuid` String,
     `trace_id` String,
