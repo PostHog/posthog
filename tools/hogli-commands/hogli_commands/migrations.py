@@ -92,6 +92,14 @@ class OrphanRollbackPlan:
     uncached: list[MigrationInfo]
 
 
+@dataclass(frozen=True, kw_only=True)
+class GitRecoveryResult:
+    """Uncached migrations split by whether git history could supply their file."""
+
+    newly_cached: list[MigrationInfo]
+    still_uncached: list[MigrationInfo]
+
+
 def _cache_migration(app: str, name: str, source_path: Path) -> bool:
     """Cache a migration file for later rollback with CLI feedback."""
     try:
@@ -341,13 +349,13 @@ def _rollback_migration_with_cache(app: str, name: str, dry_run: bool = False) -
         return False
 
 
-def _fetch_uncached_from_git(uncached: list[MigrationInfo]) -> tuple[list[MigrationInfo], list[MigrationInfo]]:
+def _fetch_uncached_from_git(uncached: list[MigrationInfo]) -> GitRecoveryResult:
     """Try to fetch uncached migrations from git history.
 
     Returns the migrations that are now cached, and the ones that are still uncached.
     """
     if not uncached:
-        return [], []
+        return GitRecoveryResult(newly_cached=[], still_uncached=[])
 
     click.echo("Attempting to fetch uncached migrations from git…\n")
     newly_cached: list[MigrationInfo] = []
@@ -368,7 +376,7 @@ def _fetch_uncached_from_git(uncached: list[MigrationInfo]) -> tuple[list[Migrat
             still_uncached.append(m)
 
     click.echo()
-    return newly_cached, still_uncached
+    return GitRecoveryResult(newly_cached=newly_cached, still_uncached=still_uncached)
 
 
 def _show_manual_rollback_instructions(uncached: list[MigrationInfo], command_name: str) -> None:
@@ -643,8 +651,8 @@ def _recover_uncached_orphans(plan: OrphanRollbackPlan, force: bool, command_nam
     if force or not plan.uncached:
         return plan
 
-    newly_cached, still_uncached = _fetch_uncached_from_git(plan.uncached)
-    plan = replace(plan, cached=[*plan.cached, *newly_cached], uncached=still_uncached)
+    recovery = _fetch_uncached_from_git(plan.uncached)
+    plan = replace(plan, cached=[*plan.cached, *recovery.newly_cached], uncached=recovery.still_uncached)
     if plan.uncached:
         _show_manual_rollback_instructions(plan.uncached, command_name)
     return plan

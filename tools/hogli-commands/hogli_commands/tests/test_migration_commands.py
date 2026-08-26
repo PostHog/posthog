@@ -68,12 +68,11 @@ def harness(monkeypatch: pytest.MonkeyPatch) -> Harness:
     monkeypatch.setattr(migrations, "_remove_orphaned_migrations", remove)
     monkeypatch.setattr(migrations, "_apply_migrations", apply)
 
-    def fetch_from_git(
-        uncached: list[migrations.MigrationInfo],
-    ) -> tuple[list[migrations.MigrationInfo], list[migrations.MigrationInfo]]:
-        recovered = [m for m in uncached if _label(m) in h.git_recovered]
-        still_uncached = [m for m in uncached if _label(m) not in h.git_recovered]
-        return recovered, still_uncached
+    def fetch_from_git(uncached: list[migrations.MigrationInfo]) -> migrations.GitRecoveryResult:
+        return migrations.GitRecoveryResult(
+            newly_cached=[m for m in uncached if _label(m) in h.git_recovered],
+            still_uncached=[m for m in uncached if _label(m) not in h.git_recovered],
+        )
 
     monkeypatch.setattr(migrations, "_fetch_uncached_from_git", fetch_from_git)
     monkeypatch.setattr(migrations, "_find_migration_branch", lambda app, name: None)
