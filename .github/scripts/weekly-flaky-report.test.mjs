@@ -3,6 +3,8 @@ import { describe, it } from 'node:test'
 
 import {
     buildBlocks,
+    buildShadowBlocks,
+    buildTeamDigests,
     buildRunnerReports,
     CLUSTER_MIN_TESTS,
     enrich,
@@ -390,6 +392,44 @@ describe('weekly flaky report', () => {
         )
         // The cluster PR count is a floor over overlapping member sets, never an exact count.
         assert.deepEqual(clusterRow[4], { type: 'raw_text', text: '1+' })
+    })
+
+    it('groups shadow digests by owning team and drops teams it cannot route', () => {
+        const items = [
+            { runner: 'pytest', selector: 'a.py::test_one', failed_run_count: 1 },
+            { runner: 'pytest', selector: 'a.py::test_two', failed_run_count: 2 },
+            { runner: 'jest', selector: 'b.test.ts::renders', failed_run_count: 3 },
+            { runner: 'pytest', selector: 'orphan.py::test_orphan', failed_run_count: 4 },
+            { runner: 'pytest', selector: 'silenced.py::test_silenced', failed_run_count: 5 },
+        ]
+        const owners = {
+            'a.py': { owner: 'team-devex', slack: '#team-devex' },
+            'b.test.ts': { owner: 'team-replay', slack: '#team-replay' },
+            'orphan.py': { owner: 'unowned', slack: null },
+            // notifications: false, owned but the team declared no automation channel.
+            'silenced.py': { owner: 'team-quiet', slack: null },
+        }
+        const ownerFor = (item) => ({ repoPath: null, ...owners[item.selector.split('::')[0]] })
+        const runnerReports = [
+            {
+                candidates: items,
+                extrasFor: () => ({ runsRescued: null, evidence: [] }),
+                statusFor: () => null,
+            },
+        ]
+
+        const digests = buildTeamDigests(runnerReports, ownerFor)
+
+        assert.deepEqual(
+            digests.map(({ owner, channel, rows }) => [owner, channel, rows.length]),
+            [
+                ['team-devex', '#team-devex', 2],
+                ['team-replay', '#team-replay', 1],
+            ]
+        )
+        const [header, table] = buildShadowBlocks(digests[0])
+        assert.equal(header.text.text, '*devex* _(shadow: would post to #team-devex)_')
+        assert.equal(table.rows.length, 3)
     })
 
     it('matches a Jest selector reported from the package root against Trunk', async () => {

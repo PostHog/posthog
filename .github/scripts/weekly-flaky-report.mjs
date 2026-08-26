@@ -391,6 +391,65 @@ function tableRows(items, ownerFor, extrasFor, statusFor = () => null) {
     })
 }
 
+// Shadow mode for per-team routing: the per-team slices are built exactly as a live
+// rollout would build them, but posted as thread replies under the channel digest,
+// labeled with the channel they would go to. Validates attribution and volume per
+// team before any team channel receives a message.
+function buildTeamDigests(runnerReports, ownerFor) {
+    const byOwner = new Map()
+    for (const { candidates, extrasFor, statusFor } of runnerReports) {
+        for (const item of candidates) {
+            const { owner, slack } = ownerFor(item)
+            if (owner === 'unowned' || !slack) {
+                continue
+            }
+            if (!byOwner.has(owner)) {
+                byOwner.set(owner, { owner, channel: slack, rows: [] })
+            }
+            byOwner.get(owner).rows.push(...tableRows([item], ownerFor, extrasFor, statusFor))
+        }
+    }
+    return [...byOwner.values()].sort((a, b) => b.rows.length - a.rows.length)
+}
+
+function buildShadowBlocks({ owner, channel, rows }) {
+    return [
+        {
+            type: 'section',
+            text: {
+                type: 'mrkdwn',
+                text: `*${owner.replace(/^team-/, '')}* _(shadow: would post to ${channel})_`,
+            },
+        },
+        {
+            type: 'table',
+            column_settings: [
+                { align: 'left' },
+                { align: 'left' },
+                { align: 'left' },
+                { align: 'left' },
+                { align: 'right' },
+                { align: 'right' },
+                { align: 'right' },
+                { align: 'left' },
+            ],
+            rows: [
+                [
+                    cell('test'),
+                    cell('runner'),
+                    cell('owner'),
+                    cell('quarantined'),
+                    cell('PRs'),
+                    cell('rescued'),
+                    cell('fails'),
+                    cell('logs'),
+                ],
+                ...rows,
+            ],
+        },
+    ]
+}
+
 function buildBlocks(now, rows) {
     const dateLabel = now.toISOString().slice(0, 10)
     const blocks = [
@@ -454,15 +513,26 @@ async function main() {
         tableRows(candidates, ownerFor, extrasFor, statusFor)
     )
     const blocks = buildBlocks(now, rows)
+    const teamDigests = buildTeamDigests(runnerReports, ownerFor)
     if (DRY_RUN) {
         console.info(JSON.stringify(blocks, null, 2))
+        console.info(JSON.stringify(teamDigests.map(buildShadowBlocks), null, 2))
         return
     }
     if (!SLACK_BOT_TOKEN) {
         throw new Error('SLACK_BOT_TOKEN not set on a non-dry run — refusing to silently skip.')
     }
-    await postToSlack(blocks, 'Weekly flaky test report')
+    const digestTs = await postToSlack(blocks, 'Weekly flaky test report')
     console.info(`Posted weekly flaky report to ${SLACK_CHANNEL}.`)
+    for (const digest of teamDigests) {
+        // A failed slice must not sink the slices behind it; the digest itself already landed.
+        try {
+            await postToSlack(buildShadowBlocks(digest), `Flaky tests owned by ${digest.owner}`, digestTs)
+        } catch (err) {
+            console.warn(`shadow digest for ${digest.owner} failed: ${err.message}`)
+        }
+    }
+    console.info(`Posted ${teamDigests.length} shadow team digest(s) in thread.`)
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -474,6 +544,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 
 export {
     buildBlocks,
+    buildShadowBlocks,
+    buildTeamDigests,
     buildRunnerReports,
     CLUSTER_MIN_TESTS,
     enrich,

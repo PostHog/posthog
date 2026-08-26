@@ -232,26 +232,31 @@ def registry_repo(tmp_path: Path) -> Path:
         "owners.yaml",
         "version: 1\nowners: []\nteams:\n"
         "  team-registry:\n    slack: '#registry-chan'\n"
-        "  team-silent:\n    slack: false\n",
+        "  team-silent:\n    slack: false\n"
+        "  team-split:\n    slack: '#split-people'\n    notifications: '#split-bots'\n",
     )
     _write(tmp_path, "reg/owners.yaml", "version: 1\nowners: [team-registry]\n")
     _write(tmp_path, "silent/owners.yaml", "version: 1\nowners: [team-silent]\n")
     _write(tmp_path, "derive/owners.yaml", "version: 1\nowners: [team-nonreg]\n")
     _write(tmp_path, "indiv/owners.yaml", "version: 1\nowners: ['@alice', team-registry]\n")
+    _write(tmp_path, "split/owners.yaml", "version: 1\nowners: [team-split]\n")
     return tmp_path
 
 
 @pytest.mark.parametrize(
-    "path,slack",
+    "path,purpose,slack",
     [
-        ("reg/x.py", "#registry-chan"),  # registry hit for the primary owner beats derived
-        ("silent/x.py", None),  # registry false suppresses derivation
-        ("derive/x.py", "#team-nonreg"),  # no registry entry: derive #<primary owner>
-        ("indiv/x.py", None),  # primary owner is an @handle: registry ignored, no derive
+        ("reg/x.py", "slack", "#registry-chan"),  # registry hit for the primary owner beats derived
+        ("silent/x.py", "slack", None),  # registry false suppresses derivation
+        ("derive/x.py", "slack", "#team-nonreg"),  # no registry entry: derive #<primary owner>
+        ("indiv/x.py", "slack", None),  # primary owner is an @handle: registry ignored, no derive
+        ("split/x.py", "slack", "#split-people"),  # a declared notifications channel stays off the people lookup
+        ("split/x.py", "notifications", "#split-bots"),  # automation resolves to the declared bot channel
+        ("reg/x.py", "notifications", "#registry-chan"),  # no notifications entry: automation follows the people
     ],
 )
-def test_slack_registry_precedence(registry_repo: Path, path: str, slack: str | None) -> None:
-    assert OwnersResolver(repo_root=registry_repo).resolve(path).slack == slack
+def test_slack_registry_precedence(registry_repo: Path, path: str, purpose: str, slack: str | None) -> None:
+    assert OwnersResolver(repo_root=registry_repo, purpose=purpose).resolve(path).slack == slack
 
 
 def test_teams_registry_is_root_only(tmp_path: Path) -> None:
