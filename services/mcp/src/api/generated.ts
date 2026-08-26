@@ -16766,6 +16766,25 @@ export namespace Schemas {
     }
 
     /**
+     * Minimal read-only ChangeRequest shape for embedding on resources gated by an approval,
+     * e.g. the scheduled change that carries it. Exposes just enough to show the approval state
+     * and link to the change request.
+     */
+    export interface ChangeRequestSummary {
+      /** ID of the approval change request. Use it to link to the change request in the UI. */
+      readonly id: string;
+      /** Current approval state: 'pending' (awaiting approval), 'approved' (awaiting application), 'applied', 'rejected', 'expired', or 'failed'.
+       *
+       * * `pending` - Pending
+       * * `approved` - Approved (awaiting application)
+       * * `applied` - Applied
+       * * `rejected` - Rejected
+       * * `expired` - Expired
+       * * `failed` - Failed to apply */
+      readonly state: ChangeRequestStateEnum;
+    }
+
+    /**
      * * `manual` - Manual
      */
     export type ChangeSourceEnum = typeof ChangeSourceEnum[keyof typeof ChangeSourceEnum];
@@ -54655,6 +54674,8 @@ export namespace Schemas {
       end_date?: string | null;
       /** @nullable */
       readonly timezone: string | null;
+      /** Summary of the approval change request gating this scheduled change. Null when no approval policy applies. The change only applies at its scheduled time if the request is approved by then. */
+      readonly change_request: ChangeRequestSummary | null;
     }
 
     export interface PaginatedScheduledChangeList {
@@ -64009,6 +64030,8 @@ export namespace Schemas {
       end_date?: string | null;
       /** @nullable */
       readonly timezone?: string | null;
+      /** Summary of the approval change request gating this scheduled change. Null when no approval policy applies. The change only applies at its scheduled time if the request is approved by then. */
+      readonly change_request?: ChangeRequestSummary | null;
     }
 
     export interface PatchedSchemaPropertyGroup {

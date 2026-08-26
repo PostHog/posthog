@@ -2401,10 +2401,7 @@ const api = {
         ): Promise<CountedPaginatedResponse<ScheduledChangeType>> {
             return await new ApiRequest().featureFlagScheduledChanges(teamId, featureFlagId).get()
         },
-        async createScheduledChange(
-            teamId: TeamType['id'],
-            data: any
-        ): Promise<{ scheduled_change: ScheduledChangeType }> {
+        async createScheduledChange(teamId: TeamType['id'], data: any): Promise<ScheduledChangeType> {
             return await new ApiRequest().featureFlagCreateScheduledChange(teamId).create({ data })
         },
         async deleteScheduledChange(
