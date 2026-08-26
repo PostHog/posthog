@@ -4,7 +4,7 @@ import { Message } from 'node-rdkafka'
 
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { UUIDT } from '~/common/utils/utils'
-import { getTeamMemberUserId, insertRow } from '~/tests/helpers/sql'
+import { getTeamMemberUserId, insertRow, uniqueTestId } from '~/tests/helpers/sql'
 
 import { ClickHousePerson, ClickHouseTimestamp, ProjectId, RawClickHouseEvent, Team } from '../../types'
 import { CohortMembershipChange } from '../consumers/cdp-cohort-membership.consumer'
@@ -58,7 +58,7 @@ export const createHogFunction = (hogFunction: Partial<HogFunctionType>) => {
 export const createIntegration = (integration: Partial<IntegrationType>) => {
     const item: IntegrationType = {
         team_id: 1,
-        id: integration.id ?? 1,
+        id: integration.id ?? uniqueTestId(),
         kind: integration.kind ?? 'slack',
         config: {},
         sensitive_config: {},

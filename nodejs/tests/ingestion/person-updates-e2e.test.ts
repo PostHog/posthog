@@ -25,7 +25,7 @@ import { waitForExpect } from '~/tests/helpers/expectations'
 import { IngestionTestInfra, createIngestionTestInfra } from '~/tests/helpers/ingestion-e2e'
 import { createTestIngestionOutputs, createTestMonitoringOutputs } from '~/tests/helpers/ingestion-outputs'
 import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
-import { createUserTeamAndOrganization } from '~/tests/helpers/sql'
+import { createUserTeamAndOrganization, uniqueTestId } from '~/tests/helpers/sql'
 import { PipelineEvent, ProjectId, Team } from '~/types'
 
 jest.mock('~/common/utils/token-bucket', () => {
@@ -185,7 +185,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
         })
         kafkaProducer = await KafkaProducerWrapper.create(infra.config.KAFKA_CLIENT_RACK)
 
-        const teamId = Math.floor((Date.now() % 1000000000) + Math.random() * 1000000)
+        const teamId = uniqueTestId()
         const userId = teamId
         const organizationId = new UUIDT().toString()
         const userUuid = new UUIDT().toString()
@@ -695,7 +695,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
 
     describe(`${configName} - person_last_seen_at_enabled disabled`, () => {
         beforeEach(async () => {
-            const disabledTeamId = Math.floor((Date.now() % 1000000000) + Math.random() * 1000000)
+            const disabledTeamId = uniqueTestId()
             const disabledUserId = disabledTeamId
             const disabledUserUuid = new UUIDT().toString()
             const disabledOrgId = new UUIDT().toString()

@@ -8,6 +8,12 @@ import { UUIDT } from '~/common/utils/utils'
 import { CookielessServerHashMode, InternalPerson, ProjectId, RawOrganization, RawPerson, Team } from '../../src/types'
 import { assertRouterTargetsTestDatabase } from './database-guard'
 
+// Per-worker range so concurrent tests can't collide. Strides by 1000 because some
+// tests derive other ids as `team.id + n`. Stays inside int4.
+const idBase = Math.floor(Math.random() * 1_900_000) * 1000
+let idCounter = 0
+export const uniqueTestId = (): number => idBase + idCounter++ * 1000
+
 export const commonUserId = 1001
 export const commonOrganizationMembershipId = '0177364a-fc7b-0000-511c-137090b9e4e1'
 export const commonOrganizationId = 'ca30f2ec-e9a4-4001-bf27-3ef194086068'
@@ -354,8 +360,7 @@ export const createTeam = async (
     token?: string,
     teamSettings?: Record<string, any>
 ): Promise<number> => {
-    // KLUDGE: auto increment IDs can be racy in tests so we ensure IDs don't clash
-    const id = Math.round(Math.random() * 1000000000)
+    const id = uniqueTestId()
     let organizationId: string
     let projectId: ProjectId
     if (typeof projectOrOrganizationId === 'number') {
@@ -453,8 +458,7 @@ export const createAction = async (
     bytecode: any[] | null = null,
     actionSettings?: Record<string, any>
 ): Promise<number> => {
-    // KLUDGE: auto increment IDs can be racy in tests so we ensure IDs don't clash
-    const id = Math.round(Math.random() * 1000000000)
+    const id = uniqueTestId()
     await insertRow(pg, 'posthog_action', {
         id,
         name,
@@ -480,7 +484,7 @@ export const createUser = async (pg: PostgresRouter, distinctId: string) => {
     const user = await insertRow(pg, 'posthog_user', {
         // Tests also insert fixed user IDs, which do not advance Postgres's sequence.
         // Use a collision-resistant test ID rather than the stale sequence value.
-        id: Math.round(Math.random() * 1000000000),
+        id: uniqueTestId(),
         uuid: uuid,
         password: 'gibberish',
         first_name: 'PluginTest',
@@ -550,8 +554,7 @@ export const createCohort = async (
     filters: string | null = null,
     cohortSettings?: Record<string, any>
 ): Promise<number> => {
-    // KLUDGE: auto increment IDs can be racy in tests so we ensure IDs don't clash
-    const id = Math.round(Math.random() * 1000000000)
+    const id = uniqueTestId()
     await insertRow(pg, 'posthog_cohort', {
         id,
         name,
