@@ -1,7 +1,7 @@
 /* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -21,6 +21,9 @@ describe('InboxReportSection', () => {
     let pageRequests: number
 
     beforeEach(() => {
+        // Section expand/collapse persists to localStorage, which initKeaTests does not clear — wipe
+        // it so each test starts from the default open/closed state rather than a prior test's toggle.
+        localStorage.clear()
         pageRequests = 0
         useMocks({
             get: {
@@ -76,5 +79,62 @@ describe('InboxReportSection', () => {
 
         await screen.findByText('A report')
         await waitFor(() => expect(pageRequests).toBe(1))
+    })
+
+    // A failed first fetch leaves `reportsResponse` null, so the section used to skeleton forever with
+    // no way to recover. It must show a retry instead.
+    it('shows a retry instead of a stuck skeleton when the first fetch fails', async () => {
+        let failPage = true
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/reports/available_reviewers': {},
+                '/api/projects/:team_id/signals/reports/': ({ request }) => {
+                    // The header count is a separate request that keeps working.
+                    if (new URL(request.url).searchParams.get('limit') === '1') {
+                        return [200, { count: 1, next: null, previous: null, results: [] }]
+                    }
+                    if (failPage) {
+                        return [500, {}]
+                    }
+                    return [
+                        200,
+                        {
+                            count: 1,
+                            next: null,
+                            previous: null,
+                            results: [
+                                {
+                                    id: 'r1',
+                                    title: 'A report',
+                                    summary: 'summary',
+                                    status: SignalReportStatus.READY,
+                                    total_weight: 0,
+                                    signal_count: 1,
+                                    relevant_user_count: null,
+                                    artefact_count: 0,
+                                    is_suggested_reviewer: false,
+                                    created_at: '2026-06-11T10:00:00Z',
+                                    updated_at: '2026-06-11T10:00:00Z',
+                                },
+                            ],
+                        },
+                    ]
+                },
+            },
+        })
+
+        render(<InboxReportSection sectionKey="resolved" />)
+        await screen.findByText('Resolved')
+        inboxReportSectionsLogic.findMounted()?.actions.toggleSection('resolved')
+
+        // The failed load surfaces a retry, not a permanent skeleton.
+        await screen.findByText("Couldn't load these reports.")
+
+        // Retrying now succeeds and the row lands, clearing the error.
+        failPage = false
+        fireEvent.click(screen.getByText('Retry'))
+
+        await screen.findByText('A report')
+        expect(screen.queryByText("Couldn't load these reports.")).not.toBeInTheDocument()
     })
 })

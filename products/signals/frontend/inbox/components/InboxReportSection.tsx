@@ -83,7 +83,8 @@ function SectionHeader({ sectionKey }: { sectionKey: InboxReportSectionKey }): J
 }
 
 function SectionBody({ sectionKey }: { sectionKey: InboxReportSectionKey }): JSX.Element | null {
-    const { visibleReports, hiddenReportCount, count, isLoaded, reportsResponseLoading } = useValues(reportListLogic)
+    const { visibleReports, hiddenReportCount, count, isLoaded, reportsLoadFailed, reportsResponseLoading } =
+        useValues(reportListLogic)
     const { ensureLoaded, showMore, restoreReport } = useActions(reportListLogic)
     const { openSections } = useValues(inboxReportSectionsLogic)
     const isOpen = openSections[sectionKey]
@@ -99,6 +100,23 @@ function SectionBody({ sectionKey }: { sectionKey: InboxReportSectionKey }): JSX
 
     if (!isOpen) {
         return null
+    }
+    // The first fetch failed: kea loaders keep the response null, so `isLoaded` never flips. Show a
+    // retry instead of a skeleton that would otherwise spin forever with no way to recover.
+    if (!isLoaded && reportsLoadFailed) {
+        return (
+            <div className="flex flex-col items-start gap-2 px-1 py-2">
+                <p className="m-0 text-sm text-tertiary">Couldn't load these reports.</p>
+                <LemonButton
+                    size="small"
+                    type="secondary"
+                    onClick={() => ensureLoaded()}
+                    data-attr={`inbox-report-section-retry-${sectionKey}`}
+                >
+                    Retry
+                </LemonButton>
+            </div>
+        )
     }
     // Loading, then empty, then content: `reports` is empty during the first fetch too, and a
     // section that is about to show ten rows must not flash "nothing here" on the way.

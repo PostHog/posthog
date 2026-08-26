@@ -144,6 +144,7 @@ export interface reportListLogicValues {
     primarySectionKey: InboxReportSectionKey
     loadedQueryKey: string | null
     reports: SignalReport[]
+    reportsLoadFailed: boolean
     reportsResponse: ReportListResponse | null
     reportsResponseLoading: boolean
     totalCount: number | null
@@ -422,6 +423,18 @@ export const reportListLogic = kea<reportListLogicType>([
         count: {
             removeReport: (state) => (state != null ? Math.max(0, state - 1) : state),
         },
+        // The first-page load failed. Kea loaders keep `reportsResponse` null on failure, so
+        // `isLoaded` stays false and the section would otherwise show a skeleton forever. Reset when a
+        // load starts or lands, so a retry clears the error. Keyed on the first-page loader only — a
+        // failed `loadMoreReports` keeps the loaded rows, so it must not flag the whole section.
+        reportsLoadFailed: [
+            false,
+            {
+                loadReports: () => false,
+                loadReportsSuccess: () => false,
+                loadReportsFailure: () => true,
+            },
+        ],
         // How many of the loaded rows this section renders. Reset whenever the list is re-fetched
         // from the top (first load, refresh, any filter change), so a new query starts short again.
         visibleCount: [
