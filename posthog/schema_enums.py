@@ -2601,6 +2601,8 @@ class ExternalDataSourceType(StrEnum):
     LIVEBLOCKS = "Liveblocks"
     NATION_BUILDER = "NationBuilder"
     TANA = "Tana"
+    ZENCHEF = "Zenchef"
+    LOVABLE = "Lovable"
 
 
 class ExternalQueryErrorCode(StrEnum):

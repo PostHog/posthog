@@ -3238,6 +3238,8 @@ export interface CredentialApi {
  * * `Liveblocks` - Liveblocks
  * * `NationBuilder` - NationBuilder
  * * `Tana` - Tana
+ * * `Zenchef` - Zenchef
+ * * `Lovable` - Lovable
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -4561,6 +4563,8 @@ export const ExternalDataSourceTypeEnumApi = {
     Liveblocks: 'Liveblocks',
     NationBuilder: 'NationBuilder',
     Tana: 'Tana',
+    Zenchef: 'Zenchef',
+    Lovable: 'Lovable',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
