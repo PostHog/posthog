@@ -24,6 +24,7 @@ import type { McpToolApprovals } from "@posthog/agent/adapters/claude/mcp/tool-m
 import { hydrateSessionJsonl } from "@posthog/agent/adapters/claude/session/jsonl-hydration";
 import {
   type CodexLoginSession,
+  signOutCodexChatgpt,
   startCodexChatgptLogin,
 } from "@posthog/agent/adapters/codex-app-server/subscription-login";
 import {
@@ -569,11 +570,23 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
   async signOutCodexSubscription(): Promise<void> {
     this.codexLogin?.cancel();
     this.codexLogin = undefined;
-    await this.enqueueSubscriptionStoreOp(() =>
-      clearSubscriptionLogin(
-        getCodexSubscriptionHomeDir(this.storagePaths.appDataPath),
-      ),
+    const codexHome = getCodexSubscriptionHomeDir(
+      this.storagePaths.appDataPath,
     );
+    await this.enqueueSubscriptionStoreOp(async () => {
+      // account/logout revokes the token at the issuer: every seeded copy of
+      // it dies server-side, not only the store file.
+      const revoked = await signOutCodexChatgpt({
+        binaryPath: this.getCodexBinaryPath(),
+        codexHome,
+      });
+      if (!revoked) {
+        this.log.warn(
+          "Codex sign-out could not reach the issuer; cleared the local login only",
+        );
+      }
+      await clearSubscriptionLogin(codexHome);
+    });
   }
 
   /**

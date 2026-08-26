@@ -50,6 +50,41 @@ export async function waitForCodexAccount(
   return false;
 }
 
+// Sign-out revokes the token at the issuer (`account/logout`), which kills
+// every seeded copy of it, not just the store file. Codex clears the store
+// itself; failure here means only the server-side part did not happen.
+export async function signOutCodexChatgpt(options: {
+  binaryPath: string;
+  codexHome: string;
+  logger?: Logger;
+}): Promise<boolean> {
+  const proc = spawnCodexAppServerProcess({
+    binaryPath: options.binaryPath,
+    codexHome: options.codexHome,
+    logger: options.logger,
+  });
+  const rpc = new AppServerClient(
+    {
+      readable: nodeReadableToWebReadable(proc.stdout),
+      writable: nodeWritableToWebWritable(proc.stdin),
+    },
+    { logger: options.logger },
+  );
+  try {
+    await rpc.request(APP_SERVER_METHODS.INITIALIZE, {
+      clientInfo: CODEX_CLIENT_INFO,
+    });
+    rpc.notify(APP_SERVER_NOTIFICATIONS.INITIALIZED, {});
+    await rpc.request(APP_SERVER_METHODS.ACCOUNT_LOGOUT, {});
+    return true;
+  } catch {
+    return false;
+  } finally {
+    void rpc.close();
+    proc.kill();
+  }
+}
+
 // The app-server hosts the OAuth callback. Keep it alive until `completed` settles.
 export async function startCodexChatgptLogin(options: {
   binaryPath: string;

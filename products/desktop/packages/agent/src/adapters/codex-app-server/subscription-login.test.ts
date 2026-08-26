@@ -58,3 +58,64 @@ describe("waitForCodexAccount", () => {
     await expect(result).resolves.toBe(false);
   });
 });
+
+describe("signOutCodexChatgpt", () => {
+  async function setup() {
+    vi.resetModules();
+    const requests: Array<{ method: string }> = [];
+    let failLogout = false;
+    const rpc = {
+      request: async (raw: unknown) => {
+        const method =
+          typeof raw === "string" ? raw : (raw as { method: string }).method;
+        requests.push({ method });
+        if (method === "account/logout" && failLogout) {
+          throw new Error("logout failed");
+        }
+        return {};
+      },
+      notify: () => {},
+      close: async () => {},
+    };
+    vi.doMock("./spawn", () => ({
+      spawnCodexAppServerProcess: () => ({
+        stdout: { on: () => {} },
+        stdin: { on: () => {} },
+        kill: () => {},
+      }),
+    }));
+    vi.doMock("./app-server-client", () => ({
+      AppServerClient: function () {
+        return rpc;
+      },
+    }));
+    const mod = await import("./subscription-login");
+    return {
+      requests,
+      setFailLogout: (v: boolean) => {
+        failLogout = v;
+      },
+      signOut: (opts: { binaryPath: string; codexHome: string }) =>
+        mod.signOutCodexChatgpt(opts),
+    };
+  }
+
+  it("initializes and calls account/logout, returning true on success", async () => {
+    const { requests, signOut } = await setup();
+    await expect(
+      signOut({ binaryPath: "/sbin/codex", codexHome: "/home" }),
+    ).resolves.toBe(true);
+    expect(requests.map((r) => r.method)).toEqual([
+      "initialize",
+      "account/logout",
+    ]);
+  });
+
+  it("returns false, without throwing, when the logout request fails", async () => {
+    const { setFailLogout, signOut } = await setup();
+    setFailLogout(true);
+    await expect(
+      signOut({ binaryPath: "/sbin/codex", codexHome: "/home" }),
+    ).resolves.toBe(false);
+  });
+});

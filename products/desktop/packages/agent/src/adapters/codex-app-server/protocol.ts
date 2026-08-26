@@ -14,6 +14,7 @@ export const APP_SERVER_METHODS = {
   INITIALIZE: "initialize",
   ACCOUNT_READ: "account/read",
   ACCOUNT_LOGIN_START: "account/login/start",
+  ACCOUNT_LOGOUT: "account/logout",
   THREAD_START: "thread/start",
   THREAD_RESUME: "thread/resume",
   THREAD_FORK: "thread/fork",
