@@ -685,10 +685,12 @@ export const reportListLogic = kea<reportListLogicType>([
                 // Fire only after the restore persists, matching ReportDetailActions' fallback path.
                 captureInboxReportAction({ report, actionType: 'restore', surface: 'list_row' })
                 lemonToast.success('Report restored to inbox')
-                // Restore maps through restore_target_status server-side, so the row can land back
-                // in any section (a report suppressed while resolved returns to Resolved). Reconcile
-                // against the server rather than trusting the optimistic removal.
-                actions.refresh()
+                // Restore maps through restore_target_status server-side, so the report lands back in
+                // whichever section its pre-suppression status names (a report suppressed while ready
+                // returns to Needs a PR / Review and merge). Broadcast so every mounted section
+                // reconciles — this one loses the row, the destination gains it and its count — not
+                // just the section that owns the action.
+                inboxBulkActionsLogic.actions.reportStateChanged()
             } catch (error: any) {
                 lemonToast.error(error?.detail || error?.message || 'Failed to restore report')
                 actions.refresh()
