@@ -11,7 +11,7 @@ from posthog.caching.warming import schedule_warming_for_teams_task
 from posthog.clickhouse.client.execute_async import QueryStatusManager
 from posthog.tasks.ai_observability_usage_report import send_ai_observability_usage_reports
 from posthog.tasks.auth_token_cache_verification import verify_and_fix_auth_token_cache_task
-from posthog.tasks.calculate_cohort import finalize_cohort_backfill_runs
+from posthog.tasks.calculate_cohort import finalize_cohort_backfill_runs, publish_cohort_backfill_run_gauges
 from posthog.tasks.email import (
     EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC,
     send_hog_functions_daily_digest,
@@ -48,6 +48,7 @@ from posthog.tasks.tasks import (
     clickhouse_send_license_usage,
     delete_expired_delegation_invites,
     delete_expired_exported_assets,
+    fail_stuck_video_exports,
     find_flags_with_enriched_analytics,
     ingestion_lag,
     kill_stale_queued_task_runs,
@@ -700,6 +701,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     add_periodic_task_with_expiry(
         sender,
         crontab(minute="*/2"),
+        publish_cohort_backfill_run_gauges.s(),
+        name="publish cohort backfill run gauges",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/2"),
         process_scheduled_changes.s(),
         name="process scheduled changes",
     )
@@ -803,6 +811,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
             crontab(hour="0", minute=str(randrange(0, 40))),
             delete_expired_exported_assets.s(),
             name="delete expired exported assets",
+        )
+
+        # Hourly rather than daily: until this runs, a dead video export still reads as in progress
+        # to whoever is waiting on it.
+        sender.add_periodic_task(
+            crontab(minute=str(randrange(0, 60))),
+            fail_stuck_video_exports.s(),
+            name="fail stuck video exports",
         )
 
         # Daily cleanup of expired onboarding delegation invites. `pre_delete` re-enables

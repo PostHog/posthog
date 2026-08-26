@@ -21,7 +21,6 @@ from posthog.models import User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.utils import generate_random_token_personal, hash_key_value
-from posthog.rbac.user_access_control import UserAccessControlError
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.session_recordings.queries.recordings_query_runner import RecordingsQueryRunner
@@ -35,6 +34,8 @@ from posthog.session_recordings.session_recording_api import list_recordings_fro
 from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
 from posthog.test.persons import add_distinct_id, create_person
 
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
+from products.access_control.backend.models.access_control import AccessControl
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
 from products.cohorts.backend.models.cohort import Cohort
 
@@ -46,8 +47,6 @@ from products.experiments.backend.hogql_queries.experiment_exposure_query_builde
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-
-from ee.models.rbac.access_control import AccessControl
 
 FROZEN_NOW = "2021-08-21T20:00:00Z"
 BASE_TIME = datetime(2021, 8, 21, 10, 0, tzinfo=UTC)
@@ -186,6 +185,67 @@ class TestSessionRecordingsListByExperimentExposure(ClickhouseTestMixin, APIBase
         self._assert_query_matches_session_ids(
             {"experiment_exposure": {"experiment_id": experiment.id}},
             ["session-control", "session-test"],
+        )
+
+    def test_test_accounts_stay_excluded_through_exposure_criteria_alone(self) -> None:
+        self.team.test_account_filters = [
+            {"key": "$host", "type": "event", "value": ["localhost"], "operator": "is_not"}
+        ]
+        self.team.save()
+        experiment = self._create_experiment(exposure_criteria={"filterTestAccounts": True})
+        create_person(team=self.team, distinct_ids=["real-user"])
+        create_person(team=self.team, distinct_ids=["test-account-user"])
+        exposure_time = BASE_TIME + timedelta(hours=1)
+        self._create_exposure_event("real-user", exposure_time, "test", properties={"$host": "example.com"})
+        self._create_exposure_event("test-account-user", exposure_time, "test", properties={"$host": "localhost"})
+        flush_persons_and_events()
+
+        self._produce_recording("real-user", "real-user-session", exposure_time, exposure_time + timedelta(hours=1))
+        self._produce_recording(
+            "test-account-user", "test-account-session", exposure_time, exposure_time + timedelta(hours=1)
+        )
+
+        self._assert_query_matches_session_ids(
+            {"experiment_exposure": {"experiment_id": experiment.id}, "filter_test_accounts": True},
+            ["real-user-session"],
+        )
+
+    @parameterized.expand(
+        [
+            ("criteria_filter_test_accounts", True, ["exposed-user-session"]),
+            ("criteria_allow_test_accounts", False, []),
+        ]
+    )
+    def test_recordings_side_test_filter_defers_to_exposure_criteria(
+        self, _name: str, criteria_filter_test_accounts: bool, expected_sessions: list[str]
+    ) -> None:
+        self.team.test_account_filters = [
+            {"key": "$host", "type": "event", "value": ["localhost"], "operator": "is_not"}
+        ]
+        self.team.save()
+        experiment = self._create_experiment(exposure_criteria={"filterTestAccounts": criteria_filter_test_accounts})
+        create_person(team=self.team, distinct_ids=["exposed-user"])
+        exposure_time = BASE_TIME + timedelta(hours=1)
+        self._create_exposure_event("exposed-user", exposure_time, "test", properties={"$host": "example.com"})
+        # An in-session event matching the test-account filters. When the criteria filter test
+        # accounts, the person already passed at exposure and their session must stay; when the
+        # criteria allow test accounts, the query's own filter_test_accounts must still drop it.
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="exposed-user",
+            timestamp=exposure_time + timedelta(minutes=10),
+            properties={"$host": "localhost", "$session_id": "exposed-user-session"},
+        )
+        flush_persons_and_events()
+
+        self._produce_recording(
+            "exposed-user", "exposed-user-session", exposure_time, exposure_time + timedelta(hours=1)
+        )
+
+        self._assert_query_matches_session_ids(
+            {"experiment_exposure": {"experiment_id": experiment.id}, "filter_test_accounts": True},
+            expected_sessions,
         )
 
     def test_links_server_side_exposures_through_the_person(self) -> None:

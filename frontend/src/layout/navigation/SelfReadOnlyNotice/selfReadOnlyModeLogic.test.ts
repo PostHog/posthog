@@ -2,6 +2,7 @@ import { NETWORK_ERROR_MESSAGES } from 'lib/api-error'
 
 import {
     dropHandledAuthGateExceptions,
+    dropInjectedScriptReferenceErrors,
     dropReadOnlyExceptions,
     dropUnactionableNetworkExceptions,
 } from './selfReadOnlyModeLogic'
@@ -140,5 +141,71 @@ describe('dropUnactionableNetworkExceptions', () => {
     it('tolerates missing properties and a missing exception list', () => {
         expect(dropUnactionableNetworkExceptions({ event: '$exception' })).toEqual({ event: '$exception' })
         expect(dropUnactionableNetworkExceptions(null)).toBeNull()
+    })
+})
+
+describe('dropInjectedScriptReferenceErrors', () => {
+    const injected = (value: string): { event: string; properties: any } => ({
+        event: '$exception',
+        properties: {
+            $exception_list: [{ type: 'ReferenceError', value, mechanism: { type: 'generic', handled: false } }],
+        },
+    })
+
+    // Real user-reported injected identifiers, in both the WebKit and the V8/SpiderMonkey wording.
+    it.each([
+        ["Can't find variable: pos"],
+        ["Can't find variable: __firefox__"],
+        ["Can't find variable: WeixinJSBridge"],
+        ['zaloJSV2 is not defined'],
+        ['chrome is not defined'],
+        ['Rt is not defined'],
+        ['ehrMain is not defined'],
+    ])('drops the unhandled, frameless ReferenceError "%s"', (value) => {
+        expect(dropInjectedScriptReferenceErrors(injected(value))).toBeNull()
+    })
+
+    it('keeps a ReferenceError from our own bundle, which carries a stack', () => {
+        const event = {
+            event: '$exception',
+            properties: {
+                $exception_list: [
+                    {
+                        type: 'ReferenceError',
+                        value: 'foo is not defined',
+                        mechanism: { type: 'generic', handled: false },
+                        stacktrace: { frames: [{ source: 'https://us.posthog.com/static/chunk.js' }] },
+                    },
+                ],
+            },
+        }
+        expect(dropInjectedScriptReferenceErrors(event)).toBe(event)
+    })
+
+    it('keeps a handled ReferenceError, which some code path already recovered from', () => {
+        const event = {
+            event: '$exception',
+            properties: {
+                $exception_list: [
+                    { type: 'ReferenceError', value: 'foo is not defined', mechanism: { handled: true } },
+                ],
+            },
+        }
+        expect(dropInjectedScriptReferenceErrors(event)).toBe(event)
+    })
+
+    it('keeps a non-ReferenceError that happens to match the message shape', () => {
+        const event = {
+            event: '$exception',
+            properties: {
+                $exception_list: [{ type: 'TypeError', value: 'foo is not defined', mechanism: { handled: false } }],
+            },
+        }
+        expect(dropInjectedScriptReferenceErrors(event)).toBe(event)
+    })
+
+    it('tolerates missing properties and a missing exception list', () => {
+        expect(dropInjectedScriptReferenceErrors({ event: '$exception' })).toEqual({ event: '$exception' })
+        expect(dropInjectedScriptReferenceErrors(null)).toBeNull()
     })
 })

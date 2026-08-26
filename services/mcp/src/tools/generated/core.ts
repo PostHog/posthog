@@ -6,6 +6,7 @@ import {
     OrganizationsProjectsPartialUpdateBody,
     OrganizationsProjectsPartialUpdateParams,
     OrganizationsProjectsRetrieveParams,
+    ProductEnablementCreateBody,
     UsersPartialUpdateBody,
     UsersPartialUpdateParams,
     UsersRetrieveParams,
@@ -13,6 +14,26 @@ import {
 import { castStringToInt } from '@/tools/cast-helpers'
 import { omitResponseFields, pickResponseFields } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+
+const ProductsEnableSchema = ProductEnablementCreateBody
+
+const productsEnable = (): ToolBase<typeof ProductsEnableSchema, Schemas.ProductEnablementResult> => ({
+    name: 'products-enable',
+    schema: ProductsEnableSchema,
+    handler: async (context: Context, params: z.infer<typeof ProductsEnableSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.products !== undefined) {
+            body['products'] = params.products
+        }
+        const result = await context.api.request<Schemas.ProductEnablementResult>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/product_enablement/`,
+            body,
+        })
+        return result
+    },
+})
 
 const ProjectGetSchema = OrganizationsProjectsRetrieveParams.omit({ organization_id: true }).extend({
     id: z
@@ -411,6 +432,7 @@ const userSettingsUpdate = (): ToolBase<typeof UserSettingsUpdateSchema, Schemas
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'products-enable': productsEnable,
     'project-get': projectGet,
     'project-settings-update': projectSettingsUpdate,
     'user-get': userGet,

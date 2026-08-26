@@ -1,3 +1,5 @@
+import time
+import threading
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, Optional
 from zoneinfo import ZoneInfo
@@ -9,7 +11,8 @@ from unittest import mock
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db import connection
+from django.db import OperationalError, connection
+from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
@@ -62,9 +65,11 @@ from posthog.hogql_queries.query_runner import (
     shared_insights_execution_mode,
 )
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import OrganizationMembership
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.team.team import Team, WeekStartDay
+from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyticsConfig
 from posthog.query_cache.failures import (
     BASE_BACKOFF,
     BUDGET_EXTENDED,
@@ -73,15 +78,11 @@ from posthog.query_cache.failures import (
     QUERY_FAILURE_CACHING_FLAG,
     QueryFailureCache,
 )
-from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlError
 from posthog.shared_link_user import SharedLinkUser
-
-try:
-    from ee.models.rbac.access_control import AccessControl
-except ImportError:
-    pass
 from posthog.slo.types import SloOutcome
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
+from products.access_control.backend.models.access_control import AccessControl
 from products.customer_analytics.backend.facade.constants import DEFAULT_ACTIVITY_EVENT
 from products.revenue_analytics.backend.views.test.data.structure import REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT
 
@@ -202,6 +203,66 @@ class TestQueryRunner(BaseTest):
 
         self.assertEqual(runner.query, TheTestQuery(some_attr="bla"))
 
+    def test_shared_database_is_reused_and_rebuilt_on_user_change(self):
+        TestQueryRunner = self.setup_test_query_runner_class()
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+
+        first = runner.shared_database
+        assert runner.shared_database is first
+
+        runner.user = self.user
+        runner._on_user_changed()
+        assert runner.shared_database is not first
+
+    def test_shared_database_first_touch_is_thread_safe(self):
+        TestQueryRunner = self.setup_test_query_runner_class()
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+
+        build_count = 0
+
+        def slow_build(*args: Any, **kwargs: Any) -> Any:
+            nonlocal build_count
+            build_count += 1
+            # Holds the first build open past the second thread's None check, so an
+            # implementation without the lock deterministically builds twice.
+            time.sleep(0.05)
+            return mock.MagicMock()
+
+        barrier = threading.Barrier(2)
+        results: list[Any] = [None, None]
+        errors: list[Exception] = []
+
+        def first_touch(index: int) -> None:
+            try:
+                barrier.wait()
+                results[index] = runner.shared_database
+            except Exception as e:
+                errors.append(e)
+
+        with mock.patch.object(Database, "create_for", side_effect=slow_build):
+            threads = [threading.Thread(target=first_touch, args=(index,)) for index in range(2)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+
+        assert errors == []
+        assert build_count == 1
+        assert results[0] is results[1]
+        timing_keys = [key for key in runner.timings.to_dict() if "build_shared_database" in key]
+        assert timing_keys == ["./build_shared_database"]
+
+    def test_shared_database_kill_switch_disables_sharing(self):
+        TestQueryRunner = self.setup_test_query_runner_class()
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+
+        with override_instance_config("HOGQL_SHARED_INSIGHT_DATABASE_ENABLED", False):
+            first = runner.shared_database
+            second = runner.shared_database
+
+        assert first is not second
+        assert runner.shared_database is runner.shared_database
+
     def test_init_with_query_dict(self):
         TestQueryRunner = self.setup_test_query_runner_class()
 
@@ -248,6 +309,7 @@ class TestQueryRunner(BaseTest):
 
         self.assertEqual(runner.query, expected_source_query)
 
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_cache_payload(self):
         TestQueryRunner = self.setup_test_query_runner_class()
 
@@ -348,6 +410,21 @@ class TestQueryRunner(BaseTest):
             "version": 2,
         }
 
+    def test_cache_payload_degrades_when_product_config_read_fails(self):
+        # A DB pool timeout while loading a product config for the cache key must not 500 the whole
+        # query; the failing config degrades to a stable marker while the others still resolve.
+        TestQueryRunner = self.setup_test_query_runner_class()
+        team = Team.objects.create(organization=self.organization, base_currency=CurrencyCode.USD.value)
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
+
+        with mock.patch.object(
+            TeamRevenueAnalyticsConfig, "to_cache_key_dict", side_effect=OperationalError("query_wait_timeout")
+        ):
+            products_modifiers = runner.get_cache_payload()["products_modifiers"]
+
+        assert products_modifiers["revenue_analytics"] == "unavailable"
+        assert products_modifiers["customer_analytics"]["signup_event"] == {}
+
     def test_cache_payload_week_interval(self):
         TestQueryRunner = self.setup_test_query_runner_class()
         # set the pk directly as it affects the hash in the _cache_key call
@@ -360,6 +437,7 @@ class TestQueryRunner(BaseTest):
         cache_payload = runner.get_cache_payload()
         assert cache_payload["week_start_day"] == WeekStartDay.MONDAY
 
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_cache_key(self):
         TestQueryRunner = self.setup_test_query_runner_class()
         # set the pk directly as it affects the hash in the _cache_key call
@@ -370,6 +448,7 @@ class TestQueryRunner(BaseTest):
         cache_key = runner.get_cache_key()
         assert cache_key == "cache_42_c034c5f92d23cb2399f6c087694175b7e6950739ea60b0ec7cf2665d2ae82d50"
 
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_cache_key_runner_subclass(self):
         TestQueryRunner = self.setup_test_query_runner_class()
 
@@ -384,6 +463,7 @@ class TestQueryRunner(BaseTest):
         cache_key = runner.get_cache_key()
         assert cache_key == "cache_42_916dab3186430d61979f436fca08d88c23559c270894cf8c96a19e2c18a8ae4f"
 
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_cache_key_different_timezone(self):
         TestQueryRunner = self.setup_test_query_runner_class()
         team = Team.objects.create(pk=42, organization=self.organization)
@@ -1127,57 +1207,6 @@ class TestApplySeriesCustomNames(BaseTest):
         runner = FunnelsQueryRunner(query=query, team=self.team)
 
         cached_response = CachedFunnelsQueryResponse(
-            results=cached_results,
-            is_cached=True,
-            last_refresh=datetime.now(UTC),
-            next_allowed_client_refresh=datetime.now(UTC),
-            cache_key="test_key",
-            timezone="UTC",
-        )
-
-        patched_response, was_modified = runner.apply_series_custom_names(cached_response)
-
-        self.assertEqual(patched_response.results, expected_results)
-        self.assertEqual(was_modified, expect_modified)
-
-    @parameterized.expand(
-        [
-            (
-                "applies_custom_name_to_stickiness_series",
-                [{"action": {"order": 0, "custom_name": None}, "data": [1, 2, 3]}],
-                [{"action": {"order": 0, "custom_name": "My Stickiness Name"}, "data": [1, 2, 3]}],
-                True,
-            ),
-            (
-                "not_modified_when_stickiness_names_match",
-                [{"action": {"order": 0, "custom_name": "My Stickiness Name"}, "data": [1, 2, 3]}],
-                [{"action": {"order": 0, "custom_name": "My Stickiness Name"}, "data": [1, 2, 3]}],
-                False,
-            ),
-        ]
-    )
-    def test_apply_stickiness_custom_names(
-        self,
-        _name: str,
-        cached_results: list,
-        expected_results: list,
-        expect_modified: bool,
-    ):
-        from posthog.schema import CachedStickinessQueryResponse, StickinessQuery
-
-        from products.product_analytics.backend.hogql_queries.stickiness.stickiness_query_runner import (
-            StickinessQueryRunner,
-        )
-
-        query = StickinessQuery(
-            series=[
-                EventsNode(event="$pageview", custom_name="My Stickiness Name"),
-            ]
-        )
-
-        runner = StickinessQueryRunner(query=query, team=self.team)
-
-        cached_response = CachedStickinessQueryResponse(
             results=cached_results,
             is_cached=True,
             last_refresh=datetime.now(UTC),

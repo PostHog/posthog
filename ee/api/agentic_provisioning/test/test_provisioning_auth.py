@@ -7,14 +7,8 @@ from django.core.cache import cache as real_cache
 
 from parameterized import parameterized
 
-from posthog.api.oauth.cimd import (
-    _blocked_key,
-    _cache_key,
-    apply_provisioning_defaults,
-    fetch_and_upsert_cimd_application,
-)
+from posthog.api.oauth.cimd import _blocked_key, _cache_key, fetch_and_upsert_cimd_application
 from posthog.models.oauth import OAuthApplication
-from posthog.models.oauth_provisioning import ProvisioningRateLimits
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.user import User
 
@@ -421,6 +415,7 @@ def _make_cimd_metadata(url: str = CIMD_PROV_URL, **overrides) -> dict:
         "grant_types": ["authorization_code"],
         "response_types": ["code"],
         "token_endpoint_auth_method": "none",
+        "com.posthog": {"provisioning": True},
     }
     metadata.update(overrides)
     return metadata
@@ -446,10 +441,11 @@ class TestCimdProvisioningRegistration(ProvisioningTestBase):
         real_cache.clear()
 
     def _register(self) -> OAuthApplication:
-        """Register the partner the way client_registration does."""
-        app = fetch_and_upsert_cimd_application(CIMD_PROV_URL)
+        """Register the partner the way client_registration does, so the promotion depends on
+        the mocked document declaring the opt-in."""
+        app = fetch_and_upsert_cimd_application(CIMD_PROV_URL, register_provisioning=True)
         assert app is not None
-        return apply_provisioning_defaults(app)
+        return app
 
     @patch("posthog.api.oauth.cimd.requests.Session.get")
     def test_registered_cimd_partner_can_create_accounts(self, mock_get, _url_mock):
@@ -480,7 +476,7 @@ class TestCimdProvisioningRegistration(ProvisioningTestBase):
     @patch("posthog.api.oauth.cimd.requests.Session.get")
     def test_cimd_scope_ceiling_refreshes_on_agentic_auth_after_metadata_edit(self, mock_get, _url_mock):
         initial = _make_cimd_metadata()
-        initial["com.posthog"] = {"scopes": ["insight:read"]}
+        initial["com.posthog"] = {"provisioning": True, "scopes": ["insight:read"]}
         mock_get.return_value = _cimd_mock_response(initial)
         self._register()
 
@@ -490,7 +486,7 @@ class TestCimdProvisioningRegistration(ProvisioningTestBase):
         # Partner edits the live metadata to widen the ceiling; the cached doc goes stale.
         real_cache.delete(_cache_key(CIMD_PROV_URL))
         widened = _make_cimd_metadata()
-        widened["com.posthog"] = {"scopes": ["insight:read", "dashboard:read"]}
+        widened["com.posthog"] = {"provisioning": True, "scopes": ["insight:read", "dashboard:read"]}
         mock_get.return_value = _cimd_mock_response(widened)
 
         # A later agentic provisioning auth request must propagate the edit — the bug was that
@@ -528,7 +524,7 @@ class TestCimdProvisioningRegistration(ProvisioningTestBase):
                 active=True,
                 can_create_accounts=True,
                 can_provision_resources=True,
-                rate_limits=ProvisioningRateLimits(account_requests=10),
+                rate_limits={"account_requests": 10},
             ),
         )
 

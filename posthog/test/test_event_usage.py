@@ -20,7 +20,7 @@ from posthog.event_usage import (
     sanitize_header_value,
 )
 from posthog.models.oauth import OAuthAccessToken
-from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV, POSTHOG_AI_APP_CLIENT_ID_DEV
+from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV, POSTHOG_AI_APP_CLIENT_ID_DEV, SIGNALS_APP_CLIENT_ID_DEV
 
 # The MCP server's catch-all consumer, sent by every sandbox agent and by the agent PostHog
 # Desktop hosts locally.
@@ -329,6 +329,25 @@ class TestGetEventSource(BaseTest):
 
     @parameterized.expand(
         [
+            # Signals runs are sandbox coding agents, so they carry the posthog-code user-agent and
+            # declare the posthog-code consumer. Both would otherwise resolve to POSTHOG_CODE, which
+            # makes the Signals application the only thing that keeps them out of that bucket.
+            ("user_agent", {"user-agent": "posthog/code 1.0"}),
+            ("mcp_consumer", {"X-Posthog-Client": "mcp", "X-Posthog-Mcp-Consumer": _POSTHOG_CODE_CONSUMER}),
+        ]
+    )
+    def test_signals_oauth_app_beats_the_posthog_code_signals(self, _name, headers):
+        request = SimpleNamespace(
+            META={},
+            headers=headers,
+            successful_authenticator=_oauth_authenticator(
+                SIGNALS_APP_CLIENT_ID_DEV, scope="insight:read internal_run:read"
+            ),
+        )
+        assert get_event_source(request) == EventSource.SELF_DRIVING
+
+    @parameterized.expand(
+        [
             # A first-party caller that declares no consumer is resolved from the grant alone, and
             # only a token a person consented to in the browser is the interactive app.
             ("consented_grant_is_the_app", "insight:read", True, EventSource.DESKTOP),
@@ -385,7 +404,7 @@ class TestGetEventSource(BaseTest):
         # that is not an EventSource drops out of every breakdown that joins the two. This list is
         # EVENT_SOURCE in `services/mcp/src/lib/event-source.ts`, which its own test pins; removing
         # a surface here without removing it there fails this.
-        mcp_server_sources = {"mcp", "cli", "wizard", "slack", "posthog_ai", "posthog_code"}
+        mcp_server_sources = {"mcp", "cli", "wizard", "slack", "posthog_ai", "posthog_code", "self_driving"}
         assert mcp_server_sources <= {source.value for source in EventSource}
 
     @parameterized.expand(

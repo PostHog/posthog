@@ -31,6 +31,23 @@ export function isBrainrotCell(value: string | null): boolean {
   return value === BRAINROT_CELL;
 }
 
+// Reserved prefix for canvas cells. Canvas and task ids are UUIDs, so this
+// cannot collide with either kind of real id.
+export const CANVAS_CELL_PREFIX = "__canvas__:";
+
+export function isCanvasCell(value: string | null): value is string {
+  return value?.startsWith(CANVAS_CELL_PREFIX) ?? false;
+}
+
+export function makeCanvasCellValue(canvasId: string): string {
+  return `${CANVAS_CELL_PREFIX}${canvasId}`;
+}
+
+export function getCanvasCellId(value: string | null): string | null {
+  if (!isCanvasCell(value)) return null;
+  return value.slice(CANVAS_CELL_PREFIX.length) || null;
+}
+
 // Reserved prefix for standalone terminal cells. Never collides with a task id
 // (uuids) or with BRAINROT_CELL ("__brainrot__").
 export const TERMINAL_CELL_PREFIX = "__terminal__:";

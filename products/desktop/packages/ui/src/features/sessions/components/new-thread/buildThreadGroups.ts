@@ -12,6 +12,8 @@ import {
   SUBAGENT_ICON,
 } from "@posthog/ui/features/sessions/components/new-thread/conversationThreadConfig";
 import { isPlanApprovalTool } from "@posthog/ui/features/sessions/components/session-update/collaborationTools";
+import { hasInlineArtifact } from "@posthog/ui/features/sessions/components/session-update/inlineArtifacts";
+import type { ToolCall } from "@posthog/ui/features/sessions/types";
 
 export interface GroupIconEntry {
   Icon: Icon;
@@ -99,13 +101,30 @@ function isDirectMessageItem(item: ConversationItem): boolean {
  * A plan presented for approval (the ExitPlanMode / switch_mode tool call,
  * rendered by PlanApprovalView). Keep it visible so the user can read it.
  */
-function isPlanItem(item: ConversationItem): boolean {
+export function isPlanItem(item: ConversationItem): boolean {
   return (
     item.type === "session_update" &&
     item.update.sessionUpdate === "tool_call" &&
     (item.update.kind === "switch_mode" ||
       isPlanApprovalTool(readAgentToolName(item.update._meta)))
   );
+}
+
+/**
+ * A tool call that hands the user a deliverable (an uploaded file, a pull
+ * request it just opened). The card belongs in the thread, so the run that
+ * produced it must not fold away behind a "ran 12 commands" summary.
+ */
+function isArtifactItem(item: ConversationItem): boolean {
+  if (item.type !== "session_update") return false;
+  if (item.update.sessionUpdate !== "tool_call") return false;
+  const { toolCallId } = item.update;
+  // The output a PR is read from arrives on the tool_call_update, which lands
+  // in the turn's map rather than on the item this grouping walks.
+  const resolved = toolCallId
+    ? item.turnContext.toolCalls.get(toolCallId)
+    : undefined;
+  return hasInlineArtifact(resolved ?? (item.update as unknown as ToolCall));
 }
 
 /**
@@ -120,7 +139,8 @@ export function isGroupableItem(item: ConversationItem): boolean {
   if (
     isAlwaysVisibleItem(item) ||
     isDirectMessageItem(item) ||
-    isPlanItem(item)
+    isPlanItem(item) ||
+    isArtifactItem(item)
   )
     return false;
   return true;

@@ -22,6 +22,7 @@ from products.logs.backend.temporal.volume_tick.activities import (
     VolumeTickOutput,
     count_teams_with_logs,
     due_bucket_bounds,
+    teams_due_in_shard,
     volume_tick_heartbeat_activity,
 )
 from products.logs.backend.temporal.volume_tick.constants import BUCKET_MINUTES, WORKFLOW_NAME
@@ -143,10 +144,31 @@ class TestCountTeamsWithLogs(ClickhouseTestMixin, BaseTest):
         assert after.due_in_shard == before.due_in_shard + 1
 
 
+class TestTeamsDueInShard(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("team_in_shard", [2], 2, [2]),
+            ("team_in_another_shard", [2], 0, []),
+            ("one_of_three", [1, 2, 3], 2, [2]),
+            ("same_residue_all_run", [2, 7, 12], 2, [2, 7, 12]),
+            ("empty_allowlist", [], 2, []),
+        ]
+    )
+    def test_only_teams_whose_residue_matches_the_minute_run(
+        self, _name: str, team_ids: list[int], minute_shard: int, expected: list[int]
+    ) -> None:
+        # A bucket stays due for every minute of the next one. Without this filter
+        # the tick would rerun the same scan once per minute, and the writer would
+        # file a duplicate generation each time.
+        assert teams_due_in_shard(team_ids, minute_shard) == expected
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "allowlist,measures_the_bucket",
-    [((), False), ((1,), True)],
+    # The second allowlist covers every residue mod BUCKET_MINUTES, so exactly one
+    # team is due whatever minute the test runs in.
+    [((), False), (tuple(range(1, BUCKET_MINUTES + 1)), True)],
     ids=["empty_allowlist_skips", "allowlisted_team_is_measured"],
 )
 async def test_the_tick_measures_the_due_bucket_only_for_allowlisted_teams(

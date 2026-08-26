@@ -69,10 +69,8 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             funnelCorrelationEventNames=funnelCorrelationEventNames,
             funnelCorrelationEventExcludePropertyNames=funnelCorrelationEventExcludePropertyNames,
         )
-        result, skewed_totals, _, _ = FunnelCorrelationQueryRunner(
-            query=correlation_query, team=self.team
-        )._calculate_internal()
-        return result, skewed_totals
+        calculation = FunnelCorrelationQueryRunner(query=correlation_query, team=self.team)._calculate_internal()
+        return calculation.events, calculation.skewed_totals
 
     def _get_actors_for_event(self, funnels_query: FunnelsQuery, event_name: str, properties=None, success=True):
         serialized_actors = get_actors(
@@ -2448,7 +2446,7 @@ class TestFunnelCorrelationSQLInjection(ClickhouseTestMixin, APIBaseTest):
             # Should not raise a SQL syntax error from injection
             # (may raise other errors like empty results, but NOT from injected SQL executing)
             try:
-                result, _, _, _ = self._run_correlation_with_names(query, [payload])
+                self._run_correlation_with_names(query, [payload])
                 # If we get here, the query executed safely (payload was escaped)
             except Exception as e:
                 # Acceptable errors: validation errors, empty results
@@ -2469,7 +2467,7 @@ class TestFunnelCorrelationSQLInjection(ClickhouseTestMixin, APIBaseTest):
 
         for payload in malicious_inputs:
             try:
-                result, _, _, _ = self._run_event_correlation_with_exclude(query, [payload])
+                self._run_event_correlation_with_exclude(query, [payload])
             except Exception as e:
                 error_msg = str(e).lower()
                 self.assertNotIn("syntax error", error_msg, f"SQL injection may have worked with payload: {payload}")
@@ -2492,7 +2490,7 @@ class TestFunnelCorrelationSQLInjection(ClickhouseTestMixin, APIBaseTest):
 
         for prop_name in special_chars:
             try:
-                result, _, _, _ = self._run_correlation_with_names(query, [prop_name])
+                self._run_correlation_with_names(query, [prop_name])
                 # Query should execute without SQL errors
             except Exception as e:
                 error_msg = str(e).lower()

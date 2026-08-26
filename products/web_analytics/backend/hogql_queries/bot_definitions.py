@@ -617,6 +617,7 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
         "Internet Archive", "search_crawler", "Bot", "Internet Archive", documentation_url="https://archive.org/"
     ),
     "jobcrawler": BotDefinition("jobcrawler", "search_crawler", "Bot", "Unknown"),
+    "url-crawler": BotDefinition("url-crawler", "search_crawler", "Bot", "Unknown"),
     "FlamingoBot": BotDefinition("FlamingoBot", "search_crawler", "Bot", "hackernews.pink"),
     # Archival / research crawlers
     "heritrix": BotDefinition(
@@ -673,6 +674,9 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "AffsignalCrawler": BotDefinition("Affsignal", "seo_crawler", "Bot", "Affsignal"),
     "RankyDockyBot": BotDefinition("RankyDocky", "seo_crawler", "Bot", "RankyDocky"),
     "pricingbrief-bot": BotDefinition("PricingBrief", "seo_crawler", "Bot", "PricingBrief"),
+    "SolvedEarthPriceBot": BotDefinition(
+        "SolvedEarth Price Bot", "seo_crawler", "Bot", "SolvedEarth", documentation_url="https://solved.earth"
+    ),
     "SiteavailObservatory": BotDefinition("Siteavail", "seo_crawler", "Bot", "Siteavail"),
     "appzbot": BotDefinition("appzbot", "seo_crawler", "Bot", "Unknown"),
     "Optimize Pilot Research Bot": BotDefinition("Optimize Pilot", "seo_crawler", "Bot", "Optimize Pilot"),
@@ -691,5 +695,287 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     # Social crawler (well-known bot not yet vendored here)
     "Discordbot": BotDefinition(
         "Discord", "social_crawler", "Bot", "Discord", documentation_url="https://discord.com/"
+    ),
+    # Self-declared crawlers observed in production `$http_log` traffic
+    # AI crawlers
+    "VioscaleAIBot": BotDefinition(
+        "Vioscale AI", "ai_crawler", "AI Agent", "Vioscale", documentation_url="https://www.vioscale.ai/method"
+    ),
+    "Amzn-SearchBot": BotDefinition(
+        "Amazon Search",
+        "ai_crawler",
+        "AI Agent",
+        "Amazon",
+        documentation_url="https://developer.amazon.com/support/amazonbot",
+    ),
+    "LeapwaveVIP": BotDefinition(
+        "Leapwave", "ai_crawler", "AI Agent", "Leapwave", documentation_url="https://leapwave.ai"
+    ),
+    "docs-puller": BotDefinition(
+        "docs-puller",
+        "ai_crawler",
+        "AI Agent",
+        "docs-puller",
+        documentation_url="https://github.com/nstranquist/docs-puller",
+    ),
+    "ToolchestBot": BotDefinition(
+        "Toolchest", "ai_crawler", "AI Agent", "Toolchest AI", documentation_url="https://toolchest.ai"
+    ),
+    "scopy-docs-crawler": BotDefinition(
+        "scopy docs crawler", "ai_crawler", "AI Agent", "scopy", documentation_url="https://scopy.dev"
+    ),
+    "llms-txt-sync": BotDefinition("llms-txt-sync", "ai_crawler", "AI Agent", "llms-txt-sync"),
+    "PromptingBot": BotDefinition("PromptingBot", "ai_crawler", "AI Agent", "PromptingBot"),
+    "llm-code-docs-scraper": BotDefinition("LLM code docs scraper", "ai_crawler", "AI Agent", "llm-code-docs-scraper"),
+    "whichapi-bot": BotDefinition(
+        "WhichAPI", "ai_crawler", "AI Agent", "WhichAPI", documentation_url="https://whichapi.ai/bot"
+    ),
+    "Codex-YCB2B": BotDefinition("Codex public research", "ai_crawler", "AI Agent", "OpenAI"),
+    "PostHog-BusinessKnowledge": BotDefinition(
+        "PostHog BusinessKnowledge", "ai_crawler", "AI Agent", "PostHog", documentation_url="https://posthog.com"
+    ),
+    "LlmsTxtBot": BotDefinition(
+        "LlmsTxtBot",
+        "ai_crawler",
+        "AI Agent",
+        "llms-txt",
+        documentation_url="https://github.com/tristansinclair/llms-txt-tristan-sinclair",
+    ),
+    "every-api/": BotDefinition(
+        "Every API", "ai_crawler", "AI Agent", "every-api", documentation_url="https://github.com/MEMEO-PRO/every-api"
+    ),
+    "RightAIChoiceBot": BotDefinition(
+        "Right AI Choice", "ai_crawler", "AI Agent", "Right AI Choice", documentation_url="https://rightaichoice.com"
+    ),
+    # Search / index crawlers
+    "redCactiBot": BotDefinition(
+        "redCactiBot", "search_crawler", "Bot", "redCacti", documentation_url="https://redcacti.com/bot"
+    ),
+    "BelleaireCrawler": BotDefinition(
+        "BelleaireCrawler", "search_crawler", "Bot", "Belleaire", documentation_url="https://belleaire.xyz/bot"
+    ),
+    "PersimmonDesignResearch": BotDefinition(
+        "Persimmon Design Research",
+        "search_crawler",
+        "Bot",
+        "Persimmon Software",
+        documentation_url="https://persimmonsoftware.com",
+    ),
+    "barkReleasesBot": BotDefinition(
+        "barkReleasesBot", "search_crawler", "Bot", "bark", documentation_url="https://github.com/JanV81/bark"
+    ),
+    "prospector/": BotDefinition(
+        "Prospector", "search_crawler", "Bot", "Rebase", documentation_url="https://prospector.rebase.website"
+    ),
+    "YandexRenderResourcesBot": BotDefinition(
+        "Yandex Render Resources", "search_crawler", "Bot", "Yandex", documentation_url="http://yandex.com/bots"
+    ),
+    "YandexAccessibilityBot": BotDefinition(
+        "Yandex Accessibility", "search_crawler", "Bot", "Yandex", documentation_url="http://yandex.com/bots"
+    ),
+    "rewebbot": BotDefinition("rewebbot", "search_crawler", "Bot", "reweb", documentation_url="https://reweb.so/bot"),
+    "Querit-SearchBot": BotDefinition(
+        "Querit Search", "search_crawler", "Bot", "Querit", documentation_url="https://www.querit.ai"
+    ),
+    "ImpactVibeDesignResearch": BotDefinition(
+        "ImpactVibe Design Research",
+        "search_crawler",
+        "Bot",
+        "ImpactVibe",
+        documentation_url="https://opencode.jwdev.us",
+    ),
+    "crawl-engine": BotDefinition(
+        "crawl-engine", "search_crawler", "Bot", "Creasource", documentation_url="https://abuse.creasource.dev/"
+    ),
+    "CompanyFeedServer": BotDefinition(
+        "CompanyFeedServer",
+        "search_crawler",
+        "Bot",
+        "company-feed-server",
+        documentation_url="https://github.com/Shuozeli/company-feed-server",
+    ),
+    "BranchenbuchBot": BotDefinition(
+        "BranchenbuchBot", "search_crawler", "Bot", "Branchenbuch", documentation_url="https://branchenbuch.ag/bot"
+    ),
+    "ReachBot": BotDefinition("ReachBot", "search_crawler", "Bot", "ReachBot"),
+    "IbouBot": BotDefinition("IbouBot", "search_crawler", "Bot", "IbouBot"),
+    "Hypeline": BotDefinition("Hypeline", "search_crawler", "Bot", "Hypeline"),
+    "OldSchoolBot": BotDefinition("OldSchoolBot", "search_crawler", "Bot", "OldSchoolBot"),
+    "TutusooBot": BotDefinition("TutusooBot", "search_crawler", "Bot", "Tutusoo"),
+    "HiringRadarBot": BotDefinition("HiringRadar", "search_crawler", "Bot", "HiringRadar"),
+    "slopsearch-linux-crawler": BotDefinition("slopsearch", "search_crawler", "Bot", "slopsearch"),
+    "ForgeYourPathAiJobCrawler": BotDefinition("ForgeYourPath Job Crawler", "search_crawler", "Bot", "ForgeYourPath"),
+    "OkaraBot": BotDefinition("OkaraBot", "search_crawler", "Bot", "OkaraBot"),
+    "DesignMD-Extract-Bot": BotDefinition("DesignMD Extract", "search_crawler", "Bot", "DesignMD"),
+    "LyonlBot": BotDefinition("LyonlBot", "search_crawler", "Bot", "LyonlBot"),
+    "Sokjan Crawler": BotDefinition("Sokjan Crawler", "search_crawler", "Bot", "Sokjan"),
+    "ScryBot": BotDefinition("ScryBot", "search_crawler", "Bot", "ScryBot"),
+    "Heexybot": BotDefinition("Heexybot", "search_crawler", "Bot", "Heexy", documentation_url="https://heexy.org/bot"),
+    "bne\\.es_bot": BotDefinition(
+        "Biblioteca Nacional de España",
+        "search_crawler",
+        "Bot",
+        "Biblioteca Nacional de España",
+        documentation_url="https://www.bne.es/es/colecciones/archivo-web-espanola/aviso-webmasters",
+    ),
+    "Zetlyn": BotDefinition("Zetlyn", "search_crawler", "Bot", "Zetlyn", documentation_url="https://zetlyn.com"),
+    "algorand-platform-newspaper": BotDefinition(
+        "Algorand platform newspaper",
+        "search_crawler",
+        "Bot",
+        "algorand.pxke.me",
+        documentation_url="https://algorand.pxke.me",
+    ),
+    "VendiditBot": BotDefinition(
+        "Vendidit", "search_crawler", "Bot", "Vendidit", documentation_url="https://vendidit.com/bot"
+    ),
+    "Zee Company Intelligence": BotDefinition(
+        "Zee Company Intelligence", "search_crawler", "Bot", "Lazyweb", documentation_url="https://www.lazyweb.com"
+    ),
+    "NicheStuffBot": BotDefinition(
+        "NicheStuff", "search_crawler", "Bot", "NicheStuff", documentation_url="https://nichestuff.net"
+    ),
+    "Axiom-DocBot": BotDefinition(
+        "Axiom DocBot", "search_crawler", "Bot", "Axiom", documentation_url="https://github.com/iadnanahsan/axiom"
+    ),
+    "RealPressBot": BotDefinition(
+        "RealPressBot", "search_crawler", "Bot", "real.press", documentation_url="https://real.press/bot"
+    ),
+    "StraddleLibraryBot": BotDefinition("Straddle Library", "search_crawler", "Bot", "Straddle"),
+    "LurantaBot": BotDefinition(
+        "Luranta", "search_crawler", "Bot", "Luranta", documentation_url="https://luranta.com/crawler"
+    ),
+    "UnstenciledBot": BotDefinition(
+        "Unstenciled", "search_crawler", "Bot", "Unstenciled", documentation_url="https://unstenciled.com/bot"
+    ),
+    "InloraBot": BotDefinition("Inlora", "search_crawler", "Bot", "Inlora", documentation_url="https://inlora.eu/bot"),
+    "EfficientRustCrawler": BotDefinition(
+        "Efficient Rust Crawler", "search_crawler", "Bot", "Xape", documentation_url="https://xape.eu/"
+    ),
+    "DatalenkCreatorResearch": BotDefinition(
+        "Datalenk Creator Research", "search_crawler", "Bot", "Datalenk", documentation_url="https://datalenk.com"
+    ),
+    "Wrzutka-Bot": BotDefinition(
+        "Wrzutka", "search_crawler", "Bot", "Wrzutka", documentation_url="https://wrzutka.com/bot"
+    ),
+    "Polon/": BotDefinition("Polon", "search_crawler", "Bot", "Polon"),
+    "Babel42Bot": BotDefinition(
+        "Babel42", "search_crawler", "Bot", "Babel42", documentation_url="https://babel42.io/bot"
+    ),
+    "jscrawler": BotDefinition("jscrawler", "search_crawler", "Bot", "jscrawler"),
+    "PolycoreSupabaseDetector": BotDefinition(
+        "Polycore Supabase Detector", "search_crawler", "Bot", "Polycore", documentation_url="https://www.polycore.ai/"
+    ),
+    "UnboundCompute-PublicSnapshot": BotDefinition(
+        "UnboundCompute Public Snapshot",
+        "search_crawler",
+        "Bot",
+        "UnboundCompute",
+        documentation_url="https://unboundcompute.com/",
+    ),
+    "swissAItalentBot": BotDefinition(
+        "swissAItalentBot",
+        "search_crawler",
+        "Bot",
+        "swissaitalent.ch",
+        documentation_url="https://swissaitalent.ch/bot",
+    ),
+    # SEO / marketing crawlers
+    "LaunchReadyCodeBot": BotDefinition(
+        "LaunchReadyCodeBot",
+        "seo_crawler",
+        "Bot",
+        "LaunchReadyCode",
+        documentation_url="https://launchreadycode.com/bot",
+    ),
+    "PricingArchiveBot": BotDefinition(
+        "PricingArchiveBot",
+        "seo_crawler",
+        "Bot",
+        "pricing-archive",
+        documentation_url="https://github.com/colesharpton2024/pricing-archive",
+    ),
+    "SEOMasterBot": BotDefinition(
+        "SEOMasterBot", "seo_crawler", "Bot", "SEOMaster", documentation_url="https://seomaster.live"
+    ),
+    "CanICancelIt-LinkCheck": BotDefinition(
+        "CanICancelIt LinkCheck",
+        "seo_crawler",
+        "Bot",
+        "CanICancelIt",
+        documentation_url="https://canicancelit.com/methodology",
+    ),
+    "serpstatbot": BotDefinition(
+        "Serpstat", "seo_crawler", "Bot", "Serpstat", documentation_url="https://serpstatbot.com/"
+    ),
+    "StackPick": BotDefinition("StackPick", "seo_crawler", "Bot", "StackPick"),
+    "UXXRAYBot": BotDefinition("UXXRAY", "seo_crawler", "Bot", "UXXRAY", documentation_url="https://uxxray.com/bot"),
+    "NoFluffGraderBot": BotDefinition(
+        "NoFluff Grader",
+        "seo_crawler",
+        "Bot",
+        "NoFluff Marketing",
+        documentation_url="https://nofluffmktg.com/ai-grader",
+    ),
+    "PagePilot-SiteAudit": BotDefinition(
+        "PagePilot Site Audit",
+        "seo_crawler",
+        "Bot",
+        "PagePilot",
+        documentation_url="https://pagepilot-ai-24.polsia.app",
+    ),
+    "double-ats-customer-discoverer": BotDefinition(
+        "Double ATS Customer Discoverer", "seo_crawler", "Bot", "Double", documentation_url="https://double.fyi"
+    ),
+    "BenchRankBot": BotDefinition(
+        "BenchRank", "seo_crawler", "Bot", "BenchRank", documentation_url="https://benchrank.app/bot"
+    ),
+    # Social / link-preview crawlers
+    "PagePeeker": BotDefinition(
+        "PagePeeker", "social_crawler", "Bot", "PagePeeker", documentation_url="https://pagepeeker.com/robots/"
+    ),
+    "Synapse \\(bot": BotDefinition(
+        "Synapse", "social_crawler", "Bot", "Matrix.org", documentation_url="https://github.com/matrix-org/synapse"
+    ),
+    "Unfurlist": BotDefinition(
+        "Unfurlist", "social_crawler", "Bot", "Doist", documentation_url="https://github.com/Doist/unfurlist"
+    ),
+    # Uptime / monitors / probes
+    "heap\\.page source monitor": BotDefinition(
+        "heap.page", "monitoring", "Bot", "heap.page", documentation_url="https://heap.page/methodology"
+    ),
+    "PulseWatch-Prober": BotDefinition("PulseWatch", "monitoring", "Bot", "PulseWatch"),
+    "Scryer/": BotDefinition(
+        "Scryer", "monitoring", "Bot", "Scryer", documentation_url="https://scryer.network/scanning"
+    ),
+    "UnusualAgentAudit": BotDefinition(
+        "UnusualAgentAudit", "monitoring", "Bot", "unusual.ai", documentation_url="https://unusual.ai/agent-audit"
+    ),
+    "VersionWatchBot": BotDefinition("VersionWatch", "monitoring", "Bot", "VersionWatch"),
+    "a14y/": BotDefinition(
+        "a14y", "monitoring", "Bot", "a14y", documentation_url="https://github.com/timothyjordan/a14y"
+    ),
+    "UptimeLensBot": BotDefinition(
+        "UptimeLens", "monitoring", "Bot", "UptimeLens", documentation_url="http://www.uptimelens.com/"
+    ),
+    "InterruptIndexBot": BotDefinition(
+        "InterruptIndex", "monitoring", "Bot", "InterruptIndex", documentation_url="https://interruptindex.com/opt-out"
+    ),
+    "CurbCutScanner": BotDefinition(
+        "CurbCut Scanner", "monitoring", "Bot", "CurbCut", documentation_url="https://github.com/devinxu0916/CurbCut"
+    ),
+    "VantageBot": BotDefinition(
+        "VantageBot",
+        "monitoring",
+        "Bot",
+        "webapp-monitor",
+        documentation_url="https://github.com/morsela/webapp-monitor",
+    ),
+    "NimbusBlocklistSync": BotDefinition(
+        "Nimbus Blocklist Sync", "monitoring", "Bot", "Nimbus", documentation_url="https://nimbus.com"
+    ),
+    # HTTP clients
+    "MrAnandPortfolio": BotDefinition(
+        "MrAnandPortfolio", "http_client", "Bot", "mranand.com", documentation_url="https://mranand.com"
     ),
 }

@@ -14,9 +14,10 @@ LOGS_VOLUME_TICK_LATENCY_HISTOGRAM_METRICS = (
     "logs_volume_tick_rollup_duration_ms",
 )
 
-# Dense between 750ms and 3s because the discovery query lives there. Coarser
-# steps put every sample in one bucket, so the high quantiles interpolate to a
-# bucket edge and report a boundary rather than a latency.
+# Dense between 750ms and 3s because the discovery query lives there, and again
+# between 3s and 7.5s because the rollup query does. Coarser steps put every
+# sample in one bucket, so the high quantiles interpolate to a bucket edge and
+# report a boundary rather than a latency.
 LOGS_VOLUME_TICK_LATENCY_HISTOGRAM_BUCKETS = [
     50.0,
     100.0,
@@ -28,7 +29,9 @@ LOGS_VOLUME_TICK_LATENCY_HISTOGRAM_BUCKETS = [
     2_000.0,
     2_500.0,
     3_000.0,
+    4_000.0,
     5_000.0,
+    7_500.0,
     10_000.0,
     30_000.0,
     60_000.0,

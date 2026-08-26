@@ -123,6 +123,11 @@ export interface taskTrackerSceneLogicActions {
             errors?: string | undefined
             icon_url: any
             id: number
+            installation_shared?: boolean | null | undefined
+            installation_status?:
+                | null
+                | import('products/integrations/frontend/generated/api.schemas').InstallationStatusEnumApi
+                | undefined
             kind:
                 | 'apns'
                 | 'aws-s3'
@@ -165,6 +170,7 @@ export interface taskTrackerSceneLogicActions {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'youtube-analytics'
         }[],
         payload?: any
     ) => {
@@ -176,6 +182,11 @@ export interface taskTrackerSceneLogicActions {
             errors?: string | undefined
             icon_url: any
             id: number
+            installation_shared?: boolean | null | undefined
+            installation_status?:
+                | null
+                | import('products/integrations/frontend/generated/api.schemas').InstallationStatusEnumApi
+                | undefined
             kind:
                 | 'apns'
                 | 'aws-s3'
@@ -218,6 +229,7 @@ export interface taskTrackerSceneLogicActions {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'youtube-analytics'
         }[]
         payload?: any
     } // integrationsLogic
@@ -586,9 +598,9 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 actions.loadRepositories()
             } catch (error) {
                 actions.releaseApplyBackTargets(streamKey)
-                // Show the existing failure and return to the composer with the typed text intact.
+                // Return to the composer with the typed text intact, and no toast: the composer is
+                // still on screen, so a failure banner over it reads as a dead end.
                 actions.clearActiveCreation()
-                lemonToast.error('Failed to create task')
                 actions.submitNewTaskFailure(error instanceof Error ? error.message : 'Unknown error')
             }
         },

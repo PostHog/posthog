@@ -247,7 +247,9 @@ class TestAssessReleaseCurrentOrNewer(SimpleTestCase):
         assert result.is_current_or_newer is True
 
     def test_ahead_of_cached_latest_not_outdated(self):
-        entry = _entry("1.6.0", 100)
+        # The release date is past the single-version grace period on purpose: a version newer
+        # than a stale cached "latest" must not fall into the single-version outdatedness rule
+        entry = _entry("1.6.0", 100, days_ago=SINGLE_VERSION_GRACE_PERIOD_DAYS + 10)
         result = assess_release(
             "posthog-node",
             entry,
@@ -257,6 +259,59 @@ class TestAssessReleaseCurrentOrNewer(SimpleTestCase):
         )
         assert result.is_outdated is False
         assert result.is_current_or_newer is True
+
+
+class TestAssessSdkReason(SimpleTestCase):
+    # `reason` is the whole alert body forwarded to Slack/email/MCP, so these rows guard
+    # against it asserting a match while the in-use version is behind latest, or ahead of a
+    # stale cached latest. Patch-level and grace-period differences are never flagged, which
+    # is what makes the false all-clear reachable in the first place.
+    @parameterized.expand(
+        [
+            (
+                "matches_latest",
+                "posthog-node",
+                "1.5.0",
+                [_entry("1.5.0", 100)],
+                "Node.js is on 1.5.0 which matches or exceeds latest 1.5.0.",
+            ),
+            (
+                "behind_latest",
+                "posthog-node",
+                "1.5.9",
+                [_entry("1.5.0", 100, days_ago=100)],
+                "Node.js is on 1.5.0, behind latest 1.5.9. Upgrading is not urgent yet.",
+            ),
+            (
+                "traffic_alert_while_matching_latest",
+                "web",
+                "1.298.1",
+                [_entry("1.298.1", 60, days_ago=60), _entry("1.200.0", 40, days_ago=300)],
+                "Latest in-use version 1.298.1 matches or exceeds latest 1.298.1. "
+                "Outdated versions still handling >= 20% of traffic: 1.200.0.",
+            ),
+            (
+                "traffic_alert_while_ahead_of_stale_latest",
+                "web",
+                "1.298.1",
+                [_entry("1.299.0", 60, days_ago=60), _entry("1.200.0", 40, days_ago=300)],
+                "Latest in-use version 1.299.0 matches or exceeds latest 1.298.1. "
+                "Outdated versions still handling >= 20% of traffic: 1.200.0.",
+            ),
+            (
+                "traffic_alert_while_behind_latest",
+                "web",
+                "1.298.1",
+                [_entry("1.298.0", 60, days_ago=60), _entry("1.200.0", 40, days_ago=300)],
+                "Latest in-use version 1.298.0 is behind latest 1.298.1. "
+                "Outdated versions still handling >= 20% of traffic: 1.200.0.",
+            ),
+        ]
+    )
+    def test_reason(self, _name: str, sdk_type: str, latest_version: str, usage: list[UsageEntry], expected: str):
+        sdk = assess_sdk(sdk_type, latest_version, usage, now=NOW)
+        assert sdk is not None
+        assert sdk.reason == expected
 
 
 class TestAssessReleaseIsOld(SimpleTestCase):

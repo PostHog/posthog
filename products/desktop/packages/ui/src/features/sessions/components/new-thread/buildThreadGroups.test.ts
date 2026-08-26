@@ -32,6 +32,16 @@ function toolCallItem(
   } as unknown as ConversationItem;
 }
 
+/** Put the settled call (the one carrying output) in the turn's map, as a
+ *  tool_call_update does. */
+function resolveToolCall(item: ConversationItem, resolved: unknown): void {
+  if (item.type !== "session_update") return;
+  item.turnContext.toolCalls.set(
+    (resolved as { toolCallId: string }).toolCallId,
+    resolved as never,
+  );
+}
+
 describe("buildThreadGroups MCP detection", () => {
   it("keeps a tool call with only the posthog meta channel standalone (codex adapters)", () => {
     const mcpItem = toolCallItem("t1", {
@@ -94,6 +104,45 @@ describe("buildThreadGroups MCP detection", () => {
     expect(row.summary.counts.subagents).toBe(1);
     expect(row.summary.counts.other).toBe(2);
     expect(row.summary.doneLabel).toBe("1 subagent, 2 tool calls");
+  });
+});
+
+describe("buildThreadGroups artifact detection", () => {
+  // A PR's url arrives on the tool_call_update, which lands in the turn's tool
+  // call map rather than on the item grouping walks. Reading only the item folds
+  // the call into a collapsed group and hides the card the run just earned.
+  it("keeps a pull request the run opened as its own row", () => {
+    const bash = toolCallItem(
+      "bash",
+      { posthog: { toolName: "Bash" } },
+      { kind: "execute" },
+    );
+    const create = toolCallItem(
+      "create-pr",
+      { posthog: { toolName: "Bash" } },
+      { kind: "execute", rawInput: { command: "gh pr create --fill" } },
+    );
+    resolveToolCall(create, {
+      toolCallId: "create-pr",
+      kind: "execute",
+      status: "completed",
+      rawInput: { command: "gh pr create --fill" },
+      content: [
+        {
+          type: "content",
+          content: {
+            type: "text",
+            text: "https://github.com/PostHog/posthog/pull/82584",
+          },
+        },
+      ],
+    });
+
+    expect(isGroupableItem(create)).toBe(false);
+
+    const grouping = buildThreadGroups([bash, create], {});
+    expect(grouping.rows.map((r) => r.kind)).toEqual(["tool_group", "item"]);
+    expect(grouping.idToRowIndex.get("create-pr")).toBe(1);
   });
 });
 

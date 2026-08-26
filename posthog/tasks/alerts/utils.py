@@ -1,6 +1,5 @@
 from collections.abc import Collection
 from contextlib import ExitStack
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
@@ -11,12 +10,13 @@ import structlog
 
 from posthog.schema import AlertCalculationInterval, AlertState, ChartDisplayType, NodeKind, TrendsQuery
 
+from posthog.dataclasses import frozen
 from posthog.ph_client import ph_background_capture
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.slo.context import get_current_slo
 from posthog.slo.types import SloOperation
 from posthog.tasks.alerts.schedule_restriction import snap_candidate_utc_to_schedule_restriction
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.alerts.backend.delivery_slo import alert_delivery_slo
 from products.alerts.backend.destinations import (
     ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS,
@@ -48,7 +48,7 @@ logger = structlog.get_logger(__name__)
 INSIGHT_ALERT_FIRING_EVENT = "$insight_alert_firing"
 
 
-@dataclass
+@frozen
 class AlertEvaluationResult:
     value: float | None
     breaches: list[str] | None
@@ -445,14 +445,8 @@ def record_alert_delivery(
 
 def add_alert_check(
     alert: AlertConfiguration,
-    value: float | None,
-    breaches: list[str] | None,
+    evaluation_result: AlertEvaluationResult | None,
     error: dict | None,
-    anomaly_scores: list[float | None] | None = None,
-    triggered_points: list[int] | None = None,
-    triggered_dates: list[str] | None = None,
-    interval: str | None = None,
-    triggered_metadata: dict | None = None,
 ) -> tuple[AlertCheck, bool]:
     """Persist an AlertCheck row and return it plus a decision on whether notification is needed.
 
@@ -460,10 +454,12 @@ def add_alert_check(
     successful delivery and treats a non-empty value as the idempotency sentinel on retry.
     ``last_notified_at`` is likewise set by the notify activity on success, not here.
     """
+    # Evaluation never ran (query error): record an all-empty result so the check row still lands.
+    result = evaluation_result if evaluation_result is not None else AlertEvaluationResult(value=None, breaches=None)
     error_message = error.get("message") if error else None
     outcome = evaluate_alert_check(
         alert,
-        threshold_breached=bool(breaches),
+        threshold_breached=bool(result.breaches),
         error_message=error_message,
         now=datetime.now(UTC),
     )
@@ -475,16 +471,16 @@ def add_alert_check(
 
     alert_check = AlertCheck.objects.create(
         alert_configuration=alert,
-        calculated_value=value,
+        calculated_value=result.value,
         condition=alert.condition,
         targets_notified={},
         state=alert.state,
-        triggered_metadata=triggered_metadata,
+        triggered_metadata=result.triggered_metadata,
         error=error,
-        anomaly_scores=anomaly_scores,
-        triggered_points=triggered_points,
-        triggered_dates=triggered_dates,
-        interval=interval,
+        anomaly_scores=result.anomaly_scores,
+        triggered_points=result.triggered_points,
+        triggered_dates=result.triggered_dates,
+        interval=result.interval,
     )
 
     alert.save(update_fields=[*state_fields, "last_checked_at", "next_check_at"])

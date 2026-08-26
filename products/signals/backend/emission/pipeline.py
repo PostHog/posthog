@@ -16,7 +16,12 @@ from posthog.llm.gateway_client import build_async_anthropic_client, resolve_ai_
 from posthog.models import Organization, Team
 from posthog.sync import database_sync_to_async
 
-from products.signals.backend.emission.registry import SignalEmitter, SignalEmitterOutput, SignalSourceTableConfig
+from products.signals.backend.emission.registry import (
+    SignalEmitter,
+    SignalEmitterOutput,
+    SignalSourceTableConfig,
+    redacted_record,
+)
 from products.signals.backend.emission.steering import apply_steering, steering_from_config
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.temporal import metrics
@@ -129,6 +134,7 @@ def build_emitter_outputs(
     team_id: int,
     records: list[dict[str, Any]],
     emitter: SignalEmitter,
+    unloggable_fields: tuple[str, ...] = (),
 ) -> tuple[list[SignalEmitterOutput], int]:
     outputs = []
     error_count = 0
@@ -139,7 +145,7 @@ def build_emitter_outputs(
             logger.exception(
                 "Emitter failed for record, skipping",
                 team_id=team_id,
-                record=record,
+                record=redacted_record(record, unloggable_fields),
                 signals_type="data-import-signals",
             )
             error_count += 1
@@ -274,6 +280,11 @@ async def summarize_long_descriptions(
     return result
 
 
+def _declared_context(extra: dict[str, Any], context_fields: tuple[str, ...]) -> dict[str, Any]:
+    """The subset of `extra` a source declared for its gate, dropping keys with nothing to say."""
+    return {key: extra[key] for key in context_fields if extra.get(key) is not None}
+
+
 async def _check_actionability(
     client: AsyncAnthropic,
     team_id: int,
@@ -281,13 +292,20 @@ async def _check_actionability(
     actionability_prompt: str,
     gateway_mode: bool | None = None,
     include_record_metadata: bool = False,
+    context_fields: tuple[str, ...] = (),
 ) -> bool:
     description = output.description
-    if include_record_metadata and output.extra:
-        # Steering rules often reference metadata (labels, state, priority) that emitters keep in
-        # `extra` rather than in the description, so the steered gate gets to see it. Bounded, and
-        # substituted through the `{description}` placeholder so it is never format-processed.
-        metadata = json.dumps(output.extra, default=str)[:RECORD_METADATA_MAX_CHARS]
+    # Steering rules often reference metadata (labels, state, priority) that emitters keep in `extra`
+    # rather than in the description, so the steered gate sees all of it. An unsteered gate sees only
+    # the keys its source declared, keeping every other source's prompt byte-identical.
+    declared = _declared_context(output.extra, context_fields)
+    # Declared keys lead the block so the length cap below trims the rest of `extra` first — a source
+    # that asked for a key shouldn't lose it to a record that happens to carry heavy labels.
+    metadata_fields = {**declared, **output.extra} if include_record_metadata else declared
+    if metadata_fields:
+        # Bounded, and substituted through the `{description}` placeholder so it is never
+        # format-processed.
+        metadata = json.dumps(metadata_fields, default=str)[:RECORD_METADATA_MAX_CHARS]
         description = f"{description}\n\n<record_metadata>\n{metadata}\n</record_metadata>"
     prompt = actionability_prompt.format(description=description)
     extra_headers = _signals_extra_headers(output, stage="actionability", gateway_mode=gateway_mode, team_id=team_id)
@@ -329,6 +347,7 @@ async def filter_actionable(
     actionability_prompt: str,
     extra: dict[str, Any],
     include_record_metadata: bool = False,
+    context_fields: tuple[str, ...] = (),
 ) -> list[SignalEmitterOutput]:
     client = build_async_anthropic_client(product="signals", ai_product=EMISSION_AI_PRODUCT, team_id=team.id)
     gateway_mode = resolve_ai_gateway_config() is not None
@@ -347,6 +366,7 @@ async def filter_actionable(
                     actionability_prompt,
                     gateway_mode=gateway_mode,
                     include_record_metadata=include_record_metadata,
+                    context_fields=context_fields,
                 )
             except Exception:
                 logger.exception(
@@ -498,6 +518,7 @@ async def run_signal_pipeline(
         team_id=team.id,
         records=records,
         emitter=config.emitter,
+        unloggable_fields=config.unloggable_fields,
     )
     # Only fail if every record raised — emitters may return None as a benign skip,
     # so a mix of skips and errors should fall through to the no_actionable_records path.
@@ -535,8 +556,10 @@ async def run_signal_pipeline(
             outputs=outputs,
             actionability_prompt=apply_steering(config.actionability_prompt, steering),
             extra=extra,
-            # Only steered teams get the metadata block, so unsteered prompts stay byte-identical.
+            # Steered teams get all of `extra`; everyone else gets only what the source declared, so
+            # a prompt with nothing declared stays byte-identical.
             include_record_metadata=steering.active,
+            context_fields=config.actionability_context_fields,
         )
         post_filter_ids = {o.source_id for o in outputs}
         for source_id, output in pre_filter_by_id.items():

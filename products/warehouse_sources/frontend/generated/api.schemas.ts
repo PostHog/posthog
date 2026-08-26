@@ -605,6 +605,7 @@ export const ExternalDataSourceSerializersCreatedViaEnumApi = {
  * * `Ebay` - Ebay
  * * `Commercetools` - Commercetools
  * * `LightspeedRetail` - LightspeedRetail
+ * * `Shipmail` - Shipmail
  * * `ShipStation` - ShipStation
  * * `ConstantContact` - ConstantContact
  * * `Mailgun` - Mailgun
@@ -1727,6 +1728,25 @@ export const ExternalDataSourceSerializersCreatedViaEnumApi = {
  * * `Dokploy` - Dokploy
  * * `Hootsuite` - Hootsuite
  * * `WisprFlow` - WisprFlow
+ * * `SamCart` - SamCart
+ * * `IronSourceAds` - IronSourceAds
+ * * `MicrosoftExcel` - MicrosoftExcel
+ * * `Profound` - Profound
+ * * `Airwallex` - Airwallex
+ * * `Polymarket` - Polymarket
+ * * `Kalshi` - Kalshi
+ * * `Capterra` - Capterra
+ * * `GooglePostmasterTools` - GooglePostmasterTools
+ * * `Growi` - Growi
+ * * `Clarify` - Clarify
+ * * `DatoCMS` - DatoCMS
+ * * `WPSOffice` - WPSOffice
+ * * `TeraBox` - TeraBox
+ * * `SimonData` - SimonData
+ * * `CommissionJunction` - CommissionJunction
+ * * `Liveblocks` - Liveblocks
+ * * `NationBuilder` - NationBuilder
+ * * `Tana` - Tana
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -1907,6 +1927,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Ebay: 'Ebay',
     Commercetools: 'Commercetools',
     LightspeedRetail: 'LightspeedRetail',
+    Shipmail: 'Shipmail',
     ShipStation: 'ShipStation',
     ConstantContact: 'ConstantContact',
     Mailgun: 'Mailgun',
@@ -3029,6 +3050,25 @@ export const ExternalDataSourceTypeEnumApi = {
     Dokploy: 'Dokploy',
     Hootsuite: 'Hootsuite',
     WisprFlow: 'WisprFlow',
+    SamCart: 'SamCart',
+    IronSourceAds: 'IronSourceAds',
+    MicrosoftExcel: 'MicrosoftExcel',
+    Profound: 'Profound',
+    Airwallex: 'Airwallex',
+    Polymarket: 'Polymarket',
+    Kalshi: 'Kalshi',
+    Capterra: 'Capterra',
+    GooglePostmasterTools: 'GooglePostmasterTools',
+    Growi: 'Growi',
+    Clarify: 'Clarify',
+    DatoCMS: 'DatoCMS',
+    WPSOffice: 'WPSOffice',
+    TeraBox: 'TeraBox',
+    SimonData: 'SimonData',
+    CommissionJunction: 'CommissionJunction',
+    Liveblocks: 'Liveblocks',
+    NationBuilder: 'NationBuilder',
+    Tana: 'Tana',
 } as const
 
 /**
@@ -3156,7 +3196,7 @@ export interface PaginatedExternalDataSourceSerializersListApi {
 }
 
 /**
- * Connection credentials and a 'schemas' array. Keys depend on source_type.
+ * Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings.
  */
 export type ExternalDataSourceCreateApiPayload = { [key: string]: unknown }
 
@@ -3352,6 +3392,7 @@ export interface ExternalDataSourceCreateApi {
      * * `Ebay` - Ebay
      * * `Commercetools` - Commercetools
      * * `LightspeedRetail` - LightspeedRetail
+     * * `Shipmail` - Shipmail
      * * `ShipStation` - ShipStation
      * * `ConstantContact` - ConstantContact
      * * `Mailgun` - Mailgun
@@ -4473,9 +4514,28 @@ export interface ExternalDataSourceCreateApi {
      * * `Schematic` - Schematic
      * * `Dokploy` - Dokploy
      * * `Hootsuite` - Hootsuite
-     * * `WisprFlow` - WisprFlow */
+     * * `WisprFlow` - WisprFlow
+     * * `SamCart` - SamCart
+     * * `IronSourceAds` - IronSourceAds
+     * * `MicrosoftExcel` - MicrosoftExcel
+     * * `Profound` - Profound
+     * * `Airwallex` - Airwallex
+     * * `Polymarket` - Polymarket
+     * * `Kalshi` - Kalshi
+     * * `Capterra` - Capterra
+     * * `GooglePostmasterTools` - GooglePostmasterTools
+     * * `Growi` - Growi
+     * * `Clarify` - Clarify
+     * * `DatoCMS` - DatoCMS
+     * * `WPSOffice` - WPSOffice
+     * * `TeraBox` - TeraBox
+     * * `SimonData` - SimonData
+     * * `CommissionJunction` - CommissionJunction
+     * * `Liveblocks` - Liveblocks
+     * * `NationBuilder` - NationBuilder
+     * * `Tana` - Tana */
     source_type: ExternalDataSourceTypeEnumApi
-    /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
+    /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
     payload: ExternalDataSourceCreateApiPayload
     /**
      * Prefix added to the table names PostHog creates in HogQL. Does not filter which tables are imported.
@@ -4629,6 +4689,11 @@ export interface ExternalDataSourceBulkUpdateSchemaApi {
      * @nullable
      */
     sync_time_of_day?: string | null
+    /**
+     * Column names for primary key deduplication.
+     * @nullable
+     */
+    primary_key_columns?: string[] | null
     /** How CDC-backed tables should be exposed.
      *
      * * `consolidated` - consolidated
@@ -4870,6 +4935,7 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `Ebay` - Ebay
      * * `Commercetools` - Commercetools
      * * `LightspeedRetail` - LightspeedRetail
+     * * `Shipmail` - Shipmail
      * * `ShipStation` - ShipStation
      * * `ConstantContact` - ConstantContact
      * * `Mailgun` - Mailgun
@@ -5991,7 +6057,26 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `Schematic` - Schematic
      * * `Dokploy` - Dokploy
      * * `Hootsuite` - Hootsuite
-     * * `WisprFlow` - WisprFlow */
+     * * `WisprFlow` - WisprFlow
+     * * `SamCart` - SamCart
+     * * `IronSourceAds` - IronSourceAds
+     * * `MicrosoftExcel` - MicrosoftExcel
+     * * `Profound` - Profound
+     * * `Airwallex` - Airwallex
+     * * `Polymarket` - Polymarket
+     * * `Kalshi` - Kalshi
+     * * `Capterra` - Capterra
+     * * `GooglePostmasterTools` - GooglePostmasterTools
+     * * `Growi` - Growi
+     * * `Clarify` - Clarify
+     * * `DatoCMS` - DatoCMS
+     * * `WPSOffice` - WPSOffice
+     * * `TeraBox` - TeraBox
+     * * `SimonData` - SimonData
+     * * `CommissionJunction` - CommissionJunction
+     * * `Liveblocks` - Liveblocks
+     * * `NationBuilder` - NationBuilder
+     * * `Tana` - Tana */
     readonly source_type: ExternalDataSourceTypeEnumApi
     /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
      *
@@ -6000,6 +6085,8 @@ export interface ExternalDataSourceConnectionOptionApi {
     readonly access_method: AccessMethodEnumApi
     /** Whether HogQL queries compile for this connection. When false, only raw SQL (sendRawQuery) works. */
     readonly supports_hogql: boolean
+    /** Whether this option is the built-in PostHog managed warehouse connection. */
+    readonly is_builtin_managed_warehouse: boolean
     /**
      * User-set description of the source, shown as its display name in the connection picker when set.
      * @nullable
@@ -6199,6 +6286,7 @@ export interface DatabaseSchemaRequestApi {
      * * `Ebay` - Ebay
      * * `Commercetools` - Commercetools
      * * `LightspeedRetail` - LightspeedRetail
+     * * `Shipmail` - Shipmail
      * * `ShipStation` - ShipStation
      * * `ConstantContact` - ConstantContact
      * * `Mailgun` - Mailgun
@@ -7320,7 +7408,26 @@ export interface DatabaseSchemaRequestApi {
      * * `Schematic` - Schematic
      * * `Dokploy` - Dokploy
      * * `Hootsuite` - Hootsuite
-     * * `WisprFlow` - WisprFlow */
+     * * `WisprFlow` - WisprFlow
+     * * `SamCart` - SamCart
+     * * `IronSourceAds` - IronSourceAds
+     * * `MicrosoftExcel` - MicrosoftExcel
+     * * `Profound` - Profound
+     * * `Airwallex` - Airwallex
+     * * `Polymarket` - Polymarket
+     * * `Kalshi` - Kalshi
+     * * `Capterra` - Capterra
+     * * `GooglePostmasterTools` - GooglePostmasterTools
+     * * `Growi` - Growi
+     * * `Clarify` - Clarify
+     * * `DatoCMS` - DatoCMS
+     * * `WPSOffice` - WPSOffice
+     * * `TeraBox` - TeraBox
+     * * `SimonData` - SimonData
+     * * `CommissionJunction` - CommissionJunction
+     * * `Liveblocks` - Liveblocks
+     * * `NationBuilder` - NationBuilder
+     * * `Tana` - Tana */
     source_type: ExternalDataSourceTypeEnumApi
 }
 
@@ -7505,6 +7612,7 @@ export interface DirectConnectionSourceOptionApi {
      * * `Ebay` - Ebay
      * * `Commercetools` - Commercetools
      * * `LightspeedRetail` - LightspeedRetail
+     * * `Shipmail` - Shipmail
      * * `ShipStation` - ShipStation
      * * `ConstantContact` - ConstantContact
      * * `Mailgun` - Mailgun
@@ -8626,7 +8734,26 @@ export interface DirectConnectionSourceOptionApi {
      * * `Schematic` - Schematic
      * * `Dokploy` - Dokploy
      * * `Hootsuite` - Hootsuite
-     * * `WisprFlow` - WisprFlow */
+     * * `WisprFlow` - WisprFlow
+     * * `SamCart` - SamCart
+     * * `IronSourceAds` - IronSourceAds
+     * * `MicrosoftExcel` - MicrosoftExcel
+     * * `Profound` - Profound
+     * * `Airwallex` - Airwallex
+     * * `Polymarket` - Polymarket
+     * * `Kalshi` - Kalshi
+     * * `Capterra` - Capterra
+     * * `GooglePostmasterTools` - GooglePostmasterTools
+     * * `Growi` - Growi
+     * * `Clarify` - Clarify
+     * * `DatoCMS` - DatoCMS
+     * * `WPSOffice` - WPSOffice
+     * * `TeraBox` - TeraBox
+     * * `SimonData` - SimonData
+     * * `CommissionJunction` - CommissionJunction
+     * * `Liveblocks` - Liveblocks
+     * * `NationBuilder` - NationBuilder
+     * * `Tana` - Tana */
     readonly source_type: ExternalDataSourceTypeEnumApi
     /** Human-readable name to show in the picker (falls back to the source type). */
     readonly label: string
@@ -8896,6 +9023,7 @@ export interface SourcePreviewRequestApi {
      * * `Ebay` - Ebay
      * * `Commercetools` - Commercetools
      * * `LightspeedRetail` - LightspeedRetail
+     * * `Shipmail` - Shipmail
      * * `ShipStation` - ShipStation
      * * `ConstantContact` - ConstantContact
      * * `Mailgun` - Mailgun
@@ -10017,7 +10145,26 @@ export interface SourcePreviewRequestApi {
      * * `Schematic` - Schematic
      * * `Dokploy` - Dokploy
      * * `Hootsuite` - Hootsuite
-     * * `WisprFlow` - WisprFlow */
+     * * `WisprFlow` - WisprFlow
+     * * `SamCart` - SamCart
+     * * `IronSourceAds` - IronSourceAds
+     * * `MicrosoftExcel` - MicrosoftExcel
+     * * `Profound` - Profound
+     * * `Airwallex` - Airwallex
+     * * `Polymarket` - Polymarket
+     * * `Kalshi` - Kalshi
+     * * `Capterra` - Capterra
+     * * `GooglePostmasterTools` - GooglePostmasterTools
+     * * `Growi` - Growi
+     * * `Clarify` - Clarify
+     * * `DatoCMS` - DatoCMS
+     * * `WPSOffice` - WPSOffice
+     * * `TeraBox` - TeraBox
+     * * `SimonData` - SimonData
+     * * `CommissionJunction` - CommissionJunction
+     * * `Liveblocks` - Liveblocks
+     * * `NationBuilder` - NationBuilder
+     * * `Tana` - Tana */
     source_type: ExternalDataSourceTypeEnumApi
     /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
     payload?: SourcePreviewRequestApiPayload
@@ -10237,6 +10384,7 @@ export interface SourceSetupApi {
      * * `Ebay` - Ebay
      * * `Commercetools` - Commercetools
      * * `LightspeedRetail` - LightspeedRetail
+     * * `Shipmail` - Shipmail
      * * `ShipStation` - ShipStation
      * * `ConstantContact` - ConstantContact
      * * `Mailgun` - Mailgun
@@ -11358,7 +11506,26 @@ export interface SourceSetupApi {
      * * `Schematic` - Schematic
      * * `Dokploy` - Dokploy
      * * `Hootsuite` - Hootsuite
-     * * `WisprFlow` - WisprFlow */
+     * * `WisprFlow` - WisprFlow
+     * * `SamCart` - SamCart
+     * * `IronSourceAds` - IronSourceAds
+     * * `MicrosoftExcel` - MicrosoftExcel
+     * * `Profound` - Profound
+     * * `Airwallex` - Airwallex
+     * * `Polymarket` - Polymarket
+     * * `Kalshi` - Kalshi
+     * * `Capterra` - Capterra
+     * * `GooglePostmasterTools` - GooglePostmasterTools
+     * * `Growi` - Growi
+     * * `Clarify` - Clarify
+     * * `DatoCMS` - DatoCMS
+     * * `WPSOffice` - WPSOffice
+     * * `TeraBox` - TeraBox
+     * * `SimonData` - SimonData
+     * * `CommissionJunction` - CommissionJunction
+     * * `Liveblocks` - Liveblocks
+     * * `NationBuilder` - NationBuilder
+     * * `Tana` - Tana */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
     payload?: SourceSetupApiPayload
@@ -11585,6 +11752,7 @@ export interface SourceCredentialCreateApi {
      * * `Ebay` - Ebay
      * * `Commercetools` - Commercetools
      * * `LightspeedRetail` - LightspeedRetail
+     * * `Shipmail` - Shipmail
      * * `ShipStation` - ShipStation
      * * `ConstantContact` - ConstantContact
      * * `Mailgun` - Mailgun
@@ -12706,7 +12874,26 @@ export interface SourceCredentialCreateApi {
      * * `Schematic` - Schematic
      * * `Dokploy` - Dokploy
      * * `Hootsuite` - Hootsuite
-     * * `WisprFlow` - WisprFlow */
+     * * `WisprFlow` - WisprFlow
+     * * `SamCart` - SamCart
+     * * `IronSourceAds` - IronSourceAds
+     * * `MicrosoftExcel` - MicrosoftExcel
+     * * `Profound` - Profound
+     * * `Airwallex` - Airwallex
+     * * `Polymarket` - Polymarket
+     * * `Kalshi` - Kalshi
+     * * `Capterra` - Capterra
+     * * `GooglePostmasterTools` - GooglePostmasterTools
+     * * `Growi` - Growi
+     * * `Clarify` - Clarify
+     * * `DatoCMS` - DatoCMS
+     * * `WPSOffice` - WPSOffice
+     * * `TeraBox` - TeraBox
+     * * `SimonData` - SimonData
+     * * `CommissionJunction` - CommissionJunction
+     * * `Liveblocks` - Liveblocks
+     * * `NationBuilder` - NationBuilder
+     * * `Tana` - Tana */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
     payload: SourceCredentialCreateApiPayload
@@ -12723,6 +12910,46 @@ export interface SourceCredentialApi {
     expires_at: string
 }
 
+export interface WarehouseColumnStatisticsApi {
+    readonly id: string
+    /** ID of the data warehouse table this column belongs to. */
+    readonly table: string
+    /** Name of the column these statistics describe. */
+    readonly column_name: string
+    /** ClickHouse type the statistics were computed against (e.g. Int64, DateTime64). */
+    readonly column_type: string
+    /** Total number of rows in the table when these statistics were computed. */
+    readonly row_count: number
+    /** Number of NULL values in this column, or null if the Delta log carried no count. */
+    readonly null_count: number
+    /** Fraction of values that are NULL (null_count / row_count), between 0 and 1. */
+    readonly null_fraction: number
+    /** Minimum value in the column, as a string. Null when unavailable. For string columns this may be truncated by the underlying Delta statistics, so treat string bounds as approximate. */
+    readonly min_value: string
+    /** Maximum value in the column, as a string. Null when unavailable (see min_value). */
+    readonly max_value: string
+    /** Whether the Delta log carried min/max statistics for this column (false for some nested/binary types). */
+    readonly has_min_max: boolean
+    /** When these statistics were last computed. */
+    readonly computed_at: string
+    /** Delta table version the statistics were computed against. */
+    readonly computed_for_delta_version: number
+    /** How the statistics were produced. Currently always 'delta_log'. */
+    readonly stats_basis: string
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+}
+
+export interface PaginatedWarehouseColumnStatisticsListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: WarehouseColumnStatisticsApi[]
+}
+
 export type ExternalDataSchemasListParams = {
     /**
      * Number of results to return per page.
@@ -12736,6 +12963,10 @@ export type ExternalDataSchemasListParams = {
      * A search term.
      */
     search?: string
+}
+
+export type ExternalDataSchemasCancelCreate200 = {
+    detail?: string
 }
 
 export type ExternalDataSchemasCancelCreate400 = {
@@ -12772,6 +13003,14 @@ export type ExternalDataSchemasLogsRetrieveParams = {
      * @minLength 1
      */
     search?: string
+}
+
+export type ExternalDataSchemasReloadCreate400 = {
+    detail?: string
+}
+
+export type ExternalDataSchemasResyncCreate400 = {
+    detail?: string
 }
 
 export type ExternalDataSourcesListParams = {
@@ -12856,4 +13095,19 @@ export type ExternalDataSourcesWizardRetrieveParams = {
      * Comma-separated source type(s) to return config for, e.g. 'Postgres' or 'Postgres,Stripe'. Strongly recommended: the unfiltered response describes every supported source and is very large. Omit only to enumerate the available types.
      */
     source_type?: string
+}
+
+export type WarehouseColumnStatisticsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Only return statistics for this data warehouse table.
+     */
+    table_id?: string
 }

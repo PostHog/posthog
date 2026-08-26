@@ -52,6 +52,7 @@ import { PROPERTY_KEYS } from '~/taxonomy/taxonomy'
 import {
     ChartDisplayType,
     CohortType,
+    DashboardTileSpacing,
     DashboardMode,
     DashboardTemplateScope,
     DashboardTile,
@@ -659,6 +660,13 @@ export interface eventUsageLogicActions {
         journeyName: string
         stepCount: number
     }
+    reportDashboardAddMenuOpened: (
+        source: 'header' | 'inline',
+        dashboardId: number
+    ) => {
+        dashboardId: number
+        source: 'header' | 'inline'
+    }
     reportDashboardBreakdownColorsSaved: (
         dashboard: DashboardType<QueryBasedInsightModel> | null,
         manualCount: number,
@@ -693,12 +701,27 @@ export interface eventUsageLogicActions {
         action: 'discarded' | 'kept_editing' | 'shown'
         dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null
     }
+    reportDashboardEmptyAddChartClicked: (dashboardId: number | undefined) => {
+        dashboardId: number | undefined
+    }
     reportDashboardEmptyAiPromptClicked: (
         promptLabel: string,
-        dashboardId: number | undefined
+        dashboardId: number | undefined,
+        promptType: 'custom_prompt' | 'starter_question'
     ) => {
         dashboardId: number | undefined
         promptLabel: string
+        promptType: 'custom_prompt' | 'starter_question'
+    }
+    reportDashboardEmptyAiPromptSubmitted: (
+        dashboardId: number | undefined,
+        promptType: 'custom_prompt' | 'starter_question'
+    ) => {
+        dashboardId: number | undefined
+        promptType: 'custom_prompt' | 'starter_question'
+    }
+    reportDashboardEmptyWebAnalyticsClicked: (dashboardId: number | undefined) => {
+        dashboardId: number | undefined
     }
     reportDashboardExported: (
         dashboardId: number,
@@ -735,6 +758,12 @@ export interface eventUsageLogicActions {
         dashboardId: number | undefined
         insightId: number
         source: DashboardEventSource
+    }
+    reportDashboardInsightDeleteAfterRemovalClicked: (otherDashboardCount: number) => {
+        otherDashboardCount: number
+    }
+    reportDashboardInsightDeleteAfterRemovalConfirmed: (otherDashboardCount: number) => {
+        otherDashboardCount: number
     }
     reportDashboardInsightLegendToggled: (
         dashboardId: number | undefined,
@@ -781,13 +810,6 @@ export interface eventUsageLogicActions {
         layoutZoom: number
         source: 'button' | 'shortcut'
     }
-    reportDashboardListSearched: (
-        searchLength: number,
-        resultsCount: number
-    ) => {
-        resultsCount: number
-        searchLength: number
-    }
     reportDashboardLoadingTime: (
         loadingMilliseconds: number,
         dashboardId: number
@@ -814,17 +836,6 @@ export interface eventUsageLogicActions {
     ) => {
         count: number
         method: 'bulk' | 'single'
-    }
-    reportDashboardMovedToFolder: (props: {
-        fromDepth: number
-        fromUnfiled: boolean
-        toDepth: number
-        toUnfiled: boolean
-    }) => {
-        fromDepth: number
-        fromUnfiled: boolean
-        toDepth: number
-        toUnfiled: boolean
     }
     reportDashboardPinToggled: (
         dashboardId: number,
@@ -876,6 +887,9 @@ export interface eventUsageLogicActions {
         dashboardId: number | undefined
         isShared: boolean
     }
+    reportDashboardTileDensityConfigured: (tileDensity: DashboardTileSpacing) => {
+        tileDensity: DashboardTileSpacing
+    }
     reportDashboardTileIgnoreDashboardFiltersToggled: (
         dashboardId: number | undefined,
         insightId: number | null,
@@ -887,13 +901,17 @@ export interface eventUsageLogicActions {
     }
     reportDashboardTileInsertedInline: (
         tileType: DashboardAddTileType,
+        dashboardId: number,
+        tileId: number,
         column: number,
         row: number,
         fullWidth: boolean
     ) => {
         column: number
+        dashboardId: number
         fullWidth: boolean
         row: number
+        tileId: number
         tileType: DashboardAddTileType
     }
     reportDashboardTileRefreshed: (
@@ -935,13 +953,6 @@ export interface eventUsageLogicActions {
     ) => {
         dashboardId: number | undefined
         isWhiteLabelled: boolean
-    }
-    reportDashboardsTreeFolderNavigated: (
-        depth: number,
-        hasSubfolders: boolean
-    ) => {
-        depth: number
-        hasSubfolders: boolean
     }
     reportDataManagementDefinitionCancel: (type: TaxonomicFilterGroupType) => {
         type: TaxonomicFilterGroupType
@@ -2335,6 +2346,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             layoutZoom: number,
             source: 'button' | 'shortcut'
         ) => ({ dashboard, layoutZoom, source }),
+        reportDashboardTileDensityConfigured: (tileDensity: DashboardTileSpacing) => ({ tileDensity }),
         reportDashboardEditModeDiscardPrompt: (
             dashboard: DashboardType<QueryBasedInsightModel> | null,
             action: 'shown' | 'discarded' | 'kept_editing'
@@ -2403,14 +2415,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             pinned,
             source,
         }),
-        reportDashboardMovedToFolder: (props: {
-            fromDepth: number
-            toDepth: number
-            fromUnfiled: boolean
-            toUnfiled: boolean
-        }) => props,
-        reportDashboardListSearched: (searchLength: number, resultsCount: number) => ({ searchLength, resultsCount }),
-        reportDashboardsTreeFolderNavigated: (depth: number, hasSubfolders: boolean) => ({ depth, hasSubfolders }),
         reportDashboardMoveInitiated: (method: 'single' | 'bulk', count: number) => ({ method, count }),
         reportDashboardFrontEndUpdate: (
             dashboardId: number | undefined,
@@ -2418,6 +2422,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             originalLength: number,
             newLength: number
         ) => ({ dashboardId, attribute, originalLength, newLength }),
+        reportDashboardInsightDeleteAfterRemovalClicked: (otherDashboardCount: number) => ({ otherDashboardCount }),
+        reportDashboardInsightDeleteAfterRemovalConfirmed: (otherDashboardCount: number) => ({ otherDashboardCount }),
         reportDashboardShareToggled: (dashboardId: number | undefined, isShared: boolean) => ({
             dashboardId,
             isShared,
@@ -2452,10 +2458,21 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             source: DashboardEventSource
         ) => ({ dashboardId, insightId, source }),
         /** Empty-state AI prompt chips (ai-first empty dashboard only). */
-        reportDashboardEmptyAiPromptClicked: (promptLabel: string, dashboardId: number | undefined) => ({
+        reportDashboardEmptyAiPromptClicked: (
+            promptLabel: string,
+            dashboardId: number | undefined,
+            promptType: 'starter_question' | 'custom_prompt'
+        ) => ({
             promptLabel,
             dashboardId,
+            promptType,
         }),
+        reportDashboardEmptyAiPromptSubmitted: (
+            dashboardId: number | undefined,
+            promptType: 'custom_prompt' | 'starter_question'
+        ) => ({ dashboardId, promptType }),
+        reportDashboardEmptyAddChartClicked: (dashboardId: number | undefined) => ({ dashboardId }),
+        reportDashboardEmptyWebAnalyticsClicked: (dashboardId: number | undefined) => ({ dashboardId }),
         reportDashboardExported: (dashboardId: number, exportFormat: ExporterFormat) => ({
             dashboardId,
             exportFormat,
@@ -2474,12 +2491,15 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportCustomChannelTypeRulesUpdated: (numRules: number) => ({ numRules }),
         reportPropertySelectOpened: true,
         reportCreatedDashboardFromModal: true,
+        reportDashboardAddMenuOpened: (source: 'header' | 'inline', dashboardId: number) => ({ source, dashboardId }),
         reportDashboardTileInsertedInline: (
             tileType: DashboardAddTileType,
+            dashboardId: number,
+            tileId: number,
             column: number,
             row: number,
             fullWidth: boolean
-        ) => ({ tileType, column, row, fullWidth }),
+        ) => ({ tileType, dashboardId, tileId, column, row, fullWidth }),
         /** Dashboard created via PostHog web app from a template (new dashboard modal / template chooser). */
         reportWebDashboardCreatedFromTemplate: (payload: {
             dashboard_id: number
@@ -3379,6 +3399,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 source,
             })
         },
+        reportDashboardTileDensityConfigured: async ({ tileDensity }) => {
+            posthog.capture('dashboard tile density configured', { tile_density: tileDensity })
+        },
         reportDashboardEditModeDiscardPrompt: async ({ dashboard, action }) => {
             posthog.capture('dashboard edit mode discard prompt', {
                 dashboard_id: dashboard?.id,
@@ -3457,25 +3480,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 source,
             })
         },
-        reportDashboardMovedToFolder: async ({ fromDepth, toDepth, fromUnfiled, toUnfiled }) => {
-            // Coarse fields only — never folder/dashboard names (customer-controlled).
-            posthog.capture('dashboard moved to folder', {
-                from_depth: fromDepth,
-                to_depth: toDepth,
-                moved_from_unfiled: fromUnfiled,
-                moved_to_unfiled: toUnfiled,
-            })
-        },
-        reportDashboardListSearched: async ({ searchLength, resultsCount }) => {
-            // Length + count only, never the query text (can contain sensitive names).
-            posthog.capture('dashboard list searched', {
-                search_length: searchLength,
-                results_count: resultsCount,
-            })
-        },
-        reportDashboardsTreeFolderNavigated: async ({ depth, hasSubfolders }) => {
-            posthog.capture('dashboards tree folder navigated', { depth, has_subfolders: hasSubfolders })
-        },
         reportDashboardMoveInitiated: async ({ method, count }) => {
             posthog.capture('dashboard move initiated', { method, count })
         },
@@ -3510,6 +3514,16 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 attribute,
             })
         },
+        reportDashboardInsightDeleteAfterRemovalClicked: async ({ otherDashboardCount }) => {
+            posthog.capture('dashboard insight delete after removal clicked', {
+                other_dashboard_count: otherDashboardCount,
+            })
+        },
+        reportDashboardInsightDeleteAfterRemovalConfirmed: async ({ otherDashboardCount }) => {
+            posthog.capture('dashboard insight delete after removal confirmed', {
+                other_dashboard_count: otherDashboardCount,
+            })
+        },
         reportDashboardInsightValuesOnSeriesToggled: async ({ dashboardId, insightId, source }) => {
             posthog.capture('dashboard insight values on series toggled', {
                 dashboard_id: dashboardId,
@@ -3531,9 +3545,29 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 source,
             })
         },
-        reportDashboardEmptyAiPromptClicked: async ({ promptLabel, dashboardId }) => {
+        reportDashboardEmptyAiPromptClicked: async ({ promptLabel, dashboardId, promptType }) => {
             posthog.capture('dashboard empty ai prompt clicked', {
                 prompt_label: promptLabel,
+                dashboard_id: dashboardId,
+                prompt_type: promptType,
+                source: 'web',
+            })
+        },
+        reportDashboardEmptyAiPromptSubmitted: async ({ dashboardId, promptType }) => {
+            posthog.capture('dashboard empty ai prompt submitted', {
+                dashboard_id: dashboardId,
+                prompt_type: promptType,
+                source: 'web',
+            })
+        },
+        reportDashboardEmptyAddChartClicked: async ({ dashboardId }) => {
+            posthog.capture('dashboard empty add chart clicked', {
+                dashboard_id: dashboardId,
+                source: 'web',
+            })
+        },
+        reportDashboardEmptyWebAnalyticsClicked: async ({ dashboardId }) => {
+            posthog.capture('dashboard empty web analytics clicked', {
                 dashboard_id: dashboardId,
                 source: 'web',
             })
@@ -3595,9 +3629,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportCreatedDashboardFromModal: async () => {
             posthog.capture('created new dashboard from modal')
         },
-        reportDashboardTileInsertedInline: async ({ tileType, column, row, fullWidth }) => {
+        reportDashboardAddMenuOpened: async ({ source, dashboardId }) => {
+            posthog.capture('dashboard add menu opened', { source, dashboard_id: dashboardId })
+        },
+        reportDashboardTileInsertedInline: async ({ tileType, dashboardId, tileId, column, row, fullWidth }) => {
             posthog.capture('dashboard tile inserted inline', {
                 tile_type: tileType,
+                dashboard_id: dashboardId,
+                tile_id: tileId,
                 column,
                 row,
                 full_width: fullWidth,

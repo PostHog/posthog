@@ -226,6 +226,9 @@ class TestStripeSource:
             # account_invalid: key not authorized for the configured account, or revoked app access.
             # Raised mid-sync as stripe.PermissionError, matched on the stable phrase (key/account redacted).
             "The provided key 'sk_test_***qPsl' does not have access to account 'stripe_s***less' (or that account does not exist). Application access may have been revoked.",
+            # A publishable key was used where a secret/restricted key is required — matched on the
+            # stable message text, ignoring the request id prefix.
+            "Request req_abc123: This API call cannot be made with a publishable API key. Please use a secret API key. You can find a list of your API keys at https://dashboard.stripe.com/account/apikeys.",
         ],
     )
     def test_non_retryable_errors_match_permission_failures(self, observed_error):
@@ -1419,6 +1422,27 @@ class TestCreateWebhookPermissionErrorCopy:
 
         assert result.success is False
         assert expected_phrase in (result.error or "")
+
+
+class TestCreateWebhookLimitErrorCopy:
+    # Regression test: hitting Stripe's webhook-endpoint cap used to surface Stripe's raw error
+    # verbatim, so the user couldn't tell the account-wide limit was the cause or how to recover.
+    def test_webhook_limit_error_gives_actionable_message(self):
+        with patch.object(stripe_module, "StripeClient") as mock_client_cls:
+            mock_client = mock_client_cls.return_value
+            mock_client.webhook_endpoints.create.side_effect = stripe_lib.InvalidRequestError(
+                "You have reached the maximum of 100 test webhook endpoints.", param=None
+            )
+
+            result = create_webhook(
+                api_key="sk_test_123",
+                stripe_account_id=None,
+                webhook_url="https://example.com/webhook",
+            )
+
+        assert result.success is False
+        assert "webhook endpoint limit" in (result.error or "")
+        assert "manually" in (result.error or "")
 
 
 class TestStripeAppManifestCoversSourcePermissions:

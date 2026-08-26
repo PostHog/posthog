@@ -6,7 +6,6 @@ import { LemonButton, LemonSegmentedButton, LemonSelect, LemonSwitch } from '@po
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicStringPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { logsGroupByLogic } from 'products/logs/frontend/components/LogsGroupBy/logsGroupByLogic'
@@ -43,18 +42,16 @@ export const LogsDisplayBar = ({
 }: LogsDisplayBarProps): JSX.Element => {
     const { facetRailCollapsed, viewMode } = useValues(logsViewerConfigLogic)
     const { setFacetRailCollapsed, setViewMode } = useActions(logsViewerConfigLogic)
-    const showPatternsView = useFeatureFlag('LOGS_PATTERNS_VIEW')
 
-    const inPatternsMode = showPatternsView && viewMode === 'patterns'
+    const inPatternsMode = viewMode === 'patterns'
     // Group is a third view like Patterns: the mode lives in the segmented bar; the key
     // picker below is the mode's configuration.
     const inGroupByMode = viewMode === 'group'
 
-    // Patterns joins the bar behind its flag; Group is always available. The bar renders once
-    // any non-Logs lens exists.
+    // The bar renders once any non-Logs lens exists.
     const viewModeOptions = [
         { value: 'logs' as const, label: 'Logs' },
-        ...(showPatternsView ? [{ value: 'patterns' as const, label: 'Patterns' }] : []),
+        { value: 'patterns' as const, label: 'Patterns' },
         { value: 'group' as const, label: 'Group' },
     ]
 

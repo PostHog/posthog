@@ -6,7 +6,13 @@ import { logger } from '~/common/utils/logger'
 import { RefDedupCache } from '~/ingestion/pipelines/sessionreplay/shared/ref-dedup-cache'
 
 import { parseImageRef } from './content-ref'
-import { ImageShardStore, ScrubbedImage } from './image-shard-store'
+import { ImageShardStore, ScrubbedImage, ScrubbedUrlImage } from './image-shard-store'
+import {
+    CONTENT_ENCODING_HEADER,
+    CONTENT_TYPE_HEADER,
+    InvalidImageTransportError,
+    prepareFetchedImage,
+} from './image-transport'
 import { ImageScrubConsumerMetrics } from './metrics'
 import { POISON_MIN_OTHER_SUCCESSES, ScrubAborted, ScrubClient, ScrubPoisoned } from './scrub-client'
 
@@ -22,7 +28,12 @@ export interface OffsetStore {
  * the sidecar bug behind it unreproducible. Parking it keeps both properties.
  */
 export interface DeadLetterSink {
-    park(image: { ref: string; bytes: Buffer; detail: Record<string, unknown> }): Promise<void>
+    park(image: {
+        ref: string
+        bytes: Buffer
+        headers: Record<string, string>
+        detail: Record<string, unknown>
+    }): Promise<void>
 }
 
 /**
@@ -54,9 +65,11 @@ const REVOKED_PARTITION_CODES = new Set([
 interface PlannedScrub {
     index: number
     ref: string
-    pseudoTeam: string
+    pseudoTeam?: string
     hash: string
+    source: 'bytes' | 'url'
     value: Buffer
+    transportHeaders: Record<string, string>
     /** Where this image came from, carried only so a parked one can be traced back to its source. */
     sourceTopic: string
     sourcePartition: number
@@ -73,7 +86,8 @@ interface PlannedScrub {
 
 interface ScrubbedRef {
     ref: string
-    image: ScrubbedImage
+    source: 'bytes' | 'url'
+    image: ScrubbedImage | ScrubbedUrlImage
 }
 
 /** Carries the window slot so a completion can be matched back to its position, which is what
@@ -93,21 +107,21 @@ export interface ImageBatcherOptions {
 }
 
 export class ImageBatcher {
-    private buffer: ScrubbedImage[] = []
+    private buffer: ScrubbedRef[] = []
     private bufferBytes = 0
     private pendingOffsets = new Map<string, TopicPartitionOffset>()
     private lastFlushMs: number
     private readonly maxInFlight: number
     private readonly scrubConcurrency: ConcurrencyController
     /**
-     * Refs this pod has resolved, either by buffering the scrubbed bytes or by having the sidecar
-     * permanently reject them. A best-effort stand-in for asking S3 "are these bytes already in the
-     * bucket", which shards cannot answer: they pack many images per object, so no per-hash key
-     * exists. The topic is keyed by ref, so every copy of an image reaches this same pod and within
-     * capacity the answer is exact; past it we simply rescrub. Marking a scrubbed ref only after its
-     * buffer push is what stops a rebalance without a restart from skipping a ref it never persisted,
-     * since a batch that throws keeps its buffer. Sizing is a throughput question, not a correctness
-     * one.
+     * Content-addressed refs this pod has resolved, either by buffering the scrubbed bytes or by
+     * having the sidecar permanently reject them. URL refs are absent because their bytes can change
+     * between recrawls. A best-effort stand-in for asking S3 "are these bytes already in the bucket",
+     * which shards cannot answer: they pack many images per object, so no per-hash key exists. The
+     * topic is keyed by ref, so every copy of an inline image reaches this same pod and within capacity
+     * the answer is exact; past it we simply rescrub. Marking a scrubbed ref only after its buffer push
+     * is what stops a rebalance without a restart from skipping a ref it never persisted, since a batch
+     * that throws keeps its buffer. Sizing is a throughput question, not a correctness one.
      */
     private readonly seenRefs: RefDedupCache
     /**
@@ -194,12 +208,16 @@ export class ImageBatcher {
         this.activeBatch = controller
         this.partitionsRevoked = false
         const startedAt = performance.now()
+        if (planned.length > 0) {
+            ImageScrubConsumerMetrics.startBatch()
+        }
         try {
             await this.scrubAndStage(messages, planned, controller, nowMs)
         } finally {
             // Empty polls arrive on a timer under callEachBatchWhenEmpty and would otherwise bury
             // the real distribution of both histograms in a zero bucket.
             if (planned.length > 0) {
+                ImageScrubConsumerMetrics.finishBatch()
                 ImageScrubConsumerMetrics.observeBatchProgress(
                     this.retiredInBatch,
                     planned.length,
@@ -279,12 +297,13 @@ export class ImageBatcher {
             while (retired < planned.length && settled[retired]) {
                 const ready = staged[retired]
                 if (ready) {
-                    this.buffer.push(ready.image)
-                    this.bufferBytes += ready.image.bytes.length
+                    this.bufferScrubbedRef(ready)
                     // Marked here rather than on completion: a staged image is a local that a thrown
                     // batch discards, so a ref marked before retirement could be skipped on replay
                     // without ever having been persisted.
-                    this.seenRefs.add(ready.ref)
+                    if (ready.source === 'bytes') {
+                        this.seenRefs.add(ready.ref)
+                    }
                     staged[retired] = null
                     stagedCount -= 1
                     stagedBytes -= ready.image.bytes.length
@@ -330,42 +349,71 @@ export class ImageBatcher {
     /** Retains nothing between batches, so unlike [[seenRefs]] this dedup cannot be sized wrong or disabled. */
     private planBatch(messages: Message[]): PlannedScrub[] {
         const planned: PlannedScrub[] = []
-        const batchRefs = new Set<string>()
+        const inlineRefs = new Set<string>()
+        const urlLocationByRef = new Map<string, Pick<PlannedScrub, 'sourceTopic' | 'sourcePartition'>>()
         for (const [index, m] of messages.entries()) {
             const ref = m.key?.toString('utf8')
             // The ref's hash is a producer-side per-team HMAC; this consumer doesn't hold the key and
             // trusts the producer (the topic's only writer) that the key names these bytes.
             const parsed = ref ? parseImageRef(ref) : null
-            // A URL ref names a URL, not these bytes. The shard store indexes by (pseudoTeam, hash)
-            // with the prefix dropped, so accepting one here would file URL-sourced bytes in the
-            // same slot as content-addressed ones. That is the silent mis-join the prefix exists
-            // to prevent, so it counts as an invalid key rather than being stored.
-            if (!ref || !parsed || parsed.source !== 'bytes' || !m.value) {
+            if (!ref || !parsed || !m.value) {
                 ImageScrubConsumerMetrics.incInvalidKey()
                 continue
             }
-            if (batchRefs.has(ref)) {
-                ImageScrubConsumerMetrics.incDeduped('batch')
-                continue
-            }
-            batchRefs.add(ref)
-            if (this.seenRefs.has(ref)) {
-                ImageScrubConsumerMetrics.incDeduped('pod')
-                continue
-            }
-            planned.push({
+            const headers = parseKafkaHeaders(m.headers)
+            const transportHeaders =
+                parsed.source === 'url'
+                    ? Object.fromEntries(
+                          [CONTENT_TYPE_HEADER, CONTENT_ENCODING_HEADER]
+                              .filter((header) => headers[header] !== undefined)
+                              .map((header) => [header, headers[header]])
+                      )
+                    : {}
+            const candidate: PlannedScrub = {
                 index,
                 ref,
                 pseudoTeam: parsed.pseudoTeam,
                 hash: parsed.hash,
+                source: parsed.source,
                 value: m.value,
+                transportHeaders,
                 sourceTopic: m.topic,
                 sourcePartition: m.partition,
                 sourceOffset: m.offset,
-                replayCount: Number(parseKafkaHeaders(m.headers)[REPLAY_COUNT_HEADER] ?? 0) || 0,
-            })
+                replayCount: Number(headers[REPLAY_COUNT_HEADER] ?? 0) || 0,
+            }
+            if (parsed.source === 'url') {
+                const existing = urlLocationByRef.get(ref)
+                if (existing) {
+                    if (
+                        existing.sourceTopic !== candidate.sourceTopic ||
+                        existing.sourcePartition !== candidate.sourcePartition
+                    ) {
+                        throw new Error(`URL image ref ${ref} arrived on more than one Kafka partition`)
+                    }
+                } else {
+                    urlLocationByRef.set(ref, candidate)
+                }
+                planned.push(candidate)
+                continue
+            }
+            if (inlineRefs.has(ref)) {
+                ImageScrubConsumerMetrics.incDeduped('batch')
+                continue
+            }
+            inlineRefs.add(ref)
+            if (this.seenRefs.has(ref)) {
+                ImageScrubConsumerMetrics.incDeduped('pod')
+                continue
+            }
+            planned.push(candidate)
         }
         return planned
+    }
+
+    private bufferScrubbedRef(ready: ScrubbedRef): void {
+        this.buffer.push(ready)
+        this.bufferBytes += ready.image.bytes.length
     }
 
     private recordOffsets(messages: Message[]): void {
@@ -385,7 +433,10 @@ export class ImageBatcher {
                 abortController: controller,
             })
             .then(
-                (image): SettledScrub => ({ slot, scrubbed: image ? { ref: p.ref, image } : null }),
+                (image): SettledScrub => ({
+                    slot,
+                    scrubbed: image ? { ref: p.ref, source: p.source, image } : null,
+                }),
                 (error): SettledScrub => ({ slot, scrubbed: null, error: error ?? new Error('scrub failed') })
             )
     }
@@ -399,10 +450,31 @@ export class ImageBatcher {
         }
     }
 
-    private async scrubOne(planned: PlannedScrub, signal: AbortSignal): Promise<ScrubbedImage | null> {
+    private async scrubOne(
+        planned: PlannedScrub,
+        signal: AbortSignal
+    ): Promise<ScrubbedImage | ScrubbedUrlImage | null> {
+        let input = planned.value
+        if (planned.source === 'url') {
+            try {
+                input = await prepareFetchedImage(
+                    input,
+                    planned.transportHeaders[CONTENT_TYPE_HEADER],
+                    planned.transportHeaders[CONTENT_ENCODING_HEADER]
+                )
+            } catch (error) {
+                if (!(error instanceof InvalidImageTransportError)) {
+                    throw error
+                }
+                this.rememberContentAddressedRef(planned)
+                ImageScrubConsumerMetrics.incSkipped()
+                return null
+            }
+        }
+
         let bytes: Buffer | null
         try {
-            bytes = await this.scrubClient.scrub(planned.value, signal, planned.ref)
+            bytes = await this.scrubClient.scrub(input, signal, planned.ref)
         } catch (error) {
             if (!(error instanceof ScrubPoisoned) || !this.deadLetters) {
                 throw error
@@ -412,20 +484,33 @@ export class ImageBatcher {
             // waiting. Marking first would advance the offset over an image held nowhere.
             await this.parkUntilAccepted(planned, error, signal)
             logger.warn('☠️', 'image_scrub_dead_lettered', { ref: planned.ref, ...error.detail })
-            this.seenRefs.add(planned.ref)
+            this.rememberContentAddressedRef(planned)
             ImageScrubConsumerMetrics.incDeadLettered(error.detail.reason)
             return null
         }
         if (bytes === null) {
-            // Null is only ever a 422/413, a verdict on the content itself, so no retry can succeed.
-            // Marking it stops every later copy from re-earning the same rejection, and there is
-            // nothing pending to persist, so this needs none of the care the success path does.
-            this.seenRefs.add(planned.ref)
+            // Null is a verdict on these bytes. Inline refs are content-addressed, so their later
+            // copies cannot succeed. URL refs stay eligible because a recrawl can carry new bytes.
+            this.rememberContentAddressedRef(planned)
             ImageScrubConsumerMetrics.incSkipped()
             return null
         }
         ImageScrubConsumerMetrics.incScrubbed()
-        return { pseudoTeam: planned.pseudoTeam, hash: planned.hash, bytes }
+        if (planned.source === 'url') {
+            return {
+                hash: planned.hash,
+                bytes,
+                sourcePartition: planned.sourcePartition,
+                sourceOffset: planned.sourceOffset,
+            }
+        }
+        return { pseudoTeam: planned.pseudoTeam!, hash: planned.hash, bytes }
+    }
+
+    private rememberContentAddressedRef(planned: PlannedScrub): void {
+        if (planned.source === 'bytes') {
+            this.seenRefs.add(planned.ref)
+        }
     }
 
     /**
@@ -451,6 +536,7 @@ export class ImageBatcher {
                 await this.deadLetters!.park({
                     ref: planned.ref,
                     bytes: planned.value,
+                    headers: planned.transportHeaders,
                     detail: {
                         ...poisoned.detail,
                         pseudoTeam: planned.pseudoTeam,
@@ -496,8 +582,24 @@ export class ImageBatcher {
     public async flush(nowMs: number): Promise<void> {
         this.lastFlushMs = nowMs
         if (this.buffer.length > 0) {
-            const { bytes } = await this.store.writeShard(this.buffer)
-            ImageScrubConsumerMetrics.observeShard(this.buffer.length, bytes)
+            const inlineImages = this.buffer
+                .filter((item): item is ScrubbedRef & { image: ScrubbedImage } => item.source === 'bytes')
+                .map((item) => item.image)
+            const urlImages = this.buffer
+                .filter((item): item is ScrubbedRef & { image: ScrubbedUrlImage } => item.source === 'url')
+                .map((item) => item.image)
+            await Promise.all(
+                urlImages.map((image) =>
+                    this.scrubConcurrency.run({
+                        debugTag: image.hash,
+                        fn: () => this.store.writeUrlImage(image),
+                    })
+                )
+            )
+            if (inlineImages.length > 0) {
+                const { bytes } = await this.store.writeShard(inlineImages)
+                ImageScrubConsumerMetrics.observeShard(inlineImages.length, bytes)
+            }
             this.buffer = []
             this.bufferBytes = 0
         }

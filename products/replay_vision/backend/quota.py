@@ -156,6 +156,10 @@ class BillingPeriod:
     start: datetime
     end: datetime
 
+    def __post_init__(self) -> None:
+        if self.start >= self.end:
+            raise ValueError(f"BillingPeriod start must be before end: start={self.start}, end={self.end}")
+
 
 def _current_month_bounds(now: datetime) -> BillingPeriod:
     return BillingPeriod(start=start_of_month(now), end=next_month_start(now))
@@ -170,9 +174,11 @@ def _current_period_bounds(organization: Organization | None, now: datetime) -> 
     """The org's active billing period when synced and current, else the calendar month containing `now`."""
     billing_period = organization.current_billing_period if organization else None
     if billing_period:
-        synced = BillingPeriod(start=_as_utc(billing_period.start), end=_as_utc(billing_period.end))
-        if synced.start <= now < synced.end:
-            return synced
+        start = _as_utc(billing_period.start)
+        end = _as_utc(billing_period.end)
+        # Gate before constructing so a malformed synced period falls back to the calendar month
+        if start <= now < end:
+            return BillingPeriod(start=start, end=end)
     return _current_month_bounds(now)
 
 
@@ -301,10 +307,11 @@ def compute_scanner_budgets(
     if period is None:
         period = current_period_bounds(organization_id)
     # Limits are read here, not passed in: a caller that forgot them would silently disable enforcement.
+    # `all_origins`: a capped inline scanner must resolve its limit here, or its budget reads as uncapped.
     # nosemgrep: idor-lookup-without-team (org-level aggregation, the pk__in list is co-filtered by team__organization_id, so a scanner id outside this org matches nothing)
-    scanner_rows = ReplayScanner.objects.filter(team__organization_id=organization_id, pk__in=scanner_ids).values_list(
-        "id", "credit_limit", "model"
-    )
+    scanner_rows = ReplayScanner.all_origins.filter(
+        team__organization_id=organization_id, pk__in=scanner_ids
+    ).values_list("id", "credit_limit", "model")
     configs = {scanner_id: (limit, model) for scanner_id, limit, model in scanner_rows}
     # Almost every scanner is uncapped, so the spend aggregates run only for the capped ones; the
     # rest report zero usage, and `blocked` is always False without a limit.

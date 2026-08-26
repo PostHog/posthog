@@ -7,7 +7,13 @@ use reqwest::blocking::multipart::{Form, Part};
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashMap, fmt::Debug, iter, num::NonZeroUsize, thread::sleep, time::Duration,
+    collections::HashMap,
+    fmt::Debug,
+    iter,
+    num::NonZeroUsize,
+    sync::atomic::{AtomicBool, Ordering},
+    thread::sleep,
+    time::Duration,
 };
 use thiserror::Error;
 use tracing::{debug, info, warn};
@@ -106,6 +112,9 @@ impl UploadSummary {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct StartUploadResponseData {
     presigned_url: PresignedUrl,
+    /// Standard-endpoint presigned POST, sent when `presigned_url` targets the
+    /// S3 transfer-acceleration endpoint. Absent on older servers.
+    fallback_presigned_url: Option<PresignedUrl>,
     symbol_set_id: String,
 }
 
@@ -175,13 +184,14 @@ pub fn upload_with_retry_and_concurrency(
         Ok(thread_pool) => thread_pool,
         Err(e) => return (summary, Err(e)),
     };
-    // One client for the whole run: reusing its connection pool avoids paying a
-    // TCP + TLS handshake per uploaded chunk.
-    let s3_client = match context()
-        .build_http_client()
+    let transport = match context()
+        .build_upload_http_client()
         .context("Failed to initialize upload HTTP client")
     {
-        Ok(client) => client,
+        Ok(client) => UploadTransport {
+            client,
+            accelerated_unreachable: AtomicBool::new(false),
+        },
         Err(e) => return (summary, Err(e)),
     };
     let res = upload_inner(
@@ -190,7 +200,7 @@ pub fn upload_with_retry_and_concurrency(
         force,
         skip_on_conflict,
         &thread_pool,
-        &s3_client,
+        &transport,
         &mut summary,
     );
     let res = match res {
@@ -215,7 +225,7 @@ pub fn upload_with_retry_and_concurrency(
                 force,
                 skip_on_conflict,
                 &thread_pool,
-                &s3_client,
+                &transport,
                 &mut summary,
             );
             summary.uploaded += uploaded_before_retry;
@@ -240,13 +250,36 @@ fn build_upload_thread_pool(concurrency: NonZeroUsize) -> Result<ThreadPool> {
         .context("Failed to initialize symbol set upload thread pool")
 }
 
+/// Shared S3 upload transport for one run: a single client, because reusing its
+/// connection pool avoids paying a TCP + TLS handshake per uploaded chunk, and
+/// the run-wide latch that stops attempts against the accelerated endpoint once
+/// it is known to be unreachable.
+struct UploadTransport {
+    client: Client,
+    accelerated_unreachable: AtomicBool,
+}
+
+impl UploadTransport {
+    /// Flips the latch. Logs and reports the switch only on the first call, so
+    /// concurrent chunks cannot duplicate the notice.
+    fn mark_accelerated_unreachable(&self) {
+        if !self.accelerated_unreachable.swap(true, Ordering::Relaxed) {
+            warn!("Can't reach the accelerated S3 endpoint. Uploading the remaining chunks through the standard S3 endpoint.");
+            context().capture_event(
+                "error_tracking_cli_sourcemaps_upload_endpoint_fallback",
+                Vec::new(),
+            );
+        }
+    }
+}
+
 fn upload_inner(
     input_sets: &[SymbolSetUpload],
     batch_size: usize,
     force: bool,
     skip_on_conflict: bool,
     thread_pool: &ThreadPool,
-    s3_client: &Client,
+    transport: &UploadTransport,
     summary: &mut UploadSummary,
 ) -> Result<(), UploadError> {
     // A release-id-mismatch retry re-uploads the same sets from scratch, so the
@@ -306,7 +339,12 @@ fn upload_inner(
                         "Got a chunk ID back from posthog that we didn't expect!"
                     ))?;
 
-                    upload_to_s3(s3_client, data.presigned_url.clone(), &upload.data)?;
+                    upload_to_s3(
+                        transport,
+                        &data.presigned_url,
+                        data.fallback_presigned_url.as_ref(),
+                        &upload.data,
+                    )?;
                     Ok((data.symbol_set_id, (*content_hash).clone()))
                 })
                 .collect()
@@ -367,10 +405,78 @@ fn start_upload(
     }
 }
 
-fn upload_to_s3(client: &Client, presigned_url: PresignedUrl, data: &[u8]) -> Result<()> {
-    retry(retry_policy(500, 2, 3), |_| -> Result<()> {
+/// Transport errors the primary URL gets before an attempt is routed to the
+/// fallback URL. The first reset can come from a stale pooled connection, so
+/// only a fresh connection that also fails counts as evidence that the
+/// accelerated endpoint is blocked.
+const PRIMARY_TRANSPORT_ERRORS_BEFORE_FALLBACK: usize = 2;
+
+/// Attempts the fallback URL gets after the primary budget, so one transient
+/// error on the fallback does not fail the chunk.
+const FALLBACK_ATTEMPTS: usize = 2;
+
+/// Per-chunk routing state: which URL the next attempt should use, and whether
+/// a fallback success is strong enough evidence to flip the run-wide
+/// accelerated-endpoint latch.
+#[derive(Debug, Default)]
+struct EndpointRouter {
+    primary_transport_errors: usize,
+    fallback_had_transport_error: bool,
+}
+
+impl EndpointRouter {
+    fn use_fallback(&self, latch_set: bool) -> bool {
+        latch_set || self.primary_transport_errors >= PRIMARY_TRANSPORT_ERRORS_BEFORE_FALLBACK
+    }
+
+    fn record_transport_error(&mut self, used_fallback: bool) {
+        if used_fallback {
+            self.fallback_had_transport_error = true;
+        } else {
+            self.primary_transport_errors += 1;
+        }
+    }
+
+    /// A response from the primary endpoint disproves the blocked-endpoint
+    /// hypothesis, so only consecutive transport errors count as evidence.
+    fn record_primary_response(&mut self) {
+        self.primary_transport_errors = 0;
+    }
+
+    /// A fallback success flips the latch only when the primary failed at the
+    /// transport level while the fallback never did; transport errors on both
+    /// URLs point at a generally unreliable network rather than a blocked
+    /// accelerated endpoint.
+    fn should_set_latch(&self, used_fallback: bool) -> bool {
+        used_fallback
+            && !self.fallback_had_transport_error
+            && self.primary_transport_errors >= PRIMARY_TRANSPORT_ERRORS_BEFORE_FALLBACK
+    }
+}
+
+fn upload_to_s3(
+    transport: &UploadTransport,
+    presigned_url: &PresignedUrl,
+    fallback_presigned_url: Option<&PresignedUrl>,
+    data: &[u8],
+) -> Result<()> {
+    let mut router = EndpointRouter::default();
+
+    // Without a fallback URL keep the original budget of 3 attempts.
+    let max_attempts = if fallback_presigned_url.is_some() {
+        PRIMARY_TRANSPORT_ERRORS_BEFORE_FALLBACK + FALLBACK_ATTEMPTS
+    } else {
+        3
+    };
+
+    retry(retry_policy(500, 2, max_attempts), |_| -> Result<()> {
+        let latch_set = transport.accelerated_unreachable.load(Ordering::Relaxed);
+        let target_fallback = fallback_presigned_url.filter(|_| router.use_fallback(latch_set));
+        let use_fallback = target_fallback.is_some();
+        let target = target_fallback.unwrap_or(presigned_url);
+
         let mut form = Form::new();
-        for (key, value) in &presigned_url.fields {
+        for (key, value) in &target.fields {
             form = form.text(key.clone(), value.clone());
         }
         // The filename is required: Go-based S3 implementations (SeaweedFS, MinIO)
@@ -381,8 +487,23 @@ fn upload_to_s3(client: &Client, presigned_url: PresignedUrl, data: &[u8]) -> Re
         let part = Part::bytes(data.to_vec()).file_name("file");
         form = form.part("file", part);
 
-        let response = client.post(&presigned_url.url).multipart(form).send()?;
+        let response = match transport.client.post(&target.url).multipart(form).send() {
+            Ok(response) => response,
+            Err(e) => {
+                router.record_transport_error(use_fallback);
+                return Err(e.into());
+            }
+        };
+        if !use_fallback {
+            router.record_primary_response();
+        }
+        // HTTP errors never reroute: a response proves the endpoint is
+        // reachable, and the standard endpoint would return the same error.
         raise_for_err(response)?;
+
+        if router.should_set_latch(use_fallback) {
+            transport.mark_accelerated_unreachable();
+        }
 
         Ok(())
     })
@@ -626,6 +747,51 @@ mod tests {
             .count();
 
         assert_eq!(retry_logs, 2);
+    }
+
+    #[test]
+    fn endpoint_router_switches_to_fallback_after_two_primary_transport_errors() {
+        let mut router = EndpointRouter::default();
+        assert!(!router.use_fallback(false));
+        router.record_transport_error(false);
+        assert!(!router.use_fallback(false));
+        router.record_transport_error(false);
+        assert!(router.use_fallback(false));
+    }
+
+    #[test]
+    fn endpoint_router_counts_only_consecutive_primary_transport_errors() {
+        let mut router = EndpointRouter::default();
+        router.record_transport_error(false);
+        router.record_primary_response();
+        router.record_transport_error(false);
+        assert!(!router.use_fallback(false));
+        assert!(!router.should_set_latch(true));
+    }
+
+    #[test]
+    fn endpoint_router_uses_fallback_immediately_when_latch_is_set() {
+        let router = EndpointRouter::default();
+        assert!(router.use_fallback(true));
+    }
+
+    #[test]
+    fn endpoint_router_latch_requires_clean_fallback_after_primary_transport_errors() {
+        let mut router = EndpointRouter::default();
+        assert!(!router.should_set_latch(true));
+        router.record_transport_error(false);
+        router.record_transport_error(false);
+        assert!(!router.should_set_latch(false));
+        assert!(router.should_set_latch(true));
+        router.record_transport_error(true);
+        assert!(!router.should_set_latch(true));
+    }
+
+    #[test]
+    fn start_upload_response_parses_without_fallback_presigned_url() {
+        let json = r#"{"id_map":{"chunk":{"presigned_url":{"url":"https://example.com/","fields":{}},"symbol_set_id":"id"}}}"#;
+        let parsed: BulkUploadStartResponse = serde_json::from_str(json).unwrap();
+        assert!(parsed.id_map["chunk"].fallback_presigned_url.is_none());
     }
 
     #[test]

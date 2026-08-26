@@ -35,10 +35,16 @@ window.POSTHOG_APP_CONTEXT = {
 
 describe('taxonomicFilterLogic', () => {
     let logic: ReturnType<typeof taxonomicFilterLogic.build>
+    let actionRequestCount: number
 
     beforeEach(() => {
+        actionRequestCount = 0
         useMocks({
             get: {
+                '/api/projects/:team/actions/': () => {
+                    actionRequestCount++
+                    return [200, { results: [], count: 0 }]
+                },
                 '/api/projects/:team/event_definitions': ({ request }) => {
                     const search = new URL(request.url).searchParams.get('search')
                     const results = search
@@ -69,7 +75,6 @@ describe('taxonomicFilterLogic', () => {
         })
         initKeaTests()
         featureFlagLogic.mount()
-        actionsModel.mount()
         groupsModel.mount()
 
         const logicProps: TaxonomicFilterLogicProps = {
@@ -100,6 +105,25 @@ describe('taxonomicFilterLogic', () => {
         expect(
             infiniteListLogic({ ...logic.props, listGroupType: TaxonomicFilterGroupType.Cohorts }).isMounted()
         ).toBeFalsy()
+    })
+
+    it('loads actions when a taxonomic filter mounts', async () => {
+        await expectLogic(actionsModel).toDispatchActions(['loadActionsSuccess'])
+        expect(actionRequestCount).toBe(1)
+    })
+
+    it('does not request actions for a filter without the Actions group', () => {
+        const actionRequestsBeforeMount = actionRequestCount
+        const noActionsLogic = taxonomicFilterLogic({
+            taxonomicFilterLogicKey: 'noActions',
+            taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties, TaxonomicFilterGroupType.PersonProperties],
+        })
+        noActionsLogic.mount()
+
+        expect(actionsModel({ shouldLoad: false }).isMounted()).toBe(true)
+        expect(actionRequestCount).toBe(actionRequestsBeforeMount)
+
+        noActionsLogic.unmount()
     })
 
     it('keeps infiniteListCounts in sync', async () => {

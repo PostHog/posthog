@@ -281,6 +281,36 @@ describe('metricsViewerLogic', () => {
         expect(logic.values.queryFilters).toEqual([expected])
     })
 
+    // Drives the metric picker's scope. Getting this wrong is silent: the picker
+    // reverts to offering every metric while the filter bar still shows a service.
+    it.each([
+        ['one exact service', [{ key: 'service_name', operator: PropertyOperator.Exact, value: ['web'] }], ['web']],
+        [
+            'several exact services',
+            [{ key: 'service_name', operator: PropertyOperator.Exact, value: ['web', 'worker'] }],
+            ['web', 'worker'],
+        ],
+        ['the unnamed sender group', [{ key: 'service_name', operator: PropertyOperator.Regex, value: ['^$'] }], ['']],
+        ['a non-service chip', [{ key: 'env', operator: PropertyOperator.Exact, value: ['prod'] }], []],
+        [
+            // Two chips are ANDed, which one IN list cannot express.
+            'two service chips',
+            [
+                { key: 'service_name', operator: PropertyOperator.Exact, value: ['web'] },
+                { key: 'service_name', operator: PropertyOperator.Exact, value: ['worker'] },
+            ],
+            [],
+        ],
+        [
+            'a service chip that is not a membership test',
+            [{ key: 'service_name', operator: PropertyOperator.IContains, value: ['we'] }],
+            [],
+        ],
+    ])('derives the picker service scope from %s', (_name, propertyFilters, expected) => {
+        logic.actions.setFilterGroup(filterGroupWith(propertyFilters))
+        expect(logic.values.selectedServices).toEqual(expected)
+    })
+
     it('skips chips that are still being edited or use unsupported operators', () => {
         logic.actions.setFilterGroup(
             filterGroupWith([
@@ -319,7 +349,7 @@ describe('metricsViewerLogic', () => {
         jest.mocked(metricsValuesRetrieve).mockClear()
 
         await expectLogic(metricNamePickerLogic, () => {
-            metricNamePickerLogic.actions.loadItems({})
+            metricNamePickerLogic.actions.loadItems({ debounce: true })
         }).toDispatchActions(['loadItemsSuccess'])
 
         logic.actions.setMetricName('queue_depth')

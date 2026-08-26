@@ -19,10 +19,10 @@ from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.insights.paginators import HogQLCursorPaginator, HogQLHasMorePaginator
 from posthog.models import Team, User
-from posthog.rbac.user_access_control import UserAccessControlError
 from posthog.session_recordings.models.metadata import ONGOING_SESSION_WINDOW_MINUTES
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
 from posthog.session_recordings.queries.sub_queries.cohort_subquery import CohortPropertyGroupsSubQuery
@@ -38,6 +38,8 @@ from posthog.session_recordings.queries.utils import (
     test_account_scoped_query,
 )
 from posthog.types import AnyPropertyFilter
+
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
 
 if TYPE_CHECKING:
     from products.experiments.backend.facade.replay import ExperimentExposureLinkage
@@ -143,6 +145,9 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         user: User | None = None,
         events_sample_factor: float | None = None,
         events_timestamp_floor: datetime | None = None,
+        # Opt-in: resolve group property filters to group keys instead of joining the groups table.
+        # Naming the ClickHouse user is the opt-in, since the resolution is itself a heavy query.
+        resolve_group_properties: ClickHouseUser | None = None,
         **_,
     ):
         self._user = user
@@ -151,6 +156,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         # Extra lower bound on positive events subqueries, for callers that re-run often over a wide
         # session window and do not need each run to re-scan the whole range.
         self._events_timestamp_floor = events_timestamp_floor
+        self._resolve_group_properties = resolve_group_properties
         self.events_subqueries_sampled = False
         self._bypass_date_window_for_session_ids = bypass_date_window_for_session_ids
         # TRICKY: we need to make sure we init test account filters only once,
@@ -276,6 +282,9 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
 
     @tracer.start_as_current_span("SessionRecordingListFromQuery.get_query")
     def get_query(self):
+        # Resolved before predicate construction, not just before the join: resolution can clear
+        # the redundant test-account filters, which _where_predicates otherwise bakes in.
+        self._resolve_experiment_exposure()
         parsed_query = parse_select(
             self.BASE_QUERY,
             {
@@ -318,8 +327,8 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         """Resolve the experiment-exposure linkage once per query instance.
 
         run() resolves eagerly, but composition callers (to_query(), the replay-vision
-        candidate query) consume get_query() without run(), so _join_experiment_exposure
-        resolves too; the cached linkage keeps the resolution from running twice.
+        candidate query) consume get_query() without run(), so get_query() resolves too;
+        the cached linkage keeps the resolution from running twice.
         """
         if self._query.experiment_exposure is None or self._experiment_exposure_linkage is not None:
             return
@@ -341,6 +350,15 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             experiment_id=self._query.experiment_exposure.experiment_id,
             variant=self._query.experiment_exposure.variant,
         )
+        if self._experiment_exposure_linkage.population_filters_test_accounts:
+            # The exposure population already applies the team's test-account filters on the
+            # exposure events, and the listing inner-joins to that population, so the
+            # recordings-side copy would only rescan the whole events window to re-drop persons
+            # the experiment's analysis counts. The query copy is cleared too, so everything
+            # derived from it (scoped exclusion queries, blocklist probes) agrees with the
+            # main query.
+            self._test_account_filters = []
+            self._query.filter_test_accounts = False
 
     def _join_experiment_exposure(self, parsed_query: ast.SelectQuery) -> None:
         """Restrict the list to sessions of persons exposed to the queried experiment.
@@ -388,7 +406,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
 
         return ast.OrderExpr(expr=ast.Field(chain=[order_by]), order=direction)
 
-    @tracer.start_as_current_span("SessionRecordingListFromQuery._where_predicates")
+    @tracer.start_as_current_span("SessionRecordingListFromQuery.excluded_sessions_queries")
     def excluded_sessions_queries(self, session_ids: list[str]) -> list[ast.SelectQuery]:
         """The scoped counterpart to `skip_negative_blocklists`: which of `session_ids` are excluded.
 
@@ -398,10 +416,14 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
 
         Empty when nothing is excluded, which is also how a caller can tell it has nothing to run.
         """
-        return [q for b in self._negative_filter_builders() if (q := b.get_excluded_sessions_query(session_ids))]
+        return [q for b in self._events_filter_builders() if (q := b.get_excluded_sessions_query(session_ids))]
 
-    def _negative_filter_builders(self) -> list[ReplayFiltersEventsSubQuery]:
-        """Every builder that can contribute a negative blocklist: the query's own, plus test accounts."""
+    def matches_on_events(self) -> bool:
+        """Whether any filter narrows sessions by their events, so `events_timestamp_floor` can cost results."""
+        return any(b.get_queries_for_session_id_matching() for b in self._events_filter_builders())
+
+    def _events_filter_builders(self) -> list[ReplayFiltersEventsSubQuery]:
+        """Every builder that can contribute an events subquery: the query's own, plus test accounts."""
         builders = [ReplayFiltersEventsSubQuery(self._team, self._query, self._allow_event_property_expansion)]
         if self._test_account_filters:
             builders.append(
@@ -511,6 +533,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             self._allow_event_property_expansion,
             sample_factor=self._events_sample_factor,
             events_timestamp_floor=self._events_timestamp_floor,
+            resolve_group_properties=self._resolve_group_properties,
         )
         events_sub_queries = events_sub_query_builder.get_queries_for_session_id_matching()
         for events_sub_query in events_sub_queries:
@@ -637,6 +660,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                 self._allow_event_property_expansion,
                 sample_factor=self._events_sample_factor,
                 events_timestamp_floor=self._events_timestamp_floor,
+                resolve_group_properties=self._resolve_group_properties,
             )
             for sub_q in test_account_events_builder.get_queries_for_session_id_matching():
                 exprs.append(

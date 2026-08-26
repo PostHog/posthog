@@ -88,6 +88,11 @@ describe('BlockProxy', () => {
         it.each([
             [500, true],
             [403, false],
+            // 404: a recording still being ingested has no blocks yet, the same race NO_SNAPSHOTS
+            // deliberately keeps retryable.
+            [404, true],
+            [429, true],
+            [401, false],
         ])('marks %i response as retryable=%s', async (status, expectedRetryable) => {
             mockInternalFetch.mockResolvedValue({
                 status,

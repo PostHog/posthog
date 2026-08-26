@@ -14,7 +14,8 @@
 //! the whole walk return `None` — the caller falls back to the parse, which resolves those exactly.
 
 use crate::assets::{
-    is_fetchable_src_attr, is_media_src_attr, INLINE_IMAGE_ATTR, MEDIA_SRC_ATTRS, PLACEHOLDER_SRC,
+    is_fetchable_src_attr, is_image_ref_attr, is_media_src_attr, IMAGE_REF_ATTR_PREFIX,
+    INLINE_IMAGE_ATTR, MEDIA_SRC_ATTRS, PLACEHOLDER_SRC,
 };
 use crate::blur::is_image_data_uri;
 use crate::collect::is_image_ref_strict;
@@ -826,8 +827,8 @@ impl<'c, 'a> Walker<'c, 'a> {
     }
 
     /// An element's `attributes` object (mirrors `dom::scrub_attrs`, including the media blur).
-    /// Stash attrs (`data-anon-original-*`) are appended before the closing brace; the tree path
-    /// inserts them into the map instead, which is the same object semantically.
+    /// Namespaced attrs are appended before the closing brace; the tree path inserts them into the
+    /// map instead, which is the same object semantically.
     fn walk_attrs(
         &mut self,
         start: usize,
@@ -843,6 +844,12 @@ impl<'c, 'a> Walker<'c, 'a> {
             let stashes = &mut stashes;
             self.walk_object(start, out, &mut |w, key, vstart, out| {
                 let name = std::str::from_utf8(&w.bytes[key.0..key.1]).ok()?;
+                // Existing internal refs need provenance validation and may need removing. The
+                // object emitter cannot omit one member, so let the tree path handle this rare
+                // input shape rather than risk duplicate or attacker-controlled join keys.
+                if is_image_ref_attr(name) {
+                    return None;
+                }
                 if kind == TagKind::Media && is_media_src_attr(name) {
                     return w.blur_media_src(name, vstart, tag_src_is_image, out, stashes);
                 }
@@ -893,8 +900,8 @@ impl<'c, 'a> Walker<'c, 'a> {
     }
 
     /// One media source attribute (mirrors `assets::apply_blur` for a single key): data images are
-    /// blurred; a remote URL becomes a fetch-lane ref when collection is on, and the placeholder
-    /// otherwise. Either way the host-scrubbed original is stashed alongside.
+    /// blurred; a remote URL becomes the placeholder. Its fetch-lane ref, when collected, and its
+    /// host-scrubbed original are stashed alongside.
     fn blur_media_src(
         &mut self,
         name: &str,
@@ -923,9 +930,9 @@ impl<'c, 'a> Walker<'c, 'a> {
                 .then(|| self.ctx.collect_url(&existing))
                 .flatten();
             let scrubbed = scrub_url(self.ctx, &existing).unwrap_or_else(|| existing.into_owned());
-            match collected {
-                Some(url_ref) => scan::write_json_string(&url_ref, out),
-                None => scan::write_json_string(PLACEHOLDER_SRC, out),
+            scan::write_json_string(PLACEHOLDER_SRC, out);
+            if let Some(url_ref) = collected {
+                stashes.push((format!("{IMAGE_REF_ATTR_PREFIX}{name}"), url_ref));
             }
             stashes.push((format!("data-anon-original-{name}"), scrubbed));
         }

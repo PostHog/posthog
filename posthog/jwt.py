@@ -15,11 +15,16 @@ class PosthogJwtAudience(Enum):
     UNSUBSCRIBE = "posthog:unsubscribe"
     EXPORTED_ASSET = "posthog:exported_asset"
     IMPERSONATED_USER = "posthog:impersonted_user"
+    DELEGATED_USER = "posthog:delegated_user"
     EXPORT_RENDERER = "posthog:export_renderer"
     LIVESTREAM = "posthog:livestream"
     SHARING_PASSWORD_PROTECTED = "posthog:sharing_password_protected"
     RECORDING_API = "posthog:recording_api"
+    WORKFLOWS_RESCHEDULE_PARKED = "posthog:workflows:reschedule_parked"
+    WORKFLOWS_CANCEL_INVOCATIONS = "posthog:workflows:cancel_invocations"
+    WORKFLOWS_CANCEL_BATCH = "posthog:workflows:cancel_batch"
     INTEGRATION_SERVICE = "posthog:integration_service"
+    TASKS_CREATE = "posthog:tasks:create"
 
 
 def signing_key_fingerprint(key: str) -> str:

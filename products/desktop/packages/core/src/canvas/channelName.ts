@@ -1,5 +1,25 @@
-/** What the backend calls a user's private channel. */
 export const PERSONAL_CHANNEL_NAME = "me";
+
+export const GENERAL_CHANNEL_NAME = "general";
+
+export interface ChannelIdentity {
+  system_role?: "personal" | "general" | null;
+  channel_type: "public" | "personal";
+  name: string;
+}
+
+export function isPersonalChannel(channel: ChannelIdentity): boolean {
+  return channel.system_role != null
+    ? channel.system_role === "personal"
+    : channel.channel_type === "personal";
+}
+
+export function isGeneralChannel(channel: ChannelIdentity): boolean {
+  return channel.system_role != null
+    ? channel.system_role === "general"
+    : channel.channel_type === "public" &&
+        channel.name === GENERAL_CHANNEL_NAME;
+}
 
 /**
  * What that channel is called on screen.
@@ -48,8 +68,8 @@ export function channelDisplayReference(
     : `#${channelDisplayName(name)}`;
 }
 
-// A channel's name is used verbatim as its server-side filesystem path segment,
-// so it must be directory-safe: lowercase letters, numbers, and hyphens only.
+// The server normalizes a name to this shape (`normalize_channel_name`), so anything
+// else would be stored as something other than what the field showed.
 export const CHANNEL_NAME_PATTERN = /^[a-z0-9-]+$/;
 
 function replaceChannelNameSeparators(name: string): string {

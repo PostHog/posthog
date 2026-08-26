@@ -67,10 +67,12 @@ from posthog.hogql.test.utils import pretty_print_in_tests
 from posthog.constants import AvailableFeature
 from posthog.models.group_type_mapping import invalidate_group_types_cache
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.data_tools.backend.models.expression import DataWarehouseExpression
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseCredential,
@@ -207,6 +209,54 @@ def _catalog_node(names: list[str]) -> TableNode:
             node = node.children.setdefault(part, TableNode(name=part, children={}))
         node.table = Table(fields={"id": StringDatabaseField(name="id")})
     return root
+
+
+class TestTableNodeCaseInsensitiveLookup(TestCase):
+    def _node(self, name: str = "leaf", *, case_insensitive: bool) -> TableNode:
+        return TableNode(
+            name=name,
+            table=Table(fields={"id": StringDatabaseField(name="id")}),
+            case_insensitive=case_insensitive,
+        )
+
+    def test_exact_match_wins_over_case_insensitive(self):
+        ci = self._node(case_insensitive=True)
+        exact = self._node(case_insensitive=False)
+        root = TableNode(name="root", children={"NATION": ci, "nation": exact})
+
+        assert root.get_child(["nation"]) is exact
+        assert root.get_child(["NATION"]) is ci
+        assert root.get_child(["NaTiOn"]) is ci
+
+    def test_only_opted_in_children_match_case_insensitively(self):
+        root = TableNode(name="root", children={"events": self._node(case_insensitive=False)})
+
+        assert root.has_child(["events"])
+        assert not root.has_child(["EVENTS"])
+
+    def test_collision_keeps_first_child_in_iteration_order(self):
+        first = self._node(case_insensitive=True)
+        second = self._node(case_insensitive=True)
+        root = TableNode(name="root", children={"Nation": first, "NATION": second})
+
+        assert root.get_child(["nation"]) is first
+
+    def test_lookup_sees_child_replaced_through_add_child(self):
+        root = TableNode(name="root", children={"Nation": self._node("Nation", case_insensitive=True)})
+        assert root.has_child(["nation"])  # warms the case-insensitive index
+
+        root.add_child(self._node("Nation", case_insensitive=False), children_conflict_mode="override")
+
+        assert root.has_child(["Nation"])
+        assert not root.has_child(["nation"])
+
+    def test_lookup_sees_externally_removed_child(self):
+        root = TableNode(name="root", children={"Nation": self._node("Nation", case_insensitive=True)})
+        assert root.has_child(["nation"])  # warms the case-insensitive index
+
+        del root.children["Nation"]
+
+        assert not root.has_child(["nation"])
 
 
 class TestUnknownTableSuggestions(TestCase):
@@ -1183,6 +1233,71 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert resolved_field.name == "N_NAME"
 
     @patch("posthog.hogql.query.sync_execute", return_value=([], []))
+    def test_deferred_foreign_keys_wire_for_snowflake_table_named_in_another_case(self, patch_execute):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="snowflake_fk_source",
+            source_type=ExternalDataSourceType.SNOWFLAKE,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"database": "DB", "schema": ""},
+        )
+        customer_table = DataWarehouseTable.objects.create(
+            name="TPCH_SF1.CUSTOMER",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            external_data_source_id=source.id,
+            url_pattern="s3://test/*",
+            options={
+                "direct_snowflake_catalog": "DB",
+                "direct_snowflake_schema": "TPCH_SF1",
+                "direct_snowflake_table": "CUSTOMER",
+            },
+            columns={"C_CUSTKEY": {"clickhouse": "Int64", "hogql": "integer"}},
+        )
+        orders_table = DataWarehouseTable.objects.create(
+            name="TPCH_SF1.ORDERS",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            external_data_source_id=source.id,
+            url_pattern="s3://test/*",
+            options={
+                "direct_snowflake_catalog": "DB",
+                "direct_snowflake_schema": "TPCH_SF1",
+                "direct_snowflake_table": "ORDERS",
+            },
+            columns={
+                "O_ORDERKEY": {"clickhouse": "Int64", "hogql": "integer"},
+                # Quoted lowercase column, so the join field it produces ("customer") doesn't collide
+                # with the column name and the foreign key actually wires.
+                "customer_id": {"clickhouse": "Int64", "hogql": "integer"},
+            },
+        )
+        ExternalDataSchema.objects.create(name="TPCH_SF1.CUSTOMER", team=self.team, source=source, table=customer_table)
+        ExternalDataSchema.objects.create(
+            name="TPCH_SF1.ORDERS",
+            team=self.team,
+            source=source,
+            table=orders_table,
+            sync_type_config={
+                "schema_metadata": {
+                    "foreign_keys": [
+                        {"column": "customer_id", "target_table": "CUSTOMER", "target_column": "C_CUSTKEY"}
+                    ]
+                }
+            },
+        )
+
+        sources = Database._fetch_sources(team=self.team, connection_id=str(source.id))
+        database = Database._build_from_sources(sources)
+
+        # Snowflake folds unquoted names, so a lowercase reference resolves to the canonical table —
+        # and must still arm the deferred foreign-key build for the whole graph.
+        orders = database.get_table("tpch_sf1.orders")
+        assert isinstance(orders.fields.get("customer"), LazyJoin)
+
+    @patch("posthog.hogql.query.sync_execute", return_value=([], []))
     def test_build_from_sources_keeps_non_snowflake_tables_case_sensitive(self, patch_execute):
         # The case-insensitive fallback is opt-in per node, so a non-Snowflake direct table must NOT
         # resolve under a different case.
@@ -1785,15 +1900,17 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         ), query
 
     def test_selecting_persons_from_events_ignores_future_persons(self):
-        db = Database.create_for(team=self.team)
+        # disable PoE for the database too: the field layout comes from the
+        # database, so a context-only pin prints the team default's SQL
+        modifiers = create_default_modifiers_for_team(
+            self.team, HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.DISABLED)
+        )
+        db = Database.create_for(team=self.team, modifiers=modifiers)
         context = HogQLContext(
             team_id=self.team.pk,
             enable_select_queries=True,
             database=db,
-            # disable PoE
-            modifiers=create_default_modifiers_for_team(
-                self.team, HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.DISABLED)
-            ),
+            modifiers=modifiers,
         )
         sql = "select person.id from events"
         query, _ = prepare_and_print_ast(parse_select(sql), context, dialect="clickhouse")
@@ -1865,6 +1982,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             with self.assertNumQueries(num_queries):
                 Database.create_for(team=self.team)
 
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_database_warehouse_joins_persons_poe_old_properties(self):
         DataWarehouseJoin.objects.create(
             team=self.team,
@@ -2826,6 +2944,224 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         assert isinstance(activitylog.fields.get("team"), LazyJoin)
         assert isinstance(team.fields.get("posthog_activitylogs"), LazyJoin)
+
+    def test_postgres_foreign_keys_are_deferred_until_a_warehouse_table_is_accessed(self):
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            prefix="ph3",
+        )
+        team_table = DataWarehouseTable.objects.create(
+            name="posthog_team",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="s3://test/*",
+            columns={"id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True}},
+        )
+        activitylog_table = DataWarehouseTable.objects.create(
+            name="posthog_activitylog",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="s3://test/*",
+            columns={
+                "id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True},
+                "team_id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True},
+            },
+        )
+        ExternalDataSchema.objects.create(name="posthog_team", team=self.team, source=source, table=team_table)
+        ExternalDataSchema.objects.create(
+            name="posthog_activitylog",
+            team=self.team,
+            source=source,
+            table=activitylog_table,
+            sync_type_config={
+                "schema_metadata": {
+                    "foreign_keys": [{"column": "team_id", "target_table": "posthog_team", "target_column": "id"}]
+                }
+            },
+        )
+
+        database = Database.create_for(team=self.team)
+
+        # Reading through the tree directly does not resolve via get_table, so it never arms the build.
+        activitylog_before = database.get_table_node("postgres.ph3.posthog_activitylog").get()
+        assert isinstance(activitylog_before, Table)
+        assert activitylog_before.fields.get("team") is None
+
+        # Accessing a core (non-warehouse) table must not pay for warehouse foreign keys.
+        database.get_table("events")
+        activitylog_after_events = database.get_table_node("postgres.ph3.posthog_activitylog").get()
+        assert isinstance(activitylog_after_events, Table)
+        assert activitylog_after_events.fields.get("team") is None
+
+        # The first warehouse-table access wires the whole graph — forward and reverse joins.
+        activitylog = database.get_table("postgres.ph3.posthog_activitylog")
+        assert isinstance(activitylog.fields.get("team"), LazyJoin)
+        assert isinstance(database.get_table("postgres.ph3.posthog_team").fields.get("posthog_activitylogs"), LazyJoin)
+
+    def test_deferred_foreign_keys_do_not_replace_event_modifier_field_mappings(self):
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            prefix="ph3",
+        )
+        team_table = DataWarehouseTable.objects.create(
+            name="posthog_team",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="s3://test/*",
+            columns={"id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True}},
+        )
+        activitylog_table = DataWarehouseTable.objects.create(
+            name="posthog_activitylog",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="s3://test/*",
+            columns={
+                "id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True},
+                "row_id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True},
+                "team_id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True},
+                "timestamp": {"hogql": "datetime", "clickhouse": "DateTime64(6, 'UTC')", "schema_valid": True},
+            },
+        )
+        ExternalDataSchema.objects.create(name="posthog_team", team=self.team, source=source, table=team_table)
+        # A foreign key on `id` collides with the event-modifier `id` mapping; the `team_id` one does not.
+        ExternalDataSchema.objects.create(
+            name="posthog_activitylog",
+            team=self.team,
+            source=source,
+            table=activitylog_table,
+            sync_type_config={
+                "schema_metadata": {
+                    "foreign_keys": [
+                        {"column": "id", "target_table": "posthog_team", "target_column": "id"},
+                        {"column": "team_id", "target_table": "posthog_team", "target_column": "id"},
+                    ]
+                }
+            },
+        )
+
+        modifiers = create_default_modifiers_for_team(
+            self.team,
+            modifiers=HogQLQueryModifiers(
+                dataWarehouseEventsModifiers=[
+                    DataWarehouseEventsModifier(
+                        table_name="postgres.ph3.posthog_activitylog",
+                        id_field="row_id",
+                        timestamp_field="timestamp",
+                        distinct_id_field="distinct_id",
+                    )
+                ],
+            ),
+        )
+
+        database = Database.create_for(team=self.team, modifiers=modifiers)
+        activitylog = database.get_table("postgres.ph3.posthog_activitylog")
+
+        # The modifier's `id` mapping wins over the colliding foreign key, as it did in the eager path.
+        assert isinstance(activitylog.fields.get("id"), ExpressionField)
+        # The non-colliding foreign key still wired, proving the deferred build actually ran.
+        assert isinstance(activitylog.fields.get("team"), LazyJoin)
+
+    def _postgres_warehouse_source_with_foreign_key(self, *, foreign_keys: list[dict[str, str]]) -> None:
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            prefix="ph3",
+        )
+        team_table = DataWarehouseTable.objects.create(
+            name="posthog_team",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="s3://test/*",
+            columns={"id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True}},
+        )
+        activitylog_table = DataWarehouseTable.objects.create(
+            name="posthog_activitylog",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="s3://test/*",
+            columns={
+                "id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True},
+                "team_id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True},
+            },
+        )
+        ExternalDataSchema.objects.create(name="posthog_team", team=self.team, source=source, table=team_table)
+        ExternalDataSchema.objects.create(
+            name="posthog_activitylog",
+            team=self.team,
+            source=source,
+            table=activitylog_table,
+            sync_type_config={"schema_metadata": {"foreign_keys": foreign_keys}},
+        )
+
+    def test_deferred_foreign_keys_wire_for_a_table_reached_through_a_data_warehouse_join(self):
+        self._postgres_warehouse_source_with_foreign_key(
+            foreign_keys=[{"column": "team_id", "target_table": "posthog_team", "target_column": "id"}]
+        )
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="events",
+            source_table_key="event",
+            joining_table_name="postgres.ph3.posthog_activitylog",
+            joining_table_key="id",
+            field_name="activitylog",
+        )
+
+        database = Database.create_for(team=self.team)
+
+        # The join holds the warehouse table as an object, so resolving through it never calls
+        # get_table on the warehouse name. Accessing the join's source table has to arm the build.
+        join_field = database.get_table("events").fields["activitylog"]
+        assert isinstance(join_field, LazyJoin)
+        joined = join_field.resolve_table(HogQLContext(team_id=self.team.pk, database=database))
+        assert isinstance(joined.fields.get("team"), LazyJoin)
+
+    def test_deferred_foreign_keys_replace_a_colliding_saved_expression(self):
+        self._postgres_warehouse_source_with_foreign_key(
+            foreign_keys=[{"column": "team_id", "target_table": "posthog_team", "target_column": "id"}]
+        )
+        with team_scope(self.team.id, canonical=True):
+            DataWarehouseExpression.objects.create(
+                team=self.team,
+                table_name="postgres.ph3.posthog_activitylog",
+                field_name="team",
+                expression="team_id",
+            )
+
+        database = Database.create_for(team=self.team)
+
+        # The eager path wired foreign keys first, so the expression was skipped as a shadowing name.
+        # Deferring flips the order, so the join still has to reclaim the field.
+        activitylog = database.get_table("postgres.ph3.posthog_activitylog")
+        assert isinstance(activitylog.fields.get("team"), LazyJoin)
 
     def test_serialize_direct_postgres_skips_foreign_key_join_when_target_table_is_missing(self):
         credentials = DataWarehouseCredential.objects.create(

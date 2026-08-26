@@ -81,12 +81,10 @@ export interface CaptureConfig {
 
 /** Internal result from the recorder before S3 upload */
 export interface RecordingResult {
-    video_path: string
     playback_speed: number
     capture_duration_s: number // wall-clock seconds of useful capture (up to RECORDING_ENDED)
     frame_count: number // total frames captured
     truncated: boolean // true when max_virtual_time stopped the recording early
     inactivity_periods: InactivityPeriod[]
-    custom_fps: number
     timings: Pick<ActivityTimings, 'setup_s' | 'capture_s'>
 }

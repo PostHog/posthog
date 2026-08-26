@@ -135,7 +135,8 @@ function EditLimitModal(): JSX.Element {
  * alongside it, then `X / Y PRs created` on the left and `Resets <date>` on the right. On a paid plan
  * the limit is editable (and the edit affordance escalates to "Increase limit" at the cap); on the
  * free plan it shows an in-place upgrade instead. Renders nothing until billing has loaded and the
- * inbox product is present.
+ * inbox product is present. Deliberately billing-only: the team's daily report cap lives with the
+ * autonomy throttles in SelfDrivingSection, so a self-imposed cap never reads as a plan limit.
  */
 export function InboxUsageWidget(): JSX.Element | null {
     const {

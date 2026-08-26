@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 import click
+from hogli import telemetry
 from hogli.manifest import get_manifest
 
 from . import mutagen
@@ -740,6 +741,9 @@ def devbox_doctor() -> None:
 
     if not reachable:
         diagnosis = _diagnose_unreachable_coder()
+        # doctor exits 0 while reporting a broken tailnet, so a failure count
+        # off this property has to filter on command or exit_code.
+        telemetry.add_command_properties(devbox_failure_cause=diagnosis.code)
         click.echo()
         click.echo(click.style(f"  Cause: {diagnosis.cause}", fg="yellow"))
         click.echo(f"  Next:  {diagnosis.next_step}")

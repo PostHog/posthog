@@ -411,7 +411,7 @@ def _credential_auth_method(credentials: dict, auth_method_key: str, client_secr
 class InstallationOAuthContext:
     metadata: dict
     client_id: str
-    client_secret: str | None
+    client_secret: str | None = dataclasses.field(repr=False)
     token_endpoint_auth_method: str
 
 

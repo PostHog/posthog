@@ -25,9 +25,11 @@ module.exports = {
     // `dev/` folders hold dev-only benchmarks/scripts, never CI tests. Anchored to rootDir:
     // an unanchored '/dev/' also matches checkout paths like ~/dev/posthog and ignores every test.
     testPathIgnorePatterns: ['/node_modules/', '<rootDir>/(src|tests)(/.*)?/dev/'],
+    transformIgnorePatterns: ['/node_modules/(?!\\.pnpm/@trybyte\\+robotstxt-parser|@trybyte/robotstxt-parser)'],
 
     // NOTE: This should be kept in sync with tsconfig.json
     moduleNameMapper: {
+        '^@trybyte/robotstxt-parser$': '<rootDir>/node_modules/@trybyte/robotstxt-parser/dist/index.js',
         // `~/...` -> src/, `~/tests/...` -> tests/. The `.js`-suffixed variants come first to strip the
         // nodenext extension: the production tsconfig is module: nodenext, which forces import()
         // specifiers to carry `.js` (TS2835/TS2307), so ts-jest emits e.g. `~/foo.js` while only a

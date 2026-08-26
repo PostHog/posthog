@@ -67,6 +67,7 @@ export function RetentionLineChart({ inSharedMode = false }: RetentionLineChartP
         getRetentionColor,
     } = useValues(retentionGraphLogic(insightProps))
     const { openModal } = useActions(retentionModalLogic(insightProps))
+    const { canOpenPersonModal } = useValues(retentionModalLogic(insightProps))
     const { aggregationLabel } = useValues(groupsModel)
 
     const selectedInterval = retentionFilter?.selectedInterval ?? null
@@ -74,7 +75,7 @@ export function RetentionLineChart({ inSharedMode = false }: RetentionLineChartP
     const isPercentage = !retentionFilter?.aggregationType || retentionFilter.aggregationType === 'count'
     const isIntervalView = selectedInterval !== null
     // Shared (public) views don't have the persons modal mounted — disable click-to-open there.
-    const canClick = !shouldShowMeanPerBreakdown && !inSharedMode
+    const canClick = !shouldShowMeanPerBreakdown && !inSharedMode && canOpenPersonModal
 
     const series = useMemo(
         () =>

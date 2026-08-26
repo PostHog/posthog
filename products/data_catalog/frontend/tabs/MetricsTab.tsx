@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import { IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
@@ -17,15 +18,21 @@ import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import { humanizeDefinitionKind } from '../common'
+import { METRIC_BULK_MAX, humanizeDefinitionKind, metricCount } from '../common'
 import type { DataCatalogMetricApi } from '../generated/api.schemas'
-import { MetricStatusFilter, metricsLogic } from '../metricsLogic'
+import { BulkMetricAction, MetricStatusFilter, metricsLogic } from '../metricsLogic'
 
 const STATUS_FILTER_OPTIONS: { value: MetricStatusFilter; label: string }[] = [
     { value: 'all', label: 'All' },
     { value: 'proposed', label: 'Proposed' },
     { value: 'approved', label: 'Approved' },
 ]
+
+const OVER_CAP_REASON = `Select at most ${METRIC_BULK_MAX} metrics at a time`
+
+function isApprovable(metric: DataCatalogMetricApi): boolean {
+    return metric.status !== 'approved' && !metric.is_drifted
+}
 
 function StatusTag({ metric }: { metric: DataCatalogMetricApi }): JSX.Element {
     return (
@@ -57,9 +64,40 @@ function SourceTag({ metric }: { metric: DataCatalogMetricApi }): JSX.Element {
 }
 
 export function MetricsTab(): JSX.Element {
-    const { metrics, allMetrics, allMetricsLoading, filters, actionsInFlight } = useValues(metricsLogic)
-    const { setFilters, loadMetrics, approveMetric, refreshMetricFromInsight, deleteMetric, openNewMetricModal } =
-        useActions(metricsLogic)
+    // State, not a ref, so the table re-renders once the slot mounts and the bar can portal into it.
+    // The bar portals below the table instead of above it, so selecting a row never shifts the rows.
+    const [bulkBarTarget, setBulkBarTarget] = useState<HTMLDivElement | null>(null)
+    const { metrics, allMetrics, allMetricsLoading, filters, actionsInFlight, bulkActionInFlight } =
+        useValues(metricsLogic)
+    const {
+        setFilters,
+        loadMetrics,
+        approveMetric,
+        refreshMetricFromInsight,
+        deleteMetric,
+        openNewMetricModal,
+        bulkApproveMetrics,
+        bulkDeleteMetrics,
+    } = useActions(metricsLogic)
+
+    const bulkBusyReason = bulkActionInFlight ? 'A bulk action is running' : undefined
+    // Reload replaces the whole list and takes no breakpoint, so a load that resolves after a
+    // mutation would repaint pre-mutation rows (e.g. bring back rows a bulk delete just removed).
+    // Block it while any mutation is in flight; the view is authoritative again on the next load.
+    const reloadDisabledReason =
+        bulkBusyReason ?? (Object.values(actionsInFlight).some(Boolean) ? 'A metric action is running' : undefined)
+    const otherBulkActionReason = (self: BulkMetricAction): string | undefined =>
+        bulkActionInFlight && bulkActionInFlight !== self ? 'Another bulk action is running' : undefined
+
+    const bulkApproveDisabledReason = (approvableCount: number): string | undefined => {
+        if (approvableCount === 0) {
+            return 'Every selected metric is already approved or has drifted. Refresh a drifted metric first.'
+        }
+        if (approvableCount > METRIC_BULK_MAX) {
+            return OVER_CAP_REASON
+        }
+        return otherBulkActionReason('approve')
+    }
 
     const confirmDelete = (metric: DataCatalogMetricApi): void => {
         LemonDialog.open({
@@ -75,6 +113,25 @@ export function MetricsTab(): JSX.Element {
                 type: 'primary',
                 status: 'danger',
                 onClick: () => deleteMetric(metric.name),
+            },
+            secondaryButton: { children: 'Cancel', type: 'tertiary' },
+        })
+    }
+
+    const confirmBulkDelete = (names: string[], onDeleted: () => void): void => {
+        LemonDialog.open({
+            title: `Delete ${metricCount(names.length)}?`,
+            content: (
+                <div className="text-sm text-secondary">
+                    This deletes the selected metrics and makes their names available for new metrics. Queries and links
+                    that reference them will stop working.
+                </div>
+            ),
+            primaryButton: {
+                children: 'Delete',
+                type: 'primary',
+                status: 'danger',
+                onClick: () => bulkDeleteMetrics(names, onDeleted),
             },
             secondaryButton: { children: 'Cancel', type: 'tertiary' },
         })
@@ -149,9 +206,10 @@ export function MetricsTab(): JSX.Element {
                                         fullWidth
                                         loading={inFlight}
                                         disabledReason={
-                                            metric.is_drifted
+                                            bulkBusyReason ??
+                                            (metric.is_drifted
                                                 ? 'This metric has drifted from its source insight. Refresh it first.'
-                                                : undefined
+                                                : undefined)
                                         }
                                         onClick={() => approveMetric(metric.name)}
                                     >
@@ -162,6 +220,7 @@ export function MetricsTab(): JSX.Element {
                                     <LemonButton
                                         fullWidth
                                         loading={inFlight}
+                                        disabledReason={bulkBusyReason}
                                         onClick={() => refreshMetricFromInsight(metric.name)}
                                     >
                                         Refresh from insight
@@ -170,7 +229,7 @@ export function MetricsTab(): JSX.Element {
                                 <LemonButton
                                     fullWidth
                                     status="danger"
-                                    disabledReason={inFlight ? 'Working' : undefined}
+                                    disabledReason={bulkBusyReason ?? (inFlight ? 'Working' : undefined)}
                                     onClick={() => confirmDelete(metric)}
                                 >
                                     Delete
@@ -204,6 +263,7 @@ export function MetricsTab(): JSX.Element {
                         icon={<IconRefresh />}
                         onClick={() => loadMetrics()}
                         loading={allMetricsLoading}
+                        disabledReason={reloadDisabledReason}
                         size="small"
                     >
                         Reload
@@ -219,6 +279,60 @@ export function MetricsTab(): JSX.Element {
                 pagination={{ pageSize: 20 }}
                 emptyState="No metrics match your filters."
                 nouns={['metric', 'metrics']}
+                bulkSelection={{
+                    // Key on the stable id, not the name: a name is freed for reuse when a metric is
+                    // deleted or renamed, so a name-keyed selection could target a different metric
+                    // that later takes the same name.
+                    getKey: (metric: DataCatalogMetricApi) => metric.id,
+                    noun: ['metric', 'metrics'],
+                    rowAriaLabel: (metric: DataCatalogMetricApi) => `Select metric ${metric.name}`,
+                    headerAriaLabel: 'Select all metrics on this page',
+                    barPortalTarget: bulkBarTarget,
+                    renderActions: (ctx) => {
+                        // Selection spans pages, so resolve the keys against every metric rather
+                        // than ctx.selectedRecords, which only covers the page on screen. Resolving
+                        // by id also drops any selected metric that has since left the list.
+                        const selected = new Set(ctx.selectedKeys)
+                        const selectedMetrics = allMetrics.filter((metric) => selected.has(metric.id))
+                        const approvableNames = selectedMetrics.filter(isApprovable).map((metric) => metric.name)
+                        const selectedNames = selectedMetrics.map((metric) => metric.name)
+                        return (
+                            <>
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    data-attr="data-catalog-metrics-bulk-approve"
+                                    loading={bulkActionInFlight === 'approve'}
+                                    disabledReason={bulkApproveDisabledReason(approvableNames.length)}
+                                    onClick={() => bulkApproveMetrics(approvableNames, ctx.clearSelection)}
+                                >
+                                    Approve ({approvableNames.length})
+                                </LemonButton>
+                                <LemonButton
+                                    type="secondary"
+                                    status="danger"
+                                    size="small"
+                                    data-attr="data-catalog-metrics-bulk-delete"
+                                    loading={bulkActionInFlight === 'delete'}
+                                    disabledReason={
+                                        selectedNames.length === 0
+                                            ? 'The selected metrics are no longer available. Reload the list.'
+                                            : selectedNames.length > METRIC_BULK_MAX
+                                              ? OVER_CAP_REASON
+                                              : otherBulkActionReason('delete')
+                                    }
+                                    onClick={() => confirmBulkDelete(selectedNames, ctx.clearSelection)}
+                                >
+                                    Delete
+                                </LemonButton>
+                            </>
+                        )
+                    },
+                }}
+            />
+            <div
+                ref={setBulkBarTarget}
+                className="sticky bottom-4 z-10 self-center w-fit rounded border border-primary bg-surface-primary px-2 py-1 shadow empty:hidden"
             />
         </div>
     )

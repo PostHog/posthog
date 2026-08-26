@@ -38,7 +38,7 @@ import { useWorkspaceEvents } from "../../workspace/useWorkspaceEvents";
 import { HeaderTitleEditor } from "../HeaderTitleEditor";
 import { useTaskData } from "../hooks/useTaskData";
 import { CustomImageBadge } from "./CustomImageBadge";
-import { WorkspaceModeBadge } from "./WorkspaceModeBadge";
+import { TaskHeaderMark, TaskHeaderMarks } from "./TaskHeaderStatus";
 
 const MIN_REVIEW_WIDTH = 300;
 const log = logger.scope("task-detail");
@@ -78,7 +78,7 @@ export function TaskDetail({
 
   const { enableScope, disableScope } = useHotkeysContext();
   const { archiveTask } = useArchiveTask({
-    navigateSpace: channelId ? "website" : "code",
+    navigateUnscoped: !channelId,
   });
   const [showArchiveConfirm, setShowArchiveConfirm] = useState(false);
 
@@ -204,7 +204,8 @@ export function TaskDetail({
           channelId={channelId}
           leafIcon={
             <span className="flex items-center gap-1.5">
-              <WorkspaceModeBadge
+              <TaskHeaderMark
+                task={task}
                 mode={workspaceMode}
                 checkoutPath={effectiveRepoPath}
               />
@@ -214,7 +215,12 @@ export function TaskDetail({
           leafLabel={task.title}
           editScopeKey={taskId}
           onRename={handleTitleEditSubmit}
-          leafTrailing={trailing}
+          leafTrailing={
+            <span className="flex shrink-0 items-center gap-0">
+              <TaskHeaderMarks task={task} />
+              {trailing}
+            </span>
+          }
         />
       ) : (
         <Flex align="center" justify="between" gap="2" width="100%">
@@ -226,7 +232,8 @@ export function TaskDetail({
             />
           ) : (
             <Flex align="center" gap="2" minWidth="0">
-              <WorkspaceModeBadge
+              <TaskHeaderMark
+                task={task}
                 mode={workspaceMode}
                 checkoutPath={effectiveRepoPath}
               />
@@ -240,6 +247,7 @@ export function TaskDetail({
                   {task.title}
                 </Text>
               </Tooltip>
+              <TaskHeaderMarks task={task} />
             </Flex>
           )}
           {trailing}

@@ -7,6 +7,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -30,9 +31,10 @@ import { tagsModel } from '~/models/tagsModel'
 import { ExperimentMetric, NodeKind } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, ExperimentsTabs } from '~/types'
 
+import { LegacySharedFunnelsMetricForm } from 'products/experiments/frontend/legacy/sharedMetrics/LegacySharedFunnelsMetricForm'
+import { LegacySharedTrendsMetricForm } from 'products/experiments/frontend/legacy/sharedMetrics/LegacySharedTrendsMetricForm'
+
 import { ExperimentMetricForm } from '../ExperimentMetricForm'
-import { LegacySharedFunnelsMetricForm } from '../legacy/sharedMetrics/LegacySharedFunnelsMetricForm'
-import { LegacySharedTrendsMetricForm } from '../legacy/sharedMetrics/LegacySharedTrendsMetricForm'
 import { getDefaultFunnelsMetric, getDefaultTrendsMetric } from '../utils'
 import { SharedMetricLogicProps, sharedMetricLogic } from './sharedMetricLogic'
 
@@ -43,6 +45,24 @@ export const scene: SceneExport<SharedMetricLogicProps> = {
         sharedMetricId: id === 'new' ? null : parseInt(id),
         action: action || (id === 'new' ? 'create' : 'update'),
     }),
+}
+
+function openDeleteSharedMetricDialog(onDelete: () => void): void {
+    LemonDialog.open({
+        title: 'Delete this metric?',
+        content: <div className="text-sm text-secondary">This action cannot be undone.</div>,
+        primaryButton: {
+            children: 'Delete',
+            type: 'primary',
+            onClick: onDelete,
+            size: 'small',
+        },
+        secondaryButton: {
+            children: 'Cancel',
+            type: 'tertiary',
+            size: 'small',
+        },
+    })
 }
 
 export function SharedMetric(): JSX.Element {
@@ -128,27 +148,7 @@ export function SharedMetric(): JSX.Element {
                                     variant="destructive"
                                     opensFloatingUi
                                     disabled={!!disabledReason}
-                                    onClick={() => {
-                                        LemonDialog.open({
-                                            title: 'Delete this metric?',
-                                            content: (
-                                                <div className="text-sm text-secondary">
-                                                    This action cannot be undone.
-                                                </div>
-                                            ),
-                                            primaryButton: {
-                                                children: 'Delete',
-                                                type: 'primary',
-                                                onClick: () => deleteSharedMetric(),
-                                                size: 'small',
-                                            },
-                                            secondaryButton: {
-                                                children: 'Cancel',
-                                                type: 'tertiary',
-                                                size: 'small',
-                                            },
-                                        })
-                                    }}
+                                    onClick={() => openDeleteSharedMetricDialog(deleteSharedMetric)}
                                     data-attr="shared-metric-menubar-delete"
                                 >
                                     <IconTrash />
@@ -187,25 +187,7 @@ export function SharedMetric(): JSX.Element {
                             <ButtonPrimitive
                                 variant="danger"
                                 menuItem
-                                onClick={() => {
-                                    LemonDialog.open({
-                                        title: 'Delete this metric?',
-                                        content: (
-                                            <div className="text-sm text-secondary">This action cannot be undone.</div>
-                                        ),
-                                        primaryButton: {
-                                            children: 'Delete',
-                                            type: 'primary',
-                                            onClick: () => deleteSharedMetric(),
-                                            size: 'small',
-                                        },
-                                        secondaryButton: {
-                                            children: 'Cancel',
-                                            type: 'tertiary',
-                                            size: 'small',
-                                        },
-                                    })
-                                }}
+                                onClick={() => openDeleteSharedMetricDialog(deleteSharedMetric)}
                             >
                                 <IconTrash /> Delete
                             </ButtonPrimitive>
@@ -236,27 +218,51 @@ export function SharedMetric(): JSX.Element {
                     key: ExperimentsTabs.SharedMetrics,
                 }}
                 actions={
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.ExperimentSavedMetric}
-                        minAccessLevel={AccessControlLevel.Editor}
-                        userAccessLevel={sharedMetric.user_access_level}
-                    >
-                        <LemonButton
-                            disabledReason={sharedMetric.name ? undefined : 'You must give your metric a name'}
-                            size="small"
-                            type="primary"
-                            onClick={() => {
-                                if (['create', 'duplicate'].includes(action)) {
-                                    createSharedMetric()
-                                    return
+                    <>
+                        {action === 'update' && (
+                            <More
+                                overlay={
+                                    <AccessControlAction
+                                        resourceType={AccessControlResourceType.ExperimentSavedMetric}
+                                        minAccessLevel={AccessControlLevel.Editor}
+                                        userAccessLevel={sharedMetric.user_access_level}
+                                    >
+                                        <LemonButton
+                                            fullWidth
+                                            size="small"
+                                            icon={<IconTrash />}
+                                            status="danger"
+                                            data-attr="shared-metric-delete"
+                                            onClick={() => openDeleteSharedMetricDialog(deleteSharedMetric)}
+                                        >
+                                            Delete
+                                        </LemonButton>
+                                    </AccessControlAction>
                                 }
-
-                                updateSharedMetric()
-                            }}
+                            />
+                        )}
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.ExperimentSavedMetric}
+                            minAccessLevel={AccessControlLevel.Editor}
+                            userAccessLevel={sharedMetric.user_access_level}
                         >
-                            Save
-                        </LemonButton>
-                    </AccessControlAction>
+                            <LemonButton
+                                disabledReason={sharedMetric.name ? undefined : 'You must give your metric a name'}
+                                size="small"
+                                type="primary"
+                                onClick={() => {
+                                    if (['create', 'duplicate'].includes(action)) {
+                                        createSharedMetric()
+                                        return
+                                    }
+
+                                    updateSharedMetric()
+                                }}
+                            >
+                                Save
+                            </LemonButton>
+                        </AccessControlAction>
+                    </>
                 }
             />
 
@@ -278,32 +284,6 @@ export function SharedMetric(): JSX.Element {
                 <LegacySharedFunnelsMetricForm />
             )}
             <div className="flex justify-between">
-                {/* {action === 'update' && (
-                    <LemonButton
-                        size="medium"
-                        type="primary"
-                        status="danger"
-                        onClick={() => {
-                            LemonDialog.open({
-                                title: 'Delete this metric?',
-                                content: <div className="text-sm text-secondary">This action cannot be undone.</div>,
-                                primaryButton: {
-                                    children: 'Delete',
-                                    type: 'primary',
-                                    onClick: () => deleteSharedMetric(),
-                                    size: 'small',
-                                },
-                                secondaryButton: {
-                                    children: 'Cancel',
-                                    type: 'tertiary',
-                                    size: 'small',
-                                },
-                            })
-                        }}
-                    >
-                        Delete
-                    </LemonButton>
-                )} */}
                 <AccessControlAction
                     resourceType={AccessControlResourceType.ExperimentSavedMetric}
                     minAccessLevel={AccessControlLevel.Editor}

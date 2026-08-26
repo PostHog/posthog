@@ -24,17 +24,7 @@ def run_alert_check(alert_id: str) -> None:
 
     should_run_metrics_investigation = False
     with transaction.atomic():
-        alert_check, notify = alert_utils.add_alert_check(
-            alert,
-            value=result.value if result else None,
-            breaches=result.breaches if result else None,
-            error=error,
-            anomaly_scores=result.anomaly_scores if result else None,
-            triggered_points=result.triggered_points if result else None,
-            triggered_dates=result.triggered_dates if result else None,
-            interval=result.interval if result else None,
-            triggered_metadata=result.triggered_metadata if result else None,
-        )
+        alert_check, notify = alert_utils.add_alert_check(alert, result, error)
 
         # Claim the cooldown slot inside the transaction (read-then-write stays
         # consistent with the check insert), mirroring the detector path.

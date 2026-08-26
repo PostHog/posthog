@@ -24,14 +24,13 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
-from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.constants import AUTOCAPTURE_EVENT
+from posthog.dataclasses import frozen
 from posthog.hogql_queries.insights.funnels import FunnelUDF
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.hogql_queries.insights.funnels.utils import funnel_window_interval_unit_to_sql
@@ -81,6 +80,14 @@ class EventContingencyTable:
 
 
 PRIOR_COUNT = 1
+
+
+@frozen
+class CorrelationCalculation:
+    events: list[EventOddsRatio]
+    skewed_totals: bool
+    hogql: str
+    response: HogQLQueryResponse
 
 
 class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationResponse]):
@@ -220,39 +227,34 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
                 results=FunnelCorrelationResult(events=[], skewed=False), modifiers=self.modifiers
             )
 
-        events, skewed_totals, hogql, response = self._calculate_internal()
+        calculation = self._calculate_internal()
 
         return FunnelCorrelationResponse(
             results=FunnelCorrelationResult(
-                events=[self.serialize_event_odds_ratio(odds_ratio=odds_ratio) for odds_ratio in events],
-                skewed=skewed_totals,
+                events=[self.serialize_event_odds_ratio(odds_ratio=odds_ratio) for odds_ratio in calculation.events],
+                skewed=calculation.skewed_totals,
             ),
-            timings=response.timings,
-            hogql=hogql,
-            columns=response.columns,
-            types=response.types,
-            hasMore=response.hasMore,
-            limit=response.limit,
-            offset=response.offset,
+            timings=calculation.response.timings,
+            hogql=calculation.hogql,
+            columns=calculation.response.columns,
+            types=calculation.response.types,
+            hasMore=calculation.response.hasMore,
+            limit=calculation.response.limit,
+            offset=calculation.response.offset,
             modifiers=self.modifiers,
         )
 
-    def _calculate_internal(self) -> tuple[list[EventOddsRatio], bool, str, HogQLQueryResponse]:
+    def _calculate_internal(self) -> CorrelationCalculation:
         query = self.to_query()
 
-        # Display-only response HogQL (never executed); bypass warehouse ACL so printing doesn't fail closed userless.
-        hogql = to_printed_hogql(query, self.team, bypass_warehouse_access_control=True)
+        hogql = self.response_hogql(query)
 
         response = execute_hogql_query(
             query_type="FunnelsQuery",
             query=query,
             team=self.team,
             user=self.user,
-            context=HogQLContext(
-                team_id=self.team.pk,
-                user=self.user,
-                use_new_events_schema=self._use_new_events_schema,
-            ),
+            context=self.build_hogql_context(use_new_events_schema=self._use_new_events_schema),
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
@@ -260,7 +262,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
         if not response.results:
             # An empty funnel yields no rows for the property/event-property correlation
             # queries. Nothing to correlate — return empty rather than raising.
-            return [], True, hogql, response
+            return CorrelationCalculation(events=[], skewed_totals=True, hogql=hogql, response=response)
 
         # Get the total success/failure counts from the results
         results = [result for result in response.results if result[0] != self.TOTAL_IDENTIFIER]
@@ -272,7 +274,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
             # No totals row means the funnel matched no actors — the property and
             # event-property correlation queries arrayJoin over the actors CTE, so an empty
             # funnel produces no rows at all (including no totals). Nothing to correlate.
-            return [], True, hogql, response
+            return CorrelationCalculation(events=[], skewed_totals=True, hogql=hogql, response=response)
         _, success_total, failure_total = totals_row
 
         # Add a little structure, and keep it close to the query definition so it's
@@ -291,7 +293,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
         failure_total = int(correct_result_for_sampling(failure_total, self.funnels_query.samplingFactor))
 
         if not success_total or not failure_total:
-            return [], True, hogql, response
+            return CorrelationCalculation(events=[], skewed_totals=True, hogql=hogql, response=response)
 
         skewed_totals = False
 
@@ -320,7 +322,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
 
         # Return the top ten positively correlated events, and top then negatively correlated events
         events = positively_correlated_events[:10] + negatively_correlated_events[:10]
-        return events, skewed_totals, hogql, response
+        return CorrelationCalculation(events=events, skewed_totals=skewed_totals, hogql=hogql, response=response)
 
     def _date_range(self) -> QueryDateRange:
         # daysOfWeek scopes funnel step attribution, not the correlation event scan: actors are

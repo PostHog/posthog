@@ -1,5 +1,6 @@
 import time
 import dataclasses
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 
 import structlog
@@ -117,13 +118,27 @@ class TimedRollupPreview:
     duration_ms: int
 
 
-async def _preview_due_bucket(due: DueBucket) -> TimedRollupPreview | None:
-    """Measure the due bucket's rollup for the allowlisted teams, or nothing if
-    the allowlist is empty. Once the commit protocol lands this becomes the write."""
-    if not TEAM_ALLOWLIST:
+def teams_due_in_shard(team_ids: Sequence[int], minute_shard: int) -> list[int]:
+    """The allowlisted teams this tick is responsible for.
+
+    A bucket stays due for every minute of the next one, so a tick that ignored the
+    shard would run the same scan BUCKET_MINUTES times over. The shard picks the one
+    minute each team belongs to, matching the residue the discovery query counts.
+    """
+    return [team_id for team_id in team_ids if team_id % BUCKET_MINUTES == minute_shard]
+
+
+async def _preview_due_bucket(due: DueBucket, minute_shard: int) -> TimedRollupPreview | None:
+    """Measure the due bucket's rollup for the allowlisted teams in this shard.
+
+    Once the commit protocol lands this becomes the write, where an unsharded read
+    would produce duplicate generations rather than merely wasted scans.
+    """
+    due_teams = teams_due_in_shard(TEAM_ALLOWLIST, minute_shard)
+    if not due_teams:
         return None
     started = time.monotonic()
-    preview = await _preview_rollup_async(team_ids=TEAM_ALLOWLIST, start=due.start, end=due.end)
+    preview = await _preview_rollup_async(team_ids=due_teams, start=due.start, end=due.end)
     return TimedRollupPreview(preview=preview, duration_ms=int((time.monotonic() - started) * 1000))
 
 
@@ -137,18 +152,21 @@ async def volume_tick_heartbeat_activity(input: VolumeTickInput) -> VolumeTickOu
     due = due_bucket_bounds(ticked_at)
     # One team cohort per minute of the bucket: the every-minute schedule smears
     # teams across the bucket's minutes, so team_id % BUCKET_MINUTES is the shard.
-    # Observed, not enforced: no per-shard work happens yet.
     minute_shard = ticked_at.minute % BUCKET_MINUTES
     started = time.monotonic()
     try:
         counts = await _count_teams_with_logs_async(ticked_at - TEAMS_WITH_LOGS_WINDOW, ticked_at, minute_shard)
-        timed = await _preview_due_bucket(due)
+        # Discovery's own duration, measured and recorded before the rollup runs.
+        # The two queries differ by an order of magnitude, so one timer covering
+        # both reports neither, and recording here keeps discovery latency
+        # observable on the ticks whose rollup then fails.
+        duration_ms = int((time.monotonic() - started) * 1000)
+        record_clickhouse_duration(duration_ms)
+        timed = await _preview_due_bucket(due, minute_shard)
     except Exception:
         increment_tick_runs("error")
         raise
-    duration_ms = int((time.monotonic() - started) * 1000)
 
-    record_clickhouse_duration(duration_ms)
     record_teams_with_logs(counts.total)
     if timed is not None:
         record_rollup_duration(timed.duration_ms)

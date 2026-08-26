@@ -741,7 +741,11 @@ def preprocess_exclude_path_format(endpoints, **kwargs):
     projects_suffixes: set[tuple[str, str]] = set()
 
     for path, path_regex, method, callback in endpoints:
-        if getattr(callback.cls, "param_derived_from_user_current_team", None):
+        force_include = getattr(callback.cls, "force_include_in_api_docs", False)
+
+        if getattr(callback.cls, "param_derived_from_user_current_team", None) and not force_include:
+            # Root-router viewsets don't fit the /api/projects/{team_id}/... pattern; opt in via
+            # `force_include_in_api_docs = True` to surface in type-gen and MCP scaffolding.
             continue
         has_scope_object = hasattr(callback.cls, "scope_object")
         # A view with no scope_object is normally excluded - the schema is built around
