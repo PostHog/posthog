@@ -190,7 +190,7 @@ _TEAM_FILTER = (
 
 @dataclass(frozen=True)
 class _EnvironmentScope:
-    # 'production', 'all', or the exact environment the caller passed (see DoraOverview).
+    # 'production', 'persistent', or the exact environment the caller passed (see DoraOverview).
     scope: str
     # The trusted SQL predicate variant for the deploys CTE.
     predicate: str
@@ -262,7 +262,7 @@ def query_dora_overview(
     if deployments_source is None or statuses_source is None:
         return _empty_overview(
             deploy_data_available=False,
-            environment_scope=environment or "all",
+            environment_scope=environment or "persistent",
             environments=[],
             has_membership_data=has_membership_data,
             github_teams=github_teams,

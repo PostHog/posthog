@@ -13,9 +13,17 @@ import { compactAgeLabel } from '../lib/format'
 import { doraLogic } from './doraLogic'
 
 export function EngineeringAnalyticsDora(): JSX.Element {
-    const { notConnected } = useValues(doraLogic)
-    const { dora, doraLoading, doraFailed, environment, githubTeam, boxPlotBuckets, frequencyCounts, frequencyLabels } =
-        useValues(doraLogic)
+    const {
+        notConnected,
+        dora,
+        doraLoading,
+        doraFailed,
+        environment,
+        githubTeam,
+        boxPlotBuckets,
+        frequencyCounts,
+        frequencyLabels,
+    } = useValues(doraLogic)
     const { setEnvironment, setGithubTeam, loadDora } = useActions(doraLogic)
 
     if (notConnected) {
