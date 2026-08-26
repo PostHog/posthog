@@ -1724,6 +1724,24 @@ export const OriginProductEnumApi = {
 } as const
 
 /**
+ * * `default` - default
+ * * `acceptEdits` - acceptEdits
+ * * `plan` - plan
+ * * `bypassPermissions` - bypassPermissions
+ * * `auto` - auto
+ */
+export type InitialPermissionModeEnumApi =
+    (typeof InitialPermissionModeEnumApi)[keyof typeof InitialPermissionModeEnumApi]
+
+export const InitialPermissionModeEnumApi = {
+    Default: 'default',
+    AcceptEdits: 'acceptEdits',
+    Plan: 'plan',
+    BypassPermissions: 'bypassPermissions',
+    Auto: 'auto',
+} as const
+
+/**
  * Request body for creating or updating a task.
  *
  * Field required/default semantics match the ``Task`` model. The view passes
@@ -1829,6 +1847,14 @@ export interface TaskCreateApi {
      * * `max` - max
      * * `ultracode` - ultracode */
     reasoning_effort?: ReasoningEffortEnumApi | null
+    /** Selected agent permission mode. Write-only; used only to reuse a warm Run booted on the same mode. Omit to reuse a warm Run whatever mode it booted on.
+     *
+     * * `default` - default
+     * * `acceptEdits` - acceptEdits
+     * * `plan` - plan
+     * * `bypassPermissions` - bypassPermissions
+     * * `auto` - auto */
+    initial_permission_mode?: InitialPermissionModeEnumApi | null
     /**
      * First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.
      * @nullable
@@ -1974,6 +2000,14 @@ export interface TaskWriteApi {
      * * `max` - max
      * * `ultracode` - ultracode */
     reasoning_effort?: ReasoningEffortEnumApi | null
+    /** Selected agent permission mode. Write-only; used only to reuse a warm Run booted on the same mode. Omit to reuse a warm Run whatever mode it booted on.
+     *
+     * * `default` - default
+     * * `acceptEdits` - acceptEdits
+     * * `plan` - plan
+     * * `bypassPermissions` - bypassPermissions
+     * * `auto` - auto */
+    initial_permission_mode?: InitialPermissionModeEnumApi | null
     /**
      * First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.
      * @nullable
@@ -2102,6 +2136,14 @@ export interface PatchedTaskWriteApi {
      * * `max` - max
      * * `ultracode` - ultracode */
     reasoning_effort?: ReasoningEffortEnumApi | null
+    /** Selected agent permission mode. Write-only; used only to reuse a warm Run booted on the same mode. Omit to reuse a warm Run whatever mode it booted on.
+     *
+     * * `default` - default
+     * * `acceptEdits` - acceptEdits
+     * * `plan` - plan
+     * * `bypassPermissions` - bypassPermissions
+     * * `auto` - auto */
+    initial_permission_mode?: InitialPermissionModeEnumApi | null
     /**
      * First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.
      * @nullable
@@ -2396,24 +2438,6 @@ export type ContextWindowEnumApi = (typeof ContextWindowEnumApi)[keyof typeof Co
 export const ContextWindowEnumApi = {
     '200k': '200k',
     '1m': '1m',
-} as const
-
-/**
- * * `default` - default
- * * `acceptEdits` - acceptEdits
- * * `plan` - plan
- * * `bypassPermissions` - bypassPermissions
- * * `auto` - auto
- */
-export type InitialPermissionModeEnumApi =
-    (typeof InitialPermissionModeEnumApi)[keyof typeof InitialPermissionModeEnumApi]
-
-export const InitialPermissionModeEnumApi = {
-    Default: 'default',
-    AcceptEdits: 'acceptEdits',
-    Plan: 'plan',
-    BypassPermissions: 'bypassPermissions',
-    Auto: 'auto',
 } as const
 
 /**
@@ -4524,6 +4548,18 @@ export interface PaginatedTaskSummaryDTOListApi {
 }
 
 /**
+ * * `user_created` - user_created
+ * * `posthog_ai` - posthog_ai
+ */
+export type WarmTaskRequestOriginProductEnumApi =
+    (typeof WarmTaskRequestOriginProductEnumApi)[keyof typeof WarmTaskRequestOriginProductEnumApi]
+
+export const WarmTaskRequestOriginProductEnumApi = {
+    UserCreated: 'user_created',
+    PosthogAi: 'posthog_ai',
+} as const
+
+/**
  * Request body for warming a full idling Run while composing a Code-app cloud task.
  *
  * Collection-level: no task exists yet at typing time. The warmer births a draft Task and an
@@ -4584,6 +4620,19 @@ export interface WarmTaskRequestApi {
      * @nullable
      */
     custom_image_id?: string | null
+    /** Product the warm Run is for. Fixed when the sandbox boots — it selects the OAuth app, the quota gate, the warm-pool budget, and PR authorship — so a submit only reuses a warm born under the same origin. Defaults to the Code app.
+     *
+     * * `user_created` - user_created
+     * * `posthog_ai` - posthog_ai */
+    origin_product?: WarmTaskRequestOriginProductEnumApi
+    /** Permission mode to boot the agent session on. Read at session construction, so it cannot be changed once the sandbox is warm — a submit selecting a different mode falls through to a cold Run. Omit to take the runtime's default.
+     *
+     * * `default` - default
+     * * `acceptEdits` - acceptEdits
+     * * `plan` - plan
+     * * `bypassPermissions` - bypassPermissions
+     * * `auto` - auto */
+    initial_permission_mode?: InitialPermissionModeEnumApi | null
 }
 
 /**
