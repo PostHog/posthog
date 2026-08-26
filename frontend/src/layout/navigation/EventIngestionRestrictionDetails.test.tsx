@@ -47,6 +47,19 @@ describe('EventIngestionRestrictionDetails', () => {
         expect(screen.getByText('An event is affected only when it matches every filter below.')).toBeTruthy()
     })
 
+    it('lists redirect restrictions and unknown types instead of hiding them', () => {
+        render(
+            <EventIngestionRestrictionDetails
+                restrictions={[
+                    restriction({ restriction_type: RestrictionType.REDIRECT_TO_DLQ }),
+                    restriction({ restriction_type: 'some_future_type' as RestrictionType }),
+                ]}
+            />
+        )
+        expect(screen.getByText('Events held')).toBeTruthy()
+        expect(screen.getByText('Restricted')).toBeTruthy()
+    })
+
     it('truncates long value lists', () => {
         const distinctIds = Array.from({ length: 25 }, (_, i) => `user-${i}`)
         render(<EventIngestionRestrictionDetails restrictions={[restriction({ distinct_ids: distinctIds })]} />)

@@ -3,7 +3,12 @@ import { EventIngestionRestriction, RestrictionType } from 'lib/logic/eventInges
 
 import type { PipelinesEnumApi } from '~/generated/core/api.schemas'
 
-const RESTRICTION_EFFECTS: Partial<Record<string, { label: string; description: string }>> = {
+interface RestrictionEffect {
+    label: string
+    description: string
+}
+
+const RESTRICTION_EFFECTS: Partial<Record<string, RestrictionEffect>> = {
     [RestrictionType.DROP_EVENT_FROM_INGESTION]: {
         label: 'Events dropped',
         description: 'Matching events are not stored. This data is lost and cannot be recovered.',
@@ -17,6 +22,20 @@ const RESTRICTION_EFFECTS: Partial<Record<string, { label: string; description: 
         description:
             'Matching events are stored, but person profiles and properties are not created or updated from them.',
     },
+    [RestrictionType.REDIRECT_TO_DLQ]: {
+        label: 'Events held',
+        description:
+            'Matching events are set aside and not processed. Contact support to find out whether they can be recovered.',
+    },
+    [RestrictionType.REDIRECT_TO_TOPIC]: {
+        label: 'Events rerouted',
+        description: 'Matching events take a different processing path. They may be delayed.',
+    },
+}
+
+const UNKNOWN_EFFECT: RestrictionEffect = {
+    label: 'Restricted',
+    description: 'Matching events are handled differently from normal. Contact support for details.',
 }
 
 const PIPELINE_LABELS: Record<PipelinesEnumApi, string> = {
@@ -69,9 +88,7 @@ export function EventIngestionRestrictionDetails({
 }: {
     restrictions: EventIngestionRestriction[]
 }): JSX.Element {
-    const knownRestrictions = restrictions.filter((r) => r.restriction_type in RESTRICTION_EFFECTS)
-
-    if (knownRestrictions.length === 0) {
+    if (restrictions.length === 0) {
         return <p>No active restrictions were found for this project. Refresh the page to check again.</p>
     }
 
@@ -82,8 +99,8 @@ export function EventIngestionRestrictionDetails({
                 usually put in place to protect the ingestion pipeline. Contact support if you need one removed.
             </p>
             <ul className="deprecated-space-y-3">
-                {knownRestrictions.map((restriction) => {
-                    const effect = RESTRICTION_EFFECTS[restriction.restriction_type]!
+                {restrictions.map((restriction) => {
+                    const effect = RESTRICTION_EFFECTS[restriction.restriction_type] ?? UNKNOWN_EFFECT
                     const filters = scopeFilters(restriction)
                     const pipelines = (restriction.pipelines ?? []).map(
                         (pipeline) => PIPELINE_LABELS[pipeline] ?? pipeline

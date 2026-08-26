@@ -10,6 +10,8 @@ export enum RestrictionType {
     DROP_EVENT_FROM_INGESTION = 'drop_event_from_ingestion',
     SKIP_PERSON_PROCESSING = 'skip_person_processing',
     FORCE_OVERFLOW_FROM_INGESTION = 'force_overflow_from_ingestion',
+    REDIRECT_TO_DLQ = 'redirect_to_dlq',
+    REDIRECT_TO_TOPIC = 'redirect_to_topic',
 }
 
 export type EventIngestionRestriction = EventIngestionRestrictionApi
