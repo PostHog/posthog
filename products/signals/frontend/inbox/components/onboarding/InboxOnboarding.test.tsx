@@ -21,11 +21,11 @@ describe('InboxOnboardingTakeover example cards', () => {
     afterEach(cleanup)
 
     it('answers a click on an example card by scrolling to the setup command and pulsing it', () => {
-        const { container, getAllByRole } = render(<InboxOnboardingTakeover />)
+        const { container, getAllByLabelText } = render(<InboxOnboardingTakeover />)
         // A dead click leaves the DOM unchanged; the pulse ring must be absent before the click.
         expect(container.querySelector('.InboxOnboarding__commandPulse')).toBeNull()
 
-        const overlays = getAllByRole('button', { name: /Jump to the setup command/i })
+        const overlays = getAllByLabelText(/Jump to the setup command/i)
         expect(overlays.length).toBeGreaterThan(0)
         fireEvent.click(overlays[0])
 
