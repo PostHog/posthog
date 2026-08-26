@@ -28,13 +28,6 @@ export const MCP_ANALYTICS_SOURCE = 'posthog_mcp_analytics'
 // fit, and the tool-domain index absorbs whatever budget the fixed sections leave.
 export const MCP_INSTRUCTIONS_CHAR_BUDGET = 2048
 
-// claude.ai's registry silently drops a tool whose serialized `inputSchema` crosses ~16,384
-// chars. The exec command reference lands in that schema's `command.description`; this budget
-// caps the reference itself, leaving room for the schema's fixed structure, the exec tool
-// description, and the injected `context` property. The tool-domain index absorbs the
-// overflow by collapsing sub-families, so adding a tool cannot push the schema past the cap.
-export const CLAUDE_EXEC_COMMAND_REFERENCE_CHAR_BUDGET = 15_200
-
 // Gates the semantic layer (governed-metrics catalog) — no tool declares it, so it must be
 // joined into the evaluated flag set explicitly; instructions content branches on it.
 export const PRODUCT_DATA_CATALOG_FLAG = 'product-data-catalog'

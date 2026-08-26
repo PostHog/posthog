@@ -1,5 +1,5 @@
 import type { GroupType } from '@/api/client'
-import { CLAUDE_EXEC_COMMAND_REFERENCE_CHAR_BUDGET, MCP_INSTRUCTIONS_CHAR_BUDGET } from '@/lib/constants'
+import { MCP_INSTRUCTIONS_CHAR_BUDGET } from '@/lib/constants'
 import {
     buildAvailableToolsBlock,
     buildDefinedGroupsBlock,
@@ -188,36 +188,26 @@ export class InstructionsFormatter {
             tools: ctx.tools,
         }
 
-        const sections = [
-            CLI_SYNTAX,
-            helpSection,
-            ...(ctx.dataCatalogEnabled ? [METRIC_DISCOVERY_COMPACT] : []),
-            CLI_SCHEMA_DRILLDOWN,
-            CLI_DATA_DISCOVERY,
-            CLI_EXAMPLES_CLAUDE,
-            CLI_ERROR_HANDLING,
-            BASIC_FUNCTIONALITY,
-            TOOL_SEARCH,
-            ENV_CONTEXT,
-        ]
-        const opts = {
-            compact: false,
-            compactToolDomains: true,
-            extraCommands: LEARN_COMMAND_LINE,
-        }
-
-        // Same overflow mechanism as buildExecInstructions: when the reference outgrows
-        // its budget, only the tool-domain index shrinks, by exactly the overflow.
-        const rendered = this.compose(sections, renderCtx, opts)
-        const overflow = rendered.length - CLAUDE_EXEC_COMMAND_REFERENCE_CHAR_BUDGET
-        if (overflow <= 0) {
-            return rendered
-        }
-        const domains = buildToolDomainsCompact(renderCtx.tools ?? [])
-        return this.compose(sections, renderCtx, {
-            ...opts,
-            toolDomainsMaxChars: domains.length - overflow,
-        })
+        return this.compose(
+            [
+                CLI_SYNTAX,
+                helpSection,
+                ...(ctx.dataCatalogEnabled ? [METRIC_DISCOVERY_COMPACT] : []),
+                CLI_SCHEMA_DRILLDOWN,
+                CLI_DATA_DISCOVERY,
+                CLI_EXAMPLES_CLAUDE,
+                CLI_ERROR_HANDLING,
+                BASIC_FUNCTIONALITY,
+                TOOL_SEARCH,
+                ENV_CONTEXT,
+            ],
+            renderCtx,
+            {
+                compact: false,
+                compactToolDomains: true,
+                extraCommands: LEARN_COMMAND_LINE,
+            }
+        )
     }
 
     /** Build the `command` parameter description for the exec tool. When
