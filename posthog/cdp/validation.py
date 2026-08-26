@@ -201,6 +201,27 @@ register_supported_function("postHogUpdateAccount")
 register_supported_function("postHogSetAccountProperties")
 
 
+# Async functions that the CDP worker registers for every hog program it runs. The registry is
+# global and is not scoped by function type, so a hand-written call reaches the real handler.
+# PostHog's own machinery is the only intended caller. Workflows dispatch the email and the push
+# step through hidden templates, and warehouse webhooks go through source functions. A call from
+# user-authored code skips the setup those paths do first, and the handler then fails in a way the
+# worker does not expect. A `sendEmail` call from a plain destination produces to a Kafka topic
+# that the destination's cluster does not have. The produce error terminates the worker process,
+# and the partition it owned stops draining.
+#
+# Keep this set in sync with registerAsyncFunction() under nodejs/src/cdp/async-functions/. A
+# registered name belongs here unless CORE_SUPPORTED_FUNCTIONS or register_supported_function()
+# above makes it available to user-authored code.
+RESERVED_ASYNC_FUNCTIONS = {
+    "sendEmail",
+    "sendPushNotification",
+    "produceToWarehouseWebhooks",
+    "postHogCreateTask",
+    "postHogCreateAccount",
+}
+
+
 # Globals that the realtime transformer actually populates at runtime.
 # Keep in sync with HogTransformerService.createInvocationGlobals
 # (nodejs/src/cdp/hog-transformations/hog-transformer.service.ts).
@@ -341,6 +362,42 @@ class HyphenatedPropertyDetector(TraversingVisitor):
         if left.end is not None and right.start is not None:
             return right.start - left.end == 1
         return True
+
+
+class ReservedFunctionDetector(TraversingVisitor):
+    names: set[str]
+
+    def __init__(self):
+        super().__init__()
+        self.names = set()
+
+    def visit_call(self, node: ast.Call):
+        super().visit_call(node)
+        if node.name in RESERVED_ASYNC_FUNCTIONS:
+            self.names.add(node.name)
+
+    def visit_field(self, node: ast.Field):
+        # A bare reference is caught as well as a direct call. `let f := sendEmail` followed by
+        # `f()` compiles to the same global dispatch, so the name alone is refused.
+        super().visit_field(node)
+        if len(node.chain) == 1 and str(node.chain[0]) in RESERVED_ASYNC_FUNCTIONS:
+            self.names.add(str(node.chain[0]))
+
+
+def reserved_functions_used(hog: str) -> set[str]:
+    """The reserved async functions that the given hog source names.
+
+    Source that does not parse gives an empty set. compile_hog reports the parse error with a
+    better message, so this must not raise before it runs.
+    """
+    try:
+        program = parse_program(hog)
+    except Exception:
+        return set()
+
+    detector = ReservedFunctionDetector()
+    detector.visit(program)
+    return detector.names
 
 
 class RecordAliasRewriter(TraversingVisitor):
