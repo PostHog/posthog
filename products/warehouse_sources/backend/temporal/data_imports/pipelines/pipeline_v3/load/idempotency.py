@@ -44,9 +44,18 @@ def get_redis_client():
         pass
 
 
-def get_idempotency_key(team_id: int, schema_id: str, run_uuid: str, batch_index: int) -> str:
-    """Generate a unique idempotency key for a batch."""
-    return f"{IDEMPOTENCY_KEY_PREFIX}:{team_id}:{schema_id}:{run_uuid}:{batch_index}"
+def get_idempotency_key(
+    team_id: int, schema_id: str, run_uuid: str, batch_index: int, destination_id: str | None = None
+) -> str:
+    """Generate a unique idempotency key for a batch at one destination.
+
+    The PostHog warehouse keeps the unsuffixed key it has always used, so keys written
+    before this change still match after a deploy. Every other destination gets its own,
+    which is what lets a retry skip the destinations that already took the batch instead
+    of re-writing all of them.
+    """
+    base = f"{IDEMPOTENCY_KEY_PREFIX}:{team_id}:{schema_id}:{run_uuid}:{batch_index}"
+    return base if destination_id is None else f"{base}:{destination_id}"
 
 
 def is_batch_already_processed(
@@ -55,6 +64,7 @@ def is_batch_already_processed(
     run_uuid: str,
     batch_index: int,
     delta_table_ref: DeltaTableRef | None = None,
+    destination_id: str | None = None,
 ) -> bool:
     """Check if a batch has already been processed.
 
@@ -70,7 +80,7 @@ def is_batch_already_processed(
     """
     with get_redis_client() as redis_client:
         if redis_client is not None:
-            key = get_idempotency_key(team_id, schema_id, run_uuid, batch_index)
+            key = get_idempotency_key(team_id, schema_id, run_uuid, batch_index, destination_id)
             if redis_client.exists(key) == 1:
                 return True
 
@@ -98,8 +108,10 @@ def is_batch_already_processed(
         raise
 
 
-def mark_batch_as_processed(team_id: int, schema_id: str, run_uuid: str, batch_index: int) -> None:
-    """Mark a batch as processed in the cache."""
+def mark_batch_as_processed(
+    team_id: int, schema_id: str, run_uuid: str, batch_index: int, destination_id: str | None = None
+) -> None:
+    """Mark a batch as processed at one destination."""
     with get_redis_client() as redis_client:
         if redis_client is None:
             logger.warning(
@@ -111,5 +123,5 @@ def mark_batch_as_processed(team_id: int, schema_id: str, run_uuid: str, batch_i
             )
             return
 
-        key = get_idempotency_key(team_id, schema_id, run_uuid, batch_index)
+        key = get_idempotency_key(team_id, schema_id, run_uuid, batch_index, destination_id)
         redis_client.set(key, "1", ex=IDEMPOTENCY_TTL_SECONDS)
