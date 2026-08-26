@@ -591,6 +591,41 @@ describe('ToolExecutor metrics', () => {
                 return (mockTrackToolCall.mock.calls.at(-1)?.[4] ?? {}) as Record<string, unknown>
             }
 
+            /** A context whose skill fetch resolves, so the success path runs. */
+            function contextThatServes(): any {
+                return {
+                    api: { request: vi.fn().mockResolvedValue({ name: 'conductor', body: 'skill body' }) },
+                    cache: {},
+                    env: {},
+                    stateManager: { getProjectId: vi.fn().mockResolvedValue('2') },
+                    sessionManager: {},
+                    getDistinctId: vi.fn(),
+                    trackEvent: vi.fn(),
+                }
+            }
+
+            /** A context whose skill fetch 404s — a deleted, renamed, or unreadable skill. */
+            function contextThatRejects(): any {
+                return {
+                    ...contextThatServes(),
+                    api: {
+                        request: vi.fn().mockRejectedValue(
+                            new PostHogApiError({
+                                status: 404,
+                                statusText: 'Not Found',
+                                body: '{"detail":"Not found."}',
+                                url: 'https://us.posthog.com/api/projects/2/llm_skills/name/conductor/',
+                                method: 'GET',
+                            })
+                        ),
+                    },
+                }
+            }
+
+            function execStateWith(context: any): ResolvedState {
+                return { ...execState(), context }
+            }
+
             it.each([
                 ['a body read', 'call skill-get {"skill_name":"conductor"}', { $mcp_skill_name: 'conductor' }],
                 [
@@ -603,10 +638,42 @@ describe('ToolExecutor metrics', () => {
                     'call skill-file-get {"skill_name":"conductor","file_path":"references/x.md"}',
                     { $mcp_skill_name: 'conductor' },
                 ],
-            ])('stamps the skill on %s routed through exec', async (_label, command, expected) => {
-                await executor.handleToolCall({ name: 'exec', arguments: { command } }, execState())
+            ])('records the skill when %s succeeds', async (_label, command, expected) => {
+                await executor.handleToolCall(
+                    { name: 'exec', arguments: { command } },
+                    execStateWith(contextThatServes())
+                )
 
                 expect(lastExtras()).toMatchObject(expected)
+            })
+
+            // A skill that was never delivered is not usage. Stamping it would let a
+            // deleted skill that agents keep requesting read as popular.
+            it.each([
+                ['a body read', 'call skill-get {"skill_name":"conductor","body_offset":5000}'],
+                ['a bundled-file read', 'call skill-file-get {"skill_name":"conductor","file_path":"x.md"}'],
+            ])('records no skill when %s fails', async (_label, command) => {
+                await executor.handleToolCall(
+                    { name: 'exec', arguments: { command } },
+                    execStateWith(contextThatRejects())
+                )
+
+                expect(lastExtras()).not.toHaveProperty('$mcp_skill_name')
+                expect(lastExtras()).not.toHaveProperty('$mcp_skill_body_offset')
+            })
+
+            // Dropping the skill must not take the exec properties with it — those are
+            // stamped on failures by design, and are the only record of what was tried.
+            it('keeps the exec verb and target when a skill read fails', async () => {
+                await executor.handleToolCall(
+                    { name: 'exec', arguments: { command: 'call skill-get {"skill_name":"conductor"}' } },
+                    execStateWith(contextThatRejects())
+                )
+
+                expect(lastExtras()).toMatchObject({
+                    $mcp_exec_verb: 'call',
+                    $mcp_exec_target_tool: 'skill-get',
+                })
             })
 
             it.each([
@@ -615,12 +682,15 @@ describe('ToolExecutor metrics', () => {
                 ['a skill name outside the store’s own shape', 'call skill-get {"skill_name":"../../etc/passwd"}'],
                 ['a non-skill tool', 'call docs-search {"query":"skill_name"}'],
             ])('records no skill for %s', async (_label, command) => {
-                await executor.handleToolCall({ name: 'exec', arguments: { command } }, execState())
+                await executor.handleToolCall(
+                    { name: 'exec', arguments: { command } },
+                    execStateWith(contextThatServes())
+                )
 
                 expect(lastExtras()).not.toHaveProperty('$mcp_skill_name')
             })
 
-            it('stamps the skill name in direct tools mode too', async () => {
+            it('records the skill in direct tools mode too', async () => {
                 const tools = catalog.getPreBuiltEntries().map((entry) => {
                     const preBuilt = catalog.getToolByName(entry.name)!
                     return {
@@ -634,7 +704,7 @@ describe('ToolExecutor metrics', () => {
 
                 await executor.handleToolCall(
                     { name: 'skill-get', arguments: { skill_name: 'conductor' } },
-                    makeState(tools as any)
+                    makeState(tools as any, { context: contextThatServes() })
                 )
 
                 expect(trackToolCallExtras('skill-get')).toMatchObject({ $mcp_skill_name: 'conductor' })

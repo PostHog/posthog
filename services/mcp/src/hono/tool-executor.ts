@@ -232,7 +232,9 @@ export class ToolExecutor {
         const stop = toolCallDurationSeconds.startTimer({ tool: tool.name })
         const startMs = Date.now()
 
-        // Which stored skill a skill-* read touched. Empty for every other tool.
+        // Which stored skill a skill-* read returned. Empty for every other tool, and
+        // stamped only on success: a read that failed delivered no skill, so counting
+        // it would let a deleted skill agents keep requesting read as a popular one.
         // The exec path stamps the same properties from its command string.
         const skillShape = skillAnalyticsProperties(tool.name, validation.data)
 
@@ -313,7 +315,7 @@ export class ToolExecutor {
                 Date.now() - startMs,
                 true,
                 state,
-                { ...skillShape, ...errorAnalyticsProperties(classification, error) },
+                errorAnalyticsProperties(classification, error),
                 intentMeta,
                 this.servedToolDescription(tool.name, state)
             )
@@ -378,10 +380,10 @@ export class ToolExecutor {
         // success and failure alike — so the discovery verbs stop collapsing into
         // one opaque `exec` bucket and an `info <tool>` can be linked to the
         // `call <tool>` that follows it.
-        const execShape = {
-            ...execCommandAnalyticsProperties(validation.data, state),
-            ...execSkillAnalyticsProperties(validation.data),
-        }
+        const execShape = execCommandAnalyticsProperties(validation.data, state)
+        // Which stored skill an exec-routed read returned. Success only, unlike the
+        // verb above: that records what the agent attempted, this records what it got.
+        const execSkillShape = execSkillAnalyticsProperties(validation.data)
 
         try {
             const handlerResult = await resolved.handler(state.context, validation.data)
@@ -405,6 +407,7 @@ export class ToolExecutor {
                 state,
                 {
                     ...execShape,
+                    ...execSkillShape,
                     input_tokens: estimateTokens(validation.data),
                     output_tokens: estimateResponseTokens(response),
                     ...execMetrics.commandMeta,
