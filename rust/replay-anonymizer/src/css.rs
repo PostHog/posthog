@@ -30,7 +30,11 @@ struct DeclarationRange {
     start: usize,
     end: usize,
     property: &'static str,
+    collect_remote_urls: bool,
 }
+
+const OTHER_CSS_PROPERTY: &str = "other";
+const CUSTOM_CSS_PROPERTY: &str = "custom-property";
 
 pub fn is_strict_css_refs(value: &Value<'_>) -> bool {
     let Some(encoded) = as_str(value) else {
@@ -117,35 +121,49 @@ fn scrub_rule_list(ctx: &Ctx<'_>, rules: &mut Vec<Value<'_>>) -> bool {
 
 pub(crate) fn rewrite(ctx: &Ctx<'_>, css: &str, context: CssContext<'_>) -> Option<CssRewrite> {
     let ranges = declaration_value_ranges(css, context);
-    if ranges.is_empty() {
-        return None;
-    }
     let mut refs = BTreeMap::new();
     let mut output = String::with_capacity(css.len());
     let mut copied_to = 0;
     let mut changed = false;
     for range in ranges {
-        output.push_str(&css[copied_to..range.start]);
-        let (rewritten, value_changed) =
-            rewrite_value(ctx, &css[range.start..range.end], range.property, &mut refs);
+        let (rewritten, value_changed) = rewrite_value(
+            ctx,
+            &css[copied_to..range.start],
+            OTHER_CSS_PROPERTY,
+            false,
+            &mut refs,
+        );
+        output.push_str(&rewritten);
+        changed |= value_changed;
+        let (rewritten, value_changed) = rewrite_value(
+            ctx,
+            &css[range.start..range.end],
+            range.property,
+            range.collect_remote_urls,
+            &mut refs,
+        );
         output.push_str(&rewritten);
         copied_to = range.end;
         changed |= value_changed;
     }
+    let (rewritten, value_changed) =
+        rewrite_value(ctx, &css[copied_to..], OTHER_CSS_PROPERTY, false, &mut refs);
+    output.push_str(&rewritten);
+    changed |= value_changed;
     if !changed {
         return None;
     }
-    output.push_str(&css[copied_to..]);
     Some(CssRewrite { css: output, refs })
 }
 
 fn declaration_value_ranges(css: &str, context: CssContext<'_>) -> Vec<DeclarationRange> {
     if let CssContext::Property(property) = context {
-        return image_property(property)
-            .map(|property| DeclarationRange {
+        return css_property(property)
+            .map(|(property, collect_remote_urls)| DeclarationRange {
                 start: 0,
                 end: css.len(),
                 property,
+                collect_remote_urls,
             })
             .into_iter()
             .collect();
@@ -184,11 +202,14 @@ fn declaration_value_ranges(css: &str, context: CssContext<'_>) -> Vec<Declarati
                 segment_start = position + 1;
             }
             b':' if paren_depth == 0 && bracket_depth == 0 => {
-                if let Some(property) = image_property(css[segment_start..position].trim()) {
+                if let Some((property, collect_remote_urls)) =
+                    css_property(css[segment_start..position].trim())
+                {
                     ranges.push(DeclarationRange {
                         start: position + 1,
                         end: declaration_end(bytes, position + 1, brace_depth),
                         property,
+                        collect_remote_urls,
                     });
                 }
             }
@@ -197,6 +218,17 @@ fn declaration_value_ranges(css: &str, context: CssContext<'_>) -> Vec<Declarati
         position += 1;
     }
     ranges
+}
+
+fn css_property(property: &str) -> Option<(&'static str, bool)> {
+    image_property(property)
+        .map(|property| (property, true))
+        .or_else(|| {
+            property
+                .trim()
+                .starts_with("--")
+                .then_some((CUSTOM_CSS_PROPERTY, false))
+        })
 }
 
 fn declaration_end(bytes: &[u8], start: usize, brace_depth: usize) -> usize {
@@ -257,6 +289,7 @@ fn rewrite_value(
     ctx: &Ctx<'_>,
     value: &str,
     property: &'static str,
+    collect_remote_urls: bool,
     refs: &mut BTreeMap<String, String>,
 ) -> (String, bool) {
     let bytes = value.as_bytes();
@@ -285,29 +318,53 @@ fn rewrite_value(
             let Some(end) = matching_paren(bytes, open) else {
                 break;
             };
-            let selected = select_image_set_candidate(&value[open + 1..end - 1]);
-            let replacement = selected
-                .as_deref()
-                .map(|source| replacement_url(ctx, source, property, refs))
-                .unwrap_or_else(|| format!("url(\"{PLACEHOLDER_SRC}\")"));
-            output.push_str(&value[copied_to..position]);
-            output.push_str(&replacement);
-            copied_to = end;
+            let contents = &value[open + 1..end - 1];
+            let selected = select_image_set_candidate(contents);
+            let replacement = if collect_remote_urls {
+                Some(
+                    selected
+                        .as_deref()
+                        .and_then(|source| {
+                            replacement_url(ctx, source, property, collect_remote_urls, refs)
+                        })
+                        .unwrap_or_else(|| format!("url(\"{PLACEHOLDER_SRC}\")")),
+                )
+            } else if image_set_contains_inline_image(contents) {
+                Some(
+                    selected
+                        .as_deref()
+                        .filter(|source| is_image_data_uri(source))
+                        .and_then(|source| {
+                            replacement_url(ctx, source, property, collect_remote_urls, refs)
+                        })
+                        .unwrap_or_else(|| format!("url(\"{PLACEHOLDER_SRC}\")")),
+                )
+            } else {
+                None
+            };
+            if let Some(replacement) = replacement {
+                output.push_str(&value[copied_to..position]);
+                output.push_str(&replacement);
+                copied_to = end;
+                changed = true;
+            }
             position = end;
-            changed = true;
             continue;
         }
         if function_at(bytes, position, b"url") {
             let Some((end, source)) = parse_url_function(value, position) else {
                 break;
             };
-            let replacement = replacement_url(ctx, &source, property, refs);
             let original = &value[position..end];
-            if replacement != original {
-                output.push_str(&value[copied_to..position]);
-                output.push_str(&replacement);
-                copied_to = end;
-                changed = true;
+            if let Some(replacement) =
+                replacement_url(ctx, &source, property, collect_remote_urls, refs)
+            {
+                if replacement != original {
+                    output.push_str(&value[copied_to..position]);
+                    output.push_str(&replacement);
+                    copied_to = end;
+                    changed = true;
+                }
             }
             position = end;
             continue;
@@ -325,17 +382,18 @@ fn replacement_url(
     ctx: &Ctx<'_>,
     source: &str,
     property: &'static str,
+    collect_remote_urls: bool,
     refs: &mut BTreeMap<String, String>,
-) -> String {
+) -> Option<String> {
     let source = source.trim();
     if source == PLACEHOLDER_SRC || is_numbered_placeholder(source) {
-        return format!("url(\"{source}\")");
+        return Some(format!("url(\"{source}\")"));
     }
     if source.starts_with('#') {
-        return format!("url(\"{source}\")");
+        return collect_remote_urls.then(|| format!("url(\"{source}\")"));
     }
     if ctx.keeps_image_refs() && is_image_ref_strict(source) {
-        return format!("url(\"{source}\")");
+        return collect_remote_urls.then(|| format!("url(\"{source}\")"));
     }
     let reference = if is_image_data_uri(source) {
         let replacement = ctx.scrub_image_from(
@@ -346,8 +404,10 @@ fn replacement_url(
         if is_image_ref(&replacement) {
             Some(replacement)
         } else {
-            return format!("url(\"{replacement}\")");
+            return Some(format!("url(\"{replacement}\")"));
         }
+    } else if !collect_remote_urls {
+        return None;
     } else if source.contains('\\') {
         None
     } else {
@@ -357,9 +417,9 @@ fn replacement_url(
         Some(reference) => {
             let slot = refs.len();
             refs.insert(slot.to_string(), reference);
-            format!("url(\"{}\")", numbered_placeholder(slot))
+            Some(format!("url(\"{}\")", numbered_placeholder(slot)))
         }
-        None => format!("url(\"{PLACEHOLDER_SRC}\")"),
+        None => Some(format!("url(\"{PLACEHOLDER_SRC}\")")),
     }
 }
 
@@ -408,6 +468,15 @@ fn select_image_set_candidate(contents: &str) -> Option<String> {
         }
     }
     best.map(|(_, source)| source)
+}
+
+fn image_set_contains_inline_image(contents: &str) -> bool {
+    split_image_set_candidates(contents).is_some_and(|candidates| {
+        candidates.into_iter().any(|candidate| {
+            parse_image_set_source(candidate.trim())
+                .is_some_and(|(source, _)| is_image_data_uri(&source))
+        })
+    })
 }
 
 fn split_image_set_candidates(contents: &str) -> Option<Vec<&str>> {
@@ -618,6 +687,41 @@ mod tests {
                 property: "background-image",
                 kind: "inline",
                 count: 1,
+            }]
+        );
+    }
+
+    #[test]
+    fn custom_properties_scrub_inline_images_without_collecting_remote_urls() {
+        let allow = AllowLists::default();
+        let ctx = Ctx::with_image_collection(
+            &allow,
+            Some(ImageCollection {
+                pseudo_team: "0123456789abcdef0123456789abcdef".to_string(),
+                content_key: "fedcba9876543210fedcba9876543210".to_string(),
+            }),
+        )
+        .collecting_urls(Some(UrlCollection {
+            url_key: "0123456789abcdef0123456789abcdef".to_string(),
+        }));
+        let original = png_data_uri(8, 8, [10, 20, 30, 255]);
+        let remote = "https://cdn.example.com/hero.png";
+        let css = format!("--hero:url('{original}');--hero-set:image-set('{original}' 2x);--remote:url('{remote}');background-image:var(--hero)");
+        let rewritten = rewrite(&ctx, &css, CssContext::DeclarationList).expect("image changes");
+        assert!(!rewritten.css.contains(&original));
+        assert!(rewritten.css.contains("anon-image-slot-0"));
+        assert!(rewritten.css.contains("anon-image-slot-1"));
+        assert!(rewritten.css.contains(remote));
+        assert_eq!(rewritten.refs.len(), 2);
+        assert!(rewritten.refs["0"].starts_with("image:"));
+        assert!(rewritten.refs["1"].starts_with("image:"));
+        assert_eq!(
+            ctx.take_image_source_counts(),
+            vec![ImageSourceCount {
+                source: "css",
+                property: "custom-property",
+                kind: "inline",
+                count: 2,
             }]
         );
     }
