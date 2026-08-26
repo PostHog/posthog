@@ -1299,8 +1299,8 @@ class TestSpecificObjectAccessControl(BaseUserAccessControlTest):
         )
 
         # Fail closed without object grants: only self-created notebooks, never the unfiltered
-        # queryset. This branch is reachable without any permission layer above (logic-layer and
-        # background callers), so the filter cannot rely on the view having enforced the resource level.
+        # queryset. Logic-layer and background callers reach this filter with no permission layer
+        # above it, so it cannot rely on the view to enforce the resource level.
         assert notebook_ids == [self.notebook_3.id]
 
     def test_filter_queryset_by_access_level_with_resource_access(self):

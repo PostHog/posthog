@@ -744,8 +744,8 @@ class TestUserAccessControlProperties(BaseAccessControlPropertyTest):
         has_resource_access = uac.has_resource_access(resource)
 
         def guard_admits(object_id: str) -> bool:
-            # No resource access and no allowlist: the schema drops the table (see
-            # Database.create_for), so nothing is readable.
+            # No resource access and no allowlist: Database.create_for drops the table, so
+            # nothing is readable.
             if not has_resource_access and not allowlisted:
                 return False
             if model_has_creator and object_id in creator_ids:
@@ -766,7 +766,7 @@ class TestUserAccessControlProperties(BaseAccessControlPropertyTest):
         if has_resource_access or allowlisted:
             assert visible == expected
         else:
-            # REST still shows the user's own rows here; HogQL has no table to show them from.
+            # REST still shows the user's own rows here. HogQL has no table to show them from.
             assert visible == set()
             assert expected <= creator_ids
 

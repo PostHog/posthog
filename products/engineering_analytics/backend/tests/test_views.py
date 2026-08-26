@@ -42,9 +42,9 @@ class TestListGithubSourcesAccessControl(BaseTest):
         self.organization.save()
 
     def test_none_resource_access_fails_closed_to_self_created_sources(self) -> None:
-        # Guards filter_queryset_by_access_level's fail-closed baseline through the product
-        # surface: "none" resource access with no object grants must not enumerate the team's
-        # sources (#70825).
+        # A user with "none" resource access and no object grants must not enumerate the
+        # team's sources. The product surface relies on filter_queryset_by_access_level to
+        # fail closed here.
         mine = create_github_source(self.team, prefix="mine_", source_id="gh-mine")
         mine.created_by = self.user
         mine.save()
@@ -59,8 +59,8 @@ class TestListGithubSourcesAccessControl(BaseTest):
         )
         assert [source.id for source in visible] == [str(mine.id)]
 
-        # An explicit object grant survives the fail-closed guard. Only member and role grants count
-        # as grants in the filter; a default ("everyone") object row does not.
+        # An explicit object grant survives the fail-closed guard. The filter counts only member
+        # and role rows as grants. A default ("everyone") object row does not count.
         AccessControl.objects.create(
             team=self.team,
             resource="external_data_source",
