@@ -161,6 +161,38 @@ describe('taskWarmLogic', () => {
         expect(warmCalls).toBe(1)
     })
 
+    it('warms a fresh task through the create endpoint even when mounted under the new-task route', async () => {
+        // The scene passes the `/tasks/:taskId` route param down, so this logic can be keyed on the `new`
+        // sentinel. Routing on that prop sent the fresh-task body to `tasks/new/warm/`, which the server
+        // rejects for a missing `resume_from_run_id` — the composer then never warmed at all.
+        let resumeCalls = 0
+        useMocks({
+            post: {
+                '/api/projects/:team/tasks/warm/': async () => {
+                    warmCalls += 1
+                    return [200, { task_id: 'warm-task-1', run_id: 'warm-run-1' }]
+                },
+                '/api/projects/:team/tasks/:taskId/warm/': async () => {
+                    resumeCalls += 1
+                    return [400, { attr: 'resume_from_run_id', code: 'required' }]
+                },
+            },
+        })
+        logic.unmount()
+        logic = taskWarmLogic({ panelId: 'new-route', taskId: 'new' })
+        logic.mount()
+
+        jest.useFakeTimers()
+        logic.actions.noteDraft(true, WARM_REQUEST)
+        jest.advanceTimersByTime(300)
+        jest.useRealTimers()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(resumeCalls).toBe(0)
+        expect(warmCalls).toBe(1)
+        expect(logic.values.warmLease).toMatchObject({ runId: 'warm-run-1' })
+    })
+
     it('asks once per selection when the server answers that it did not warm', async () => {
         // An empty body ("flag off", "pool full", "integration didn't resolve") installs no lease, so
         // the lease check can't stop the next typing pause from asking again. Before the cooldown that
