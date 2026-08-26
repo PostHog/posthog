@@ -56,6 +56,9 @@ export function useReportResolve({
                     onResolved?.()
                 } catch (error: any) {
                     lemonToast.error(error?.detail || error?.message || 'Failed to resolve report')
+                    // Reject so LemonDialog keeps the dialog open (the chosen reason and note survive
+                    // for a retry) and captures genuine failures. Matches useReportRefund.
+                    throw error
                 } finally {
                     setIsResolving(false)
                 }
