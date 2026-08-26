@@ -314,9 +314,6 @@ export interface insightLogicActions {
     setAccessDeniedToInsight: () => {
         value: true
     }
-    setInsightMissing: () => {
-        value: true
-    }
     setInsight: (
         insight: Partial<QueryBasedInsightModel>,
         options: SetInsightOptions
@@ -434,6 +431,9 @@ export interface insightLogicActions {
                 Pick<QueryBasedInsightModel<Node<Record<string, any>>>, 'description' | 'favorited' | 'name' | 'tags'>
             >
         }
+    }
+    setInsightMissing: () => {
+        value: true
     }
     setPreviousQuery: (previousQuery: Node | null) => {
         previousQuery: Node<Record<string, any>> | null
