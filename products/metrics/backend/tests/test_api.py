@@ -13,7 +13,9 @@ from rest_framework import status
 
 from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.user import User
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.facade.user_access_control import (
     ACCESS_CONTROL_RESOURCES,
@@ -81,6 +83,33 @@ class TestMetricsErrorSpikesApi(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    @parameterized.expand(
+        [
+            ("metrics_scope_only", ["metrics:read"], status.HTTP_403_FORBIDDEN),
+            ("both_scopes", ["metrics:read", "error_tracking:read"], status.HTTP_200_OK),
+        ]
+    )
+    def test_token_needs_the_error_tracking_scope_too(
+        self, _name: str, scopes: list[str], expected_status: int
+    ) -> None:
+        # The response is Error Tracking data, so a token delegated only metrics:read
+        # must not reach it — the scope check is the token-level counterpart of the
+        # user-level access-control check.
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="scoped", user=self.user, secure_value=hash_key_value(token), scopes=scopes)
+        self.client.logout()
+
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/metrics/error_spikes/",
+                {"dateFrom": (timezone.now() - timedelta(hours=1)).isoformat()},
+                headers={"authorization": f"Bearer {token}"},
+            )
+
+        assert response.status_code == expected_status
+        if expected_status == status.HTTP_403_FORBIDDEN:
+            assert response.json()["detail"] == "API key missing required scope 'error_tracking:read'"
 
 
 class TestMetricsFeatureFlagGate(APIBaseTest):

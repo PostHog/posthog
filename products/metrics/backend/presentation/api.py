@@ -981,7 +981,10 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @extend_schema(
         parameters=[_MetricErrorSpikesParamsSerializer], responses={200: _MetricErrorSpikesResponseSerializer}
     )
-    @action(detail=False, methods=["GET"], required_scopes=["metrics:read"])
+    # Both scopes: the response is Error Tracking data, so a token scoped to metrics
+    # alone must not reach it (scopes gate the token; the access-control check below
+    # gates the user).
+    @action(detail=False, methods=["GET"], required_scopes=["metrics:read", "error_tracking:read"])
     def error_spikes(self, request: Request, *args, **kwargs) -> Response:
         """Error Tracking issue spikes detected in a time window — backs the
         metrics chart's error-spike overlay (PoC). Team-wide: not yet scoped
