@@ -1,0 +1,15 @@
+.DemoDiffBlock {
+    &__line--add {
+        color: var(--success-lighter);
+        background: color-mix(in sRGB, var(--success) 18%, transparent);
+    }
+
+    &__line--remove {
+        color: var(--danger-lighter);
+        background: color-mix(in sRGB, var(--danger) 16%, transparent);
+    }
+
+    &__line--meta {
+        color: var(--color-text-secondary-inverse);
+    }
+}

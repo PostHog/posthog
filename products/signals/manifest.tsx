@@ -20,6 +20,12 @@ export const manifest: ProductManifest = {
         inboxScratchpad: (): string => '/inbox/scouts/scratchpad',
         // Cross-fleet findings browse/search surface, reached from the scout-findings callout.
         inboxFindings: (): string => '/inbox/scouts/findings',
+        // Mock-data-only redesign preview of the inbox (URL-only, no sidebar entry).
+        v2Inbox: (): string => '/v2/inbox',
+        v2Focus: (): string => '/v2/inbox/focus',
+        v2Report: (id: string | ':id'): string => `/v2/report/${id}`,
+        v2Resolved: (id: string | ':id'): string => `/v2/report/${id}/resolved`,
+        v2Monitor: (id: string | ':id'): string => `/v2/report/${id}/monitor`,
     },
     scenes: {
         Inbox: {
@@ -27,6 +33,33 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/inbox/InboxScene'),
             projectBased: true,
             description: 'Actionable reports automatically generated from user session analysis and other signals.',
+        },
+        V2Inbox: {
+            name: 'Inbox v2',
+            import: () => import('./frontend/v2/V2InboxScene'),
+            projectBased: true,
+            description: 'Mock-data preview of the inbox redesign.',
+        },
+        V2Focus: {
+            name: 'Focus mode',
+            import: () => import('./frontend/v2/V2FocusScene'),
+            projectBased: true,
+            layout: 'app-full-scene-height',
+        },
+        V2Report: {
+            name: 'Report v2',
+            import: () => import('./frontend/v2/V2ReportScene'),
+            projectBased: true,
+        },
+        V2Resolved: {
+            name: 'Resolved report v2',
+            import: () => import('./frontend/v2/V2ResolvedScene'),
+            projectBased: true,
+        },
+        V2Monitor: {
+            name: 'Fix monitor v2',
+            import: () => import('./frontend/v2/V2MonitorScene'),
+            projectBased: true,
         },
     },
     routes: {
@@ -40,6 +73,11 @@ export const manifest: ProductManifest = {
         // Deep-link to a single scout finding: the bare scout route plus a trailing `/<finding>` segment.
         '/inbox/scouts/:skillName/:findingId': ['Inbox', 'inbox'],
         '/inbox/:tab/:reportId': ['Inbox', 'inbox'],
+        '/v2/inbox': ['V2Inbox', 'v2Inbox'],
+        '/v2/inbox/focus': ['V2Focus', 'v2Focus'],
+        '/v2/report/:id': ['V2Report', 'v2Report'],
+        '/v2/report/:id/resolved': ['V2Resolved', 'v2Resolved'],
+        '/v2/report/:id/monitor': ['V2Monitor', 'v2Monitor'],
     },
     fileSystemTypes: {},
     treeItemsNew: [],
