@@ -1,5 +1,9 @@
 import type { Icon } from "@phosphor-icons/react";
-import { readAgentToolName, readMcpToolDescriptor } from "@posthog/shared";
+import {
+  isAgentFlowCardId,
+  readAgentToolName,
+  readMcpToolDescriptor,
+} from "@posthog/shared";
 import type { ConversationItem } from "@posthog/ui/features/sessions/components/buildConversationItems";
 import { isUserInitiatedConversationItem } from "@posthog/ui/features/sessions/components/isUserInitiatedConversationItem";
 import {
@@ -133,6 +137,16 @@ function isArtifactItem(item: ConversationItem): boolean {
  * keyed on item type alone, never on turn boundaries — a run can straddle the
  * end of one turn and the start of the next.
  */
+/** A flow step card is the visible surface of a whole subagent run, so it
+ * must never fold behind a "ran N tools" summary. */
+function isFlowStepItem(item: ConversationItem): boolean {
+  return (
+    item.type === "session_update" &&
+    item.update.sessionUpdate === "tool_call" &&
+    isAgentFlowCardId(item.update.toolCallId)
+  );
+}
+
 export function isGroupableItem(item: ConversationItem): boolean {
   if (item.type !== "session_update") return false;
   if (grouping.excludeMcpApps && isMcpToolItem(item)) return false;
@@ -140,7 +154,8 @@ export function isGroupableItem(item: ConversationItem): boolean {
     isAlwaysVisibleItem(item) ||
     isDirectMessageItem(item) ||
     isPlanItem(item) ||
-    isArtifactItem(item)
+    isArtifactItem(item) ||
+    isFlowStepItem(item)
   )
     return false;
   return true;

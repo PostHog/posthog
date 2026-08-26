@@ -50,6 +50,7 @@ describe("orderedNavItems", () => {
     expect(ids.filter((id) => id !== "activity")).toEqual([
       "inbox",
       "loops",
+      "flows",
       "command-center",
       "contexts",
       "configure",

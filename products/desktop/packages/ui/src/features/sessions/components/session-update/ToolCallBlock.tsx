@@ -1,6 +1,13 @@
 import { isShowActionsCall } from "@posthog/core/sessions/showActions";
 import { useServiceOptional } from "@posthog/di/react";
-import { readAgentToolName, readMcpToolName } from "@posthog/shared";
+import {
+  isAgentFlowApprovalCardId,
+  isAgentFlowStepCardId,
+  readAgentToolName,
+  readMcpToolName,
+} from "@posthog/shared";
+import { FlowApprovalView } from "@posthog/ui/features/agent-flows/FlowApprovalView";
+import { FlowStepView } from "@posthog/ui/features/agent-flows/FlowStepView";
 import { DeleteToolView } from "@posthog/ui/features/sessions/components/session-update/DeleteToolView";
 import { EditToolView } from "@posthog/ui/features/sessions/components/session-update/EditToolView";
 import { ExecuteToolView } from "@posthog/ui/features/sessions/components/session-update/ExecuteToolView";
@@ -112,6 +119,36 @@ export function ToolCallBlock({
           <ToolCallView {...props} agentToolName={mcpToolName} />
         )}
         {createdPrUrl && <CreatedPrCard url={createdPrUrl} />}
+      </Box>
+    );
+  }
+
+  if (isAgentFlowApprovalCardId(toolCall.toolCallId)) {
+    return (
+      <Box>
+        <FlowApprovalView {...props} />
+      </Box>
+    );
+  }
+
+  // A flow step is a whole subagent run; render it exactly like a native
+  // subagent tool call, with its live child tool calls and its streamed
+  // text/handoff in the body.
+  if (isAgentFlowStepCardId(toolCall.toolCallId)) {
+    const stepChildItems = childItems ?? [];
+    const turnContext: TurnContext = {
+      toolCalls: buildChildToolCallsMap(stepChildItems),
+      childItems: childItemsMap ?? new Map(),
+      turnCancelled: turnCancelled ?? false,
+      turnComplete: turnComplete ?? false,
+    };
+    return (
+      <Box>
+        <FlowStepView
+          {...props}
+          childItems={stepChildItems}
+          turnContext={turnContext}
+        />
       </Box>
     );
   }

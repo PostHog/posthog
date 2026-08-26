@@ -1,4 +1,5 @@
 import type { Adapter } from "./adapter";
+import type { AgentFlowDefinition } from "./agent-flow";
 import type { AgentRuntime } from "./agent-runtime";
 import type { CloudRunSource, PrAuthorshipMode } from "./cloud";
 import type { Task } from "./domain-types";
@@ -40,6 +41,7 @@ export interface TaskCreationInput {
   runtime?: AgentRuntime;
   model?: string;
   reasoningLevel?: string;
+  agentFlow?: AgentFlowDefinition;
   contextWindow?: "200k" | "1m";
   fastMode?: boolean;
   environmentId?: string;

@@ -100,6 +100,11 @@ export default defineConfig({
     "src/extensions/background-jobs/index.ts",
     "src/extensions/background-jobs/jobs.ts",
     "src/extensions/background-jobs/render.ts",
+    "src/extensions/agent-flow/extension.ts",
+    "src/extensions/agent-flow/flow-input.ts",
+    "src/extensions/agent-flow/index.ts",
+    "src/extensions/agent-flow/step-events.ts",
+    "src/extensions/agent-flow/step-session.ts",
     "src/extensions/web-access/extension.ts",
     "src/extensions/web-access/index.ts",
     "src/extensions/web-access/web-search.ts",
@@ -168,13 +173,18 @@ export default defineConfig({
         recursive: true,
       },
     );
-    await cp(
-      "src/extensions/subagent/bundled-agents",
+    // tsup inlines agents.ts into independent entry files, so each output needs an adjacent copy of the Markdown definitions.
+    for (const targetDirectory of [
+      "dist/bundled-agents",
+      "dist/extensions/bundled-agents",
       "dist/extensions/subagent/bundled-agents",
-      {
+      "dist/extensions/workflow/bundled-agents",
+      "dist/extensions/agent-flow/bundled-agents",
+    ]) {
+      await cp("src/extensions/subagent/bundled-agents", targetDirectory, {
         recursive: true,
-      },
-    );
+      });
+    }
     await cp("src/extensions/mcp/skills", "dist/extensions/mcp/skills", {
       recursive: true,
     });
@@ -184,16 +194,6 @@ export default defineConfig({
     await cp(
       "src/extensions/workflow/skills",
       "dist/extensions/workflow/skills",
-      { recursive: true },
-    );
-    // The workflow extension imports `../subagent/agents`, and tsup
-    // (splitting: false) inlines that module into workflow's own bundle — so
-    // its `import.meta.url`-relative `./bundled-agents` lookup resolves under
-    // dist/extensions/workflow/, not dist/extensions/subagent/. Any bundle
-    // that inlines agents.ts needs its own copy of the asset directory.
-    await cp(
-      "src/extensions/subagent/bundled-agents",
-      "dist/extensions/workflow/bundled-agents",
       { recursive: true },
     );
   },

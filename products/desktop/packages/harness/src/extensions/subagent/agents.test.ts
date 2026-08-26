@@ -7,8 +7,13 @@ import {
 } from "./agents";
 
 describe("agents", () => {
-  it("ships exactly the three expected bundled agents", () => {
-    expect(listBundledAgentNames()).toEqual(["Explore", "General", "Plan"]);
+  it("ships exactly the expected bundled agents", () => {
+    expect(listBundledAgentNames()).toEqual([
+      "Explore",
+      "General",
+      "Plan",
+      "Review",
+    ]);
   });
 
   it.each(

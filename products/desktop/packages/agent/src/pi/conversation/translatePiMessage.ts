@@ -10,7 +10,7 @@ import type {
   AgentToolCallContent,
   AgentToolCallStatus,
 } from "@posthog/shared";
-import { type PiToolName, TOOL_KIND_BY_NAME } from "./toolKind";
+import { isPiToolName, type PiToolName, TOOL_KIND_BY_NAME } from "./toolKind";
 import { bashTranslator } from "./tools/bashTranslator";
 import { editTranslator } from "./tools/editTranslator";
 import { findTranslator } from "./tools/findTranslator";
@@ -38,10 +38,6 @@ interface PendingToolCall {
 interface PiToolExecutionResult {
   content: ToolResultMessage["content"];
   details?: unknown;
-}
-
-function isPiToolName(name: string): name is PiToolName {
-  return name in TOOL_KIND_BY_NAME;
 }
 
 function toGenericToolContent(

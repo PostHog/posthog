@@ -45,7 +45,11 @@ import type {
   AgentConversationEvent,
   AgentTurnFeedbackSentiment,
 } from "@posthog/shared";
-import { ANALYTICS_EVENTS, PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
+import {
+  ANALYTICS_EVENTS,
+  isAgentFlowCardId,
+  PROJECT_BLUEBIRD_FLAG,
+} from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useSmoothedText } from "@posthog/ui/features/editor/components/useSmoothedText";
@@ -277,7 +281,12 @@ export function groupToolRuns(items: ConversationItem[]): ThreadItem[] {
       // A plan presented for approval renders as the full PlanApprovalView
       // card — folded into a "N tool calls" chip, the plan the user is being
       // asked to approve is invisible. Same exemption as buildThreadGroups.
-      if (isPlanItem(item)) {
+      // Flow step and handoff review cards are whole subagent runs and
+      // interactive reviews, so they stay standalone too.
+      if (
+        isPlanItem(item) ||
+        isAgentFlowCardId((item.update as { toolCallId?: string }).toolCallId)
+      ) {
         flush();
         out.push(item);
         continue;

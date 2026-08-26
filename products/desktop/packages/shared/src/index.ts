@@ -29,6 +29,7 @@ export type {
   AgentToolCallTerminal,
   AgentToolKind,
 } from "./agent-conversation";
+export * from "./agent-flow";
 export * from "./agent-runtime";
 export { AGENT_SLUG_PATTERN, isValidAgentSlug } from "./agent-slug";
 export * from "./analytics-events";

@@ -1,6 +1,19 @@
 import type { AssistantMessage, Message } from "@earendil-works/pi-ai";
 import type { JsonAgentSessionEvent } from "@earendil-works/pi-coding-agent";
-import type { AgentConversationEvent } from "@posthog/shared";
+import {
+  AGENT_FLOW_MESSAGE_TYPE,
+  AGENT_FLOW_STEP_EVENT_TYPE,
+  type AgentConversationEvent,
+  type AgentFlowMessageDetails,
+  type AgentFlowMessageStatus,
+  type AgentFlowStepStreamEvent,
+  agentFlowApprovalCardId,
+  agentFlowMessageDetailsSchema,
+  agentFlowStepCardId,
+  agentFlowStepStreamEventSchema,
+  isAgentFlowTerminalStatus,
+} from "@posthog/shared";
+import { isPiToolName, TOOL_KIND_BY_NAME } from "./toolKind";
 import { createPiMessageTranslator } from "./translatePiMessage";
 
 type AgentMessage = Extract<
@@ -18,7 +31,12 @@ function isMessage(message: AgentMessage): message is Message {
   );
 }
 
-function customMessageEvents(message: AgentMessage): AgentConversationEvent[] {
+function customMessageEvents(
+  message: AgentMessage,
+  flowSteps: FlowStepCards,
+  flowStepCardText: FlowStepCardText,
+  flowApprovals: FlowStepCards,
+): AgentConversationEvent[] {
   if (message.role === "bashExecution") {
     const id = `pi-bash-${message.timestamp}`;
     const failed = message.cancelled || (message.exitCode ?? 0) !== 0;
@@ -79,6 +97,18 @@ function customMessageEvents(message: AgentMessage): AgentConversationEvent[] {
     return [];
   }
 
+  const flowDetails = agentFlowDetails(message);
+  if (flowDetails) {
+    return agentFlowEvents(
+      message.timestamp,
+      text,
+      flowDetails,
+      flowSteps,
+      flowStepCardText,
+      flowApprovals,
+    );
+  }
+
   return [
     {
       type: "assistant_message_chunk",
@@ -86,6 +116,257 @@ function customMessageEvents(message: AgentMessage): AgentConversationEvent[] {
       content: { type: "text", text },
     },
   ];
+}
+
+const AGENT_FLOW_STOP_REASONS: Partial<Record<AgentFlowMessageStatus, string>> =
+  {
+    completed: "stop",
+    stopped: "aborted",
+    failed: "error",
+  };
+
+/** Open step card per flow id, so a terminal message can close it. */
+type FlowStepCards = Map<string, string>;
+
+/** Assistant text accumulated on a running step card, replaced by the
+ * handoff when the step finishes. */
+type FlowStepCardText = Map<string, string>;
+
+const STEP_CARD_TEXT_CAP = 4_000;
+
+/**
+ * Live work of an in-process flow step: its tool calls render as children of
+ * the step card, and its interim text streams into the card body. These
+ * events are display-only — they are not persisted, so reopened sessions
+ * show the step's final handoff instead.
+ */
+function flowStepStreamEvents(
+  payload: AgentFlowStepStreamEvent,
+  cardText: FlowStepCardText,
+): AgentConversationEvent[] {
+  const cardId = agentFlowStepCardId(payload.flowId, payload.stepIndex);
+  const stepEvent = payload.event;
+
+  if (stepEvent.kind === "tool_start") {
+    return [
+      {
+        type: "tool_call_started",
+        timestamp: payload.timestamp,
+        toolCall: {
+          id: `${cardId}:${stepEvent.toolCallId}`,
+          parentId: cardId,
+          title: stepEvent.title ?? stepEvent.toolName,
+          kind: isPiToolName(stepEvent.toolName)
+            ? TOOL_KIND_BY_NAME[stepEvent.toolName]
+            : "other",
+          status: "in_progress",
+        },
+      },
+    ];
+  }
+
+  if (stepEvent.kind === "tool_end") {
+    return [
+      {
+        type: "tool_call_updated",
+        timestamp: payload.timestamp,
+        toolCall: {
+          id: `${cardId}:${stepEvent.toolCallId}`,
+          status: stepEvent.isError ? "failed" : "completed",
+          ...(stepEvent.outputPreview
+            ? {
+                content: [
+                  {
+                    type: "content",
+                    content: { type: "text", text: stepEvent.outputPreview },
+                  },
+                ],
+              }
+            : {}),
+        },
+      },
+    ];
+  }
+
+  const combined = [cardText.get(cardId), stepEvent.text]
+    .filter(Boolean)
+    .join("\n\n");
+  const capped = combined.slice(-STEP_CARD_TEXT_CAP);
+  cardText.set(cardId, capped);
+  return [
+    {
+      type: "tool_call_updated",
+      timestamp: payload.timestamp,
+      toolCall: {
+        id: cardId,
+        content: [{ type: "content", content: { type: "text", text: capped } }],
+      },
+    },
+  ];
+}
+
+function agentFlowDetails(
+  message: AgentMessage,
+): AgentFlowMessageDetails | undefined {
+  if (
+    message.role !== "custom" ||
+    message.customType !== AGENT_FLOW_MESSAGE_TYPE
+  ) {
+    return undefined;
+  }
+  const details = agentFlowMessageDetailsSchema.safeParse(message.details);
+  return details.success ? details.data : undefined;
+}
+
+/**
+ * Renders flow steps as native tool-call cards: step_started opens a card,
+ * step_finished completes it with the handoff inside, and a terminal flow
+ * message fails any card still open. Flows run outside the main agent loop,
+ * so no agent_settled ends their turn; the terminal flow message is the turn
+ * boundary instead — without it the session would stay streaming forever.
+ */
+function agentFlowEvents(
+  timestamp: number,
+  text: string,
+  details: AgentFlowMessageDetails,
+  flowSteps: FlowStepCards,
+  flowStepCardText: FlowStepCardText,
+  flowApprovals: FlowStepCards,
+): AgentConversationEvent[] {
+  const events: AgentConversationEvent[] = [];
+
+  if (details.event === "approval_requested" && details.approvalId) {
+    const cardId = agentFlowApprovalCardId(details.flowId, details.approvalId);
+    flowApprovals.set(details.flowId, cardId);
+    return [
+      {
+        type: "tool_call_started",
+        timestamp,
+        toolCall: {
+          id: cardId,
+          title: `Review the ${details.stepName ?? "step"} handoff`,
+          kind: "question",
+          status: "in_progress",
+          content: [{ type: "content", content: { type: "text", text } }],
+        },
+      },
+    ];
+  }
+
+  if (details.event === "approval_resolved" && details.approvalId) {
+    flowApprovals.delete(details.flowId);
+    return [
+      {
+        type: "tool_call_updated",
+        timestamp,
+        toolCall: {
+          id: agentFlowApprovalCardId(details.flowId, details.approvalId),
+          status:
+            details.approvalOutcome === "approved" ? "completed" : "failed",
+          content: [{ type: "content", content: { type: "text", text } }],
+        },
+      },
+    ];
+  }
+
+  if (details.event === "step_revising" && details.stepIndex !== undefined) {
+    const cardId = agentFlowStepCardId(details.flowId, details.stepIndex);
+    flowSteps.set(details.flowId, cardId);
+    return [
+      {
+        type: "tool_call_updated",
+        timestamp,
+        toolCall: { id: cardId, status: "in_progress" },
+      },
+    ];
+  }
+
+  if (details.event === "step_started" && details.stepIndex !== undefined) {
+    const cardId = agentFlowStepCardId(details.flowId, details.stepIndex);
+    flowSteps.set(details.flowId, cardId);
+    const cardEvents: AgentConversationEvent[] = [
+      {
+        type: "tool_call_started",
+        timestamp,
+        toolCall: {
+          id: cardId,
+          title: text.replaceAll("**", "").trim(),
+          kind: "other",
+          status: "in_progress",
+        },
+      },
+    ];
+    // The step's prompt renders as the first child row, same shape as the
+    // step's tool calls: a collapsed row that expands on click.
+    if (details.stepPrompt) {
+      cardEvents.push({
+        type: "tool_call_started",
+        timestamp,
+        toolCall: {
+          id: `${cardId}:prompt`,
+          parentId: cardId,
+          title: "Prompt",
+          kind: "other",
+          status: "completed",
+          content: [
+            {
+              type: "content",
+              content: { type: "text", text: details.stepPrompt },
+            },
+          ],
+        },
+      });
+    }
+    return cardEvents;
+  }
+
+  if (details.event === "step_finished" && details.stepIndex !== undefined) {
+    flowSteps.delete(details.flowId);
+    flowStepCardText.delete(
+      agentFlowStepCardId(details.flowId, details.stepIndex),
+    );
+    return [
+      {
+        type: "tool_call_updated",
+        timestamp,
+        toolCall: {
+          id: agentFlowStepCardId(details.flowId, details.stepIndex),
+          status: "completed",
+          content: [{ type: "content", content: { type: "text", text } }],
+        },
+      },
+    ];
+  }
+
+  if (isAgentFlowTerminalStatus(details.status)) {
+    for (const open of [flowSteps, flowApprovals]) {
+      const openCardId = open.get(details.flowId);
+      if (openCardId) {
+        open.delete(details.flowId);
+        events.push({
+          type: "tool_call_updated",
+          timestamp,
+          toolCall: { id: openCardId, status: "failed" },
+        });
+      }
+    }
+  }
+
+  events.push({
+    type: "assistant_message_chunk",
+    timestamp,
+    content: { type: "text", text },
+  });
+
+  if (isAgentFlowTerminalStatus(details.status)) {
+    events.push({
+      type: "turn_completed",
+      timestamp,
+      stopReason: AGENT_FLOW_STOP_REASONS[details.status],
+    });
+  }
+
+  return events;
 }
 
 function isAssistantMessage(
@@ -116,6 +397,9 @@ export interface PiConversationTranslator {
 
 export function createPiConversationTranslator(): PiConversationTranslator {
   const messageTranslator = createPiMessageTranslator();
+  const flowSteps: FlowStepCards = new Map();
+  const flowStepCardText: FlowStepCardText = new Map();
+  const flowApprovals: FlowStepCards = new Map();
   let historyTurnActive = false;
   let activeAssistantStream: ActiveAssistantStream | undefined;
   let latestRuntimeTimestamp = 0;
@@ -245,7 +529,14 @@ export function createPiConversationTranslator(): PiConversationTranslator {
     if (isMessage(message)) {
       events.push(...messageTranslator.translate(message));
     } else {
-      events.push(...customMessageEvents(message));
+      events.push(
+        ...customMessageEvents(
+          message,
+          flowSteps,
+          flowStepCardText,
+          flowApprovals,
+        ),
+      );
     }
 
     if (message.role === "user") {
@@ -323,6 +614,13 @@ export function createPiConversationTranslator(): PiConversationTranslator {
   function translateEvent(
     event: JsonAgentSessionEvent,
   ): AgentConversationEvent[] {
+    if ((event as { type: string }).type === AGENT_FLOW_STEP_EVENT_TYPE) {
+      const parsed = agentFlowStepStreamEventSchema.safeParse(event);
+      return parsed.success
+        ? flowStepStreamEvents(parsed.data, flowStepCardText)
+        : [];
+    }
+
     if (event.type === "message_start") {
       activeAssistantStream = undefined;
       if (event.message.role !== "assistant") {
@@ -484,7 +782,12 @@ export function createPiConversationTranslator(): PiConversationTranslator {
       );
 
       if (!isMessage(event.message)) {
-        return customMessageEvents(event.message);
+        return customMessageEvents(
+          event.message,
+          flowSteps,
+          flowStepCardText,
+          flowApprovals,
+        );
       }
 
       if (isAssistantMessage(event.message)) {

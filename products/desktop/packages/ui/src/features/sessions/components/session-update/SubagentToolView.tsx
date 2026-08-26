@@ -20,6 +20,8 @@ import { ToolRow } from "./ToolRow";
 interface SubagentToolViewProps extends ToolViewProps {
   childItems: ConversationItem[];
   turnContext: TurnContext;
+  /** Start with the child list visible (each child still collapses its own output). */
+  defaultExpanded?: boolean;
 }
 
 /**
@@ -33,6 +35,7 @@ export function SubagentToolView({
   turnComplete,
   childItems,
   turnContext,
+  defaultExpanded = false,
 }: SubagentToolViewProps) {
   const { title } = toolCall;
   const { isLoading, isFailed, wasCancelled } = useToolCallStatus(
@@ -41,7 +44,7 @@ export function SubagentToolView({
     turnComplete,
   );
   const chatChrome = useChatThreadChrome();
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(defaultExpanded);
 
   const hasChildren = childItems.length > 0;
   const childContent = hasChildren
@@ -134,6 +137,7 @@ export function SubagentToolView({
         isLoading={isLoading}
         isFailed={isFailed}
         wasCancelled={wasCancelled}
+        defaultOpen={defaultExpanded}
         content={childContent}
       >
         <span>

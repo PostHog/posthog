@@ -2,6 +2,7 @@ import type {
   RpcClient,
   RpcCommand,
   RpcResponse,
+  SessionEntry,
 } from "@earendil-works/pi-coding-agent";
 import type { AgentConversationEvent } from "@posthog/shared";
 import { createPiConversationTranslator } from "./conversation/translatePiConversation";
@@ -26,6 +27,34 @@ export type PiRemoteRpcClient = Pick<
   | "getCommands"
 >;
 
+type HistoryMessage = Parameters<
+  ReturnType<typeof createPiConversationTranslator>["translateHistoryMessage"]
+>[0];
+
+/**
+ * Mirrors pi's `sessionEntryToContextMessages` for the entry types the chat
+ * renders. Runs in the renderer, so it cannot import pi's runtime (Node-only);
+ * a type-only mirror keeps the shapes checked against pi's `SessionEntry`.
+ */
+function entryToHistoryMessages(entry: SessionEntry): HistoryMessage[] {
+  if (entry.type === "message") {
+    return [entry.message];
+  }
+  if (entry.type === "custom_message") {
+    return [
+      {
+        role: "custom",
+        customType: entry.customType,
+        content: entry.content ?? [],
+        display: entry.display,
+        details: entry.details,
+        timestamp: new Date(entry.timestamp).getTime(),
+      },
+    ];
+  }
+  return [];
+}
+
 export async function getRemotePiConversation(
   client: Pick<PiRemoteRpcClient, "getEntries">,
 ): Promise<AgentConversationEvent[]> {
@@ -34,8 +63,10 @@ export async function getRemotePiConversation(
   const events: AgentConversationEvent[] = [];
 
   for (const entry of entries.entries) {
-    if (entry.type === "message") {
-      const translated = translator.translateHistoryMessage(entry.message);
+    // Mapping only "message" entries dropped agent flow transcripts (custom
+    // messages) from reopened sessions.
+    for (const message of entryToHistoryMessages(entry)) {
+      const translated = translator.translateHistoryMessage(message);
       events.push(
         ...translated.map((event, index) => ({
           ...event,

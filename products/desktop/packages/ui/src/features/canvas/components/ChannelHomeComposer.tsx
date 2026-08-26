@@ -3,7 +3,7 @@ import type {
   PiThinkingLevel,
 } from "@posthog/core/pi-runtime/piSessionController";
 import { isValidConfigValue } from "@posthog/core/task-detail/configOptions";
-import type { AgentRuntime } from "@posthog/shared";
+import { type AgentRuntime, PI_HARNESS_FLAG } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import {
   forwardRef,
@@ -123,7 +123,7 @@ export const ChannelHomeComposer = forwardRef<
   );
   const [selectedPiThinkingLevel, setSelectedPiThinkingLevel] =
     useState<PiThinkingLevel | null>(null);
-  const piHarnessEnabled = useFeatureFlag("pi-harness");
+  const piHarnessEnabled = useFeatureFlag(PI_HARNESS_FLAG);
   const flagsLoaded = useFeatureFlagsLoaded();
   const { data: piModelCatalog = [], isPending: isPiConfigLoading } =
     usePiModelCatalog(runtime === "pi");

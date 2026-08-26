@@ -28,6 +28,10 @@
       "types": "./dist/extensions/registry.d.ts",
       "import": "./dist/extensions/registry.js"
     },
+    "./extensions/agent-flow": {
+      "types": "./dist/extensions/agent-flow/index.d.ts",
+      "import": "./dist/extensions/agent-flow/index.js"
+    },
     "./extensions/auto-publish": {
       "types": "./dist/extensions/auto-publish/index.d.ts",
       "import": "./dist/extensions/auto-publish/index.js"

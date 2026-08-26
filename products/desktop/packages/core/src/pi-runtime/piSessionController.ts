@@ -665,6 +665,19 @@ export class PiSessionController {
   }
 
   private async ensureConnectedInternal(taskId: string): Promise<void> {
+    // A freshly created task's view connects while the creation saga is still
+    // starting the session. Connecting now fails ("session metadata missing")
+    // and leaves a dead event subscription behind, so wait for the saga and
+    // rebuild the subscription the same way the cold path does.
+    const pendingCreation = this.taskService.whenCreationSettled?.(taskId);
+    if (pendingCreation) {
+      await pendingCreation;
+      this.disposeConversationSubscription(taskId);
+      this.sessions.delete(taskId);
+      this.connections.delete(taskId);
+      this.ensureSubscription(taskId);
+    }
+
     const session = await this.getPiSession(taskId);
     const health = await session.health();
     if (health.state === "cold") {
@@ -693,6 +706,16 @@ export class PiSessionController {
     let disposed = false;
     let unsubscribeConversation: (() => void) | undefined;
     let unsubscribePermission: (() => void) | undefined;
+    // A subscription opened while a connect is in flight can fail against a
+    // session that does not exist yet; the connect surfaces its own outcome
+    // and rebuilds the subscription, so a transient failure here is not an
+    // error the user should see.
+    const reportSubscriptionError = (error: unknown) => {
+      if (this.readiness.has(taskId) || this.connections.has(taskId)) {
+        return;
+      }
+      this.applySessionError(taskId, error);
+    };
     void this.getPiSession(taskId)
       .then((session) => {
         if (disposed) {
@@ -702,7 +725,7 @@ export class PiSessionController {
         this.updateSession(taskId, { cloudStatus: session.cloudStatus });
         unsubscribeConversation = session.onConversationEvent(
           (event, context) => this.handleEvent(taskId, event, context),
-          (error) => this.applySessionError(taskId, error),
+          (error) => reportSubscriptionError(error),
           (cloudStatus) => this.handleCloudStatus(taskId, cloudStatus),
         );
         unsubscribePermission = session.onMcpToolPermissionRequest?.(
@@ -727,10 +750,10 @@ export class PiSessionController {
               });
             }
           },
-          (error) => this.applySessionError(taskId, error),
+          (error) => reportSubscriptionError(error),
         );
       })
-      .catch((error) => this.applySessionError(taskId, error));
+      .catch((error) => reportSubscriptionError(error));
     this.subscriptions.set(taskId, () => {
       disposed = true;
       unsubscribeConversation?.();
@@ -1128,9 +1151,23 @@ export class PiSessionController {
         event.sourceId ? [event.sourceId] : [],
       ),
     );
-    return liveEvents.filter(
-      (event) => !event.sourceId || !historySourceIds.has(event.sourceId),
+    // Live events carry no source id, so a reload whose history already
+    // contains them would render them twice. An identical payload at the
+    // same millisecond is the same event.
+    const historyFingerprints = new Set(
+      historyEvents.map((event) => this.eventFingerprint(event)),
     );
+    return liveEvents.filter((event) => {
+      if (event.sourceId) {
+        return !historySourceIds.has(event.sourceId);
+      }
+      return !historyFingerprints.has(this.eventFingerprint(event));
+    });
+  }
+
+  private eventFingerprint(event: AgentConversationEvent): string {
+    const { sourceId: _sourceId, ...rest } = event;
+    return JSON.stringify(rest);
   }
 
   acknowledgeOperationFailure(taskId: string, failureId: string): void {

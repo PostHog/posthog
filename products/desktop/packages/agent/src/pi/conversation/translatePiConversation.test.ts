@@ -715,4 +715,315 @@ describe("createPiConversationTranslator", () => {
       ],
     );
   });
+
+  it.each([
+    ["completed", "stop"],
+    ["stopped", "aborted"],
+    ["failed", "error"],
+  ])(
+    "ends the turn when an agent flow message reports %s",
+    (status, stopReason) => {
+      const translator = createPiConversationTranslator();
+
+      const events = translator.translateEvent({
+        type: "message_end",
+        message: {
+          role: "custom",
+          customType: "posthog-agent-flow",
+          content: "Flow finished.",
+          display: true,
+          details: { flowId: "flow-1", flowName: "Plan and build", status },
+          timestamp: 10,
+        },
+      });
+
+      expect(events).toEqual([
+        {
+          type: "assistant_message_chunk",
+          timestamp: 10,
+          content: { type: "text", text: "Flow finished." },
+        },
+        { type: "turn_completed", timestamp: 10, stopReason },
+      ]);
+    },
+  );
+
+  it("renders flow steps as tool-call cards and fails an interrupted step", () => {
+    const translator = createPiConversationTranslator();
+    const flowMessage = (
+      content: string,
+      details: Record<string, unknown>,
+    ) => ({
+      type: "message_end" as const,
+      message: {
+        role: "custom" as const,
+        customType: "posthog-agent-flow",
+        content,
+        display: true,
+        details: { flowId: "flow-1", flowName: "Plan and build", ...details },
+        timestamp: 10,
+      },
+    });
+
+    const started = translator.translateEvent(
+      flowMessage("**Step 1 of 2: Plan** (Sol, high effort)", {
+        status: "running",
+        event: "step_started",
+        stepIndex: 0,
+        stepCount: 2,
+        stepName: "Plan",
+      }),
+    );
+    expect(started).toEqual([
+      {
+        type: "tool_call_started",
+        timestamp: 10,
+        toolCall: {
+          id: "agent-flow:flow-1:0",
+          title: "Step 1 of 2: Plan (Sol, high effort)",
+          kind: "other",
+          status: "in_progress",
+        },
+      },
+    ]);
+
+    const finished = translator.translateEvent(
+      flowMessage("the plan handoff", {
+        status: "running",
+        event: "step_finished",
+        stepIndex: 0,
+        stepCount: 2,
+        stepName: "Plan",
+      }),
+    );
+    expect(finished).toEqual([
+      {
+        type: "tool_call_updated",
+        timestamp: 10,
+        toolCall: {
+          id: "agent-flow:flow-1:0",
+          status: "completed",
+          content: [
+            {
+              type: "content",
+              content: { type: "text", text: "the plan handoff" },
+            },
+          ],
+        },
+      },
+    ]);
+
+    translator.translateEvent(
+      flowMessage("**Step 2 of 2: Build**", {
+        status: "running",
+        event: "step_started",
+        stepIndex: 1,
+        stepCount: 2,
+        stepName: "Build",
+      }),
+    );
+    const failed = translator.translateEvent(
+      flowMessage("**Plan and build** failed.", {
+        status: "failed",
+        event: "flow_failed",
+        stepIndex: 1,
+        stepCount: 2,
+      }),
+    );
+    expect(failed).toEqual([
+      {
+        type: "tool_call_updated",
+        timestamp: 10,
+        toolCall: { id: "agent-flow:flow-1:1", status: "failed" },
+      },
+      {
+        type: "assistant_message_chunk",
+        timestamp: 10,
+        content: { type: "text", text: "**Plan and build** failed." },
+      },
+      { type: "turn_completed", timestamp: 10, stopReason: "error" },
+    ]);
+  });
+
+  it("streams a step's live work as nested tool calls and card text", () => {
+    const translator = createPiConversationTranslator();
+    const stream = (event: Record<string, unknown>) =>
+      translator.translateEvent({
+        type: "posthog_flow_step_event",
+        flowId: "flow-1",
+        stepIndex: 0,
+        timestamp: 10,
+        event,
+      } as never);
+
+    expect(
+      stream({
+        kind: "tool_start",
+        toolCallId: "t1",
+        toolName: "bash",
+        title: "bash: npm test",
+      }),
+    ).toEqual([
+      {
+        type: "tool_call_started",
+        timestamp: 10,
+        toolCall: {
+          id: "agent-flow:flow-1:0:t1",
+          parentId: "agent-flow:flow-1:0",
+          title: "bash: npm test",
+          kind: "execute",
+          status: "in_progress",
+        },
+      },
+    ]);
+
+    expect(
+      stream({ kind: "tool_end", toolCallId: "t1", toolName: "bash" }),
+    ).toEqual([
+      {
+        type: "tool_call_updated",
+        timestamp: 10,
+        toolCall: { id: "agent-flow:flow-1:0:t1", status: "completed" },
+      },
+    ]);
+
+    stream({ kind: "assistant_text", text: "first thought" });
+    expect(stream({ kind: "assistant_text", text: "second" })).toEqual([
+      {
+        type: "tool_call_updated",
+        timestamp: 10,
+        toolCall: {
+          id: "agent-flow:flow-1:0",
+          content: [
+            {
+              type: "content",
+              content: { type: "text", text: "first thought\n\nsecond" },
+            },
+          ],
+        },
+      },
+    ]);
+  });
+
+  it("renders handoff reviews as question cards and reopens the step on revision", () => {
+    const translator = createPiConversationTranslator();
+    const flowMessage = (
+      content: string,
+      details: Record<string, unknown>,
+    ) => ({
+      type: "message_end" as const,
+      message: {
+        role: "custom" as const,
+        customType: "posthog-agent-flow",
+        content,
+        display: true,
+        details: { flowId: "flow-1", flowName: "Plan and build", ...details },
+        timestamp: 10,
+      },
+    });
+
+    expect(
+      translator.translateEvent(
+        flowMessage("Review the Plan handoff above.", {
+          status: "running",
+          event: "approval_requested",
+          approvalId: "a1",
+          stepIndex: 0,
+          stepName: "Plan",
+        }),
+      ),
+    ).toEqual([
+      {
+        type: "tool_call_started",
+        timestamp: 10,
+        toolCall: {
+          id: "agent-flow:flow-1:approval:a1",
+          title: "Review the Plan handoff",
+          kind: "question",
+          status: "in_progress",
+          content: [
+            {
+              type: "content",
+              content: { type: "text", text: "Review the Plan handoff above." },
+            },
+          ],
+        },
+      },
+    ]);
+
+    expect(
+      translator.translateEvent(
+        flowMessage("Plan handoff sent back for changes.", {
+          status: "running",
+          event: "approval_resolved",
+          approvalId: "a1",
+          approvalOutcome: "rejected",
+          stepIndex: 0,
+        }),
+      ),
+    ).toEqual([
+      {
+        type: "tool_call_updated",
+        timestamp: 10,
+        toolCall: {
+          id: "agent-flow:flow-1:approval:a1",
+          status: "failed",
+          content: [
+            {
+              type: "content",
+              content: {
+                type: "text",
+                text: "Plan handoff sent back for changes.",
+              },
+            },
+          ],
+        },
+      },
+    ]);
+
+    expect(
+      translator.translateEvent(
+        flowMessage("**Plan** is revising the handoff.", {
+          status: "running",
+          event: "step_revising",
+          stepIndex: 0,
+          stepName: "Plan",
+        }),
+      ),
+    ).toEqual([
+      {
+        type: "tool_call_updated",
+        timestamp: 10,
+        toolCall: { id: "agent-flow:flow-1:0", status: "in_progress" },
+      },
+    ]);
+  });
+
+  it("does not end the turn for a running agent flow message", () => {
+    const translator = createPiConversationTranslator();
+
+    const events = translator.translateEvent({
+      type: "message_end",
+      message: {
+        role: "custom",
+        customType: "posthog-agent-flow",
+        content: "Step 1 of 2 started.",
+        display: true,
+        details: {
+          flowId: "flow-1",
+          flowName: "Plan and build",
+          status: "running",
+        },
+        timestamp: 10,
+      },
+    });
+
+    expect(events).toEqual([
+      {
+        type: "assistant_message_chunk",
+        timestamp: 10,
+        content: { type: "text", text: "Step 1 of 2 started." },
+      },
+    ]);
+  });
 });

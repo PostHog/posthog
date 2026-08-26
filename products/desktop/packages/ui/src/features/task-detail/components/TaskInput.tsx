@@ -13,7 +13,12 @@ import { isValidConfigValue } from "@posthog/core/task-detail/configOptions";
 import { useServiceOptional } from "@posthog/di/react";
 import { useHostTRPC, useHostTRPCClient } from "@posthog/host-router/react";
 import { ButtonGroup } from "@posthog/quill";
-import { type AgentRuntime, ANALYTICS_EVENTS } from "@posthog/shared";
+import {
+  type AgentFlowDefinition,
+  type AgentRuntime,
+  ANALYTICS_EVENTS,
+  PI_HARNESS_FLAG,
+} from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import {
   spendStopMessage,
@@ -53,7 +58,9 @@ import { DotPatternBackground } from "../../../primitives/DotPatternBackground";
 import { toast } from "../../../primitives/toast";
 import { useActiveRepoStore } from "../../../shell/activeRepoStore";
 import { FOCUSABLE_SELECTOR } from "../../../utils/overlay";
-import { useAuthStateValue } from "../../auth/store";
+import { AgentFlowSelector } from "../../agent-flows/AgentFlowSelector";
+import { useAgentFlowStore } from "../../agent-flows/agentFlowStore";
+import { getAuthIdentity, useAuthStateValue } from "../../auth/store";
 import { AutoresearchComposerControls } from "../../autoresearch/AutoresearchComposerControls";
 import {
   autoresearchPendingRun,
@@ -219,6 +226,8 @@ export function TaskInput({
   spaceSelector,
 }: TaskInputProps = {}) {
   const cloudRegion = useAuthStateValue((s) => s.cloudRegion);
+  const authIdentity = useAuthStateValue(getAuthIdentity);
+  const storedAgentFlows = useAgentFlowStore((state) => state.flows);
   const trpc = useHostTRPC();
   const hostClient = useHostTRPCClient();
   const gitWriteClient = useMemo(
@@ -325,6 +334,9 @@ export function TaskInput({
   );
   const [selectedPiThinkingLevel, setSelectedPiThinkingLevel] =
     useState<PiThinkingLevel | null>(null);
+  const [selectedAgentFlowId, setSelectedAgentFlowId] = useState<string | null>(
+    null,
+  );
   const { data: piModelCatalog = [], isPending: isPiConfigLoading } =
     usePiModelCatalog(runtime === "pi");
   const [cloudRepoSearchQuery, setCloudRepoSearchQuery] = useState("");
@@ -447,7 +459,7 @@ export function TaskInput({
     hasGithubIntegration,
   } = useUserRepositoryIntegration();
 
-  const piHarnessEnabled = useFeatureFlag("pi-harness");
+  const piHarnessEnabled = useFeatureFlag(PI_HARNESS_FLAG);
   const flagsLoaded = useFeatureFlagsLoaded();
   const reposReady = areReposReady({
     isLoadingRepos,
@@ -768,6 +780,24 @@ export function TaskInput({
 
   const effectiveWorkspaceMode = workspaceMode;
 
+  useEffect(() => {
+    if (effectiveWorkspaceMode === "cloud") {
+      setSelectedAgentFlowId(null);
+    }
+  }, [effectiveWorkspaceMode]);
+
+  const agentFlows = useMemo<AgentFlowDefinition[]>(
+    () =>
+      authIdentity
+        ? storedAgentFlows
+            .filter((flow) => flow.identity === authIdentity)
+            .map(({ id, name, steps }) => ({ id, name, steps }))
+        : [],
+    [authIdentity, storedAgentFlows],
+  );
+  const selectedAgentFlow =
+    agentFlows.find((flow) => flow.id === selectedAgentFlowId) ?? null;
+
   const repoOptional = !!allowNoRepo && workspaceMode === "cloud";
 
   // Get current values from preview config options for task creation.
@@ -826,12 +856,24 @@ export function TaskInput({
   const effectiveReasoningLevel = autoresearchDraft
     ? (autoresearchDraft.measureEffort ?? currentReasoningLevel)
     : currentReasoningLevel;
-  const taskModel = runtime === "pi" ? currentPiModel?.id : effectiveModel;
+  const selectedAgentFlowAvailable =
+    !selectedAgentFlow ||
+    selectedAgentFlow.steps.every((step) =>
+      piModelCatalog.some(
+        (model) =>
+          model.provider === step.model.provider &&
+          model.id === step.model.id &&
+          model.thinkingLevels.includes(step.effort),
+      ),
+    );
+  const taskModel =
+    runtime === "pi"
+      ? (selectedAgentFlow?.steps[0]?.model.id ?? currentPiModel?.id)
+      : effectiveModel;
   const taskReasoningLevel =
     runtime === "pi"
-      ? supportsPiThinking
-        ? currentPiThinkingLevel
-        : undefined
+      ? (selectedAgentFlow?.steps[0]?.effort ??
+        (supportsPiThinking ? currentPiThinkingLevel : undefined))
       : effectiveReasoningLevel;
 
   useWarmTask({
@@ -982,6 +1024,7 @@ export function TaskInput({
     executionMode: runtime === "pi" ? undefined : currentExecutionMode,
     model: taskModel,
     reasoningLevel: taskReasoningLevel,
+    agentFlow: selectedAgentFlow ?? undefined,
     contextWindow: runtime === "pi" ? undefined : currentContextWindow,
     fastMode: runtime === "pi" ? undefined : currentFastMode,
     onTaskCreated,
@@ -1110,6 +1153,8 @@ export function TaskInput({
       setLastUsedAgentRuntime(nextRuntime);
       if (nextRuntime === "pi") {
         useAutoresearchDraftStore.getState().clearDraft(sessionId);
+      } else {
+        setSelectedAgentFlowId(null);
       }
     },
     [sessionId, setLastUsedAgentRuntime],
@@ -1139,6 +1184,16 @@ export function TaskInput({
   const handlePiThinkingLevelChange = useCallback((level: PiThinkingLevel) => {
     setSelectedPiThinkingLevel(level);
   }, []);
+
+  const handleAgentFlowChange = useCallback(
+    (flowId: string | null) => {
+      setSelectedAgentFlowId(flowId);
+      if (flowId) {
+        handleRuntimeChange("pi");
+      }
+    },
+    [handleRuntimeChange],
+  );
 
   const { isOnline } = useConnectivity();
   const promptSessionId = sessionId;
@@ -1449,11 +1504,18 @@ export function TaskInput({
                     channelContextBlocked ||
                     !isOnline ||
                     (runtime === "pi" ? isPiConfigLoading : isPreviewLoading) ||
-                    (runtime === "pi" && !currentPiModel) ||
+                    (runtime === "pi" &&
+                      !selectedAgentFlow &&
+                      !currentPiModel) ||
+                    !selectedAgentFlowAvailable ||
                     spendStop !== null
                   }
                   submitTooltipOverride={
-                    spendStop ? spendStopMessage(spendStop) : undefined
+                    spendStop
+                      ? spendStopMessage(spendStop)
+                      : !selectedAgentFlowAvailable
+                        ? "This flow uses a Pi model or effort that is not available."
+                        : undefined
                   }
                   tourTarget="task-input"
                   submitAdornment={
@@ -1499,25 +1561,41 @@ export function TaskInput({
                   enableCommands
                   enableBashMode={false}
                   modelSelector={
-                    autoresearchDraft ? null : runtime === "pi" ? (
-                      <PiModelSelector
-                        models={piModelCatalog}
-                        currentModel={currentPiModel}
-                        thinkingLevel={
-                          supportsPiThinking
-                            ? currentPiThinkingLevel
-                            : undefined
-                        }
-                        thinkingLevels={piThinkingLevels}
-                        disabled={isCreatingTask || isPiConfigLoading}
-                        isLoading={isPiConfigLoading}
-                        onChange={handlePiModelChange}
-                        onThinkingLevelChange={handlePiThinkingLevelChange}
-                        onHarnessChange={handleHarnessChange}
-                        menuOpen={modelMenuOpen}
-                        onMenuOpenChange={setModelMenuOpen}
-                      />
-                    ) : null
+                    autoresearchDraft ? null : (
+                      <div className="flex items-center gap-1">
+                        {piHarnessEnabled &&
+                        effectiveWorkspaceMode !== "cloud" ? (
+                          <AgentFlowSelector
+                            flows={agentFlows}
+                            selectedFlowId={selectedAgentFlow?.id ?? null}
+                            disabled={
+                              isCreatingTask ||
+                              (runtime === "pi" && isPiConfigLoading)
+                            }
+                            onChange={handleAgentFlowChange}
+                          />
+                        ) : null}
+                        {runtime === "pi" && !selectedAgentFlow ? (
+                          <PiModelSelector
+                            models={piModelCatalog}
+                            currentModel={currentPiModel}
+                            thinkingLevel={
+                              supportsPiThinking
+                                ? currentPiThinkingLevel
+                                : undefined
+                            }
+                            thinkingLevels={piThinkingLevels}
+                            disabled={isCreatingTask || isPiConfigLoading}
+                            isLoading={isPiConfigLoading}
+                            onChange={handlePiModelChange}
+                            onThinkingLevelChange={handlePiThinkingLevelChange}
+                            onHarnessChange={handleHarnessChange}
+                            menuOpen={modelMenuOpen}
+                            onMenuOpenChange={setModelMenuOpen}
+                          />
+                        ) : null}
+                      </div>
+                    )
                   }
                   historyButton={
                     <PromptHistoryDialog

@@ -25,6 +25,8 @@ export const CHANNELS_LAYOUT_FLAG = "code-spaces-layout";
 export const SPACES_TABS_FLAG = "posthog-desktop-spaces-tabs";
 // Gates the Loops feature: the sidebar Loops space and the per-channel Loops tab.
 export const LOOPS_FLAG = "loops";
+/** Gates the Pi runtime in the task composer, and with it agent flows (the Flows page, sidebar item, and composer selector). */
+export const PI_HARNESS_FLAG = "pi-harness";
 export const DESKTOP_HOME_FLAG = "desktop-home-flag";
 export const TASKS_PREWARM_SANDBOX_FLAG = "tasks-prewarm-sandbox";
 export const GLM_MODEL_FLAG = "posthog-code-glm-model";

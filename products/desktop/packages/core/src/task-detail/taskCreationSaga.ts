@@ -10,6 +10,7 @@ import type {
   SessionService,
 } from "@posthog/core/sessions/sessionService";
 import {
+  buildAgentFlowRunCommand,
   getTaskRepository,
   Saga,
   type SagaLogger,
@@ -547,9 +548,12 @@ export class TaskCreationSaga extends Saga<
               input.channelContextId,
               input.channelContextPath,
             );
-            const prompt = [input.content, channelContextText]
+            const directPrompt = [input.content, channelContextText]
               .filter((part): part is string => !!part)
               .join("\n\n");
+            const prompt = input.agentFlow
+              ? buildAgentFlowRunCommand(input.agentFlow, directPrompt)
+              : directPrompt;
 
             await this.deps.piRunner.create({
               taskId: task.id,

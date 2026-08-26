@@ -5,10 +5,15 @@ import {
   BookOpenTextIcon,
   DotsSixVertical,
   EnvelopeSimple,
+  FlowArrowIcon,
   SlidersHorizontal,
   SquaresFourIcon,
 } from "@phosphor-icons/react";
-import { LOOPS_FLAG, PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
+import {
+  LOOPS_FLAG,
+  PI_HARNESS_FLAG,
+  PROJECT_BLUEBIRD_FLAG,
+} from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useContextLayerFlag } from "@posthog/ui/features/feature-flags/useContextLayerFlag";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
@@ -35,6 +40,7 @@ const ITEM_ICONS: Record<
   activity: Bell,
   configure: SlidersHorizontal,
   loops: LoopIcon,
+  flows: FlowArrowIcon,
   contexts: BookOpenTextIcon,
 };
 
@@ -47,6 +53,7 @@ function sameOrder(
 
 export function CustomizeSidebarSettings() {
   const loopsEnabled = useFeatureFlag(LOOPS_FLAG, import.meta.env.DEV);
+  const flowsEnabled = useFeatureFlag(PI_HARNESS_FLAG, import.meta.env.DEV);
   const bluebirdEnabled = useFeatureFlag(
     PROJECT_BLUEBIRD_FLAG,
     import.meta.env.DEV,
@@ -76,6 +83,7 @@ export function CustomizeSidebarSettings() {
   const items = orderedNavItems(previewOrder ?? navItemOrder).filter(
     ({ id }) => {
       if (id === "loops") return loopsEnabled;
+      if (id === "flows") return flowsEnabled;
       if (id === "activity") return bluebirdEnabled;
       if (id === "contexts") return contextEnabled;
       return true;

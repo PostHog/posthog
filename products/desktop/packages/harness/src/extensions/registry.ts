@@ -3,6 +3,7 @@ import type {
   ExtensionFactory,
   InlineExtension,
 } from "@earendil-works/pi-coding-agent";
+import { createAgentFlowExtension } from "./agent-flow/extension";
 import type { HogBrandingOptions } from "./hog-branding/extension";
 import { createHogBrandingExtension } from "./hog-branding/extension";
 import type { McpConfig } from "./mcp/config";
@@ -26,6 +27,7 @@ interface HarnessExtension {
 }
 
 const EXTENSIONS: HarnessExtension[] = [
+  { name: "agent-flow", create: () => createAgentFlowExtension() },
   { name: "hog-branding", create: createHogBrandingExtension },
   { name: "posthog-provider", create: createPosthogProviderExtension },
   { name: "product-engineer", create: () => createProductEngineerExtension() },

@@ -12,3 +12,7 @@ export const TOOL_KIND_BY_NAME: Record<PiToolName, AgentToolKind> = {
   find: "search",
   ls: "read",
 };
+
+export function isPiToolName(name: string): name is PiToolName {
+  return name in TOOL_KIND_BY_NAME;
+}

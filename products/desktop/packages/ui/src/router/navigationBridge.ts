@@ -177,6 +177,13 @@ export function navigateToLoops(options?: { ignoreBlocker?: boolean }): void {
   });
 }
 
+export function navigateToFlows(options?: { ignoreBlocker?: boolean }): void {
+  void getRouterOrNull()?.navigate({
+    to: "/flows",
+    ignoreBlocker: options?.ignoreBlocker,
+  });
+}
+
 export function navigateToNewLoop(): void {
   void getRouterOrNull()?.navigate({ to: "/loops/new" });
 }

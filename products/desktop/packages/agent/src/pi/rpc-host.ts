@@ -4,6 +4,10 @@ import {
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import { createHarnessRuntime, runRpcMode } from "@posthog/harness";
+import {
+  onFlowStepEvent,
+  tryRouteFlowInput,
+} from "@posthog/harness/extensions/agent-flow";
 import { createAutoPublishExtension } from "@posthog/harness/extensions/auto-publish";
 import { createPiRuntimeTrustResolver } from "@posthog/harness/project-trust";
 import type {
@@ -12,6 +16,7 @@ import type {
 } from "@posthog/shared";
 import { createPiContextWikiExtension } from "./context-wiki-extension";
 import { createPiEnrichmentExtension } from "./enrichment-extension";
+import { persistAgentFlowSessions } from "./flow-session-persistence";
 import {
   POSTHOG_PI_QUEUE_ENTRY_TYPE,
   readPersistedPiQueue,
@@ -99,6 +104,8 @@ const runtime = await createHarnessRuntime({
   requestMcpToolPermission,
 });
 
+persistAgentFlowSessions(runtime.session);
+
 const persistedQueue = readPersistedPiQueue(sessionManager.getEntries());
 for (const message of persistedQueue.steering) {
   await runtime.session.steer(message);
@@ -163,5 +170,37 @@ process.on("message", (message: unknown) => {
     });
   }
 });
+
+// During a flow the main session looks busy, so clients deliver user input
+// as steer/follow-up. Those must reach the flow (running step or next-step
+// guidance), not the idle main agent's queue.
+const steerMain = runtime.session.steer.bind(runtime.session);
+runtime.session.steer = async (text, images) => {
+  if (tryRouteFlowInput(text, "steer")) {
+    return;
+  }
+  return steerMain(text, images);
+};
+const followUpMain = runtime.session.followUp.bind(runtime.session);
+runtime.session.followUp = async (text, images) => {
+  if (tryRouteFlowInput(text, "followUp")) {
+    return;
+  }
+  return followUpMain(text, images);
+};
+
+// Flow steps run as in-process sessions with no presence on the parent
+// session's stream. Splice their display-only events into subscriptions made
+// from here on (rpc mode's outgoing stream); the persistence subscribers
+// above stay untouched. Clients that do not know the event type ignore it.
+const subscribeSession = runtime.session.subscribe.bind(runtime.session);
+runtime.session.subscribe = (listener) => {
+  const unsubscribeSession = subscribeSession(listener);
+  const unsubscribeSteps = onFlowStepEvent((event) => listener(event as never));
+  return () => {
+    unsubscribeSession();
+    unsubscribeSteps();
+  };
+};
 
 await runRpcMode(runtime);

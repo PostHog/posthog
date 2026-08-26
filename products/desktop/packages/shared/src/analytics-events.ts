@@ -277,6 +277,7 @@ export type SidebarNavItem =
   | "activity"
   | "configure"
   | "loops"
+  | "flows"
   | "more"
   | "customize_sidebar";
 

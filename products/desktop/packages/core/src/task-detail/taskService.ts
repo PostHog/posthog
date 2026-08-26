@@ -60,6 +60,17 @@ export class TaskService {
   }
 
   private readonly log: ReturnType<RootLogger["scope"]>;
+  private readonly pendingCreations = new Map<string, Promise<void>>();
+
+  /**
+   * Resolves when the creation saga that produced this task settles. The task
+   * view opens as soon as the task row exists, while the saga is still
+   * starting the agent session; connecting before then fails with a missing
+   * session. Undefined when no creation is in flight for the task.
+   */
+  public whenCreationSettled(taskId: string): Promise<void> | undefined {
+    return this.pendingCreations.get(taskId);
+  }
 
   async prepareCloudPiMessage(
     taskId: string,
@@ -153,6 +164,7 @@ export class TaskService {
       }
     }
 
+    let settlePendingCreation: (() => void) | undefined;
     const creator = new TaskCreationSaga(
       {
         posthogClient,
@@ -161,11 +173,29 @@ export class TaskService {
         piRunner: this.piRunner,
         fileReadClient: this.fileReadClient,
         track: (event, props) => this.host.track(event, props),
-        onTaskReady,
+        onTaskReady: (output) => {
+          const taskId = output.task.id;
+          const pending = new Promise<void>((resolve) => {
+            settlePendingCreation = () => {
+              resolve();
+              if (this.pendingCreations.get(taskId) === pending) {
+                this.pendingCreations.delete(taskId);
+              }
+            };
+          });
+          this.pendingCreations.set(taskId, pending);
+          onTaskReady?.(output);
+        },
       },
       this.log,
     );
-    const result = await creator.run(input);
+
+    let result: CreateTaskResult;
+    try {
+      result = await creator.run(input);
+    } finally {
+      settlePendingCreation?.();
+    }
 
     if (result.success) {
       this.effects.onWorkspaceCreated(result.data);

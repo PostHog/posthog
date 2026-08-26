@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as UsageRouteImport } from './routes/usage'
 import { Route as PrRouteImport } from './routes/pr'
 import { Route as InboxRouteImport } from './routes/inbox'
+import { Route as FlowsRouteImport } from './routes/flows'
 import { Route as ContextRouteImport } from './routes/context'
 import { Route as ArchivedRouteImport } from './routes/archived'
 import { Route as AgentsRouteImport } from './routes/agents'
@@ -84,6 +85,11 @@ const PrRoute = PrRouteImport.update({
 const InboxRoute = InboxRouteImport.update({
   id: '/inbox',
   path: '/inbox',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FlowsRoute = FlowsRouteImport.update({
+  id: '/flows',
+  path: '/flows',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ContextRoute = ContextRouteImport.update({
@@ -391,6 +397,7 @@ export interface FileRoutesByFullPath {
   '/agents': typeof AgentsRouteWithChildren
   '/archived': typeof ArchivedRoute
   '/context': typeof ContextRoute
+  '/flows': typeof FlowsRoute
   '/inbox': typeof InboxRouteWithChildren
   '/pr': typeof PrRoute
   '/usage': typeof UsageRoute
@@ -451,6 +458,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/archived': typeof ArchivedRoute
   '/context': typeof ContextRoute
+  '/flows': typeof FlowsRoute
   '/pr': typeof PrRoute
   '/usage': typeof UsageRoute
   '/activity': typeof ShellActivityRoute
@@ -507,6 +515,7 @@ export interface FileRoutesById {
   '/agents': typeof AgentsRouteWithChildren
   '/archived': typeof ArchivedRoute
   '/context': typeof ContextRoute
+  '/flows': typeof FlowsRoute
   '/inbox': typeof InboxRouteWithChildren
   '/pr': typeof PrRoute
   '/usage': typeof UsageRoute
@@ -572,6 +581,7 @@ export interface FileRouteTypes {
     | '/agents'
     | '/archived'
     | '/context'
+    | '/flows'
     | '/inbox'
     | '/pr'
     | '/usage'
@@ -632,6 +642,7 @@ export interface FileRouteTypes {
   to:
     | '/archived'
     | '/context'
+    | '/flows'
     | '/pr'
     | '/usage'
     | '/activity'
@@ -687,6 +698,7 @@ export interface FileRouteTypes {
     | '/agents'
     | '/archived'
     | '/context'
+    | '/flows'
     | '/inbox'
     | '/pr'
     | '/usage'
@@ -751,6 +763,7 @@ export interface RootRouteChildren {
   AgentsRoute: typeof AgentsRouteWithChildren
   ArchivedRoute: typeof ArchivedRoute
   ContextRoute: typeof ContextRoute
+  FlowsRoute: typeof FlowsRoute
   InboxRoute: typeof InboxRouteWithChildren
   PrRoute: typeof PrRoute
   UsageRoute: typeof UsageRoute
@@ -789,6 +802,13 @@ declare module '@tanstack/react-router' {
       path: '/inbox'
       fullPath: '/inbox'
       preLoaderRoute: typeof InboxRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/flows': {
+      id: '/flows'
+      path: '/flows'
+      fullPath: '/flows'
+      preLoaderRoute: typeof FlowsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/context': {
@@ -1387,6 +1407,7 @@ const rootRouteChildren: RootRouteChildren = {
   AgentsRoute: AgentsRouteWithChildren,
   ArchivedRoute: ArchivedRoute,
   ContextRoute: ContextRoute,
+  FlowsRoute: FlowsRoute,
   InboxRoute: InboxRouteWithChildren,
   PrRoute: PrRoute,
   UsageRoute: UsageRoute,
