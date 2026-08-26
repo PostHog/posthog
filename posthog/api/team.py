@@ -212,6 +212,13 @@ def handle_experiments_config(request: request.Request, team: Team) -> response.
                 "flag_cleanup_repository",
             ]
 
+        def update(self, instance: "TeamExperimentsConfig", validated_data: dict) -> "TeamExperimentsConfig":
+            # A human toggling precomputation must stick: the auto-enrollment job only
+            # writes when precomputation_enabled_set_by is null or "auto".
+            if "experiment_precomputation_enabled" in validated_data:
+                instance.precomputation_enabled_set_by = TeamExperimentsConfig.PrecomputationEnabledSetBy.MANUAL
+            return super().update(instance, validated_data)
+
         def validate_flag_cleanup_repository(self, value: str | None) -> str | None:
             # Keeps the sandbox/LLM runtime the repo-selection module pulls in off the
             # request import path.
