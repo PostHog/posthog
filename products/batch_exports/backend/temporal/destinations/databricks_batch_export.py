@@ -938,6 +938,9 @@ def databricks_default_fields() -> list[BatchExportField]:
     concerned about supporting legacy fields for backwards compatibility.
     """
     batch_export_fields = events_model_default_fields()
+    # `created_at` is when we created the event row, so together with `timestamp` it tells the user
+    # how late an event arrived.
+    batch_export_fields.append({"expression": "created_at", "alias": "created_at"})
     # add a metadata field for the ingested timestamp to aid with debugging
     # (this is not strictly the time the data is ingested into Databricks but rather the time we query it from ClickHouse)
     batch_export_fields.append({"expression": "NOW64()", "alias": "databricks_ingested_timestamp"})
@@ -1044,8 +1047,17 @@ def _get_databricks_table_settings(
             ("distinct_id", "STRING"),
             ("team_id", "BIGINT"),
             ("timestamp", "TIMESTAMP"),
+            ("created_at", "TIMESTAMP"),
             ("databricks_ingested_timestamp", "TIMESTAMP"),
         ]
+        # COPY INTO reads the staged files by column name, so a column the staged data does not
+        # carry fails the copy. A run that staged its data before a new field was added to
+        # `databricks_default_fields` is the case this covers.
+        staged_columns = set(record_batch_schema.names)
+        missing_columns = [name for name, _ in table_fields if name not in staged_columns]
+        if missing_columns:
+            LOGGER.warning("Skipping columns absent from the staged data: %s", missing_columns)
+            table_fields = [field for field in table_fields if field[0] in staged_columns]
     else:
         table_fields = _get_databricks_fields_from_record_schema(
             record_batch_schema,
