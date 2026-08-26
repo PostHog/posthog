@@ -414,6 +414,9 @@ jobs:
                   toolchain: 1.91.1
                   components: cargo
 
+            - name: Install protoc
+              uses: ./.github/actions/setup-protoc
+
             - name: Cache Rust dependencies
               uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
               with:
