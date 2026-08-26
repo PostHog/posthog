@@ -1215,10 +1215,11 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(detail=True, methods=["post"], url_path="warm", url_name="warm-resume", required_scopes=["task:write"])
     def warm_resume(self, request, pk=None, **kwargs):
-        task = tasks_facade.get_task_detail(pk, self.team_id, self._user_id())
-        if task is None or not tasks_facade.task_visible(pk, self.team_id, self._user_id(), for_control=True):
+        gate = tasks_facade.task_control_runtime_and_origin(pk, self.team_id, self._user_id())
+        if gate is None:
             raise NotFound()
-        if task.runtime == tasks_facade.TaskRuntime.PI or not self._warm_enabled(task.origin_product):
+        runtime, origin_product = gate
+        if runtime == tasks_facade.TaskRuntime.PI or not self._warm_enabled(origin_product):
             return Response(status=status.HTTP_200_OK)
         if access_response := code_access_required_response(request, self.organization, task_id=pk):
             return access_response

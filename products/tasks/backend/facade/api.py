@@ -5003,6 +5003,24 @@ def task_runtime(task_id: str | UUID, team_id: int, user_id: int | None, *, for_
     )
 
 
+def task_control_runtime_and_origin(task_id: str | UUID, team_id: int, user_id: int | None) -> tuple[str, str] | None:
+    """``(runtime, origin_product)`` for a task the user may drive, or ``None`` when it is not
+    control-visible.
+
+    One narrow control-predicate query for the warm-resume gate. The control predicate is a subset
+    of the read predicate, so a control-visible task is always read-visible. This covers the same
+    404 gate as a read query plus a separate control ``EXISTS`` check. It does not load the detail
+    DTO, prefetch every run, or presign the latest run's log URL.
+    """
+    row = (
+        _visible_task_qs(team_id, user_id, for_control=True)
+        .filter(id=task_id)
+        .values_list("runtime", "origin_product")
+        .first()
+    )
+    return row if row is not None else None
+
+
 def task_visible(task_id: str | UUID, team_id: int, user_id: int | None, *, for_control: bool = False) -> bool:
     """Whether a non-deleted task exists for the team and is visible to the user.
 
