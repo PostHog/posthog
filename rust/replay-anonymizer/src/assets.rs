@@ -8,7 +8,7 @@ use simd_json::borrowed::{Object, Value};
 
 use crate::blur::is_image_data_uri;
 use crate::collect::is_image_ref_strict;
-use crate::context::Ctx;
+use crate::context::{Ctx, ImageSource};
 use crate::images::ImageFallback;
 use crate::json::{as_str, string_value};
 use crate::srcset::largest_candidate;
@@ -83,7 +83,11 @@ pub fn blur_inline_image_attr(ctx: &Ctx<'_>, attrs: &mut Object<'_>, name: &str)
     if !is_image_data_uri(&value) {
         return false;
     }
-    let blurred = ctx.scrub_image(&value, ImageFallback::Blank);
+    let blurred = ctx.scrub_image_from(
+        &value,
+        ImageFallback::Blank,
+        ImageSource::HtmlAttribute(INLINE_IMAGE_ATTR),
+    );
     attrs.insert(Cow::Owned(name.to_string()), string_value(blurred));
     true
 }
@@ -125,11 +129,15 @@ pub fn apply_blur(
             continue;
         };
         if is_image_data_uri(&selected) {
-            let blurred = ctx.scrub_image(&selected, ImageFallback::Placeholder);
+            let blurred = ctx.scrub_image_from(
+                &selected,
+                ImageFallback::Placeholder,
+                ImageSource::HtmlAttribute(key),
+            );
             attrs.insert(Cow::Borrowed(*key), string_value(blurred));
         } else {
             let collected = is_fetchable_image_attr(key, tag, parent_is_picture)
-                .then(|| ctx.collect_url(&selected))
+                .then(|| ctx.collect_url_from(&selected, ImageSource::HtmlAttribute(key)))
                 .flatten();
             let scrubbed = scrub_url(ctx, &selected).unwrap_or_else(|| selected.clone());
             // Fetch completion must not change how an ordinary replay renders this element.

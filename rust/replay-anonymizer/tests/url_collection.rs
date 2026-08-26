@@ -262,6 +262,16 @@ fn a_remote_src_keeps_its_placeholder_and_stashes_the_ref() {
         assert_eq!(urls.len(), 1, "{engine}");
         assert_eq!(urls[0]["url"], "https://cdn.example.com/hero.png?w=200");
         assert_eq!(urls[0]["host"], "cdn.example.com");
+        assert_eq!(
+            meta["imageSources"],
+            json!([{
+                "source": "html",
+                "property": "src",
+                "kind": "url",
+                "count": 1
+            }]),
+            "{engine}"
+        );
         assert!(
             url_ref
                 == format!(

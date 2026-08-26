@@ -19,7 +19,7 @@ use crate::assets::{
 };
 use crate::blur::is_image_data_uri;
 use crate::collect::is_image_ref_strict;
-use crate::context::Ctx;
+use crate::context::{Ctx, ImageSource};
 use crate::css;
 use crate::dom::{
     classify_tag, data_attr_looks_sensitive, is_data_attr, is_url_attr, is_user_text_attr,
@@ -875,7 +875,11 @@ impl<'c, 'a> Walker<'c, 'a> {
                         if !is_image_data_uri(s) {
                             return None;
                         }
-                        Some(w.ctx.scrub_image(s, ImageFallback::Blank))
+                        Some(w.ctx.scrub_image_from(
+                            s,
+                            ImageFallback::Blank,
+                            ImageSource::HtmlAttribute(INLINE_IMAGE_ATTR),
+                        ))
                     });
                 }
                 if name == "style" || name == css::INLINED_STYLESHEET_ATTR {
@@ -950,12 +954,20 @@ impl<'c, 'a> Walker<'c, 'a> {
             self.changed = true;
             return Some(end);
         };
+        let property = MEDIA_SRC_ATTRS.iter().copied().find(|attr| *attr == name)?;
         if is_image_data_uri(&selected) {
-            let blurred = self.ctx.scrub_image(&selected, ImageFallback::Placeholder);
+            let blurred = self.ctx.scrub_image_from(
+                &selected,
+                ImageFallback::Placeholder,
+                ImageSource::HtmlAttribute(property),
+            );
             scan::write_json_string(&blurred, out);
         } else {
             let collected = is_fetchable_image_attr(name, tag, parent_is_picture)
-                .then(|| self.ctx.collect_url(&selected))
+                .then(|| {
+                    self.ctx
+                        .collect_url_from(&selected, ImageSource::HtmlAttribute(property))
+                })
                 .flatten();
             let scrubbed = scrub_url(self.ctx, &selected).unwrap_or_else(|| selected.clone());
             scan::write_json_string(PLACEHOLDER_SRC, out);

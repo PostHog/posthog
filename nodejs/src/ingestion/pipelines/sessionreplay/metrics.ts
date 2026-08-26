@@ -16,6 +16,8 @@ export type MlImageLaneStage = 'collected' | 'deduped' | 'queued' | 'produced' |
  *  ships. */
 export type MlUrlLaneStage = 'collected' | 'deduped' | 'queued' | 'produced' | 'produce_failed' | 'ref_unusable'
 export type MlUrlCrawlHistoryOutcome = 'fresh' | 'miss' | 'error'
+export type MlImageSource = 'css' | 'html'
+export type MlImageSourceKind = 'inline' | 'url'
 
 const URL_BYTES_SAMPLE_RATE = 16
 
@@ -95,6 +97,12 @@ export class SessionRecordingIngesterMetrics {
         name: 'recording_blob_ingestion_v2_ml_urls_collected',
         help: 'Remote image URLs through the fetch lane, by stage: collected (returned by the addon), deduped (suppressed by the cross-message cache), queued (handed to the producer), produced (delivery acked), produce_failed (delivery failed)',
         labelNames: ['outcome'],
+    })
+
+    private static readonly mlImageReferencesByProperty = new Counter({
+        name: 'recording_blob_ingestion_v2_ml_image_references_by_property',
+        help: 'Collected CSS and HTML image ref occurrences by bounded source, property, and lane. Counts references before per-message content or URL deduplication',
+        labelNames: ['source', 'property', 'kind'],
     })
 
     private static readonly mlUrlCrawlHistory = new Counter({
@@ -185,6 +193,17 @@ export class SessionRecordingIngesterMetrics {
 
     public static incrementMlImagesCollected(outcome: MlImageLaneStage, count: number): void {
         this.mlImagesCollected.labels(outcome).inc(count)
+    }
+
+    public static incrementMlImageReferencesByProperty(
+        source: MlImageSource,
+        property: string,
+        kind: MlImageSourceKind,
+        count: number
+    ): void {
+        if (count > 0) {
+            this.mlImageReferencesByProperty.labels(source, property, kind).inc(count)
+        }
     }
 
     private static readonly mlUrlBytes = new Histogram({

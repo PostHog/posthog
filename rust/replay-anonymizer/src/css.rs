@@ -8,7 +8,7 @@ use crate::assets::{
 };
 use crate::blur::is_image_data_uri;
 use crate::collect::{is_image_ref, is_image_ref_strict};
-use crate::context::Ctx;
+use crate::context::{Ctx, ImageSource};
 use crate::images::ImageFallback;
 use crate::json::{as_array_mut, as_object_mut, as_str, string_value};
 
@@ -24,6 +24,12 @@ pub enum CssContext<'a> {
 pub struct CssRewrite {
     pub css: String,
     pub refs: BTreeMap<String, String>,
+}
+
+struct DeclarationRange {
+    start: usize,
+    end: usize,
+    property: &'static str,
 }
 
 pub fn is_strict_css_refs(value: &Value<'_>) -> bool {
@@ -118,11 +124,12 @@ pub(crate) fn rewrite(ctx: &Ctx<'_>, css: &str, context: CssContext<'_>) -> Opti
     let mut output = String::with_capacity(css.len());
     let mut copied_to = 0;
     let mut changed = false;
-    for (start, end) in ranges {
-        output.push_str(&css[copied_to..start]);
-        let (rewritten, value_changed) = rewrite_value(ctx, &css[start..end], &mut refs);
+    for range in ranges {
+        output.push_str(&css[copied_to..range.start]);
+        let (rewritten, value_changed) =
+            rewrite_value(ctx, &css[range.start..range.end], range.property, &mut refs);
         output.push_str(&rewritten);
-        copied_to = end;
+        copied_to = range.end;
         changed |= value_changed;
     }
     if !changed {
@@ -132,10 +139,14 @@ pub(crate) fn rewrite(ctx: &Ctx<'_>, css: &str, context: CssContext<'_>) -> Opti
     Some(CssRewrite { css: output, refs })
 }
 
-fn declaration_value_ranges(css: &str, context: CssContext<'_>) -> Vec<(usize, usize)> {
+fn declaration_value_ranges(css: &str, context: CssContext<'_>) -> Vec<DeclarationRange> {
     if let CssContext::Property(property) = context {
-        return is_image_property(property)
-            .then_some((0, css.len()))
+        return image_property(property)
+            .map(|property| DeclarationRange {
+                start: 0,
+                end: css.len(),
+                property,
+            })
             .into_iter()
             .collect();
     }
@@ -173,12 +184,12 @@ fn declaration_value_ranges(css: &str, context: CssContext<'_>) -> Vec<(usize, u
                 segment_start = position + 1;
             }
             b':' if paren_depth == 0 && bracket_depth == 0 => {
-                let property = css[segment_start..position].trim();
-                if is_image_property(property) {
-                    ranges.push((
-                        position + 1,
-                        declaration_end(bytes, position + 1, brace_depth),
-                    ));
+                if let Some(property) = image_property(css[segment_start..position].trim()) {
+                    ranges.push(DeclarationRange {
+                        start: position + 1,
+                        end: declaration_end(bytes, position + 1, brace_depth),
+                        property,
+                    });
                 }
             }
             _ => {}
@@ -215,36 +226,37 @@ fn declaration_end(bytes: &[u8], start: usize, brace_depth: usize) -> usize {
     bytes.len()
 }
 
-fn is_image_property(property: &str) -> bool {
-    matches!(
-        property.trim().to_ascii_lowercase().as_str(),
-        "background"
-            | "background-image"
-            | "border-image"
-            | "border-image-source"
-            | "content"
-            | "cursor"
-            | "list-style"
-            | "list-style-image"
-            | "mask"
-            | "mask-border"
-            | "mask-border-source"
-            | "mask-image"
-            | "shape-outside"
-            | "symbols"
-            | "-webkit-border-image"
-            | "-webkit-border-image-source"
-            | "-webkit-box-reflect"
-            | "-webkit-mask"
-            | "-webkit-mask-box-image"
-            | "-webkit-mask-box-image-source"
-            | "-webkit-mask-image"
-    )
+fn image_property(property: &str) -> Option<&'static str> {
+    match property.trim().to_ascii_lowercase().as_str() {
+        "background" => Some("background"),
+        "background-image" => Some("background-image"),
+        "border-image" => Some("border-image"),
+        "border-image-source" => Some("border-image-source"),
+        "content" => Some("content"),
+        "cursor" => Some("cursor"),
+        "list-style" => Some("list-style"),
+        "list-style-image" => Some("list-style-image"),
+        "mask" => Some("mask"),
+        "mask-border" => Some("mask-border"),
+        "mask-border-source" => Some("mask-border-source"),
+        "mask-image" => Some("mask-image"),
+        "shape-outside" => Some("shape-outside"),
+        "symbols" => Some("symbols"),
+        "-webkit-border-image" => Some("-webkit-border-image"),
+        "-webkit-border-image-source" => Some("-webkit-border-image-source"),
+        "-webkit-box-reflect" => Some("-webkit-box-reflect"),
+        "-webkit-mask" => Some("-webkit-mask"),
+        "-webkit-mask-box-image" => Some("-webkit-mask-box-image"),
+        "-webkit-mask-box-image-source" => Some("-webkit-mask-box-image-source"),
+        "-webkit-mask-image" => Some("-webkit-mask-image"),
+        _ => None,
+    }
 }
 
 fn rewrite_value(
     ctx: &Ctx<'_>,
     value: &str,
+    property: &'static str,
     refs: &mut BTreeMap<String, String>,
 ) -> (String, bool) {
     let bytes = value.as_bytes();
@@ -276,7 +288,7 @@ fn rewrite_value(
             let selected = select_image_set_candidate(&value[open + 1..end - 1]);
             let replacement = selected
                 .as_deref()
-                .map(|source| replacement_url(ctx, source, refs))
+                .map(|source| replacement_url(ctx, source, property, refs))
                 .unwrap_or_else(|| format!("url(\"{PLACEHOLDER_SRC}\")"));
             output.push_str(&value[copied_to..position]);
             output.push_str(&replacement);
@@ -289,7 +301,7 @@ fn rewrite_value(
             let Some((end, source)) = parse_url_function(value, position) else {
                 break;
             };
-            let replacement = replacement_url(ctx, &source, refs);
+            let replacement = replacement_url(ctx, &source, property, refs);
             let original = &value[position..end];
             if replacement != original {
                 output.push_str(&value[copied_to..position]);
@@ -309,7 +321,12 @@ fn rewrite_value(
     (output, true)
 }
 
-fn replacement_url(ctx: &Ctx<'_>, source: &str, refs: &mut BTreeMap<String, String>) -> String {
+fn replacement_url(
+    ctx: &Ctx<'_>,
+    source: &str,
+    property: &'static str,
+    refs: &mut BTreeMap<String, String>,
+) -> String {
     let source = source.trim();
     if source == PLACEHOLDER_SRC || is_numbered_placeholder(source) {
         return format!("url(\"{source}\")");
@@ -321,7 +338,11 @@ fn replacement_url(ctx: &Ctx<'_>, source: &str, refs: &mut BTreeMap<String, Stri
         return format!("url(\"{source}\")");
     }
     let reference = if is_image_data_uri(source) {
-        let replacement = ctx.scrub_image(source, ImageFallback::Blank);
+        let replacement = ctx.scrub_image_from(
+            source,
+            ImageFallback::Blank,
+            ImageSource::CssProperty(property),
+        );
         if is_image_ref(&replacement) {
             Some(replacement)
         } else {
@@ -330,7 +351,7 @@ fn replacement_url(ctx: &Ctx<'_>, source: &str, refs: &mut BTreeMap<String, Stri
     } else if source.contains('\\') {
         None
     } else {
-        ctx.collect_url(source)
+        ctx.collect_url_from(source, ImageSource::CssProperty(property))
     };
     match reference {
         Some(reference) => {
@@ -540,8 +561,9 @@ mod tests {
     use super::{rewrite, CssContext};
     use crate::allow_lists::AllowLists;
     use crate::collect::ImageCollection;
-    use crate::context::Ctx;
+    use crate::context::{Ctx, ImageSourceCount};
     use crate::testkit::png_data_uri;
+    use crate::url_collect::UrlCollection;
 
     #[test]
     fn remote_urls_use_valid_placeholders() {
@@ -589,6 +611,54 @@ mod tests {
         assert!(rewritten.css.contains("anon-image-slot-0"));
         assert_eq!(rewritten.refs.len(), 1);
         assert!(rewritten.refs["0"].starts_with("image:"));
+        assert_eq!(
+            ctx.take_image_source_counts(),
+            vec![ImageSourceCount {
+                source: "css",
+                property: "background-image",
+                kind: "inline",
+                count: 1,
+            }]
+        );
+    }
+
+    #[test]
+    fn collected_remote_images_record_the_css_property() {
+        let allow = AllowLists::default();
+        let ctx = Ctx::new(&allow).collecting_urls(Some(UrlCollection {
+            url_key: "0123456789abcdef0123456789abcdef".to_string(),
+        }));
+        let css = "mask-image:url('https://cdn.example.com/mask.png')";
+        let rewritten = rewrite(&ctx, css, CssContext::DeclarationList).expect("image changes");
+        assert!(rewritten.refs["0"].starts_with("imageurl:"));
+        assert_eq!(
+            ctx.take_image_source_counts(),
+            vec![ImageSourceCount {
+                source: "css",
+                property: "mask-image",
+                kind: "url",
+                count: 1,
+            }]
+        );
+    }
+
+    #[test]
+    fn inline_svg_in_css_stays_out_of_the_collection_lane() {
+        let allow = AllowLists::default();
+        let ctx = Ctx::with_image_collection(
+            &allow,
+            Some(ImageCollection {
+                pseudo_team: "0123456789abcdef0123456789abcdef".to_string(),
+                content_key: "fedcba9876543210fedcba9876543210".to_string(),
+            }),
+        );
+        let original = "data:image/svg+xml;base64,PHN2Zz48dGV4dD5qb2huLmZha2VuYW1lQGV4YW1wbGUuY29tPC90ZXh0Pjwvc3ZnPg==";
+        let css = format!("background-image:url('{original}')");
+        let rewritten = rewrite(&ctx, &css, CssContext::DeclarationList).expect("image changes");
+        assert!(rewritten.refs.is_empty());
+        assert!(!rewritten.css.contains(original));
+        assert!(rewritten.css.contains("data:image/png;base64"));
+        assert!(ctx.take_image_source_counts().is_empty());
     }
 
     #[test]
