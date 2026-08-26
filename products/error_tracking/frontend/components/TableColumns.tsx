@@ -1,12 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { IconChevronRight, IconMinus } from '@posthog/icons'
-import { LemonCheckbox, LemonSkeleton, Link } from '@posthog/lemon-ui'
+import { IconMinus } from '@posthog/icons'
+import { LemonCheckbox, Link } from '@posthog/lemon-ui'
 
 import { ErrorTrackingRuntime } from 'lib/components/Errors/types'
 import { getRuntimeFromLib } from 'lib/components/Errors/utils'
-import { TZLabel } from 'lib/components/TZLabel'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Button, ButtonGroup, SelectTriggerIcon } from 'lib/ui/quill'
 import { Params } from 'scenes/sceneTypes'
@@ -21,7 +20,6 @@ import { AssigneeIconDisplay, AssigneeLabelDisplay } from './Assignee/AssigneeDi
 import { AssigneeSelect } from './Assignee/AssigneeSelect'
 import { issueActionsLogic } from './IssueActions/issueActionsLogic'
 import { issueFiltersLogic, updateFilterSearchParams } from './IssueFilters/issueFiltersLogic'
-import { issueQueryOptionsLogic } from './IssueQueryOptions/issueQueryOptionsLogic'
 import { IssueSeveritySelect } from './IssueSeveritySelect'
 import { IssueStatusSelect } from './IssueStatusSelect'
 import { RuntimeIcon } from './RuntimeIcon'
@@ -74,7 +72,6 @@ export const IssueListTitleColumn = (props: {
     const { updateIssueAssignee, updateIssueSeverity, updateIssueStatus } = useActions(issueActionsLogic)
     const { severityUpdateInFlightIds } = useValues(issueActionsLogic)
     const { dateRange, filterGroup, filterTestAccounts, searchQuery } = useValues(issueFiltersLogic)
-    const { orderBy } = useValues(issueQueryOptionsLogic)
     const hasSeverityRules = useFeatureFlag('ERROR_TRACKING_SEVERITY_RULES')
 
     const checked = selectedIssueIds.includes(record.id)
@@ -130,7 +127,6 @@ export const IssueListTitleColumn = (props: {
                 )}
                 <IssueMetadata
                     record={record}
-                    orderBy={orderBy}
                     showSeverity={hasSeverityRules}
                     severityLoading={severityUpdateInFlightIds.includes(record.id)}
                     onStatusChange={(status) => updateIssueStatus(record.id, status)}
@@ -172,7 +168,6 @@ const IssueTitle = ({
 
 const IssueMetadata = ({
     record,
-    orderBy,
     showSeverity,
     severityLoading,
     onStatusChange,
@@ -180,14 +175,13 @@ const IssueMetadata = ({
     onAssigneeChange,
 }: {
     record: ErrorTrackingIssue
-    orderBy: string
     showSeverity: boolean
     severityLoading: boolean
     onStatusChange: (status: ErrorTrackingIssue['status']) => void
     onSeverityChange: (severity: NonNullable<ErrorTrackingIssue['severity']> | null) => void
     onAssigneeChange: (assignee: ErrorTrackingIssue['assignee']) => void
 }): JSX.Element => (
-    <div className="flex h-6 items-center text-secondary">
+    <div className="my-1 flex h-6 items-center text-secondary">
         <ButtonGroup>
             <IssueStatusSelect status={record.status} onChange={onStatusChange} />
             {showSeverity ? (
@@ -203,24 +197,6 @@ const IssueMetadata = ({
                 )}
             </AssigneeSelect>
         </ButtonGroup>
-        <div className="ml-2 flex items-center">
-            {orderBy === 'first_seen' && (
-                <>
-                    <TZLabel
-                        time={record.first_seen}
-                        className="border-b border-dotted text-xs"
-                        suffix="old"
-                        delayMs={750}
-                    />
-                    <IconChevronRight className="mx-0.5 text-quaternary" fontSize="0.75rem" />
-                </>
-            )}
-            {record.last_seen ? (
-                <TZLabel time={record.last_seen} className="border-b border-dotted text-xs" delayMs={750} />
-            ) : (
-                <LemonSkeleton />
-            )}
-        </div>
     </div>
 )
 
