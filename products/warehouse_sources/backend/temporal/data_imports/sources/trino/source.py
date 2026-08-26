@@ -216,13 +216,13 @@ class TrinoSource(SimpleSource[TrinoSourceConfig], ValidateDatabaseHostMixin):
             discovered = discover_trino_schemas(connection.cursor(), config, names)
         return [
             SourceSchema(
-                name=table if config.schema else f"{schema}.{table}",
+                name=table.name if config.schema else f"{table.schema}.{table.name}",
                 supports_incremental=False,
                 supports_append=False,
-                columns=columns,
-                source_catalog=catalog,
-                source_schema=schema,
-                source_table_name=table,
+                columns=[(column.name, column.data_type, column.nullable) for column in table.columns],
+                source_catalog=table.catalog,
+                source_schema=table.schema,
+                source_table_name=table.name,
             )
-            for catalog, schema, table, columns in discovered
+            for table in discovered
         ]

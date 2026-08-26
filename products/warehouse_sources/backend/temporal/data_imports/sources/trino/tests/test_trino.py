@@ -8,6 +8,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.trino.source import TrinoSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.trino.trino import (
     TRINO_CREDENTIALS_REQUIRE_TLS_VERIFICATION_ERROR,
+    DiscoveredTrinoTable,
+    TrinoColumn,
     connect_trino,
     discover_trino_schemas,
     trino_error_to_message,
@@ -134,11 +136,14 @@ def test_discover_trino_schemas_groups_columns_and_filters_names() -> None:
     discovered = discover_trino_schemas(cursor, _config(), names=["analytics.events"])
 
     assert discovered == [
-        (
-            "hive",
-            "analytics",
-            "events",
-            [("id", "bigint", False), ("properties", "map(varchar, varchar)", True)],
+        DiscoveredTrinoTable(
+            catalog="hive",
+            schema="analytics",
+            name="events",
+            columns=(
+                TrinoColumn(name="id", data_type="bigint", nullable=False),
+                TrinoColumn(name="properties", data_type="map(varchar, varchar)", nullable=True),
+            ),
         )
     ]
     assert 'FROM "hive".information_schema.columns' in cursor.execute.call_args.args[0]

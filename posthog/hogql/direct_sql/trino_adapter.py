@@ -99,7 +99,7 @@ class TrinoAdapter:
         from products.warehouse_sources.backend.facade.models import (
             trino_column_to_dwh_column,  # noqa: PLC0415 — product mapper is needed only for Trino results
         )
-        from products.warehouse_sources.backend.temporal.data_imports.sources.trino.trino import (  # noqa: PLC0415 — keeps the optional driver off startup paths
+        from products.warehouse_sources.backend.facade.source_management import (  # noqa: PLC0415 — keeps the optional driver off startup paths
             connect_trino,
             trino_error_to_message,
         )
@@ -120,7 +120,9 @@ class TrinoAdapter:
                     cursor = connection.cursor()
                     with _CancelWatchdog(cursor, timeout_seconds) as watchdog:
                         try:
-                            cursor.execute(request.sql)
+                            cursor.execute(  # nosemgrep: python.django.security.injection.sql.sql-injection-using-db-cursor-execute.sql-injection-db-cursor-execute -- direct SQL is intentionally user-authored and SELECT-gated
+                                request.sql
+                            )
                             results = cursor.fetchmany(DIRECT_TRINO_MAX_ROWS + 1)
                         except Exception as error:
                             if watchdog.fired:

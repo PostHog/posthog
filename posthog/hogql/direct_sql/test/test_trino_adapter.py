@@ -44,7 +44,7 @@ def test_execute_returns_rows_and_types() -> None:
     with (
         patch.object(adapter, "validate_source_config", return_value=(MagicMock(), MagicMock())),
         patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.trino.trino.connect_trino",
+            "products.warehouse_sources.backend.facade.source_management.connect_trino",
             return_value=connection_context,
         ),
     ):
