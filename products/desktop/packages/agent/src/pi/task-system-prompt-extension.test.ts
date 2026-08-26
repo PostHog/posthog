@@ -27,7 +27,8 @@ describe("Pi task system prompt", () => {
       appendCustomEntry,
     } as unknown as SessionManager;
 
-    expect(resolvePiTaskContext(manager, taskContext)).toBe(taskContext);
+    expect(resolvePiTaskContext(manager, undefined)).toBeNull();
+    expect(resolvePiTaskContext(manager, taskContext)).toEqual(taskContext);
     expect(appendCustomEntry).toHaveBeenCalledWith(
       POSTHOG_PI_TASK_CONTEXT_ENTRY_TYPE,
       { context: taskContext },
@@ -46,6 +47,32 @@ describe("Pi task system prompt", () => {
     expect(resolvePiTaskContext(persistedManager, undefined)).toEqual(
       taskContext,
     );
+  });
+
+  it("preserves optional persisted context when resume supplies runtime fields", () => {
+    const persistedContext: TaskContext = {
+      ...taskContext,
+      customInstructions: "Keep the patch small.",
+      additionalDirectories: ["/tmp/shared"],
+      channelMode: true,
+    };
+    const appendCustomEntry = vi.fn();
+    const manager = {
+      getEntries: () =>
+        [
+          {
+            type: "custom",
+            customType: POSTHOG_PI_TASK_CONTEXT_ENTRY_TYPE,
+            data: { context: persistedContext },
+          },
+        ] as SessionEntry[],
+      appendCustomEntry,
+    } as unknown as SessionManager;
+
+    expect(resolvePiTaskContext(manager, taskContext)).toEqual(
+      persistedContext,
+    );
+    expect(appendCustomEntry).not.toHaveBeenCalled();
   });
 
   it("renders and appends the task prompt before each agent run", () => {

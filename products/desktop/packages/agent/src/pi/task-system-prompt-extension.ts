@@ -41,7 +41,7 @@ function isTaskContext(value: unknown): value is TaskContext {
 
 export function readPersistedPiTaskContext(
   entries: SessionEntry[],
-): TaskContext | undefined {
+): TaskContext | null {
   for (let index = entries.length - 1; index >= 0; index -= 1) {
     const entry = entries[index];
     if (
@@ -56,29 +56,42 @@ export function readPersistedPiTaskContext(
     }
   }
 
-  return undefined;
+  return null;
 }
 
 export function resolvePiTaskContext(
   sessionManager: SessionManager,
   context: TaskContext | undefined,
-): TaskContext | undefined {
+): TaskContext | null {
   const persistedContext = readPersistedPiTaskContext(
     sessionManager.getEntries(),
   );
   if (!context) {
     return persistedContext;
   }
-  if (JSON.stringify(context) !== JSON.stringify(persistedContext)) {
+
+  const resolvedContext = {
+    ...persistedContext,
+    ...context,
+    customInstructions:
+      context.customInstructions ?? persistedContext?.customInstructions,
+    additionalDirectories:
+      context.additionalDirectories ?? persistedContext?.additionalDirectories,
+    channelMode: context.channelMode ?? persistedContext?.channelMode,
+    additionalInstructions:
+      context.additionalInstructions ??
+      persistedContext?.additionalInstructions,
+  };
+  if (JSON.stringify(resolvedContext) !== JSON.stringify(persistedContext)) {
     sessionManager.appendCustomEntry(POSTHOG_PI_TASK_CONTEXT_ENTRY_TYPE, {
-      context,
+      context: resolvedContext,
     });
   }
-  return context;
+  return resolvedContext;
 }
 
 export function createPiTaskSystemPromptExtension(
-  context: TaskContext | undefined,
+  context: TaskContext | null,
 ): NamedInlineExtension {
   return {
     name: "posthog-task-system-prompt",
