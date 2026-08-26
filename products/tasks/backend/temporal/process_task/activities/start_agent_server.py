@@ -180,15 +180,15 @@ def _launch_agent_shadow(ctx: TaskProcessingContext, sandbox: SandboxBase) -> bo
         return False
     if sandbox.config.snapshot_restored and sandbox.config.snapshot_kind != SNAPSHOT_KIND_DIRECTORY:
         return False
-    process = f"[a]gent-shadow --boot-id {ctx.run_id}"
+    quoted_run_id = shlex.quote(ctx.run_id)
     command = (
-        f"if pgrep -f -- {shlex.quote(process)} >/dev/null; then "
-        f"printf %s {shlex.quote(ctx.run_id)} > /tmp/agent-shadow-launched; "
-        f"elif test -x /usr/local/bin/agent-shadow; then nohup /usr/bin/env -i /usr/local/bin/agent-shadow "
-        f"--boot-id {shlex.quote(ctx.run_id)} --health-url {shlex.quote(sandbox.agent_server_health_url())} "
+        f'if test "$(cat /tmp/agent-shadow-launched 2>/dev/null)" = {quoted_run_id}; then exit 0; fi; '
+        "test -x /usr/local/bin/agent-shadow || exit 1; "
+        "/usr/bin/env -i /usr/bin/setsid /usr/local/bin/agent-shadow "
+        f"--boot-id {quoted_run_id} --health-url {shlex.quote(sandbox.agent_server_health_url())} "
         "--timeout 6m "
         "> /tmp/agent-shadow.json 2> /tmp/agent-shadow.log < /dev/null & "
-        f"printf %s {shlex.quote(ctx.run_id)} > /tmp/agent-shadow-launched; else exit 1; fi"
+        f"printf %s {quoted_run_id} > /tmp/agent-shadow-launched"
     )
     try:
         result = sandbox.execute(command, timeout_seconds=10)
@@ -216,8 +216,9 @@ def _read_agent_shadow_result(sandbox: SandboxBase, run_id: str) -> dict[str, st
             f'if test "$marker" = {quoted_run_id}; then '
             f'i=0; while pgrep -f -- {shlex.quote(process)} >/dev/null && test "$i" -lt 20; do '
             "sleep 0.1; i=$((i + 1)); done; "
-            f"if pgrep -f -- {shlex.quote(process)} >/dev/null; then printf 'timed_out\\n'; fi; "
-            "tail -c 65536 /tmp/agent-shadow.json 2>/dev/null || true; fi",
+            f"if pgrep -f -- {shlex.quote(process)} >/dev/null; then printf 'timed_out\\n'; "
+            "elif test -s /tmp/agent-shadow.json; then tail -c 65536 /tmp/agent-shadow.json; "
+            "else printf 'no_output\\n'; tail -c 2048 /tmp/agent-shadow.log 2>/dev/null || true; fi; fi",
             timeout_seconds=5,
         )
     except Exception:
@@ -233,6 +234,15 @@ def _read_agent_shadow_result(sandbox: SandboxBase, run_id: str) -> dict[str, st
         observation["timed_out"] = True
         if len(lines) == 2:
             return observation
+    elif lines[1] == "no_output":
+        observation["failure_class"] = "no_output"
+        logger.warning(
+            "agent_shadow_no_output",
+            run_id=run_id,
+            sandbox_id=sandbox.id,
+            stderr_tail="\n".join(lines[2:])[:2048],
+        )
+        return observation
     try:
         payload = json.loads(lines[-1])
     except (TypeError, json.JSONDecodeError):
