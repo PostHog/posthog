@@ -1369,6 +1369,33 @@ export interface AnnouncementProperties {
   announcement_style: "banner" | "modal";
 }
 
+/**
+ * Evidence (insight link) hover-preview events. Privacy rule: these never
+ * carry the referenced id, name, query text, or result data — for a `hogql`
+ * reference the id is the SQL itself. `kind` is the registry slug only
+ * ("insight", "hogql", "flag", ...).
+ */
+export interface EvidencePreviewShownProperties {
+  kind: string;
+  /** Whether the preview was already resolved in the local query cache. */
+  cache: "hit" | "miss";
+}
+
+export interface EvidencePreviewReadyProperties {
+  kind: string;
+  /** What triggered the load: a hover, or the viewport-driven prefetch. */
+  source: "hover" | "prefetch";
+  latency_ms: number;
+  /** False when the reference resolved to nothing (unknown id, empty result). */
+  has_preview: boolean;
+}
+
+export interface EvidencePreviewFailedProperties {
+  kind: string;
+  source: "hover" | "prefetch";
+  latency_ms: number;
+}
+
 export interface AnnouncementCtaClickedProperties
   extends AnnouncementProperties {
   cta_type: "external" | "deeplink" | "update";
@@ -1561,6 +1588,11 @@ export const ANALYTICS_EVENTS = {
   AUTORESEARCH_ARMED: "Autoresearch armed",
   AUTORESEARCH_RUN_STARTED: "Autoresearch run started",
   TASK_ANALYSIS_REQUESTED: "Task analysis requested",
+
+  // Evidence (insight link) preview events
+  EVIDENCE_PREVIEW_SHOWN: "Evidence preview shown",
+  EVIDENCE_PREVIEW_READY: "Evidence preview ready",
+  EVIDENCE_PREVIEW_FAILED: "Evidence preview failed",
 
   // Remote in-app announcement events
   ANNOUNCEMENT_SHOWN: "Announcement shown",
@@ -1758,6 +1790,11 @@ export type EventPropertyMap = {
     run_id: string;
     created: boolean;
   };
+
+  // Evidence (insight link) preview events
+  [ANALYTICS_EVENTS.EVIDENCE_PREVIEW_SHOWN]: EvidencePreviewShownProperties;
+  [ANALYTICS_EVENTS.EVIDENCE_PREVIEW_READY]: EvidencePreviewReadyProperties;
+  [ANALYTICS_EVENTS.EVIDENCE_PREVIEW_FAILED]: EvidencePreviewFailedProperties;
 
   // Remote in-app announcement events
   [ANALYTICS_EVENTS.ANNOUNCEMENT_SHOWN]: AnnouncementProperties;
