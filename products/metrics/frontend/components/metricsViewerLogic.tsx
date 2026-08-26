@@ -38,8 +38,11 @@ import { metricNamePickerLogic } from './metricNamePickerLogic'
 import type { MetricNameItem } from './metricNamePickerLogic'
 import type { MetricsChartSeries } from './metricsSeries'
 
-export const METRIC_AGGREGATIONS = ['sum', 'avg', 'count', 'p95', 'rate', 'increase'] as const
-export type MetricAggregation = (typeof METRIC_AGGREGATIONS)[number]
+// A derived type ((typeof METRIC_AGGREGATIONS)[number]) would keep these in sync, but
+// kea-typegen inlines derived unions into every consumer's generated block — keep the
+// named alias so those blocks stay stable.
+export type MetricAggregation = 'sum' | 'avg' | 'count' | 'p95' | 'rate' | 'increase'
+export const METRIC_AGGREGATIONS: MetricAggregation[] = ['sum', 'avg', 'count', 'p95', 'rate', 'increase']
 
 export type MetricsViewerSeries = _MetricSeriesApi
 
