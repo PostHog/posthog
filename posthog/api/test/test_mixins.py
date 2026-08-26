@@ -31,8 +31,7 @@ class ErrorResponseSerializer(serializers.Serializer):
     detail = serializers.CharField()
 
 
-# Stands in for a DataclassSerializer, which rebuilds its dataclass while parsing and so can
-# raise a non-DRF error for a response that is perfectly valid.
+# Raises a non-DRF error while parsing, as a DataclassSerializer can for a valid response.
 class RaisingResponseSerializer(serializers.Serializer):
     value = serializers.CharField()
 

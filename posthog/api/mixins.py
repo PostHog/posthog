@@ -242,12 +242,8 @@ def validated_request(
                 try:
                     response_matches_serializer = serialized.is_valid(raise_exception=strict_response_validation)
                 except Exception as exc:
-                    # `is_valid` only converts DRF's own ValidationError into a return value, so an
-                    # exception raised while parsing the response escapes it. A DataclassSerializer
-                    # rebuilds its dataclass in `to_internal_value`, and read-only fields are absent
-                    # by then, so a pydantic dataclass raises here for a response that is perfectly
-                    # valid. Under DEBUG alone this check is advisory, so report it the way a
-                    # mismatch is reported rather than failing the request it is only inspecting.
+                    # `is_valid` only handles DRF's ValidationError. A DataclassSerializer can raise other
+                    # errors for a valid response, and this check is advisory under DEBUG, so warn instead.
                     if strict_response_validation:
                         raise
                     logger.warning(
