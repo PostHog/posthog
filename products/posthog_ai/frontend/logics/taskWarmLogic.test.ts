@@ -50,7 +50,10 @@ describe('taskWarmLogic', () => {
     })
 
     afterEach(() => {
-        logic.unmount()
+        // A test may unmount the logic itself (to exercise beforeUnmount); guard against a double unmount.
+        if (logic.isMounted()) {
+            logic.unmount()
+        }
         jest.useRealTimers()
     })
 
@@ -226,5 +229,40 @@ describe('taskWarmLogic', () => {
 
         expect(logic.values.warmLease).toMatchObject({ runId: 'warm-run-1' })
         expect(cancelledRuns).toEqual([])
+    })
+
+    it('releases a held warm when the composer unmounts', async () => {
+        // Navigating away is the common way to leave the composer. Without an unmount release, the warm
+        // sandbox idles until the server reaper while holding a scarce per-user warm-pool slot.
+        let cancelSeen: () => void = () => {}
+        const cancelled = new Promise<void>((resolve) => {
+            cancelSeen = resolve
+        })
+        useMocks({
+            post: {
+                '/api/projects/:team/tasks/warm/': async () => {
+                    warmCalls += 1
+                    return [200, { task_id: 'warm-task-1', run_id: 'warm-run-1' }]
+                },
+                '/api/projects/:team/tasks/:taskId/runs/:runId/command/': async ({ params }) => {
+                    cancelledRuns.push(params.runId as string)
+                    cancelSeen()
+                    return [200, {}]
+                },
+            },
+        })
+
+        jest.useFakeTimers()
+        logic.actions.noteDraft(true, WARM_REQUEST)
+        jest.advanceTimersByTime(300)
+        jest.useRealTimers()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.warmLease).toMatchObject({ runId: 'warm-run-1' })
+
+        // Leaving the composer unmounts the logic; the deferred promise resolves only if the cancel fires.
+        logic.unmount()
+        await cancelled
+
+        expect(cancelledRuns).toEqual(['warm-run-1'])
     })
 })
