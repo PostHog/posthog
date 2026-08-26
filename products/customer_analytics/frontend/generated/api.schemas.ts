@@ -207,6 +207,139 @@ export interface PatchedAccountRelationshipDefinitionApi {
 }
 
 /**
+ * * `account_field` - account_field
+ * * `custom_property` - custom_property
+ */
+export type AccountTrackRuleFieldKindEnumApi =
+    (typeof AccountTrackRuleFieldKindEnumApi)[keyof typeof AccountTrackRuleFieldKindEnumApi]
+
+export const AccountTrackRuleFieldKindEnumApi = {
+    AccountField: 'account_field',
+    CustomProperty: 'custom_property',
+} as const
+
+/**
+ * * `name` - name
+ * * `external_id` - external_id
+ * * `created_at` - created_at
+ * * `updated_at` - updated_at
+ * * `churned_at` - churned_at
+ * * `ignored_at` - ignored_at
+ * * `stripe_customer_id` - stripe_customer_id
+ * * `hubspot_deal_id` - hubspot_deal_id
+ * * `billing_id` - billing_id
+ * * `sfdc_id` - sfdc_id
+ * * `zendesk_id` - zendesk_id
+ */
+export type AccountTrackRuleFieldFieldEnumApi =
+    (typeof AccountTrackRuleFieldFieldEnumApi)[keyof typeof AccountTrackRuleFieldFieldEnumApi]
+
+export const AccountTrackRuleFieldFieldEnumApi = {
+    Name: 'name',
+    ExternalId: 'external_id',
+    CreatedAt: 'created_at',
+    UpdatedAt: 'updated_at',
+    ChurnedAt: 'churned_at',
+    IgnoredAt: 'ignored_at',
+    StripeCustomerId: 'stripe_customer_id',
+    HubspotDealId: 'hubspot_deal_id',
+    BillingId: 'billing_id',
+    SfdcId: 'sfdc_id',
+    ZendeskId: 'zendesk_id',
+} as const
+
+export interface AccountTrackRuleFieldApi {
+    kind: AccountTrackRuleFieldKindEnumApi
+    field?: AccountTrackRuleFieldFieldEnumApi | null
+    /** @nullable */
+    definition_id?: string | null
+}
+
+export interface AccountTrackRuleConditionApi {
+    field: AccountTrackRuleFieldApi
+    operator: string
+    values?: unknown[]
+}
+
+export interface AccountTrackRuleGroupApi {
+    conditions: AccountTrackRuleConditionApi[]
+}
+
+export interface AccountTrackRulesConfigApi {
+    schema_version: number
+    /** @minimum 0 */
+    version: number
+    enabled: boolean
+    groups: AccountTrackRuleGroupApi[]
+}
+
+export type AccountTrackRuleSampleApiRuleValues = { [key: string]: unknown }
+
+export interface AccountTrackRuleSampleApi {
+    readonly id: string
+    readonly name: string
+    /** @nullable */
+    readonly external_id: string | null
+    readonly rule_values: AccountTrackRuleSampleApiRuleValues
+}
+
+export interface AccountTrackRulePreviewApi {
+    config_version: number
+    eligible_active: number
+    skipped_churned: number
+    tracked: number
+    ignored: number
+    newly_ignored: number
+    restored: number
+    readonly tracked_samples: readonly AccountTrackRuleSampleApi[]
+    readonly ignored_samples: readonly AccountTrackRuleSampleApi[]
+    validation_errors?: string[]
+}
+
+export interface AccountTrackRuleRunRequestApi {
+    idempotency_key: string
+    confirmed: boolean
+}
+
+export interface AccountTrackRuleRunViewApi {
+    readonly id: string
+    /** @minimum 0 */
+    readonly config_version: number
+    readonly trigger: string
+    readonly status: string
+    /** @minimum 0 */
+    readonly eligible_active: number
+    /** @minimum 0 */
+    readonly skipped_churned: number
+    /** @minimum 0 */
+    readonly tracked: number
+    /** @minimum 0 */
+    readonly ignored: number
+    /** @minimum 0 */
+    readonly newly_ignored: number
+    /** @minimum 0 */
+    readonly restored: number
+    /** @nullable */
+    readonly started_at: string | null
+    /** @nullable */
+    readonly finished_at: string | null
+    /** @nullable */
+    readonly error: string | null
+    /** @nullable */
+    readonly created_by: number | null
+    readonly created_at: string
+}
+
+export interface PaginatedAccountTrackRuleRunViewListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: AccountTrackRuleRunViewApi[]
+}
+
+/**
  * * `daily` - daily
  * * `weekly` - weekly
  * * `monthly` - monthly
@@ -220,10 +353,15 @@ export const SlackSummaryCadenceEnumApi = {
 } as const
 
 /**
- * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) plus touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
+ * Typed account properties: website_domain, external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link), and touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
  * @nullable
  */
 export type AccountApiProperties = {
+    /**
+     * Primary company website hostname used for account identity and logo lookup.
+     * @nullable
+     */
+    website_domain?: string | null
     /** Email domains owned by this account's company, used to match inbound touchpoints to the account. */
     email_domains?: string[]
     /** Individual email addresses pinned to this account, matched before the domain fallback. */
@@ -263,7 +401,7 @@ export interface AccountApi {
      */
     external_id?: string | null
     /**
-     * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) plus touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
+     * Typed account properties: website_domain, external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link), and touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
      * @nullable
      */
     properties?: AccountApiProperties
@@ -402,10 +540,15 @@ export interface AccountRelationshipWriteApi {
 }
 
 /**
- * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) plus touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
+ * Typed account properties: website_domain, external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link), and touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
  * @nullable
  */
 export type PatchedAccountApiProperties = {
+    /**
+     * Primary company website hostname used for account identity and logo lookup.
+     * @nullable
+     */
+    website_domain?: string | null
     /** Email domains owned by this account's company, used to match inbound touchpoints to the account. */
     email_domains?: string[]
     /** Individual email addresses pinned to this account, matched before the domain fallback. */
@@ -445,7 +588,7 @@ export interface PatchedAccountApi {
      */
     external_id?: string | null
     /**
-     * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) plus touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
+     * Typed account properties: website_domain, external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link), and touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
      * @nullable
      */
     properties?: PatchedAccountApiProperties
@@ -476,6 +619,50 @@ export interface PatchedAccountApi {
     readonly updated_at?: string | null
 }
 
+export interface ConversationMessageSenderApi {
+    /** Display name of the message sender. */
+    readonly name: string
+    /**
+     * Email address of the message sender, when available.
+     * @nullable
+     */
+    readonly email: string | null
+    /**
+     * UUID of the matched PostHog person, when available.
+     * @nullable
+     */
+    readonly person_id: string | null
+    /**
+     * Distinct ID of the sender, when available.
+     * @nullable
+     */
+    readonly distinct_id: string | null
+}
+
+/**
+ * * `inbound` - Inbound
+ * * `outbound` - Outbound
+ */
+export type EmailThreadMessageDirectionEnumApi =
+    (typeof EmailThreadMessageDirectionEnumApi)[keyof typeof EmailThreadMessageDirectionEnumApi]
+
+export const EmailThreadMessageDirectionEnumApi = {
+    Inbound: 'inbound',
+    Outbound: 'outbound',
+} as const
+
+export interface ConversationMessageSummaryApi {
+    /** Sender of the message. */
+    readonly sender: ConversationMessageSenderApi
+    /** Timestamp from the message source. */
+    readonly sent_at: string
+    /** Whether PostHog received or sent the message.
+     *
+     * * `inbound` - Inbound
+     * * `outbound` - Outbound */
+    readonly direction: EmailThreadMessageDirectionEnumApi
+}
+
 /**
  * * `internal` - Internal
  * * `customer` - Customer
@@ -498,6 +685,11 @@ export interface AccountEmailThreadParticipantApi {
      * * `internal` - Internal
      * * `customer` - Customer */
     readonly kind: EmailThreadParticipantKindEnumApi
+    /**
+     * UUID of the matched PostHog person for a customer participant, when available.
+     * @nullable
+     */
+    readonly person_id: string | null
 }
 
 export interface AccountEmailThreadApi {
@@ -512,11 +704,15 @@ export interface AccountEmailThreadApi {
      * @nullable
      */
     readonly first_message_at: string | null
+    /** Sender, timestamp, and direction of the first captured message, when available. */
+    readonly first_message: ConversationMessageSummaryApi | null
     /**
      * Source timestamp of the latest captured message.
      * @nullable
      */
     readonly last_message_at: string | null
+    /** Sender, timestamp, and direction of the latest captured message, when available. */
+    readonly last_message: ConversationMessageSummaryApi | null
     /** Number of captured messages in the thread. */
     readonly message_count: number
     /** Participants included in the email thread. */
@@ -538,18 +734,6 @@ export interface AccountEmailThreadAddressApi {
     /** Email address from the email header. */
     readonly email: string
 }
-
-/**
- * * `inbound` - Inbound
- * * `outbound` - Outbound
- */
-export type EmailThreadMessageDirectionEnumApi =
-    (typeof EmailThreadMessageDirectionEnumApi)[keyof typeof EmailThreadMessageDirectionEnumApi]
-
-export const EmailThreadMessageDirectionEnumApi = {
-    Inbound: 'inbound',
-    Outbound: 'outbound',
-} as const
 
 export interface AccountEmailThreadMessageApi {
     /** UUID of the captured email message. */
@@ -702,8 +886,43 @@ export interface SupportTicketApi {
      * @nullable
      */
     readonly last_message_text: string | null
+    /** Sender, timestamp, and direction of the latest public message, when available. */
+    readonly last_message: ConversationMessageSummaryApi | null
     /** Absolute URL to open this ticket in the app. */
     readonly deep_link: string
+    /** When the ticket conversation started. */
+    readonly created_at: string
+    /** Display name of the customer who started the ticket. */
+    readonly started_by: string
+    /** Distinct ID of the customer who started the ticket. */
+    readonly distinct_id: string
+}
+
+export interface AccountSupportTicketMessageApi {
+    /** UUID of the support ticket message. */
+    readonly id: string
+    /** Plain-text message content. */
+    readonly content: string
+    /** Display name of the message author. */
+    readonly author_name: string
+    /** Whether PostHog received or sent the message.
+     *
+     * * `inbound` - Inbound
+     * * `outbound` - Outbound */
+    readonly direction: EmailThreadMessageDirectionEnumApi
+    /** Whether the message is an internal note hidden from the customer. */
+    readonly is_private: boolean
+    /** When the message was created. */
+    readonly created_at: string
+}
+
+export interface PaginatedAccountSupportTicketMessageListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: AccountSupportTicketMessageApi[]
 }
 
 /**
@@ -1716,6 +1935,30 @@ export interface PaginatedFeatureRequestListApi {
     results: FeatureRequestApi[]
 }
 
+export interface FeatureRequestEvidencePayloadApi {
+    /** Internal summary of this account's request evidence. */
+    summary?: string
+    /** Customer quote kept with this evidence item. */
+    customer_quote?: string
+    /**
+     * Free-form name of the source where this evidence was recorded.
+     * @maxLength 200
+     */
+    evidence_source: string
+    /**
+     * Optional HTTP or HTTPS link to the source.
+     * @maxLength 2000
+     */
+    source_url?: string
+    /**
+     * Date the account made the request, or null when unknown.
+     * @nullable
+     */
+    requested_on?: string | null
+    /** Uploaded image IDs from this project to attach in display order. */
+    image_ids?: string[]
+}
+
 export interface FeatureRequestCreateApi {
     /**
      * Required customer-facing request title.
@@ -1730,6 +1973,8 @@ export interface FeatureRequestCreateApi {
     product_area_ids: string[]
     /** Client-generated key that makes retries return the original request instead of creating a duplicate. */
     idempotency_key: string
+    /** Optional first evidence item to create for the selected account. */
+    evidence?: FeatureRequestEvidencePayloadApi | null
 }
 
 export interface FeatureRequestUpdateApi {
@@ -1802,30 +2047,6 @@ export interface PatchedFeatureRequestUpdateApi {
     request_priority?: RequestPriorityEnumApi | null
 }
 
-export interface FeatureRequestEvidencePayloadApi {
-    /** Internal summary of this account's request evidence. */
-    summary?: string
-    /** Customer quote kept with this evidence item. */
-    customer_quote?: string
-    /**
-     * Free-form name of the source where this evidence was recorded.
-     * @maxLength 200
-     */
-    evidence_source: string
-    /**
-     * Optional HTTP or HTTPS link to the source.
-     * @maxLength 2000
-     */
-    source_url?: string
-    /**
-     * Date the account made the request, or null when unknown.
-     * @nullable
-     */
-    requested_on?: string | null
-    /** Uploaded image IDs from this project to attach in display order. */
-    image_ids?: string[]
-}
-
 export interface FeatureRequestAddAccountApi {
     /**
      * Request version loaded by the editor. Stale versions return 409 Conflict.
@@ -1885,9 +2106,10 @@ export interface FeatureRequestVersionApi {
  * * `evidence` - Evidence
  * * `product_areas` - Product areas
  */
-export type FieldEnumApi = (typeof FieldEnumApi)[keyof typeof FieldEnumApi]
+export type FeatureRequestHistoryChangeFieldEnumApi =
+    (typeof FeatureRequestHistoryChangeFieldEnumApi)[keyof typeof FeatureRequestHistoryChangeFieldEnumApi]
 
-export const FieldEnumApi = {
+export const FeatureRequestHistoryChangeFieldEnumApi = {
     Status: 'status',
     Priority: 'priority',
     Account: 'account',
@@ -1965,7 +2187,7 @@ export interface FeatureRequestHistoryChangeApi {
      * * `accounts` - Accounts
      * * `evidence` - Evidence
      * * `product_areas` - Product areas */
-    readonly field: FieldEnumApi
+    readonly field: FeatureRequestHistoryChangeFieldEnumApi
     /** Value before the update, including relation snapshots. */
     readonly before: FeatureRequestHistoryChangeApiBefore
     /** Value after the update, including relation snapshots. */
@@ -2279,6 +2501,17 @@ export type AccountRelationshipDefinitionsListParams = {
     offset?: number
 }
 
+export type AccountTrackRulesRunsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type AccountsListParams = {
     /**
      * When true, returns only accounts where no user actively holds any relationship.
@@ -2388,6 +2621,17 @@ export type AccountsSummariesListParams = {
     offset?: number
 }
 
+export type AccountsSupportTicketMessagesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type AnnouncementsListParams = {
     /**
      * Number of results to return per page.
@@ -2486,6 +2730,11 @@ export type FeatureRequestsListParams = {
      * @minLength 1
      */
     archive_state?: FeatureRequestsListArchiveState
+    /**
+     * Creator user IDs to include. Multiple values use OR semantics.
+     * @items.minimum 1
+     */
+    created_by_ids?: number[]
     /**
      * Number of results to return per page.
      */

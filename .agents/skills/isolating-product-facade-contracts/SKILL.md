@@ -188,6 +188,34 @@ base moved down to core, its timezone integration test moved into the product,
 its Dagster assets gained a `facade/dags.py`, and its filter-preset reads landed
 in `facade/api.py` with the viewset deferred.
 
+## Model classes a consumer already holds
+
+Some products still hand out model classes under the watched-models allowance
+(`MODEL_CROSSINGS`). That allowance only says the class may leave the product; it
+says nothing about what the consumer does with it. Two rules cover that:
+
+- **Default-deny.** A crossing class may appear in consumer code only in a shape
+  the check calls instance-free: an annotation, `X.DoesNotExist`, a nested class
+  attribute (`X.Status`), `X._meta`, a manager chain ending in
+  `values`/`values_list`/`count`/`exists`/`aggregate`, or a chain
+  embedded in `Exists(...)`/`Subquery(...)`. Anything else is disallowed.
+- **Move, don't permit.** Code that queries, serializes or writes a model belongs
+  in that model's product. The remedy for a disallowed use is a move; the facade
+  function is what the move leaves behind, and the consumer keeps orchestration
+  and ids.
+
+`apps.get_model('label', 'Class')` is counted too, and for **every** product model,
+not only the allowance ones. It leaves no import edge, so tach cannot refuse it.
+Test modules stay out of scope, so the fixture escape hatch this skill recommends
+for core tests still works. Migrations stay out too: the historical registry is the
+only way a migration can reach a model. Production code may not add a call.
+
+`hogli product:crossings <product>` lists a product's crossing classes with every
+consumer use bucketed by kind, disallowed first. Disallowed uses are frozen in
+`products/model_crossing_uses_baseline.txt` and guarded by a repo-invariant test;
+counts may only go down, and `hogli product:crossings --all --write-baseline`
+records the decrease. See `products/architecture.md` § Wiring couplings.
+
 ## Guardrails
 
 - Keep facades thin; put business rules behind the facade, in `logic/` by default. Other internal packages (`services/`, `reviewer/`, …) are fine as long as they stay behind the facade.
@@ -233,7 +261,8 @@ in `facade/api.py` with the viewset deferred.
      under the branch.
    - Core test fixtures that need product models: use `apps.get_model("<app_label>",
 "Model")` at runtime plus a `TYPE_CHECKING` import for annotations — tach ignores
-     type-only imports.
+     type-only imports. Fixtures only: the same call in production code is a
+     ratcheted `get_model` crossing (see above).
    - Compatibility shims exist to bridge between serial PRs — the one-pass shape rarely
      needs them. If one is unavoidable, it dies in the final cleanup PR, not "later".
    - Exception: callers with subtle behavior (transaction boundaries, write-path
@@ -297,13 +326,15 @@ in `facade/api.py` with the viewset deferred.
    4. **Narrowed `turbo.json` inputs** — restrict `backend:contract-check`
       inputs to `backend/facade/**` and `backend/presentation/**` so the
       Django suite is only re-run on facade/presentation changes (see
-      `products/visual_review/turbo.json`). Widen the inputs when core
-      depends on the product **outside the import graph**: add
-      `backend/models.py` if hogql system tables expose the product's
-      tables or core config references its dotted paths (the scan's
-      string-reference section surfaces the latter). tach/import-linter
-      only police the import channel; a mechanical check for these
-      non-import channels is a known gap, noted and deferred.
+      `products/visual_review/turbo.json`). The inputs must also watch the
+      whole model surface — `backend/models.py` or `backend/models/**`,
+      plus `backend/migrations/**` (required even before the first
+      migration lands): a model is reachable without an import
+      (`apps.get_model` strings, migrations, admin, hogql system tables,
+      dotted-string config), so tach/import-linter cannot prove nothing
+      outside observes it. `hogli product:lint` blocks a narrowing that
+      omits any of it, and `product:bootstrap` scaffolds the inputs
+      already covering it.
    - **Permanent-interface exception (irreducible import coupling).** Some
      import coupling genuinely cannot be drained: ClickHouse DDL modules
      (`backend.sql`, `backend.embedding`, …) are imported by core's

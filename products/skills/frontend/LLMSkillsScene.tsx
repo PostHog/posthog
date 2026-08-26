@@ -14,9 +14,10 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture/ProfileBubbles'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { fullName } from 'lib/utils/strings'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -102,14 +103,35 @@ function buildSkillColumns(
             },
         },
         {
-            title: 'Latest author',
+            title: 'Owners',
+            key: 'owners',
+            width: 140,
+            render: function renderOwners(_, skill) {
+                if (!skill.owners.length) {
+                    return <span className="text-muted-alt text-sm">No owner</span>
+                }
+                return (
+                    <ProfileBubbles
+                        people={skill.owners.map((owner) => ({
+                            email: owner.email,
+                            name: fullName(owner) || owner.email,
+                        }))}
+                        limit={4}
+                    />
+                )
+            },
+        },
+        {
+            // Plain text, not a second avatar column: this is whoever published the latest version,
+            // which is a weaker signal than ownership and reads as ownership when given a face.
+            title: 'Last published by',
             dataIndex: 'created_by',
             render: function renderCreatedBy(_, item) {
                 const { created_by } = item
                 return (
-                    <div className="flex flex-row items-center flex-nowrap">
-                        {created_by && <ProfilePicture user={created_by as any} size="md" showName />}
-                    </div>
+                    <span className="text-muted text-sm">
+                        {created_by ? fullName(created_by) || created_by.email : <i>-</i>}
+                    </span>
                 )
             },
         },
@@ -571,6 +593,15 @@ export function LLMSkillsScene(): JSX.Element {
                     />
                     <div className="text-muted-alt">{skillCountLabel}</div>
                     <div className="flex-1" />
+                    <span>
+                        <b>Owned by</b>
+                    </span>
+                    <MemberSelect
+                        defaultLabel="Any user"
+                        value={filters.owner_id ?? null}
+                        size="xsmall"
+                        onChange={(user) => setFilters({ owner_id: user?.id, page: 1 })}
+                    />
                     <span>
                         <b>Created by</b>
                     </span>

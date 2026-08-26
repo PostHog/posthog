@@ -15,7 +15,7 @@ from django.utils import timezone
 
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.utils import extend_schema, extend_schema_serializer
+from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_serializer
 from prometheus_client import Counter
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
@@ -103,10 +103,10 @@ from posthog.permissions import (
     TeamMemberStrictManagementPermission,
 )
 from posthog.rate_limit import GitHubRepositoryRefreshThrottle
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.tasks.email import send_integration_access_request
 from posthog.utils import is_relative_url
 
+from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.batch_exports.backend.models.batch_export import get_batch_exports_using_integration
 from products.cdp.backend.services.integration_usage import get_enabled_hog_functions_using_integration
 from products.slack_app.backend.services.slack_auth import SLACK_AUTH_FAILURE_CODES
@@ -284,10 +284,23 @@ class GitHubReposQuerySerializer(serializers.Serializer):
 class GitHubReposResponseSerializer(serializers.Serializer):
     repositories = GitHubRepoSerializer(many=True)
     has_more = serializers.BooleanField(help_text="Whether more repositories are available beyond this page.")
+    total = serializers.IntegerField(
+        help_text="Total number of repositories matching the search query, across all pages."
+    )
+
+
+GITHUB_INSTALLATION_STATUS_CHOICES = ["connected", "unavailable"]
 
 
 class GitHubReposRefreshResponseSerializer(serializers.Serializer):
     repositories = GitHubRepoSerializer(many=True, help_text="The refreshed repository cache.")
+    installation_status = serializers.ChoiceField(
+        choices=GITHUB_INSTALLATION_STATUS_CHOICES,
+        help_text=(
+            "`unavailable` when GitHub reports the App installation as uninstalled or suspended, in which "
+            "case `repositories` is the last cached list rather than a fresh one."
+        ),
+    )
 
 
 class JiraProjectSerializer(serializers.Serializer):
@@ -438,11 +451,60 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
     """Standard Integration serializer."""
 
     created_by = UserBasicSerializer(read_only=True)
+    installation_shared = serializers.SerializerMethodField(
+        help_text=(
+            "GitHub only, null otherwise. Whether another project's GitHub integration references the same "
+            "App installation. When false, disconnecting this integration also uninstalls the GitHub App from "
+            "the connected account or organization and removes personal GitHub connections that share it."
+        )
+    )
+    installation_status = serializers.SerializerMethodField(
+        help_text=(
+            "GitHub only, null otherwise. `unavailable` means the App was uninstalled or suspended on GitHub "
+            "and PostHog can no longer mint tokens for it; `connected` otherwise."
+        )
+    )
 
     class Meta:
         model = Integration
-        fields = ["id", "kind", "config", "created_at", "created_by", "errors", "display_name"]
-        read_only_fields = ["id", "created_at", "created_by", "errors", "display_name"]
+        fields = [
+            "id",
+            "kind",
+            "config",
+            "created_at",
+            "created_by",
+            "errors",
+            "display_name",
+            "installation_shared",
+            "installation_status",
+        ]
+        read_only_fields = [
+            "id",
+            "created_at",
+            "created_by",
+            "errors",
+            "display_name",
+            "installation_shared",
+            "installation_status",
+        ]
+
+    @extend_schema_field(serializers.BooleanField(allow_null=True))
+    def get_installation_shared(self, obj: Integration) -> bool | None:
+        if obj.kind != "github" or not obj.integration_id:
+            return None
+        # Mirrors the check in IntegrationViewSet.perform_destroy: only other *team* rows keep the App
+        # installed on GitHub. Personal rows don't count because destroy deletes them along with it.
+        reference_counts = self.context.get("github_reference_counts")
+        if reference_counts is not None:
+            # List passes counts for the whole page, so the field costs one query however many rows there are.
+            return reference_counts.get(obj.integration_id, 0) > 1
+        return Integration.objects.filter(kind="github", integration_id=obj.integration_id).exclude(id=obj.id).exists()
+
+    @extend_schema_field(serializers.ChoiceField(choices=GITHUB_INSTALLATION_STATUS_CHOICES, allow_null=True))
+    def get_installation_status(self, obj: Integration) -> str | None:
+        if obj.kind != "github":
+            return None
+        return "unavailable" if GitHubIntegration(obj).installation_unavailable() else "connected"
 
     def validate_kind(self, value: str) -> str:
         if value == Integration.IntegrationKind.SLACK_POSTHOG_CODE.value:
@@ -792,10 +854,12 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                 redshift_integration: (
                     type[RedshiftIntegration] | type[AWSRedshiftIntegration] | type[AWSRedshiftRoleBasedIntegration]
                 ) = AWSRedshiftRoleBasedIntegration
+            elif any(required in config for required in ("aws_access_key_id", "aws_secret_access_key")):
+                # Checked before the plain-server keys: AWS-credential configs also carry
+                # 'user' (the database user to obtain temporary credentials for).
+                redshift_integration = AWSRedshiftIntegration
             elif any(required in config for required in ("host", "port", "user", "password")):
                 redshift_integration = RedshiftIntegration
-            elif any(required in config for required in ("aws_access_key_id", "aws_secret_access_key")):
-                redshift_integration = AWSRedshiftIntegration
             else:
                 raise ValidationError("Missing required inputs")
 
@@ -914,7 +978,12 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
             if validated_data["kind"] == "stripe":
                 try:
                     stripe_integration = StripeIntegration(instance)
-                    stripe_integration.write_posthog_secrets(team_id, request.user)
+                    publication = stripe_integration.write_posthog_secrets(team_id, request.user)
+                    if publication.unwritten:
+                        capture_exception(
+                            Exception(f"Stripe secret store not fully written: {', '.join(publication.unwritten)}"),
+                            {"team_id": team_id, "integration_id": instance.id},
+                        )
                 except Exception as e:
                     capture_exception(e)
 
@@ -1640,8 +1709,9 @@ class IntegrationViewSet(
             raise ValidationError("github_repos endpoint is only supported for GitHub integrations")
         github = GitHubIntegration(instance)
         repositories, has_more = github.list_cached_repositories(search=search, limit=limit, offset=offset)
+        total = github.count_cached_repositories(search=search)
 
-        return Response({"repositories": repositories, "has_more": has_more})
+        return Response({"repositories": repositories, "has_more": has_more, "total": total})
 
     @extend_schema(request=GitHubPrepareCallbackRequestSerializer, responses={204: None})
     @action(methods=["POST"], detail=False, url_path="github/prepare_callback")
@@ -1772,11 +1842,26 @@ class IntegrationViewSet(
         if instance.kind != "github":
             raise ValidationError("refresh_github_repos endpoint is only supported for GitHub integrations")
         github = GitHubIntegration(instance)
-        repositories = github.sync_repository_cache(
-            min_refresh_interval_seconds=GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS
-        )
+        try:
+            repositories = github.sync_repository_cache(
+                min_refresh_interval_seconds=GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS
+            )
+        except GitHubIntegrationError as err:
+            # A refresh against an installation GitHub has since removed marks it unavailable; report
+            # that as a state rather than a failure so the UI can offer removal instead of a retry loop.
+            if not github.installation_unavailable():
+                capture_exception(err)
+                raise ValidationError(
+                    "Unable to refresh GitHub repositories. Please check integration settings and try again."
+                ) from err
+            repositories = github.list_all_cached_repositories(allow_refresh=False)
 
-        return Response({"repositories": repositories})
+        return Response(
+            {
+                "repositories": repositories,
+                "installation_status": "unavailable" if github.installation_unavailable() else "connected",
+            }
+        )
 
     @extend_schema(
         parameters=[GitHubTeamsQuerySerializer],
@@ -1961,3 +2046,45 @@ class IntegrationViewSet(
             raise ValidationError("Error generating apply URL. Please try again later or contact support.")
 
         return Response({"url": url})
+
+    # Defined last: a method named `list` shadows the builtin for the annotations of every method
+    # declared after it in this class body.
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        # A GitHub row connected while GitHub was flaky may still carry the numeric installation id
+        # as its account name. Healing here (throttled inside ensure_account_name) fixes the display
+        # everywhere the row is listed, including surfaces that never open the repository picker.
+        # Inlined from ListModelMixin so the heal runs over the page being returned rather than the
+        # whole queryset — each heal can spend a GitHub round trip, so rows nobody asked for mustn't
+        # pay for one.
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        instances = page if page is not None else list(queryset)
+        for instance in instances:
+            if instance.kind == "github":
+                GitHubIntegration(instance).ensure_account_name()
+        # One grouped lookup for the whole page instead of an `exists()` per row, so
+        # `installation_shared` stays a fixed one query however many GitHub rows there are.
+        reference_counts = GitHubIntegration.installation_reference_counts(
+            {
+                instance.integration_id
+                for instance in instances
+                if instance.kind == "github" and instance.integration_id
+            },
+            include_personal=False,
+        )
+        serializer = self.get_serializer(
+            instances,
+            many=True,
+            context={**self.get_serializer_context(), "github_reference_counts": reference_counts},
+        )
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return Response(serializer.data)
+
+    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        # Inlined from RetrieveModelMixin too: deferring to it would re-run `get_object`, paying a
+        # second query and permission check for the row already in hand.
+        instance = self.get_object()
+        if instance.kind == "github":
+            GitHubIntegration(instance).ensure_account_name()
+        return Response(self.get_serializer(instance).data)

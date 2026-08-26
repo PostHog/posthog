@@ -47,6 +47,7 @@ import {
   type StoredLogEntry,
   sendableQueuePrefixLength,
   sessionSupportsNativeSteer,
+  sessionSupportsSideQuestion,
   type TaskRunArtifact,
   type TaskRunStatus,
   TRANSCRIPT_TAIL_WINDOW,
@@ -61,6 +62,7 @@ import {
   isTerminalStatus,
   type Task,
 } from "@posthog/shared/domain-types";
+import type { SendCommandOutput } from "../cloud-task/schemas";
 import type { CommentTarget } from "../comments/anchors";
 import type { AgentSessionNotification } from "../notification/agentSessionNotifications";
 import { extractPostHogObjectReferences } from "../posthog-objects/references";
@@ -109,14 +111,17 @@ import {
   convertStoredEntriesToEvents,
   createConversationClearedEvents,
   createUserShellExecuteEvent,
+  dropEventsCoveredByTail,
   extractPromptText,
   getStoredLogEventPosition,
   getUserShellExecutesSinceLastPrompt,
   hasSessionPromptEvent,
   hasSessionPromptEventForTaskRun,
+  isSteerPromptParams,
   isTurnCompleteEvent,
   normalizePromptToBlocks,
   promptReferencesAbsoluteFolder,
+  selectEchoedOptimisticItemIds,
   shellExecutesToContextBlocks,
 } from "./sessionEvents";
 import { selectSessionsToEvict } from "./sessionEviction";
@@ -316,6 +321,7 @@ export interface SessionTrpc {
     reconnect: TrpcMutation;
     cancel: TrpcMutation;
     prompt: TrpcMutation;
+    sideQuestion: TrpcMutation;
     cancelPrompt: TrpcMutation;
     cancelPermission: TrpcMutation;
     respondToPermission: TrpcMutation;
@@ -422,6 +428,7 @@ export interface ISessionStore {
   ): void;
   clearOptimisticItems(taskRunId: string): void;
   clearTailOptimisticItems(taskRunId: string): void;
+  removeOptimisticItems(taskRunId: string, ids: string[]): void;
   replaceOptimisticWithEvent(taskRunId: string, event: AcpMessage): void;
   getSessionByTaskId(taskId: string): AgentSession | undefined;
   getSessions(): Record<string, AgentSession>;
@@ -1671,9 +1678,14 @@ export function isPermissionRequestAlreadySurfaced(
   );
 }
 
-/** The steering capability on a loosely-typed agent start/reconnect result. */
-function readSteering(result: unknown): string | undefined {
-  return (result as { steering?: string } | undefined)?.steering;
+/** The negotiated capabilities on a loosely-typed agent start/reconnect result. */
+function readCapabilities(result: unknown): {
+  steering?: string;
+  sideQuestion?: boolean;
+} {
+  const { steering, sideQuestion } =
+    (result as { steering?: string; sideQuestion?: boolean } | undefined) ?? {};
+  return { steering, sideQuestion };
 }
 
 // Live streaming emits agent_message_chunk; SessionLogWriter coalesces a chunk
@@ -2062,6 +2074,10 @@ export class SessionService {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.d.log.error("Failed to connect to task", { message });
+      this.d.track(ANALYTICS_EVENTS.AGENT_SESSION_ERROR, {
+        task_id: taskId,
+        error_type: "connect_failed",
+      });
 
       const taskRunId = latestRun?.id ?? `error-${taskId}`;
       const session = createBaseSession(taskRunId, taskId, taskTitle);
@@ -2327,7 +2343,7 @@ export class SessionService {
         this.d.store.updateSession(taskRunId, {
           status: "connected",
           configOptions,
-          steering: readSteering(result),
+          ...readCapabilities(result),
         });
 
         // Persist the merged config options
@@ -2684,7 +2700,7 @@ export class SessionService {
       | SessionConfigOption[]
       | undefined;
     session.configOptions = configOptions;
-    session.steering = readSteering(result);
+    Object.assign(session, readCapabilities(result));
 
     // Persist the config options
     if (configOptions) {
@@ -3073,6 +3089,12 @@ export class SessionService {
             error: err,
           });
           const session = this.getSessionByRunId(taskRunId);
+          if (session) {
+            this.d.track(ANALYTICS_EVENTS.AGENT_SESSION_ERROR, {
+              task_id: session.taskId,
+              error_type: "subscription_error",
+            });
+          }
           if (!session || session.isCloud) {
             this.d.store.updateSession(taskRunId, {
               status: "error",
@@ -3236,11 +3258,11 @@ export class SessionService {
    * guard ignores it without needing a marker here.
    */
   private isSteerMessage(msg: AcpMessage["message"]): boolean {
-    if (isJsonRpcRequest(msg) && msg.method === "session/prompt") {
-      const params = msg.params as { _meta?: { steer?: boolean } } | undefined;
-      return params?._meta?.steer === true;
-    }
-    return false;
+    return (
+      isJsonRpcRequest(msg) &&
+      msg.method === "session/prompt" &&
+      isSteerPromptParams(msg.params)
+    );
   }
 
   private finalizeTurnContent(
@@ -4251,6 +4273,62 @@ export class SessionService {
   }
 
   /**
+   * Ask a one-shot "/btw" side question: a single-turn, tool-less query forked
+   * off the live transcript. The exchange never enters the conversation, so
+   * this bypasses the queue/steer machinery entirely and is valid both
+   * mid-turn and idle.
+   */
+  async askSideQuestion(taskId: string, question: string): Promise<string> {
+    if (!this.d.getIsOnline()) {
+      throw new Error(
+        "No internet connection. Please check your connection and try again.",
+      );
+    }
+
+    const session = this.d.store.getSessionByTaskId(taskId);
+    if (!session) throw new Error("No active session for task");
+    if (!sessionSupportsSideQuestion(session)) {
+      throw new Error("Side questions aren't supported for this session yet.");
+    }
+    if (session.status !== "connected") {
+      throw new Error("Session is not ready. Try again once it's connected.");
+    }
+
+    if (session.isCloud) {
+      return this.askCloudSideQuestion(session, question);
+    }
+
+    const result = (await this.d.trpc.agent.sideQuestion.mutate({
+      sessionId: session.taskRunId,
+      question,
+    })) as { answer: string };
+    return result.answer;
+  }
+
+  /**
+   * Cloud variant: the fork runs in the sandbox, so the question goes over the
+   * command channel. The answer comes back as the command's result rather than
+   * on the event stream, which is what keeps it out of the transcript.
+   */
+  private async askCloudSideQuestion(
+    session: AgentSession,
+    question: string,
+  ): Promise<string> {
+    const result = await this.sendCloudCommand(session, "side_question", {
+      question,
+    });
+    if (!result.success) {
+      throw new Error(result.error ?? "Side question failed");
+    }
+
+    const answer = (result.result as { answer?: unknown } | undefined)?.answer;
+    if (typeof answer !== "string" || !answer) {
+      throw new Error("Side question produced no answer");
+    }
+    return answer;
+  }
+
+  /**
    * Send the next queued message as its own prompt.
    * Called internally when a turn completes and there are queued messages.
    * Only the head message is dequeued (`max: 1`) so a queue drains one turn at
@@ -4891,11 +4969,15 @@ export class SessionService {
       });
 
       if (!result.success) {
+        if (result.status === 409 && !options?.steer) {
+          this.d.store.clearTailOptimisticItems(session.taskRunId);
+          return this.resumeCloudRun(session, normalizedPrompt);
+        }
         throw new Error(result.error ?? "Failed to send cloud command");
       }
 
       const commandResult = result.result as
-        | { queued?: boolean; steered?: boolean; stopReason?: string }
+        | { queued?: boolean; stopReason?: string }
         | undefined;
       const stopReason = commandResult?.queued
         ? "queued"
@@ -5440,14 +5522,14 @@ export class SessionService {
    */
   private async sendCloudCommand(
     session: AgentSession,
-    method: "permission_response" | "set_config_option",
+    method: "permission_response" | "set_config_option" | "side_question",
     params: Record<string, unknown>,
-  ): Promise<void> {
+  ): Promise<SendCommandOutput> {
     const auth = await this.getCloudCommandAuth();
     if (!auth) {
       throw new Error("No cloud auth credentials available");
     }
-    await this.d.trpc.cloudTask.sendCommand.mutate({
+    return await this.d.trpc.cloudTask.sendCommand.mutate({
       taskId: session.taskId,
       runId: session.taskRunId,
       apiHost: auth.apiHost,
@@ -6826,10 +6908,14 @@ export class SessionService {
     if (!result) return;
     const watcher = this.cloudTaskWatchers.get(taskId);
     if (!watcher || watcher.runId !== taskRunId) return;
-    watcher.resumeHistoryCountOffset = Math.max(
+    const offset = Math.max(
       0,
       result.historyEntryCount - result.liveStreamLineCount,
     );
+    if (offset === 0 && watcher.resumeHistoryCountOffset) {
+      return;
+    }
+    watcher.resumeHistoryCountOffset = offset;
   }
 
   private logHydrationTruncation(
@@ -8490,6 +8576,13 @@ export class SessionService {
     update: CloudTaskUpdatePayload,
   ): void {
     if (update.kind === "error") {
+      const session = this.d.store.getSessions()[taskRunId];
+      if (session) {
+        this.d.track(ANALYTICS_EVENTS.AGENT_SESSION_ERROR, {
+          task_id: session.taskId,
+          error_type: "cloud_task_error",
+        });
+      }
       this.d.store.updateSession(taskRunId, {
         status: "error",
         errorTitle: update.errorTitle,
@@ -8538,22 +8631,15 @@ export class SessionService {
       if (plan.kind === "caught-up") {
         // Already caught up — skip duplicate entries
       } else if (plan.kind === "append-tail") {
-        const entriesToAppend = update.newEntries.slice(-plan.tailCount);
-        const newEvents = convertStoredEntriesToEvents(
-          entriesToAppend,
-          undefined,
+        this.appendCloudTailEvents(
+          taskRunId,
+          update.newEntries.slice(-plan.tailCount),
+          expectedCount,
           {
-            taskRunId,
-            startEntryIndex: expectedCount - entriesToAppend.length,
+            processedLineCount: expectedCount,
+            isLive: update.kind === "logs",
           },
         );
-        if (hasSessionPromptEvent(newEvents)) {
-          this.d.store.clearTailOptimisticItems(taskRunId);
-        }
-        this.d.store.appendEvents(taskRunId, newEvents, expectedCount);
-        this.updatePromptStateFromEvents(taskRunId, newEvents, {
-          isLive: update.kind === "logs",
-        });
       } else if (
         update.kind === "snapshot" &&
         update.windowStart !== undefined &&
@@ -8569,6 +8655,16 @@ export class SessionService {
           update.windowStart,
         );
       } else {
+        if (update.kind === "logs" && session) {
+          this.appendCloudTailEvents(
+            taskRunId,
+            update.newEntries,
+            expectedCount,
+            {
+              isLive: true,
+            },
+          );
+        }
         this.cloudLogGapReconciler.reconcile({
           taskId: update.taskId,
           taskRunId,
@@ -9030,19 +9126,81 @@ export class SessionService {
     }
   }
 
+  private clearEchoedTailOptimisticItems(
+    taskRunId: string,
+    events: AcpMessage[],
+  ): void {
+    const session = this.getSessionByRunId(taskRunId);
+    if (!session?.optimisticItems.length) return;
+    const echoed = selectEchoedOptimisticItemIds(
+      session.optimisticItems,
+      events,
+      session.processedLineCount ?? 0,
+    );
+    if (echoed.length > 0) {
+      this.d.store.removeOptimisticItems(taskRunId, echoed);
+    }
+  }
+
+  private appendCloudTailEvents(
+    taskRunId: string,
+    entries: StoredLogEntry[],
+    expectedCount: number,
+    options: { processedLineCount?: number; isLive: boolean },
+  ): void {
+    const startEntryIndex = Math.max(0, expectedCount - entries.length);
+    const events = convertStoredEntriesToEvents(entries, undefined, {
+      taskRunId,
+      startEntryIndex,
+    });
+    if (events.length === 0) return;
+    this.clearEchoedTailOptimisticItems(taskRunId, events);
+    const existingEvents = this.getSessionByRunId(taskRunId)?.events;
+    const keptEvents = existingEvents
+      ? dropEventsCoveredByTail(existingEvents, taskRunId, startEntryIndex)
+      : undefined;
+    if (keptEvents) {
+      this.d.store.updateSession(taskRunId, {
+        events: [...keptEvents, ...events],
+        ...(options.processedLineCount !== undefined
+          ? { processedLineCount: options.processedLineCount }
+          : {}),
+      });
+    } else {
+      this.d.store.appendEvents(taskRunId, events, options.processedLineCount);
+    }
+    this.updatePromptStateFromEvents(taskRunId, events, {
+      isLive: options.isLive,
+    });
+  }
+
   private commitReconciledCloudEvents(
     taskRunId: string,
     rawEntries: StoredLogEntry[],
     logUrl: string | undefined,
     processedLineCount: number,
   ): void {
-    const events = convertStoredEntriesToEvents(rawEntries, undefined, {
+    let events = convertStoredEntriesToEvents(rawEntries, undefined, {
       taskRunId,
       startEntryIndex: 0,
     });
-    if (hasSessionPromptEvent(events)) {
-      this.d.store.clearTailOptimisticItems(taskRunId);
+    const liveEvents = this.getSessionByRunId(taskRunId)?.events ?? [];
+    let firstPositionedIndex = liveEvents.findIndex(
+      (event) => getStoredLogEventPosition(event) !== undefined,
+    );
+    if (firstPositionedIndex === -1) {
+      firstPositionedIndex = liveEvents.length;
     }
+    const ancestorPrefix = liveEvents.slice(0, firstPositionedIndex);
+    const liveRunEvents = liveEvents.slice(firstPositionedIndex);
+    events = [
+      ...ancestorPrefix,
+      ...events,
+      ...(liveRunEvents.length
+        ? reconcileLiveEventsWithHydratedEvents(liveRunEvents, events)
+        : []),
+    ];
+    this.clearEchoedTailOptimisticItems(taskRunId, events);
     this.cloudRunIdleTracker.delete(taskRunId);
     // The reconciled log is the complete chain, so any hydration window is
     // gone; resetting the window start also trips loadOlderCloudTranscript's
@@ -9067,9 +9225,7 @@ export class SessionService {
       taskRunId,
       startEntryIndex: windowStart,
     });
-    if (hasSessionPromptEvent(events)) {
-      this.d.store.clearTailOptimisticItems(taskRunId);
-    }
+    this.clearEchoedTailOptimisticItems(taskRunId, events);
     this.cloudRunIdleTracker.delete(taskRunId);
     // Moving the window start also trips loadOlderCloudTranscript's
     // stale-window guard if a prepend was in flight, instead of duplicating

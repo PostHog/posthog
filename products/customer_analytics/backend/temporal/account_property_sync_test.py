@@ -1,0 +1,152 @@
+import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
+import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from temporalio import activity, workflow
+from temporalio.exceptions import WorkflowAlreadyStartedError
+from temporalio.testing import WorkflowEnvironment
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+
+from products.customer_analytics.backend.facade.temporal_contracts import (
+    DispatchAccountPropertySyncInput,
+    StageAccountPropertySyncInput,
+)
+from products.customer_analytics.backend.temporal.account_property_sync import (
+    AccountPropertySyncInput,
+    StageWarehouseAccountPropertiesWorkflow,
+    SyncWarehouseAccountPropertiesWorkflow,
+    dispatch_warehouse_account_property_sync_activity,
+    stage_warehouse_account_property_files_activity,
+    sync_warehouse_account_properties_activity,
+)
+
+pytestmark = pytest.mark.asyncio
+
+
+def _staging_input() -> StageAccountPropertySyncInput:
+    return StageAccountPropertySyncInput(
+        team_id=7,
+        saved_query_id="019f0000-0000-7000-8000-000000000001",
+        job_id="job-1",
+        table_uri="s3://data-warehouse/dlt/table",
+        delta_version=5,
+    )
+
+
+@asynccontextmanager
+async def _no_heartbeat() -> AsyncIterator[None]:
+    yield
+
+
+async def test_staging_activity_reads_the_committed_delta_version() -> None:
+    sink = MagicMock()
+    sink.stage_delta_snapshot = AsyncMock(return_value=True)
+
+    with (
+        patch(
+            "products.customer_analytics.backend.temporal.account_property_sync.AccountPropertyRowSink",
+            return_value=sink,
+        ),
+        patch(
+            "products.customer_analytics.backend.temporal.account_property_sync.Heartbeater",
+            return_value=_no_heartbeat(),
+        ),
+    ):
+        staged = await stage_warehouse_account_property_files_activity(_staging_input())
+
+    assert staged is True
+    sink.stage_delta_snapshot.assert_awaited_once_with("s3://data-warehouse/dlt/table", 5)
+
+
+async def test_staging_workflow_dispatches_segments_only_after_staging_succeeds() -> None:
+    execute_activity = AsyncMock(side_effect=[True, None])
+
+    with patch.object(workflow, "execute_activity", new=execute_activity):
+        await StageWarehouseAccountPropertiesWorkflow().run(_staging_input())
+
+    assert execute_activity.await_count == 2
+    assert execute_activity.await_args_list[0].args[0] == stage_warehouse_account_property_files_activity
+    assert execute_activity.await_args_list[1].args[0] == dispatch_warehouse_account_property_sync_activity
+
+
+async def test_staging_workflow_stops_when_no_sources_remain() -> None:
+    execute_activity = AsyncMock(return_value=False)
+
+    with patch.object(workflow, "execute_activity", new=execute_activity):
+        await StageWarehouseAccountPropertiesWorkflow().run(_staging_input())
+
+    execute_activity.assert_awaited_once()
+
+
+async def test_staging_and_dispatch_recover_from_transient_activity_failures() -> None:
+    attempts: list[tuple[str, int]] = []
+
+    @activity.defn(name="stage-warehouse-account-property-files")
+    async def stage_files(_input: StageAccountPropertySyncInput) -> bool:
+        attempt = activity.info().attempt
+        attempts.append(("stage", attempt))
+        if attempt == 1:
+            raise RuntimeError("staging temporarily unavailable")
+        return True
+
+    @activity.defn(name="dispatch-warehouse-account-property-sync")
+    async def dispatch(_input: DispatchAccountPropertySyncInput) -> None:
+        attempt = activity.info().attempt
+        attempts.append(("dispatch", attempt))
+        if attempt == 1:
+            raise RuntimeError("Temporal temporarily unavailable")
+
+    task_queue = str(uuid.uuid4())
+    async with await WorkflowEnvironment.start_time_skipping() as environment:
+        async with Worker(
+            environment.client,
+            task_queue=task_queue,
+            workflows=[StageWarehouseAccountPropertiesWorkflow],
+            activities=[stage_files, dispatch],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            await environment.client.execute_workflow(
+                StageWarehouseAccountPropertiesWorkflow.run,
+                _staging_input(),
+                id=str(uuid.uuid4()),
+                task_queue=task_queue,
+            )
+
+    assert attempts == [("stage", 1), ("stage", 2), ("dispatch", 1), ("dispatch", 2)]
+
+
+async def test_dispatch_starts_missing_segment_when_its_sibling_already_runs() -> None:
+    client = AsyncMock()
+    client.start_workflow.side_effect = [WorkflowAlreadyStartedError("tracked", "workflow"), None]
+    input = DispatchAccountPropertySyncInput(
+        team_id=7,
+        saved_query_id="019f0000-0000-7000-8000-000000000001",
+        job_id="job-1",
+    )
+
+    with patch("products.customer_analytics.backend.temporal.account_property_sync.async_connect", return_value=client):
+        await dispatch_warehouse_account_property_sync_activity(input)
+
+    assert client.start_workflow.await_count == 2
+    assert [call.args[1].segment for call in client.start_workflow.await_args_list] == ["tracked", "ignored"]
+
+
+async def test_workflow_executes_one_retryable_segment_activity() -> None:
+    execute_activity = AsyncMock()
+    input = AccountPropertySyncInput(
+        team_id=7,
+        saved_query_id="019f0000-0000-7000-8000-000000000001",
+        job_id="job-1",
+        segment="tracked",
+    )
+
+    with patch.object(workflow, "execute_activity", new=execute_activity):
+        await SyncWarehouseAccountPropertiesWorkflow().run(input)
+
+    execute_activity.assert_awaited_once()
+    assert execute_activity.await_args is not None
+    assert execute_activity.await_args.args == (sync_warehouse_account_properties_activity, input)
+    assert execute_activity.await_args.kwargs["retry_policy"].maximum_attempts == 5

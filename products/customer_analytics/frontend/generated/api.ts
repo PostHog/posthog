@@ -16,6 +16,11 @@ import type {
     AccountRelationshipDefinitionApi,
     AccountRelationshipDefinitionsListParams,
     AccountRelationshipWriteApi,
+    AccountTrackRulePreviewApi,
+    AccountTrackRuleRunRequestApi,
+    AccountTrackRuleRunViewApi,
+    AccountTrackRulesConfigApi,
+    AccountTrackRulesRunsListParams,
     AccountsEmailThreadMessagesListParams,
     AccountsEmailThreadsListParams,
     AccountsListParams,
@@ -23,6 +28,7 @@ import type {
     AccountsNotebooksListParams,
     AccountsRelationshipsListParams,
     AccountsSummariesListParams,
+    AccountsSupportTicketMessagesListParams,
     AnnouncementApi,
     AnnouncementChannelApi,
     AnnouncementsListParams,
@@ -71,6 +77,8 @@ import type {
     PaginatedAccountNoteListApi,
     PaginatedAccountNotebookListApi,
     PaginatedAccountRelationshipDefinitionListApi,
+    PaginatedAccountSupportTicketMessageListApi,
+    PaginatedAccountTrackRuleRunViewListApi,
     PaginatedAnnouncementListApi,
     PaginatedCustomPropertyDefinitionListApi,
     PaginatedCustomPropertySourceListApi,
@@ -285,6 +293,98 @@ export const accountRelationshipDefinitionsDestroy = async (
     return apiMutator<void>(getAccountRelationshipDefinitionsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getAccountTrackRulesListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/account_track_rules/`
+}
+
+export const accountTrackRulesList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<AccountTrackRulesConfigApi> => {
+    return apiMutator<AccountTrackRulesConfigApi>(getAccountTrackRulesListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAccountTrackRulesUpdateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/account_track_rules/`
+}
+
+export const accountTrackRulesUpdate = async (
+    projectId: string,
+    accountTrackRulesConfigApi: AccountTrackRulesConfigApi,
+    options?: RequestInit
+): Promise<AccountTrackRulesConfigApi> => {
+    return apiMutator<AccountTrackRulesConfigApi>(getAccountTrackRulesUpdateUrl(projectId), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(accountTrackRulesConfigApi),
+    })
+}
+
+export const getAccountTrackRulesPreviewCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/account_track_rules/preview/`
+}
+
+export const accountTrackRulesPreviewCreate = async (
+    projectId: string,
+    accountTrackRulesConfigApi: AccountTrackRulesConfigApi,
+    options?: RequestInit
+): Promise<AccountTrackRulePreviewApi> => {
+    return apiMutator<AccountTrackRulePreviewApi>(getAccountTrackRulesPreviewCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(accountTrackRulesConfigApi),
+    })
+}
+
+export const getAccountTrackRulesRunCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/account_track_rules/run/`
+}
+
+export const accountTrackRulesRunCreate = async (
+    projectId: string,
+    accountTrackRuleRunRequestApi: AccountTrackRuleRunRequestApi,
+    options?: RequestInit
+): Promise<AccountTrackRuleRunViewApi> => {
+    return apiMutator<AccountTrackRuleRunViewApi>(getAccountTrackRulesRunCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(accountTrackRuleRunRequestApi),
+    })
+}
+
+export const getAccountTrackRulesRunsListUrl = (projectId: string, params?: AccountTrackRulesRunsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/account_track_rules/runs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/account_track_rules/runs/`
+}
+
+export const accountTrackRulesRunsList = async (
+    projectId: string,
+    params?: AccountTrackRulesRunsListParams,
+    options?: RequestInit
+): Promise<PaginatedAccountTrackRuleRunViewListApi> => {
+    return apiMutator<PaginatedAccountTrackRuleRunViewListApi>(getAccountTrackRulesRunsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -709,6 +809,43 @@ export const accountsSupportTicketsList = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getAccountsSupportTicketMessagesListUrl = (
+    projectId: string,
+    id: string,
+    ticketId: string,
+    params?: AccountsSupportTicketMessagesListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/accounts/${id}/support_tickets/${ticketId}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/accounts/${id}/support_tickets/${ticketId}/`
+}
+
+export const accountsSupportTicketMessagesList = async (
+    projectId: string,
+    id: string,
+    ticketId: string,
+    params?: AccountsSupportTicketMessagesListParams,
+    options?: RequestInit
+): Promise<PaginatedAccountSupportTicketMessageListApi> => {
+    return apiMutator<PaginatedAccountSupportTicketMessageListApi>(
+        getAccountsSupportTicketMessagesListUrl(projectId, id, ticketId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getAnnouncementsListUrl = (projectId: string, params?: AnnouncementsListParams) => {

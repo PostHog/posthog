@@ -12,8 +12,6 @@ from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
-from posthog.models.integration import Integration
-
 from ..facade import contracts
 from ..facade.enums import (
     ChannelResolutionSource,
@@ -458,81 +456,6 @@ class ReviewRunSerializer(DataclassSerializer):
         }
 
 
-@extend_schema_serializer(component_name="DigestChannel")
-class DigestChannelSerializer(DataclassSerializer):
-    def get_fields(self) -> dict[str, serializers.Field]:
-        fields = super().get_fields()
-        # audience_key is the bucket this channel is bound to. Editing it on an existing row re-points
-        # the channel at a different audience — and can effectively re-open an audience a human opted out
-        # of, since the disabled tombstone row keying off the old audience_key would no longer match.
-        # Create-only, same pattern as the repo config's provider/repository identity fields.
-        # self.instance is set only for updates (schema generation and creates leave it None).
-        if self.instance is not None:
-            fields["audience_key"].read_only = True
-        return fields
-
-    last_digest_at = serializers.DateTimeField(
-        read_only=True,
-        allow_null=True,
-        help_text="When a digest was last posted to this channel.",
-    )
-    resolution_source = serializers.ChoiceField(
-        choices=[(s.value, s.name) for s in ChannelResolutionSource],
-        read_only=True,
-        help_text=(
-            "How this row was created: 'manual' (via this API), 'slack_name_match' (auto-provisioned "
-            "because the workspace has a channel named exactly like the audience_key), "
-            "'stamphog_config' (auto-provisioned from the channel the repo declared under 'digest:' in "
-            ".stamphog/policy.yml), "
-            "or 'owners_contact' (reserved for the future owners.yaml contact.slack step, not implemented yet)."
-        ),
-    )
-
-    class Meta:
-        dataclass = contracts.DigestChannelDTO
-        fields = [
-            "id",
-            "audience_key",
-            "slack_integration_id",
-            "slack_channel_id",
-            "slack_channel_name",
-            "resolution_source",
-            "enabled",
-            "last_digest_at",
-            "created_at",
-            "updated_at",
-        ]
-        read_only_fields = ["id", "created_at", "updated_at"]
-        extra_kwargs = {
-            "audience_key": {
-                "help_text": (
-                    "Opaque digest bucket this channel receives, e.g. 'repo:PostHog/posthog'. Immutable "
-                    "after creation — it anchors the audience and its opt-out tombstone."
-                )
-            },
-            "slack_integration_id": {
-                "help_text": "ID of the team's Slack integration used to post the digest.",
-            },
-            "slack_channel_id": {
-                "help_text": "Slack channel ID to post the digest to, e.g. 'C012AB3CD'.",
-            },
-            "slack_channel_name": {
-                "required": False,
-                "help_text": "Human-readable Slack channel name, for display only.",
-            },
-            "enabled": {"help_text": "Whether this channel is included in the daily digest fan-out."},
-        }
-
-    def validate_slack_integration_id(self, value: int) -> int:
-        # The integration must belong to the requesting team and be a Slack integration — otherwise a
-        # team could point a digest at another team's Slack workspace.
-        team_id = self.context["team_id"]
-        exists = Integration.objects.filter(id=value, team_id=team_id, kind="slack").exists()
-        if not exists:
-            raise serializers.ValidationError("No Slack integration with this ID exists for this team.")
-        return value
-
-
 @extend_schema_serializer(component_name="DigestRun")
 class DigestRunSerializer(DataclassSerializer):
     status = serializers.ChoiceField(
@@ -540,10 +463,15 @@ class DigestRunSerializer(DataclassSerializer):
         read_only=True,
         help_text="Current state of the digest run (pending, completed, failed).",
     )
-    digest_channel = serializers.UUIDField(
-        source="digest_channel_id",
+    resolution_source = serializers.ChoiceField(
+        choices=[(s.value, s.name) for s in ChannelResolutionSource],
         read_only=True,
-        help_text="ID of the digest channel this run belongs to.",
+        help_text=(
+            "Why the digest went to this channel: 'slack_name_match' (no declaration anywhere, so the "
+            "audience_key matched a same-named Slack channel), 'stamphog_config' (the channel the repo "
+            "declared under 'digest:' in .stamphog/policy.yml), 'owners_contact' (a teams: entry in a "
+            "root owners.yaml named it), or 'manual' (no longer produced)."
+        ),
     )
     posted_at = serializers.DateTimeField(
         read_only=True,
@@ -558,7 +486,10 @@ class DigestRunSerializer(DataclassSerializer):
         dataclass = contracts.DigestRunDTO
         fields = [
             "id",
-            "digest_channel",
+            "audience_key",
+            "slack_channel_id",
+            "slack_channel_name",
+            "resolution_source",
             "status",
             "pr_count",
             "slack_message_ts",
@@ -567,8 +498,22 @@ class DigestRunSerializer(DataclassSerializer):
             "posted_at",
         ]
         # Only the fields NOT declared above (see ReviewRunSerializer).
-        read_only_fields = ["id", "pr_count", "slack_message_ts", "error", "created_at"]
+        read_only_fields = [
+            "id",
+            "audience_key",
+            "slack_channel_id",
+            "slack_channel_name",
+            "pr_count",
+            "slack_message_ts",
+            "error",
+            "created_at",
+        ]
         extra_kwargs = {
+            "audience_key": {
+                "help_text": "Digest bucket this run drained, e.g. a team slug or 'repo:PostHog/posthog'."
+            },
+            "slack_channel_id": {"help_text": "Slack channel this digest was posted to, e.g. 'C012AB3CD'."},
+            "slack_channel_name": {"help_text": "Human-readable name of that channel, for display."},
             "pr_count": {"help_text": "Number of merged PRs included in the posted digest."},
             "slack_message_ts": {"help_text": "Slack message timestamp of the posted digest, if posted."},
             "error": {"help_text": "Error message if the run failed, blank otherwise."},
@@ -652,42 +597,3 @@ class StamphogRepoConfigWriteSerializer(serializers.Serializer):
         # pairing the soft-delete tombstone applies, and the Enabled toggle sends only `enabled`.
         attrs["digest_enabled"] = False
         return attrs
-
-
-class DigestChannelWriteSerializer(serializers.Serializer):
-    """Input shape for creating/updating a digest channel (see the repo-config write serializer)."""
-
-    audience_key = serializers.CharField(
-        help_text=(
-            "Opaque digest bucket this channel receives, e.g. 'repo:PostHog/posthog'. Immutable "
-            "after creation — it anchors the audience and its opt-out tombstone."
-        )
-    )
-    slack_integration_id = serializers.IntegerField(
-        help_text="ID of the team's Slack integration used to post the digest."
-    )
-    slack_channel_id = serializers.CharField(help_text="Slack channel ID to post the digest to, e.g. 'C012AB3CD'.")
-    slack_channel_name = serializers.CharField(
-        required=False, allow_blank=True, help_text="Human-readable Slack channel name, for display only."
-    )
-    enabled = serializers.BooleanField(
-        required=False, help_text="Whether this channel is included in the daily digest fan-out."
-    )
-
-    def __init__(self, *args, partial_update: bool = False, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
-        if partial_update:
-            # audience_key is the bucket this channel is bound to. Editing it on an existing row
-            # re-points the channel at a different audience — and can effectively re-open an audience a
-            # human opted out of, since the disabled tombstone row keying off the old audience_key would
-            # no longer match. Create-only, so it is dropped on update.
-            self.fields.pop("audience_key")
-
-    def validate_slack_integration_id(self, value: int) -> int:
-        # The integration must belong to the requesting team and be a Slack integration — otherwise a
-        # team could point a digest at another team's Slack workspace.
-        team_id = self.context["team_id"]
-        exists = Integration.objects.filter(id=value, team_id=team_id, kind="slack").exists()
-        if not exists:
-            raise serializers.ValidationError("No Slack integration with this ID exists for this team.")
-        return value

@@ -61,6 +61,34 @@ export function buildPosthogPropertyHeaderLines(
     .join("\n");
 }
 
+/**
+ * Attribution node header for the person a request is spent on behalf of. The
+ * gateway keys its per-user spend limit on this value, so it must be the same
+ * node the spend-limit endpoint writes the limit against: the user's distinct
+ * id, not their uuid (see products/ai_gateway/backend/logic.py, _spend_node).
+ *
+ * Trust model: for local sessions this header is asserted by the client, so
+ * the limit it keys is a self-imposed guardrail, not a security boundary.
+ * Cloud runs pin the node server-side into the run's scoped token.
+ */
+export const POSTHOG_USER_HEADER = "X-PostHog-User";
+
+export function buildPosthogUserHeaderRecord(
+  userNode: string | null | undefined,
+): Record<string, string> {
+  return userNode
+    ? { [POSTHOG_USER_HEADER]: sanitizeHeaderValue(userNode) }
+    : {};
+}
+
+export function buildPosthogUserHeaderLines(
+  userNode: string | null | undefined,
+): string {
+  return userNode
+    ? `${POSTHOG_USER_HEADER}: ${sanitizeHeaderValue(userNode)}`
+    : "";
+}
+
 export function buildPosthogProjectHeaderRecord(
   projectId: number | null | undefined,
 ): Record<string, string> {

@@ -55,6 +55,7 @@ from products.warehouse_sources.backend.models.util import (
     remove_named_tuples,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
+from products.warehouse_sources.backend.types import DataWarehouseTableCreatedVia, DataWarehouseTableFormat
 
 from .credential import DataWarehouseCredential
 from .external_table_definitions import external_tables, get_hogql_column_name_mapping
@@ -283,13 +284,9 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
     # Use if it's certain externaldataschemas aren't needed
     raw_objects = DataWarehouseTableQuerySet.as_manager()
 
-    class TableFormat(models.TextChoices):
-        CSV = "CSV", "CSV"
-        CSVWithNames = "CSVWithNames", "CSVWithNames"
-        Parquet = "Parquet", "Parquet"
-        JSON = "JSONEachRow", "JSON"
-        Delta = "Delta", "Delta"
-        DeltaS3Wrapper = "DeltaS3Wrapper", "DeltaS3Wrapper"
+    # Kept on the model so the nested names and the `choices=` below stay unchanged.
+    TableFormat = DataWarehouseTableFormat
+    CreatedVia = DataWarehouseTableCreatedVia
 
     name = models.CharField(max_length=128)
     format = models.CharField(max_length=128, choices=TableFormat)
@@ -300,6 +297,11 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
     credential = models.ForeignKey(DataWarehouseCredential, on_delete=models.CASCADE, null=True, blank=True)
 
     external_data_source = models.ForeignKey("ExternalDataSource", on_delete=models.CASCADE, null=True, blank=True)
+
+    # Where this table came from — the request surface for user-created tables, or the internal
+    # path that built it. Derived server-side (never taken from the request body) so a client can't
+    # self-label. NULL on rows created before this field existed.
+    created_via = models.CharField(max_length=20, choices=CreatedVia, null=True, blank=True)
 
     columns = models.JSONField(
         default=dict,

@@ -15,6 +15,8 @@ from structlog.typing import FilteringBoundLogger
 from temporalio import activity
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.exceptions_capture import capture_exception
+from posthog.integration_secrets.errors import IntegrationSecretsFailure
 from posthog.models.integration import UndecryptedIntegrationSecretError
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.activity_context import current_activity_attempt
@@ -231,7 +233,20 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
         # zombie predecessor stands down (its heartbeat timed out, but it may still be running).
         attempt=current_activity_attempt(),
     ):
-        return await _import_data_with_reporting(inputs, logger)
+        try:
+            return await _import_data_with_reporting(inputs, logger)
+        except (OperationalError, InterfaceError, PostHogInternalDatabaseError) as e:
+            # The setup phase (resolving the job/schema/source rows for this run) reads PostHog's
+            # own app DB through the Django ORM before the source's error handling takes over. A
+            # transient connection-pool blip there — a PgBouncer server_login_retry cooldown, the
+            # primary briefly in recovery — raises this exception type, which can only mean our own
+            # infra, never the customer's source (every source talks to a customer database over a
+            # raw driver connection, not the ORM). Re-raise as NonReportableError so Temporal
+            # retries the whole activity and it self-heals, rather than failing the sync with the
+            # raw driver string as latest_error. _handle_import_error already classifies these types
+            # this way once the run is under way; this covers the setup calls that run before it.
+            await logger.awarning(str(e))
+            raise NonReportableError(str(e)) from e
 
 
 async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: FilteringBoundLogger) -> PipelineResult:
@@ -402,6 +417,12 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
 
             try:
                 config = new_source.parse_config(model.pipeline.job_inputs)
+            except IntegrationSecretsFailure as e:
+                # A source whose config carries a PostHog-owned credential resolves it here, so a
+                # failure at this point is ours and not a corrupt `job_inputs`. Route it through the
+                # shared policy: the branch below would read it as an unparseable config and disable
+                # the customer's schema over a rotation they can't see and didn't cause.
+                await _handle_import_error(job_inputs, logger, e)
             except Exception as e:
                 # A stored config that can't be parsed (corrupt or double-encoded `job_inputs`)
                 # fails identically on every attempt — there is nothing to retry. Treat it as
@@ -500,6 +521,16 @@ def _get_models(
     return ImportJobModels(job=job, schema=schema, source=source, table=table)
 
 
+# What a customer reads when a PostHog-managed credential is unavailable. Deliberately says
+# nothing about which credential: the name is ours (`HUBSPOT_APP_CLIENT_SECRET`), it means nothing
+# to them, and naming it invites them to go looking for a setting they do not have. The full
+# detail goes to the logs and, when a person needs to act, to error tracking.
+INTEGRATION_CREDENTIAL_UNAVAILABLE_MESSAGE = (
+    "A PostHog-managed credential for this source is temporarily unavailable. This sync will "
+    "retry automatically — no action is needed on your side."
+)
+
+
 async def _handle_import_error(
     job_inputs: PipelineInputs,
     logger: FilteringBoundLogger,
@@ -555,6 +586,35 @@ async def _handle_import_error(
         await handle_non_retryable_error(
             job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
         )
+
+    # Every credential the integration service holds is PostHog's own — the OAuth app secrets and
+    # API keys we own, not anything the customer configured. So none of its failure states are
+    # theirs to fix, and none are permanent: a key in recovery is re-provisioned, a missing key is
+    # added, an unreachable service comes back. Retry, and if the budget runs out let the run fail
+    # and the next scheduled sync pick it up.
+    #
+    # What must not happen is `handle_non_retryable_error`, which disables the schema and makes a
+    # customer re-enable a sync they never broke. That is the whole reason this is classified here
+    # by type rather than left to fall through: one credential going into recovery would otherwise
+    # disable every sync of that source type, across every customer, until each was re-enabled by
+    # hand — turning a reversible platform action into a wide manual recovery.
+    #
+    # Checked before the bare-404 rule below on purpose. That rule reads a 404 as "the customer's
+    # endpoint is gone", and a misrouted INTEGRATION_SERVICE_URL answers 404 as well; the client
+    # wraps its transport failures so the two can't be confused, and this ordering keeps that true
+    # even if something later leaks a raw HTTPError.
+    if isinstance(error, IntegrationSecretsFailure):
+        if error.reportable:
+            # A gap only PostHog can close (a key never added for this environment, a
+            # half-configured deployment). Capture explicitly rather than letting it escape raw:
+            # the message the customer ends up reading must not carry an internal credential name,
+            # and error tracking still needs the real exception to group and route it.
+            capture_exception(error)
+            await logger.aexception(error_msg)
+        else:
+            await logger.awarning(error_msg)
+        await logger.adebug("Integration service credential unavailable - re-raising for Temporal retry")
+        raise NonReportableError(INTEGRATION_CREDENTIAL_UNAVAILABLE_MESSAGE) from error
 
     # A 404 from the shared REST engine's fallback `raise_for_status()` path means the configured
     # endpoint/resource doesn't exist — every retry replays the identical request against the same

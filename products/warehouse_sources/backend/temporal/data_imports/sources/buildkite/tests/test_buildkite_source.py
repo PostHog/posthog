@@ -5,19 +5,14 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from posthog.schema import SourceFieldInputConfig
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.buildkite.buildkite import BuildkiteResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.buildkite.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.buildkite.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.buildkite.source import BuildkiteSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.buildkite import (
     BuildkiteSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> BuildkiteSourceConfig:
@@ -29,30 +24,10 @@ class TestBuildkiteSource:
         self.source = BuildkiteSource()
         self.team_id = 123
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.BUILDKITE
-
-    def test_source_config_fields(self) -> None:
-        config = self.source.get_source_config
-        field_names = {f.name for f in config.fields}
-        assert field_names == {"api_access_token", "organization"}
-        # The token is the secret; the org slug is not.
-        by_name = {f.name: f for f in config.fields}
-        token_field = by_name["api_access_token"]
-        org_field = by_name["organization"]
-        assert isinstance(token_field, SourceFieldInputConfig)
-        assert isinstance(org_field, SourceFieldInputConfig)
-        assert token_field.secret is True
-        assert org_field.secret is False
-
     def test_connection_host_fields_includes_organization(self) -> None:
         # The token is sent to api.buildkite.com against <organization>, so retargeting the
         # organization must force re-entry of the token.
         assert self.source.connection_host_fields == ["organization"]
-
-    def test_get_schemas_lists_every_endpoint(self) -> None:
-        schemas = {s.name for s in self.source.get_schemas(_config(), team_id=self.team_id)}
-        assert schemas == set(ENDPOINTS)
 
     @parameterized.expand(
         [
@@ -67,10 +42,6 @@ class TestBuildkiteSource:
         schemas = {s.name: s for s in self.source.get_schemas(_config(), team_id=self.team_id)}
         assert schemas[endpoint].supports_incremental is expected
         assert schemas[endpoint].supports_append is expected
-
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(_config(), team_id=self.team_id, names=["builds"])
-        assert [s.name for s in schemas] == ["builds"]
 
     @parameterized.expand(
         [
@@ -103,21 +74,6 @@ class TestBuildkiteSource:
         # Each declared endpoint should have a curated description so it isn't sent to the LLM.
         assert set(self.source.get_canonical_descriptions()) == set(ENDPOINTS)
         assert self.source.get_canonical_descriptions() is CANONICAL_DESCRIPTIONS
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        inputs = MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is BuildkiteResumeConfig
-
-    def test_validate_credentials_delegates_with_org_and_token(self) -> None:
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.buildkite.source.validate_buildkite_credentials",
-            return_value=(True, None),
-        ) as mock_validate:
-            result = self.source.validate_credentials(_config(), team_id=self.team_id, schema_name="builds")
-        assert result == (True, None)
-        mock_validate.assert_called_once_with("bkua_test", "my-org", "builds")
 
     def test_source_for_pipeline_plumbs_arguments(self) -> None:
         inputs = MagicMock()

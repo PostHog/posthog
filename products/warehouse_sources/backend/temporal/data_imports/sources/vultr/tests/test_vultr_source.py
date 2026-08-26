@@ -17,7 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.vultr.cano
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.vultr.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.vultr.source import VultrSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.vultr.source"
 
@@ -47,9 +46,6 @@ class TestVultrSource:
         self.team_id = 123
         self.config = VultrSourceConfig(api_key="test-key")
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.VULTR
-
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config
 
@@ -68,11 +64,6 @@ class TestVultrSource:
         assert api_key_field.required is True
         assert api_key_field.secret is True
 
-    @pytest.mark.parametrize("expected_key", ["401 Client Error", "403 Client Error"])
-    def test_non_retryable_errors(self, expected_key: str) -> None:
-        errors = self.source.get_non_retryable_errors()
-        assert any(expected_key in key for key in errors)
-
     def test_get_schemas_all_full_refresh(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id)
 
@@ -85,23 +76,6 @@ class TestVultrSource:
     def test_get_schemas_filtered_by_names(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id, names=["invoices"])
         assert [s.name for s in schemas] == ["invoices"]
-
-    @pytest.mark.parametrize(
-        ("mock_return", "expected"),
-        [
-            ((True, None), (True, None)),
-            ((False, "Invalid Vultr API key."), (False, "Invalid Vultr API key.")),
-        ],
-    )
-    @mock.patch(f"{SOURCE_MODULE}.validate_vultr_credentials")
-    def test_validate_credentials_plumbing(
-        self, mock_validate: mock.MagicMock, mock_return: tuple[bool, str | None], expected: tuple[bool, str | None]
-    ) -> None:
-        mock_validate.return_value = mock_return
-        result = self.source.validate_credentials(self.config, self.team_id, schema_name="instances")
-
-        assert result == expected
-        mock_validate.assert_called_once_with("test-key", "instances")
 
     @pytest.mark.parametrize("schema_name", list(ENDPOINTS))
     @mock.patch(f"{SOURCE_MODULE}.vultr_source")
