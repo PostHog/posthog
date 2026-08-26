@@ -10,7 +10,7 @@ import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
+import api, { NetworkError } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -320,6 +320,36 @@ describe('featureFlagLogic', () => {
                 // The permission-specific branch must not fire; the generic loaders toast owns this case.
                 expect(toastSpy).not.toHaveBeenCalledWith('Nope')
             } finally {
+                toastSpy.mockRestore()
+            }
+        })
+
+        it('offers a retry when a save cannot reach the server', async () => {
+            // A network failure carries no HTTP status, so the global loaders handler stays silent.
+            // The save must surface its own retryable toast instead of leaving the form skeletoned.
+            const updateSpy = jest.spyOn(api, 'update').mockRejectedValue(new NetworkError('network'))
+            const toastSpy = jest.spyOn(lemonToast, 'error').mockReturnValue('toast-id')
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.saveFeatureFlag(logic.values.featureFlag)
+                })
+                    .toDispatchActions(['saveFeatureFlagFailure'])
+                    .toFinishAllListeners()
+
+                expect(toastSpy).toHaveBeenCalledTimes(1)
+                const [message, options] = toastSpy.mock.calls[0] as [
+                    string,
+                    { button?: { label: string; action: () => void } } | undefined,
+                ]
+                expect(message).toContain('Could not save the feature flag')
+                expect(options?.button?.label).toBe('Retry')
+
+                // Retry re-issues the save.
+                updateSpy.mockResolvedValueOnce(MOCK_FEATURE_FLAG)
+                options?.button?.action()
+                expect(updateSpy).toHaveBeenCalledTimes(2)
+            } finally {
+                updateSpy.mockRestore()
                 toastSpy.mockRestore()
             }
         })
