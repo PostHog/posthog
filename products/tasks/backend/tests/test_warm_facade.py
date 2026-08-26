@@ -743,6 +743,57 @@ class TestCreateTaskWarmReuse(APIBaseTest):
         assert kwargs["artifact_ids"] == ["artifact-1"]
 
 
+class TestWarmRunRelease(APIBaseTest):
+    """Handing a warm sandbox back must never stop a run that has already been activated."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        _allow_desktop_access(self)
+        self.task = Task.objects.create(
+            team=self.team,
+            title="",
+            description="",
+            origin_product=Task.OriginProduct.POSTHOG_AI,
+            created_by=self.user,
+        )
+
+    def _run(self, *, awaiting: bool) -> TaskRun:
+        return self.task.create_run(
+            mode="interactive",
+            extra_state={"prewarmed": True, **({"await_user_message": True} if awaiting else {})},
+        )
+
+    def _release(self, run: TaskRun):
+        return self.client.post(
+            f"/api/projects/@current/tasks/{self.task.id}/runs/{run.id}/cancel/",
+            {"only_if_awaiting_first_message": True},
+            format="json",
+        )
+
+    @parameterized.expand(
+        [
+            # One warm Run is shared by every composer holding the same selection, so a composer that
+            # releases after another one submitted would otherwise stop the run that submit started.
+            ("activated_run_is_left_alone", False, status.HTTP_200_OK, False),
+            # And the fence must not turn every release into a no-op, or abandoned sandboxes pile up
+            # in the warm pool until the reaper takes them.
+            ("idling_warm_is_still_stopped", True, status.HTTP_202_ACCEPTED, True),
+        ]
+    )
+    def test_release_only_stops_a_run_still_awaiting_its_first_message(
+        self, _case_name, awaiting, expected_status, expect_signal
+    ):
+        run = self._run(awaiting=awaiting)
+
+        with patch(
+            "products.tasks.backend.facade.cancellation._signal_complete_task", return_value="signaled"
+        ) as m_signal:
+            response = self._release(run)
+
+        assert response.status_code == expected_status, response.content
+        assert m_signal.called is expect_signal
+
+
 class TestRunTaskWarmActivation(APIBaseTest):
     """The normal run path activates an idling warm Run instead of dispatching a fresh workflow."""
 

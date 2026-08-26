@@ -3357,6 +3357,15 @@ class TaskRunCancelRequestSerializer(serializers.Serializer):
         max_length=500,
         help_text="Optional reason for the cancellation, recorded on the run and shown to run watchers.",
     )
+    only_if_awaiting_first_message = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Cancel only while the run is still a warm sandbox awaiting its first message. A run that "
+            "has since received one is left alone and returned unchanged. Set this when handing a warm "
+            "sandbox back, so a release that races a submit cannot stop the run that submit started."
+        ),
+    )
 
 
 class ClaudeTaskRunCreateSchemaSerializer(TaskRunCreateRequestSerializer):

@@ -81577,6 +81577,8 @@ export namespace Schemas {
          * @nullable
          */
       reason?: string | null;
+      /** Cancel only while the run is still a warm sandbox awaiting its first message. A run that has since received one is left alone and returned unchanged. Set this when handing a warm sandbox back, so a release that races a submit cannot stop the run that submit started. */
+      only_if_awaiting_first_message?: boolean;
     }
 
     /**
