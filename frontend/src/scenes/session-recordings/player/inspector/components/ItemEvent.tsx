@@ -42,6 +42,13 @@ export interface ItemEventProps {
     groupedItems?: InspectorListItemEvent[]
 }
 
+// Captured web vitals reach us with the value missing, or as a numeric string, or as something
+// unusable, so only render it when it converts to a finite number.
+function webVitalValue(value: unknown): string {
+    const asNumber = isString(value) && value.trim() !== '' ? Number(value) : value
+    return isNumber(asNumber) && Number.isFinite(asNumber) ? `: ${asNumber.toFixed(2)}` : ''
+}
+
 function WebVitalEventSummary({ event }: { event: Record<string, any> }): JSX.Element {
     return (
         <>
@@ -53,7 +60,7 @@ function WebVitalEventSummary({ event }: { event: Record<string, any> }): JSX.El
                     value={
                         <>
                             {event.rating}
-                            {isNumber(event.value) && `: ${event.value.toFixed(2)}`}
+                            {webVitalValue(event.value)}
                         </>
                     }
                 />
@@ -82,7 +89,7 @@ function ExceptionTitlePill({ event }: { event: Record<string, any> }): JSX.Elem
         connector = ':'
     }
     return (
-        <Tooltip title="This error was captured on the recorded page. It is not a PostHog error.">
+        <Tooltip title="This error was captured on the recorded page.">
             <div className="flex flex-row items-center gap-1 justify-between border px-1 truncate ellipsis border-x-danger-dark bg-danger-highlight">
                 <span>{errorProps.type}</span>
                 <span>{connector}</span>

@@ -13,10 +13,13 @@ export function PlayerInspector(): JSX.Element {
     // remounts it and clears a stale fallback from an earlier crash.
     const { sessionRecordingId } = useValues(sessionRecordingPlayerLogic)
     return (
-        <ErrorBoundary key={sessionRecordingId} exceptionProps={{ feature: 'replay-inspector' }}>
+        <>
             <PlayerInspectorControls />
-            <PlayerInspectorList />
+            {/* Only the list is wrapped, so a crashing row leaves the filters that navigate around it usable. */}
+            <ErrorBoundary key={sessionRecordingId} exceptionProps={{ feature: 'replay-inspector' }}>
+                <PlayerInspectorList />
+            </ErrorBoundary>
             <PlayerInspectorBottomSettings />
-        </ErrorBoundary>
+        </>
     )
 }
