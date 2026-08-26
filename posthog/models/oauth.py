@@ -511,28 +511,39 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         return list(schemes) if schemes else ["https"]
 
 
+def oauth_scope_tokens_expression() -> models.Func:
+    return models.Func(
+        models.F("scope"),
+        models.Value(" "),
+        function="string_to_array",
+        output_field=ArrayField(models.TextField()),
+    )
+
+
 class OAuthAccessToken(AbstractAccessToken):
     class Meta(AbstractAccessToken.Meta):
         verbose_name = "OAuth Access Token"
         verbose_name_plural = "OAuth Access Tokens"
         swappable = "OAUTH2_PROVIDER_ACCESS_TOKEN_MODEL"
         indexes = [
-            # The gateway credential cache scans for tokens holding a given scope via a
-            # whitespace-bounded regex on the space-separated `scope` text. A trigram GIN
-            # index lets that parameterized `~*` use an index scan; partial on
-            # application_id IS NOT NULL (which every such scan already filters on) keeps
-            # it to app tokens. See posthog/storage/gateway_credential_cache.py.
+            # Direct updates avoid pending-list merges that make one token write absorb batched GIN maintenance.
             GinIndex(
-                fields=["scope"],
-                name="oauthaccesstoken_scope_trgm",
-                opclasses=["gin_trgm_ops"],
+                oauth_scope_tokens_expression(),
+                name="oauthaccesstoken_scopes_gin",
                 condition=Q(application__isnull=False),
+                fastupdate=False,
             ),
             # B-tree on the plaintext `token` so equality lookups by token value resolve
             # via an index scan instead of a sequential scan. These lookups account for a
             # large share of the server's CPU time; the index removes that hot-path scan.
             models.Index(fields=["token"], name="oauthaccesstoken_token_idx"),
         ]
+
+    @classmethod
+    def with_scope(cls, scope: str) -> models.QuerySet["OAuthAccessToken"]:
+        return cls.objects.alias(scope_tokens=oauth_scope_tokens_expression()).filter(
+            scope_tokens__contains=[scope], application_id__isnull=False
+        )
 
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
 

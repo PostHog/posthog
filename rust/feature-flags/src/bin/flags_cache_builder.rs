@@ -15,6 +15,12 @@
 //!
 //! The lazy request-path fill stays as the final safety net: a stuck consumer
 //! degrades latency, not correctness.
+//!
+//! Messages marked `shadow: true` take a separate path: build the payload as
+//! usual, then diff it against the live Redis entry instead of writing —
+//! parity telemetry for teams the Python (Celery) builder still owns. Shadow
+//! work never writes, never DLQs, and never touches the real-build metrics;
+//! see `flags::cache_shadow`.
 
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
@@ -25,7 +31,7 @@ use axum::{routing::get, Router};
 use chrono::{DateTime, Utc};
 use common_database::{get_pool, PostgresReader};
 use common_hypercache::writer::HyperCacheWriter;
-use common_hypercache::HyperCacheError;
+use common_hypercache::{HyperCacheError, HyperCacheReader, KeyType};
 use common_kafka::config::{ConsumerConfig, KafkaConfig};
 use common_kafka::kafka_consumer::{Offset, RecvErr, SingleTopicConsumer};
 use common_kafka::kafka_producer::{
@@ -44,6 +50,9 @@ use tracing_subscriber::EnvFilter;
 
 use feature_flags::flags::cache_builder::build_flags_cache;
 use feature_flags::flags::cache_invalidation::FlagsCacheInvalidation;
+use feature_flags::flags::cache_shadow::{
+    diff_live_entry, summarize_diffs, MismatchTracker, ShadowLiveEntry, ShadowObservation,
+};
 use feature_flags::flags::cache_writer::{self, persist_flags_cache, PersistOutcome};
 use feature_flags::server::create_redis_client;
 
@@ -82,6 +91,27 @@ const PARSE_ERRORS: &str = "flags_cache_builder_parse_errors_total";
 const KAFKA_RECV_ERRORS: &str = "flags_cache_builder_kafka_recv_errors_total";
 const DLQ_PRODUCED: &str = "flags_cache_builder_dlq_produced_total";
 const COALESCED_TEAMS: &str = "flags_cache_builder_coalesced_teams";
+
+// Shadow-compare metrics. Deliberately disjoint from the real-build metrics:
+// BUILDS_TOTAL{result=failure} feeds the FlagsCacheBuilderBuildFailureRate page,
+// and a shadow build failing must never page — the team is still served by the
+// Python builder. Every shadow build increments exactly one SHADOW_BUILDS outcome
+// (match / mismatch_confirmed / mismatch_suppressed / live_entry_missing / error),
+// so the unlabelled sum is the processed count.
+const SHADOW_BUILDS: &str = "flags_cache_shadow_builds_total";
+const SHADOW_MISMATCH: &str = "flags_cache_shadow_mismatch_total";
+const SHADOW_MISMATCH_FIRST_SIGHT: &str = "flags_cache_shadow_mismatch_first_sight_total";
+const SHADOW_FAILURES: &str = "flags_cache_shadow_build_failures_total";
+// Per-team wall time for one shadow compare (build + live read + diff). Shadow
+// teams run sequentially after the batch's real builds, so this is the quantity
+// that sets how long a batch of shadow work delays the next real invalidation —
+// the head-of-line span to watch during the producer-side ramp. Seconds-shaped,
+// same buckets as the real-build duration histogram.
+const SHADOW_BUILD_DURATION_SECONDS: &str = "flags_cache_shadow_build_duration_seconds";
+
+/// Caps on the confirmed-mismatch log line (see `summarize_diffs`).
+const SHADOW_LOG_MAX_ENTRIES: usize = 20;
+const SHADOW_LOG_MAX_BYTES: usize = 4096;
 
 const E2E_LATENCY_BUCKETS: &[f64] = &[0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0];
 /// Seconds buckets for the build-duration histogram. Our histograms are
@@ -147,6 +177,12 @@ struct BuilderConfig {
 
     #[envconfig(from = "KAFKA_DLQ_TOPIC", default = "flags_cache_invalidation_dlq")]
     dlq_topic: String,
+
+    /// How long a team's last shadow mismatch stays eligible to confirm a repeat.
+    /// Long enough that quiet teams (two shadow builds days apart would miss a
+    /// 1h window) still confirm persistent drift; short enough to bound memory.
+    #[envconfig(from = "FLAGS_CACHE_SHADOW_MISMATCH_TTL", default = "86400")]
+    shadow_mismatch_ttl_seconds: u64,
 }
 
 /// All offsets and timing for a single team's coalesced invalidations. Generic
@@ -235,7 +271,9 @@ async fn main() -> anyhow::Result<()> {
         .expect("Failed to create database pool");
     let pg_reader: PostgresReader = Arc::new(pg_pool);
 
-    let writer = Arc::new(build_writer(&infra).await);
+    let (writer, live_reader) = build_cache_clients(&infra).await;
+    let writer = Arc::new(writer);
+    let live_reader = Arc::new(live_reader);
 
     let consumer = SingleTopicConsumer::new(kafka_cfg.clone(), consumer_cfg)
         .expect("Failed to create Kafka consumer");
@@ -255,6 +293,7 @@ async fn main() -> anyhow::Result<()> {
             consumer,
             pg_reader,
             writer,
+            live_reader,
             dlq_producer,
             builder_cfg,
             loop_handle.clone(),
@@ -267,7 +306,11 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn build_writer(infra: &InfraConfig) -> HyperCacheWriter {
+/// Build the cache writer (real builds) and a reader over the same Redis + config
+/// (shadow builds). The reader is used Redis-only via `get_typed_from_redis`, so
+/// its S3 client is never exercised; sharing the writer's keeps one construction
+/// path and one set of connections.
+async fn build_cache_clients(infra: &InfraConfig) -> (HyperCacheWriter, HyperCacheReader) {
     tracing::info!("Connecting to Redis");
     let Some(redis_client) = create_redis_client(
         &infra.flags_redis_url,
@@ -284,26 +327,34 @@ async fn build_writer(infra: &InfraConfig) -> HyperCacheWriter {
     };
     let redis_client: Arc<dyn common_redis::Client + Send + Sync> = redis_client;
 
-    cache_writer::build_writer(
-        redis_client,
+    let endpoint = Some(infra.object_storage_endpoint.as_str());
+    let s3_client = cache_writer::create_s3_client(&infra.object_storage_region, endpoint).await;
+    let config = cache_writer::make_cache_config(
         &infra.object_storage_region,
         &infra.object_storage_bucket,
-        Some(infra.object_storage_endpoint.as_str()),
-    )
-    .await
+        endpoint,
+    );
+
+    let writer = HyperCacheWriter::new(redis_client.clone(), s3_client.clone(), config.clone());
+    let reader = HyperCacheReader::new_with_s3_client(redis_client, s3_client, config);
+    (writer, reader)
 }
 
 /// The consumer hot loop. Returns when `shutdown` is cancelled (graceful drain).
+#[allow(clippy::too_many_arguments)]
 async fn consume_loop(
     consumer: SingleTopicConsumer,
     pg_reader: PostgresReader,
     writer: Arc<HyperCacheWriter>,
+    live_reader: Arc<HyperCacheReader>,
     dlq_producer: FutureProducer<KafkaContext>,
     cfg: BuilderConfig,
     health: Handle,
     shutdown: CancellationToken,
 ) {
     let coalesce = Duration::from_millis(cfg.coalesce_window_ms);
+    let mut mismatch_tracker =
+        MismatchTracker::new(Duration::from_secs(cfg.shadow_mismatch_ttl_seconds));
 
     loop {
         // Reporting healthy each iteration covers the idle case: with no traffic
@@ -320,12 +371,12 @@ async fn consume_loop(
             continue;
         }
 
-        let (by_team, had_kafka_error) = coalesce_batch(batch);
-        if by_team.is_empty() {
+        let coalesced = coalesce_batch(batch);
+        if coalesced.real.is_empty() && coalesced.shadow.is_empty() {
             // Batch held only poison pills or receive errors. Poison offsets were
             // auto-stored by json_recv, so commit to avoid reprocessing them.
             commit_offsets(&consumer);
-            if had_kafka_error {
+            if coalesced.had_kafka_error {
                 // A receive error stores no offset, so there's nothing to make
                 // progress on until the broker recovers — back off rather than
                 // hot-loop on immediate errors.
@@ -334,17 +385,19 @@ async fn consume_loop(
             continue;
         }
 
-        metrics::histogram!(COALESCED_TEAMS).record(by_team.len() as f64);
+        if !coalesced.real.is_empty() {
+            metrics::histogram!(COALESCED_TEAMS).record(coalesced.real.len() as f64);
+        }
 
         let mut interrupted = false;
         // Collect every processed offset and store the per-partition max once, at
-        // the end of the batch. `by_team` is a HashMap, so we build teams in
+        // the end of the batch. `real`/`shadow` are HashMaps, so we build teams in
         // arbitrary order; storing each team's offsets as we go could check-point a
         // partition *backwards* (one partition carries many teams' interleaved
         // messages), needlessly reprocessing on the next restart. See
         // `store_max_offsets_per_partition`.
         let mut batch_offsets: Vec<Offset> = Vec::new();
-        for (team_id, team_batch) in by_team {
+        for (team_id, team_batch) in coalesced.real {
             // Stop between teams once shutdown is signalled: a large batch (up to
             // max_batch unique teams, each with retry backoff) could otherwise
             // outrun the graceful-shutdown budget and be killed mid-build.
@@ -365,6 +418,30 @@ async fn consume_loop(
             )
             .await;
             batch_offsets.extend(offsets);
+        }
+
+        // Shadow teams run after every real build, so within a batch shadow
+        // work never delays a serve-path write. Across batches it can: the next
+        // fetch waits for this loop, so a shadow-heavy batch adds head-of-line
+        // delay to the real builds behind it. SHADOW_BUILD_DURATION_SECONDS measures
+        // that delay; the producer-side gate is the lever if it grows.
+        if !interrupted {
+            for (team_id, team_batch) in coalesced.shadow {
+                if shutdown.is_cancelled() {
+                    interrupted = true;
+                    break;
+                }
+                health.report_healthy();
+                let offsets = process_shadow_team(
+                    &pg_reader,
+                    &live_reader,
+                    &mut mismatch_tracker,
+                    team_id,
+                    team_batch,
+                )
+                .await;
+                batch_offsets.extend(offsets);
+            }
         }
 
         if interrupted {
@@ -391,15 +468,40 @@ async fn consume_loop(
     tracing::info!("Consumer loop draining; offsets committed up to last fully processed batch");
 }
 
-/// Dedupe a fetched batch by `team_id`, counting received messages and errors.
+/// A fetched batch deduped by `team_id`, split by delivery mode. Real and shadow
+/// invalidations never coalesce with each other: a shadow message must not be
+/// absorbed into a real build (that would serve-write a team Python owns), and a
+/// real message must not be downgraded into a compare-only pass.
+struct CoalescedBatch {
+    real: HashMap<TeamId, TeamBatch>,
+    shadow: HashMap<TeamId, TeamBatch>,
+    had_kafka_error: bool,
+}
+
+/// Fold one message into the map matching its delivery mode. Split out from
+/// `coalesce_batch` so the real/shadow routing is testable without constructing
+/// `Offset` values.
+fn fold_message<O>(
+    real: &mut HashMap<TeamId, TeamBatch<O>>,
+    shadow: &mut HashMap<TeamId, TeamBatch<O>>,
+    team_id: TeamId,
+    is_shadow: bool,
+    emitted_at: DateTime<Utc>,
+    offset: O,
+) {
+    let target = if is_shadow { shadow } else { real };
+    TeamBatch::fold_into(target, team_id, emitted_at, offset);
+}
+
+/// Dedupe a fetched batch by `team_id` within each delivery mode, counting
+/// received messages and errors.
 /// Poison pills (parse failures) already had their offsets stored by `json_recv`;
 /// Kafka receive errors stored nothing. Returns the per-team work plus whether a
 /// Kafka receive error occurred, so the caller can back off instead of hot-looping
 /// while the broker is unreachable.
-fn coalesce_batch(
-    batch: Vec<Result<(FlagsCacheInvalidation, Offset), RecvErr>>,
-) -> (HashMap<TeamId, TeamBatch>, bool) {
-    let mut by_team: HashMap<TeamId, TeamBatch> = HashMap::new();
+fn coalesce_batch(batch: Vec<Result<(FlagsCacheInvalidation, Offset), RecvErr>>) -> CoalescedBatch {
+    let mut real: HashMap<TeamId, TeamBatch> = HashMap::new();
+    let mut shadow: HashMap<TeamId, TeamBatch> = HashMap::new();
     let mut received: u64 = 0;
     let mut had_kafka_error = false;
 
@@ -407,7 +509,14 @@ fn coalesce_batch(
         match result {
             Ok((msg, offset)) => {
                 received += 1;
-                TeamBatch::fold_into(&mut by_team, msg.team_id, msg.emitted_at, offset);
+                fold_message(
+                    &mut real,
+                    &mut shadow,
+                    msg.team_id,
+                    msg.shadow,
+                    msg.emitted_at,
+                    offset,
+                );
             }
             // A receive error is a broker/transport problem, not a bad message:
             // nothing was consumed and no offset was stored. Track it apart from
@@ -425,7 +534,11 @@ fn coalesce_batch(
     }
 
     metrics::counter!(MESSAGES_RECEIVED).increment(received);
-    (by_team, had_kafka_error)
+    CoalescedBatch {
+        real,
+        shadow,
+        had_kafka_error,
+    }
 }
 
 /// Build one team's cache, routing to the DLQ on terminal failure, and return the
@@ -471,6 +584,121 @@ async fn process_team(
     team_batch.offsets
 }
 
+/// Outcome of a single shadow compare, mapped 1:1 onto a `SHADOW_BUILDS` outcome
+/// label via `as_label`.
+enum ShadowOutcome {
+    Match,
+    Mismatch(ShadowObservation),
+    /// No live Redis entry to compare against — Python may simply not have
+    /// built the team yet. Counted, never alarmed on.
+    LiveEntryMissing,
+    /// The shadow build or the live-entry read failed. Dropped and counted on
+    /// the shadow-only failure counter — never the real-build failure metric
+    /// (which pages) and never the DLQ (which is the real path's triage queue).
+    Failed(BuildFailure),
+}
+
+impl ShadowOutcome {
+    /// The `SHADOW_BUILDS{outcome}` label. Every outcome maps to exactly one
+    /// label, so the counter's unlabelled sum is the processed count.
+    fn as_label(&self) -> &'static str {
+        match self {
+            Self::Match => "match",
+            Self::LiveEntryMissing => "live_entry_missing",
+            Self::Failed(_) => "error",
+            Self::Mismatch(observation) if observation.confirmed.is_empty() => {
+                "mismatch_suppressed"
+            }
+            Self::Mismatch(_) => "mismatch_confirmed",
+        }
+    }
+}
+
+/// Run one team's shadow compare and emit its telemetry. Never writes to the
+/// cache (no writer in reach), never DLQs, and always returns the offsets so a
+/// failing shadow message can't wedge the partition.
+async fn process_shadow_team(
+    pg_reader: &PostgresReader,
+    live_reader: &HyperCacheReader,
+    tracker: &mut MismatchTracker,
+    team_id: TeamId,
+    team_batch: TeamBatch,
+) -> Vec<Offset> {
+    let start = Instant::now();
+    let outcome = shadow_compare(pg_reader, live_reader, tracker, team_id).await;
+    // Recorded for every outcome: the per-team wall time delays the next batch
+    // whether the compare matched, mismatched, or failed.
+    metrics::histogram!(SHADOW_BUILD_DURATION_SECONDS).record(start.elapsed().as_secs_f64());
+    metrics::counter!(SHADOW_BUILDS, "outcome" => outcome.as_label()).increment(1);
+    match outcome {
+        ShadowOutcome::Match | ShadowOutcome::LiveEntryMissing => {}
+        ShadowOutcome::Failed(failure) => {
+            metrics::counter!(SHADOW_FAILURES, "category" => failure.category).increment(1);
+            tracing::warn!(team_id, category = failure.category, error = %failure.message, "Shadow build failed; dropping (not DLQ'd)");
+        }
+        ShadowOutcome::Mismatch(observation) => {
+            for diff in &observation.confirmed {
+                metrics::counter!(SHADOW_MISMATCH, "issue_type" => diff.issue_type.as_label())
+                    .increment(1);
+            }
+            for diff in &observation.first_sight {
+                metrics::counter!(SHADOW_MISMATCH_FIRST_SIGHT, "issue_type" => diff.issue_type.as_label())
+                    .increment(1);
+            }
+            if !observation.confirmed.is_empty() {
+                tracing::error!(
+                    team_id,
+                    diff = %summarize_diffs(&observation.confirmed, SHADOW_LOG_MAX_ENTRIES, SHADOW_LOG_MAX_BYTES),
+                    "Shadow compare mismatch persisted across consecutive builds"
+                );
+            }
+        }
+    }
+
+    team_batch.offsets
+}
+
+/// Build the team's payload exactly as a real invalidation would, then diff it
+/// against the live Redis entry instead of persisting it. Redis-only read: the
+/// point is what the serve path's cache tier holds right now, and an S3 cascade
+/// would blur "Python hasn't built this team yet" into a comparison.
+///
+/// The read shares the hypercache reader's miss-reason counter
+/// (`hypercache_redis_miss_reason{reason="not_found"}`), so shadow builds of
+/// teams Python hasn't built yet count there too. The builder is its own scrape
+/// job, so dashboards scoped to the flags service are unaffected — but
+/// aggregations of that counter across jobs should filter the builder out.
+async fn shadow_compare(
+    pg_reader: &PostgresReader,
+    live_reader: &HyperCacheReader,
+    tracker: &mut MismatchTracker,
+    team_id: TeamId,
+) -> ShadowOutcome {
+    let built = match build_flags_cache(pg_reader.clone(), team_id).await {
+        Ok(built) => built,
+        Err(e) => return ShadowOutcome::Failed(BuildFailure::database(e)),
+    };
+
+    let live = match live_reader
+        .get_typed_from_redis::<ShadowLiveEntry>(&KeyType::int(team_id))
+        .await
+    {
+        Ok(Some(live)) => live,
+        // The `__missing__` sentinel and an absent key both mean "nothing to
+        // compare against", not drift.
+        Ok(None) | Err(HyperCacheError::CacheMiss) => return ShadowOutcome::LiveEntryMissing,
+        Err(e) => return ShadowOutcome::Failed(BuildFailure::from_live_read(e)),
+    };
+
+    let diffs = diff_live_entry(&built, &live);
+    let observation = tracker.observe(team_id, diffs, Instant::now());
+    if observation.is_match() {
+        ShadowOutcome::Match
+    } else {
+        ShadowOutcome::Mismatch(observation)
+    }
+}
+
 /// A terminal build failure tagged with the tier that failed, so the error metric
 /// and DLQ headers can attribute it — that tier (database / redis / s3 / serialize)
 /// is the triage signal the DLQ exists to provide. `category` is a fixed set of
@@ -486,6 +714,22 @@ impl BuildFailure {
     fn database(err: impl std::fmt::Display) -> Self {
         Self {
             category: "database",
+            message: err.to_string(),
+        }
+    }
+
+    /// A failure reading the live entry during a shadow compare. `Json`/`Pickle`
+    /// mean the cached bytes didn't parse into the typed model (`cache_parse` —
+    /// distinct from the write path's `serialize`); everything else is the Redis
+    /// tier, including timeouts. `CacheMiss` never reaches here — the caller
+    /// maps it to `LiveEntryMissing` first.
+    fn from_live_read(err: HyperCacheError) -> Self {
+        let category = match err {
+            HyperCacheError::Json(_) | HyperCacheError::Pickle(_) => "cache_parse",
+            _ => "redis",
+        };
+        Self {
+            category,
             message: err.to_string(),
         }
     }
@@ -730,7 +974,7 @@ fn spawn_metrics_server(
             .route("/_liveness", get(move || async move { liveness.check() }));
 
         // Reuse the crate's shared recorder/router setup (prometheus install +
-        // /metrics + product label + HTTP metrics middleware), overriding the two
+        // /metrics + product label + HTTP metrics middleware), overriding the
         // seconds-shaped histograms off its ms-shaped default buckets.
         let overrides = [
             (
@@ -740,6 +984,10 @@ fn spawn_metrics_server(
             (
                 Matcher::Full(E2E_LATENCY_SECONDS.to_string()),
                 E2E_LATENCY_BUCKETS,
+            ),
+            (
+                Matcher::Full(SHADOW_BUILD_DURATION_SECONDS.to_string()),
+                BUILD_DURATION_BUCKETS,
             ),
         ];
         let router = setup_metrics_routes_for_product_with_overrides(
@@ -767,8 +1015,8 @@ mod tests {
     use chrono::{DateTime, TimeZone, Utc};
 
     use super::{
-        max_per_partition, retry_backoff, truncate_for_header, BuildFailure, TeamBatch,
-        DLQ_ERROR_HEADER_MAX,
+        fold_message, max_per_partition, retry_backoff, truncate_for_header, BuildFailure,
+        ShadowOutcome, TeamBatch, DLQ_ERROR_HEADER_MAX,
     };
 
     // (partition, offset) pairs; keyed and valued by the two fields.
@@ -807,6 +1055,64 @@ mod tests {
         let (oldest, offsets) = &got[&7];
         assert_eq!(*oldest, ts(100));
         assert_eq!(offsets, &vec![0, 1, 2]);
+    }
+
+    /// Route a list of (team_id, shadow, emitted_at, offset) through the same
+    /// `fold_message` the consumer uses and return the two maps' offsets.
+    fn route(
+        items: Vec<(i32, bool, DateTime<Utc>, u64)>,
+    ) -> (HashMap<i32, Vec<u64>>, HashMap<i32, Vec<u64>>) {
+        let mut real: HashMap<i32, TeamBatch<u64>> = HashMap::new();
+        let mut shadow: HashMap<i32, TeamBatch<u64>> = HashMap::new();
+        for (team_id, is_shadow, emitted_at, offset) in items {
+            fold_message(
+                &mut real,
+                &mut shadow,
+                team_id,
+                is_shadow,
+                emitted_at,
+                offset,
+            );
+        }
+        let flatten = |map: HashMap<i32, TeamBatch<u64>>| {
+            map.into_iter()
+                .map(|(team, batch)| (team, batch.offsets))
+                .collect()
+        };
+        (flatten(real), flatten(shadow))
+    }
+
+    #[test]
+    fn shadow_messages_never_reach_the_real_build_map() {
+        // The real map is the only route to a cache write; a shadow message
+        // landing there would serve-write a team Python still owns.
+        let (real, shadow) = route(vec![(7, true, ts(100), 0), (7, true, ts(200), 1)]);
+        assert!(real.is_empty());
+        assert_eq!(shadow[&7], vec![0, 1]);
+    }
+
+    #[test]
+    fn real_and_shadow_messages_for_one_team_do_not_coalesce() {
+        // A mixed batch must produce both a real build and a shadow compare —
+        // absorbing either into the other changes what gets written.
+        let (real, shadow) = route(vec![(7, false, ts(100), 0), (7, true, ts(200), 1)]);
+        assert_eq!(real[&7], vec![0]);
+        assert_eq!(shadow[&7], vec![1]);
+    }
+
+    #[test]
+    fn absent_shadow_field_routes_to_the_real_build_map() {
+        // Pre-shadow producers keep exactly today's behavior: `shadow` is absent
+        // on the wire, deserializes to false, and the message builds for real.
+        let msg: super::FlagsCacheInvalidation = serde_json::from_str(
+            r#"{"version": 1, "team_id": 7, "operation": "invalidate", "emitted_at": "2026-04-23T10:37:00Z"}"#,
+        )
+        .expect("v1 message without shadow must parse");
+        assert!(!msg.shadow);
+
+        let (real, shadow) = route(vec![(msg.team_id, msg.shadow, msg.emitted_at, 0)]);
+        assert_eq!(real[&7], vec![0]);
+        assert!(shadow.is_empty());
     }
 
     #[test]
@@ -872,6 +1178,103 @@ mod tests {
             BuildFailure::database("pg unreachable").category,
             "database"
         );
+    }
+
+    #[test]
+    fn build_failure_attributes_live_read_errors_to_their_tier() {
+        use common_hypercache::HyperCacheError;
+        use common_redis::CustomRedisError;
+
+        // Shadow live-read categories: parse failures mean the cached bytes
+        // don't fit the typed model (persistent, worth triaging apart), while
+        // Redis/timeout errors are the transport tier.
+        let cases = [
+            (
+                HyperCacheError::Json(serde_json::from_str::<i32>("x").unwrap_err()),
+                "cache_parse",
+            ),
+            (HyperCacheError::Pickle("bad pickle".into()), "cache_parse"),
+            (HyperCacheError::Redis(CustomRedisError::Timeout), "redis"),
+            (HyperCacheError::Timeout("redis timeout".into()), "redis"),
+        ];
+        for (err, expected) in cases {
+            assert_eq!(BuildFailure::from_live_read(err).category, expected);
+        }
+    }
+
+    /// Build a real `ShadowObservation` through the public diff + tracker API:
+    /// one observation is a first sighting (suppressed), two consecutive ones
+    /// confirm.
+    fn shadow_observation(
+        confirmed: bool,
+    ) -> feature_flags::flags::cache_shadow::ShadowObservation {
+        use feature_flags::flags::cache_shadow::{
+            diff_live_entry, MismatchTracker, ShadowLiveEntry,
+        };
+        use feature_flags::flags::flag_models::{
+            EvaluationMetadata, FeatureFlag, HypercacheFlagsWrapper,
+        };
+        use std::time::{Duration as StdDuration, Instant};
+
+        let flag = |has_experiment: bool| -> FeatureFlag {
+            serde_json::from_value(serde_json::json!({
+                "id": 1,
+                "team_id": 1,
+                "key": "flag-1",
+                "filters": {"groups": []},
+                "active": true,
+                "deleted": false,
+                "has_experiment": has_experiment,
+            }))
+            .expect("flag json must parse")
+        };
+        let built = HypercacheFlagsWrapper {
+            flags: vec![flag(false)],
+            evaluation_metadata: EvaluationMetadata::default(),
+            cohorts: Some(Vec::new()),
+        };
+        let live = ShadowLiveEntry {
+            flags: vec![flag(true)],
+            evaluation_metadata: Some(EvaluationMetadata::default()),
+            cohorts: Some(Vec::new()),
+        };
+
+        let mut tracker = MismatchTracker::new(StdDuration::from_secs(3600));
+        let now = Instant::now();
+        let first = tracker.observe(1, diff_live_entry(&built, &live), now);
+        if !confirmed {
+            return first;
+        }
+        tracker.observe(
+            1,
+            diff_live_entry(&built, &live),
+            now + StdDuration::from_secs(1),
+        )
+    }
+
+    #[test]
+    fn shadow_outcome_maps_to_exactly_the_documented_labels() {
+        // The outcome label is the shadow window's primary telemetry; a wrong
+        // label here misreads the ramp with no other test catching it.
+        let cases = [
+            (ShadowOutcome::Match, "match"),
+            (ShadowOutcome::LiveEntryMissing, "live_entry_missing"),
+            (
+                ShadowOutcome::Failed(BuildFailure::database("pg unreachable")),
+                "error",
+            ),
+            (
+                ShadowOutcome::Mismatch(shadow_observation(false)),
+                "mismatch_suppressed",
+            ),
+            (
+                ShadowOutcome::Mismatch(shadow_observation(true)),
+                "mismatch_confirmed",
+            ),
+        ];
+        for (outcome, expected) in cases {
+            assert_eq!(outcome.as_label(), expected);
+        }
     }
 
     #[test]

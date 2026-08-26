@@ -26,7 +26,7 @@ tools:
             (1) set `insight` — schedule periodic snapshots of one insight (`resource_type: "insight"`).
 
             (2) set `dashboard` and `dashboard_export_insights` (the subset of the dashboard's insights to include, max
-            6) — schedule periodic snapshots of one dashboard (`resource_type: "dashboard"`).
+            10) — schedule periodic snapshots of one dashboard (`resource_type: "dashboard"`).
 
             (3) set `prompt` (≤4000 chars, with no insight or dashboard) — schedule a recurring LLM-generated report
             (`resource_type: "ai_prompt"`). Available on PostHog Cloud (self-hosted production is not eligible) once the
@@ -93,15 +93,17 @@ tools:
             completed, failed, skipped), trigger_type (scheduled, manual, target_change), and timestamps (created_at,
             finished_at). Filter with status=failed to quickly surface failed deliveries. Results are cursor-paginated
             newest first. content_snapshot, recipient_results, and error are excluded to avoid leaking recipient
-            identifiers or upstream response bodies that may contain tokens / PII. ai_report (the full report markdown)
-            and ai_report_diagnostics (per-query debug detail) are also excluded here to keep list responses small —
-            fetch a single delivery with subscriptions-deliveries-retrieve to read the report.
+            identifiers or upstream response bodies that may contain tokens / PII. ai_report (the full report markdown),
+            ai_report_prompt (the prompt it was generated from), and ai_report_diagnostics (per-query debug detail) are
+            also excluded here to keep list responses small — fetch a single delivery with
+            subscriptions-deliveries-retrieve to read the report and its prompt.
         response:
             exclude:
                 - content_snapshot
                 - recipient_results
                 - error
                 - ai_report
+                - ai_report_prompt
                 - ai_report_diagnostics
     subscriptions-deliveries-retrieve:
         operation: subscriptions_deliveries_retrieve

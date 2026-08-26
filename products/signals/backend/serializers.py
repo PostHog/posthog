@@ -14,6 +14,7 @@ from products.signals.backend import contracts
 from products.signals.backend.billing import REFUND_INELIGIBILITY_REASONS, refund_ineligibility_reason
 from products.signals.backend.contracts import DEFAULT_NOT_ACTIONABLE_KEY, STEERING_KEY, STEERING_MAX_LENGTH
 from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
+from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus
 
 from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES
 from .daily_limit import reports_generated_today, team_day_start
@@ -21,7 +22,6 @@ from .models import (
     AutonomyPriority,
     SignalReport,
     SignalReportArtefact,
-    SignalReportCanvas,
     SignalReportRefund,
     SignalSourceConfig,
     SignalTeamConfig,
@@ -106,16 +106,16 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
             .exclude(source__deleted=True)
             .values_list("status", flat=True)
         )
-        if ExternalDataSchema.Status.RUNNING in statuses:
+        if ExternalDataSchemaStatus.RUNNING in statuses:
             return "running"
         # One failing repo outranks its siblings' success, so a broken repo is never hidden.
         if statuses & {
-            ExternalDataSchema.Status.FAILED,
-            ExternalDataSchema.Status.BILLING_LIMIT_REACHED,
-            ExternalDataSchema.Status.BILLING_LIMIT_TOO_LOW,
+            ExternalDataSchemaStatus.FAILED,
+            ExternalDataSchemaStatus.BILLING_LIMIT_REACHED,
+            ExternalDataSchemaStatus.BILLING_LIMIT_TOO_LOW,
         }:
             return "failed"
-        if ExternalDataSchema.Status.COMPLETED in statuses:
+        if ExternalDataSchemaStatus.COMPLETED in statuses:
             return "completed"
         return None
 
@@ -476,21 +476,6 @@ class ReportChartSerializer(serializers.Serializer):
     )
 
 
-class SignalReportCanvasSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = SignalReportCanvas
-        fields = [
-            "canvas_id",
-            "discussion_task_id",
-            "generation_task_id",
-            "generation_status",
-            "collaboration_mode",
-            "failure_reason",
-            "updated_at",
-        ]
-        read_only_fields = fields
-
-
 class SignalReportSerializer(serializers.ModelSerializer):
     artefact_count = serializers.IntegerField(read_only=True)
     charts = ReportChartSerializer(
@@ -501,10 +486,13 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "`[label](chart:<chart_id>)` link; the rest render below it."
         ),
     )
-    canvas_session = SignalReportCanvasSerializer(
+    suggested_prompts = serializers.ListField(
+        child=serializers.CharField(),
         read_only=True,
-        allow_null=True,
-        help_text="The persistent canvas and shared discussion created for this report, when available.",
+        help_text=(
+            "Follow-up questions the report's author suggests asking about it, in the order they were "
+            "written. The inbox offers them above the `Ask AI` box; clicking one fills the box with it."
+        ),
     )
     refund_ineligibility_reason = serializers.SerializerMethodField(
         help_text=(
@@ -566,7 +554,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "updated_at",
             "artefact_count",
             "charts",
-            "canvas_session",
+            "suggested_prompts",
             "priority",
             "actionability",
             "already_addressed",

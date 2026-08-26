@@ -185,7 +185,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Complete replacement display and targeting conditions object. Do not provide this field unless changing display targeting. Preserve existing URL, selector, event, device, wait-period, and linked flag variant conditions unless explicitly changing them."
+            "description": "Complete replacement display conditions object. Do not provide this field unless changing display targeting. Use targeting_flag_filters for person, group, or cohort property targeting. Preserve existing URL, selector, event, device, wait-period, and linked flag variant conditions unless explicitly changing them."
         },
         "description": {
             "description": "Survey description. Internal only: unlike the name and questions, it is never delivered to visitors.",
@@ -1209,7 +1209,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Target specific users based on their properties. Example: {groups: [{properties: [{key: 'email', value: ['@company.com'], operator: 'icontains'}], rollout_percentage: 100}]}"
+            "description": "Update an in-app survey's person, group, or cohort property targeting. Pass rules in groups[].properties[], each with key, value, operator, and an optional type. Use this instead of conditions for property targeting. Complete replacement: fetch the survey first, start from targeting_flag.filters, and send the full groups list — omitted groups are removed. Do not use this for external_survey forms."
         },
         "targeting_flag_id": {
             "description": "An existing targeting flag to use for this survey.",

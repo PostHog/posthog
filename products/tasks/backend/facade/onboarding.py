@@ -8,11 +8,13 @@ from django.db import IntegrityError, transaction
 import structlog
 import posthoganalytics
 
+from posthog.constants import AvailableFeature
 from posthog.event_usage import groups
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.temporal.oauth import MCP_READ_SCOPES
 
-from products.signals.backend.facade.api import enable_onboarding_signal_sources, visible_report_count
+from products.signals.backend.facade.api import enable_onboarding_signal_sources, waiting_reports
 from products.tasks.backend.facade.api import (
     create_and_run_task,
     desktop_users_in_team,
@@ -26,6 +28,7 @@ from products.tasks.backend.facade.onboarding_brief import (
     build_opening_brief,
     prose_list,
 )
+from products.tasks.backend.facade.onboarding_canvas import TeachingCanvas, ensure_teaching_canvas
 from products.tasks.backend.facade.onboarding_prompt import (
     BUNDLED_ONBOARDING_PROMPT,
     load_onboarding_prompt,
@@ -39,9 +42,10 @@ from ee.billing.salesforce_enrichment.constants import PERSONAL_EMAIL_DOMAINS
 logger = structlog.get_logger(__name__)
 
 ONBOARDING_SESSION_TITLE = "Getting set up"
-ONBOARDING_SESSION_MODEL = "claude-opus-4-8"
+ONBOARDING_SESSION_PAID_MODEL = "claude-opus-4-8"
+ONBOARDING_SESSION_FREE_MODEL = "@cf/zai-org/glm-5.2"
 ONBOARDING_SESSION_EFFORT = "medium"
-ONBOARDING_SESSION_SCOPES = ["task:read", "task:write", "canvas:read"]
+ONBOARDING_SESSION_SCOPES = [*MCP_READ_SCOPES, "task:write"]
 
 SPACES_FLAGS = ("code-spaces-layout", "project-bluebird")
 
@@ -72,15 +76,23 @@ def company_domain_from(email: str) -> str | None:
     return normalize_target(domain)
 
 
+def onboarding_session_model(team: Team) -> str:
+    if team.organization.is_feature_available(AvailableFeature.POSTHOG_CODE_USAGE):
+        return ONBOARDING_SESSION_PAID_MODEL
+    return ONBOARDING_SESSION_FREE_MODEL
+
+
 def gather_onboarding_facts(team: Team, user: User) -> tuple[OnboardingFacts, str]:
     sources = enable_onboarding_signal_sources(team.id, user.id)
+    waiting = waiting_reports(team.id)
 
     if organization_has_context(team.organization_id):
         return (
             OnboardingFacts(
                 org_has_context=True,
                 has_events=bool(team.ingested_event),
-                signal_reports_waiting=visible_report_count(team.id),
+                signal_reports_waiting=waiting.count,
+                reports_to_offer=waiting.offerable,
                 other_members=prose_list(desktop_users_in_team(team, user.id)),
                 sources_enabled=sources.labels,
                 sources_watching=sources.watches,
@@ -95,7 +107,8 @@ def gather_onboarding_facts(team: Team, user: User) -> tuple[OnboardingFacts, st
         org_has_context=False,
         research=research,
         has_events=bool(team.ingested_event),
-        signal_reports_waiting=visible_report_count(team.id),
+        signal_reports_waiting=waiting.count,
+        reports_to_offer=waiting.offerable,
         sources_enabled=sources.labels,
         sources_watching=sources.watches,
         sources_newly_enabled=sources.newly_enabled,
@@ -131,6 +144,15 @@ def _session_enabled(team: Team, user: User) -> bool:
         return False
 
 
+def _teaching_canvas(team_id: int, channel_id: UUID, user: User) -> TeachingCanvas | None:
+    """Best-effort: a session without the tour beats no session."""
+    try:
+        return ensure_teaching_canvas(team_id, channel_id, user)
+    except Exception:
+        logger.warning("onboarding_teaching_canvas_failed", team_id=team_id, exc_info=True)
+        return None
+
+
 def start_onboarding_session(team: Team, user: User) -> UUID | None:
     """Create the session a new user lands in. ``None`` when no session was started."""
     if not _session_enabled(team, user):
@@ -149,6 +171,7 @@ def start_onboarding_session(team: Team, user: User) -> UUID | None:
 
     origin_key = _origin_key(user.id)
 
+    teaching = _teaching_canvas(team.id, channel_id, user)
     facts, homepage = gather_onboarding_facts(team, user)
     prompt = load_onboarding_prompt()
     missing_placeholders = missing_onboarding_prompt_placeholders(prompt.prompt)
@@ -176,7 +199,7 @@ def start_onboarding_session(team: Team, user: User) -> UUID | None:
     description = render_onboarding_prompt(
         prompt_template,
         brief=build_opening_brief(facts),
-        followup=build_followup(facts),
+        followup=build_followup(facts, teaching=teaching),
         homepage=homepage,
         channel_id=str(channel_id),
     )
@@ -186,6 +209,7 @@ def start_onboarding_session(team: Team, user: User) -> UUID | None:
             created = create_and_run_task(
                 team=team,
                 title=ONBOARDING_SESSION_TITLE,
+                title_manually_set=True,
                 description=description,
                 origin_product=Task.OriginProduct.USER_CREATED,
                 user_id=user.id,
@@ -194,7 +218,7 @@ def start_onboarding_session(team: Team, user: User) -> UUID | None:
                 client_provenance=TaskClientProvenance.POSTHOG_DESKTOP,
                 create_pr=False,
                 mode="interactive",
-                model=ONBOARDING_SESSION_MODEL,
+                model=onboarding_session_model(team),
                 reasoning_effort=ONBOARDING_SESSION_EFFORT,
                 posthog_mcp_scopes=ONBOARDING_SESSION_SCOPES,
                 initial_permission_mode="auto",
@@ -213,5 +237,14 @@ def start_onboarding_session(team: Team, user: User) -> UUID | None:
         research_outcome=facts.research.outcome if facts.research else None,
         sources_enabled=facts.sources_enabled,
         sources_newly_enabled=facts.sources_newly_enabled,
+    )
+    posthoganalytics.capture(
+        distinct_id=str(user.distinct_id),
+        event="Onboarding domain research completed",
+        properties={
+            "task_id": str(created.task_id),
+            "outcome": facts.research.outcome if facts.research else "not_applicable",
+        },
+        groups=groups(team.organization, team),
     )
     return created.task_id

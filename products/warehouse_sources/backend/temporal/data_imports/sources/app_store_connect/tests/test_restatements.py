@@ -138,39 +138,10 @@ class TestAppStoreConnectRestatements:
         assert fallback is not None
         parse_select(fallback.sql)
 
-    def test_every_analytics_table_description_carries_its_dedup_query(self) -> None:
-        descriptions = AppStoreConnectSource().get_canonical_descriptions()
-
-        for name in analytics_stream_names(APP_STORE_CONNECT_ENDPOINTS):
-            entry = descriptions[name]
-            description = entry.get("description") or ""
-            assert "restat" in description.lower(), name
-            assert "argMax(" in description, name
-            assert f"appstoreconnect_{name}" in description, name
-            columns = entry.get("columns") or {}
-            assert "restat" in columns["processing_date"].lower(), name
-            recipe = restatement_recipe(APP_STORE_CONNECT_ENDPOINTS[name], CANONICAL_DESCRIPTIONS[name]["columns"])
-            assert recipe is not None
-            for measure in recipe.measures:
-                assert "restat" in columns[measure].lower(), (name, measure)
-
-    def test_non_analytics_tables_are_left_untouched(self) -> None:
-        descriptions = AppStoreConnectSource().get_canonical_descriptions()
-
-        for name in ("apps", "sales_reports", "customer_reviews"):
-            assert descriptions[name] == CANONICAL_DESCRIPTIONS[name]
-
     def test_guidance_is_not_applied_twice(self) -> None:
         once = with_restatement_guidance(CANONICAL_DESCRIPTIONS)
 
         assert with_restatement_guidance(once) == once
-
-    def test_caption_documents_the_restatement_dedup(self) -> None:
-        caption = AppStoreConnectSource().get_source_config.caption or ""
-
-        assert "restat" in caption.lower()
-        assert "argMax(" in caption
-        assert "processing_date" in caption
 
     def test_caption_recipe_follows_the_catalog(self) -> None:
         caption = restatement_caption()

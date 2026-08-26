@@ -10,7 +10,7 @@
 import * as zod from 'zod'
 
 /**
- * Redeem a PostHog Desktop invite code to enable access.
+ * Redeem a PostHog Desktop invite code to enable legacy access.
  * @summary Redeem invite code
  */
 export const codeInvitesRedeemCreateBodyCodeMax = 50
@@ -1178,6 +1178,19 @@ export const TasksCreateBody = /* @__PURE__ */ zod
             .describe(
                 'Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
             ),
+        initial_permission_mode: zod
+            .union([
+                zod
+                    .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions', 'auto', 'read-only', 'full-access'])
+                    .describe(
+                        '\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access'
+                    ),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Selected agent permission mode. Write-only; used only to reuse a warm Run booted on the same mode. Omit to reuse a warm Run whatever mode it booted on.\n\n\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access'
+            ),
         pending_user_message: zod
             .string()
             .nullish()
@@ -1346,6 +1359,19 @@ export const TasksUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
             ),
+        initial_permission_mode: zod
+            .union([
+                zod
+                    .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions', 'auto', 'read-only', 'full-access'])
+                    .describe(
+                        '\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access'
+                    ),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Selected agent permission mode. Write-only; used only to reuse a warm Run booted on the same mode. Omit to reuse a warm Run whatever mode it booted on.\n\n\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access'
+            ),
         pending_user_message: zod
             .string()
             .nullish()
@@ -1492,6 +1518,19 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+            ),
+        initial_permission_mode: zod
+            .union([
+                zod
+                    .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions', 'auto', 'read-only', 'full-access'])
+                    .describe(
+                        '\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access'
+                    ),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Selected agent permission mode. Write-only; used only to reuse a warm Run booted on the same mode. Omit to reuse a warm Run whatever mode it booted on.\n\n\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access'
             ),
         pending_user_message: zod
             .string()
@@ -2137,6 +2176,44 @@ export const TasksStagedArtifactsPrepareUploadCreateBody = /* @__PURE__ */ zod.o
 })
 
 /**
+ * Warm an idling successor for the task's latest terminal Run while the user composes the next message. The successor restores the prior snapshot when compatible and waits for the normal run endpoint to activate it. Best-effort: returns an empty body when warming is disabled, capped, or the task advanced to another Run.
+ * @summary Warm a resumed task sandbox
+ */
+export const TasksWarmResumeCreateBody = /* @__PURE__ */ zod
+    .object({
+        resume_from_run_id: zod
+            .uuid()
+            .describe("ID of the task's latest terminal run whose snapshot and conversation should be resumed."),
+        runtime_adapter: zod
+            .enum(['claude', 'codex'])
+            .describe('\* `claude` - claude\n\* `codex` - codex')
+            .optional()
+            .describe(
+                'Agent runtime adapter to start before the next message is submitted.\n\n\* `claude` - claude\n\* `codex` - codex'
+            ),
+        model: zod.string().optional().describe('LLM model to start before the next message is submitted.'),
+        reasoning_effort: zod
+            .enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
+            .describe(
+                '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+            )
+            .optional()
+            .describe(
+                'Reasoning effort to apply when the warmed successor receives its first message.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+            ),
+        initial_permission_mode: zod
+            .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions', 'auto', 'read-only', 'full-access'])
+            .describe(
+                '\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access'
+            )
+            .optional()
+            .describe(
+                "Initial permission mode for the warmed successor's agent session.\n\n\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access"
+            ),
+    })
+    .describe('Request body for warming a successor to an existing terminal task run.')
+
+/**
  * Create a new run for a specific task without starting execution.
  * @summary Create task run
  */
@@ -2426,6 +2503,11 @@ export const TasksRunsAnalysisInsightCreateBody = /* @__PURE__ */ zod
                 tool_calls: zod.number().min(1).optional().describe('Wasted tool calls, counted from the log.'),
                 seconds: zod.number().min(1).optional().describe('Wall-clock seconds across the wasted span.'),
                 tokens: zod.number().min(1).optional().describe('Token delta across the wasted span.'),
+                output_bytes: zod
+                    .number()
+                    .min(1)
+                    .optional()
+                    .describe('Sum of tool-output sizes across the wasted span.'),
             })
             .optional()
             .describe('Effort measured from the log, never estimated.'),
@@ -2887,12 +2969,20 @@ export const TasksRunsArtifactsReferencesCreateBody = /* @__PURE__ */ zod.object
  */
 export const tasksRunsCancelCreateBodyReasonMax = 500
 
+export const tasksRunsCancelCreateBodyOnlyIfAwaitingFirstMessageDefault = false
+
 export const TasksRunsCancelCreateBody = /* @__PURE__ */ zod.object({
     reason: zod
         .string()
         .max(tasksRunsCancelCreateBodyReasonMax)
         .nullish()
         .describe('Optional reason for the cancellation, recorded on the run and shown to run watchers.'),
+    only_if_awaiting_first_message: zod
+        .boolean()
+        .default(tasksRunsCancelCreateBodyOnlyIfAwaitingFirstMessageDefault)
+        .describe(
+            'Cancel only while the run is still a warm sandbox awaiting its first message. A run that has since received one is left alone and returned unchanged. Set this when handing a warm sandbox back, so a release that races a submit cannot stop the run that submit started.'
+        ),
 })
 
 /**
@@ -3232,7 +3322,7 @@ export const TasksSummariesCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Warm a full idling Run for a Code-app cloud task while the user composes: boot a sandbox, clone the repo, check out the branch, and start the agent, then idle awaiting the first message. On submit the normal create+run path transparently reuses and activates this Run; abandoned warms are reaped by the Run's inactivity timeout. Best-effort: returns an empty body when the feature flag is off, the warm pool is full, or the GitHub integration doesn't belong to the team.
+ * Warm a full idling Run for a cloud task while the user composes: boot a sandbox, clone the repo, check out the branch, and start the agent, then idle awaiting the first message. On submit the normal create+run path transparently reuses and activates this Run; abandoned warms are reaped by the Run's inactivity timeout. Best-effort: returns an empty body when the feature flag is off, the warm pool is full, or the GitHub integration doesn't belong to the team.
  * @summary Warm a task sandbox
  */
 export const tasksWarmCreateBodyRepositoryMax = 255
@@ -3242,6 +3332,8 @@ export const tasksWarmCreateBodyRepositoriesItemMax = 255
 export const tasksWarmCreateBodyRepositoriesMax = 3
 
 export const tasksWarmCreateBodyBranchMax = 255
+
+export const tasksWarmCreateBodyOriginProductDefault = `user_created`
 
 export const TasksWarmCreateBody = /* @__PURE__ */ zod
     .object({
@@ -3300,6 +3392,26 @@ export const TasksWarmCreateBody = /* @__PURE__ */ zod
             .nullish()
             .describe(
                 "Optional custom base image to provision before the task is submitted; takes precedence over the environment's image."
+            ),
+        origin_product: zod
+            .enum(['user_created', 'posthog_ai'])
+            .describe('\* `user_created` - user_created\n\* `posthog_ai` - posthog_ai')
+            .default(tasksWarmCreateBodyOriginProductDefault)
+            .describe(
+                'Product the warm Run is for. Fixed when the sandbox boots — it selects the OAuth app, the quota gate, the warm-pool budget, and PR authorship — so a submit only reuses a warm born under the same origin. Defaults to the Code app.\n\n\* `user_created` - user_created\n\* `posthog_ai` - posthog_ai'
+            ),
+        initial_permission_mode: zod
+            .union([
+                zod
+                    .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions', 'auto', 'read-only', 'full-access'])
+                    .describe(
+                        '\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access'
+                    ),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "Permission mode to boot the agent session on. Read at session construction, so it cannot be changed once the sandbox is warm — a submit selecting a different mode falls through to a cold Run. Omit to take the runtime's default.\n\n\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access"
             ),
     })
     .describe(

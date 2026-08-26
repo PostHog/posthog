@@ -20,10 +20,10 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.models.team import Team
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.engineering_analytics.backend.facade.contracts import ENGINEERING_ANALYTICS_FEATURE_FLAG
 from products.engineering_analytics.backend.logic.ci_signals_config import (
     is_dry_run,

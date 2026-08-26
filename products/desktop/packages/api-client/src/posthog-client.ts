@@ -125,6 +125,7 @@ import type {
   TeamMcpGatewayConfigUpdate,
 } from "./mcp-gateway";
 import type { SpendAnalysisResponse } from "./spend-analysis";
+import { parseUserSpendLimit, type UserSpendLimit } from "./spend-limit";
 import {
   normalizeTaskResponse,
   normalizeTaskRunArtifact,
@@ -798,6 +799,23 @@ export class ContextWikiUnavailableError extends Error {
 function readDetail(error: ApiRequestError): string {
   const body = error.body as { detail?: string } | null;
   return body?.detail ?? error.message;
+}
+
+/**
+ * DRF validation failures carry the messages per field, `{ field: [msg] }`,
+ * with no top-level `detail`. Flatten them so the server's own wording reaches
+ * the toast instead of a bare status text.
+ */
+function readFieldErrors(error: ApiRequestError): string {
+  if (typeof error.body !== "object" || error.body === null) {
+    return error.message;
+  }
+  const record = error.body as Record<string, unknown>;
+  if (typeof record.detail === "string") return record.detail;
+  const parts = Object.values(record).flatMap((messages) =>
+    Array.isArray(messages) ? messages.map(String) : [],
+  );
+  return parts.length > 0 ? parts.join(" ") : error.message;
 }
 
 export interface TaskArtifactUploadRequest {
@@ -1968,8 +1986,8 @@ export class PostHogAPIClient {
     });
   }
 
-  async approveAiDataProcessing(): Promise<void> {
-    const urlPath = `/api/organizations/@current/`;
+  async approveAiDataProcessing(organizationId: string): Promise<void> {
+    const urlPath = `/api/organizations/${organizationId}/`;
     const url = new URL(`${this.api.baseUrl}${urlPath}`);
     await this.api.fetcher.fetch({
       method: "patch",
@@ -1979,6 +1997,40 @@ export class PostHogAPIClient {
         body: JSON.stringify({ is_ai_data_processing_approved: true }),
       },
     });
+  }
+
+  async areDesktopBetaTermsAccepted(organizationId: string): Promise<boolean> {
+    const urlPath = `/api/organizations/${organizationId}/desktop_beta_terms/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url,
+      path: urlPath,
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to check Desktop beta terms: ${response.statusText}`,
+      );
+    }
+    const data = (await response.json()) as {
+      is_desktop_beta_terms_accepted: boolean;
+    };
+    return data.is_desktop_beta_terms_accepted;
+  }
+
+  async acceptDesktopBetaTerms(organizationId: string): Promise<void> {
+    const urlPath = `/api/organizations/${organizationId}/desktop_beta_terms/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url,
+      path: urlPath,
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to accept Desktop beta terms: ${response.statusText}`,
+      );
+    }
   }
 
   async getProject(projectId: number) {
@@ -2712,6 +2764,7 @@ export class PostHogAPIClient {
       > & {
         github_integration?: number | null;
         github_user_integration?: string | null;
+        signal_report_task_relationship?: string;
         branch?: string | null;
         runtime_adapter?: string | null;
         model?: string | null;
@@ -2790,8 +2843,8 @@ export class PostHogAPIClient {
   // Task channels + threads. Not in the generated OpenAPI client yet, so these
   // go through the raw fetcher like the desktop file-system endpoints above.
 
-  // List backend task channels: all public channels plus the requester's
-  // personal "#me" channel (provisioned lazily server-side on first list).
+  // All public channels plus the requester's #me. Creates nothing: startup provisions the
+  // default spaces, which is what lets a caller gate on one already existing.
   async getTaskChannels(): Promise<TaskChannel[]> {
     const teamId = await this.getTeamId();
     const urlPath = `/api/projects/${teamId}/task_channels/`;
@@ -2858,6 +2911,24 @@ export class PostHogAPIClient {
       );
     }
     return (await response.json()) as ProvisionedTaskChannels;
+  }
+
+  /**
+   * Opens the first-run agent session in #general. Reads the company's homepage, so it takes a
+   * few seconds; callers fire it without awaiting. Resolves false when no session was started,
+   * which is the normal path while the spaces rollout has not reached this user.
+   */
+  async startOnboardingSession(): Promise<string | null> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/onboarding_session/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+    });
+    if (!response.ok) return null;
+    const data = (await response.json()) as { task_id?: string | null };
+    return data.task_id ?? null;
   }
 
   async updateTaskChannelRepositories(
@@ -4649,6 +4720,9 @@ export class PostHogAPIClient {
         String(params.has_implementation_pr),
       );
     }
+    if (params?.channel_id) {
+      url.searchParams.set("channel_id", params.channel_id);
+    }
 
     const response = await this.api.fetcher.fetch({
       method: "get",
@@ -5893,20 +5967,22 @@ export class PostHogAPIClient {
     const url = new URL(
       `${this.api.baseUrl}/api/projects/${teamId}/sandbox_environments/`,
     );
-    const response = await this.api.fetcher.fetch({
-      method: "post",
-      url,
-      path: `/api/projects/${teamId}/sandbox_environments/`,
-      overrides: {
-        body: JSON.stringify(input),
-      },
-    });
-    if (!response.ok) {
+    try {
+      const response = await this.api.fetcher.fetch({
+        method: "post",
+        url,
+        path: `/api/projects/${teamId}/sandbox_environments/`,
+        overrides: {
+          body: JSON.stringify(input),
+        },
+      });
+      return (await response.json()) as SandboxEnvironment;
+    } catch (error) {
+      if (!(error instanceof ApiRequestError)) throw error;
       throw new Error(
-        `Failed to create sandbox environment: ${response.statusText}`,
+        `Failed to create sandbox environment: ${readFieldErrors(error)}`,
       );
     }
-    return (await response.json()) as SandboxEnvironment;
   }
 
   async updateSandboxEnvironment(
@@ -5917,20 +5993,22 @@ export class PostHogAPIClient {
     const url = new URL(
       `${this.api.baseUrl}/api/projects/${teamId}/sandbox_environments/${id}/`,
     );
-    const response = await this.api.fetcher.fetch({
-      method: "patch",
-      url,
-      path: `/api/projects/${teamId}/sandbox_environments/${id}/`,
-      overrides: {
-        body: JSON.stringify(input),
-      },
-    });
-    if (!response.ok) {
+    try {
+      const response = await this.api.fetcher.fetch({
+        method: "patch",
+        url,
+        path: `/api/projects/${teamId}/sandbox_environments/${id}/`,
+        overrides: {
+          body: JSON.stringify(input),
+        },
+      });
+      return (await response.json()) as SandboxEnvironment;
+    } catch (error) {
+      if (!(error instanceof ApiRequestError)) throw error;
       throw new Error(
-        `Failed to update sandbox environment: ${response.statusText}`,
+        `Failed to update sandbox environment: ${readFieldErrors(error)}`,
       );
     }
-    return (await response.json()) as SandboxEnvironment;
   }
 
   async deleteSandboxEnvironment(id: string): Promise<void> {
@@ -6195,6 +6273,60 @@ export class PostHogAPIClient {
       throw new Error(`Failed to fetch spend analysis: ${response.status}`);
     }
     return (await response.json()) as SpendAnalysisResponse;
+  }
+
+  /**
+   * The signed-in person's own spend limit, as the gateway holds it. A
+   * deployment without the gateway wired answers `available: false` rather than
+   * failing, so the settings page can say the limit informs only.
+   */
+  async getUserSpendLimit(): Promise<UserSpendLimit> {
+    return parseUserSpendLimit(await this.spendLimitRequest("get"));
+  }
+
+  /** Sets the limit; `windowSeconds` is the window it resets over. */
+  async setUserSpendLimit(
+    limitUsd: number,
+    windowSeconds: number,
+  ): Promise<UserSpendLimit> {
+    return parseUserSpendLimit(
+      await this.spendLimitRequest("post", "", {
+        limit_usd: String(limitUsd),
+        window_seconds: windowSeconds,
+      }),
+    );
+  }
+
+  /** Removes the limit, so nothing holds this person's spend. */
+  async clearUserSpendLimit(): Promise<UserSpendLimit> {
+    return parseUserSpendLimit(
+      await this.spendLimitRequest("delete", "clear/"),
+    );
+  }
+
+  private async spendLimitRequest(
+    method: "get" | "post" | "delete",
+    suffix = "",
+    body?: Record<string, unknown>,
+  ): Promise<unknown> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/ai_gateway/@me/spend_limit/${suffix}`;
+    // The shared fetcher throws `Failed request: [<status>] <json-body>` for any
+    // non-2xx, so unwrap that into the endpoint's clean message rather than
+    // surfacing the raw string in the settings toast.
+    try {
+      const response = await this.api.fetcher.fetch({
+        method,
+        url: new URL(`${this.api.baseUrl}${urlPath}`),
+        path: urlPath,
+        ...(body ? { overrides: { body: JSON.stringify(body) } } : {}),
+      });
+      return await response.json();
+    } catch (error) {
+      throw new Error(
+        extractRequestErrorMessage(error, "Couldn't update your spend limit."),
+      );
+    }
   }
 
   /**

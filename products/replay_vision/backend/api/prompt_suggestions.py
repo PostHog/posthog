@@ -453,7 +453,7 @@ class ReplayScannerPromptSuggestionViewSet(
                         detail=(
                             f"This test would use {planned_credits:,} credits but this scanner has "
                             f"{scanner_budget.remaining or 0:,} left of its {scanner_budget.credit_limit or 0:,} credit "
-                            f"limit for this period. Lower the test session count or raise the scanner's limit."
+                            f"limit for this billing period. Lower the test session count or raise the scanner's limit."
                         ),
                         code="scanner_credit_limit_exceeded",
                     )

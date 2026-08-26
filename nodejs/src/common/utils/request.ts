@@ -439,12 +439,39 @@ export type StreamedFetchOptions = {
 export type StreamedResponse = {
     status: number
     headers: Record<string, string>
+    headerLines: Array<{ name: string; value: string }>
     /**
      * Reads at most `maxBytes`, then abandons the rest. `overLimit` says the response had more, and
-     * `bytes` is then empty, because a truncated payload is not usable.
+     * `bytes` then contains the first `maxBytes`, so parsers with a bounded-prefix rule can use it.
      */
-    read: (maxBytes: number) => Promise<{ bytes: Buffer; overLimit: boolean }>
+    read: (maxBytes: number, retainPrefixOnOverflow?: boolean) => Promise<{ bytes: Buffer; overLimit: boolean }>
     discard: () => void
+}
+
+function orderedHeaderLines(raw: unknown): Array<{ name: string; value: string }> {
+    if (Array.isArray(raw)) {
+        const lines: Array<{ name: string; value: string }> = []
+        for (let index = 0; index + 1 < raw.length; index += 2) {
+            lines.push({ name: String(raw[index]).toLowerCase(), value: String(raw[index + 1]) })
+        }
+        return lines
+    }
+    if (!raw || typeof raw !== 'object') {
+        return []
+    }
+    return Object.entries(raw).flatMap(([name, value]) =>
+        (Array.isArray(value) ? value : [value]).flatMap((line) =>
+            line === undefined ? [] : [{ name: name.toLowerCase(), value: String(line) }]
+        )
+    )
+}
+
+function flattenHeaderLines(lines: Array<{ name: string; value: string }>): Record<string, string> {
+    const headers: Record<string, string> = Object.create(null)
+    for (const { name, value } of lines) {
+        headers[name] ??= value
+    }
+    return headers
 }
 
 /**
@@ -457,7 +484,8 @@ export type StreamedResponse = {
  */
 async function readCappedBody(
     body: Dispatcher.ResponseData['body'],
-    maxBytes: number
+    maxBytes: number,
+    retainPrefixOnOverflow: boolean
 ): Promise<{ bytes: Buffer; overLimit: boolean }> {
     const chunks: Buffer[] = []
     let total = 0
@@ -465,17 +493,26 @@ async function readCappedBody(
     try {
         for await (const chunk of body) {
             const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
-            total += buffer.length
-            if (total > maxBytes) {
+            const remaining = maxBytes - total
+            if (buffer.length > remaining) {
+                if (remaining > 0) {
+                    chunks.push(buffer.subarray(0, remaining))
+                    total += remaining
+                }
                 overLimit = true
+                if (!retainPrefixOnOverflow) {
+                    chunks.length = 0
+                    total = 0
+                }
                 break
             }
             chunks.push(buffer)
+            total += buffer.length
         }
     } finally {
         destroyBody(body)
     }
-    return { bytes: overLimit ? Buffer.alloc(0) : Buffer.concat(chunks), overLimit }
+    return { bytes: Buffer.concat(chunks, total), overLimit }
 }
 
 /**
@@ -502,6 +539,7 @@ export async function fetchStreamed(url: string, options: StreamedFetchOptions):
             headers: options.headers,
             dispatcher: sharedSecureAgent,
             signal: AbortSignal.timeout(options.timeoutMs),
+            responseHeaders: 'raw',
         })
     } catch (error) {
         inflightExternalRequests.dec()
@@ -520,16 +558,18 @@ export async function fetchStreamed(url: string, options: StreamedFetchOptions):
         return true
     }
 
-    const headers = flattenHeaders(result.headers)
+    const headerLines = orderedHeaderLines(result.headers)
+    const headers = flattenHeaderLines(headerLines)
     return {
         status: result.statusCode,
         headers,
-        read: async (maxBytes: number) => {
+        headerLines,
+        read: async (maxBytes: number, retainPrefixOnOverflow = true) => {
             if (settled) {
                 return { bytes: Buffer.alloc(0), overLimit: false }
             }
             try {
-                return await readCappedBody(result.body, maxBytes)
+                return await readCappedBody(result.body, maxBytes, retainPrefixOnOverflow)
             } finally {
                 settle()
             }

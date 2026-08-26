@@ -39,6 +39,7 @@ import type {
     SchemaSceneTab,
 } from '../../products/data_warehouse/frontend/scenes/SchemaScene/SchemaScene'
 import type { SourceSceneTab } from '../../products/data_warehouse/frontend/scenes/SourceScene/SourceScene'
+import { configurationRedirect, resolveSettingSlug } from '../../products/error_tracking/frontend/settingsRedirects'
 import type { InboxTabKey } from '../../products/signals/frontend/inbox/types'
 import type { WorkflowsSceneTab } from '../../products/workflows/frontend/WorkflowsScene'
 import type { ModelsSceneTab } from './scenes/models/modelsSceneLogic'
@@ -251,6 +252,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/visual_review/runs/:runId': ['VisualReviewRun', 'visualReviewRun'],
     '/visual_review/repos/:repoId/runs': ['VisualReviewRuns', 'visualReviewRepoRuns'],
     '/visual_review/repos/:repoId/snapshots': ['VisualReviewSnapshotOverview', 'visualReviewSnapshotOverview'],
+    '/visual_review/repos/:repoId/flakiness': ['VisualReviewFlakiness', 'visualReviewFlakiness'],
     '/visual_review/repos/:repoId/:runType/snapshots/:identifier': [
         'VisualReviewSnapshotHistory',
         'visualReviewSnapshotHistory',
@@ -395,19 +397,24 @@ export const productRedirects: Record<
         return combineUrl(defaultTab, searchParams, hashParams).url
     },
     '/data-warehouse': () => urls.sources(),
+    '/data-warehouse/new': () => urls.dataWarehouseSourceNew(),
     '/data-warehouse/sources': () => urls.sources(),
     '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
     '/data-warehouse/sources/:id/:tab': ({ id, tab }) => urls.dataWarehouseSource(id, tab as SourceSceneTab),
     '/engineering-analytics': '/engineering-analytics/overview',
     '/engineering-analytics/authors': '/engineering-analytics/overview',
-    '/error_tracking/configuration': (_params, searchParams, hashParams) => {
-        const { tab, ...restSearchParams } = searchParams
-        return combineUrl(
-            '/error_tracking',
-            { ...restSearchParams, activeTab: 'configuration' },
-            { ...hashParams, ...(tab ? { selectedSetting: tab } : {}) }
-        ).url
-    },
+    '/error_tracking/configuration': (_params, searchParams, hashParams) =>
+        configurationRedirect(resolveSettingSlug(searchParams.tab), searchParams, hashParams),
+    '/error_tracking/configuration/:tab': (params, searchParams, hashParams) =>
+        configurationRedirect(resolveSettingSlug(params.tab), searchParams, hashParams),
+    '/error_tracking/settings': (_params, searchParams, hashParams) =>
+        configurationRedirect(resolveSettingSlug(searchParams.tab), searchParams, hashParams),
+    '/error_tracking/settings/:tab': (params, searchParams, hashParams) =>
+        configurationRedirect(resolveSettingSlug(params.tab), searchParams, hashParams),
+    '/error_tracking/symbol_sets': (_params, searchParams, hashParams) =>
+        configurationRedirect('error-tracking-symbol-sets', searchParams, hashParams),
+    '/error_tracking/symbol-sets': (_params, searchParams, hashParams) =>
+        configurationRedirect('error-tracking-symbol-sets', searchParams, hashParams),
     '/logs/sampling/new': (_params, searchParams, hashParams) =>
         combineUrl('/logs/drop-rules/new', searchParams, hashParams).url,
     '/logs/sampling/:id': (params, searchParams, hashParams) =>
@@ -951,6 +958,7 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'visual_review',
     },
     VisualReviewSnapshotOverview: { name: 'Snapshots', projectBased: true, iconType: 'visual_review' },
+    VisualReviewFlakiness: { name: 'Flakiness', projectBased: true, iconType: 'visual_review' },
     Heatmaps: {
         name: 'Heatmaps',
         projectBased: true,
@@ -1492,6 +1500,7 @@ export const productUrls = {
     visualReviewRun: (runId: string): string => `/visual_review/runs/${runId}`,
     visualReviewRepoRuns: (repoId: string): string => `/visual_review/repos/${repoId}/runs`,
     visualReviewSnapshotOverview: (repoId: string): string => `/visual_review/repos/${repoId}/snapshots`,
+    visualReviewFlakiness: (repoId: string): string => `/visual_review/repos/${repoId}/flakiness`,
     visualReviewSnapshotHistory: (repoId: string, runType: string, identifier: string): string =>
         `/visual_review/repos/${repoId}/${encodeURIComponent(runType)}/snapshots/${encodeURIComponent(identifier)}`,
     webAnalytics: (): string => `/web`,
@@ -1991,7 +2000,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         category: ProductItemCategory.ANALYTICS,
         iconType: 'data_warehouse',
         href: urls.dataCatalog(),
-        flag: FEATURE_FLAGS.PRODUCT_DATA_CATALOG,
         tags: ['beta'],
         sceneKey: 'DataCatalog',
         sceneKeys: ['DataCatalog', 'DataCatalogMetric'],
@@ -2597,6 +2605,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'VisualReviewSettings',
             'VisualReviewSnapshotHistory',
             'VisualReviewSnapshotOverview',
+            'VisualReviewFlakiness',
         ],
     },
     {

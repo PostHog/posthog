@@ -697,6 +697,22 @@ export interface RetryResponseApi {
     workflow_id: string
 }
 
+export interface ObservationSearchResultApi {
+    /** The matching observation. */
+    observation: ReplayObservationApi
+    /** Cosine distance between the search text and the observation's closest embedding. Lower is a closer match. Only comparable to other results in the same response. */
+    distance: number
+    /** Excerpt of the observation text that best matched the search, truncated. Empty for observations analyzed before excerpts were stored. */
+    matched_content: string
+}
+
+export interface ObservationSearchResponseApi {
+    /** Matching observations, most relevant first. */
+    results: ObservationSearchResultApi[]
+    /** True when more matches may exist beyond `results`, so the response is a top slice rather than everything that matched. */
+    truncated: boolean
+}
+
 export interface VisionQuotaApi {
     /**
      * Credits the org may spend per billing period (1 credit = $0.01). Null when billing has synced the product with no spend limit: uncapped.
@@ -1951,6 +1967,12 @@ export interface DraftScannerRequestApi {
      * @maxLength 2000
      */
     goal: string
+    /**
+     * Goal-based flow only: how many replays a month the scanner may watch. The draft solves `sampling_mode` and `sampling_rate` so the projection lands on this number. Omitted on the legacy flow, and ignored while the goal-based flow's flag is off for the caller.
+     * @minimum 1
+     * @maximum 1000000
+     */
+    monthly_scan_budget?: number
 }
 
 /**
@@ -1974,6 +1996,22 @@ export interface DraftScannerResponseApi {
     rationale: string
     /** `RecordingsQuery` narrowing which sessions get scanned; null when the draft targets every session. */
     query: unknown
+    /** Goal-based flow only: the quality pre-filter the draft chose for the goal. Null on the legacy flow, and null when the costing estimate failed — the wizard keeps its defaults.
+     *
+     * * `focused` - Focused
+     * * `balanced` - Balanced
+     * * `comprehensive` - Comprehensive */
+    sampling_mode: SamplingModeEnumApi | null
+    /**
+     * Goal-based flow only: the random sampling rate solved from `monthly_scan_budget`, 0..1. 1.0 when the budget covers every matching recording. Floored at the minimum rate, so a budget below that floor keeps the minimum. Null whenever `sampling_mode` is.
+     * @nullable
+     */
+    sampling_rate: number | null
+    /**
+     * Goal-based flow only: recordings a month the drafted scanner is projected to watch under the solved dials. At or under `monthly_scan_budget`, except when the budget is below what the minimum sampling rate can reach, where this is the floor and exceeds the budget. Null whenever `sampling_mode` is.
+     * @nullable
+     */
+    estimated_monthly_observations: number | null
 }
 
 /**
@@ -2269,6 +2307,43 @@ export type VisionObservationsRetrieveParams = {
     triggered_by?: string
     /**
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
+     */
+    verdict?: string
+}
+
+export type VisionObservationsSearchRetrieveParams = {
+    /**
+     * Maximum number of results (default 20, at most 50).
+     * @minimum 1
+     * @maximum 50
+     */
+    limit?: number
+    /**
+     * Keep only scorer observations with a score at or below this value.
+     */
+    max_score?: number
+    /**
+     * Keep only scorer observations with a score at or above this value.
+     */
+    min_score?: number
+    /**
+     * Natural-language description of what to find, e.g. 'users confused by the pricing page'.
+     * @minLength 1
+     * @maxLength 2000
+     */
+    q: string
+    /**
+     * Search a single scanner's observations. Defaults to every scanner you can read.
+     */
+    scanner_id?: string
+    /**
+     * Comma-separated classifier tags to keep. Matching is case- and format-insensitive. Unlike `verdict`, tags are not validated against a fixed list, so an unknown tag matches nothing.
+     * @minLength 1
+     */
+    tags?: string
+    /**
+     * Comma-separated monitor verdicts to keep, e.g. `yes,inconclusive`.
+     * @minLength 1
      */
     verdict?: string
 }
