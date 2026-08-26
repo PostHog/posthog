@@ -153,7 +153,9 @@ export interface WorkflowFailureSeries {
 
 /** Bucket label per the shared series granularity, for chart tooltips. */
 export function formatBucket(bucketStart: string, granularity: WorkflowGranularity): string {
-    const at = dayjs(bucketStart)
+    // Buckets are computed server-side on UTC boundaries, so the label must read them in UTC too —
+    // parsing in the browser's local timezone can shift a midnight bucket to the wrong day.
+    const at = dayjs.utc(bucketStart)
     if (granularity === 'hour') {
         return at.format('MMM D, HH:mm')
     }
@@ -1629,6 +1631,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 [urls.engineeringAnalyticsPullRequestList()]: (_, s) => applyScope(s.source, s.repo),
                 [urls.engineeringAnalyticsWorkflows()]: (_, s) => applyScope(s.source, s.repo),
                 [urls.engineeringAnalyticsTestHealth()]: (_, s) => applyScope(s.source, s.repo),
+                [urls.engineeringAnalyticsDora()]: (_, s) => applyScope(s.source, s.repo),
             }
         }),
 

@@ -112,16 +112,22 @@ export const doraLogic = kea<doraLogicType>([
             },
         ],
         // null means the backend's default scope: production-marked deploys, falling back to all.
+        // Reset on a source/repo scope change: an environment or team from the old repo may not
+        // exist on the new one, and would otherwise be sent as a silently-empty exact filter.
         environment: [
             null as string | null,
             {
                 setEnvironment: (_, { environment }) => environment,
+                [engineeringAnalyticsLogic.actionTypes.setSourceId]: () => null,
+                [engineeringAnalyticsLogic.actionTypes.setScope]: () => null,
             },
         ],
         githubTeam: [
             null as string | null,
             {
                 setGithubTeam: (_, { githubTeam }) => githubTeam,
+                [engineeringAnalyticsLogic.actionTypes.setSourceId]: () => null,
+                [engineeringAnalyticsLogic.actionTypes.setScope]: () => null,
             },
         ],
     }),

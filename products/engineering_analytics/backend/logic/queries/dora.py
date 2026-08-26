@@ -23,6 +23,7 @@ team filter by design.
 """
 
 from datetime import datetime, timedelta
+from typing import Any
 
 from posthog.schema import HogQLQueryResponse
 
@@ -62,6 +63,9 @@ _TEAMS_LIMIT = 500
 # first success / first failure are the outcome edges every read keys on. INNER JOIN drops
 # deployments with no status rows — they never reached an outcome. __ENV_PREDICATE__ is one of the
 # trusted variants below (never user input; the exact-match variant reads a placeholder).
+# Assumes one deployment id per attempt (GitHub's normal shape): a deployment carrying both a
+# failure and a later success status on the same id would count toward both outcomes and could
+# pair with itself in the restore self-join.
 _DEPLOYS_CTE = """
     deploys AS (
         SELECT
@@ -91,7 +95,9 @@ _HEADLINE_SELECT = """
 
 # Recovery per failed deployment: the next successful deployment in the SAME environment. The
 # self-join fans out and the min collapses it back to one row per failure; deploy tables are small
-# (per-repo, windowed) so the quadratic pairing stays cheap.
+# (per-repo, windowed) so the quadratic pairing stays cheap. __DATE_TO_RECOVERY__ bounds the
+# recovery to the requested horizon, so a historical report's "no recovery" doesn't flip to
+# recovered once a later, out-of-range deployment succeeds.
 _RESTORE_SELECT = """
     SELECT
         quantileIf(0.5)(recovery_seconds, __CUR_FAILURE__) AS median_cur,
@@ -105,6 +111,7 @@ _RESTORE_SELECT = """
         WHERE f.first_failure_at IS NOT NULL
             AND r.first_success_at IS NOT NULL
             AND r.first_success_at >= f.first_failure_at
+            __DATE_TO_RECOVERY__
         GROUP BY f.id, f.first_failure_at
     )
 """
@@ -329,7 +336,9 @@ def _query_restore(scan: _DoraScan) -> _CurPrev:
     """Median failed-deploy-to-next-success seconds over the window pair (the restore proxy)."""
     failure = window_pair_predicates("first_failure_at", date_to=scan.date_to)
     sql = f"WITH {scan.deploys_cte} " + (
-        _RESTORE_SELECT.replace("__CUR_FAILURE__", failure.current).replace("__PREV_FAILURE__", failure.previous)
+        _RESTORE_SELECT.replace("__CUR_FAILURE__", failure.current)
+        .replace("__PREV_FAILURE__", failure.previous)
+        .replace("__DATE_TO_RECOVERY__", scan.date_to_filter("r.first_success_at"))
     )
     response = scan.run(sql, query_type="engineering_analytics.dora_restore")
     current, previous = response.results[0] if response.results else (None, None)
@@ -499,7 +508,7 @@ def query_dora_overview(
     )
 
 
-def _lead_time_bucket(bucket: datetime, stats: tuple | None) -> MergeToDeployBucket:
+def _lead_time_bucket(bucket: datetime, stats: tuple[Any, Any, Any, Any, Any, Any, Any] | None) -> MergeToDeployBucket:
     if not stats:
         return MergeToDeployBucket(
             bucket_start=bucket,

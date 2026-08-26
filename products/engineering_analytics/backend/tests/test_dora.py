@@ -194,6 +194,20 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
         assert empty.deployed_pr_count == 0
         assert empty.p50_seconds is None
 
+    def test_restore_recovery_excluded_when_it_lands_after_date_to(self):
+        # d2 fails Jan 13 10:00, recovers via d3's success at Jan 13 12:00 (see _seeded_curated).
+        # A historical report ending before that recovery must not count it: "no recovery in the
+        # window" should stay null instead of reaching past date_to for the next success.
+        curated = self._seeded_curated(member_rows=None)
+        result = query_dora_overview(
+            curated=curated,
+            date_from=datetime(2026, 1, 10, tzinfo=UTC),
+            date_to=datetime(2026, 1, 13, 11, 0, 0, tzinfo=UTC),
+        )
+
+        assert result.failed_deployment_count == 1  # d2 still counts as a failure in this window
+        assert result.median_failed_deploy_to_next_success_seconds is None
+
     def test_github_team_filter_narrows_lead_time_only(self):
         curated = self._seeded_curated(
             member_rows=[
