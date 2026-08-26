@@ -4,7 +4,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import * as api from '../generated/api'
-import { featureFlagRequestUsageLogic } from './featureFlagRequestUsageLogic'
+import { csvCell, featureFlagRequestUsageLogic } from './featureFlagRequestUsageLogic'
 
 describe('featureFlagRequestUsageLogic', () => {
     let logic: ReturnType<typeof featureFlagRequestUsageLogic.build>
@@ -13,7 +13,6 @@ describe('featureFlagRequestUsageLogic', () => {
         useMocks({
             get: {
                 '/api/projects/997/feature_flag_request_usage/': {
-                    generated_at: '2026-08-21T00:00:00Z',
                     results: [],
                 },
             },
@@ -28,7 +27,6 @@ describe('featureFlagRequestUsageLogic', () => {
     it('builds chart series and SDK totals from remote and local usage', async () => {
         logic.actions.setDates('2026-08-20', '2026-08-20')
         logic.actions.loadUsageResponseSuccess({
-            generated_at: '2026-08-21T00:00:00Z',
             results: [
                 {
                     bucket: '2026-08-20T00:00:00Z',
@@ -78,7 +76,6 @@ describe('featureFlagRequestUsageLogic', () => {
     it('applies SDK and request filters to metrics and shares', async () => {
         logic.actions.setDates('2026-08-20', '2026-08-20')
         logic.actions.loadUsageResponseSuccess({
-            generated_at: '2026-08-21T00:00:00Z',
             results: [
                 {
                     bucket: '2026-08-20T00:00:00Z',
@@ -134,7 +131,6 @@ describe('featureFlagRequestUsageLogic', () => {
         logic.actions.setDates('2026-08-20T00:00:00Z', '2026-08-20T02:59:59Z')
         logic.actions.setInterval('hour')
         logic.actions.loadUsageResponseSuccess({
-            generated_at: '2026-08-21T00:00:00Z',
             results: [
                 {
                     bucket: '2026-08-20T01:00:00Z',
@@ -170,7 +166,6 @@ describe('featureFlagRequestUsageLogic', () => {
         logic.actions.loadUsageResponse()
         logic.actions.loadUsageResponse()
         resolveFresh({
-            generated_at: '2026-08-21T00:00:00Z',
             results: [
                 {
                     bucket: '2026-08-20T00:00:00Z',
@@ -185,7 +180,6 @@ describe('featureFlagRequestUsageLogic', () => {
         expect(logic.values.usageResponse?.results[0].sdk).toBe('fresh-sdk')
 
         resolveStale({
-            generated_at: '2026-08-20T00:00:00Z',
             results: [
                 {
                     bucket: '2026-08-19T00:00:00Z',
@@ -204,7 +198,6 @@ describe('featureFlagRequestUsageLogic', () => {
     it('keeps series IDs stable when filtering changes the visible series', async () => {
         logic.actions.setDates('2026-08-20', '2026-08-20')
         logic.actions.loadUsageResponseSuccess({
-            generated_at: '2026-08-21T00:00:00Z',
             results: [
                 {
                     bucket: '2026-08-20T00:00:00Z',
@@ -229,5 +222,18 @@ describe('featureFlagRequestUsageLogic', () => {
 
         expect(logic.values.series).toHaveLength(1)
         expect(logic.values.series[0].id).toBe(pythonSeriesId)
+    })
+
+    it('clears a load error when a new date range triggers a request', async () => {
+        logic.actions.loadUsageResponseFailure('nope')
+        expect(logic.values.loadError).toBe(true)
+
+        logic.actions.setDates('-7d', null)
+
+        await expectLogic(logic).toMatchValues({ loadError: false })
+    })
+
+    it.each(['=', '+', '-', '@', '\t', '\r'])('neutralizes a leading %p in CSV cells', (prefix) => {
+        expect(csvCell(`${prefix}cmd(1)`)).toBe(`"'${prefix}cmd(1)"`)
     })
 })

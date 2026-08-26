@@ -251,7 +251,6 @@ export function FeatureFlagRequestUsage(): JSX.Element {
                                     isLoading={usageResponseLoading}
                                     hiddenSeries={[]}
                                     interval={interval}
-                                    legendInteractive
                                 />
                             </LemonCard>
                             <LemonTable

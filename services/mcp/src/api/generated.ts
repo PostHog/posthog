@@ -38036,13 +38036,13 @@ export namespace Schemas {
     } as const;
 
     export interface FeatureFlagRequestUsageItem {
-      /** Start of the UTC billing-aggregation bucket. Hourly buckets approximate request time. */
-      bucket: string;
       /** Remote flag evaluation or local flag-definition request.
        *
        * * `remote_evaluation` - remote_evaluation
        * * `local_evaluation` - local_evaluation */
       request_type: FeatureFlagRequestTypeEnum;
+      /** Start of the UTC billing-aggregation bucket. Hourly buckets approximate request time. */
+      bucket: string;
       /** SDK family parsed from the request user agent. */
       sdk: string;
       /** Number of billable requests in this bucket. */
@@ -38054,8 +38054,6 @@ export namespace Schemas {
     export interface FeatureFlagRequestUsageResponse {
       /** Feature flag request usage by SDK. */
       results: FeatureFlagRequestUsageItem[];
-      /** Time when this response was generated. */
-      generated_at: string;
     }
 
     export interface FeatureFlagRolloutSummary {

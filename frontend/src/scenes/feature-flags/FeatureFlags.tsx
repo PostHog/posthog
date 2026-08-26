@@ -813,7 +813,9 @@ export function FeatureFlags(): JSX.Element {
                 }
             />
             <LemonTabs
-                activeKey={activeTab}
+                activeKey={
+                    activeTab === FeatureFlagsTab.USAGE && !showRequestUsageTab ? FeatureFlagsTab.OVERVIEW : activeTab
+                }
                 onChange={(newKey) => setActiveTab(newKey)}
                 sceneInset
                 tabs={[

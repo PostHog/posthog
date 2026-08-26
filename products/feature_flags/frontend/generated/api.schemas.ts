@@ -387,13 +387,13 @@ export const FeatureFlagRequestTypeEnumApi = {
 } as const
 
 export interface FeatureFlagRequestUsageItemApi {
-    /** Start of the UTC billing-aggregation bucket. Hourly buckets approximate request time. */
-    bucket: string
     /** Remote flag evaluation or local flag-definition request.
      *
      * * `remote_evaluation` - remote_evaluation
      * * `local_evaluation` - local_evaluation */
     request_type: FeatureFlagRequestTypeEnumApi
+    /** Start of the UTC billing-aggregation bucket. Hourly buckets approximate request time. */
+    bucket: string
     /** SDK family parsed from the request user agent. */
     sdk: string
     /** Number of billable requests in this bucket. */
@@ -405,8 +405,6 @@ export interface FeatureFlagRequestUsageItemApi {
 export interface FeatureFlagRequestUsageResponseApi {
     /** Feature flag request usage by SDK. */
     results: FeatureFlagRequestUsageItemApi[]
-    /** Time when this response was generated. */
-    generated_at: string
 }
 
 /**

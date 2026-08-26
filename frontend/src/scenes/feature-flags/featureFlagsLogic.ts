@@ -657,7 +657,8 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
         setFeatureFlags: () => {
             if (
                 !values.enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAG_REQUEST_USAGE] &&
-                values.activeTab === FeatureFlagsTab.USAGE
+                values.activeTab === FeatureFlagsTab.USAGE &&
+                router.values.location.pathname.endsWith(urls.featureFlags())
             ) {
                 actions.setActiveTab(FeatureFlagsTab.OVERVIEW)
             }

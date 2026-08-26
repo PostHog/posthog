@@ -39,7 +39,7 @@ from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYL
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.request_usage import (
     FeatureFlagRequestType as FeatureFlagRequestType,
-    FeatureFlagRequestUsage,
+    FeatureFlagRequestUsage as FeatureFlagRequestUsage,
     query_feature_flag_request_usage,
 )
 

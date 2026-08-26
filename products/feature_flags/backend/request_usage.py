@@ -10,10 +10,13 @@ from django.conf import settings
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.constants import FlagRequestType
 from posthog.dataclasses import frozen
 from posthog.models.event.new_events_schema import events_read_table, use_new_events_schema
 from posthog.models.property.util import get_property_string_expr
 from posthog.utils import get_instance_region
+
+from products.feature_flags.backend.flag_analytics import USAGE_EVENT_NAMES
 
 
 class FeatureFlagRequestType(StrEnum):
@@ -90,6 +93,8 @@ def query_feature_flag_request_usage(
     count_expr, _ = get_property_string_expr("events", "count", "'count'", "properties", use_new_events_schema=use_new)
     token_expr, _ = get_property_string_expr("events", "token", "'token'", "properties", use_new_events_schema=use_new)
     bucket_function = "toStartOfHour" if time_interval == "hour" else "toStartOfDay"
+    decide_event = USAGE_EVENT_NAMES[FlagRequestType.DECIDE]
+    local_event = USAGE_EVENT_NAMES[FlagRequestType.LOCAL_EVALUATION]
 
     with tags_context(product=Product.FEATURE_FLAGS, feature=Feature.QUERY, team_id=team_id):
         # nosemgrep: clickhouse-fstring-param-audit - bucket function and table expressions are internal allowlisted fragments
@@ -97,13 +102,13 @@ def query_feature_flag_request_usage(
             f"""
             SELECT
                 {bucket_function}(timestamp) AS bucket,
-                if(event = 'decide usage', 'remote_evaluation', 'local_evaluation') AS request_type,
+                if(event = %(decide_event)s, 'remote_evaluation', 'local_evaluation') AS request_type,
                 toInt64OrZero({count_expr}) AS total_count,
                 {sdk_breakdown_expr} AS sdk_breakdown
             FROM {events_read_table(use_new)}
             WHERE team_id = %(internal_team_id)s
               AND distinct_id = toString(%(team_id)s)
-              AND event IN ('decide usage', 'local evaluation usage')
+              AND event IN (%(decide_event)s, %(local_event)s)
               AND timestamp >= %(date_from)s AND timestamp < %(date_to)s
               AND has([%(validity_token)s], {token_expr})
             ORDER BY bucket, request_type
@@ -114,6 +119,8 @@ def query_feature_flag_request_usage(
                 "date_from": date_from,
                 "date_to": date_to,
                 "validity_token": validity_token,
+                "decide_event": decide_event,
+                "local_event": local_event,
             },
             workload=Workload.ONLINE,
             team_id=team_id,

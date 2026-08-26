@@ -77,7 +77,7 @@ function filterItems(
     )
 }
 
-function csvCell(value: string | number): string {
+export function csvCell(value: string | number): string {
     const stringValue = String(value)
     const formulaSafeValue = /^[=+\-@\t\r]/.test(stringValue) ? `'${stringValue}` : stringValue
     return `"${formulaSafeValue.replaceAll('"', '""')}"`
@@ -346,9 +346,8 @@ export const featureFlagRequestUsageLogic = kea<featureFlagRequestUsageLogicType
     }),
     listeners(({ actions, values }) => ({
         setInterval: () => actions.loadUsageResponse(),
-        setDates: ({ dateFrom, dateTo }) => {
-            const range = resolveDateRange(dateFrom ?? '-30d', dateTo)
-            if (range.dateTo.diff(range.dateFrom, 'day', true) > MAX_HOURLY_RANGE_DAYS) {
+        setDates: () => {
+            if (!values.isHourlyAvailable) {
                 actions.setInterval('day')
             } else {
                 actions.loadUsageResponse()

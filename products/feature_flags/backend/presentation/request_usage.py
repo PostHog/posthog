@@ -1,10 +1,11 @@
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Literal, cast
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema_serializer
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
+from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.schema import ProductKey
 
@@ -15,7 +16,11 @@ from posthog.models.user import User
 from posthog.ph_client import feature_enabled_or_false
 from posthog.rate_limit import FeatureFlagRequestUsageBurstRateThrottle, FeatureFlagRequestUsageSustainedRateThrottle
 
-from products.feature_flags.backend.facade.api import FeatureFlagRequestType, get_feature_flag_request_usage
+from products.feature_flags.backend.facade.api import (
+    FeatureFlagRequestType,
+    FeatureFlagRequestUsage,
+    get_feature_flag_request_usage,
+)
 
 FEATURE_FLAG_REQUEST_USAGE_FLAG = "feature-flag-request-usage"
 # The shared "Last 7 days" preset starts at midnight seven days ago and ends now,
@@ -40,7 +45,6 @@ class FeatureFlagRequestUsageQuerySerializer(serializers.Serializer):
         if date_from >= date_to:
             raise serializers.ValidationError("date_from must be earlier than date_to.")
 
-        # The shared "Last 7 days" preset starts at midnight seven days ago, so it can span almost 8 full days.
         maximum_range = timedelta(days=MAX_HOURLY_RANGE_DAYS if time_interval == "hour" else MAX_DAILY_RANGE_DAYS)
         if date_to - date_from > maximum_range:
             raise serializers.ValidationError(
@@ -49,25 +53,30 @@ class FeatureFlagRequestUsageQuerySerializer(serializers.Serializer):
         return attrs
 
 
-class FeatureFlagRequestUsageItemSerializer(serializers.Serializer):
-    bucket = serializers.DateTimeField(
-        help_text="Start of the UTC billing-aggregation bucket. Hourly buckets approximate request time."
-    )
+@extend_schema_serializer(component_name="FeatureFlagRequestUsageItem")
+class FeatureFlagRequestUsageItemSerializer(DataclassSerializer):
     request_type = serializers.ChoiceField(
         choices=list(FeatureFlagRequestType),
         help_text="Remote flag evaluation or local flag-definition request.",
     )
-    sdk = serializers.CharField(help_text="SDK family parsed from the request user agent.")
-    request_count = serializers.IntegerField(help_text="Number of billable requests in this bucket.")
-    billing_units = serializers.IntegerField(
-        help_text="Estimated billing units. Local evaluation requests count as 10 units each."
-    )
+
+    class Meta:
+        dataclass = FeatureFlagRequestUsage
+        extra_kwargs = {
+            "bucket": {
+                "help_text": "Start of the UTC billing-aggregation bucket. Hourly buckets approximate request time."
+            },
+            "sdk": {"help_text": "SDK family parsed from the request user agent."},
+            "request_count": {"help_text": "Number of billable requests in this bucket."},
+            "billing_units": {
+                "help_text": "Estimated billing units. Local evaluation requests count as 10 units each."
+            },
+        }
 
 
 @extend_schema_serializer(many=False)
 class FeatureFlagRequestUsageResponseSerializer(serializers.Serializer):
     results = FeatureFlagRequestUsageItemSerializer(many=True, help_text="Feature flag request usage by SDK.")
-    generated_at = serializers.DateTimeField(help_text="Time when this response was generated.")
 
 
 @extend_schema(extensions={"x-product": ProductKey.FEATURE_FLAGS})
@@ -101,18 +110,5 @@ class FeatureFlagRequestUsageViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             date_to=cast(datetime, query["date_to"]),
             time_interval=cast(Literal["hour", "day"], query["time_interval"]),
         )
-        return Response(
-            {
-                "results": [
-                    {
-                        "bucket": item.bucket,
-                        "request_type": item.request_type.value,
-                        "sdk": item.sdk,
-                        "request_count": item.request_count,
-                        "billing_units": item.billing_units,
-                    }
-                    for item in results
-                ],
-                "generated_at": datetime.now(UTC),
-            }
-        )
+        payload = FeatureFlagRequestUsageResponseSerializer({"results": results})
+        return Response(payload.data)
