@@ -583,6 +583,19 @@ class TestCreateObservationActivity:
         with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 1_000_000):
             assert self._admit(scanner, "sess-rollover").was_created
 
+    def test_failed_insert_refunds_its_cached_admission(self) -> None:
+        # The cached counter must stay transactional with the insert: an increment that survived a
+        # rolled-back insert would make a cap that fits one observation refuse the retry forever.
+        credits = observation_credits_for_model(ScannerModel.GEMINI_3_7_FLASH.value)
+        scanner = _make_scanner(credit_limit=credits)
+        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 1_000_000):
+            with (
+                patch.object(ReplayObservation.objects, "create", side_effect=RuntimeError("insert failed")),
+                pytest.raises(RuntimeError),
+            ):
+                self._admit(scanner, "sess-refund")
+            assert self._admit(scanner, "sess-refund").was_created
+
     def test_concurrent_admissions_cannot_exceed_scanner_credit_limit(self) -> None:
         # Two applies for different sessions race with a cap that fits exactly one observation. Without the
         # per-scanner lock both read a used=0 budget, both pass, and both reserve a PENDING row (overshoot).
@@ -607,7 +620,7 @@ class TestCreateObservationActivity:
             except ApplicationError as e:
                 if e.type != SCANNER_ADMISSION_BUSY_ERROR_TYPE:
                     raise
-                # The NOWAIT lock refused the loser outright; in production Temporal retries it and the
+                # The lock timeout refused the loser; in production Temporal retries it and the
                 # re-run reads the winner's spend. Either way the cap held: nothing was admitted.
                 created[session_id] = False
             finally:

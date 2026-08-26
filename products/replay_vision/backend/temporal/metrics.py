@@ -84,7 +84,7 @@ REPLAY_VISION_SWEEP_OUTCOMES = Counter(
     ["outcome"],
 )
 
-# The admission lock is taken NOWAIT, so lock waits cannot exist to measure; contention shows up
+# The admission lock gives up after a 2s lock_timeout, so waits are capped, not worth a histogram;
 # here instead, as attempts that found the row held and deferred to the activity's retry policy.
 REPLAY_VISION_SCANNER_ADMISSION_BUSY = Counter(
     "replay_vision_scanner_admission_busy_total",

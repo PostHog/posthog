@@ -117,8 +117,9 @@ def _admit_within_cap(scanner: ReplayScanner, cost: int, period: BillingPeriod) 
         admission_budget_used=budget.credits_used,
         admission_budget_refreshed_at=timezone.now(),
         admission_budget_period_start=period.start,
-        # The reset supersedes every earlier increment: the aggregates already count those
-        # admissions as in-flight rows.
+        # The reset supersedes every earlier increment: a fast-path admission holds its row lock to
+        # commit, so this refresh either saw its committed in-flight row in the aggregates or timed
+        # out against it — no admission can be uncommitted here with its increment surviving.
         admission_credits_since_refresh=cost if admitted else 0,
     )
     return None if admitted else budget
