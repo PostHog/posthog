@@ -147,12 +147,16 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
             router.actions.push(urls.inbox(activeTab))
             return
         }
-        // Fallback for a deep-linked detail with no mounted Dismissed list (e.g. cold load).
+        // Fallback for a deep-linked detail with no mounted Dismissed list (e.g. cold load), and for
+        // the flag-off Archive list, which mounts under the `resolved` key and so isn't found above.
         setIsRestoring(true)
         try {
             await api.signalReports.setState(report.id, { state: 'potential' })
             captureInboxReportAction({ report, actionType: 'restore', surface: 'detail_pane' })
             lemonToast.success('Report restored to inbox')
+            // Broadcast so any mounted list (including that Archive instance) reconciles against the
+            // server before we navigate back; nothing else in this path repairs its stale row + count.
+            reportStateChanged()
             router.actions.push(urls.inbox(activeTab))
         } catch (error: any) {
             lemonToast.error(error?.detail || error?.message || 'Failed to restore report')
