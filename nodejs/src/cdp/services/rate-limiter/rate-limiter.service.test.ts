@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto'
 import { register } from 'prom-client'
 
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
@@ -7,7 +8,7 @@ import { Hub } from '~/types'
 
 import { RateLimiterService } from './rate-limiter.service'
 
-const KEY = '@posthog-test/ses-rate-limiter/bucket'
+const KEY = `@posthog-test/ses-rate-limiter/${randomUUID()}/bucket`
 
 describe('RateLimiterService', () => {
     jest.retryTimes(3)
@@ -31,7 +32,7 @@ describe('RateLimiterService', () => {
             poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
         })
         limiter = new RateLimiterService(redis, { name: 'ses-rate-limiter' })
-        await deleteKeysWithPrefix(redis, '@posthog-test/ses-rate-limiter')
+        await deleteKeysWithPrefix(redis, KEY)
     })
 
     afterEach(async () => {
