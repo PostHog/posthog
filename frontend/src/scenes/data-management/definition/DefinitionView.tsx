@@ -250,13 +250,12 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
                                                     </p>
                                                     <p>
                                                         The {singular} data already collected stays in PostHog. Deleting
-                                                        this definition does not remove it. To remove collected data,
-                                                        see{' '}
+                                                        this definition does not remove it. See{' '}
                                                         <Link
                                                             to="https://posthog.com/docs/privacy/data-deletion"
                                                             target="_blank"
                                                         >
-                                                            how to delete data
+                                                            how data deletion works
                                                         </Link>
                                                         .
                                                     </p>
