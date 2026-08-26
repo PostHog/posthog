@@ -556,4 +556,4 @@ If automatic creation failed with a permissions error, the fix depends on how yo
         # These sweeps run from the SDK rather than a DependentEndpointConfig, so the dependency
         # is read off the same declaration the resolve and the sweep read rather than derived.
         converted = WAREHOUSE_PARENT_FANOUT.get(schema_name)
-        return [converted[0]] if converted else []
+        return [converted.schema] if converted else []

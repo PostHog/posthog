@@ -513,6 +513,8 @@ class _WarehouseParentRows:
     Iterating yields the same plain dicts the Stripe listing yields, so the sweep body is
     identical on both paths. `position_after_current` is the coordinate to resume from once
     the row just yielded is finished with — the warehouse analogue of `starting_after`.
+    `position_at_current` points at that row instead, for re-entering a parent whose own
+    pages were only half read.
     """
 
     def __init__(
@@ -521,10 +523,12 @@ class _WarehouseParentRows:
         columns: list[str],
         page_size: int,
         schema_name: str,
+        parent_name: str,
         start_position: Optional["ScanPosition"],
     ) -> None:
         self._table = table
         self._columns = columns
+        self._parent_name = parent_name
         self._page_size = page_size
         self._schema_name = schema_name
         self._start_position = start_position
@@ -540,7 +544,7 @@ class _WarehouseParentRows:
 
         for page in iter_parent_pages_with_positions(
             table=self._table,
-            parent_name="",
+            parent_name=self._parent_name,
             columns=self._columns,
             page_size=self._page_size,
             schema_name=self._schema_name,
@@ -891,12 +895,13 @@ def get_rows(
                 _warehouse_start_position(resume_config, warehouse_parent) if warehouse_parent is not None else None
             )
             if warehouse_parent is not None:
-                _, parent_extra_columns = WAREHOUSE_PARENT_FANOUT[endpoint]
+                converted = WAREHOUSE_PARENT_FANOUT[endpoint]
                 parent_pages = _WarehouseParentRows(
                     table=warehouse_parent,
-                    columns=[resource.parent_id, *parent_extra_columns],
+                    columns=[resource.parent_id, *converted.extra_columns],
                     page_size=DEFAULT_LIMIT,
                     schema_name=endpoint,
+                    parent_name=converted.schema,
                     start_position=warehouse_start,
                 )
                 parent_rows = parent_pages
@@ -1156,12 +1161,12 @@ def _resolve_warehouse_parent(
         try_resolve_parent_table,
     )
 
-    parent_name, extra_columns = WAREHOUSE_PARENT_FANOUT[endpoint]
+    converted = WAREHOUSE_PARENT_FANOUT[endpoint]
     return try_resolve_parent_table(
         team_id=team_id,
         source_id=source_id,
-        parent_name=parent_name,
-        required_columns=["id", *extra_columns],
+        parent_name=converted.schema,
+        required_columns=["id", *converted.extra_columns],
         schema_name=endpoint,
     )
 
