@@ -36,6 +36,9 @@ enum AckMode {
     NackSeq(u64),
     /// Report busy for the sub-batch with this seq (and ack the others).
     BusySeq(u64),
+    /// Ack every sub-batch immediately except this seq, which is never acked —
+    /// a stuck oldest entry while its siblings keep acking.
+    AckExceptSeq(u64),
 }
 
 /// Manual mode: the test sends (seq, accepted) acks through this.
@@ -137,6 +140,17 @@ impl WorkerIngest for MockWorker {
                                 }));
                             }
                             AckMode::BusySeq(_) => {
+                                let _ = tx.send(Ok(IngestStreamResponse {
+                                    msg: Some(ingest_stream_response::Msg::Ack(SubBatchAck {
+                                        seq,
+                                        status: SubBatchStatus::Ok as i32,
+                                        accepted,
+                                        error: String::new(),
+                                    })),
+                                }));
+                            }
+                            AckMode::AckExceptSeq(stuck) if seq == stuck => {}
+                            AckMode::AckExceptSeq(_) => {
                                 let _ = tx.send(Ok(IngestStreamResponse {
                                     msg: Some(ingest_stream_response::Msg::Ack(SubBatchAck {
                                         seq,
@@ -391,6 +405,56 @@ async fn a_worker_that_stops_acking_fences_after_the_watchdog_window() {
         .expect_err("un-acked send fails back to the caller");
     assert_eq!(err.messages.len(), 1, "messages come back for deferral");
     assert_eq!(err.messages[0].offset, 1);
+}
+
+#[tokio::test]
+async fn a_stuck_oldest_sub_batch_fences_even_while_siblings_keep_acking() {
+    // Regression: the watchdog must bound each sub-batch's own wait, not the
+    // lane's time since its last ack. With more than one un-acked sub-batch, a
+    // worker that keeps acking newer sub-batches but never the oldest used to
+    // reset a single shared deadline on every ack, so the stuck send waited
+    // forever and its Kafka batch never completed — the wedge the watchdog
+    // exists to prevent.
+    let mock = start_mock(AckMode::AckExceptSeq(1), None).await;
+    let transport = Arc::new(GrpcTransport::new(
+        GrpcPort::Fixed(mock.addr.port()),
+        2,
+        Duration::from_millis(500),
+    ));
+    let url = worker_url(mock.addr);
+
+    // Enqueued first, so it is seq 1 — the one the worker never acks.
+    let stuck = transport.begin_send(&url, "batch-stuck", vec![msg("d1", 1)], false);
+
+    // Keep feeding siblings faster than the ack timeout. Each is acked and
+    // drained (the lane holds at most one alongside the stuck entry), so a
+    // watchdog keyed on the last ack would never fire.
+    let feeder = {
+        let transport = Arc::clone(&transport);
+        let url = url.clone();
+        tokio::spawn(async move {
+            for i in 0..40 {
+                let _ = transport.begin_send(
+                    &url,
+                    &format!("sibling-{i}"),
+                    vec![msg("d2", 100 + i)],
+                    false,
+                );
+                tokio::time::sleep(Duration::from_millis(80)).await;
+            }
+        })
+    };
+
+    // The stuck send must fence on its own deadline (~500ms), well before the
+    // feed stops (~3.2s) — proving sibling acks do not extend its wait.
+    let err = tokio::time::timeout(Duration::from_secs(2), stuck.wait())
+        .await
+        .expect("stuck send must fence on its own deadline, not wait for the feed to stop")
+        .expect_err("un-acked oldest send fails back to the caller");
+    assert_eq!(err.messages.len(), 1, "messages come back for deferral");
+    assert_eq!(err.messages[0].offset, 1);
+
+    feeder.abort();
 }
 
 #[tokio::test]

@@ -207,6 +207,10 @@ impl GrpcTransport {
 struct LedgerEntry {
     seq: u64,
     item: LaneItem,
+    /// Per-send ack deadline, armed when the sub-batch went on the wire. The
+    /// watchdog fences on the oldest entry's deadline, so a stuck sub-batch
+    /// times out even while its siblings keep acking.
+    deadline: tokio::time::Instant,
 }
 
 struct LaneRunner {
@@ -374,10 +378,6 @@ impl LaneRunner {
         let mut next_seq = 1u64;
         gauge!("ingestion_consumer_lane_ledger_depth", "worker" => self.worker_url.clone())
             .set(0.0);
-        // Ack-progress deadline: pushed forward on every ack, and re-armed
-        // when the ledger goes from empty to non-empty (a quiet lane must not
-        // inherit a stale deadline).
-        let mut ack_deadline = tokio::time::Instant::now() + self.ack_timeout;
 
         loop {
             // Send the held first item, then pull more only while the ledger
@@ -410,24 +410,33 @@ impl LaneRunner {
                         assignment_epoch: self.assignment_epoch.load(Ordering::Relaxed),
                     })),
                 };
+                let deadline = tokio::time::Instant::now() + self.ack_timeout;
                 if out_tx.send(request).is_err() {
-                    ledger.push_back(LedgerEntry { seq, item });
+                    ledger.push_back(LedgerEntry {
+                        seq,
+                        item,
+                        deadline,
+                    });
                     return self.fence(None, &mut ledger, queue, "stream closed mid-send");
                 }
-                if ledger.is_empty() {
-                    ack_deadline = tokio::time::Instant::now() + self.ack_timeout;
-                }
-                ledger.push_back(LedgerEntry { seq, item });
+                ledger.push_back(LedgerEntry {
+                    seq,
+                    item,
+                    deadline,
+                });
                 gauge!("ingestion_consumer_lane_ledger_depth", "worker" => self.worker_url.clone())
                     .set(ledger.len() as f64);
             }
 
             // Wait for an ack, or for new work when the ledger has room. The
-            // ack-progress watchdog bounds how long un-acked work may sit with
-            // no acks at all: a worker that stops acking (saturated by other
-            // consumers, wedged, half-dead network) must become a fence — and
-            // so a defer-and-reroute — rather than a silent forever-wait, the
-            // way an HTTP timeout would have surfaced it.
+            // ack-progress watchdog bounds how long the oldest un-acked
+            // sub-batch may sit unacked. Each entry carries its own deadline,
+            // armed when it was sent, so the watchdog keys on the oldest (front)
+            // entry: a stuck sub-batch fences even while its siblings keep
+            // acking — the per-send bound the HTTP timeout it replaces gave. A
+            // worker that stops acking (saturated by other consumers, wedged,
+            // half-dead network) becomes a fence — and so a defer-and-reroute —
+            // rather than a silent forever-wait.
             let ack = if ledger.is_empty() {
                 match queue.recv().await {
                     Some(item) => {
@@ -437,7 +446,12 @@ impl LaneRunner {
                     None => return StreamEnd::QueueClosed,
                 }
             } else {
-                let watchdog = tokio::time::sleep_until(ack_deadline);
+                let watchdog = tokio::time::sleep_until(
+                    ledger
+                        .front()
+                        .expect("ledger is non-empty in this branch")
+                        .deadline,
+                );
                 if ledger.len() < self.max_unacked {
                     tokio::select! {
                         ack = acks.message() => Some(ack),
@@ -525,7 +539,6 @@ impl LaneRunner {
                     gauge!("ingestion_consumer_lane_ledger_depth", "worker" => self.worker_url.clone())
                         .set(ledger.len() as f64);
                     let _ = entry.item.reply.send(Ok(response.accepted));
-                    ack_deadline = tokio::time::Instant::now() + self.ack_timeout;
                 }
                 Some(Ok(None)) => {
                     return if ledger.is_empty() && pending_first.is_none() {
