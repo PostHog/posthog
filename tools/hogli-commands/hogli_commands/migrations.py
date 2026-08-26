@@ -609,6 +609,11 @@ def _classify_orphans(orphaned: list[MigrationInfo]) -> OrphanRollbackPlan:
 
 
 def _echo_orphaned_migrations(orphaned: list[MigrationInfo], plan: OrphanRollbackPlan) -> None:
+    """List the orphans in the order the diff found them, each labeled with its cache status.
+
+    The plan holds the same migrations but grouped by cache status, so it only supplies
+    the label here. Iterating the plan instead would regroup the printed list.
+    """
     if not orphaned:
         return
 
