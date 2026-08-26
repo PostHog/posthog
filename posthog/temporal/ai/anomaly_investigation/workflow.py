@@ -10,7 +10,7 @@ import re
 import json
 import asyncio
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Optional
 from uuid import UUID
 
@@ -22,7 +22,7 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.models import Team, User
-from posthog.tasks.alerts.utils import dispatch_alert_notification, record_alert_delivery
+from posthog.tasks.alerts.utils import INSIGHT_ALERT_FIRING_EVENT, dispatch_alert_notification, record_alert_delivery
 from posthog.temporal.ai.anomaly_investigation.charts import png_to_b64, render_series_chart
 from posthog.temporal.ai.anomaly_investigation.metric_definition import describe_metric_definition
 from posthog.temporal.ai.anomaly_investigation.notebook import NotebookRenderContext, build_investigation_notebook
@@ -34,6 +34,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.utils import absolute_uri
 
+from products.alerts.backend.destinations import list_active_alert_destinations
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
 from products.exports.backend.facade import api as exports
 from products.notebooks.backend.facade import api as notebooks
@@ -76,6 +77,10 @@ _SENTENCE_END_RE = re.compile(r"[.!?](?=\s|$)")
 # but the URL must stay resolvable while people scroll back to the message; 30 days matches
 # the delivery-URL TTL used for task chart artifacts (products/tasks living_artifacts).
 _INSIGHT_CHART_URL_TTL = timedelta(days=30)
+
+# The stored PNG outlives its delivery URL by one day so the URL can never point at a
+# deleted asset; without an explicit TTL the format default keeps the PNG for six months.
+_INSIGHT_CHART_ASSET_TTL = timedelta(days=31)
 
 
 @dataclass
@@ -193,6 +198,17 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
         creation_source=notebooks.NotebookCreationSource.TEMPORAL_AGENT,
     )
 
+    # Rendered before the check is marked DONE: once the status is terminal the safety net's
+    # short grace applies (INVESTIGATION_NOTIFY_GRACE_MINUTES), and a slow render sitting
+    # between the DONE update and the dispatch would let the sweep force-send its fallback
+    # notification mid-render. While the status is RUNNING the sweep waits much longer.
+    insight_chart_url = await sync_to_async(_prepare_insight_chart_url, thread_sensitive=False)(
+        alert=alert,
+        alert_check=alert_check,
+        user=user,
+        verdict=result.report.verdict,
+    )
+
     summary_for_list = _truncate_summary(result.report.summary)
     await sync_to_async(AlertCheck.objects.filter(id=alert_check.id).update, thread_sensitive=False)(
         investigation_notebook_id=notebook.id,
@@ -213,10 +229,10 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
     await sync_to_async(_dispatch_gated_notification, thread_sensitive=False)(
         alert=alert,
         alert_check=alert_check,
-        user=user,
         verdict=result.report.verdict,
         summary=summary_for_list or "",
         notebook_short_id=notebook.short_id,
+        insight_chart_url=insight_chart_url,
     )
 
     # Surface the completed investigation to the Signals inbox, gated on the verdict so
@@ -370,15 +386,51 @@ def _build_signal_description(
     return description
 
 
-def _render_insight_chart_url(*, alert: AlertConfiguration, user: User) -> str | None:
+def _should_suppress_notification(verdict: str | None, inconclusive_action: str | None) -> bool:
+    """Whether the verdict holds the notification back: false positives always suppress,
+    inconclusive follows the alert's configured policy."""
+    return verdict == "false_positive" or (
+        verdict == "inconclusive" and (inconclusive_action or "notify") == "suppress"
+    )
+
+
+def _prepare_insight_chart_url(
+    *,
+    alert: AlertConfiguration,
+    alert_check: AlertCheck,
+    user: User,
+    verdict: str | None,
+) -> str | None:
     """Render the alerted insight to a PNG and mint a URL Slack can embed as an image block.
 
-    Best-effort: on any failure (render error, no viewer access for the investigation
-    user, export infrastructure down) return None so the notification still goes out,
-    just without the chart.
+    Skipped when nothing would show it: a suppressed verdict, an already-delivered check
+    (the common case for non-gated alerts, whose notification the main task sent
+    synchronously), or no active Slack destination (only the Slack template renders the
+    chart). Best-effort: on any failure (render error, no viewer access for the
+    investigation user, export infrastructure down) return None so the notification still
+    goes out, just without the chart.
     """
+    if _should_suppress_notification(verdict, alert.investigation_inconclusive_action):
+        return None
+    pending = AlertCheck.objects.filter(
+        id=alert_check.id, notification_sent_at__isnull=True, notification_suppressed_by_agent=False
+    ).exists()
+    if not pending:
+        return None
     try:
-        asset, content = exports.render_png_export(team=alert.team, created_by=user, insight_id=alert.insight_id)
+        destinations = list_active_alert_destinations(
+            team_id=alert.team_id, alert_id=str(alert.id), allowed_event_ids=(INSIGHT_ALERT_FIRING_EVENT,)
+        )
+        if not any(destination.destination_type == "slack" for destination in destinations):
+            return None
+        asset, content = exports.render_png_export(
+            team=alert.team,
+            created_by=user,
+            insight_id=alert.insight_id,
+            # System render: keep it out of the user's export listings and quota.
+            is_system=True,
+            expires_after=datetime.now(UTC) + _INSIGHT_CHART_ASSET_TTL,
+        )
         if content is None:
             logger.info(
                 "anomaly_investigation.insight_chart_render_failed",
@@ -399,10 +451,10 @@ def _dispatch_gated_notification(
     *,
     alert,
     alert_check,
-    user: User,
     verdict: str | None,
     summary: str,
     notebook_short_id: str | None,
+    insight_chart_url: str | None = None,
 ) -> None:
     """Decide whether to fire the notification now that we have the verdict.
 
@@ -414,21 +466,7 @@ def _dispatch_gated_notification(
     Idempotent: if another codepath (retry, safety-net task) already dispatched,
     this is a no-op.
     """
-    inconclusive_action = alert.investigation_inconclusive_action or "notify"
-    suppress = verdict == "false_positive" or (verdict == "inconclusive" and inconclusive_action == "suppress")
-
-    # Rendered before taking the row lock: the PNG export blocks for several seconds and
-    # is an external side effect, so it must not run inside the transaction. The unlocked
-    # pre-read skips the render when another dispatcher already delivered (the common case
-    # for non-gated alerts, whose notification the main task sent synchronously); the
-    # locked re-check below stays the real idempotency guard.
-    insight_chart_url: str | None = None
-    if not suppress:
-        pending = AlertCheck.objects.filter(
-            id=alert_check.id, notification_sent_at__isnull=True, notification_suppressed_by_agent=False
-        ).exists()
-        if pending:
-            insight_chart_url = _render_insight_chart_url(alert=alert, user=user)
+    suppress = _should_suppress_notification(verdict, alert.investigation_inconclusive_action)
 
     with transaction.atomic():
         # Re-fetch under a row lock so concurrent dispatchers can't double-notify.

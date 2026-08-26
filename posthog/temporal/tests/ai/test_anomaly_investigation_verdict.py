@@ -21,6 +21,7 @@ from products.alerts.backend.models.alert import (
     InvestigationStatus,
     InvestigationVerdict,
 )
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.product_analytics.backend.facade.models import Insight
 
@@ -29,6 +30,19 @@ class TestInvestigationVerdictPersistence(NonAtomicBaseTest):
     # NonAtomicBaseTest TRUNCATEs after each test so class-level fixtures stale out;
     # force per-test setup so self.team is freshly inserted each time.
     CLASS_DATA_LEVEL_SETUP = False
+
+    def _create_slack_destination(self) -> HogFunction:
+        return HogFunction.objects.create(
+            team=self.team,
+            name="Slack #alerts",
+            type="internal_destination",
+            template_id="template-slack",
+            enabled=True,
+            filters={
+                "events": [{"id": "$insight_alert_firing", "type": "events"}],
+                "properties": [{"key": "alert_id", "value": str(self.alert.id), "operator": "exact", "type": "event"}],
+            },
+        )
 
     def setUp(self) -> None:
         super().setUp()
@@ -49,11 +63,11 @@ class TestInvestigationVerdictPersistence(NonAtomicBaseTest):
         )
 
     @pytest.mark.asyncio
-    @patch("posthog.temporal.ai.anomaly_investigation.workflow._render_insight_chart_url", return_value=None)
+    @patch("posthog.temporal.ai.anomaly_investigation.workflow._prepare_insight_chart_url", return_value=None)
     @patch("posthog.temporal.ai.anomaly_investigation.workflow.run_investigation")
     @patch("temporalio.activity.heartbeat")
     @patch("temporalio.activity.info")
-    async def test_true_positive_verdict_is_persisted(self, mock_info, _heartbeat, mock_run, _render) -> None:
+    async def test_true_positive_verdict_is_persisted(self, mock_info, _heartbeat, mock_run, _prepare) -> None:
         mock_info.return_value.heartbeat_timeout = None
         mock_run.return_value = InvestigationRunResult(
             report=InvestigationReport(
@@ -82,11 +96,12 @@ class TestInvestigationVerdictPersistence(NonAtomicBaseTest):
         assert self.alert_check.investigation_notebook_id is not None
 
     @pytest.mark.asyncio
-    @patch("posthog.temporal.ai.anomaly_investigation.workflow._render_insight_chart_url", return_value=None)
+    @patch("posthog.temporal.ai.anomaly_investigation.workflow.exports.render_png_export")
     @patch("posthog.temporal.ai.anomaly_investigation.workflow.run_investigation")
     @patch("temporalio.activity.heartbeat")
     @patch("temporalio.activity.info")
     async def test_false_positive_verdict_is_persisted(self, mock_info, _heartbeat, mock_run, mock_render) -> None:
+        await sync_to_async(self._create_slack_destination)()
         mock_info.return_value.heartbeat_timeout = None
         mock_run.return_value = InvestigationRunResult(
             report=InvestigationReport(
@@ -114,13 +129,13 @@ class TestInvestigationVerdictPersistence(NonAtomicBaseTest):
         mock_render.assert_not_called()
 
     @pytest.mark.asyncio
-    @patch("posthog.temporal.ai.anomaly_investigation.workflow._render_insight_chart_url", return_value=None)
+    @patch("posthog.temporal.ai.anomaly_investigation.workflow._prepare_insight_chart_url", return_value=None)
     @patch("posthog.temporal.ai.anomaly_investigation.workflow.signals.emit_signal")
     @patch("posthog.temporal.ai.anomaly_investigation.workflow.run_investigation")
     @patch("temporalio.activity.heartbeat")
     @patch("temporalio.activity.info")
     async def test_completed_investigation_emits_signal(
-        self, mock_info, _heartbeat, mock_run, mock_emit, _render
+        self, mock_info, _heartbeat, mock_run, mock_emit, _prepare
     ) -> None:
         mock_info.return_value.heartbeat_timeout = None
         mock_run.return_value = InvestigationRunResult(
@@ -173,6 +188,7 @@ class TestInvestigationVerdictPersistence(NonAtomicBaseTest):
             tool_calls_used=0,
             model="test-model",
         )
+        await sync_to_async(self._create_slack_destination)()
         asset = await sync_to_async(ExportedAsset.objects.create)(
             team=self.team,
             insight=self.insight,
@@ -191,6 +207,7 @@ class TestInvestigationVerdictPersistence(NonAtomicBaseTest):
         )
 
         assert mock_render.call_args.kwargs["insight_id"] == self.insight.id
+        assert mock_render.call_args.kwargs["is_system"] is True
         extra_properties = mock_dispatch.call_args.kwargs["extra_properties"]
         assert "/exporter/" in extra_properties["insight_chart_url"]
         assert "token=" in extra_properties["insight_chart_url"]
