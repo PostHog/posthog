@@ -26,6 +26,7 @@ import type { SignalReport } from "@posthog/shared/types";
 import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
 import { RefundReportDialog } from "@posthog/ui/features/inbox/components/RefundReportDialog";
+import { ReportChatToggle } from "@posthog/ui/features/inbox/components/ReportChatToggle";
 import { useCreateCanvasReport } from "@posthog/ui/features/inbox/hooks/useCreateCanvasReport";
 import { useInboxBulkActions } from "@posthog/ui/features/inbox/hooks/useInboxBulkActions";
 import { useRefundReport } from "@posthog/ui/features/inbox/hooks/useRefundReport";
@@ -194,6 +195,7 @@ export function ReportDetailActions({
     return (
       <>
         {githubButton}
+        <ReportChatToggle report={report} />
         {canDefer && (
           <Tooltip>
             <TooltipTrigger
