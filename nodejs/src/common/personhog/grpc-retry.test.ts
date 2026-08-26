@@ -126,6 +126,33 @@ describe('withRetry', () => {
         expect(callCount).toBe(5)
     })
 
+    it('jitters each backoff so concurrent callers do not retry in lockstep', async () => {
+        const randomSpy = jest.spyOn(Math, 'random').mockReturnValue(0.5)
+        const delays: number[] = []
+        const timeoutSpy = jest.spyOn(global, 'setTimeout').mockImplementation(((cb: () => void, ms?: number) => {
+            delays.push(ms ?? 0)
+            cb()
+            return 0 as unknown as ReturnType<typeof setTimeout>
+        }) as unknown as typeof setTimeout)
+        try {
+            await withRetry(
+                () => {
+                    throw new ConnectError('transport blip', Code.Unavailable)
+                },
+                'test-client',
+                'test-method'
+            ).catch(() => undefined)
+        } finally {
+            randomSpy.mockRestore()
+            timeoutSpy.mockRestore()
+        }
+        // Full jitter multiplies each capped backoff by Math.random (mocked to
+        // 0.5). The cap holds the last three attempts at 1000 ms, so their
+        // jittered sleeps are 500 ms. A deterministic backoff would give the
+        // full caps [50, 100, 200, 400, 800, 1000, 1000] and fail here.
+        expect(delays).toEqual([25, 50, 100, 200, 400, 500, 500])
+    })
+
     // A rolling restart of the proxy in front of personhog returns Unavailable or
     // Unknown for several seconds; the wider transport budget rides it out so the
     // blip does not surface as an unhandled exception.

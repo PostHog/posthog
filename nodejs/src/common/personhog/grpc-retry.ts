@@ -44,10 +44,11 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Retry a function with capped exponential backoff on transient gRPC errors.
- * Non-transient errors are thrown immediately. Transport-level failures get a
- * wider budget (`transportMaxRetries`) so a normal rollout is absorbed here
- * instead of surfacing to the caller.
+ * Retry a function with capped exponential backoff, jittered, on transient
+ * gRPC errors. Non-transient errors are thrown immediately. Transport-level
+ * failures get a wider budget (`transportMaxRetries`) so a normal rollout is
+ * absorbed here instead of surfacing to the caller. Each backoff is jittered so
+ * concurrent callers do not retry in lockstep against a restarting backend.
  *
  * Emits `personhog_retries_total` on each retried attempt and
  * `personhog_terminal_errors_total` when retries are exhausted or the
@@ -81,7 +82,13 @@ export async function withRetry<T>(
                 maxRetries: limit,
                 error: String(error),
             })
-            await sleep(Math.min(initialDelayMs * Math.pow(2, attempt), maxDelayMs))
+            // Full jitter over the capped backoff. Concurrent callers that fail
+            // together must not wake together, because a synchronized retry wave
+            // during a rollout hits a backend that is still restarting and slows
+            // its recovery. The wider transport budget spends most of its time
+            // here, so jitter matters most on this path.
+            const cappedDelayMs = Math.min(initialDelayMs * Math.pow(2, attempt), maxDelayMs)
+            await sleep(Math.random() * cappedDelayMs)
         }
     }
 }
