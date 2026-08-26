@@ -52,10 +52,9 @@ class TestMarketingAnalyticsRetentionQueryRunner(ClickhouseTestMixin, BaseTest):
         referring_domain: str | None = "$direct",
         path: str = "/",
     ) -> None:
-        """One session's pageview. uuid7 seeds the session id so `$start_timestamp` lands on `started_at`,
-        which is what the acquisition window filters against. `$referring_domain` defaults to the
-        `$direct` sentinel the SDKs send when there's no referrer — without it `$channel_type` classifies
-        as Unknown rather than Direct."""
+        # uuid7 seeds the session id so `$start_timestamp` lands on `started_at`, which is what the
+        # acquisition window filters against. `$referring_domain` defaults to the `$direct` sentinel the
+        # SDKs send when there is no referrer, without which `$channel_type` classifies as Unknown.
         _create_event(
             team=self.team,
             event="$pageview",
@@ -111,9 +110,6 @@ class TestMarketingAnalyticsRetentionQueryRunner(ClickhouseTestMixin, BaseTest):
         return rows
 
     def test_cohort_takes_the_first_sessions_source_not_the_last(self):
-        # The whole point of acquisition cohorting: a person who arrives via google and later returns via
-        # a bing link belongs to google. Reading the last session instead would credit every channel that
-        # ever re-touched a user, which is what a plain breakdown on session properties does.
         create_person(team=self.team, distinct_ids=["p1"])
         self._session("p1", WEEK_0, utm_source="google")
         self._session("p1", WEEK_1, utm_source="bing")
@@ -125,8 +121,6 @@ class TestMarketingAnalyticsRetentionQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(rows["google"][0].cohortSize, 1)
 
     def test_person_acquired_in_week_one_is_absent_from_week_zero(self):
-        # A cohort row must hold only the people who arrived in that period. Off-by-one here silently
-        # merges every cohort into the first one and makes retention look perfect.
         create_person(team=self.team, distinct_ids=["p1"])
         create_person(team=self.team, distinct_ids=["p2"])
         self._session("p1", WEEK_0, utm_source="google")
@@ -150,8 +144,6 @@ class TestMarketingAnalyticsRetentionQueryRunner(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand([("only_new_users", True, 1), ("all_users", False, 2)])
     def test_only_new_users_excludes_people_who_were_here_before(self, _name, only_new_users, expected_size):
-        # Without this, a channel's cohorts are inflated by its own returning traffic and every channel's
-        # week 0 reads larger than its true intake.
         create_person(team=self.team, distinct_ids=["new"])
         create_person(team=self.team, distinct_ids=["returning"])
         self._session("new", WEEK_0, utm_source="google")
@@ -163,9 +155,8 @@ class TestMarketingAnalyticsRetentionQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(response.results[0].cohortSize, expected_size)
 
     def test_only_new_users_still_excludes_a_prior_direct_visitor_when_direct_is_excluded(self):
-        # "Has this person been here before" must not be filtered by excludeDirectTraffic. If it were, a
-        # user whose earlier visits were all direct would count as newly acquired by the paid channel
-        # that re-touched them.
+        # A user whose earlier visits were all direct must not count as newly acquired by the paid
+        # channel that re-touched them.
         create_person(team=self.team, distinct_ids=["p1"])
         self._session("p1", BEFORE_RANGE, utm_source=None, referring_domain="$direct")
         self._session("p1", WEEK_0, utm_source="google", referring_domain="ads.example.com")
@@ -182,8 +173,8 @@ class TestMarketingAnalyticsRetentionQueryRunner(ClickhouseTestMixin, BaseTest):
         ]
     )
     def test_exclude_unattributed_drops_the_sentinel_for_each_breakdown(self, breakdown, session_kwargs):
-        # Each breakdown has its own idea of "names nothing": the channel classifier's Unknown, the
-        # $direct referring-domain sentinel, and a plain empty campaign.
+        # Each breakdown has its own sentinel for "names nothing": the channel classifier's Unknown, the
+        # $direct referring domain, and an empty campaign.
         create_person(team=self.team, distinct_ids=["p1"])
         self._session("p1", WEEK_0, **session_kwargs)
 
@@ -213,7 +204,7 @@ class TestMarketingAnalyticsRetentionQueryRunner(ClickhouseTestMixin, BaseTest):
 
     def test_a_session_that_never_resolved_produces_no_cohort_row(self):
         # An unresolved session id yields an epoch-zero $start_timestamp rather than null, which would
-        # bucket the person tens of thousands of periods before the range instead of being dropped.
+        # bucket the person tens of thousands of periods before the range.
         create_person(team=self.team, distinct_ids=["p1"])
         _create_event(
             team=self.team,
@@ -245,10 +236,7 @@ class TestMarketingAnalyticsRetentionQueryRunner(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand([("sunday_weeks", WeekStartDay.SUNDAY), ("monday_weeks", WeekStartDay.MONDAY)])
     def test_elapsed_periods_are_complete_and_unlived_ones_are_not(self, _name, week_start_day):
-        # Two regressions in one. A period that has fully elapsed inside the range must not be greyed
-        # out — `date_to` is the range's last instant, not its exclusive end, so comparing against it
-        # directly marked the final column of every historical range as unfinished. And the newest
-        # cohort's later columns must be greyed out, or weeks that haven't happened read as churn.
+        # Both directions at once, so the test cannot pass by greying out everything or nothing.
         # Parameterized over week start because that shifts every cohort boundary by a day.
         self.team.week_start_day = week_start_day
         self.team.save()
@@ -262,13 +250,11 @@ class TestMarketingAnalyticsRetentionQueryRunner(ClickhouseTestMixin, BaseTest):
         by_index = {row.cohortIndex: row for row in response.results}
         oldest, newest = by_index[min(by_index)], by_index[max(by_index)]
         self.assertTrue(all(cell.complete for cell in oldest.values))
-        # The newest cohort's last column sits past the end of the range under either week start, so
-        # it's the one cell that must be greyed out whichever day weeks begin on.
+        # The newest cohort's last column sits past the end of the range under either week start.
         self.assertFalse(newest.values[-1].complete)
 
     def test_the_final_fully_elapsed_period_is_complete(self):
-        # The narrowest form of the off-by-one: a single-cohort range that ended in the past. Comparing
-        # the cohort's end against an inclusive `date_to` renders the whole table as "–".
+        # Comparing the cohort's end against an inclusive `date_to` renders the whole table as "–".
         create_person(team=self.team, distinct_ids=["p1"])
         self._session("p1", WEEK_0, utm_source="google")
 
@@ -279,8 +265,7 @@ class TestMarketingAnalyticsRetentionQueryRunner(ClickhouseTestMixin, BaseTest):
     @freeze_time("2023-01-11T10:00:00Z")
     def test_the_period_still_being_lived_through_is_incomplete(self):
         # On an open-ended range `date_to` is the end of today, which is in the future, so comparing
-        # against it alone marks today complete. At 10am that renders a third of a day's traffic as a
-        # finished number, and a marketer reads the drop as churn. Only the wall clock closes a period.
+        # against it alone marks today complete and renders a partial day as a finished number.
         create_person(team=self.team, distinct_ids=["p1"])
         self._session("p1", "2023-01-04T12:00:00Z", utm_source="google")
 
@@ -292,14 +277,14 @@ class TestMarketingAnalyticsRetentionQueryRunner(ClickhouseTestMixin, BaseTest):
         )
 
         row = next(r for r in response.results if r.cohortIndex == 0)
-        # Column 6 covers yesterday and column 7 covers today. Asserting both ways so the test can't
-        # pass by greying out everything.
+        # Column 6 covers yesterday, column 7 covers today. Both asserted, so the test cannot pass by
+        # greying out everything.
         self.assertTrue(row.values[6].complete)
         self.assertFalse(row.values[7].complete)
 
     def test_cohorts_beyond_the_cap_are_dropped_and_reported(self):
-        # The clamp also pulls the scan's lower bound forward, so the table silently covers less than the
-        # date range the filter bar shows unless the dropped count comes back with it.
+        # The clamp pulls the scan's lower bound forward, so the table covers less than the date range
+        # the filter bar shows unless the dropped count comes back with it.
         create_person(team=self.team, distinct_ids=["p1"])
         self._session("p1", "2023-03-01T12:00:00Z", utm_source="google")
 
@@ -314,9 +299,8 @@ class TestMarketingAnalyticsRetentionQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertTrue(all(0 <= row.cohortIndex < MAX_COHORTS for row in response.results))
 
     def test_an_inverted_date_range_returns_an_empty_table_instead_of_raising(self):
-        # A range ending before it starts spans no periods. Every expression anchors on the first cohort
-        # start, so an empty cohort list crashes the whole query on an index error rather than returning
-        # the empty table the range describes.
+        # A range ending before it starts spans no periods, and every expression anchors on the first
+        # cohort start, so an empty cohort list would crash the query on an index error.
         create_person(team=self.team, distinct_ids=["p1"])
         self._session("p1", WEEK_0, utm_source="google")
 
@@ -334,9 +318,7 @@ class TestMarketingAnalyticsRetentionQueryRunner(ClickhouseTestMixin, BaseTest):
         ]
     )
     def test_out_of_range_options_are_clamped_not_rejected(self, _name, overrides, attribute, expected):
-        # These come from a query the frontend builds, so an out-of-range value is a bug to contain
-        # rather than an error to show a marketer. A range wide enough that the interval clamp, not the
-        # cohort count, is what bites.
+        # The range is wide enough that the interval clamp bites, not the cohort count.
         query = self._query(
             date_from="2023-01-01", date_to="2023-03-31", interval=MarketingAnalyticsRetentionInterval.DAY, **overrides
         )
@@ -345,19 +327,16 @@ class TestMarketingAnalyticsRetentionQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(getattr(runner, attribute), expected)
 
     def test_the_widest_matrix_stays_under_the_printers_row_cap(self):
-        # The outer select's limit is documented as a backstop that never truncates. It only holds while
-        # the three clamps multiply out below the printer's cap — past that the printer silently keeps
-        # the first 100k rows in breakdown-value order, dropping whole values off the end of the
-        # alphabet, which is the exact failure folding exists to prevent.
+        # The outer select's limit only stays a backstop while the three clamps multiply out below the
+        # printer's cap. Past that the printer keeps the first 100k rows in breakdown-value order and
+        # drops whole values off the end of the alphabet, the failure folding exists to prevent.
         widest_matrix = (MAX_BREAKDOWN_LIMIT + 1) * MAX_COHORTS * MAX_TOTAL_INTERVALS + 1
 
         self.assertLessEqual(widest_matrix, MAX_SELECT_RETENTION_LIMIT)
 
     def test_folding_a_high_cardinality_breakdown_keeps_every_cell_inside_its_cohort(self):
-        # Landing page is the breakdown folding exists for. Sizes and cells fold through separate CTEs,
-        # so a value landing in "Other" on one side and not the other gives a cell counting more people
-        # than the cohort holds, from a table that otherwise looks fine. Asserted on counts rather than
-        # rates: a step rate can legitimately exceed 1.0, so it can no longer detect this.
+        # Sizes and cells fold through separate CTEs, so a value landing in "Other" on one side and not
+        # the other gives a cell counting more people than the cohort holds.
         for i in range(6):
             create_person(team=self.team, distinct_ids=[f"p{i}"])
             self._session(f"p{i}", WEEK_0, path=f"/page-{i}")
@@ -373,8 +352,8 @@ class TestMarketingAnalyticsRetentionQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertTrue(all(cell.count <= row.cohortSize for row in response.results for cell in row.values))
 
     def test_property_filters_narrow_the_cohort_and_the_return(self):
-        # The filters have to reach both arms. Applied only to the cohort side, a filtered-out person
-        # still fills return cells; applied only to the return side, they inflate the cohort instead.
+        # Applied only to the cohort side, a filtered-out person still fills return cells. Applied only
+        # to the return side, they inflate the cohort instead.
         create_person(team=self.team, distinct_ids=["desktop"])
         create_person(team=self.team, distinct_ids=["mobile"])
         for distinct_id, device in (("desktop", "Desktop"), ("mobile", "Mobile")):
