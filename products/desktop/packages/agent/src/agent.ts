@@ -2,6 +2,8 @@ import { buildPrOutput, mergePrUrls, readPrUrls } from "@posthog/shared";
 import {
   buildPosthogPropertyHeaderLines,
   buildPosthogPropertyHeaderRecord,
+  buildPosthogUserHeaderLines,
+  buildPosthogUserHeaderRecord,
 } from "@posthog/shared/posthog-property-headers";
 import {
   createAcpConnection,
@@ -83,13 +85,22 @@ export class Agent {
     const gatewayConfig = await this._resolveGatewayConfig(options.gatewayUrl);
     this.taskRunId = taskRunId;
 
-    const task =
+    // getTask and getUserNode are independent, so start both before building
+    // attribution rather than serializing two startup round trips.
+    const taskPromise =
       this.posthogAPI && taskId !== "__preview__"
-        ? await this.posthogAPI.getTask(taskId).catch((error) => {
+        ? this.posthogAPI.getTask(taskId).catch((error) => {
             this.logger.debug("Failed to fetch task attribution", error);
             return null;
           })
-        : null;
+        : Promise.resolve(null);
+    // The node the gateway holds a person's spend limit against. Null (a
+    // task-scoped credential) simply carries no user node, so the limit does
+    // not apply rather than applying to the wrong person.
+    const userNodePromise =
+      this.posthogAPI?.getUserNode() ?? Promise.resolve(null);
+    const [task, userNode] = await Promise.all([taskPromise, userNodePromise]);
+
     const attribution =
       taskId === "__preview__"
         ? {}
@@ -156,8 +167,12 @@ export class Agent {
               this.posthogApiConfig?.projectId != null
                 ? String(this.posthogApiConfig.projectId)
                 : undefined,
-            anthropicCustomHeaders:
+            anthropicCustomHeaders: [
               buildPosthogPropertyHeaderLines(attribution),
+              buildPosthogUserHeaderLines(userNode),
+            ]
+              .filter(Boolean)
+              .join("\n"),
           }
         : undefined;
 
@@ -187,11 +202,14 @@ export class Agent {
               reasoningEffort: options.reasoningEffort,
               developerInstructions: options.developerInstructions,
               httpHeaders: taskId
-                ? buildPosthogPropertyHeaderRecord({
-                    ...attribution,
-                    $ai_session_id: taskId,
-                  })
-                : undefined,
+                ? {
+                    ...buildPosthogPropertyHeaderRecord({
+                      ...attribution,
+                      $ai_session_id: taskId,
+                    }),
+                    ...buildPosthogUserHeaderRecord(userNode),
+                  }
+                : buildPosthogUserHeaderRecord(userNode),
               additionalDirectories: options.additionalDirectories,
             }
           : undefined,

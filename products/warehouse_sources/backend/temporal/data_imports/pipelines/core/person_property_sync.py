@@ -40,7 +40,7 @@ from posthog.kafka_client.routing import producer_scope
 from posthog.kafka_client.topics import KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES
 from posthog.models import PropertyDefinition, Team
 from posthog.models.group.util import get_groups_by_identifiers
-from posthog.models.group_type_mapping import get_group_types_for_team
+from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.models.person.util import get_persons_mapped_by_distinct_id
 from posthog.sync import database_sync_to_async
 
@@ -349,9 +349,11 @@ def _filter_existing_ids(team_id: int, source: PersonPropertySyncSource, ids: li
     return existing
 
 
-def _group_type_name(team_id: int, group_type_index: int) -> str | None:
+def _group_type_name(project_id: int, group_type_index: int) -> str | None:
     # $groupidentify carries the group-type *name*; the config stores the index, so resolve it.
-    for group_type in get_group_types_for_team(team_id):
+    # Group types are project-scoped, and GroupTypeMapping stores the project's root team id, so a
+    # team that is a child environment has no rows of its own — resolve by project, not by team.
+    for group_type in get_group_types_for_project(project_id, caller_tag="warehouse_sources/person_property_sync"):
         if group_type.get("group_type_index") == group_type_index:
             return group_type.get("group_type")
     return None
@@ -442,6 +444,7 @@ def _stamp_provenance(
 async def _process_source_bundles(
     *,
     team_id: int,
+    project_id: int,
     binding: WarehouseBinding,
     team_api_token: str,
     team_uuid: str,
@@ -481,7 +484,7 @@ async def _process_source_bundles(
     group_type_name = None
     if source.target == _GROUP_TARGET and source.group_type_index is not None:
         group_type_name = await database_sync_to_async(_group_type_name, thread_sensitive=False)(
-            team_id, source.group_type_index
+            project_id, source.group_type_index
         )
         if group_type_name is None:
             # Without the group-type name the consumer can't build a valid $groupidentify and would
@@ -561,6 +564,7 @@ async def run_person_property_sync(*, team_id: int, binding: WarehouseBinding, j
         bundles = build_bundles(rows, source.key_column, source.column_property_map or {})
         ps = await _process_source_bundles(
             team_id=team_id,
+            project_id=team.project_id,
             binding=binding,
             team_api_token=team.api_token,
             team_uuid=str(team.uuid),
@@ -702,6 +706,7 @@ async def run_person_property_backfill(*, team_id: int, binding: WarehouseBindin
         bundles = list(accumulated[str(source.source_id)].items())
         ps = await _process_source_bundles(
             team_id=team_id,
+            project_id=team.project_id,
             binding=binding,
             team_api_token=team.api_token,
             team_uuid=str(team.uuid),

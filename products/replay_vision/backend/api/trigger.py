@@ -94,7 +94,7 @@ def check_scanner_quota(scanner: ReplayScanner) -> None:
         raise QuotaLimitExceeded(
             detail=(
                 f"This scanner has {budget.remaining:,} of its {budget.credit_limit:,} credit limit left "
-                f"for this period, not enough for another observation. Raise the scanner's limit to keep "
+                f"for this billing period, not enough for another observation. Raise the scanner's limit to keep "
                 f"scanning."
             ),
             code="scanner_credit_limit_exceeded",

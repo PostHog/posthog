@@ -52,7 +52,7 @@ pub fn push_endpoints(args: &PushArgs) -> Result<()> {
     let yaml_files = collect_yaml_files(&args.paths)?;
 
     if yaml_files.is_empty() {
-        println!("No YAML files found in the specified paths.");
+        crate::safe_println!("No YAML files found in the specified paths.");
         return Ok(());
     }
 
@@ -62,25 +62,25 @@ pub fn push_endpoints(args: &PushArgs) -> Result<()> {
         match parse_yaml_file(path, content) {
             Ok(endpoint) => {
                 if let Err(e) = endpoint.validate() {
-                    println!("{} Skipping {}: {}", "⚠".yellow(), path, e);
+                    crate::safe_println!("{} Skipping {}: {}", "⚠".yellow(), path, e);
                     continue;
                 }
                 endpoints.push(endpoint);
             }
             Err(e) => {
-                println!("{} Failed to parse {}: {}", "✗".red(), path, e);
+                crate::safe_println!("{} Failed to parse {}: {}", "✗".red(), path, e);
             }
         }
     }
 
     if endpoints.is_empty() {
-        println!("No valid endpoints found to push.");
+        crate::safe_println!("No valid endpoints found to push.");
         return Ok(());
     }
 
-    println!();
-    println!("Comparing local files with PostHog...");
-    println!();
+    crate::safe_println!();
+    crate::safe_println!("Comparing local files with PostHog...");
+    crate::safe_println!();
 
     // 3. Fetch remote endpoints and insight variables (only if needed)
     let remote_list = fetch_all_endpoints(args.debug)?;
@@ -229,18 +229,18 @@ pub fn push_endpoints(args: &PushArgs) -> Result<()> {
         .collect();
 
     if creates.is_empty() && updates.is_empty() {
-        println!("No changes to apply.");
+        crate::safe_println!("No changes to apply.");
         for skip in &skips {
             if let PushAction::Skip { name, reason } = skip {
-                println!("  {} {} ({})", "SKIP".dimmed(), name, reason.dimmed());
+                crate::safe_println!("  {} {} ({})", "SKIP".dimmed(), name, reason.dimmed());
             }
         }
         return Ok(());
     }
 
     // 5. Display preview
-    println!("Changes to apply:");
-    println!();
+    crate::safe_println!("Changes to apply:");
+    crate::safe_println!();
 
     for action in &actions {
         match action {
@@ -248,28 +248,28 @@ pub fn push_endpoints(args: &PushArgs) -> Result<()> {
                 endpoint,
                 variable_changes,
             } => {
-                println!("  {}  {}", "CREATE".green().bold(), endpoint.name.bold());
+                crate::safe_println!("  {}  {}", "CREATE".green().bold(), endpoint.name.bold());
                 if let Some(desc) = &endpoint.description {
-                    println!("    Description: {}", desc.dimmed());
+                    crate::safe_println!("    Description: {}", desc.dimmed());
                 }
                 print_query_preview(endpoint);
                 print_variable_changes(variable_changes);
                 if let Some(mat) = &endpoint.materialization {
                     if mat.enabled {
                         let schedule = mat.schedule.as_deref().unwrap_or("default");
-                        println!("    Materialization: {schedule}");
+                        crate::safe_println!("    Materialization: {schedule}");
                     }
                 }
-                println!();
+                crate::safe_println!();
             }
             PushAction::Update {
                 local,
                 changes,
                 variable_changes,
             } => {
-                println!("  {}  {}", "UPDATE".yellow().bold(), local.name.bold());
+                crate::safe_println!("  {}  {}", "UPDATE".yellow().bold(), local.name.bold());
                 for change in changes {
-                    println!("    - {}", format_change_summary(change));
+                    crate::safe_println!("    - {}", format_change_summary(change));
                     match change {
                         Change::Query { from, to } | Change::QueryDefinition { from, to } => {
                             print_diff(from, to, "      ");
@@ -278,18 +278,18 @@ pub fn push_endpoints(args: &PushArgs) -> Result<()> {
                     }
                 }
                 print_variable_changes(variable_changes);
-                println!();
+                crate::safe_println!();
             }
             PushAction::Skip { name, reason } => {
-                println!("  {}    {} ({})", "SKIP".dimmed(), name, reason.dimmed());
+                crate::safe_println!("  {}    {} ({})", "SKIP".dimmed(), name, reason.dimmed());
             }
         }
     }
 
     // 6. If dry-run, stop here
     if args.dry_run {
-        println!();
-        println!("{}", "(dry-run mode, no changes applied)".dimmed());
+        crate::safe_println!();
+        crate::safe_println!("{}", "(dry-run mode, no changes applied)".dimmed());
         return Ok(());
     }
 
@@ -302,17 +302,17 @@ pub fn push_endpoints(args: &PushArgs) -> Result<()> {
         match confirm {
             Ok(true) => {}
             Ok(false) => {
-                println!("Cancelled.");
+                crate::safe_println!("Cancelled.");
                 return Ok(());
             }
             Err(_) => {
-                println!("Cancelled.");
+                crate::safe_println!("Cancelled.");
                 return Ok(());
             }
         }
     }
 
-    println!();
+    crate::safe_println!();
 
     // 8. Apply changes
     let mut success_count = 0;
@@ -334,7 +334,7 @@ pub fn push_endpoints(args: &PushArgs) -> Result<()> {
                 ) {
                     Ok(r) => r,
                     Err(e) => {
-                        println!(
+                        crate::safe_println!(
                             "{} Failed to resolve variables for {}: {}",
                             "✗".red(),
                             endpoint.name,
@@ -346,14 +346,19 @@ pub fn push_endpoints(args: &PushArgs) -> Result<()> {
 
                 match create_endpoint(&endpoint, &resolved, args.debug) {
                     Ok(created) => {
-                        println!("{} Created: {}", "✓".green(), endpoint.name.bold());
+                        crate::safe_println!("{} Created: {}", "✓".green(), endpoint.name.bold());
                         if let Some(ui_url) = &created.ui_url {
-                            println!("  {ui_url}");
+                            crate::safe_println!("  {ui_url}");
                         }
                         success_count += 1;
                     }
                     Err(e) => {
-                        println!("{} Failed to create {}: {}", "✗".red(), endpoint.name, e);
+                        crate::safe_println!(
+                            "{} Failed to create {}: {}",
+                            "✗".red(),
+                            endpoint.name,
+                            e
+                        );
                     }
                 }
             }
@@ -371,7 +376,7 @@ pub fn push_endpoints(args: &PushArgs) -> Result<()> {
                 ) {
                     Ok(r) => r,
                     Err(e) => {
-                        println!(
+                        crate::safe_println!(
                             "{} Failed to resolve variables for {}: {}",
                             "✗".red(),
                             local.name,
@@ -383,14 +388,19 @@ pub fn push_endpoints(args: &PushArgs) -> Result<()> {
 
                 match update_endpoint(&local, &resolved, args.debug) {
                     Ok(updated) => {
-                        println!("{} Updated: {}", "✓".green(), local.name.bold());
+                        crate::safe_println!("{} Updated: {}", "✓".green(), local.name.bold());
                         if let Some(ui_url) = &updated.ui_url {
-                            println!("  {ui_url}");
+                            crate::safe_println!("  {ui_url}");
                         }
                         success_count += 1;
                     }
                     Err(e) => {
-                        println!("{} Failed to update {}: {}", "✗".red(), local.name, e);
+                        crate::safe_println!(
+                            "{} Failed to update {}: {}",
+                            "✗".red(),
+                            local.name,
+                            e
+                        );
                     }
                 }
             }
@@ -398,8 +408,8 @@ pub fn push_endpoints(args: &PushArgs) -> Result<()> {
         }
     }
 
-    println!();
-    println!(
+    crate::safe_println!();
+    crate::safe_println!(
         "{} endpoint{} synced.",
         success_count,
         if success_count == 1 { "" } else { "s" }
@@ -482,10 +492,10 @@ fn print_query_preview(endpoint: &EndpointYaml) {
             .chars()
             .take(60)
             .collect();
-        println!("    Query: {}...", preview.dimmed());
+        crate::safe_println!("    Query: {}...", preview.dimmed());
     } else if let Some(query_def) = &endpoint.query_definition {
         if let Some(kind) = query_def.get("kind") {
-            println!("    Query type: {kind}");
+            crate::safe_println!("    Query type: {kind}");
         }
     }
 }
@@ -496,11 +506,11 @@ fn print_variable_changes(changes: &[VariableChange]) {
         return;
     }
 
-    println!("    Variables:");
+    crate::safe_println!("    Variables:");
     for change in changes {
         match change {
             VariableChange::Create(var) => {
-                println!(
+                crate::safe_println!(
                     "      {} {} ({})",
                     "+".green(),
                     var.name.green(),
@@ -512,7 +522,7 @@ fn print_variable_changes(changes: &[VariableChange]) {
                 from_type,
                 to_type,
             } => {
-                println!(
+                crate::safe_println!(
                     "      {} {} ({} → {})",
                     "~".yellow(),
                     code_name.yellow(),
@@ -521,7 +531,7 @@ fn print_variable_changes(changes: &[VariableChange]) {
                 );
             }
             VariableChange::Remove(code_name) => {
-                println!("      {} {}", "-".red(), code_name.red());
+                crate::safe_println!("      {} {}", "-".red(), code_name.red());
             }
         }
     }
@@ -598,7 +608,7 @@ fn resolve_variables(
                 .any(|c| matches!(c, VariableChange::Create(v) if v.name == local_var.name));
 
             if is_being_created {
-                println!("  {} Creating variable '{}'...", "→".cyan(), local_var.name);
+                crate::safe_println!("  {} Creating variable '{}'...", "→".cyan(), local_var.name);
 
                 let request = CreateInsightVariableRequest {
                     name: local_var.name.clone(), // Use code_name as display name
@@ -634,9 +644,9 @@ fn create_endpoint(
     let request_body = endpoint.to_api_request(resolved_opt);
 
     if debug {
-        eprintln!("  {} POST endpoints/", "DEBUG".cyan().bold());
+        crate::safe_eprintln!("  {} POST endpoints/", "DEBUG".cyan().bold());
         if let Ok(json) = serde_json::to_string_pretty(&request_body) {
-            eprintln!("  Request body:\n{}", json.dimmed());
+            crate::safe_eprintln!("  Request body:\n{}", json.dimmed());
         }
     }
 
@@ -646,7 +656,7 @@ fn create_endpoint(
         Ok(response) => response.json().context("Failed to parse create response"),
         Err(e) => {
             if debug {
-                eprintln!("  {} {}", "Error:".red(), e);
+                crate::safe_eprintln!("  {} {}", "Error:".red(), e);
             }
             Err(e).context("Failed to create endpoint")
         }
@@ -669,13 +679,13 @@ fn update_endpoint(
     let url = client.env_url(&format!("endpoints/{}/", endpoint.name))?;
 
     if debug {
-        eprintln!(
+        crate::safe_eprintln!(
             "  {} PATCH endpoints/{}/",
             "DEBUG".cyan().bold(),
             endpoint.name
         );
         if let Ok(json) = serde_json::to_string_pretty(&request_body) {
-            eprintln!("  Request body:\n{}", json.dimmed());
+            crate::safe_eprintln!("  Request body:\n{}", json.dimmed());
         }
     }
 
@@ -685,7 +695,7 @@ fn update_endpoint(
         Ok(response) => response.json().context("Failed to parse update response"),
         Err(e) => {
             if debug {
-                eprintln!("  {} {}", "Error:".red(), e);
+                crate::safe_eprintln!("  {} {}", "Error:".red(), e);
             }
             Err(e).context("Failed to update endpoint")
         }
