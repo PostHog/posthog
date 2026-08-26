@@ -1,4 +1,4 @@
-import { Message, TopicPartitionOffset } from 'node-rdkafka'
+import { Message, PartitionMetadata, TopicPartitionOffset } from 'node-rdkafka'
 
 import { HealthCheckResult } from '~/types'
 
@@ -22,6 +22,12 @@ export interface KafkaConsumerInterface {
     disconnect(): Promise<void>
     isHealthy(): HealthCheckResult
     offsetsStore(offsets: TopicPartitionOffset[]): void
+    /** Broker-side `[low, high]` offsets for a partition. `high` is the next offset to be produced. */
+    queryWatermarkOffsets(topic: string, partition: number, timeout?: number): Promise<[number, number]>
+    /** The group's committed offsets for the currently assigned partitions. */
+    committedOffsets(timeout?: number): Promise<TopicPartitionOffset[]>
+    /** Broker-reported partitions of a topic, whether or not this consumer is assigned them. */
+    getPartitionsForTopic(topic: string): Promise<PartitionMetadata[]>
 }
 
 /**

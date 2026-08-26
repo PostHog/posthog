@@ -378,6 +378,14 @@ export class KafkaConsumer {
         return [offsets.lowOffset, offsets.highOffset]
     }
 
+    public async committedOffsets(timeout = 10000): Promise<TopicPartitionOffset[]> {
+        if (!this.rdKafkaConsumer.isConnected()) {
+            return []
+        }
+
+        return await promisifyCallback<TopicPartitionOffset[]>((cb) => this.rdKafkaConsumer.committed(timeout, cb))
+    }
+
     public async getPartitionsForTopic(topic: string): Promise<PartitionMetadata[]> {
         if (!this.rdKafkaConsumer.isConnected()) {
             throw new Error('Not connected')

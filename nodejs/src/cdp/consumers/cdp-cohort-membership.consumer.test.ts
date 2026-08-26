@@ -255,6 +255,189 @@ describe('CdpCohortMembershipConsumer', () => {
             })
         })
 
+        // The producer's format, which is fixed-width so that string order is chronological.
+        const OLDER_VERSION = '2026-05-26 12:00:00.000000'
+        const VERSION = '2026-05-26 12:34:56.789123'
+        const NEWER_VERSION = '2026-05-26 13:00:00.000000'
+
+        const readVersion = async (cohortId: number): Promise<string | null> => {
+            const result = await hub.postgres.query(
+                PostgresUse.BEHAVIORAL_COHORTS_RW,
+                `SELECT in_cohort, to_char(version, 'YYYY-MM-DD HH24:MI:SS.US') AS version
+                 FROM cohort_membership WHERE team_id = 1 AND person_id = $1 AND cohort_id = $2`,
+                [personId1, cohortId],
+                'testQuery'
+            )
+            return result.rows[0].version
+        }
+
+        it.each([
+            ['a live transition', {}],
+            ['a seed row', { origin: 'seed' as const, run_id: new UUIDT().toString() }],
+            ['a reconcile row', { origin: 'reconcile' as const, run_id: new UUIDT().toString() }],
+        ])('should persist the message version for %s', async (_label, tags) => {
+            const message = createKafkaMessage(
+                createCohortMembershipEvent({
+                    person_id: personId1,
+                    cohort_id: 456,
+                    team_id: 1,
+                    last_updated: VERSION,
+                    ...tags,
+                }),
+                { topic: KAFKA_COHORT_MEMBERSHIP_CHANGED, offset: 0 }
+            )
+
+            await consumer['handleBatch']([message])
+
+            expect(await readVersion(456)).toEqual(VERSION)
+        })
+
+        it.each([
+            ['an older version is rejected', VERSION, OLDER_VERSION, true, VERSION],
+            ['an equal version is applied', VERSION, VERSION, false, VERSION],
+            ['a newer version is applied', VERSION, NEWER_VERSION, false, NEWER_VERSION],
+            ['any version beats a versionless row', undefined, OLDER_VERSION, false, OLDER_VERSION],
+        ])(
+            'should apply last-writer-wins on replay: %s',
+            async (_label, storedVersion, incomingVersion, expectedInCohort, expectedVersion) => {
+                await consumer['handleBatch']([
+                    createKafkaMessage(
+                        createCohortMembershipEvent({
+                            person_id: personId1,
+                            cohort_id: 456,
+                            team_id: 1,
+                            status: 'entered',
+                            last_updated: storedVersion,
+                        }),
+                        { topic: KAFKA_COHORT_MEMBERSHIP_CHANGED, offset: 0 }
+                    ),
+                ])
+
+                await consumer['handleBatch']([
+                    createKafkaMessage(
+                        createCohortMembershipEvent({
+                            person_id: personId1,
+                            cohort_id: 456,
+                            team_id: 1,
+                            status: 'left',
+                            last_updated: incomingVersion,
+                        }),
+                        { topic: KAFKA_COHORT_MEMBERSHIP_CHANGED, offset: 1 }
+                    ),
+                ])
+
+                const result = await hub.postgres.query(
+                    PostgresUse.BEHAVIORAL_COHORTS_RW,
+                    `SELECT in_cohort, to_char(version, 'YYYY-MM-DD HH24:MI:SS.US') AS version
+                     FROM cohort_membership WHERE team_id = 1 AND person_id = $1 AND cohort_id = 456`,
+                    [personId1],
+                    'testQuery'
+                )
+
+                expect(result.rows[0].in_cohort).toBe(expectedInCohort)
+                expect(result.rows[0].version).toEqual(expectedVersion)
+            }
+        )
+
+        it('should track the oldest version each reconcile run asserted, across batches', async () => {
+            const runId = new UUIDT().toString()
+            const reconcileRow = (personId: string, lastUpdated: string) =>
+                createKafkaMessage(
+                    createCohortMembershipEvent({
+                        person_id: personId,
+                        cohort_id: 456,
+                        team_id: 1,
+                        origin: 'reconcile',
+                        run_id: runId,
+                        last_updated: lastUpdated,
+                    }),
+                    { topic: KAFKA_COHORT_MEMBERSHIP_CHANGED, offset: 0 }
+                )
+
+            await consumer['handleBatch']([
+                reconcileRow(personId1, NEWER_VERSION),
+                reconcileRow(personId2, VERSION),
+                // A live transition rides the same topic and must not count as an assertion.
+                createKafkaMessage(
+                    createCohortMembershipEvent({
+                        person_id: personId3,
+                        cohort_id: 456,
+                        team_id: 1,
+                        last_updated: OLDER_VERSION,
+                    }),
+                    { topic: KAFKA_COHORT_MEMBERSHIP_CHANGED, offset: 0 }
+                ),
+            ])
+
+            const readSweep = async () => {
+                const result = await hub.postgres.query(
+                    PostgresUse.BEHAVIORAL_COHORTS_RW,
+                    `SELECT team_id, marker_bits, status, snapshot_rows,
+                            to_char(min_snapshot_version, 'YYYY-MM-DD HH24:MI:SS.US') AS min_snapshot_version
+                     FROM cohort_membership_sweeps WHERE run_id = $1 AND cohort_id = 456`,
+                    [runId],
+                    'testQuery'
+                )
+                return result.rows
+            }
+
+            expect(await readSweep()).toEqual([
+                {
+                    team_id: '1',
+                    marker_bits: '0',
+                    status: 'collecting',
+                    snapshot_rows: '2',
+                    min_snapshot_version: VERSION,
+                },
+            ])
+
+            await consumer['handleBatch']([reconcileRow(personId3, OLDER_VERSION)])
+
+            expect(await readSweep()).toEqual([
+                {
+                    team_id: '1',
+                    marker_bits: '0',
+                    status: 'collecting',
+                    snapshot_rows: '3',
+                    min_snapshot_version: OLDER_VERSION,
+                },
+            ])
+        })
+
+        it('should advance consumer progress to the next offset without ever regressing it', async () => {
+            const readProgress = async () => {
+                const result = await hub.postgres.query(
+                    PostgresUse.BEHAVIORAL_COHORTS_RW,
+                    'SELECT partition, next_offset FROM cohort_membership_consumer_progress ORDER BY partition',
+                    undefined,
+                    'testQuery'
+                )
+                return result.rows
+            }
+
+            const rowOnPartition = (partition: number, offset: number) =>
+                createKafkaMessage(createCohortMembershipEvent({ person_id: new UUIDT().toString(), team_id: 1 }), {
+                    topic: KAFKA_COHORT_MEMBERSHIP_CHANGED,
+                    partition,
+                    offset,
+                })
+
+            await consumer['handleBatch']([rowOnPartition(3, 10), rowOnPartition(3, 11), rowOnPartition(7, 5)])
+
+            expect(await readProgress()).toEqual([
+                { partition: 3, next_offset: '12' },
+                { partition: 7, next_offset: '6' },
+            ])
+
+            // A rebalance can replay from an older committed offset; the gate must not walk back.
+            await consumer['handleBatch']([rowOnPartition(3, 0)])
+
+            expect(await readProgress()).toEqual([
+                { partition: 3, next_offset: '12' },
+                { partition: 7, next_offset: '6' },
+            ])
+        })
+
         it('should reject entire batch when invalid messages are present', async () => {
             const validEvent = {
                 person_id: personId1,
@@ -296,6 +479,26 @@ describe('CdpCohortMembershipConsumer', () => {
             )
 
             expect(result.rows).toHaveLength(0)
+        })
+
+        it('should not record consumer progress when the batch write fails', async () => {
+            // A non-integer cohort_id passes schema validation but Postgres rejects it, so the
+            // membership write fails while the progress write on its own would have succeeded.
+            const message = createKafkaMessage(
+                createCohortMembershipEvent({ person_id: personId1, team_id: 1, cohort_id: 1.5 }),
+                { topic: KAFKA_COHORT_MEMBERSHIP_CHANGED, partition: 9, offset: 42 }
+            )
+
+            await expect(consumer['handleBatch']([message])).rejects.toThrow()
+
+            const progress = await hub.postgres.query(
+                PostgresUse.BEHAVIORAL_COHORTS_RW,
+                'SELECT * FROM cohort_membership_consumer_progress',
+                undefined,
+                'testQuery'
+            )
+
+            expect(progress.rows).toHaveLength(0)
         })
 
         it('should not produce side effects when database insertion fails', async () => {

@@ -186,6 +186,13 @@ export type CdpConfig = ClickhouseConfig & {
     CYCLOTRON_NODE_RESCHEDULE_MAX_CHUNKS_PER_CALL: number
     CYCLOTRON_NODE_RESCHEDULE_CHUNK_SLEEP_MS: number
 
+    // Mark-and-sweep deletion of cohort_membership rows a completed reconcile run did not re-assert
+    COHORT_MEMBERSHIP_SWEEP_ENABLED: boolean
+    COHORT_MEMBERSHIP_SWEEP_INTERVAL_MS: number
+    COHORT_MEMBERSHIP_SWEEP_BATCH_SIZE: number
+    COHORT_MEMBERSHIP_SWEEP_CLAIM_TIMEOUT_MS: number
+    COHORT_MEMBERSHIP_SWEEP_ABANDON_AFTER_DAYS: number
+
     // Email reputation evaluator (daily Temporal-scheduled bounce/complaint snapshots for workflows email)
 }
 
@@ -345,5 +352,13 @@ export function getDefaultCdpConfig(): CdpConfig {
         CYCLOTRON_NODE_RESCHEDULE_CHUNK_SIZE: 5000,
         CYCLOTRON_NODE_RESCHEDULE_MAX_CHUNKS_PER_CALL: 20,
         CYCLOTRON_NODE_RESCHEDULE_CHUNK_SLEEP_MS: 100,
+
+        // Stays off until the processor writes membership to the live topic and the whole fleet
+        // persists row versions. Sweeping before either would delete rows nothing re-asserts.
+        COHORT_MEMBERSHIP_SWEEP_ENABLED: false,
+        COHORT_MEMBERSHIP_SWEEP_INTERVAL_MS: 60000,
+        COHORT_MEMBERSHIP_SWEEP_BATCH_SIZE: 1000,
+        COHORT_MEMBERSHIP_SWEEP_CLAIM_TIMEOUT_MS: 300000,
+        COHORT_MEMBERSHIP_SWEEP_ABANDON_AFTER_DAYS: 3,
     }
 }
