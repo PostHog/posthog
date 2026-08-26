@@ -35,6 +35,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.utils import absolute_uri
 
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
+from products.exports.backend.facade import api as exports
 from products.notebooks.backend.facade import api as notebooks
 from products.signals.backend.facade import api as signals
 
@@ -70,6 +71,11 @@ _MAX_DESCRIPTION_CHARS = 3000
 # Matches a sentence-ending punctuation mark followed by whitespace or end-of-string,
 # used to clip the summary teaser on a sentence boundary instead of mid-word.
 _SENTENCE_END_RE = re.compile(r"[.!?](?=\s|$)")
+
+# TTL for the tokenized chart URL embedded in Slack. Slack fetches the image at delivery,
+# but the URL must stay resolvable while people scroll back to the message; 30 days matches
+# the delivery-URL TTL used for task chart artifacts (products/tasks living_artifacts).
+_INSIGHT_CHART_URL_TTL = timedelta(days=30)
 
 
 @dataclass
@@ -207,6 +213,7 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
     await sync_to_async(_dispatch_gated_notification, thread_sensitive=False)(
         alert=alert,
         alert_check=alert_check,
+        user=user,
         verdict=result.report.verdict,
         summary=summary_for_list or "",
         notebook_short_id=notebook.short_id,
@@ -363,10 +370,36 @@ def _build_signal_description(
     return description
 
 
+def _render_insight_chart_url(*, alert: AlertConfiguration, user: User) -> str | None:
+    """Render the alerted insight to a PNG and mint a URL Slack can embed as an image block.
+
+    Best-effort: on any failure (render error, no viewer access for the investigation
+    user, export infrastructure down) return None so the notification still goes out,
+    just without the chart.
+    """
+    try:
+        asset, content = exports.render_png_export(team=alert.team, created_by=user, insight_id=alert.insight_id)
+        if content is None:
+            logger.info(
+                "anomaly_investigation.insight_chart_render_failed",
+                alert_id=str(alert.id),
+                asset_id=asset.id,
+                exception=asset.exception,
+            )
+            return None
+        return exports.get_delivery_image_url(
+            team_id=alert.team_id, asset_id=asset.id, expiry_delta=_INSIGHT_CHART_URL_TTL
+        )
+    except Exception:
+        logger.exception("anomaly_investigation.insight_chart_render_failed", alert_id=str(alert.id))
+        return None
+
+
 def _dispatch_gated_notification(
     *,
     alert,
     alert_check,
+    user: User,
     verdict: str | None,
     summary: str,
     notebook_short_id: str | None,
@@ -383,6 +416,19 @@ def _dispatch_gated_notification(
     """
     inconclusive_action = alert.investigation_inconclusive_action or "notify"
     suppress = verdict == "false_positive" or (verdict == "inconclusive" and inconclusive_action == "suppress")
+
+    # Rendered before taking the row lock: the PNG export blocks for several seconds and
+    # is an external side effect, so it must not run inside the transaction. The unlocked
+    # pre-read skips the render when another dispatcher already delivered (the common case
+    # for non-gated alerts, whose notification the main task sent synchronously); the
+    # locked re-check below stays the real idempotency guard.
+    insight_chart_url: str | None = None
+    if not suppress:
+        pending = AlertCheck.objects.filter(
+            id=alert_check.id, notification_sent_at__isnull=True, notification_suppressed_by_agent=False
+        ).exists()
+        if pending:
+            insight_chart_url = _render_insight_chart_url(alert=alert, user=user)
 
     with transaction.atomic():
         # Re-fetch under a row lock so concurrent dispatchers can't double-notify.
@@ -404,16 +450,17 @@ def _dispatch_gated_notification(
         breaches = _build_breach_descriptions(
             alert_check=check, verdict=verdict, summary=summary, notebook_short_id=notebook_short_id
         )
-        # Surface the notebook URL as an event property so the Slack destination can render a
-        # "View Investigation" button. Absent when the investigation produced no notebook, in
-        # which case the button falls back to "View Alert".
-        extra_properties = (
-            {"investigation_notebook_url": absolute_uri(f"/notebooks/{notebook_short_id}")}
-            if notebook_short_id
-            else None
-        )
+        # Event properties beyond the breach text, for HogFunction destinations. The notebook
+        # URL backs the Slack "View Investigation" button (falls back to "View Alert" when
+        # absent), and the chart URL renders as an image block of the alerted insight (the
+        # block falls back to a divider when absent).
+        extra_properties: dict[str, str] = {}
+        if notebook_short_id:
+            extra_properties["investigation_notebook_url"] = absolute_uri(f"/notebooks/{notebook_short_id}")
+        if insight_chart_url:
+            extra_properties["insight_chart_url"] = insight_chart_url
         try:
-            deliveries = dispatch_alert_notification(alert, check, breaches, extra_properties=extra_properties)
+            deliveries = dispatch_alert_notification(alert, check, breaches, extra_properties=extra_properties or None)
             record_alert_delivery(alert, check, deliveries, stamp_on_empty=True)
         except Exception:
             logger.exception(
