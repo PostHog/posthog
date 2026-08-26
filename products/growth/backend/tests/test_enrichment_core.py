@@ -218,6 +218,26 @@ class TestEnrichmentCore(BaseTest):
         properties = pha_client.group_identify.call_args.kwargs["properties"]
         assert properties.get("icp_country") == stored_country
 
+    def test_country_falls_back_to_the_record_when_the_caller_has_no_geoip(self):
+        OrganizationEnrichment.objects.update_or_create(
+            organization=self.organization, defaults={"data": {"country": "DE", "work_email": True}}
+        )
+        pha_client = MagicMock()
+
+        self._enrich(
+            ProviderLookup(
+                fields=EnrichmentFields(headcount=750, country=None, founded_year=2021), raw_payload=_empty_shell()
+            ),
+            is_recheck=True,
+            role_at_organization="engineering",
+            geoip_country_code=None,
+            pha_client=pha_client,
+        )
+
+        record = OrganizationEnrichment.objects.get(organization=self.organization)
+        assert record.data.get("country") == "DE"
+        assert record.data["icp_score"] == 12
+
     @parameterized.expand(
         [
             ("no_prior_person", None, True),
