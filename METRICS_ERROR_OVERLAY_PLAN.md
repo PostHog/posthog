@@ -238,9 +238,10 @@ dependency on an experimental flag, unlike logs anomalies. Team-wide only
    action's shape (query params `dateFrom`/`dateTo`, response
    `{"results": [...]}`). Keeps the `metrics:read` scope, but — because it
    returns Error Tracking data — it also asserts the caller has Error Tracking
-   **view** access (`user_access_control.check_access_level_for_resource(
-   "error_tracking", "viewer")`), 403 otherwise. Metrics access alone must not
-   leak issue ids/names to a user who cannot see Error Tracking.
+   **view** access via
+   `user_access_control.check_access_level_for_resource("error_tracking", "viewer")`,
+   403 otherwise. Metrics access alone must not leak issue ids/names to a user
+   who cannot see Error Tracking.
 5. `hogli build:openapi` to regenerate the generated frontend types
    (`products/metrics/frontend/generated/api*.ts`).
 
