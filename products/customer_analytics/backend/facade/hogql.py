@@ -141,6 +141,7 @@ account_email_threads: PostgresTable = PostgresTable(
     postgres_table_name="posthog_conversations_email_thread",
     access_scope="ticket",
     resource_level_access_only=True,
+    predicates=[parse_expr("id IN (SELECT thread_id FROM system._account_email_thread_links)")],
     description="Internal table of customer email threads. Use `system.accounts.email_threads` instead.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Email thread UUID."),
@@ -158,8 +159,9 @@ account_email_threads: PostgresTable = PostgresTable(
 account_email_thread_links: PostgresTable = PostgresTable(
     name="_account_email_thread_links",
     postgres_table_name="posthog_conversations_email_thread_account_link",
-    access_scope="account",
-    access_control_id_field="account_id",
+    access_scope="ticket",
+    resource_level_access_only=True,
+    predicates=[parse_expr("account_id IN (SELECT toString(id) FROM system.accounts)")],
     description="Internal table linking customer email threads to accounts. Use `system.accounts.email_threads` instead.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Email thread account link UUID."),

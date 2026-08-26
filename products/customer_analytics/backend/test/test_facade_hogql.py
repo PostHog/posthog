@@ -117,6 +117,61 @@ class TestAccountCommunicationHogqlAccess(SimpleTestCase):
         access_control.check_access_level_for_resource.assert_called_once_with("ticket", "viewer")
 
 
+class TestAccountCommunicationHogqlIsolation(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def test_hidden_email_tables_require_ticket_access_and_filter_denied_accounts(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        viewer = User.objects.create_and_join(self.organization, "email-hogql-viewer@example.com", "testtest")
+        membership = OrganizationMembership.objects.get(user=viewer, organization=self.organization)
+        visible_account = Account.objects.unscoped().create(team=self.team, name="Visible account")
+        denied_account = Account.objects.unscoped().create(team=self.team, name="Denied account")
+
+        for account, subject in ((visible_account, "Visible thread"), (denied_account, "Denied thread")):
+            thread = EmailThread.objects.for_team(self.team.id).create(
+                team=self.team,
+                canonical_thread_key=f"thread-{account.id}",
+                subject=subject,
+            )
+            EmailThreadAccountLink.objects.for_team(self.team.id).create(
+                team=self.team,
+                thread=thread,
+                account_id=str(account.id),
+                match_source="known_email",
+            )
+
+        AccessControl.objects.create(
+            team=self.team,
+            resource="account",
+            resource_id=str(denied_account.id),
+            access_level="none",
+            organization_member=membership,
+        )
+
+        threads = execute_hogql_query(
+            "SELECT subject FROM system._account_email_threads", team=self.team, user=viewer
+        ).results
+        links = execute_hogql_query(
+            "SELECT account_id FROM system._account_email_thread_links", team=self.team, user=viewer
+        ).results
+
+        assert threads == [("Visible thread",)]
+        assert links == [(str(visible_account.id),)]
+
+        AccessControl.objects.create(
+            team=self.team,
+            resource="ticket",
+            access_level="none",
+            organization_member=membership,
+        )
+        with self.assertRaises(TableAccessDeniedError):
+            execute_hogql_query("SELECT subject FROM system._account_email_threads", team=self.team, user=viewer)
+
+
 class TestFeatureRequestHogqlAccess(NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
