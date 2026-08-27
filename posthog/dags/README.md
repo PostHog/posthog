@@ -253,6 +253,21 @@ export DAGSTER_HOME=$(pwd)/.dagster_home && DAGSTER_WEB_PREAGGREGATED_MAX_PARTIT
 For production deployments, configure similar concurrency settings in your `dagster.yaml`.
 For PostHog employees, it is on our charts repo: https://github.com/PostHog/charts/tree/master/argocd/dagster
 
+## Manual maintenance jobs
+
+### `eventproperty_cleanup_job` (team-ingestion)
+
+Shrinks `posthog_eventproperty` on the cloud primary in paced, vacuumed batches.
+It has no schedule and no sensor; launch it from the launchpad, once per region.
+The default config is a dry run: it discovers and scores, and issues no `DELETE` or `VACUUM`.
+Modes, all gated by config in `posthog/dags/eventproperty_cleanup/config.py`:
+
+- `pollution_enabled` (default on): rows whose property has no EVENT-type `posthog_propertydefinition` in the project.
+- `retention_days` (default off): rows for events whose `posthog_eventdefinition.last_seen_at` is older than the window.
+- `dormant_discovery_enabled` (default off): scores the largest tenants on cloud DB, persons DB and ClickHouse signals and reports a scorecard. Rows are deleted only for teams that are both eligible now and listed in `dormant_approved_team_ids`.
+
+Every unit re-checks its predicate inside the `DELETE`, so a failed run is resumed by launching the same config again.
+
 ## Additional Resources
 
 - [Dagster Documentation](https://docs.dagster.io/)

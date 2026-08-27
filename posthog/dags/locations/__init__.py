@@ -53,6 +53,10 @@ resources_by_env = {
         "persons_database_url": PostgresURL(
             connection_url=dagster.EnvVar("PERSONS_DB_WRITER_URL"),
         ),
+        # Read-only probes against the persons cluster (dormant-tenant scoring). Never the writer.
+        "persons_database_reader": PostgresURLResource(
+            connection_url=dagster.EnvVar("PERSONS_DB_READER_URL"),
+        ),
         # Kafka producer (auto-configured from Django settings)
         "kafka_producer": kafka_producer_resource,
         # Clay webhook for job switchers pipeline
@@ -91,6 +95,10 @@ resources_by_env = {
         ),
         "persons_database_url": PostgresURL(
             connection_url=dagster.EnvVar("PERSONS_DB_WRITER_URL"),
+        ),
+        # Read-only probes against the persons cluster (dormant-tenant scoring). Never the writer.
+        "persons_database_reader": PostgresURLResource(
+            connection_url=dagster.EnvVar("PERSONS_DB_READER_URL"),
         ),
         # Kafka producer (auto-configured from Django settings)
         "kafka_producer": kafka_producer_resource,
