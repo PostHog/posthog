@@ -150,7 +150,7 @@ from posthog.hogql.database.schema.web_stats_preaggregated import WebStatsPreagg
 from posthog.hogql.database.schema.web_vitals_paths_preaggregated import WebVitalsPathsPreaggregatedTable
 from posthog.hogql.database.utils import get_join_field_chain, qualify_join_key_expr
 from posthog.hogql.database.warehouse_join_resolvers import data_warehouse_resolver_params
-from posthog.hogql.errors import QueryError, ResolutionError, TableAccessDeniedError
+from posthog.hogql.errors import ExposedHogQLError, QueryError, ResolutionError, TableAccessDeniedError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.timings import HogQLTimings
@@ -2346,6 +2346,11 @@ class Database(BaseModel):
                                 resolver_params=data_warehouse_resolver_params(**dw_join_kwargs),
                             )
 
+                except ExposedHogQLError:
+                    # A bad join key (for example an unsupported function) is user input, not our
+                    # bug. Skip the join so the rest of the schema still builds. The create and
+                    # update path rejects such keys, so the user sees the error where they can fix it.
+                    continue
                 except Exception as e:
                     capture_exception(e)
 
@@ -2376,6 +2381,10 @@ class Database(BaseModel):
                     # foreign keys first); track it so only these fields, not event-modifier mappings, are
                     # overridable when the deferred build runs.
                     database._deferred_overridable_expression_field_ids.add(id(saved_expression_field))
+                except ExposedHogQLError:
+                    # A bad saved expression is user input, not our bug. Skip it so the rest of the
+                    # schema still builds.
+                    continue
                 except Exception as e:
                     capture_exception(e)
 

@@ -12,7 +12,7 @@ from posthog.hogql.database.lazy_join_tags import DATA_WAREHOUSE
 from posthog.hogql.database.models import LazyJoin
 from posthog.hogql.database.utils import get_join_field_chain
 from posthog.hogql.database.warehouse_join_resolvers import data_warehouse_resolver_params
-from posthog.hogql.errors import QueryError, SyntaxError
+from posthog.hogql.errors import ExposedHogQLError, QueryError, SyntaxError
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
@@ -90,12 +90,19 @@ class ViewLinkValidationMixin:
             raise serializers.ValidationError({"non_field_errors": [f"Invalid table: {table_name}"]})
 
         try:
-            parse_expr(join_key)
+            join_key_expr = parse_expr(join_key)
         except SyntaxError as e:
             raise serializers.ValidationError({"non_field_errors": [str(e)]})
 
         if get_join_field_chain(join_key) is None:
             raise serializers.ValidationError({"non_field_errors": [f"Join key {join_key} must be a table field"]})
+
+        # Compile the key so an unsupported function or other bad expression fails here, where the
+        # user can fix it, instead of much later when the schema builds and the join silently drops.
+        try:
+            join_key_expr.to_hogql()
+        except ExposedHogQLError as e:
+            raise serializers.ValidationError({"non_field_errors": [str(e)]})
 
         return
 
@@ -159,6 +166,24 @@ class ViewLinkSerializer(serializers.ModelSerializer, ViewLinkValidationMixin):
         view_link = DataWarehouseJoin.objects.create(**validated_data)
 
         return view_link
+
+    def update(self, instance, validated_data):
+        team_id = self.context["team_id"]
+
+        if "source_table_key" in validated_data or "source_table_name" in validated_data:
+            self._validate_join_key(
+                validated_data.get("source_table_key", instance.source_table_key),
+                validated_data.get("source_table_name", instance.source_table_name),
+                team_id,
+            )
+        if "joining_table_key" in validated_data or "joining_table_name" in validated_data:
+            self._validate_join_key(
+                validated_data.get("joining_table_key", instance.joining_table_key),
+                validated_data.get("joining_table_name", instance.joining_table_name),
+                team_id,
+            )
+
+        return super().update(instance, validated_data)
 
 
 class ViewLinkValidationSerializer(serializers.Serializer, ViewLinkValidationMixin):

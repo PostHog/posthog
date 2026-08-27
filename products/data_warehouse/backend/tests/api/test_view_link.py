@@ -188,6 +188,39 @@ class TestViewLinkQuery(APIBaseTest):
         )
         self.assertEqual(response.status_code, 201, response.content)
 
+    def test_create_unsupported_function_key_is_rejected(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_view_links/",
+            {
+                "source_table_name": "events",
+                "joining_table_name": "persons",
+                "source_table_key": "extractJSONString(properties, 'id')",
+                "joining_table_key": "id",
+                "field_name": "some_field",
+            },
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn("Unsupported function call", response.content.decode())
+
+    def test_update_unsupported_function_key_is_rejected(self):
+        join = DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="events",
+            source_table_key="distinct_id",
+            joining_table_name="persons",
+            joining_table_key="id",
+            field_name="some_field",
+            configuration=None,
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/warehouse_view_links/{join.id}/",
+            {"source_table_key": "extractJSONString(properties, 'id')"},
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+        join.refresh_from_db()
+        self.assertEqual(join.source_table_key, "distinct_id")
+
     def test_update_with_configuration(self):
         join = DataWarehouseJoin.objects.create(
             team=self.team,
