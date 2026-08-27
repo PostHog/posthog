@@ -69,10 +69,11 @@ const LEARN_CAPABILITY: Capability = {
 }
 
 /**
- * Product-based grouping — mirrors PostHog's products. Prompt content is drawn from the
- * existing `QUESTION_SUGGESTIONS_DATA` on the PostHog AI scene so the two surfaces stay in sync.
+ * Capability badges on the homepage and the PostHog AI sidebar, one per PostHog product. Prompt
+ * content is drawn from the existing `QUESTION_SUGGESTIONS_DATA` on the PostHog AI scene so the
+ * two surfaces stay in sync.
  */
-export const PRODUCT_CAPABILITIES: Capability[] = [
+export const HOMEPAGE_CAPABILITIES: Capability[] = [
     {
         key: 'analytics',
         label: 'Analytics',

@@ -11,7 +11,7 @@ import { maxSettingsLogic } from 'scenes/settings/environment/maxSettingsLogic'
 
 import { AgentMode } from '~/queries/schema/schema-assistant-messages'
 
-import { PRODUCT_CAPABILITIES } from '../maxCapabilities'
+import { HOMEPAGE_CAPABILITIES } from '../maxCapabilities'
 import { QUESTION_SUGGESTIONS_DATA, RESEARCH_SUGGESTIONS_DATA, maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
 import { CAPABILITY_CARDS_HEIGHT_PX, CapabilityBadges, CapabilitySuggestions } from './CapabilityBadges'
@@ -39,7 +39,7 @@ export function SidebarQuestionInputWithSuggestions({
     // Capability badges replace the pills — except in Research mode, which keeps its own tailored suggestions.
     const showBadges = agentMode !== AgentMode.Research
     const selectedCapabilityData =
-        PRODUCT_CAPABILITIES.find((capability) => capability.key === selectedCapability) ?? null
+        HOMEPAGE_CAPABILITIES.find((capability) => capability.key === selectedCapability) ?? null
 
     const tip =
         !coreMemoryLoading && !coreMemory?.text
@@ -70,7 +70,7 @@ export function SidebarQuestionInputWithSuggestions({
                 {showBadges ? (
                     <div className="flex flex-col items-center gap-6 w-full">
                         <CapabilityBadges
-                            capabilities={PRODUCT_CAPABILITIES}
+                            capabilities={HOMEPAGE_CAPABILITIES}
                             selectedKey={selectedCapability}
                             onSelect={(key) => {
                                 setFillInHint(null)

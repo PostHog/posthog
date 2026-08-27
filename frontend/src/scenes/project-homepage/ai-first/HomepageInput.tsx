@@ -23,7 +23,7 @@ import { FillInHint } from 'scenes/max/components/FillInHint'
 import { SidebarQuestionInput } from 'scenes/max/components/SidebarQuestionInput'
 import { handsFreeLogic } from 'scenes/max/handsFreeLogic'
 import { Intro } from 'scenes/max/Intro'
-import { PRODUCT_CAPABILITIES } from 'scenes/max/maxCapabilities'
+import { HOMEPAGE_CAPABILITIES } from 'scenes/max/maxCapabilities'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { maxLogic } from 'scenes/max/maxLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from 'scenes/max/maxThreadLogic'
@@ -537,7 +537,7 @@ export function HomepageInput(): JSX.Element {
     const { user } = useValues(userLogic)
 
     const selectedCapabilityData =
-        PRODUCT_CAPABILITIES.find((capability) => capability.key === selectedCapability) ?? null
+        HOMEPAGE_CAPABILITIES.find((capability) => capability.key === selectedCapability) ?? null
 
     return (
         <div className="w-full max-w-180 mx-auto py-2 ">
@@ -560,7 +560,7 @@ export function HomepageInput(): JSX.Element {
                         <div className="overflow-hidden flex flex-col items-center gap-6">
                             <CapabilityBadges
                                 className="shrink-0"
-                                capabilities={PRODUCT_CAPABILITIES}
+                                capabilities={HOMEPAGE_CAPABILITIES}
                                 selectedKey={selectedCapability}
                                 onSelect={setSelectedCapability}
                             />
