@@ -197,7 +197,7 @@ export async function startPool(
             if ('failure' in msg) {
                 const error =
                     msg.failure.kind === 'undecodable'
-                        ? new UndecodableImageError(msg.failure.message)
+                        ? new UndecodableImageError(msg.failure.reason, msg.failure.message)
                         : msg.failure.kind === 'opt-out'
                           ? new ImageOptOutError(msg.failure.message)
                           : new Error(msg.failure.message)

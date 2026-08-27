@@ -4,9 +4,10 @@ The scout calls `remember`/`forget` via this module. Scratchpad is the narrow
 per-team memory surface — MCP-readable across agents — that other scouts and
 PostHog AI can read to see what the scout fleet has learned about a team.
 
-Simplified in PR 2 review: `tags`, `scope`, `expires_at`, and `authority` were
-dropped (none were earning their keep on the stack). Retrieval is ILIKE on
-`content` and `key` only; all entries are durable per-team memory.
+Simplified in PR 2 review: `tags`, `scope`, and `authority` were dropped (none were
+earning their keep on the stack). Retrieval is ILIKE on `content` and `key` only.
+Entries are durable by default; `expires_at` is the opt-in TTL for the ones that
+are only true for a while, mirroring `notes.py`.
 """
 
 from __future__ import annotations
@@ -18,8 +19,10 @@ from typing import Any
 from django.db import IntegrityError, transaction
 from django.db.models import Q, QuerySet, TextField, Value
 from django.db.models.functions import Left
+from django.utils import timezone
 
 from products.signals.backend.models import SignalScratchpad
+from products.signals.backend.scout_harness.prompt import FOLLOWUP_KEY_PREFIX
 from products.signals.backend.scout_harness.tools.runs import _build_task_url
 
 # Defensive cap on search results.
@@ -45,6 +48,7 @@ class ScratchpadEntry:
     content: str
     created_at: str | None = None
     updated_at: str | None = None
+    expires_at: str | None = None
     created_by_run_id: str | None = None
     # Identity + deep-link of the scout run that created the entry, resolved from `created_by_run`.
     created_by_skill: str | None = None
@@ -64,11 +68,19 @@ def search_scratchpad(
     limit: int = DEFAULT_SCRATCHPAD_SEARCH_LIMIT,
     keys_only: bool = False,
     content_max_chars: int | None = None,
+    include_expired: bool = False,
 ) -> list[ScratchpadEntry]:
     """Return memories the agent should consider when planning a run, newest first.
 
     `text` matches ILIKE against `content` and `key`. The previous `tags` filter
     + GIN index were dropped in PR 2 review.
+
+    Expired entries (`expires_at` in the past) are excluded by default, so a memory a
+    scout wrote as time-boxed stops loading into run prompts on its own rather than
+    waiting for a `forget` that rarely comes. `include_expired=True` brings them back
+    for a human auditing what the fleet remembered and when it lapsed. Note this filters
+    the read only — nothing deletes the row, so `forget` and the `remember` upsert still
+    see an expired key.
 
     `key` is an exact match on the unique `(team, key)` pair — at most one row, and the
     only way to fetch a known entry reliably. `text` can't stand in for it: an ILIKE
@@ -102,6 +114,8 @@ def search_scratchpad(
         qs = qs.filter(key=key)
     if text:
         qs = qs.filter(Q(content__icontains=text) | Q(key__icontains=text))
+    if not include_expired:
+        qs = qs.filter(Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now()))
     if date_from is not None:
         qs = qs.filter(updated_at__gte=date_from)
     if date_to is not None:
@@ -116,26 +130,34 @@ def remember(
     key: str,
     content: str,
     run_id: str | None = None,
+    expires_at: datetime | None = None,
 ) -> ScratchpadEntry:
     """Write or update a memory entry. Idempotent on `(team, key)`.
+
+    A write carries the entry's whole state, `expires_at` included: passing one sets
+    the expiry, omitting one clears it. Sticky expiry would be the worse default —
+    a scout rewriting an entry that has since become permanent has no way to know an
+    earlier run put a clock on it, and the entry would keep vanishing.
 
     The previous `human_confirmed` authority guard was dropped — the human-in-the-
     loop write path was reserved-for-future and never landed. Re-add if it ships.
     """
-    _validate_key_content(key, content)
+    _validate_entry(key=key, content=content, expires_at=expires_at)
 
     try:
-        row = _upsert_entry(team_id=team_id, key=key, content=content, run_id=run_id)
+        row = _upsert_entry(team_id=team_id, key=key, content=content, run_id=run_id, expires_at=expires_at)
     except IntegrityError:
         # Lost the create race: our SELECT saw no row, but a concurrent request
         # committed an insert for the same `(team, key)` before ours, tripping the
         # unique constraint. The row now exists, so a single retry resolves to the
         # update branch and preserves the idempotent-upsert contract.
-        row = _upsert_entry(team_id=team_id, key=key, content=content, run_id=run_id)
+        row = _upsert_entry(team_id=team_id, key=key, content=content, run_id=run_id, expires_at=expires_at)
     return _to_entry(row)
 
 
-def _upsert_entry(*, team_id: int, key: str, content: str, run_id: str | None) -> SignalScratchpad:
+def _upsert_entry(
+    *, team_id: int, key: str, content: str, run_id: str | None, expires_at: datetime | None
+) -> SignalScratchpad:
     with transaction.atomic():
         existing = SignalScratchpad.objects.select_for_update().filter(team_id=team_id, key=key).first()
         if existing is None:
@@ -144,10 +166,12 @@ def _upsert_entry(*, team_id: int, key: str, content: str, run_id: str | None) -
                 key=key,
                 content=content,
                 created_by_run_id=run_id,
+                expires_at=expires_at,
             )
         existing.content = content
+        existing.expires_at = expires_at
         # Don't overwrite `created_by_run` so we keep the original creator's lineage.
-        existing.save(update_fields=["content", "updated_at"])
+        existing.save(update_fields=["content", "expires_at", "updated_at"])
         return existing
 
 
@@ -161,7 +185,7 @@ def forget(*, team_id: int, key: str) -> bool:
     return True
 
 
-def _validate_key_content(key: str, content: str) -> None:
+def _validate_entry(*, key: str, content: str, expires_at: datetime | None) -> None:
     if not key or not key.strip():
         raise InvalidScratchpadError("memory key must be non-empty")
     if len(key) > MAX_SCRATCHPAD_KEY_LENGTH:
@@ -171,6 +195,16 @@ def _validate_key_content(key: str, content: str) -> None:
     if len(content) > MAX_SCRATCHPAD_CONTENT_LENGTH:
         raise InvalidScratchpadError(
             f"memory content length {len(content)} exceeds max {MAX_SCRATCHPAD_CONTENT_LENGTH}"
+        )
+    # An expiring follow-up disappears from the queue search before the scout can validate it,
+    # while `derived_metadata` still reads the row off the manager and reports the run as a
+    # validation pass — the queue loses work and the flag says otherwise. The run prompt tells
+    # scouts not to do this, but a prompt is guidance, so the invariant is enforced here where
+    # every writer passes.
+    if expires_at is not None and key.startswith(FOLLOWUP_KEY_PREFIX):
+        raise InvalidScratchpadError(
+            f"a '{FOLLOWUP_KEY_PREFIX}' entry can't expire — its validate-after date says when to check it, "
+            "not when it stops mattering. Put the date in `content` and leave `expires_at` unset."
         )
 
 
@@ -198,6 +232,7 @@ def _to_entry(
         content=_resolve_content(row, keys_only=keys_only, content_max_chars=content_max_chars),
         created_at=row.created_at.isoformat() if row.created_at else None,
         updated_at=row.updated_at.isoformat() if row.updated_at else None,
+        expires_at=row.expires_at.isoformat() if row.expires_at else None,
         created_by_run_id=str(run_pk) if run_pk else None,
         created_by_skill=run.skill_name if run is not None else None,
         created_by_run_url=_build_task_url(

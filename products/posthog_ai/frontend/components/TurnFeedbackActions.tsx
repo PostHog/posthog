@@ -1,5 +1,5 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { useState } from 'react'
+import { useState, memo } from 'react'
 
 import { IconCopy, IconThumbsDown, IconThumbsDownFilled, IconThumbsUp, IconThumbsUpFilled, IconX } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
@@ -26,7 +26,7 @@ export interface TurnFeedbackActionsProps {
  * thumbs-down. Counterpart of the legacy thread's `SuccessActions` — same events
  * (`$ai_metric` quality / `$ai_feedback`), plus runtime/task/run properties.
  */
-export function TurnFeedbackActions({
+export const TurnFeedbackActions = memo(function TurnFeedbackActions({
     sessionId,
     turnIndex,
     isLastTurn,
@@ -142,4 +142,4 @@ export function TurnFeedbackActions({
             )}
         </>
     )
-}
+})

@@ -52,6 +52,25 @@ jobs:
                   fi
                   echo "run_id=$primary" >> "$GITHUB_OUTPUT"
 
+            - name: Restore the previous map for the drift fallback
+              # The merge below takes product entries only from the products file
+              # (--replace-prefix), so a Products slice that fails the drift check
+              # needs a stand-in or every product loses its durations. The last
+              # cached map is that stand-in. A miss leaves the checked-out file.
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              continue-on-error: true
+              with:
+                  path: .test_durations
+                  # run_id never matches — forces the prefix restore-key to the newest entry.
+                  key: posthog-test-durations-${{ github.run_id }}
+                  restore-keys: |
+                      posthog-test-durations-
+
+            - name: Set the previous map aside
+              run: |
+                  cp .test_durations /tmp/previous_durations
+                  git checkout -- .test_durations
+
             - name: Download timing artifacts
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -74,8 +93,23 @@ jobs:
                       --segment Core --junit-dir junit_artifacts
                   uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/temporal_durations \
                       --segment Temporal --junit-dir junit_artifacts
+                  # A products slice whose shape drifted from the JUnit clock must not
+                  # reach the cache; a missing slice is worse (the merge takes product
+                  # entries only from this file), so keep the previous slice instead.
+                  set +e
                   uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/products_durations \
-                      --segment Products --junit-dir junit_artifacts
+                      --segment Products --junit-dir junit_artifacts --fail-on-drift
+                  products_status=$?
+                  set -e
+                  if [ "$products_status" -ne 0 ]; then
+                      echo "::warning::Products durations refresh exited $products_status; keeping the previous products slice. Drift or an incomplete JUnit set are the expected causes, see the log above."
+                      # Only entries the fresh slices do not carry: the outlier merge would
+                      # otherwise let a stale value here beat a fresh one for the same test.
+                      jq -s 'add' $(ls /tmp/core_durations /tmp/temporal_durations 2>/dev/null) > /tmp/fresh_durations
+                      jq --slurpfile fresh /tmp/fresh_durations \
+                          'with_entries(select((.key | startswith("products/")) and ($fresh[0][.key] == null)))' \
+                          /tmp/previous_durations > /tmp/products_durations
+                  fi
                   uv run .github/scripts/optimize_test_durations.py .test_durations \
                       --merge-files /tmp/core_durations /tmp/temporal_durations /tmp/products_durations \
                       --replace-prefix products/
