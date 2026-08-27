@@ -516,16 +516,19 @@ GROUP BY team_id, time_bucket, service_name, namespace, environment, severity_te
 """
 
 
-def LOGS34_TO_PATTERN_BUCKETS_MV():
+def LOGS34_TO_PATTERN_BUCKETS_MV() -> str:
     db = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
-    # Same grouping as LOGS34_TO_VOLUME_BUCKETS_MV above, plus `pattern`, so the
-    # two rollups stay comparable series by series. Its comment carries the
-    # reasoning for the dimensions and the frozen 300s grid literal.
+    # The dimensions and the 300s grid literal must match LOGS34_TO_VOLUME_BUCKETS_MV,
+    # which carries the reasoning for both. The two rollups then stay comparable
+    # series by series.
     #
-    # Rows the consumer never stamped carry `pattern = ''`, which is not a shape:
-    # every unstamped row in a series would collapse into one bucket that looks
-    # like the series' most common pattern. Dropping them costs a reader nothing,
-    # because logs_volume_buckets already counts every row.
+    # `pattern_version = 0` marks a row the consumer never stamped. Without the filter,
+    # all such rows in a series collapse into one bucket that outranks every real shape.
+    # logs_volume_buckets still counts those rows.
+    #
+    # Filter on the version, not on `pattern != ''`: the consumer stamps an empty
+    # pattern for an empty body. That is a real shape, and a spike in it is worth
+    # a reader's attention.
     return f"""
 CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.logs34_to_pattern_buckets TO {db}.logs_pattern_buckets
 (
@@ -570,7 +573,7 @@ FROM
         lower(severity_text) AS severity_text,
         pattern
     FROM {db}.{TABLE_NAME}
-    WHERE pattern != ''
+    WHERE pattern_version != 0
 )
 GROUP BY team_id, time_bucket, service_name, namespace, environment, severity_text, pattern
 """
