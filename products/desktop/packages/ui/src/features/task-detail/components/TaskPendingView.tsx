@@ -7,6 +7,7 @@ import {
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
+  Spinner,
 } from "@posthog/quill";
 import { NEW_TASK_COMPOSER_FADE_MS } from "@posthog/ui/features/task-detail/newTaskComposerTransition";
 import {
@@ -16,7 +17,10 @@ import {
 import { openTaskInput } from "@posthog/ui/router/useOpenTask";
 import { motion } from "framer-motion";
 import { useCallback } from "react";
-import { usePendingTaskPrompt } from "../../../shell/pendingTaskPromptStore";
+import {
+  usePendingTaskPrompt,
+  usePendingTaskPromptStore,
+} from "../../../shell/pendingTaskPromptStore";
 import { PendingChatView } from "../../sessions/components/PendingChatView";
 import { InterruptedPromptView } from "./InterruptedPromptView";
 
@@ -26,6 +30,10 @@ interface TaskPendingViewProps {
 
 export function TaskPendingView({ pendingTaskKey }: TaskPendingViewProps) {
   const pending = usePendingTaskPrompt(pendingTaskKey);
+  // The store persists through async host storage, so the first render always
+  // sees an empty map. Without gating on hydration a reload straight onto this
+  // route would flash "no longer available" over a record that is still on disk.
+  const hasHydrated = usePendingTaskPromptStore((state) => state._hasHydrated);
 
   const handleRecover = useCallback(() => {
     recoverPendingPrompt(pendingTaskKey);
@@ -59,6 +67,10 @@ export function TaskPendingView({ pendingTaskKey }: TaskPendingViewProps) {
           promptText={pending.promptText}
           attachments={pending.attachments}
         />
+      ) : !hasHydrated ? (
+        <div className="absolute inset-0 flex items-center justify-center p-6">
+          <Spinner className="h-6 w-6" />
+        </div>
       ) : (
         <div className="absolute inset-0 flex items-center justify-center p-6">
           <Empty>
