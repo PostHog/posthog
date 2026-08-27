@@ -301,6 +301,10 @@ CLICKHOUSE_MIGRATIONS_HOST: str = os.getenv("CLICKHOUSE_MIGRATIONS_HOST", CLICKH
 CLICKHOUSE_ENDPOINTS_HOST: str = os.getenv("CLICKHOUSE_ENDPOINTS_HOST", CLICKHOUSE_HOST)
 CLICKHOUSE_USER: str = os.getenv("CLICKHOUSE_USER", "default")
 CLICKHOUSE_PASSWORD: str = os.getenv("CLICKHOUSE_PASSWORD", "")
+# Path to a file holding the live password. When set, it is read fresh per pool checkout so a
+# rotated short-lived token (ch-podauth) is used without a restart. CLICKHOUSE_PASSWORD is the
+# fallback when the file is missing or empty. Per-user files use CLICKHOUSE_<USER>_PASSWORD_FILE.
+CLICKHOUSE_PASSWORD_FILE: str | None = os.getenv("CLICKHOUSE_PASSWORD_FILE", None)
 CLICKHOUSE_DATABASE: str = CLICKHOUSE_TEST_DB if TEST else os.getenv("CLICKHOUSE_DATABASE", "default")
 CLICKHOUSE_CLUSTER: str = os.getenv("CLICKHOUSE_CLUSTER", "posthog")
 CLICKHOUSE_MIGRATIONS_CLUSTER: str = os.getenv("CLICKHOUSE_MIGRATIONS_CLUSTER", "posthog_migrations")
