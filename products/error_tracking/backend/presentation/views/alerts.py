@@ -6,6 +6,7 @@ from rest_framework.response import Response
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.models.user import User
 
 from products.error_tracking.backend.facade import alerts as alerts_facade
 from products.error_tracking.backend.models import ErrorTrackingAlert, ErrorTrackingAlertDestination
@@ -150,7 +151,7 @@ class ErrorTrackingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
                 filters=request.validated_data["filters"],
                 throttle_seconds=request.validated_data["throttle_seconds"],
                 destinations=request.validated_data["destinations"],
-                created_by=request.user,
+                created_by=request.user if isinstance(request.user, User) else None,
             )
         except alerts_facade.AlertValidationError as err:
             raise ValidationError(str(err)) from err
