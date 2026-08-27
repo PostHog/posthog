@@ -326,6 +326,7 @@ class TestFetchAndUpsertCimdApplication(APIBaseTest):
         assert app is not None
         self.assertTrue(app.is_cimd_client)
         self.assertFalse(app.is_dcr_client)
+        self.assertEqual(app.client_id, VALID_CIMD_URL)
         self.assertEqual(app.cimd_metadata_url, VALID_CIMD_URL)
         self.assertEqual(app.name, "Test MCP Client")
         self.assertEqual(app.redirect_uris, "http://127.0.0.1:3000/callback")
