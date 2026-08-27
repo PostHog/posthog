@@ -657,22 +657,34 @@ body {
   border-left: 2px solid var(--blue-a6);
 }
 
+/* Scrollbars follow quill's ScrollArea: --input for the thumb, a faint
+   --input wash for the track. Every scrollbar rule reads these three. */
+:root {
+  --scrollbar-track: color-mix(in oklab, var(--input) 35%, transparent);
+  --scrollbar-thumb: var(--input);
+  --scrollbar-thumb-hover: color-mix(
+    in oklab,
+    var(--muted-foreground) 50%,
+    transparent
+  );
+}
+
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--gray-3);
+  background: var(--scrollbar-track);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--gray-8);
+  background: var(--scrollbar-thumb);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--gray-9);
+  background: var(--scrollbar-thumb-hover);
 }
 
 [data-slot="autocomplete-list"]::-webkit-scrollbar {
@@ -682,7 +694,7 @@ body {
   background: transparent;
 }
 [data-slot="autocomplete-list"]::-webkit-scrollbar-thumb {
-  background-color: var(--gray-a7);
+  background-color: var(--scrollbar-thumb);
   border-radius: 10px;
 }
 
@@ -718,11 +730,11 @@ body {
 }
 
 .scrollbar-overlay:hover::-webkit-scrollbar-thumb {
-  background: var(--gray-a6);
+  background: var(--scrollbar-thumb);
 }
 
 .scrollbar-overlay:hover::-webkit-scrollbar-thumb:hover {
-  background: var(--gray-a8);
+  background: var(--scrollbar-thumb-hover);
 }
 
 .scrollbar-overlay-y {
@@ -746,15 +758,15 @@ body {
 }
 
 .scrollbar-overlay-y:hover {
-  scrollbar-color: var(--gray-a6) transparent;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
 }
 
 .scrollbar-overlay-y:hover::-webkit-scrollbar-thumb {
-  background: var(--gray-a6);
+  background: var(--scrollbar-thumb);
 }
 
 .scrollbar-overlay-y:hover::-webkit-scrollbar-thumb:hover {
-  background: var(--gray-a8);
+  background: var(--scrollbar-thumb-hover);
 }
 
 /* File mention list styles */
