@@ -378,6 +378,14 @@ describe('weekly flaky report', () => {
         // Truthy either way TRUNK_* masking resolves, so these hold without pinning the env.
         assert.equal(statusFor(candidates[0]), `2/${CLUSTER_MIN_TESTS}`)
         assert.ok(statusFor(trunked))
+        const [clusterRow] = tableRows(
+            [candidates[0]],
+            () => ({ owner: 'team-devex', repoPath: null }),
+            () => ({ runsRescued: null, evidence: [] }),
+            statusFor
+        )
+        // The cluster PR count is a floor over overlapping member sets, never an exact count.
+        assert.deepEqual(clusterRow[4], { type: 'raw_text', text: '1+' })
     })
 
     it('matches a Jest selector reported from the package root against Trunk', async () => {

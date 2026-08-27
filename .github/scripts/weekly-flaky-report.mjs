@@ -322,6 +322,15 @@ function collapseClusters(items, statusFor) {
     return collapsed
 }
 
+// A cluster's PR count is the max over members whose PR sets can overlap, so it is a
+// floor on the distinct PRs hit; the trailing + keeps it from reading as exact.
+function prCountCell(item) {
+    if (item.failed_pr_count == null) {
+        return '-'
+    }
+    return item.cluster_size ? `${item.failed_pr_count}+` : String(item.failed_pr_count)
+}
+
 // Rescued runs first (the strongest per-test signal), clusters and the rest by volume.
 function rankReportCandidates(items, extrasFor) {
     return items
@@ -370,7 +379,7 @@ function tableRows(items, ownerFor, extrasFor, statusFor = () => null) {
             cell(RUNNER_LABELS[item.runner] || item.runner),
             cell(owner.replace(/^team-/, '')),
             cell(statusFor(item) || '-'),
-            cell(item.failed_pr_count == null ? '-' : String(item.failed_pr_count)),
+            cell(prCountCell(item)),
             cell(runsRescued == null ? '-' : String(runsRescued)),
             cell(String(item.failed_run_count)),
             logLinks.length > 0 ? linkedCell(logLinks) : cell('-'),
