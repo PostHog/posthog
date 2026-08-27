@@ -30,8 +30,9 @@ from products.growth.backend.models import ProductPushCampaign
 from products.growth.backend.product_push.cadence import is_retry_eligible
 
 # The order in which we push products to organizations that don't use them yet.
-# Seeded from the cross-sell BASE_PREFERENCE_WEIGHTS ranking (see
-# cross_sell_candidate_selector.py); extend as growth adds products to the program.
+# Seeded from the preference weights of the retired cross-sell suggester, whose
+# ranking came from https://us.posthog.com/project/2/notebooks/x3AWOfsm
+# Extend as growth adds products to the program.
 BLESSED_PRODUCT_ORDER: list[ProductKey] = [
     ProductKey.PRODUCT_ANALYTICS,
     ProductKey.WEB_ANALYTICS,
