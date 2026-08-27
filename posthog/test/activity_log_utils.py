@@ -12,6 +12,8 @@ from django.utils import timezone
 
 from rest_framework import status
 
+from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
+
 from ee.api.test.base import APILicensedTest
 
 if TYPE_CHECKING:
@@ -125,10 +127,9 @@ class ActivityLogTestHelper(APILicensedTest):
         """Create an insight via API."""
         data = {
             "name": name,
-            "query": {
-                "kind": "InsightVizNode",
-                "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
-            },
+            "query": filter_to_query({"events": [{"id": "$pageview"}], "display": "ActionsLineGraph"}).model_dump(
+                exclude_none=True, mode="json"
+            ),
             "description": "Test insight description",
             **kwargs,
         }

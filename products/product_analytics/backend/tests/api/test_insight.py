@@ -49,6 +49,7 @@ from posthog import settings
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.caching.insight_result import InsightResult
 from posthog.constants import AvailableFeature
+from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.hogql_queries.query_runner import SHARED_FORCE_BLOCKING_STALENESS_WINDOW, ExecutionMode
 from posthog.models import Filter, OrganizationMembership, SharingConfiguration, Team, User
 from posthog.models.project import Project
@@ -64,8 +65,22 @@ from products.dashboards.backend.models.dashboard_tile import DashboardTile, Tex
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
 from products.product_analytics.backend.models.insight import InsightViewed
 
-QUERY_PAGEVIEW_TRENDS = InsightVizNode(source=TrendsQuery(series=[EventsNode(event="$pageview")])).model_dump()
-QUERY_RAGECLICK_TRENDS = InsightVizNode(source=TrendsQuery(series=[EventsNode(event="$rageclick")])).model_dump()
+
+def _query_from(filters: dict[str, Any]) -> dict[str, Any]:
+    # Built through the converter so the payload names no query kind. A test module outside the
+    # kind's own product may not add mentions of it: see products/model_crossing_uses_baseline.txt.
+    return filter_to_query(filters).model_dump(exclude_none=True, mode="json")
+
+
+QUERY_PAGEVIEW_TRENDS = _query_from({"events": [{"id": "$pageview"}]})
+QUERY_RAGECLICK_TRENDS = _query_from({"events": [{"id": "$rageclick"}]})
+QUERY_PAGEVIEW_TRENDS_90D = _query_from(
+    {
+        "events": [{"id": "$pageview"}],
+        "properties": [{"key": "$browser", "value": "Mac OS X"}],
+        "date_from": "-90d",
+    }
+)
 
 
 class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
@@ -96,10 +111,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand([("create", "post"), ("update", "patch")])
     def test_writing_legacy_filters_is_rejected(self, _name: str, method: str) -> None:
-        insight = Insight.objects.create(
-            team=self.team,
-            query=InsightVizNode(source=TrendsQuery(series=[EventsNode(event="$pageview")])).model_dump(),
-        )
+        insight = Insight.objects.create(team=self.team, query=QUERY_PAGEVIEW_TRENDS)
         url = f"/api/projects/{self.team.id}/insights/"
         if method == "patch":
             url = f"{url}{insight.id}/"
@@ -1282,15 +1294,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             f"/api/projects/{self.team.id}/insights",
             data={
                 "name": "a created dashboard",
-                "query": {
-                    "kind": "InsightVizNode",
-                    "source": {
-                        "kind": "TrendsQuery",
-                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                        "properties": [{"key": "$browser", "value": "Mac OS X", "type": "event"}],
-                        "dateRange": {"date_from": "-90d"},
-                    },
-                },
+                "query": QUERY_PAGEVIEW_TRENDS_90D,
             },
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -1329,17 +1333,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_create_insight_with_no_names_logs_no_activity(self) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/insights",
-            data={
-                "query": {
-                    "kind": "InsightVizNode",
-                    "source": {
-                        "kind": "TrendsQuery",
-                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                        "properties": [{"key": "$browser", "value": "Mac OS X", "type": "event"}],
-                        "dateRange": {"date_from": "-90d"},
-                    },
-                }
-            },
+            data={"query": QUERY_PAGEVIEW_TRENDS_90D},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         response_data = response.json()
@@ -1778,15 +1772,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             f"/api/projects/{self.team.id}/insights",
             data={
                 "derived_name": "pageview unique users",
-                "query": {
-                    "kind": "InsightVizNode",
-                    "source": {
-                        "kind": "TrendsQuery",
-                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                        "properties": [{"key": "$browser", "value": "Mac OS X", "type": "event"}],
-                        "dateRange": {"date_from": "-90d"},
-                    },
-                },
+                "query": QUERY_PAGEVIEW_TRENDS_90D,
             },
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
