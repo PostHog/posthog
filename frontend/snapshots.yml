@@ -6960,6 +6960,10 @@ snapshots:
         hash: v1.k794b7964.cb0a021303b103cdcd037db93be44c2c5eae3e59494ab8a726ac8e430f631dfd.n4BzfjRbtrkqXUS8HZwDAYrPQHYDeqCHuny9Z4Oz134
     scenes-app-inbox-scoutmcpserverspicker--scout-settings-variant--light:
         hash: v1.k794b7964.2f1013abc412adb4544bca6a00209d3051c46969db69d4242ab201ecf5d189f3.YVfbrzpaRzPwuCbeFXmaVOLla0fvhHmAm1CkuaKWCLI
+    scenes-app-inbox-scoutowners--states--dark:
+        hash: v1.k794b7964.2ee1d4942c7c04c494fc25af3d73031dd26190ecca1ecdf02f5b0c21751d3084.WJ8hfD7b6hZxiBmCQ_k4Wx9LrTXdLrk39-Kau-gMIJU
+    scenes-app-inbox-scoutowners--states--light:
+        hash: v1.k794b7964.62cb1889d60cf91cae1d0337da5a9209f4a759a1ccfed6a67dd6d2b238e75f13.qvVHYAWE8wGdD83VE5OOHw6uveEUae2uieDQ6sExrrs
     scenes-app-inbox-scoutsroster--large-fleet--dark:
         hash: v1.k794b7964.93eef32b387248bc4fb19e860267675bdb55ebd544cf31a4d462db8c27db4c42.LW5WPysIjDR4qLLNitsa4Ba5PORL-Z_psDYcc9pjK2A
     scenes-app-inbox-scoutsroster--large-fleet--light:
