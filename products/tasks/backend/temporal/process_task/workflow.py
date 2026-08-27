@@ -128,6 +128,12 @@ from .activities.start_agent_server import (
     mark_repo_ready,
     start_agent_server,
 )
+from .activities.start_dev_stack_preview import (
+    StartDevStackPreviewInput,
+    WaitDevStackPreviewInput,
+    start_dev_stack_preview,
+    wait_dev_stack_preview,
+)
 from .activities.track_workflow_event import SANDBOX_DEADLINE_EVENT, TrackWorkflowEventInput, track_workflow_event
 from .activities.update_task_run_status import (
     SANDBOX_GONE_STATE_KEY,
@@ -353,6 +359,8 @@ _PATCH_ID_AGENT_READY_AFTER_PRIMARY_CLONE = "tasks-agent-ready-after-primary-clo
 # that non-idempotent work one attempt with a budget larger than its inner 10-minute cap.
 _DESKTOP_BOOTSTRAP_ACTIVITY_TIMEOUT = timedelta(minutes=20)
 
+_DEV_STACK_PREVIEW_WAIT_TIMEOUT = timedelta(minutes=15)
+
 # #60923 dropped the redundant slack post that ran immediately after sandbox
 # provisioning — between `_get_sandbox_for_repository` and the agent-start
 # progress emit. Pre-rollout histories scheduled a `post_slack_update` activity
@@ -400,6 +408,8 @@ _PATCH_ID_SNAPSHOT_BEFORE_CI_FOLLOW_UP = "tasks-snapshot-before-ci-follow-up"
 # terminalization poll_for_turn callers rely on. Same cleanup lifecycle as above.
 _PATCH_ID_FOLLOWUP_FAILURE_KEEPS_RUN = "tasks-followup-failure-keeps-run"
 
+_PATCH_ID_DEV_STACK_PREVIEW = "tasks-dev-stack-preview"
+
 # `Task.OriginProduct.ONBOARDING`, mirrored as a literal so workflow code stays free of
 # Django model imports.
 _ONBOARDING_ORIGIN_PRODUCT = "onboarding"
@@ -427,6 +437,10 @@ def _run_lifecycle_bounds_enabled() -> bool:
     return workflow.patched(_PATCH_ID_RUN_LIFECYCLE_BOUNDS)
 
 
+def _dev_stack_preview_enabled() -> bool:
+    return workflow.in_workflow() and workflow.patched(_PATCH_ID_DEV_STACK_PREVIEW)
+
+
 @temporalio.workflow.defn(name="process-task")
 class ProcessTaskWorkflow(PostHogWorkflow):
     def __init__(self) -> None:
@@ -439,6 +453,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._sandbox_connect_token: Optional[str] = None
         self._sandbox_jwt_kid: Optional[str] = None
         self._resume_snapshot_invalidated = False
+        self._preview_progress_open: bool = False
         self._task_completed: bool = False
         self._completion_status: str = "completed"
         self._completion_error: Optional[str] = None
@@ -964,6 +979,54 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         await self._emit_progress("pr", "completed", "Opened pull request", "setup", detail=pr_url)
         await self._emit_progress("ci", "in_progress", "Keeping CI green", "setup")
 
+    def _start_dev_stack_preview(self, sandbox_id: str) -> "asyncio.Task[None] | None":
+        repository = self.context.repository
+        if not repository:
+            return None
+        return asyncio.ensure_future(self._run_dev_stack_preview(sandbox_id, repository))
+
+    async def _run_dev_stack_preview(self, sandbox_id: str, repository: str) -> None:
+        try:
+            output = await workflow.execute_activity(
+                start_dev_stack_preview,
+                StartDevStackPreviewInput(
+                    context=self.context,
+                    sandbox_id=sandbox_id,
+                    repository=repository,
+                ),
+                start_to_close_timeout=timedelta(minutes=3),
+                retry_policy=RetryPolicy(maximum_attempts=2),
+            )
+        except Exception:
+            workflow.logger.warning(
+                "Could not start the dev stack preview",
+                extra={"run_id": self.context.run_id, "sandbox_id": sandbox_id},
+            )
+            return
+        if not output.started:
+            return
+        self._preview_progress_open = True
+        try:
+            await workflow.execute_activity(
+                wait_dev_stack_preview,
+                WaitDevStackPreviewInput(context=self.context, sandbox_id=sandbox_id),
+                start_to_close_timeout=_DEV_STACK_PREVIEW_WAIT_TIMEOUT,
+                heartbeat_timeout=timedelta(minutes=2),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+        except Exception:
+            workflow.logger.warning(
+                "Gave up waiting for the dev stack preview",
+                extra={"run_id": self.context.run_id, "sandbox_id": sandbox_id},
+            )
+        self._preview_progress_open = False
+
+    async def _close_dev_stack_preview_progress(self) -> None:
+        if not self._preview_progress_open:
+            return
+        self._preview_progress_open = False
+        await self._emit_progress("preview", "failed", "Preview didn't start", "setup")
+
     async def _should_run_babysit_follow_up(self) -> CIFollowUpDecision:
         self._pending_babysit = None
         snapshot = await workflow.execute_activity(
@@ -1054,6 +1117,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._prewarmed = input.prewarmed
         credential_refresh_task: asyncio.Task[None] | None = None
         permission_response_task: asyncio.Task[None] | None = None
+        preview_task: asyncio.Task[None] | None = None
         try:
             self._context = await self._get_task_processing_context(input)
             self._posthog_mcp_scopes = input.posthog_mcp_scopes
@@ -1104,6 +1168,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     self._run_credential_refresh_until_sandbox_gone(sandbox_id)
                 )
 
+            if self.context.dev_stack_preview_enabled and _dev_stack_preview_enabled():
+                preview_task = self._start_dev_stack_preview(sandbox_id)
+
             # A continuation already delivered the first user message in a prior execution.
             if input.resumed_sandbox is None and input.initial_message is not None:
                 self._pending_followups.append(input.initial_message)
@@ -1127,7 +1194,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                         },
                     )
                     # Stop the background loops but leave the sandbox for the next execution.
-                    for task in (relay_task, credential_refresh_task, permission_response_task):
+                    for task in (
+                        relay_task,
+                        credential_refresh_task,
+                        permission_response_task,
+                        preview_task,
+                    ):
                         if task is not None:
                             await self._cancel_relay(task)
                     workflow.continue_as_new(self._build_resumed_input(input, sandbox_id))
@@ -1211,6 +1283,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                             rotation_reason = rotation.reason
                         if rotated_sandbox_id:
                             sandbox_id = rotated_sandbox_id
+                            if self.context.dev_stack_preview_enabled and _dev_stack_preview_enabled():
+                                if preview_task is not None:
+                                    await self._cancel_relay(preview_task)
+                                preview_task = self._start_dev_stack_preview(sandbox_id)
                             await self._emit_progress(
                                 step="sandbox_deadline",
                                 status="completed",
@@ -1515,6 +1591,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     await self._cancel_relay(credential_refresh_task)
                 if permission_response_task is not None:
                     await self._cancel_relay(permission_response_task)
+                if preview_task is not None:
+                    await self._cancel_relay(preview_task)
+                await self._close_dev_stack_preview_progress()
 
                 cleanup_sandbox_id = sandbox_id or self._sandbox_id_for_cleanup
                 if cleanup_sandbox_id:
