@@ -97,6 +97,27 @@ function parseWorkflowEmailRateLimit(metadata: HogFunctionType['metadata']): Hog
     return parsed.success ? parsed.data : null
 }
 
+const workflowEmailPausedTotal = new Counter({
+    name: 'cdp_workflow_email_paused_total',
+    help: 'Email sends skipped because the workflow they belong to had its email paused for complaints or hard bounces.',
+})
+
+/**
+ * Whether this workflow's email is paused, and the customer-facing reason.
+ *
+ * Stamped into the synthetic hog function's metadata by HogFlowFunctionsService, which is the only
+ * flow-level state in scope here. The `HogFlow` post_save signal publishes a worker config reload
+ * when the pause is written, so an in-flight run and an already-queued batch send both stop at this
+ * choke point instead of only newly started runs.
+ */
+function parseWorkflowEmailPause(metadata: HogFunctionType['metadata']): { reason: string } | null {
+    if (!metadata?.email_sending_paused_at) {
+        return null
+    }
+    const reason = metadata.email_sending_paused_reason
+    return { reason: typeof reason === 'string' ? reason : '' }
+}
+
 function pickWorkflowRateLimitRetryDelayMs(refillPerSecond: number): number {
     // Wake around when the next token accrues. The 1x-2x jitter spreads a queued backlog's
     // retries so they don't all re-dequeue (and re-claim against one token) at the same instant.
@@ -245,6 +266,32 @@ export class EmailService {
                         instance_id: invocation.state.actionId || invocation.id,
                         metric_kind: 'email',
                         metric_name: 'email_suspended',
+                        count: 1,
+                    })
+                }
+                result.invocation.state.vmState?.stack.push({ success: false })
+                return result
+            }
+
+            // Per-workflow pause: this workflow's complaint or hard bounce rate breached a
+            // threshold, so its email is held while the rest of the project keeps sending. Placed
+            // at the same choke point as the team-level switch above, for the same reason. Test
+            // sends are blocked too, because they hit SES and count against the tenant all the same.
+            const workflowPause = parseWorkflowEmailPause(invocation.hogFunction.metadata)
+            if (workflowPause) {
+                workflowEmailPausedTotal.inc()
+                const pauseDetail = workflowPause.reason ? ` ${workflowPause.reason}` : ''
+                addLog(
+                    'warn',
+                    `Skipping send: email sending is paused for this workflow.${pauseDetail} Resume it from the workflow page once the audience is cleaned up.`
+                )
+                if (!isTest) {
+                    result.metrics.push({
+                        team_id: invocation.teamId,
+                        app_source_id: invocation.parentRunId ?? invocation.functionId,
+                        instance_id: invocation.state.actionId || invocation.id,
+                        metric_kind: 'email',
+                        metric_name: 'email_paused',
                         count: 1,
                     })
                 }
