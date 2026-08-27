@@ -10,7 +10,9 @@ vi.mock("../../../utils/github-token", () => ({
   resolveGithubToken: vi.fn(() => undefined),
 }));
 
-const { cloneRepoTool, GITHUB_AUTH_CONFIG_KEY } = await import("./clone-repo");
+const { cloneRepoTool, cloneRoot, GITHUB_AUTH_CONFIG_KEY } = await import(
+  "./clone-repo"
+);
 
 const REPO_URL = "https://github.com/PostHog/posthog.git";
 
@@ -19,6 +21,7 @@ describe("clone_repo", () => {
   let sourcePath: string;
   let targetPath: string;
   let previousConfigGlobal: string | undefined;
+  let previousIsSandbox: string | undefined;
 
   async function git(args: string[], repoPath: string): Promise<string> {
     const result = await execGit(args, { cwd: repoPath });
@@ -29,6 +32,8 @@ describe("clone_repo", () => {
   }
 
   beforeEach(async () => {
+    previousIsSandbox = process.env.IS_SANDBOX;
+    delete process.env.IS_SANDBOX;
     cwd = await mkdtemp(path.join(tmpdir(), "posthog-code-clone-tool-"));
     sourcePath = path.join(cwd, "source");
     targetPath = path.join(cwd, "repos", "PostHog", "posthog");
@@ -61,12 +66,23 @@ describe("clone_repo", () => {
   });
 
   afterEach(async () => {
+    if (previousIsSandbox === undefined) {
+      delete process.env.IS_SANDBOX;
+    } else {
+      process.env.IS_SANDBOX = previousIsSandbox;
+    }
     if (previousConfigGlobal === undefined) {
       delete process.env.GIT_CONFIG_GLOBAL;
     } else {
       process.env.GIT_CONFIG_GLOBAL = previousConfigGlobal;
     }
     await rm(cwd, { recursive: true, force: true });
+  });
+
+  it("uses the snapshotted repository root in cloud sandboxes", () => {
+    process.env.IS_SANDBOX = "1";
+
+    expect(cloneRoot("/tmp/another-directory")).toBe("/tmp/workspace/repos");
   });
 
   it("clones one commit of the requested branch, without tags or a token in origin", async () => {

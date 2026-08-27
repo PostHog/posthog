@@ -13,6 +13,7 @@ import { defineLocalTool, type LocalToolResult } from "../registry";
 
 const GIT_TIMEOUT_MS = 10 * 60 * 1000;
 const GITHUB_BASE_URL = "https://github.com/";
+const CLOUD_CLONE_ROOT = "/tmp/workspace/repos";
 
 /**
  * Scoping the auth header to github.com is what keeps the token from being
@@ -65,6 +66,12 @@ function gitEnv(token: string | undefined): Record<string, string> {
  * cloning into.
  */
 const inFlight = new Map<string, Promise<LocalToolResult>>();
+
+export function cloneRoot(cwd: string): string {
+  return process.env.IS_SANDBOX === "1"
+    ? CLOUD_CLONE_ROOT
+    : path.join(cwd, "repos");
+}
 
 function withCloneLock(
   targetPath: string,
@@ -123,7 +130,7 @@ export const cloneRepoTool = defineLocalTool({
     }
     const slug = `${parsed.owner}/${parsed.repo}`;
     const repoName = parsed.repo;
-    const targetPath = path.join(ctx.cwd, "repos", slug);
+    const targetPath = path.join(cloneRoot(ctx.cwd), slug);
     const cloneUrl = `${GITHUB_BASE_URL}${slug}.git`;
 
     const git = (gitArgs: string[], cwd?: string): Promise<GitExecResult> =>
