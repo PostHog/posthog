@@ -1602,6 +1602,7 @@ export interface SignalReportStateRequestApi {
     dismissal_note?: string
     /**
      * Optional, only allowed with dismissal_reason='wrong_repo'. The repository this report should have targeted, in 'owner/repo' format (case-insensitive). It is recorded with the dismissal and fed into future repository selection for this project. When the repository is connected to the project, it also becomes the report's corrected repo selection, so restoring the report re-researches against it.
+     * @minLength 1
      * @maxLength 140
      */
     corrected_repository?: string
@@ -1775,6 +1776,7 @@ export interface SignalReportBulkStateRequestApi {
     dismissal_note?: string
     /**
      * Optional, only allowed with dismissal_reason='wrong_repo'. The repository this report should have targeted, in 'owner/repo' format (case-insensitive). It is recorded with the dismissal and fed into future repository selection for this project. When the repository is connected to the project, it also becomes the report's corrected repo selection, so restoring the report re-researches against it.
+     * @minLength 1
      * @maxLength 140
      */
     corrected_repository?: string

@@ -527,6 +527,9 @@ class SignalReportStateRequestSerializer(serializers.Serializer):
     corrected_repository = serializers.CharField(
         required=False,
         allow_blank=False,
+        # min_length=1 (not just allow_blank=False) so the non-empty constraint surfaces as
+        # `minLength: 1` in the generated OpenAPI/Zod schema, not only as a server-side 400.
+        min_length=1,
         max_length=_CORRECTED_REPOSITORY_MAX_LENGTH,
         help_text=(
             "Optional, only allowed with dismissal_reason='wrong_repo'. The repository this report "

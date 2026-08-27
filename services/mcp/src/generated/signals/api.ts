@@ -205,6 +205,7 @@ export const SignalsReportsStateCreateBody = /* @__PURE__ */ zod.object({
         .describe('Optional free-form note explaining the dismissal. Capped at 4000 characters.'),
     corrected_repository: zod
         .string()
+        .min(1)
         .max(signalsReportsStateCreateBodyCorrectedRepositoryMax)
         .optional()
         .describe(
@@ -406,6 +407,7 @@ export const SignalsReportsBulkStateCreateBody = /* @__PURE__ */ zod.object({
         .describe('Optional free-form note explaining the dismissal. Capped at 4000 characters.'),
     corrected_repository: zod
         .string()
+        .min(1)
         .max(signalsReportsBulkStateCreateBodyCorrectedRepositoryMax)
         .optional()
         .describe(
