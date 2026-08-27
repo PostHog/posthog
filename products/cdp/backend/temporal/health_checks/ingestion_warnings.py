@@ -39,12 +39,22 @@ def _humanize_warning_type(warning_type: str) -> str:
     return label[:1].upper() + label[1:] if label else warning_type
 
 
+# A few 'warning'-severity types drop the whole message, so severity alone would make the
+# copy claim their data was ingested when it was lost. These are the replay types that call
+# `drop(...)` in nodejs/src/ingestion/pipelines/sessionreplay/parse-message-step.ts.
+_WARNING_TYPES_THAT_DROP = {
+    "message_contained_no_valid_rrweb_events",
+    "message_timestamp_diff_too_large",
+}
+
+
 # Ingestion warnings do not all mean the same thing. `category`/`severity` come with
 # each type (see `INGESTION_WARNING_TYPES` in nodejs/src/ingestion/common/ingestion-warning-types.ts):
 # 'quota' warnings drop nothing, an 'error' severity means the event was dropped, and a
-# 'warning' severity means it was ingested but changed. The notification copy branches on
-# these so it never tells a user their data is incomplete when nothing was lost.
-def _impact_and_guidance(category: str | None, severity: str | None) -> tuple[str, str]:
+# 'warning' severity usually means it was ingested but changed. Severity alone is too coarse for
+# a few 'warning' types (some drop the whole message, one ingests nothing), so those branch on
+# the type first. The copy never tells a user their data is incomplete when nothing was lost.
+def _impact_and_guidance(warning_type: str | None, category: str | None, severity: str | None) -> tuple[str, str]:
     if category == "quota":
         return (
             "This is one of PostHog's platform rate limits, not a problem with your data. PostHog still "
@@ -65,6 +75,19 @@ def _impact_and_guidance(category: str | None, severity: str | None) -> tuple[st
             "events dropped on purpose, such as events too old to ingest or events removed by one of your "
             "transformations. Nothing was dropped unexpectedly.",
             "Review the ingestion warnings page if you did not expect them.",
+        )
+    if warning_type in _WARNING_TYPES_THAT_DROP:
+        return (
+            "The affected session recording data was dropped on the way in and did not reach PostHog, so "
+            "those recordings are incomplete or missing.",
+            "Review the ingestion warnings page to find the source. An outdated replay SDK or a device clock "
+            "that is far off is the usual cause.",
+        )
+    if warning_type == "no_ai_spans_ingested":
+        return (
+            "Nothing was dropped, but the data sent contained no AI events, so no AI data was ingested from it.",
+            "Review the ingestion warnings page and check that your exporter is sending AI events to "
+            "PostHog's AI endpoint.",
         )
     return (
         "The affected events were ingested but changed or partly rejected on the way in, so that data may "
@@ -161,7 +184,11 @@ class IngestionWarningsCheck(HealthCheck):
         count_clause = f"{count:,} times" if isinstance(count, int) else "repeatedly"
         title = "Ingestion warning detected"
         summary = f"{label} fired {count} times" if count is not None else f"{label} detected"
-        impact, guidance = _impact_and_guidance(issue.payload.get("category"), issue.payload.get("severity"))
+        impact, guidance = _impact_and_guidance(
+            issue.payload.get("warning_type"),
+            issue.payload.get("category"),
+            issue.payload.get("severity"),
+        )
         return SignalContent(
             description=(
                 f"PostHog raised the “{label}” ingestion warning {count_clause} for this project in the last "

@@ -66,6 +66,29 @@ class TestIngestionWarningsSignal(SimpleTestCase):
         assert "may be" in signal.description
         assert "were dropped" not in signal.description
 
+    @parameterized.expand(
+        [
+            "message_contained_no_valid_rrweb_events",
+            "message_timestamp_diff_too_large",
+        ]
+    )
+    def test_dropped_replay_warning_reports_the_loss(self, warning_type: str):
+        # These replay types are 'warning' severity but drop the whole message, so the copy must
+        # report the loss, not the generic "ingested but changed" fallback.
+        signal = IngestionWarningsCheck.render_signal(_issue(warning_type, "replay", "warning"))
+        assert signal is not None
+        assert "dropped" in signal.description
+        assert "ingested but changed" not in signal.description
+
+    def test_no_ai_spans_warning_says_nothing_dropped_and_nothing_ingested(self):
+        # no_ai_spans_ingested drops nothing but ingests nothing either, so it must not claim the
+        # affected data landed but changed.
+        signal = IngestionWarningsCheck.render_signal(_issue("no_ai_spans_ingested", "event", "warning"))
+        assert signal is not None
+        assert "Nothing was dropped" in signal.description
+        assert "no AI" in signal.description
+        assert "ingested but changed" not in signal.description
+
     def test_error_warning_for_update_only_type_names_the_update(self):
         # person_properties_size_violation rejects only the person update; the event still
         # ingests. Error copy must not tell users the event itself failed to ingest.
