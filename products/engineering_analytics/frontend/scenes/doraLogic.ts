@@ -68,10 +68,10 @@ export interface doraLogicActions {
 export interface doraLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         boxPlotBuckets: (dora: DoraOverviewApi | null) => BoxPlotBucket[]
-        environmentOptions: (dora: DoraOverviewApi | null) => DoraScopeOption[]
-        environmentScopeLabel: (dora: DoraOverviewApi | null) => string
         frequencyCounts: (dora: DoraOverviewApi | null) => number[]
         frequencyIsoLabels: (dora: DoraOverviewApi | null) => string[]
+        environmentScopeLabel: (dora: DoraOverviewApi | null) => string
+        environmentOptions: (dora: DoraOverviewApi | null) => DoraScopeOption[]
         githubTeamOptions: (dora: DoraOverviewApi | null) => DoraScopeOption[]
     }
 }
@@ -112,7 +112,7 @@ export const doraLogic = kea<doraLogicType>([
         ],
     })),
 
-    reducers({
+    reducers(() => ({
         // Non-400 failure only; the shared 400 "not connected" state comes from engineeringAnalyticsLogic.
         doraFailed: [
             false,
@@ -141,7 +141,7 @@ export const doraLogic = kea<doraLogicType>([
                 [engineeringAnalyticsLogic.actionTypes.setScope]: () => null,
             },
         ],
-    }),
+    })),
 
     selectors({
         boxPlotBuckets: [
