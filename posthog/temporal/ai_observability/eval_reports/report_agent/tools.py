@@ -11,7 +11,7 @@ import re
 import json
 import time
 import random
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Annotated, Literal, TypeVar
 
@@ -65,10 +65,14 @@ logger = structlog.get_logger(__name__)
 # so they use bounded validation and always flow through AST constants instead.
 _UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
-# Detect UUID-shaped inline-code variants broadly because only an exact cited ID
-# in one pair of backticks becomes a code-span link in every report renderer.
-_BACKTICKED_UUID_RE = re.compile(
-    r"`+\s*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\s*`+",
+# Capture the token inside any inline-code span, so the guard can tell an ID
+# apart from prose regardless of how many backticks or spaces wrap it.
+_BACKTICKED_TOKEN_RE = re.compile(r"`+\s*([^`\n]+?)\s*`+")
+
+# Match a canonical UUID anywhere it is used as a whole token. Opaque IDs are not
+# UUID-shaped, so the guard also checks the session's handled-ID allowlists.
+_UUID_SHAPE_RE = re.compile(
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
     re.IGNORECASE,
 )
 
@@ -118,6 +122,20 @@ def _remember_returned_target_ids(state: dict, target_ids: list[object]) -> None
 def _is_allowlisted(state: dict, allowlist_key: str, value: str) -> bool:
     allowlist = state.get(allowlist_key)
     return isinstance(allowlist, list) and value in allowlist
+
+
+def _handled_ids(state: dict) -> set[str]:
+    """Return every target ID this run's queries returned, across both allowlists.
+
+    The agent state and the finished agent result are the same mapping, so the
+    in-loop guard and the final validation key on one definition of a handled ID.
+    """
+    handled: set[str] = set()
+    for allowlist_key in (TRACE_ID_ALLOWLIST_KEY, SESSION_ID_ALLOWLIST_KEY):
+        allowlist = state.get(allowlist_key)
+        if isinstance(allowlist, list):
+            handled.update(value for value in allowlist if isinstance(value, str))
+    return handled
 
 
 def _report_run_target_filter(evaluation_target: str) -> Q:
@@ -1470,17 +1488,33 @@ def set_title(
     return f"Title set: {clean!r}"
 
 
-def _unlinked_backticked_uuids(content: str, citations: list[Citation]) -> list[str]:
-    """Return backticked canonical UUIDs that will not be links in every report renderer."""
+def _dead_backticked_ids(text: str, citations: list[Citation], handled_ids: set[str]) -> list[str]:
+    """Return backticked IDs in `text` that no report renderer turns into a link.
+
+    A renderer links only an exactly-cited ID wrapped in one pair of backticks. An
+    ID is any backticked token the session handled (its query allowlists) or a
+    canonical UUID; other backticked spans are prose and stay untouched.
+    """
     cited_ids = {citation.cited_id() for citation in citations}
-    unlinked: list[str] = []
-    for match in _BACKTICKED_UUID_RE.finditer(content):
-        uuid_value = match.group(1)
-        has_exact_citation = uuid_value in cited_ids
-        uses_linkable_wrapper = match.group(0) == f"`{uuid_value}`"
-        if not (has_exact_citation and uses_linkable_wrapper) and uuid_value not in unlinked:
-            unlinked.append(uuid_value)
-    return unlinked
+    dead: list[str] = []
+    for match in _BACKTICKED_TOKEN_RE.finditer(text):
+        token = match.group(1)
+        if token not in handled_ids and _UUID_SHAPE_RE.fullmatch(token) is None:
+            continue
+        links = token in cited_ids and match.group(0) == f"`{token}`"
+        if not links and token not in dead:
+            dead.append(token)
+    return dead
+
+
+def _dead_backticked_ids_across(texts: Iterable[str], citations: list[Citation], handled_ids: set[str]) -> list[str]:
+    """Return the dead backticked IDs found in any of `texts`, in first-seen order."""
+    dead: list[str] = []
+    for text in texts:
+        for token in _dead_backticked_ids(text, citations, handled_ids):
+            if token not in dead:
+                dead.append(token)
+    return dead
 
 
 @tool
@@ -1519,9 +1553,9 @@ def add_section(
             f"Error: maximum of {MAX_REPORT_SECTIONS} sections reached. "
             "Merge your content into existing sections rather than fragmenting further."
         )
-    unlinked = _unlinked_backticked_uuids(clean_content, state["report"].citations)
-    if unlinked:
-        preview = ", ".join(f"`{uuid_value}`" for uuid_value in unlinked[:3])
+    dead = _dead_backticked_ids_across((clean_title, clean_content), state["report"].citations, _handled_ids(state))
+    if dead:
+        preview = ", ".join(f"`{token}`" for token in dead[:3])
         return (
             f"Error: the following backticked IDs will not render as citation links: {preview}. "
             "Cite each generation, trace, or session with add_citation, then use one pair of backticks around the exact cited ID. "
