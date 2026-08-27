@@ -4,6 +4,8 @@ import re
 from collections import Counter
 from typing import TYPE_CHECKING
 
+from posthog.dataclasses import frozen
+
 if TYPE_CHECKING:
     from markdown_to_mrkdwn import SlackMarkdownConverter
 
@@ -133,9 +135,18 @@ _MARKDOWN_HEADING_RE = re.compile(r"^(#{1,6})[ \t]+\S")
 _MARKDOWN_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 
 
-def _heading_lines(text: str) -> list[tuple[int, int]]:
-    """Character offset and level of each ATX heading line, skipping any inside a fenced code block."""
-    headings: list[tuple[int, int]] = []
+@frozen
+class _MarkdownHeading:
+    """Where an ATX heading starts in the text, and how deep it is. Both fields are plain ints, so a
+    tuple would let a call site read the level as an offset."""
+
+    offset: int
+    level: int
+
+
+def _markdown_headings(text: str) -> list[_MarkdownHeading]:
+    """Every ATX heading in the text, skipping any inside a fenced code block."""
+    headings: list[_MarkdownHeading] = []
     fence: str | None = None  # marker of the currently open fence, else None
     offset = 0
     for line in text.split("\n"):
@@ -149,7 +160,7 @@ def _heading_lines(text: str) -> list[tuple[int, int]]:
         else:
             heading_match = _MARKDOWN_HEADING_RE.match(line)
             if heading_match:
-                headings.append((offset, len(heading_match.group(1))))
+                headings.append(_MarkdownHeading(offset=offset, level=len(heading_match.group(1))))
         offset += len(line) + 1  # +1 for the "\n" that split dropped
     return headings
 
@@ -174,11 +185,11 @@ def split_markdown_by_headings(text: str) -> list[str]:
     text = text.strip()
     if not text:
         return []
-    headings = _heading_lines(text)
+    headings = _markdown_headings(text)
     if not headings:
         return [text]
-    split_level = _split_heading_level([level for _, level in headings])
-    starts = [offset for offset, level in headings if level == split_level]
+    split_level = _split_heading_level([heading.level for heading in headings])
+    starts = [heading.offset for heading in headings if heading.level == split_level]
     segments = [text[: starts[0]]]
     for index, start in enumerate(starts):
         end = starts[index + 1] if index + 1 < len(starts) else len(text)
