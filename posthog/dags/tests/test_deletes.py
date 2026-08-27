@@ -15,13 +15,24 @@ from posthog.dags.deletes import (
     MonthlyCleanupConfig,
     PendingDeletesDictionary,
     PendingDeletesTable,
+    StagedDictionary,
     cleanup_old_events_by_partition,
     deletes_job,
     find_partitions_to_cleanup,
     monthly_old_events_cleanup_job,
 )
+from posthog.dags.tests.conftest import insert_flag_evaluations
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
+
+
+def surviving_flag_evaluations(client: Client) -> set[tuple[int, UUID, UUID]]:
+    # _row_exists = 1 filters out lightweight-deleted rows, which stay visible until a merge. Without
+    # it a swept row still reads back and the "survived the sweep" assertions pass on merge timing.
+    result = client.execute("SELECT team_id, person_id, uuid FROM flag_evaluations WHERE _row_exists = 1")
+    if not isinstance(result, list):
+        return set()
+    return {(row[0], row[1], row[2]) for row in result}
 
 
 @pytest.mark.django_db
@@ -44,6 +55,20 @@ def test_full_job_person_deletes(cluster: ClickhouseCluster):
         )
 
     cluster.any_host(insert_events).result()
+
+    # Flag-evaluation rows for one person whose deletion lands inside the window and one whose
+    # deletion sits past the override watermark, mirroring the two event assertions below. The
+    # sweep reaches this table only because it is registered as a deletion target.
+    swept_person, retained_person = hour_delay + 2, hour_delay - 2
+    cluster.any_host(
+        partial(
+            insert_flag_evaluations,
+            [
+                (i, f"distinct_id_{i}", UUID(int=i), UUID(int=i), timestamp - timedelta(hours=i))
+                for i in (swept_person, retained_person)
+            ],
+        )
+    ).result()
 
     def get_oldest_override_timestamp(client: Client) -> datetime:
         result = client.execute(f"SELECT min(_timestamp) FROM {PERSON_DISTINCT_ID_OVERRIDES_TABLE}")
@@ -117,6 +142,14 @@ def test_full_job_person_deletes(cluster: ClickhouseCluster):
     deleted_uuid = UUID(int=hour_delay + 2)
     assert not any(deleted_uuid == uuid for _, uuid in final_events.keys()), (
         f"Expected UUID {deleted_uuid} to be deleted"
+    )
+
+    surviving = cluster.any_host(surviving_flag_evaluations).result()
+    assert (swept_person, UUID(int=swept_person), UUID(int=swept_person)) not in surviving, (
+        "flag_evaluations rows for a deleted person survived the sweep"
+    )
+    assert (retained_person, UUID(int=retained_person), UUID(int=retained_person)) in surviving, (
+        "the sweep deleted a flag_evaluations row it should not have"
     )
 
     # Verify that the deletions before oldest override timestamp have been marked verified
@@ -378,9 +411,21 @@ def test_full_job_adhoc_event_deletes(cluster: ClickhouseCluster):
     cluster.any_host(insert_events).result()
     cluster.any_host(insert_adhoc_event_deletes).result()
 
+    # The queue holds (team_id, uuid) and the drain applies it to every personal-data table, so a
+    # flag-evaluation row sharing a queued uuid has to go with the event. This is the assumption
+    # the producer must honor: mirror the source event's uuid, or the two tables diverge here.
+    queued_uuid, unqueued_uuid = 5, delete_count + 5
+    cluster.any_host(
+        partial(
+            insert_flag_evaluations,
+            [(i, f"distinct_id_{i}", UUID(int=i), UUID(int=i), timestamp) for i in (queued_uuid, unqueued_uuid)],
+        )
+    ).result()
+
     # Check preconditions
     initial_events = cluster.any_host(partial(get_by_team_and_uuid, "writable_events")).result()
     assert len(initial_events) == event_count  # All events present initially
+    assert len(cluster.any_host(surviving_flag_evaluations).result()) == 2
 
     pending_deletes = cluster.any_host(get_pending_deletes).result()
     assert pending_deletes == delete_count
@@ -406,6 +451,14 @@ def test_full_job_adhoc_event_deletes(cluster: ClickhouseCluster):
     assert all(
         (event[0], event[2]) in final_events.keys() for event in events if event[0] not in range(delete_count)
     ), f"There are non-requested deleted events that were deleted"
+
+    surviving = cluster.any_host(surviving_flag_evaluations).result()
+    assert (queued_uuid, UUID(int=queued_uuid), UUID(int=queued_uuid)) not in surviving, (
+        "a flag_evaluations row whose uuid was queued for deletion survived"
+    )
+    assert (unqueued_uuid, UUID(int=unqueued_uuid), UUID(int=unqueued_uuid)) in surviving, (
+        "the drain deleted a flag_evaluations row whose uuid was never queued"
+    )
     # Verify the temporary tables were cleaned up
     deletes_dict = AdhocEventDeletesDictionary(source=AdhocEventDeletesTable())
     assert not any(cluster.map_all_hosts(deletes_dict.exists).result().values())
@@ -623,3 +676,108 @@ def test_monthly_old_events_cleanup_job(cluster: ClickhouseCluster):
 
     events_after = cluster.any_host(count_all_events).result()
     assert events_after == len(recent_events)
+
+
+def _insert_pending_deletes(table: PendingDeletesTable, client: Client, count: int = 5, first_id: int = 0) -> None:
+    client.execute(
+        table.populate_query,
+        [
+            {
+                "id": i,
+                "deletion_type": int(DeletionType.Person),
+                "key": str(UUID(int=i)),
+                "group_type_index": None,
+                "created_at": datetime(2026, 8, 26, 10, 11, 12),
+                "delete_verified_at": None,
+                "created_by_id": None,
+                "team_id": 99999,
+            }
+            for i in range(first_id, first_id + count)
+        ],
+    )
+
+
+@pytest.mark.django_db
+def test_a_staged_dictionary_holds_the_same_rows_as_the_source_table(cluster: ClickhouseCluster):
+    # A cluster with its own Keeper can never join the source table's replica set, so it loads the
+    # dictionary from a staged object instead, and the run is gated on both sides checksumming
+    # alike. That gate only means something if the staged copy round-trips every column exactly:
+    # a type Parquet does not preserve would make two correct clusters look like they disagree.
+    table = PendingDeletesTable(timestamp=datetime(2026, 8, 26, 10, 11, 12))
+    dictionary = PendingDeletesDictionary(source=table)
+    create = partial(dictionary.create, shards=1, max_execution_time=0, max_memory_usage=0)
+    recreate = partial(dictionary.recreate, shards=1, max_execution_time=0, max_memory_usage=0)
+
+    try:
+        cluster.any_host(table.create).result()
+        cluster.any_host(partial(_insert_pending_deletes, table)).result()
+
+        cluster.any_host(create).result()
+        from_source_table = cluster.any_host(dictionary.load).result()
+
+        staged = dictionary.staged()
+        cluster.any_host(partial(staged.export, source_query=dictionary.query)).result()
+        cluster.any_host(partial(recreate, query=staged.query)).result()
+        from_staged_object = cluster.any_host(dictionary.load).result()
+
+        assert from_staged_object == from_source_table
+    finally:
+        cluster.any_host(dictionary.drop).result()
+        cluster.any_host(table.drop).result()
+
+
+def test_staged_dictionary_escapes_quotes_inside_a_column_type() -> None:
+    # DateTime64(6, 'UTC') carries single quotes, and the structure is itself a quoted SQL literal,
+    # so an unescaped copy terminates the literal early and the s3() call fails to parse.
+    staged = StagedDictionary(
+        key="run/adhoc.parquet",
+        columns="team_id, uuid, created_at",
+        structure="team_id Int64, uuid UUID, created_at DateTime64(6, 'UTC')",
+    )
+    assert "DateTime64(6, \\'UTC\\')" in staged.query
+
+
+@pytest.mark.parametrize(
+    "dictionary",
+    [
+        PendingDeletesDictionary(source=PendingDeletesTable(timestamp=datetime(2026, 8, 26, 10, 11, 12))),
+        AdhocEventDeletesDictionary(source=AdhocEventDeletesTable()),
+    ],
+    ids=["pending_deletes", "adhoc_event_deletes"],
+)
+def test_a_staged_dictionary_is_keyed_by_the_dictionary_name(dictionary) -> None:
+    # CREATE ... IF NOT EXISTS keys on the dictionary name, and a dictionary outlives the run that
+    # created it. Keying the object per run instead leaves that definition naming an object no
+    # later run writes, so a cluster loading from S3 serves the first run's rows for ever.
+    assert dictionary.staged().key == f"{dictionary.name}.parquet"
+
+
+@pytest.mark.django_db
+def test_a_rerun_stages_over_the_previous_runs_object(cluster: ClickhouseCluster):
+    # Every run writes the same key, so the export has to replace the object rather than add to it.
+    # An append leaves both runs' rows behind, and the cluster loading from S3 then holds rows the
+    # cluster reading the source table does not.
+    table = PendingDeletesTable(timestamp=datetime(2026, 8, 26, 10, 11, 13))
+    dictionary = PendingDeletesDictionary(source=table)
+    recreate = partial(dictionary.recreate, shards=1, max_execution_time=0, max_memory_usage=0)
+    staged = dictionary.staged()
+
+    try:
+        cluster.any_host(table.create).result()
+        cluster.any_host(partial(_insert_pending_deletes, table, count=5)).result()
+        cluster.any_host(partial(staged.export, source_query=dictionary.query)).result()
+
+        cluster.any_host(table.truncate).result()
+        cluster.any_host(partial(_insert_pending_deletes, table, count=2, first_id=100)).result()
+        cluster.any_host(partial(staged.export, source_query=dictionary.query)).result()
+
+        cluster.any_host(partial(recreate, query=staged.query)).result()
+        from_staged_object = cluster.any_host(dictionary.load).result()
+
+        cluster.any_host(partial(recreate)).result()
+        from_source_table = cluster.any_host(dictionary.load).result()
+
+        assert from_staged_object == from_source_table
+    finally:
+        cluster.any_host(dictionary.drop).result()
+        cluster.any_host(table.drop).result()

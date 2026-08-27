@@ -14,6 +14,7 @@ import {
     IconComment,
     IconCopy,
     IconDownload,
+    IconFilter,
     IconMessage,
     IconPlay,
     IconPlus,
@@ -63,6 +64,7 @@ import { AccessControlLevel, AccessControlResourceType, SidePanelTab } from '~/t
 
 import type { BranchPRMatchApi } from 'products/engineering_analytics/frontend/generated/api.schemas'
 
+import { PersonData, getFilterIdentifier, getTracesUrlWithPersonFilter } from './aiObservabilityColumnRenderers'
 import { EnrichedTraceTreeNode, findNodeForEvent, aiObservabilityTraceDataLogic } from './aiObservabilityTraceDataLogic'
 import { DisplayOption, TraceViewMode, aiObservabilityTraceLogic } from './aiObservabilityTraceLogic'
 import { AttachedFeedbackPills } from './components/AttachedFeedbackPills'
@@ -88,6 +90,7 @@ import { SaveToDatasetButton } from './datasets/SaveToDatasetButton'
 import { FeedbackViewDisplay } from './feedback-view/FeedbackViewDisplay'
 import { generationEvaluationRunsLogic } from './generationEvaluationRunsLogic'
 import { useAIData } from './hooks/useAIData'
+import { TraceStructureNote } from './instrumentationChecklist/TraceStructureNote'
 import { LLMInputOutput } from './LLMInputOutput'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { normalizeMessages } from './messageNormalization'
@@ -604,6 +607,34 @@ function Chip({
     )
 }
 
+// Not built on top of Chip: the email needs its own popover click target, separate
+// from the filter button, so the whole tag can't share one tooltip trigger.
+function PersonChip({ person }: { person: PersonData }): JSX.Element {
+    const { push } = useActions(router)
+    const filterIdentifier = getFilterIdentifier(person)
+
+    return (
+        <LemonTag size="small" className="bg-surface-primary">
+            <span className="sr-only">Person</span>
+            <PersonDisplay withIcon="sm" person={person} />
+            {filterIdentifier && (
+                <LemonButton
+                    size="xsmall"
+                    icon={<IconFilter />}
+                    // A string tooltip also becomes the accessible name of this icon-only button
+                    tooltip={`View traces for ${filterIdentifier.value}`}
+                    noPadding
+                    className="ml-0.5"
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        push(getTracesUrlWithPersonFilter(filterIdentifier))
+                    }}
+                />
+            )}
+        </LemonTag>
+    )
+}
+
 function UsageChip({ event }: { event: LLMTraceEvent | LLMTrace }): JSX.Element | null {
     const usage = formatLLMUsage(event)
     return usage ? (
@@ -1072,9 +1103,7 @@ function TraceMetadata({
 
     return (
         <header className="flex gap-1.5 flex-wrap">
-            <Chip title="Person">
-                <PersonDisplay withIcon="sm" person={personData} />
-            </Chip>
+            <PersonChip person={personData} />
             {trace.aiSessionId && (
                 <Chip title="AI Session ID - Click to view session details">
                     <Link to={getSessionUrl(trace.aiSessionId)} subtle>
@@ -1202,6 +1231,7 @@ function TraceSidebar({
                         showBillingInfo={showBillingInfo}
                     />
                 </ul>
+                <TraceStructureNote events={trace.events} />
             </div>
         </aside>
     )

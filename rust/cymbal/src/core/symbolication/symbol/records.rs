@@ -138,7 +138,7 @@ impl ErrorTrackingStackFrame {
         ttl_policy: FrameResultTtlPolicy,
     ) -> Result<Vec<Self>, UnhandledError>
     where
-        E: Executor<'c, Database = sqlx::Postgres> + Clone,
+        E: Executor<'c, Database = sqlx::Postgres>,
     {
         struct Returned {
             raw_id: String,
@@ -161,7 +161,7 @@ impl ErrorTrackingStackFrame {
             id.hash_id,
             id.team_id
         )
-        .fetch_all(e.clone())
+        .fetch_all(e)
         .await?;
 
         if res.is_empty() {

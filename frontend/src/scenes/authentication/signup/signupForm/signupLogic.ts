@@ -11,6 +11,7 @@ import api from 'lib/api'
 import { ValidatedPasswordResult, validatePassword } from 'lib/components/PasswordStrength'
 import { CLOUD_HOSTNAMES, FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { splitFullName } from 'lib/utils/strings'
 import { getRelativeNextPath } from 'lib/utils/url'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { getPasskeyErrorMessage, isWebAuthnCancellation } from 'scenes/settings/user/passkeys/utils'
@@ -67,7 +68,6 @@ export interface signupLogicValues {
     challengeRequired: boolean
     emailCaseNotice: string | undefined
     emailWasNormalized: boolean
-    error: string | null
     isPasskeyRegistering: boolean
     isPendingInviteResending: boolean
     isSignupPanelAuthSubmitting: boolean
@@ -78,7 +78,6 @@ export interface signupLogicValues {
     isSignupPanelOnboardingValid: boolean
     loginUrl: string
     panel: number
-    panelTitle: string
     passkeyError: string | null
     passkeyRegistered: boolean
     pendingInvite: PendingInvite | null
@@ -152,9 +151,6 @@ export interface signupLogicActions {
     }
     setEmailNormalized: (wasNormalized: boolean) => {
         wasNormalized: boolean
-    }
-    setError: (error: string | null) => {
-        error: string | null
     }
     setPanel: (panel: number) => {
         panel: number
@@ -287,7 +283,6 @@ export interface signupLogicMeta {
         validatedPassword: (signupPanelAuth: SignupPanelAuthForm) => ValidatedPasswordResult
         emailCaseNotice: (emailWasNormalized: boolean) => string | undefined
         loginUrl: (searchParams: Record<string, any>) => string
-        panelTitle: (panel: number, preflight: PreflightStatus | null, pendingInvite: PendingInvite | null) => string
     }
 }
 
@@ -307,7 +302,6 @@ export const signupLogic = kea<signupLogicType>([
         setPasskeyRegistered: (registered: boolean) => ({ registered }),
         setPasskeyRegistering: (registering: boolean) => ({ registering }),
         setPasskeyError: (error: string | null) => ({ error }),
-        setError: (error: string | null) => ({ error }),
         // Turnstile challenge actions
         setChallengeRequired: (required: boolean) => ({ required }),
         setChallengeNonce: (nonce: string | null) => ({ nonce }),
@@ -351,12 +345,6 @@ export const signupLogic = kea<signupLogicType>([
             {
                 setPasskeyError: (_, { error }) => error,
                 registerPasskey: () => null,
-            },
-        ],
-        error: [
-            null as string | null,
-            {
-                setError: (_, { error }) => error,
             },
         ],
         challengeRequired: [
@@ -422,11 +410,16 @@ export const signupLogic = kea<signupLogicType>([
                       ? 'Please use a valid email address'
                       : undefined,
             }),
+            // kea-forms counts manual errors as validation errors and refuses to submit while any
+            // are set, and it only clears them when the field is touched or the form is reset. So
+            // the "account already exists" error from a previous attempt would block every later
+            // submit, leaving the user stuck on the email panel with a different email typed in.
+            preSubmit: () => {
+                actions.setSignupPanelEmailManualErrors({})
+            },
             submit: async ({ email }, breakpoint) => {
                 breakpoint()
-                actions.setSignupPanelEmailManualErrors({})
                 actions.setPasskeyError(null)
-                actions.setError(null)
                 let precheckResponse: SignupEmailPrecheckResponse
                 try {
                     precheckResponse = await api.create<SignupEmailPrecheckResponse>('api/signup/precheck', {
@@ -438,7 +431,6 @@ export const signupLogic = kea<signupLogicType>([
                         actions.setSignupPanelEmailManualErrors({
                             email: errorMessage,
                         })
-                        actions.setError(errorMessage)
                         actions.setPanel(0)
                         return
                     }
@@ -493,9 +485,14 @@ export const signupLogic = kea<signupLogicType>([
                 referral_source_ai_prompt: '',
             } as SignupPanelOnboardingForm,
             errors: ({ name, role_at_organization }) => ({
-                name: !name ? 'Please enter your name' : undefined,
+                name: !name?.trim() ? 'Please enter your name' : undefined,
                 role_at_organization: !role_at_organization ? 'Please select your role in the organization' : undefined,
             }),
+            // Same reason as the email panel: without this, the generic or name error left behind by
+            // a failed signup would make every retry of this form a no-op.
+            preSubmit: () => {
+                actions.setSignupPanelOnboardingManualErrors({})
+            },
             submit: async (payload, breakpoint) => {
                 breakpoint()
                 try {
@@ -503,9 +500,8 @@ export const signupLogic = kea<signupLogicType>([
 
                     const signupData: Record<string, any> = {
                         email: values.signupPanelEmail.email,
-                        first_name: payload.name.split(' ')[0],
-                        last_name: payload.name.split(' ')[1] || undefined,
-                        organization_name: payload.organization_name || undefined,
+                        ...splitFullName(payload.name),
+                        organization_name: payload.organization_name?.trim() || undefined,
                         role_at_organization: payload.role_at_organization,
                         referral_source: payload.referral_source,
                         referral_source_ai_prompt: payload.referral_source_ai_prompt,
@@ -524,7 +520,7 @@ export const signupLogic = kea<signupLogicType>([
 
                     const res = await api.create('api/signup/', signupData)
 
-                    if (!payload.organization_name) {
+                    if (!payload.organization_name?.trim()) {
                         posthog.capture('sign up organization name not provided')
                     }
 
@@ -556,6 +552,17 @@ export const signupLogic = kea<signupLogicType>([
                         actions.setSignupPanelEmailManualErrors({ email: message })
                         actions.setPanel(0)
                         return
+                    }
+
+                    // The `name` input is split into first_name/last_name for the API — surface
+                    // errors on those attributes next to the field the user actually sees.
+                    // Must throw (not return) so kea-forms marks the submit as failed and keeps
+                    // showing errors — on a successful submit it hides them again.
+                    if (error.attr === 'first_name' || error.attr === 'last_name') {
+                        actions.setSignupPanelOnboardingManualErrors({
+                            name: String(error.detail || 'Please enter your name'),
+                        })
+                        throw e
                     }
 
                     if (error.code === 'throttled') {
@@ -596,30 +603,6 @@ export const signupLogic = kea<signupLogicType>([
             (searchParams: Record<string, string>) => {
                 const nextParam = getRelativeNextPath(searchParams['next'], location)
                 return nextParam ? `/login?next=${encodeURIComponent(nextParam)}` : '/login'
-            },
-        ],
-        panelTitle: [
-            (s) => [s.panel, s.preflight, s.pendingInvite],
-            (
-                panel: number,
-                preflight: null | import('../../../../types').PreflightStatus,
-                pendingInvite: PendingInvite | null
-            ): string => {
-                if (panel === 0 && pendingInvite) {
-                    return ''
-                }
-                if (preflight?.demo) {
-                    return 'Explore PostHog yourself'
-                }
-
-                switch (panel) {
-                    case 1:
-                        return 'Choose how to sign in'
-                    case 2:
-                        return 'Tell us a bit about yourself'
-                    default:
-                        return 'Get started'
-                }
             },
         ],
     }),

@@ -1,11 +1,12 @@
 import { expectLogic } from 'kea-test-utils'
 
-import { SignalReportStatus } from 'scenes/inbox/types'
 import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import type { UserType } from '~/types'
+
+import { SignalReportStatus } from 'products/signals/frontend/inbox/types'
 
 import { CUSTOMER_ANALYTICS_SCOUT_PREFIX, feedLogic } from './feedLogic'
 

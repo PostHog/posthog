@@ -60,6 +60,8 @@ interface ServerConnection {
   transport: StreamableHTTPClientTransport;
 }
 
+class MissingMcpServerConfigError extends Error {}
+
 @injectable()
 export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
   private connections = new Map<string, ServerConnection>();
@@ -72,6 +74,7 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
   private pendingFetches = new Map<string, Promise<McpUiResource | null>>();
   private resourceMetaCache = new Map<string, McpResourceUiMeta>();
   private discoveredServers = new Set<string>();
+  private unavailableServers = new Set<string>();
   private pendingDiscoveries = new Map<string, Promise<void>>();
   private discoveryFailedAt = new Map<string, number>();
   private readonly log: ScopedLogger;
@@ -87,12 +90,28 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
     this.log = rootLogger.scope("mcp-apps-service");
   }
 
+  // Two servers can serve different content at the same ui:// URI, so every
+  // per-resource cache (resource, meta, pending fetch) keys on server + URI.
+  private resourceKey(serverName: string, resourceUri: string): string {
+    return `${serverName}\n${resourceUri}`;
+  }
+
+  private evictServerEntries<T>(map: Map<string, T>, serverName: string): void {
+    const keyPrefix = this.resourceKey(serverName, "");
+    for (const key of map.keys()) {
+      if (key.startsWith(keyPrefix)) {
+        map.delete(key);
+      }
+    }
+  }
+
   /**
    * Store server configs for lazy connections later.
    * No connections are created at this point.
    */
   setServerConfigs(configs: McpServerConnectionConfig[]): void {
     this.serverConfigs.clear();
+    this.unavailableServers.clear();
     for (const config of configs) {
       this.serverConfigs.set(config.name, config);
     }
@@ -108,6 +127,7 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
   addServerConfigs(configs: McpServerConnectionConfig[]): void {
     for (const config of configs) {
       this.serverConfigs.set(config.name, config);
+      this.unavailableServers.delete(config.name);
     }
   }
 
@@ -212,7 +232,10 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
       for (const resource of resourcesList.resources) {
         const meta = resource as McpResourceUiMeta;
         if (meta._meta?.ui) {
-          this.resourceMetaCache.set(resource.uri, meta);
+          this.resourceMetaCache.set(
+            this.resourceKey(serverName, resource.uri),
+            meta,
+          );
         }
       }
     }
@@ -251,8 +274,9 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
    * resolver) so callers' queries surface an error and retry instead of
    * caching a permanent miss.
    */
-  private async ensureServerDiscovered(serverName: string): Promise<void> {
-    if (this.discoveredServers.has(serverName)) return;
+  private async ensureServerDiscovered(serverName: string): Promise<boolean> {
+    if (this.discoveredServers.has(serverName)) return true;
+    if (this.unavailableServers.has(serverName)) return false;
 
     // Only the caller that starts the discovery emits DiscoveryComplete —
     // joiners would otherwise re-emit once per caller and stampede the
@@ -265,12 +289,26 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
       }
     }
 
-    await this.discoverServer(serverName);
+    try {
+      await this.discoverServer(serverName);
+    } catch (error) {
+      if (!(error instanceof MissingMcpServerConfigError)) throw error;
+      // Historical cloud runs can contain tools from servers that are not
+      // configured in this Desktop process. They simply have no local custom
+      // UI; remember that until the server configuration changes.
+      this.unavailableServers.add(serverName);
+      this.discoveryFailedAt.delete(serverName);
+      this.log.debug("Skipping UI discovery for unavailable MCP server", {
+        serverName,
+      });
+      return false;
+    }
     if (startedHere) {
       this.emit(McpAppsServiceEvent.DiscoveryComplete, {
         toolKeys: [...this.toolAssociations.keys()],
       } satisfies McpAppsDiscoveryCompleteEvent);
     }
+    return true;
   }
 
   /**
@@ -330,7 +368,9 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
       config = this.serverConfigs.get(serverName);
     }
     if (!config) {
-      throw new Error(`No server config for: ${serverName}`);
+      throw new MissingMcpServerConfigError(
+        `No server config for: ${serverName}`,
+      );
     }
     return this.createConnection(config);
   }
@@ -412,7 +452,8 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
     serverName: string,
     resourceUri: string,
   ): Promise<McpUiResource | null> {
-    const cached = this.resourceCache.get(resourceUri);
+    const key = this.resourceKey(serverName, resourceUri);
+    const cached = this.resourceCache.get(key);
     if (cached) {
       this.log.debug("fetchUiResourceByUri: cache hit", {
         serverName,
@@ -421,7 +462,7 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
       return cached;
     }
 
-    const pendingFetch = this.pendingFetches.get(resourceUri);
+    const pendingFetch = this.pendingFetches.get(key);
     if (pendingFetch) {
       this.log.debug("fetchUiResourceByUri: joining pending fetch", {
         serverName,
@@ -435,11 +476,11 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
       resourceUri,
     });
     const fetchPromise = this.doFetchUiResource(serverName, resourceUri);
-    this.pendingFetches.set(resourceUri, fetchPromise);
+    this.pendingFetches.set(key, fetchPromise);
     try {
       return await fetchPromise;
     } finally {
-      this.pendingFetches.delete(resourceUri);
+      this.pendingFetches.delete(key);
     }
   }
 
@@ -451,7 +492,7 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
     // where handleDiscovery never ran (cloud runs fetching by result URI). The
     // read below decides success on its own.
     const warmed = await this.ensureServerDiscovered(serverName).then(
-      () => true,
+      (discovered) => discovered,
       (err) => {
         this.log.warn("UI resource metadata warm-up failed", {
           serverName,
@@ -501,23 +542,39 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
       return null;
     }
 
-    const resourceMeta = this.resourceMetaCache.get(resourceUri);
+    const resourceMeta = this.resourceMetaCache.get(
+      this.resourceKey(serverName, resourceUri),
+    );
+    // Read-response ui.csp/ui.permissions win; the listing-derived cache is a
+    // fallback for servers that only advertise them at registration.
+    const readUi = (textContent as { _meta?: McpResourceUiMeta["_meta"] })._meta
+      ?.ui;
+    const listUi = resourceMeta?._meta?.ui;
+    const csp = readUi?.csp ?? listUi?.csp;
+    const permissions = readUi?.permissions ?? listUi?.permissions;
 
     const resource: McpUiResource = {
       uri: resourceUri,
       name: resourceMeta?.name,
       mimeType: UI_MIME_TYPE,
-      csp: resourceMeta?._meta?.ui?.csp,
-      permissions: resourceMeta?._meta?.ui?.permissions,
+      csp,
+      permissions,
       html: textContent.text,
       serverName,
     };
 
     // A failed warm-up with no known metadata may have produced a CSP-less
     // copy; leave it uncached so a later fetch can attach the real CSP.
-    const cacheable = warmed || resourceMeta !== undefined;
+    const cacheable =
+      warmed ||
+      resourceMeta !== undefined ||
+      csp !== undefined ||
+      permissions !== undefined;
     if (cacheable) {
-      this.resourceCache.set(resourceUri, resource);
+      this.resourceCache.set(
+        this.resourceKey(serverName, resourceUri),
+        resource,
+      );
     }
     this.log.info("Lazily fetched UI resource", {
       serverName,
@@ -642,6 +699,7 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
     this.pendingConnections.clear();
     this.pendingFetches.clear();
     this.discoveredServers.clear();
+    this.unavailableServers.clear();
     this.pendingDiscoveries.clear();
     this.discoveryFailedAt.clear();
 
@@ -665,6 +723,7 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
     }
 
     this.discoveredServers.delete(serverName);
+    this.unavailableServers.delete(serverName);
     this.discoveryFailedAt.delete(serverName);
 
     const conn = this.connections.get(serverName);
@@ -680,24 +739,14 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
     }
     this.connections.delete(serverName);
 
-    // Clean up associations and cached resources for this server
-    const urisToEvict = new Set<string>();
     for (const [key, assoc] of this.toolAssociations) {
       if (assoc.serverName === serverName) {
-        urisToEvict.add(assoc.resourceUri);
         this.toolAssociations.delete(key);
       }
     }
 
-    // Only evict cached resources not referenced by remaining associations
-    const stillReferenced = new Set(
-      [...this.toolAssociations.values()].map((a) => a.resourceUri),
-    );
-    for (const uri of urisToEvict) {
-      if (!stillReferenced.has(uri)) {
-        this.resourceCache.delete(uri);
-      }
-    }
+    this.evictServerEntries(this.resourceCache, serverName);
+    this.evictServerEntries(this.resourceMetaCache, serverName);
   }
 
   async cleanup(): Promise<void> {
@@ -718,6 +767,7 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
     this.pendingConnections.clear();
     this.pendingFetches.clear();
     this.discoveredServers.clear();
+    this.unavailableServers.clear();
     this.pendingDiscoveries.clear();
     this.discoveryFailedAt.clear();
   }

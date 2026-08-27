@@ -1,12 +1,15 @@
 import { Theme } from "@radix-ui/themes";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { PiModelSelector } from "./PiSessionControls";
 
 describe("PiModelSelector", () => {
-  it("keeps Pi configuration in the same nested menu shape as ACP", async () => {
+  it("keeps Pi configuration open while changing the model", async () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
+    const onChange = vi.fn();
+    const onThinkingLevelChange = vi.fn();
+    const onHarnessChange = vi.fn();
     render(
       <Theme>
         <PiModelSelector
@@ -29,9 +32,9 @@ describe("PiModelSelector", () => {
           }}
           thinkingLevel="medium"
           thinkingLevels={["low", "medium", "high"]}
-          onChange={vi.fn()}
-          onThinkingLevelChange={vi.fn()}
-          onHarnessChange={vi.fn()}
+          onChange={onChange}
+          onThinkingLevelChange={onThinkingLevelChange}
+          onHarnessChange={onHarnessChange}
         />
       </Theme>,
     );
@@ -57,8 +60,58 @@ describe("PiModelSelector", () => {
 
     await user.click(screen.getByRole("menuitem", { name: /^Model/ }));
 
+    const terra = await screen.findByRole("menuitemradio", {
+      name: "GPT-5.6 Terra",
+    });
+    expect(terra).toBeInTheDocument();
+
+    fireEvent.click(terra);
+
+    expect(onChange).toHaveBeenCalledWith({
+      provider: "posthog",
+      id: "gpt-5.6-terra",
+      name: "GPT-5.6 Terra",
+    });
     expect(
-      await screen.findByRole("menuitemradio", { name: "GPT-5.6 Terra" }),
+      screen.getByRole("menuitem", { name: /^Model/ }),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("menuitem", { name: /^Reasoning/ }));
+    fireEvent.click(await screen.findByRole("menuitemradio", { name: "High" }));
+
+    expect(onThinkingLevelChange).toHaveBeenCalledWith("high");
+    expect(
+      screen.getByRole("menuitem", { name: /^Reasoning/ }),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("menuitem", { name: /^Harness/ }));
+    fireEvent.click(
+      await screen.findByRole("menuitemradio", { name: "Codex" }),
+    );
+
+    expect(onHarnessChange).toHaveBeenCalledWith("codex");
+    expect(
+      screen.getByRole("menuitem", { name: /^Harness/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps an open menu mounted while the Pi catalog loads", async () => {
+    render(
+      <Theme>
+        <PiModelSelector
+          models={[]}
+          isLoading
+          onChange={vi.fn()}
+          onHarnessChange={vi.fn()}
+          menuOpen
+          onMenuOpenChange={vi.fn()}
+        />
+      </Theme>,
+    );
+
+    expect(screen.getByRole("button", { name: /Loading/ })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("menuitem", { name: /^Harness/ }),
     ).toBeInTheDocument();
   });
 });

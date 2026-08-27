@@ -1,0 +1,121 @@
+import '@testing-library/jest-dom'
+
+import { cleanup, fireEvent, render } from '@testing-library/react'
+
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
+
+import type { SignalScoutConfigApi } from 'products/signals/frontend/generated/api.schemas'
+
+import { ScoutConfigForm } from './ScoutConfigControls'
+
+const config: SignalScoutConfigApi = {
+    id: 'config-1',
+    skill_name: 'signals-scout-general',
+    description: 'General scout',
+    scout_origin: 'canonical',
+    enabled: true,
+    status: 'active',
+    pause_reason: null,
+    emit: true,
+    run_interval_minutes: 1440,
+    run_cron_schedule: '0 9 * * *',
+    output_destinations: {},
+    structured_output_schema: null,
+    mcp_gateway_server_ids: [],
+    last_run_at: null,
+    consecutive_failure_count: 0,
+    status_changed_at: null,
+    auto_pause_exempt: false,
+    network_access: 'trusted',
+    model: null,
+    tags: [],
+    source_product: null,
+    source_id: null,
+    created_at: '2026-07-21T12:00:00Z',
+}
+
+describe('ScoutConfigForm', () => {
+    useMocks({
+        get: {
+            '/api/environments/:team_id/integrations/': () => [200, { results: [] }],
+        },
+    })
+
+    beforeEach(() => initKeaTests())
+    afterEach(cleanup)
+
+    const emitSwitchLabel = 'signals-scout-general write signals to the inbox'
+
+    it.each([
+        ['live', true, false],
+        ['dry run', false, true],
+    ])('moves a %s scout to the other posture', (_posture, emit, expectedPatch) => {
+        const onUpdate = jest.fn()
+        const { getByLabelText } = render(<ScoutConfigForm config={{ ...config, emit }} onUpdate={onUpdate} />)
+
+        const emitSwitch = getByLabelText(emitSwitchLabel)
+        expect(emitSwitch).toHaveAttribute('aria-checked', String(emit))
+
+        fireEvent.click(emitSwitch)
+
+        expect(onUpdate).toHaveBeenCalledWith('config-1', { emit: expectedPatch })
+    })
+
+    // Settable while the scout is off, so a dry-run posture can be chosen before the enable
+    // sends the first run out.
+    it('leaves the dry-run switch editable while the scout is disabled', () => {
+        const onUpdate = jest.fn()
+        const { getByLabelText } = render(
+            <ScoutConfigForm config={{ ...config, enabled: false }} onUpdate={onUpdate} />
+        )
+
+        expect(getByLabelText(emitSwitchLabel)).not.toBeDisabled()
+    })
+
+    it('saves the daily run time on blur and never clears the schedule from an empty input', () => {
+        const onUpdate = jest.fn()
+        const { container, unmount } = render(<ScoutConfigForm config={config} onUpdate={onUpdate} />)
+        const input = container.querySelector<HTMLInputElement>('input[type="time"]')
+
+        expect(input).not.toBeNull()
+
+        fireEvent.change(input!, { target: { value: '14:45' } })
+        expect(onUpdate).not.toHaveBeenCalled()
+
+        fireEvent.blur(input!)
+        expect(onUpdate).toHaveBeenCalledWith('config-1', { run_cron_schedule: '45 14 * * *' })
+
+        // A half-typed edit blurring empty must not silently revert the scout to its rolling
+        // interval — switching schedule mode is the select's job.
+        fireEvent.change(input!, { target: { value: '' } })
+        fireEvent.blur(input!)
+        expect(onUpdate).toHaveBeenCalledTimes(1)
+        unmount()
+    })
+
+    it('shows an unexpressible cron as a read-only custom mode without a time picker', () => {
+        const onUpdate = jest.fn()
+        const { container, getByText, unmount } = render(
+            <ScoutConfigForm config={{ ...config, run_cron_schedule: '0 9 * * 1-5' }} onUpdate={onUpdate} />
+        )
+
+        expect(container.querySelector('input[type="time"]')).toBeNull()
+        expect(getByText('Custom (0 9 * * 1-5)')).toBeTruthy()
+        unmount()
+    })
+
+    it('adds normalized tags as a full replacement set', () => {
+        const onUpdate = jest.fn()
+        const { getByLabelText, unmount } = render(
+            <ScoutConfigForm config={{ ...config, tags: ['on-call'] }} onUpdate={onUpdate} />
+        )
+        const input = getByLabelText(`${config.skill_name} tags`)
+
+        fireEvent.change(input, { target: { value: 'Revenue' } })
+        fireEvent.keyDown(input, { key: 'Enter' })
+
+        expect(onUpdate).toHaveBeenCalledWith('config-1', { tags: ['on-call', 'revenue'] })
+        unmount()
+    })
+})

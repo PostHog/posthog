@@ -693,6 +693,38 @@ class TestGeneralizedFanOut:
             }
         ]
 
+    def test_custom_object_records_fan_out_over_object_types_without_a_parent_page_size(self, monkeypatch: Any) -> None:
+        # /object-types rejects page[size], so the parent must be enumerated by cursor links alone
+        # (no ?page[size] on its URL); each record carries its object_type_id and flattens
+        # record_properties onto the row. Fixtures key by exact URL, so a stray page[size] KeyErrors.
+        pages = {
+            "https://a.klaviyo.com/api/object-types": {
+                "data": [{"id": "OT1"}],
+                "links": {"next": None},
+            },
+            "https://a.klaviyo.com/api/object-types/OT1/object-records?page[size]=100": {
+                "data": [
+                    {
+                        "type": "object-record",
+                        "id": "OT1:::rec-1",
+                        "attributes": {"record_properties": {"name": "Fluffy"}},
+                    }
+                ],
+                "links": {"next": None},
+            },
+        }
+        rows = _collect_rows("custom_object_records", monkeypatch, pages)
+        # The batcher serializes the nested record_properties object to a JSON string in the arrow
+        # table, which is how it lands in the warehouse column.
+        assert rows == [
+            {
+                "type": "object-record",
+                "id": "OT1:::rec-1",
+                "record_properties": '{"name":"Fluffy"}',
+                "object_type_id": "OT1",
+            }
+        ]
+
     def test_flow_messages_walk_flows_then_actions_and_carry_both_ancestors(self, monkeypatch: Any) -> None:
         # Two-level fan-out: the intermediate path must be formatted with the grandparent id, and
         # each row must carry both ancestors or the flow -> action -> message chain can't be rebuilt.
@@ -756,6 +788,59 @@ class TestGeneralizedFanOut:
         # A membership key that isn't unique table-wide seeds duplicates that every later merge
         # multi-matches, which is how these fan-outs OOM.
         assert KLAVIYO_ENDPOINTS[endpoint].primary_keys == expected_keys
+
+
+class TestProfilesSubscriptionsRoundTrip:
+    def test_suppression_and_consent_land_in_the_synced_row(self, monkeypatch: Any) -> None:
+        # Suppression and consent status only exist inside the nested subscriptions object; if
+        # flattening or batching drops or reshapes it, a team exporting unsubscribes before a
+        # sending-platform migration silently loses exactly the profiles that must not be messaged.
+        suppressed_subscriptions = {
+            "email": {
+                "marketing": {
+                    "can_receive_email_marketing": False,
+                    "consent": "UNSUBSCRIBED",
+                    "suppression": [{"reason": "USER_SUPPRESSED", "timestamp": "2026-01-02T00:00:00+00:00"}],
+                    "list_suppressions": [
+                        {"list_id": "L1", "reason": "UNSUBSCRIBE", "timestamp": "2026-01-03T00:00:00+00:00"}
+                    ],
+                }
+            }
+        }
+        consented_subscriptions = {
+            "email": {"marketing": {"can_receive_email_marketing": True, "consent": "SUBSCRIBED"}},
+            "sms": {
+                "marketing": {
+                    "can_receive_sms_marketing": True,
+                    "consent": "SUBSCRIBED",
+                    "consent_timestamp": "2026-02-01T00:00:00+00:00",
+                }
+            },
+            "mobile_push": {"marketing": {"can_receive_push_marketing": False, "consent": "UNSUBSCRIBED"}},
+        }
+        pages = {
+            "https://a.klaviyo.com/api/profiles?additional-fields[profile]=subscriptions": {
+                "data": [
+                    {
+                        "type": "profile",
+                        "id": "P_SUPPRESSED",
+                        "attributes": {"email": "suppressed@example.com", "subscriptions": suppressed_subscriptions},
+                    },
+                    {
+                        "type": "profile",
+                        "id": "P_CONSENTED",
+                        "attributes": {"email": "consented@example.com", "subscriptions": consented_subscriptions},
+                    },
+                ],
+                "links": {"next": None},
+            },
+        }
+
+        rows = {row["id"]: row for row in _collect_rows("profiles", monkeypatch, pages)}
+
+        assert rows["P_SUPPRESSED"]["email"] == "suppressed@example.com"
+        assert json.loads(rows["P_SUPPRESSED"]["subscriptions"]) == suppressed_subscriptions
+        assert json.loads(rows["P_CONSENTED"]["subscriptions"]) == consented_subscriptions
 
 
 class TestValuesReports:

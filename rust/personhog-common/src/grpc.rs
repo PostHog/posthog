@@ -23,6 +23,46 @@ use tower::{Layer, Service};
 /// Header name for client identification in gRPC metadata.
 const CLIENT_NAME_HEADER: &str = "x-client-name";
 
+/// Metadata key marking a FAILED_PRECONDITION as a definitive semantic
+/// refusal rather than a routing-race rejection. The router bounces and
+/// retries bare FAILED_PRECONDITION (handoff fences, ownership races,
+/// person fences — conditions that clear in watch or healer time) and
+/// surfaces exhaustion as retriable UNAVAILABLE; a response carrying this
+/// key is a final answer about the request itself and must pass through
+/// to the caller unchanged, or a fail-closed refusal degrades into an
+/// infinite retry loop. The value is a short reason slug for
+/// observability.
+pub const SEMANTIC_REFUSAL_METADATA_KEY: &str = "x-semantic-refusal";
+
+/// Build a semantic refusal. The reason is a short slug used as a metric
+/// label.
+pub fn semantic_refusal(message: impl Into<String>, reason: &'static str) -> tonic::Status {
+    let mut status = tonic::Status::failed_precondition(message.into());
+    if let Ok(value) = reason.parse() {
+        status
+            .metadata_mut()
+            .insert(SEMANTIC_REFUSAL_METADATA_KEY, value);
+    }
+    status
+}
+
+/// Whether a status is a definitive semantic refusal rather than a
+/// transient failure a retry can outlive.
+pub fn is_semantic_refusal(status: &tonic::Status) -> bool {
+    status.code() == tonic::Code::FailedPrecondition
+        && status
+            .metadata()
+            .contains_key(SEMANTIC_REFUSAL_METADATA_KEY)
+}
+
+/// The refusal's reason slug, when present.
+pub fn semantic_refusal_reason(status: &tonic::Status) -> Option<&str> {
+    status
+        .metadata()
+        .get(SEMANTIC_REFUSAL_METADATA_KEY)
+        .and_then(|v| v.to_str().ok())
+}
+
 /// Header name for caller-tag attribution in gRPC metadata.
 /// Identifies the code path / feature area within a service that
 /// triggered the request (e.g., "api/feature-flags", "celery/cohort-calculation").

@@ -7,6 +7,7 @@ import { SetupTaskId } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -372,6 +373,35 @@ describe('onboardingLogic — flow composition', () => {
             expect(logic.values.stepId).toBe('')
             expect(logic.values.currentFlowStep?.id).toBe('install:web_analytics')
         })
+
+        it('self-corrects a valid step key the flow has no step for', async () => {
+            // Product selection always routes to ?step=install, but Support's flow has no
+            // install step, so a key being valid is not reason enough to keep waiting on it.
+            logic.actions.setProductKey(ProductKey.CONVERSATIONS)
+            logic.actions.setStepId(OnboardingStepKey.INSTALL)
+            await new Promise((resolve) => setTimeout(resolve, 0))
+            expect(logic.values.stepId).toBe('')
+            expect(logic.values.currentFlowStep?.id).toBe('invite_teammates:conversations')
+        })
+
+        it('self-corrects link_data when the flow will never carry it', async () => {
+            // `link_data` is gated on the product keys alone, which are set before the step is,
+            // so for a primary that never gets it there is nothing to wait for.
+            logic.actions.setProductKey(ProductKey.WEB_ANALYTICS)
+            logic.actions.setStepId(OnboardingStepKey.LINK_DATA)
+            await new Promise((resolve) => setTimeout(resolve, 0))
+            expect(logic.values.stepId).toBe('')
+            expect(logic.values.currentFlowStep?.id).toBe('install:web_analytics')
+        })
+
+        it('holds a shared trailing step open until it is appended', async () => {
+            // `plans` joins the flow only once billing loads, which it has not here.
+            // Self-correcting it would lose the request before the flow settles.
+            logic.actions.setProductKey(ProductKey.WEB_ANALYTICS)
+            logic.actions.setStepId(OnboardingStepKey.PLANS)
+            await new Promise((resolve) => setTimeout(resolve, 0))
+            expect(logic.values.stepId).toBe(OnboardingStepKey.PLANS)
+        })
     })
 
     describe('navigation', () => {
@@ -509,25 +539,6 @@ describe('onboardingLogic — flow composition', () => {
             await expectLogic(logic, () => {
                 logic.actions.completeOnboarding()
             }).toNotHaveDispatchedActions(['recordProductIntentOnboardingComplete', 'setIsCompleting'])
-        })
-    })
-
-    describe('completeSelfDrivingOnboarding', () => {
-        it('persists both onboarding completion signals', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.completeSelfDrivingOnboarding()
-            }).toDispatchActions([
-                (action) => {
-                    if (action.type !== logic.actionTypes.updateCurrentTeam) {
-                        return false
-                    }
-                    expect(action.payload).toMatchObject({
-                        completed_snippet_onboarding: true,
-                        has_completed_onboarding_for: { [ProductKey.PRODUCT_ANALYTICS]: true },
-                    })
-                    return true
-                },
-            ])
         })
     })
 
@@ -703,6 +714,46 @@ describe('onboardingLogic — flow composition', () => {
         it('falls back to legacy for an unregistered variant', () => {
             setVariant('some_future_variant')
             expect(logic.values.onboardingFlowVariant).toBe('legacy')
+        })
+    })
+
+    describe('completion redirect gate', () => {
+        const setVariant = (value: string | undefined): void => {
+            featureFlagLogic
+                .findMounted()
+                ?.actions.setFeatureFlags(
+                    value === undefined ? [] : [FEATURE_FLAGS.ONBOARDING_FLOW_VARIANT],
+                    value === undefined ? {} : { [FEATURE_FLAGS.ONBOARDING_FLOW_VARIANT]: value }
+                )
+        }
+
+        // The completion PATCH that the self-driving flow sends also reaches this scene logic, which
+        // stays mounted under both variants. Only the legacy variant may redirect on it, so the two
+        // flows never push competing destinations for the same completion.
+        const completeProduct = (): void => {
+            const completed = { has_completed_onboarding_for: { product_analytics: true } }
+            logic.actions.updateCurrentTeamSuccess(completed as any, completed as any)
+        }
+
+        it('redirects on completion under the legacy variant', async () => {
+            router.actions.push(urls.default())
+            logic.actions.setProductKey(ProductKey.PRODUCT_ANALYTICS)
+            await expectLogic(logic, () => {
+                completeProduct()
+            }).toFinishAllListeners()
+            expect(router.values.location.pathname).toMatch(/quickstart|insight/i)
+        })
+
+        it('does not redirect on completion under the self-driving variant', async () => {
+            setVariant('self-driving')
+            router.actions.push(urls.default())
+            const before = router.values.location.pathname
+            logic.actions.setProductKey(ProductKey.PRODUCT_ANALYTICS)
+            await expectLogic(logic, () => {
+                completeProduct()
+            }).toFinishAllListeners()
+            expect(router.values.location.pathname).not.toMatch(/quickstart|insight/i)
+            expect(router.values.location.pathname).toBe(before)
         })
     })
 

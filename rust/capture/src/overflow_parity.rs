@@ -19,7 +19,6 @@ use limiters::token_dropper::TokenDropper;
 use rstest::rstest;
 use std::num::NonZeroU32;
 
-use crate::config::AiRouting;
 use crate::global_rate_limiter::GlobalRateLimiter;
 use crate::router::HistoricalConfig;
 use crate::sinks::kafka::{test_topics, KafkaSinkBase};
@@ -114,6 +113,7 @@ fn v0_context(now: DateTime<Utc>) -> ProcessingContext {
         historical_migration: false,
         chatty_debug_enabled: false,
         capture_mode: crate::config::CaptureMode::Events,
+        ai_max_event_bytes: 0,
         sdk_attribution: crate::ingestion_warnings::SdkAttribution::default(),
     }
 }
@@ -145,9 +145,9 @@ async fn run_v0(limits: Limits, batch_size: usize, observe: usize) -> Observed {
         v0_overflow_limiter(limits),
         None,
         None,
-        &AiRouting::Primary,
         (0..batch_size).map(|_| v0_raw_event()).collect(),
         &v0_context(now),
+        None,
     )
     .await
     .expect("v0 pipeline must accept the batch");

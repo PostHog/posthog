@@ -18,6 +18,7 @@ describe('sql-utils', () => {
         test.each([
             ['plain placeholder', 'SELECT * FROM events WHERE {filters}', true],
             ['field placeholder', 'SELECT * FROM events WHERE {filters.properties}', true],
+            ['column-bound placeholder', 'SELECT * FROM v WHERE {filters(day AS timestamp)}', true],
             ['line-commented placeholder', 'SELECT * FROM events\n-- {filters}', false],
             ['inline line-commented placeholder', 'SELECT * FROM events -- WHERE {filters}', false],
             ['block-commented placeholder', 'SELECT * FROM events /* WHERE {filters} */', false],

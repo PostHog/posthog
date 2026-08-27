@@ -14,6 +14,51 @@ def _date_incremental_field(name: str) -> IncrementalField:
     }
 
 
+# Standard fields returned by the plain list endpoints. Advanced Filtering only returns the
+# fields you name, so these lists are what keeps the search-backed tables column-compatible with
+# the offset-paginated ones. Custom fields are appended at runtime from `/custom_field/<type>/`.
+LEAD_SEARCH_FIELDS = [
+    "addresses",
+    "contact_ids",
+    "contacts",
+    "created_by",
+    "created_by_name",
+    "date_created",
+    "date_updated",
+    "description",
+    "display_name",
+    "html_url",
+    "id",
+    "integration_links",
+    "name",
+    "opportunities",
+    "organization_id",
+    "status_id",
+    "status_label",
+    "tasks",
+    "updated_by",
+    "updated_by_name",
+    "url",
+]
+
+CONTACT_SEARCH_FIELDS = [
+    "created_by",
+    "date_created",
+    "date_updated",
+    "display_name",
+    "emails",
+    "id",
+    "integration_links",
+    "lead_id",
+    "name",
+    "organization_id",
+    "phones",
+    "title",
+    "updated_by",
+    "urls",
+]
+
+
 @dataclass
 class CloseEndpointConfig:
     name: str
@@ -32,22 +77,35 @@ class CloseEndpointConfig:
     # endpoints (lead/opportunity statuses, pipelines) return every row in one response and
     # take no pagination params, so they use a single-page paginator instead (see api_inventory.md).
     paginated: bool = True
+    # Advanced Filtering object type. Set only for the two resources whose list endpoints expose
+    # no date filter at all, so offset pagination is the only option and Close's `_skip` cap
+    # eventually truncates the table (see api_inventory.md).
+    search_object_type: Optional[str] = None
+    # Fields to request from Advanced Filtering. Required when `search_object_type` is set.
+    search_fields: list[str] = field(default_factory=list)
 
 
-# Canonical CRM endpoint set. Incremental support is only enabled where the OpenAPI spec
-# exposes a genuine server-side `<field>__gte` filter (see api_inventory.md).
+# Canonical CRM endpoint set. Incremental support is only enabled where a genuine server-side
+# date filter exists — a `<field>__gte` query param on the list endpoint, or a `moment_range`
+# condition on Advanced Filtering for the two resources routed there (see api_inventory.md).
 CLOSE_ENDPOINTS: dict[str, CloseEndpointConfig] = {
     "Leads": CloseEndpointConfig(
         name="Leads",
         path="/lead/",
         table_name="leads",
+        incremental_fields=[_date_incremental_field("date_created"), _date_incremental_field("date_updated")],
         partition_key="date_created",
+        search_object_type="lead",
+        search_fields=LEAD_SEARCH_FIELDS,
     ),
     "Contacts": CloseEndpointConfig(
         name="Contacts",
         path="/contact/",
         table_name="contacts",
+        incremental_fields=[_date_incremental_field("date_created"), _date_incremental_field("date_updated")],
         partition_key="date_created",
+        search_object_type="contact",
+        search_fields=CONTACT_SEARCH_FIELDS,
     ),
     "Opportunities": CloseEndpointConfig(
         name="Opportunities",

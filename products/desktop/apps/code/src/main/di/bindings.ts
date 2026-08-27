@@ -1,4 +1,4 @@
-import type { AuthService } from "@posthog/core/auth/auth";
+import type { AuthService, FetchLike } from "@posthog/core/auth/auth";
 import type { AUTH_SERVICE } from "@posthog/core/auth/auth.module";
 import type {
   AUTH_CONNECTIVITY,
@@ -39,18 +39,15 @@ import type {
   GIT_DIFF_SOURCE,
   GitDiffSource,
 } from "@posthog/core/git-pr/identifiers";
-import type { HANDOFF_HOST } from "@posthog/core/handoff/identifiers";
 import type { GitHubIntegrationService } from "@posthog/core/integrations/github";
 import type {
   GITHUB_INTEGRATION_SERVICE,
   SLACK_INTEGRATION_SERVICE,
 } from "@posthog/core/integrations/identifiers";
 import type { SlackIntegrationService } from "@posthog/core/integrations/slack";
-import type { ApprovalLinkService } from "@posthog/core/links/approval-link";
 import type { CanvasLinkService } from "@posthog/core/links/canvas-link";
 import type { ChannelLinkService } from "@posthog/core/links/channel-link";
 import type {
-  APPROVAL_LINK_SERVICE,
   CANVAS_LINK_SERVICE,
   CHANNEL_LINK_SERVICE,
   INBOX_LINK_SERVICE,
@@ -131,6 +128,11 @@ import type { STORAGE_PATHS_SERVICE } from "@posthog/platform/storage-paths";
 import type { UPDATER_SERVICE } from "@posthog/platform/updater";
 import type { URL_LAUNCHER_SERVICE } from "@posthog/platform/url-launcher";
 import type { WORKSPACE_SETTINGS_SERVICE } from "@posthog/platform/workspace-settings";
+import type {
+  QUICK_ASK_FETCH,
+  QUICK_ASK_RUN_DEFAULTS,
+  QuickAskRunDefaults,
+} from "@posthog/quick-ask/service/quick-ask";
 import type { WorkspaceClient } from "@posthog/workspace-client/client";
 import type { DatabaseService } from "@posthog/workspace-server/db/service";
 import type { GIT_SERVICE as WS_GIT_SERVICE } from "@posthog/workspace-server/di/tokens";
@@ -169,15 +171,6 @@ import type {
   FsCapability,
 } from "@posthog/workspace-server/services/fs/identifiers";
 import type { GitService } from "@posthog/workspace-server/services/git/service";
-import type {
-  HANDOFF_GIT_GATEWAY,
-  HANDOFF_LOG_GATEWAY,
-} from "@posthog/workspace-server/services/handoff/identifiers";
-import type {
-  HandoffGitGateway,
-  HandoffLogGateway,
-} from "@posthog/workspace-server/services/handoff/ports";
-import type { HandoffHostService } from "@posthog/workspace-server/services/handoff/service";
 import type {
   ILogsService,
   LOGS_SERVICE,
@@ -241,6 +234,7 @@ import type { ElectronDialog } from "../platform-adapters/electron-dialog";
 import type { ElectronFileIcon } from "../platform-adapters/electron-file-icon";
 import type { ElectronImageProcessor } from "../platform-adapters/electron-image-processor";
 import type { ElectronMainWindow } from "../platform-adapters/electron-main-window";
+import type { MissionControlService } from "../platform-adapters/electron-mission-control";
 import type { ElectronNotifier } from "../platform-adapters/electron-notifier";
 import type { ElectronPowerManager } from "../platform-adapters/electron-power-manager";
 import type { ElectronSecureStorage } from "../platform-adapters/electron-secure-storage";
@@ -270,7 +264,6 @@ import type { WorkspaceServerService } from "../services/workspace-server/servic
 import type { rendererStore } from "../utils/store";
 import type {
   APP_LIFECYCLE_SERVICE as MAIN_APP_LIFECYCLE_SERVICE,
-  APPROVAL_LINK_SERVICE as MAIN_APPROVAL_LINK_SERVICE,
   ARCHIVE_REPOSITORY as MAIN_ARCHIVE_REPOSITORY,
   AUTH_PREFERENCE_REPOSITORY as MAIN_AUTH_PREFERENCE_REPOSITORY,
   AUTH_SERVICE as MAIN_AUTH_SERVICE,
@@ -296,6 +289,7 @@ import type {
   LLM_GATEWAY_SERVICE as MAIN_LLM_GATEWAY_SERVICE,
   LOOP_LINK_SERVICE as MAIN_LOOP_LINK_SERVICE,
   MCP_APPS_SERVICE as MAIN_MCP_APPS_SERVICE,
+  MISSION_CONTROL_SERVICE as MAIN_MISSION_CONTROL_SERVICE,
   NEW_TASK_LINK_SERVICE as MAIN_NEW_TASK_LINK_SERVICE,
   OPEN_TARGET_LINK_SERVICE as MAIN_OPEN_TARGET_LINK_SERVICE,
   POSTHOG_PLUGIN_SERVICE as MAIN_POSTHOG_PLUGIN_SERVICE,
@@ -375,6 +369,8 @@ export interface MainBindings {
   [AUTH_TOKEN_OVERRIDE]: string | null;
   [MAIN_AUTH_SERVICE]: AuthService;
   [AUTH_SERVICE]: AuthService;
+  [QUICK_ASK_FETCH]: FetchLike;
+  [QUICK_ASK_RUN_DEFAULTS]: () => QuickAskRunDefaults;
 
   // Auth proxy / mcp proxy / mcp relay
   [AUTH_PROXY_AUTH]: AuthProxyAuth;
@@ -423,11 +419,6 @@ export interface MainBindings {
   [GIT_WORKSPACE_LOOKUP]: GitWorkspaceLookup;
   [GIT_PR_STATUS_PROVIDER]: IGitPrStatus;
 
-  // Handoff
-  [HANDOFF_HOST]: HandoffHostService;
-  [HANDOFF_GIT_GATEWAY]: HandoffGitGateway;
-  [HANDOFF_LOG_GATEWAY]: HandoffLogGateway;
-
   // Notification / oauth
   [NOTIFICATION_SERVICE]: NotificationService;
   [OAUTH_HOST]: OAuthHost;
@@ -455,7 +446,6 @@ export interface MainBindings {
   [MAIN_INBOX_LINK_SERVICE]: InboxLinkService;
   [MAIN_SCOUT_LINK_SERVICE]: ScoutLinkService;
   [MAIN_NEW_TASK_LINK_SERVICE]: NewTaskLinkService;
-  [MAIN_APPROVAL_LINK_SERVICE]: ApprovalLinkService;
   [MAIN_OPEN_TARGET_LINK_SERVICE]: OpenTargetLinkService;
   [MAIN_CANVAS_LINK_SERVICE]: CanvasLinkService;
   [MAIN_CHANNEL_LINK_SERVICE]: ChannelLinkService;
@@ -464,7 +454,6 @@ export interface MainBindings {
   [INBOX_LINK_SERVICE]: InboxLinkService;
   [SCOUT_LINK_SERVICE]: ScoutLinkService;
   [NEW_TASK_LINK_SERVICE]: NewTaskLinkService;
-  [APPROVAL_LINK_SERVICE]: ApprovalLinkService;
   [OPEN_TARGET_LINK_SERVICE]: OpenTargetLinkService;
   [CANVAS_LINK_SERVICE]: CanvasLinkService;
   [CHANNEL_LINK_SERVICE]: ChannelLinkService;
@@ -490,6 +479,7 @@ export interface MainBindings {
   [LOGS_SERVICE]: ILogsService;
   [MAIN_ENCRYPTION_SERVICE]: EncryptionService;
   [MAIN_DISCORD_PRESENCE_SERVICE]: DiscordPresenceService;
+  [MAIN_MISSION_CONTROL_SERVICE]: MissionControlService;
 
   // Dev toolbar diagnostics
   [MAIN_DEV_FLAGS_SERVICE]: DevFlagsService;

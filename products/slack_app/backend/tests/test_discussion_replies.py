@@ -9,6 +9,8 @@ from products.slack_app.backend.discussion_replies import try_ingest_discussion_
 # The Slack profile lookup happens inside the ingest Celery task (eager in tests).
 RESOLVE = "posthog.tasks.comment_slack_sync.resolve_slack_user"
 
+PERMALINK = "https://acme.slack.com/files/U1/F1/screenshot.png"
+
 
 class TestIngestDiscussionReply(APIBaseTest):
     def setUp(self):
@@ -134,6 +136,120 @@ class TestIngestDiscussionReply(APIBaseTest):
 
         assert handled is True
         assert not Comment.objects.filter(source_comment=self.root).exists()
+
+    @patch(RESOLVE, return_value={"name": "X", "email": None, "avatar": None, "team_id": "T1"})
+    def test_caption_less_upload_creates_comment_with_placeholder(self, _resolve):
+        # A file-only upload has no text and no blocks; without placeholders it produced no
+        # comment at all, so the PostHog side never learned anything had been sent.
+        event = self._event(
+            text="",
+            blocks=None,
+            subtype="file_share",
+            files=[{"id": "F1", "name": "screenshot.png", "mimetype": "image/png", "permalink": PERMALINK}],
+        )
+
+        assert self._ingest(event) is True
+
+        reply = Comment.objects.get(source_comment=self.root)
+        assert reply.content == f"📎 [screenshot.png]({PERMALINK})"
+
+    @patch(RESOLVE, return_value={"name": "X", "email": None, "avatar": None, "team_id": "T1"})
+    def test_caption_and_placeholder_both_land_in_content_and_rich_content(self, _resolve):
+        # An upload with a caption arrives with blocks, so rich_content is set — and the UI
+        # prefers it, meaning a placeholder added only to content would never be seen.
+        blocks = [
+            {
+                "type": "rich_text",
+                "elements": [{"type": "rich_text_section", "elements": [{"type": "text", "text": "here's the bug"}]}],
+            }
+        ]
+        event = self._event(
+            text="here's the bug",
+            blocks=blocks,
+            subtype="file_share",
+            files=[{"id": "F1", "name": "screenshot.png", "permalink": PERMALINK}],
+        )
+
+        self._ingest(event)
+
+        reply = Comment.objects.get(source_comment=self.root)
+        assert reply.content is not None
+        assert "here's the bug" in reply.content
+        assert f"📎 [screenshot.png]({PERMALINK})" in reply.content
+        assert reply.rich_content is not None
+        rendered = [
+            node["content"][0]["text"] for node in reply.rich_content["content"] if node.get("type") == "paragraph"
+        ]
+        assert rendered == ["here's the bug", f"📎 [screenshot.png]({PERMALINK})"]
+
+    @patch(RESOLVE, return_value={"name": "X", "email": None, "avatar": None, "team_id": "T1"})
+    def test_hostile_filename_cannot_break_out_of_placeholder_link(self, _resolve):
+        # Anyone in an externally-shared channel can name a file whatever they like.
+        event = self._event(
+            text="",
+            blocks=None,
+            files=[{"id": "F1", "name": "![x](https://attacker.example/pixel).png", "permalink": PERMALINK}],
+        )
+
+        self._ingest(event)
+
+        reply = Comment.objects.get(source_comment=self.root)
+        assert reply.content is not None
+        assert "![" not in reply.content
+        assert "attacker.example" not in reply.content.split("](")[-1]
+        assert reply.content.endswith(f"]({PERMALINK})")
+
+    @patch(RESOLVE, return_value={"name": "X", "email": None, "avatar": None, "team_id": "T1"})
+    def test_non_slack_permalink_degrades_to_unlinked_placeholder(self, _resolve):
+        # A permalink is only trusted to the extent it points at Slack; the attachment still
+        # gets a marker, just not a link to somewhere arbitrary.
+        event = self._event(
+            text="",
+            blocks=None,
+            files=[{"id": "F1", "name": "notes.pdf", "permalink": "https://attacker.example/steal"}],
+        )
+
+        self._ingest(event)
+
+        reply = Comment.objects.get(source_comment=self.root)
+        assert reply.content == "📎 notes.pdf"
+
+    @patch(RESOLVE, return_value={"name": "X", "email": None, "avatar": None, "team_id": "T1"})
+    def test_newline_in_filename_cannot_escape_the_link_text(self, _resolve):
+        # A blank line inside the name ends the paragraph holding the link, and the bare URL
+        # left behind renders as its own autolink.
+        event = self._event(
+            text="",
+            blocks=None,
+            files=[{"id": "F1", "name": "x\n\nhttps://attacker.example/phish", "permalink": PERMALINK}],
+        )
+
+        self._ingest(event)
+
+        reply = Comment.objects.get(source_comment=self.root)
+        assert reply.content == f"📎 [x https://attacker.example/phish]({PERMALINK})"
+
+    @patch(RESOLVE, return_value={"name": "X", "email": None, "avatar": None, "team_id": "T1"})
+    def test_backslash_permalink_is_not_trusted(self, _resolve):
+        # urlparse reads the host as x.slack.com, but the WHATWG parser browsers use reads the
+        # backslash as a path separator and lands on evil.example.
+        event = self._event(
+            text="",
+            blocks=None,
+            files=[{"id": "F1", "name": "a.png", "permalink": "https://evil.example\\path@x.slack.com/"}],
+        )
+
+        self._ingest(event)
+
+        reply = Comment.objects.get(source_comment=self.root)
+        assert reply.content == "📎 a.png"
+
+    @patch(RESOLVE, return_value={"name": "X", "email": None, "avatar": None, "team_id": "T1"})
+    def test_file_without_name_still_gets_a_marker(self, _resolve):
+        self._ingest(self._event(text="", blocks=None, files=[{"id": "F1"}]))
+
+        reply = Comment.objects.get(source_comment=self.root)
+        assert reply.content == "📎 Attachment"
 
     @patch("posthog.tasks.comment_slack_sync.posthoganalytics.feature_enabled", return_value=False)
     @patch(RESOLVE, return_value={"name": "X", "email": None, "avatar": None, "team_id": "T1"})

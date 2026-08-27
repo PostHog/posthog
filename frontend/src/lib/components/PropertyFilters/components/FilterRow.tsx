@@ -27,11 +27,13 @@ interface FilterRowProps {
     labelClassName?: string
     openOnInsert?: boolean
     onRemove: (index: number) => void
+    showRemoveButton?: boolean
     orFiltering?: boolean
     errorMessage?: JSX.Element | null
     disabledReason?: string
     editable: boolean
     size?: 'xsmall' | 'small' | 'medium'
+    suffix?: JSX.Element | null
 }
 
 export const FilterRow = React.memo(function FilterRow({
@@ -47,11 +49,13 @@ export const FilterRow = React.memo(function FilterRow({
     label,
     labelClassName = '',
     onRemove,
+    showRemoveButton = true,
     orFiltering,
     errorMessage,
     disabledReason,
     editable,
     size = 'small',
+    suffix,
 }: FilterRowProps) {
     const [open, setOpen] = useState(() => openOnInsert)
 
@@ -69,17 +73,20 @@ export const FilterRow = React.memo(function FilterRow({
     return (
         <>
             <div
-                className={clsx('property-filter-row flex items-center flex-nowrap deprecated-space-x-2 max-w-full', {
+                className={clsx('property-filter-row flex items-center max-w-full', {
+                    'flex-wrap gap-2': !!suffix,
+                    'flex-nowrap deprecated-space-x-2': !suffix,
                     'grow sm:grow-0': isValid,
                     'grow-0': !isValid,
                     'wrap-filters': !disablePopover,
+                    'property-filter-row--with-suffix': !!suffix,
                 })}
                 data-attr={'property-filter-' + index}
             >
                 {disablePopover ? (
                     <>
                         {filterComponent(() => setOpen(false))}
-                        {Object.keys(filters[index]).length > 0 && editable ? (
+                        {Object.keys(filters[index]).length > 0 && editable && showRemoveButton ? (
                             <LemonButton
                                 icon={orFiltering ? <IconTrash /> : <IconX />}
                                 onClick={() => onRemove(index)}
@@ -119,6 +126,7 @@ export const FilterRow = React.memo(function FilterRow({
                     </Popover>
                 )}
                 {key && showConditionBadge && index + 1 < totalCount && <OperandTag operand="and" />}
+                {suffix}
             </div>
             {errorMessage}
         </>

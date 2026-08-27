@@ -24,6 +24,7 @@ from posthog.api.team import (
     _reset_default_data_color_theme_id_cache,
 )
 from posthog.constants import AvailableFeature
+from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig, RestrictionType
 from posthog.models.group_type_mapping import (
     GROUP_TYPES_CACHE_KEY_PREFIX,
     GROUP_TYPES_STALE_CACHE_KEY_PREFIX,
@@ -41,9 +42,8 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import get_instance_realm
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
-
-from ee.models.rbac.access_control import AccessControl
 
 
 def team_api_test_factory():
@@ -236,6 +236,40 @@ def team_api_test_factory():
             response = self.client.get(f"/api/environments/{team.pk}/")
             self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
             self.assertEqual(response.json(), self.not_found_response())
+
+        def test_event_ingestion_restrictions_are_scoped_to_own_team(self):
+            other_org = Organization.objects.create(name="New Org")
+            other_team = Team.objects.create(organization=other_org, name="Default project")
+            EventIngestionRestrictionConfig.objects.create(
+                token=self.team.api_token,
+                restriction_type=RestrictionType.SKIP_PERSON_PROCESSING,
+                distinct_ids=["own-user"],
+                note="internal note",
+            )
+            EventIngestionRestrictionConfig.objects.create(
+                token=other_team.api_token,
+                restriction_type=RestrictionType.DROP_EVENT_FROM_INGESTION,
+                distinct_ids=["other-user"],
+            )
+
+            response = self.client.get(f"/api/environments/{self.team.pk}/event_ingestion_restrictions/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(
+                response.json(),
+                [
+                    {
+                        "restriction_type": RestrictionType.SKIP_PERSON_PROCESSING,
+                        "distinct_ids": ["own-user"],
+                        "session_ids": [],
+                        "event_names": [],
+                        "event_uuids": [],
+                        "pipelines": ["analytics"],
+                    }
+                ],
+            )
+
+            response = self.client.get(f"/api/environments/{other_team.pk}/event_ingestion_restrictions/")
+            self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
         @freeze_time("2022-02-08")
         def test_update_team_timezone(self):
@@ -1317,7 +1351,7 @@ def team_api_test_factory():
         def test_can_complete_product_onboarding_as_member(
             self, mock_report_user_action: MagicMock, mock_report_user_action_legacy_endpoint: MagicMock
         ) -> None:
-            from ee.models.rbac.access_control import AccessControl
+            from products.access_control.backend.models.access_control import AccessControl
 
             self.organization_membership.level = OrganizationMembership.Level.MEMBER
             self.organization_membership.save()
@@ -1419,6 +1453,32 @@ def team_api_test_factory():
             self.team.refresh_from_db()
             assert self.project.organization == other_org
             assert self.team.organization == other_org
+
+        def test_change_organization_reconciles_current_project_of_affected_users(self):
+            other_org, _ = self._create_other_org_and_team(OrganizationMembership.Level.ADMIN)
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+            self.user.current_team = self.team
+            self.user.current_organization = self.organization
+            self.user.save()
+            # This user stays behind in the source organization
+            outsider = User.objects.create_and_join(self.organization, "outsider@posthog.com", None)
+            outsider.current_team = self.team
+            outsider.current_organization = self.organization
+            outsider.save()
+
+            res = self.client.post(
+                f"/api/projects/{self.team.project.id}/change_organization/", {"organization_id": other_org.id}
+            )
+            assert res.status_code == status.HTTP_200_OK, res.json()
+
+            # A member of the target organization keeps the project and follows it across
+            self.user.refresh_from_db()
+            assert self.user.current_team == self.team
+            assert self.user.current_organization == other_org
+            # Everyone else loses the pointer instead of keeping a project they cannot reach
+            outsider.refresh_from_db()
+            assert outsider.current_team_id is None and outsider.current_organization_id is None
 
         def _assert_replay_config_is(self, expected: dict[str, Any] | None) -> HttpResponse:
             return self._assert_config_is("session_replay_config", expected)
@@ -1944,69 +2004,6 @@ def team_api_test_factory():
             self.team.refresh_from_db()
             self.assertEqual(self.team.session_recording_opt_in, True)
             self.assertEqual(self.team.surveys_opt_in, True)
-
-        @override_settings(DEBUG=True)
-        def test_update_proactive_tasks_enabled_true_creates_signal_source_config(self):
-            from products.signals.backend.models import SignalSourceConfig
-
-            response = self.client.patch("/api/environments/@current/", {"proactive_tasks_enabled": True})
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-            self.assertTrue(
-                SignalSourceConfig.objects.filter(
-                    team=self.team,
-                    source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
-                    source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
-                    enabled=True,
-                ).exists()
-            )
-
-        @override_settings(DEBUG=True)
-        def test_update_proactive_tasks_enabled_false_deletes_signal_source_config(self):
-            from products.signals.backend.models import SignalSourceConfig
-
-            SignalSourceConfig.objects.create(
-                team=self.team,
-                source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
-                source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
-                enabled=True,
-                config={},
-            )
-
-            response = self.client.patch("/api/environments/@current/", {"proactive_tasks_enabled": False})
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-            self.assertFalse(
-                SignalSourceConfig.objects.filter(
-                    team=self.team,
-                    source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
-                    source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
-                ).exists()
-            )
-
-        @override_settings(DEBUG=True)
-        def test_update_proactive_tasks_enabled_true_is_idempotent(self):
-            from products.signals.backend.models import SignalSourceConfig
-
-            SignalSourceConfig.objects.create(
-                team=self.team,
-                source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
-                source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
-                enabled=True,
-                config={},
-            )
-
-            response = self.client.patch("/api/environments/@current/", {"proactive_tasks_enabled": True})
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-            self.assertEqual(
-                SignalSourceConfig.objects.filter(
-                    team=self.team,
-                    source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
-                    source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
-                ).count(),
-                1,
-            )
 
         def test_can_set_session_recording_trigger_groups(self):
             """Test that we can create and update session_recording_trigger_groups field"""

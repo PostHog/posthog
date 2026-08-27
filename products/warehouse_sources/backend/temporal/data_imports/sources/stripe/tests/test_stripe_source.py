@@ -1,4 +1,5 @@
 import functools
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
 
@@ -6,10 +7,14 @@ import pytest
 from unittest import mock
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
+
+import orjson
 import stripe as stripe_lib
 from parameterized import parameterized
 from stripe import ListObject
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.stripe import (
@@ -26,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     CHARGE_RESOURCE_NAME,
     CHECKOUT_SESSION_RESOURCE_NAME,
     CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
+    CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME,
     CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME,
     DISCOUNT_RESOURCE_NAME,
@@ -33,9 +39,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     ENTITLEMENTS_ACTIVE_ENTITLEMENT_RESOURCE_NAME,
     ENTITLEMENTS_FEATURE_RESOURCE_NAME,
     EVENT_RESOURCE_NAME,
+    HISTORY_CAPTURED_AT_COLUMN,
+    HISTORY_EVENT_ID_COLUMN,
+    HISTORY_EVENT_TYPE_COLUMN,
+    HISTORY_PREVIOUS_ATTRIBUTES_COLUMN,
+    HISTORY_SNAPSHOT_EVENT_TYPE,
     INVOICE_PAYMENT_RESOURCE_NAME,
     PAYMENT_INTENT_RESOURCE_NAME,
     PAYMENT_LINK_RESOURCE_NAME,
+    PAYMENT_METHOD_HISTORY_MAPPING_KEY,
     PLAN_RESOURCE_NAME,
     PROMOTION_CODE_RESOURCE_NAME,
     QUOTE_RESOURCE_NAME,
@@ -60,7 +72,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.set
     NON_PARTITIONED_ENDPOINTS,
     WEBHOOK_ONLY_ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import StripeSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import PERMISSIONS, StripeSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe import (
     DEFAULT_LIMIT,
     SUBSCRIPTION_PAGE_LIMIT,
@@ -74,6 +86,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.str
     _is_truncated_stripe_list_response,
     _RateLimitRetryingRequestsClient,
     _scrub_client_secrets,
+    _webhook_history_table_transformer,
     check_endpoint_permissions,
     create_webhook,
     get_rows,
@@ -213,6 +226,9 @@ class TestStripeSource:
             # account_invalid: key not authorized for the configured account, or revoked app access.
             # Raised mid-sync as stripe.PermissionError, matched on the stable phrase (key/account redacted).
             "The provided key 'sk_test_***qPsl' does not have access to account 'stripe_s***less' (or that account does not exist). Application access may have been revoked.",
+            # A publishable key was used where a secret/restricted key is required — matched on the
+            # stable message text, ignoring the request id prefix.
+            "Request req_abc123: This API call cannot be made with a publishable API key. Please use a secret API key. You can find a list of your API keys at https://dashboard.stripe.com/account/apikeys.",
         ],
     )
     def test_non_retryable_errors_match_permission_failures(self, observed_error):
@@ -400,7 +416,7 @@ class TestStripeSource:
         assert client._last_request_method == "get"
 
 
-def _run_nested_get_rows(nested_method, parent_objects=None, parent_has_nested=None):
+def _run_nested_get_rows(nested_method, parent_objects=None, parent_has_nested=None, resumable_source_manager=None):
     if parent_objects is None:
         parent_objects = [{"id": "cus_ok1"}, {"id": "cus_gone"}, {"id": "cus_ok2"}]
     parent = StripeResource(method=lambda **kwargs: _list_object(parent_objects))
@@ -413,7 +429,8 @@ def _run_nested_get_rows(nested_method, parent_objects=None, parent_has_nested=N
         parent_has_nested=parent_has_nested,
     )
 
-    resumable_source_manager = MagicMock()
+    if resumable_source_manager is None:
+        resumable_source_manager = MagicMock()
     resumable_source_manager.can_resume.return_value = False
 
     with (
@@ -513,6 +530,26 @@ class TestStripeNestedResourceGetRows:
         # cus_zero is skipped entirely — no API call, no rows.
         assert called_for == ["cus_credit", "cus_owed"]
         assert {row["customer"] for row in rows} == {"cus_credit", "cus_owed"}
+
+    def test_sparse_sweep_checkpoints_by_parent_count(self):
+        # A nested resource where no parent has data (CustomerPaymentMethod over customers with no
+        # stored payment method) never fills a chunk, so the row-driven checkpoint never fires and
+        # a killed run restarted the whole customer walk. Position must be recorded by parents
+        # walked, regardless of how few rows come back.
+        def nested_method(customer=None, params=None):
+            return _list_object([])
+
+        manager = MagicMock()
+        with patch.object(stripe_module, "NESTED_SWEEP_CHECKPOINT_PARENTS", 3):
+            rows = _run_nested_get_rows(
+                nested_method,
+                parent_objects=[{"id": f"cus_{i}"} for i in range(8)],
+                resumable_source_manager=manager,
+            )
+
+        assert rows == []
+        # Checkpointed after the 3rd and 6th parent; the 7th and 8th are still in flight.
+        assert [call.args[0].starting_after for call in manager.save_state.call_args_list] == ["cus_2", "cus_5"]
 
     def test_query_param_service_receives_parent_in_params(self):
         # Flat Stripe services with a required filter (e.g. entitlements.active_entitlements.list)
@@ -918,6 +955,233 @@ class TestWebhookOnlyResponseWiring:
         assert response.partition_keys == ["start"]
 
 
+def _event_row(
+    event_id: str, event_type: str, created: int, obj: dict, previous_attributes: dict | None = None
+) -> dict[str, Any]:
+    data: dict[str, Any] = {"object": obj}
+    if previous_attributes is not None:
+        data["previous_attributes"] = previous_attributes
+    return {"id": event_id, "object": "event", "type": event_type, "created": created, "data": data}
+
+
+class TestCustomerPaymentMethodHistory:
+    def _make_manager(self, enabled: bool) -> MagicMock:
+        manager = MagicMock(spec=WebhookSourceManager)
+        manager.webhook_enabled = mock.AsyncMock(return_value=enabled)
+        return manager
+
+    def _source(self, endpoint: str, manager: MagicMock) -> Any:
+        return stripe_module.stripe_source(
+            api_key="sk_test_123",
+            account_id=None,
+            endpoint=endpoint,
+            db_incremental_field_last_value=None,
+            db_incremental_field_earliest_value=None,
+            logger=MagicMock(adebug=mock.AsyncMock()),
+            resumable_source_manager=MagicMock(can_resume=MagicMock(return_value=False)),
+            webhook_source_manager=manager,
+            api_version=STRIPE_API_VERSION_ACACIA,
+        )
+
+    @parameterized.expand(
+        [
+            # History must stay opt-in (should_sync_default=False, or one-shot setup force-enables
+            # a per-customer sweep) and webhook-sync-only (webhook_only=True, or the UI offers full
+            # refresh, which truncates the captured history on every scheduled run).
+            (CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME, True, False),
+            # The existing upsert table must keep its behavior — the history flags must not leak.
+            (CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME, False, True),
+        ]
+    )
+    def test_schema_flags(self, endpoint: str, webhook_only: bool, should_sync_default: bool) -> None:
+        source = StripeSource()
+        config = StripeSourceConfig(
+            auth_method=StripeAuthMethodConfig(selection="api_key", stripe_secret_key="sk_test_123")
+        )
+        schema = next(s for s in source.get_schemas(config, team_id=1) if s.name == endpoint)
+        assert schema.webhook_only is webhook_only
+        assert schema.should_sync_default is should_sync_default
+        assert schema.supports_webhooks is True
+        assert schema.supports_incremental is False
+        assert schema.supports_append is False
+
+    def test_history_mapping_key_cannot_collide_with_object_routing(self) -> None:
+        # schema_mapping routes one schema per key. If the history table resolved to the bare
+        # "payment_method" key, whichever schema registered last would silently steal the other's
+        # events — so it must use the suffixed key, and that key must not equal any object type.
+        source = StripeSource()
+        assert (
+            source.webhook_mapping_key(CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME)
+            == PAYMENT_METHOD_HISTORY_MAPPING_KEY
+        )
+        assert source.webhook_mapping_key(CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME) == "payment_method"
+        assert PAYMENT_METHOD_HISTORY_MAPPING_KEY not in RESOURCE_TO_STRIPE_OBJECT_TYPE.values()
+
+    def test_history_response_keys_on_the_observation_and_still_polls(self) -> None:
+        # primary_keys=["id"] would collapse a payment method's whole history to one row on merge;
+        # webhook_only=True on the response would skip the seed sweep, leaving the table empty
+        # until the first webhook event.
+        manager = self._make_manager(enabled=False)
+        response = self._source(CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME, manager)
+        assert response.primary_keys == [HISTORY_EVENT_ID_COLUMN]
+        assert response.webhook_only is False
+        assert response.partition_keys == ["created"]
+        manager.webhook_enabled.assert_awaited_once_with(webhook_only=False)
+
+    @parameterized.expand(
+        [
+            # The history endpoint must keep both events; the upsert transformer would collapse
+            # them to the latest state, silently dropping the intermediate observations the table
+            # exists to record.
+            (CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME, 2),
+            (CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME, 1),
+        ]
+    )
+    def test_webhook_transformer_choice_controls_event_collapsing(self, endpoint: str, expected_rows: int) -> None:
+        events = table_from_py_list(
+            [
+                _event_row(
+                    "evt_1",
+                    "payment_method.attached",
+                    1700000100,
+                    {"id": "pm_1", "object": "payment_method", "created": 1700000000, "customer": "cus_1"},
+                ),
+                _event_row(
+                    "evt_2",
+                    "payment_method.detached",
+                    1700000200,
+                    {"id": "pm_1", "object": "payment_method", "created": 1700000000, "customer": None},
+                    previous_attributes={"customer": "cus_1"},
+                ),
+            ]
+        )
+        manager = self._make_manager(enabled=True)
+        response = self._source(endpoint, manager)
+        response.items()
+        transformer = manager.get_items.call_args.kwargs["table_transformer"]
+        assert transformer(events).num_rows == expected_rows
+
+    def test_history_transformer_stamps_observation_columns(self) -> None:
+        # The detached event's row must keep the event's identity and the detached-from customer
+        # (via previous_attributes) — without them "which customer had this card on file, when?"
+        # is unanswerable once the payment method is gone from the live list.
+        events = table_from_py_list(
+            [
+                _event_row(
+                    "evt_1",
+                    "payment_method.attached",
+                    1700000100,
+                    {"id": "pm_1", "object": "payment_method", "created": 1700000000, "customer": "cus_1"},
+                ),
+                _event_row(
+                    "evt_2",
+                    "payment_method.detached",
+                    1700000200,
+                    {"id": "pm_1", "object": "payment_method", "created": 1700000000, "customer": None},
+                    previous_attributes={"customer": "cus_1"},
+                ),
+            ]
+        )
+        rows = {row[HISTORY_EVENT_ID_COLUMN]: row for row in _webhook_history_table_transformer(events).to_pylist()}
+
+        attached = rows["evt_1"]
+        assert attached["customer"] == "cus_1"
+        assert attached[HISTORY_EVENT_TYPE_COLUMN] == "payment_method.attached"
+        assert attached[HISTORY_CAPTURED_AT_COLUMN] == 1700000100
+        assert attached[HISTORY_PREVIOUS_ATTRIBUTES_COLUMN] is None
+
+        detached = rows["evt_2"]
+        assert detached["customer"] is None
+        assert detached[HISTORY_EVENT_TYPE_COLUMN] == "payment_method.detached"
+        assert detached[HISTORY_CAPTURED_AT_COLUMN] == 1700000200
+        assert orjson.loads(detached[HISTORY_PREVIOUS_ATTRIBUTES_COLUMN]) == {"customer": "cus_1"}
+
+    def test_history_transformer_dedupes_redelivered_events(self) -> None:
+        # Stripe redelivers events on retry. Two copies of the same event in one drained batch
+        # must land as one row — duplicates on the merge key make every later merge multi-match.
+        obj = {"id": "pm_1", "object": "payment_method", "created": 1700000000, "customer": "cus_1"}
+        events = table_from_py_list(
+            [
+                _event_row("evt_1", "payment_method.attached", 1700000100, obj),
+                _event_row("evt_1", "payment_method.attached", 1700000100, obj),
+            ]
+        )
+        assert _webhook_history_table_transformer(events).num_rows == 1
+
+    def test_history_transformer_skips_malformed_rows_without_raising(self) -> None:
+        # The S3 batch files are only deleted after a successful yield, so a transformer that
+        # raises on one malformed payload (only reachable with the signature check bypassed)
+        # would replay the same poison batch on every sync, wedging the schema forever.
+        events = table_from_py_list(
+            [
+                # No event id — cannot be keyed.
+                {
+                    "object": "event",
+                    "created": 1700000100,
+                    "data": {"object": {"id": "pm_1", "object": "payment_method"}},
+                },
+                # No object id — cannot be attributed to a payment method.
+                _event_row("evt_2", "payment_method.updated", 1700000200, {"object": "payment_method"}),
+                _event_row(
+                    "evt_3",
+                    "payment_method.updated",
+                    1700000300,
+                    {"id": "pm_1", "object": "payment_method", "created": 1700000000, "customer": "cus_1"},
+                ),
+            ]
+        )
+        # The `type` column is present here; drop it to also cover a batch missing a column outright.
+        events = events.drop_columns(["type"])
+        rows = _webhook_history_table_transformer(events).to_pylist()
+        assert [row[HISTORY_EVENT_ID_COLUMN] for row in rows] == ["evt_3"]
+        assert rows[0][HISTORY_EVENT_TYPE_COLUMN] is None
+
+    @parameterized.expand(
+        [
+            (CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME, True),
+            (CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME, False),
+        ]
+    )
+    def test_seed_sweep_stamps_snapshot_rows_only_for_history(self, endpoint: str, expect_stamped: bool) -> None:
+        # The sweep rows need a stable snapshot key: without it they have no merge key (the
+        # table's primary key column would be missing), and a fallback re-sweep would duplicate
+        # instead of refresh them. The same sweep feeding CustomerPaymentMethod must stay unstamped.
+        def payment_methods_list(customer=None, params=None):
+            return _list_object(
+                [{"id": f"pm_{customer}", "object": "payment_method", "created": 1700000000, "customer": customer}]
+            )
+
+        resumable_source_manager = MagicMock()
+        resumable_source_manager.can_resume.return_value = False
+
+        with patch.object(stripe_module, "StripeClient") as client_cls:
+            client = client_cls.return_value
+            client.customers.list = lambda params: _list_object([{"id": "cus_1"}])
+            client.customers.payment_methods.list = payment_methods_list
+            rows: list[dict] = []
+            for table in get_rows(
+                api_key="sk_test_123",
+                endpoint=endpoint,
+                account_id=None,
+                db_incremental_field_last_value=None,
+                db_incremental_field_earliest_value=None,
+                logger=MagicMock(),
+                resumable_source_manager=resumable_source_manager,
+                api_version=STRIPE_API_VERSION_ACACIA,
+            ):
+                rows.extend(table.to_pylist())
+
+        assert [row["id"] for row in rows] == ["pm_cus_1"]
+        row = rows[0]
+        assert row["customer"] == "cus_1"
+        if expect_stamped:
+            assert row[HISTORY_EVENT_ID_COLUMN] == f"{HISTORY_SNAPSHOT_EVENT_TYPE}:pm_cus_1:cus_1"
+            assert row[HISTORY_EVENT_TYPE_COLUMN] == HISTORY_SNAPSHOT_EVENT_TYPE
+            assert isinstance(row[HISTORY_CAPTURED_AT_COLUMN], int)
+        else:
+            assert HISTORY_EVENT_ID_COLUMN not in row
+
+
 class TestEndpointCatalogWiring:
     def setup_method(self):
         self.resources = stripe_module._build_resources(MagicMock(), logger=None)
@@ -1158,3 +1422,41 @@ class TestCreateWebhookPermissionErrorCopy:
 
         assert result.success is False
         assert expected_phrase in (result.error or "")
+
+
+class TestCreateWebhookLimitErrorCopy:
+    # Regression test: hitting Stripe's webhook-endpoint cap used to surface Stripe's raw error
+    # verbatim, so the user couldn't tell the account-wide limit was the cause or how to recover.
+    def test_webhook_limit_error_gives_actionable_message(self):
+        with patch.object(stripe_module, "StripeClient") as mock_client_cls:
+            mock_client = mock_client_cls.return_value
+            mock_client.webhook_endpoints.create.side_effect = stripe_lib.InvalidRequestError(
+                "You have reached the maximum of 100 test webhook endpoints.", param=None
+            )
+
+            result = create_webhook(
+                api_key="sk_test_123",
+                stripe_account_id=None,
+                webhook_url="https://example.com/webhook",
+            )
+
+        assert result.success is False
+        assert "webhook endpoint limit" in (result.error or "")
+        assert "manually" in (result.error or "")
+
+
+class TestStripeAppManifestCoversSourcePermissions:
+    # Regression test: PERMISSIONS drives the pre-filled restricted-key form, while the Stripe app
+    # manifest drives what an OAuth connection is granted. The two drifted twice (rak_webhook_write
+    # in April, rak_coupon_read in July), each time leaving OAuth users unable to create a webhook
+    # or import coupons while the key path worked. The manifest is the checked-in source of truth
+    # for the OAuth grant, so it must cover every scope the source asks a key for.
+    def test_every_source_permission_is_requested_by_the_app(self):
+        manifest_path = Path(settings.BASE_DIR) / "services" / "stripe-app" / "stripe-app.json"
+        granted = {entry["permission"] for entry in orjson.loads(manifest_path.read_bytes())["permissions"]}
+
+        # A restricted-key scope is the app permission name with a `rak_` prefix.
+        required = {permission.removeprefix("rak_") for permission in PERMISSIONS}
+
+        assert required, "PERMISSIONS is empty, so this assertion would pass vacuously"
+        assert required - granted == set()

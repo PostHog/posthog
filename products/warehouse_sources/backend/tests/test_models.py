@@ -1,24 +1,27 @@
 import uuid
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from django.db import DatabaseError, OperationalError, transaction
+from django.db import DatabaseError, OperationalError, connection, transaction
 from django.db.models import Model
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from dateutil import parser
 from parameterized import parameterized
 
 from posthog.models.signals import model_activity_signal
+from posthog.models.team import Team
 
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
+    REPARTITION_HOLD_MAX_AGE,
     ExternalDataSchema,
     apply_incremental_lookback,
     complete_schema_run,
@@ -320,17 +323,21 @@ class TestSaveSyncTypeConfigRetriesOnConnectionDrop(BaseTest):
 
 
 class TestExternalDataSchemaOOMEvent(BaseTest):
-    def _source(self) -> ExternalDataSource:
+    def _source(self, team_id: int | None = None) -> ExternalDataSource:
         return ExternalDataSource.objects.create(
-            team_id=self.team.pk,
+            team_id=team_id if team_id is not None else self.team.pk,
             source_id=str(uuid.uuid4()),
             connection_id=str(uuid.uuid4()),
             status="Completed",
             source_type="Postgres",
         )
 
-    def _schema(self, name: str) -> ExternalDataSchema:
-        return ExternalDataSchema.objects.create(team_id=self.team.pk, source=self._source(), name=name)
+    def _schema(self, name: str, team_id: int | None = None) -> ExternalDataSchema:
+        team_id = team_id if team_id is not None else self.team.pk
+        return ExternalDataSchema.objects.create(team_id=team_id, source=self._source(team_id), name=name)
+
+    def _other_team(self) -> Team:
+        return Team.objects.create(organization=self.organization)
 
     def _oom(
         self,
@@ -338,11 +345,21 @@ class TestExternalDataSchemaOOMEvent(BaseTest):
         *,
         age_days: float = 0,
         run_id: str | None = None,
+        self_phase: str | None = None,
+        # Fresh by default: the recorder snapshots the age from the same report as the rest of the
+        # evidence, so evidence-carrying rows always have one. Tests override it to model staleness.
+        self_report_age_at_death_seconds: float | None = 1.0,
+        self_peak_buffer_bytes: int | None = None,
+        co_tenant_correlated_max_peak_buffer_bytes: int | None = None,
     ) -> ExternalDataSchemaOOMEvent:
-        event = ExternalDataSchemaOOMEvent.objects.for_team(self.team.pk).create(
-            team_id=self.team.pk,
+        event = ExternalDataSchemaOOMEvent.objects.for_team(schema.team_id).create(
+            team_id=schema.team_id,
             schema=schema,
             run_id=run_id,
+            self_phase=self_phase,
+            self_report_age_at_death_seconds=self_report_age_at_death_seconds,
+            self_peak_buffer_bytes=self_peak_buffer_bytes,
+            co_tenant_correlated_max_peak_buffer_bytes=co_tenant_correlated_max_peak_buffer_bytes,
         )
         if age_days:
             # created_at is auto_now_add, so backdate via an update to place the row outside the window.
@@ -395,6 +412,141 @@ class TestExternalDataSchemaOOMEvent(BaseTest):
             self._oom(schema, run_id="run-1")
 
         assert ExternalDataSchemaOOMEvent.recent_count(schema, days=7) == 5
+
+    @parameterized.expand(
+        [
+            # A death self-reported mid-extract (or in the consumer's pre-merge load, or after
+            # finishing) is not a merge memory problem, so a finer partition layout cannot fix it.
+            # Counting these is how tables that OOM on big fetches get wrongly repartitioned.
+            ("extract_phase_does_not_count", {"self_phase": "extract"}, 0),
+            ("load_phase_does_not_count", {"self_phase": "load"}, 0),
+            ("finished_phase_does_not_count", {"self_phase": "finished"}, 0),
+            ("merge_phase_counts", {"self_phase": "merge"}, 1),
+            # No workload report (rollout gap, expired key, Redis down) must fail open, or a partial
+            # rollout would silently switch the trigger off.
+            ("unknown_phase_counts", {}, 1),
+            # A co-tenant that self-reported a strictly larger working set is the likelier culprit for
+            # a pod kill; counting the victim would repartition the wrong table.
+            (
+                "larger_co_tenant_exonerates",
+                {
+                    "self_phase": "merge",
+                    "self_peak_buffer_bytes": 1_000,
+                    "co_tenant_correlated_max_peak_buffer_bytes": 900_000,
+                },
+                0,
+            ),
+            (
+                "smaller_co_tenant_does_not_exonerate",
+                {
+                    "self_phase": "merge",
+                    "self_peak_buffer_bytes": 900_000,
+                    "co_tenant_correlated_max_peak_buffer_bytes": 1_000,
+                },
+                1,
+            ),
+            # Unknown on either side never exonerates: blame requires evidence, absence of it does not.
+            (
+                "unknown_own_size_still_counts",
+                {"self_phase": "merge", "co_tenant_correlated_max_peak_buffer_bytes": 900_000},
+                1,
+            ),
+            # Reports are periodic, so a snapshot flushed long before the death describes an earlier
+            # phase of the run: a merge that OOMs within one report interval of leaving extract still
+            # shows "extract" in Redis. Stale or unknown-age evidence must not exonerate.
+            (
+                "stale_extract_phase_still_counts",
+                {"self_phase": "extract", "self_report_age_at_death_seconds": 999.0},
+                1,
+            ),
+            (
+                "unknown_age_extract_phase_still_counts",
+                {"self_phase": "extract", "self_report_age_at_death_seconds": None},
+                1,
+            ),
+            (
+                "stale_larger_co_tenant_still_counts",
+                {
+                    "self_phase": "merge",
+                    "self_report_age_at_death_seconds": 999.0,
+                    "self_peak_buffer_bytes": 1_000,
+                    "co_tenant_correlated_max_peak_buffer_bytes": 900_000,
+                },
+                1,
+            ),
+        ]
+    )
+    def test_recent_count_applies_workload_evidence_rules(self, _name: str, evidence: dict, expected: int) -> None:
+        schema = self._schema("orders")
+        self._oom(schema, **evidence)
+
+        assert ExternalDataSchemaOOMEvent.recent_count(schema, days=7) == expected
+
+    @override_settings(DATA_WAREHOUSE_OOM_INFRA_BURST_MIN_SCHEMAS=3, DATA_WAREHOUSE_OOM_INFRA_BURST_MIN_TEAMS=3)
+    def test_recent_count_ignores_occurrences_inside_a_fleet_wide_burst(self) -> None:
+        # A deploy or node drain kills workers fleet-wide and every syncing schema records an
+        # occurrence. Counting those is what repartitioned healthy tables for reasons that had
+        # nothing to do with their partitions; a burst is judged from the rows themselves.
+        schema = self._schema("orders")
+        self._oom(schema, self_phase="merge")
+        for name in ("events", "persons"):
+            self._oom(self._schema(name, team_id=self._other_team().pk))
+
+        assert ExternalDataSchemaOOMEvent.recent_count(schema, days=7) == 0
+
+    @override_settings(DATA_WAREHOUSE_OOM_INFRA_BURST_MIN_SCHEMAS=3, DATA_WAREHOUSE_OOM_INFRA_BURST_MIN_TEAMS=3)
+    def test_recent_count_keeps_occurrences_when_a_burst_spans_only_one_tenant(self) -> None:
+        # One tenant's source outage kills all of that tenant's schemas at once — many schemas, one
+        # team. That is the tenant's own problem, not infrastructure: classifying it as a burst would
+        # let one tenant's failures suppress another tenant's remediation, and (without this floor)
+        # its own.
+        schema = self._schema("orders")
+        self._oom(schema, self_phase="merge")
+        for name in ("events", "persons", "invoices"):
+            self._oom(self._schema(name))
+
+        assert ExternalDataSchemaOOMEvent.recent_count(schema, days=7) == 1
+
+    def test_recent_count_screens_bursts_with_one_aggregate_on_a_quiet_fleet(self) -> None:
+        # The burst rule must not cost one aggregate per row: a schema can carry dozens of
+        # occurrences, and this runs on every detection pass. One bucketed aggregate over the whole
+        # window screens them all; on a quiet fleet no bucket crosses the thresholds, so everything
+        # counts.
+        schema = self._schema("orders")
+        for _ in range(6):
+            self._oom(schema, self_phase="merge")
+        self._oom(schema, self_phase="merge", age_days=5)  # days apart must change nothing
+
+        # Bounded, not exact: the team-scoped manager adds constant overhead we don't want to pin.
+        with CaptureQueriesContext(connection) as queries:
+            assert ExternalDataSchemaOOMEvent.recent_count(schema, days=7) == 7
+        assert len(queries) <= 4, [q["sql"][:120] for q in queries.captured_queries]
+
+    @override_settings(DATA_WAREHOUSE_OOM_INFRA_BURST_MIN_SCHEMAS=1, DATA_WAREHOUSE_OOM_INFRA_BURST_MIN_TEAMS=1)
+    def test_recent_count_burst_screening_work_does_not_grow_with_retained_history(self) -> None:
+        # The shape an adversarially (or chronically) failing schema can induce: many occurrences
+        # spaced just under the window across days. Screening must stay a constant number of queries
+        # — one bucketed aggregate for the whole window — never a query per occurrence.
+        schema = self._schema("orders")
+        for i in range(40):
+            self._oom(schema, self_phase="merge", age_days=(40 - i) * 25 / (60 * 24))
+
+        with CaptureQueriesContext(connection) as queries:
+            # Thresholds of 1/1 make every occurrence its own crossing bucket, so all are excluded —
+            # the point here is the query count, not the (absurd) threshold configuration.
+            assert ExternalDataSchemaOOMEvent.recent_count(schema, days=7) == 0
+        assert len(queries) <= 4, [q["sql"][:120] for q in queries.captured_queries]
+
+    @override_settings(DATA_WAREHOUSE_OOM_INFRA_BURST_MIN_SCHEMAS=10)
+    def test_recent_count_keeps_occurrences_below_the_burst_threshold(self) -> None:
+        # The mirror case: a handful of schemas failing in one window is normal operation, and
+        # discarding those would leave the trigger unable to fire at all.
+        schema = self._schema("orders")
+        self._oom(schema, self_phase="merge")
+        for name in ("events", "persons"):
+            self._oom(self._schema(name))
+
+        assert ExternalDataSchemaOOMEvent.recent_count(schema, days=7) == 1
 
 
 class TestUpdateSyncTypeConfigKeys(BaseTest):
@@ -1051,3 +1203,55 @@ class TestSSHTunnelPortValidation(SimpleTestCase):
             passphrase=None,
         )
         assert tunnel.has_valid_port()[0] is expected_valid
+
+
+class TestRepartitionHoldsImport:
+    """The hold pauses a schema's imports so a multi-budget rewrite can keep its checkpoint.
+
+    Every condition here decides whether a customer's table keeps ingesting, so each case is a
+    distinct way of getting that wrong: no rewrite at all, a rewrite still advancing, one that
+    stopped, and checkpoints whose stamp we cannot age out.
+    """
+
+    def _schema_with(self, rewrite: dict[str, Any] | None) -> ExternalDataSchema:
+        config: dict[str, Any] = {}
+        if rewrite is not None:
+            config["repartition_rewrite"] = rewrite
+        return ExternalDataSchema(sync_type_config=config)
+
+    def _stamped(self, ago: timedelta) -> dict[str, Any]:
+        return {"temp_uri": "s3://t", "rows_written": 10, "held_at": (datetime.now(UTC) - ago).isoformat()}
+
+    @parameterized.expand(
+        [
+            ("no_rewrite", None, False),
+            ("fresh_checkpoint", timedelta(minutes=5), True),
+            ("within_the_window", REPARTITION_HOLD_MAX_AGE - timedelta(hours=1), True),
+            ("lapsed", REPARTITION_HOLD_MAX_AGE + timedelta(hours=1), False),
+        ]
+    )
+    def test_hold_tracks_whether_the_rewrite_is_still_advancing(
+        self, _name: str, ago: timedelta | None, expected: bool
+    ) -> None:
+        rewrite = None if ago is None else self._stamped(ago)
+        assert self._schema_with(rewrite).repartition_holds_import is expected
+
+    @parameterized.expand(
+        [
+            # A checkpoint written before `held_at` existed. Holding on it would pause imports with no
+            # way to ever age the hold out.
+            ("missing_stamp", {"temp_uri": "s3://t", "rows_written": 10}),
+            ("unparseable_stamp", {"temp_uri": "s3://t", "held_at": "not-a-timestamp"}),
+            ("non_string_stamp", {"temp_uri": "s3://t", "held_at": 1234}),
+        ]
+    )
+    def test_an_unusable_stamp_never_holds(self, _name: str, rewrite: dict[str, Any]) -> None:
+        assert self._schema_with(rewrite).repartition_holds_import is False
+
+    def test_a_naive_stamp_is_read_as_utc(self) -> None:
+        # `held_at` is written with `datetime.now(UTC).isoformat()`, but a hand-edited or older row
+        # can carry a naive string. Comparing that against an aware now() raises, which would fail
+        # the import activity rather than skip the hold.
+        naive = (datetime.now(UTC) - timedelta(minutes=5)).replace(tzinfo=None).isoformat()
+        schema = self._schema_with({"temp_uri": "s3://t", "held_at": naive})
+        assert schema.repartition_holds_import is True

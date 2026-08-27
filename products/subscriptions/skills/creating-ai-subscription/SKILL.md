@@ -31,6 +31,18 @@ value is the _analysis itself_ (the LLM deciding what to query and writing it up
 not a fixed chart they already built. For an insight/dashboard subscription, set
 `insight`/`dashboard` instead of `prompt` and the AI gates below don't apply.
 
+> **Prefer a dashboard or insight subscription first.** A prompt subscription is the
+> heaviest option, and the LLM composes its own HogQL, so its numbers can drift from
+> what a saved insight or dashboard already shows. Reach for it only when (a) the user
+> **specifically asks** for a free-text / AI-written report, or (b) no existing insight
+> or dashboard covers the ask and the value really is the analysis itself. If the user
+> wants the key numbers from an **existing dashboard or insight** delivered on a
+> schedule — even phrased as "set up a scout/bot to post this daily" — a
+> **dashboard (or insight) subscription with `summary_enabled: true`** is usually the
+> better fit. Respect a user who's sure they want a prompt subscription, but when it's
+> ambiguous, suggest that and confirm first. See `managing-subscriptions` for the happy
+> path.
+
 This skill covers **creating** the subscription. Once it exists you manage its
 lifecycle with the same `subscriptions-*` tools (see below): list it, edit/disable/
 re-enable it, send a test delivery, or delete it.
@@ -169,3 +181,8 @@ title: 'Daily onboarding watch'
 `enabled: true`, `next_delivery_date` is in the future, and `prompt` matches what
 you sent. The first scheduled tick will run the planner → HogQL → synthesis
 pipeline and email/Slack the rendered markdown.
+
+## Related skills
+
+- **`managing-subscriptions`** — insight and dashboard subscriptions, including AI summaries attached to them
+- **`building-a-dashboard`** — build the dashboard when the user wants charts rather than a written report

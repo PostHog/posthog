@@ -7,12 +7,8 @@ from typing import TYPE_CHECKING
 import structlog
 from redis.asyncio import Redis
 
-from llm_gateway.config import (
-    DEFAULT_USER_COST_LIMIT,
-    FREE_PLAN_COST_LIMIT,
-    ORG_BILLED_USER_COST_LIMIT,
-    get_settings,
-)
+from llm_gateway.config import DEFAULT_USER_COST_LIMIT, get_settings
+from llm_gateway.products.config import resolve_cost_key
 
 if TYPE_CHECKING:
     from llm_gateway.config import UserCostLimit
@@ -24,7 +20,7 @@ from llm_gateway.rate_limiting.throttles import (
     get_rate_limit_multiplier,
     is_usage_unlimited,
 )
-from llm_gateway.services.plan_resolver import POSTHOG_CODE_PRODUCT, get_billing_period_number, is_pro_plan
+from llm_gateway.services.plan_resolver import POSTHOG_CODE_PRODUCT
 
 logger = structlog.get_logger(__name__)
 
@@ -38,18 +34,6 @@ class CostStatus:
     exceeded: bool
 
 
-def _is_free_plan_throttled(context: ThrottleContext) -> bool:
-    return (
-        context.product == POSTHOG_CODE_PRODUCT
-        and not is_pro_plan(context.plan_key)
-        and (context.seat_created_at is not None or context.seat_missing)
-    )
-
-
-def _is_org_billed_seatless(context: ThrottleContext) -> bool:
-    return context.product == POSTHOG_CODE_PRODUCT and context.seat_missing and context.code_usage_billed
-
-
 class CostThrottle(Throttle):
     scope: str
 
@@ -59,6 +43,10 @@ class CostThrottle(Throttle):
 
     def _get_multiplier(self, context: ThrottleContext) -> int:
         return get_rate_limit_multiplier(context.user)
+
+    def _cost_key(self, context: ThrottleContext) -> str:
+        """The budget this request meters against — usually its product, see `resolve_cost_key`."""
+        return resolve_cost_key(context.product, context.user.scopes)
 
     @abstractmethod
     def _get_cache_key(self, context: ThrottleContext) -> str: ...
@@ -83,10 +71,12 @@ class CostThrottle(Throttle):
     async def allow_request(self, context: ThrottleContext) -> ThrottleResult:
         limit, window = self._get_limit_and_window(context)
         if limit <= 0:
+            # A zero limit never refills, so the window is only a back-off hint.
             return ThrottleResult.deny(
                 detail=self._get_limit_exceeded_detail(),
                 scope=self.scope,
                 retry_after=window,
+                retry_after_resets_limit=False,
             )
         limiter = self._get_limiter(context)
         key = self._get_cache_key(context)
@@ -177,14 +167,14 @@ class ProductCostThrottle(CostThrottle):
 
     def _get_cache_key(self, context: ThrottleContext) -> str:
         mult = self._get_multiplier(context)
-        base = f"cost:product:{context.product}"
+        base = f"cost:product:{self._cost_key(context)}"
         if mult == 1:
             return base
         return f"{base}:m{mult}"
 
     def _get_limit_and_window(self, context: ThrottleContext) -> tuple[float, int]:
         settings = get_settings()
-        product_config = settings.product_cost_limits.get(context.product)
+        product_config = settings.product_cost_limits.get(self._cost_key(context))
         if product_config:
             base_limit = product_config.limit_usd
             window = product_config.window_seconds
@@ -244,33 +234,38 @@ class _UserCostThrottleBase(CostThrottle):
         if not context.end_user_id:
             return ""
         mult = self._get_multiplier(context)
-        base = f"cost:user:{self.scope}:{context.product}:{context.end_user_id}"
+        base = f"cost:user:{self.scope}:{self._cost_key(context)}:{context.end_user_id}"
         if mult == 1:
             return base
         return f"{base}:m{mult}"
 
     def _get_config(self, context: ThrottleContext) -> UserCostLimit:
-        # Precedence matters: an org-billed seatless user is uncapped even though
-        # seat_missing would otherwise select the free-plan cap below.
-        if _is_org_billed_seatless(context):
-            return ORG_BILLED_USER_COST_LIMIT
-        if _is_free_plan_throttled(context):
-            return FREE_PLAN_COST_LIMIT
-
-        config = get_settings().user_cost_limits.get(context.product)
+        cost_key = self._cost_key(context)
+        config = get_settings().user_cost_limits.get(cost_key)
         if not config:
-            if context.end_user_id and context.product not in self._warned_products:
-                self._warned_products.add(context.product)
+            if context.end_user_id and cost_key not in self._warned_products:
+                self._warned_products.add(cost_key)
                 logger.info(
                     "user_cost_limits_using_default",
-                    product=context.product,
-                    message=f"No user_cost_limits config for product '{context.product}' — using default limits",
+                    product=cost_key,
+                    message=f"No user_cost_limits config for product '{cost_key}' — using default limits",
                 )
             return DEFAULT_USER_COST_LIMIT
         return config
 
+    def _is_exempt(self, context: ThrottleContext) -> bool:
+        """Whether this request meters against the posthog_code budget, which billable credits
+        cover instead of a per-user cost limit.
+
+        Keyed on the resolved cost key rather than the declared product, for the same reason
+        `_cost_key` is: a Signals run holding an Array-app token declares `posthog_code`, and
+        reading the declaration here would hand it this exemption and leave the interactive
+        budget its spend is keyed to unenforced.
+        """
+        return self._cost_key(context) == POSTHOG_CODE_PRODUCT
+
     async def allow_request(self, context: ThrottleContext) -> ThrottleResult:
-        if not context.end_user_id:
+        if not context.end_user_id or self._is_exempt(context):
             return ThrottleResult.allow()
         if is_usage_unlimited(context.user):
             return ThrottleResult.allow()
@@ -281,7 +276,7 @@ class _UserCostThrottleBase(CostThrottle):
         return await super().allow_request(context)
 
     async def get_status(self, context: ThrottleContext) -> CostStatus:
-        if is_usage_unlimited(context.user):
+        if self._is_exempt(context) or is_usage_unlimited(context.user):
             # Staff have no per-user cap: report an effectively unlimited budget
             # so the usage endpoint computes 0% used and never flags the user as
             # rate limited. `float("inf")` never crosses the wire — only
@@ -297,8 +292,53 @@ class _UserCostThrottleBase(CostThrottle):
         return await super().get_status(context)
 
     async def record_cost(self, context: ThrottleContext, cost: float) -> None:
-        if not context.end_user_id:
+        if not context.end_user_id or self._is_exempt(context):
             return
+        await super().record_cost(context, cost)
+
+
+class SandboxTaskCostThrottle(CostThrottle):
+    """Total spend ceiling for one sandbox run, keyed on the task its token was minted for.
+
+    The product and per-user budgets are windowed, so a single conversation can spend a window's
+    worth of budget before either notices — and a user-started agent run has no natural end, since
+    the person can keep replying to it. This bounds the run itself. The key comes from the token
+    row rather than from request attribution, which the sandbox writes and could vary per call.
+
+    Opt-in: a cost key absent from `sandbox_task_cost_limits` has no ceiling, so this is inert for
+    every product that hasn't configured one.
+    """
+
+    scope = "sandbox_task_cost"
+
+    def _get_limit_exceeded_detail(self) -> str:
+        return "This agent run reached its spend limit"
+
+    def _get_cache_key(self, context: ThrottleContext) -> str:
+        if not context.sandbox_task_id:
+            return ""
+        # Deliberately not multiplied by the staff/team rate-limit multiplier: this is a
+        # per-run circuit breaker, and an elevated fleet-wide multiplier shouldn't widen it.
+        return f"cost:task:{context.sandbox_task_id}"
+
+    def _get_limit_and_window(self, context: ThrottleContext) -> tuple[float, int]:
+        config = get_settings().sandbox_task_cost_limits.get(self._cost_key(context))
+        if config is None:
+            return 0.0, 0
+        return config.limit_usd, config.window_seconds
+
+    def _is_configured(self, context: ThrottleContext) -> bool:
+        return bool(context.sandbox_task_id) and self._cost_key(context) in get_settings().sandbox_task_cost_limits
+
+    async def allow_request(self, context: ThrottleContext) -> ThrottleResult:
+        if not self._is_configured(context) or get_settings().sandbox_task_cost_limits_disabled:
+            return ThrottleResult.allow()
+        return await super().allow_request(context)
+
+    async def record_cost(self, context: ThrottleContext, cost: float) -> None:
+        if not self._is_configured(context):
+            return
+        # Recorded even when enforcement is off, so a dark launch measures what it would block.
         await super().record_cost(context, cost)
 
 
@@ -319,19 +359,6 @@ class UserCostSustainedThrottle(_UserCostThrottleBase):
 
     def _get_limit_exceeded_detail(self) -> str:
         return "User sustained rate limit exceeded"
-
-    def _get_cache_key(self, context: ThrottleContext) -> str:
-        base_key = super()._get_cache_key(context)
-        if not base_key:
-            return base_key
-        if context.product == POSTHOG_CODE_PRODUCT:
-            period = get_billing_period_number(
-                context.seat_created_at,
-                get_settings().billing_period_days,
-                billing_period_start=context.billing_period_start,
-            )
-            return f"{base_key}:period:{period}"
-        return base_key
 
     def _get_limit_and_window(self, context: ThrottleContext) -> tuple[float, int]:
         config = self._get_config(context)

@@ -29,6 +29,7 @@ export interface RawJobRow {
     distinct_id: string | null
     person_id: string | null
     action_id: string | null
+    cancel_requested_at: string | null
     lock_id: string
 }
 
@@ -176,7 +177,9 @@ async function updateSelfInTx(
         `last_transition = NOW()`,
         `transition_count = transition_count + 1`,
         `janitor_touch_count = 0`,
-        `scheduled = $3`,
+        // A cancel requested while this worker held the job must not sleep the full
+        // next delay before it's observed, so it wakes immediately instead.
+        `scheduled = CASE WHEN cancel_requested_at IS NOT NULL THEN LEAST($3::timestamptz, NOW()) ELSE $3::timestamptz END`,
     ]
     const params: any[] = [jobId, lockId, scheduled]
     if (disposition.state !== undefined) {
@@ -194,7 +197,7 @@ async function updateSelfInTx(
 function assertSelfRowAffected(rowCount: number | null, jobId: string, kind: string): void {
     if (rowCount !== 1) {
         throw new Error(
-            `bulkCreateAndCheckIn(${kind}) self UPDATE matched ${rowCount} rows for job ${jobId} — lock_id may have been reassigned`
+            `bulkCreateAndCheckIn(${kind}) self row matched ${rowCount} rows for job ${jobId} — lock_id may have been reassigned`
         )
     }
 }
@@ -324,6 +327,7 @@ export class CyclotronV2Worker {
                 cyclotron_jobs.distinct_id,
                 cyclotron_jobs.person_id,
                 cyclotron_jobs.action_id,
+                cyclotron_jobs.cancel_requested_at,
                 cyclotron_jobs.lock_id`,
             [this.config.queueName, limit, lockId]
         )
@@ -336,17 +340,19 @@ export class CyclotronV2Worker {
     }
 
     /**
-     * Fair dequeue: orders by the precomputed `dequeue_seq` so jobs interleave
-     * across tenants instead of being strict FIFO. The sort key is assigned at
-     * insert time (see `CyclotronV2Manager.bulkCreateJobs` and the helper
+     * Fair dequeue: priority class leads the sort so transactional-class sends
+     * aren't stuck behind a broadcast backlog, then the precomputed
+     * `dequeue_seq` interleaves jobs across tenants within a class instead of
+     * being strict FIFO. The sort key is assigned at insert time (see
+     * `CyclotronV2Manager.bulkCreateJobs` and the helper
      * `cyclotron_email_team_seq`); this method just reads them back in order.
      *
-     * Hits the partial index `idx_cyclotron_jobs_email_fair_dequeue` (only
-     * indexes email-queue rows with status='available'). NULLS FIRST drains
-     * any pre-migration legacy rows ahead of new fair-ordered ones.
+     * Hits the partial index `idx_cyclotron_jobs_email_priority_fair_dequeue`
+     * (only indexes email-queue rows with status='available'). NULLS FIRST
+     * drains any pre-migration legacy rows ahead of new fair-ordered ones.
      *
-     * Email-specific by intent — but mechanically just "ORDER BY a different
-     * column", so the SQL shape mirrors `dequeueJobs` exactly. Kept as a
+     * Email-specific by intent — but mechanically just "ORDER BY different
+     * columns", so the SQL shape mirrors `dequeueJobs` exactly. Kept as a
      * separate method so non-fair callers can read `dequeueJobs` end-to-end
      * without following a conditional or an indirection.
      */
@@ -359,7 +365,7 @@ export class CyclotronV2Worker {
                 WHERE status = 'available'
                   AND queue_name = $1
                   AND scheduled <= NOW()
-                ORDER BY dequeue_seq ASC NULLS FIRST
+                ORDER BY priority ASC, dequeue_seq ASC NULLS FIRST
                 LIMIT $2
                 FOR UPDATE SKIP LOCKED
             )
@@ -385,13 +391,15 @@ export class CyclotronV2Worker {
                 cyclotron_jobs.distinct_id,
                 cyclotron_jobs.person_id,
                 cyclotron_jobs.action_id,
+                cyclotron_jobs.cancel_requested_at,
                 cyclotron_jobs.lock_id`,
             [this.config.queueName, limit, lockId]
         )
         // Within-batch order is undefined (UPDATE...RETURNING doesn't preserve
-        // the CTE's ORDER BY), but the fairness guarantee is *across* batches:
-        // the CTE picks the rows with the lowest dequeue_seq values, so a
-        // small-tenant job never gets stuck behind a large-tenant backlog.
+        // the CTE's ORDER BY), but the guarantee is *across* batches: the CTE
+        // picks the rows with the lowest priority, then the lowest dequeue_seq,
+        // so a transactional send never waits behind a marketing backlog and a
+        // small-tenant job never gets stuck behind a large-tenant one.
         return result.rows
     }
 
@@ -421,6 +429,9 @@ export class CyclotronV2Worker {
             distinctId: row.distinct_id,
             personId: row.person_id,
             actionId: row.action_id,
+            cancelRequestedAt: row.cancel_requested_at
+                ? DateTime.fromISO(row.cancel_requested_at, { zone: 'utc' })
+                : null,
 
             async ack(): Promise<void> {
                 releaseGuard('ack')
@@ -462,7 +473,10 @@ export class CyclotronV2Worker {
                     // (e.g. wait_until_condition polls) don't accrue touches for
                     // their whole life and get mistaken for poison pills.
                     `janitor_touch_count = 0`,
-                    `scheduled = $3`,
+                    // A cancel requested while this worker held the job must not
+                    // sleep the full next delay before it's observed, so it
+                    // wakes immediately instead.
+                    `scheduled = CASE WHEN cancel_requested_at IS NOT NULL THEN LEAST($3::timestamptz, NOW()) ELSE $3::timestamptz END`,
                 ]
                 const params: any[] = [row.id, lockId, scheduled]
 
@@ -485,6 +499,10 @@ export class CyclotronV2Worker {
                 if (options?.queueName !== undefined) {
                     params.push(options.queueName)
                     setClauses.push(`queue_name = $${params.length}`)
+                }
+                if (options?.priority !== undefined) {
+                    params.push(options.priority)
+                    setClauses.push(`priority = $${params.length}`)
                 }
 
                 // Cross-queue routing into the email queue: assign a fresh
@@ -533,7 +551,9 @@ export class CyclotronV2Worker {
                 )
             },
 
-            async bulkCreateAndCheckIn(input: CyclotronV2BulkCreateAndCheckInInput): Promise<{ newJobIds: string[] }> {
+            async bulkCreateAndCheckIn(
+                input: CyclotronV2BulkCreateAndCheckInInput
+            ): Promise<{ newJobIds: string[]; cancelRequested?: boolean }> {
                 releaseGuard('bulkCreateAndCheckIn')
 
                 // Validate new jobs up front, outside the TX, so a malformed
@@ -543,6 +563,27 @@ export class CyclotronV2Worker {
                 const client = await pool.connect()
                 try {
                     await client.query('BEGIN')
+
+                    // Cancel tombstone, checked inside the transaction. The FOR UPDATE takes the
+                    // self row's lock, so this serializes against cancelJobs' flag write: a flag
+                    // that committed first refuses the whole page here (nothing inserted), and a
+                    // page that locked first commits before the flag can land — the cancel
+                    // sweep's remaining-count then still sees its jobs. Without this check, a
+                    // page could commit after a cancel sweep counted zero remaining, leaving
+                    // jobs that never get flagged.
+                    const selfRow = await client.query<{ cancel_requested_at: string | null }>(
+                        `SELECT cancel_requested_at FROM cyclotron_jobs
+                         WHERE id = $1 AND lock_id = $2
+                         FOR UPDATE`,
+                        [row.id, lockId]
+                    )
+                    assertSelfRowAffected(selfRow.rowCount, row.id, 'precheck')
+                    if (selfRow.rows[0].cancel_requested_at !== null) {
+                        await client.query('ROLLBACK')
+                        // The job was never released — hand it back to the caller to dispose.
+                        released = false
+                        return { newJobIds: [], cancelRequested: true }
+                    }
 
                     const newJobIds = await insertNewJobsInTx(client, newJobs)
                     await updateSelfInTx(client, row.id, lockId, input.selfDisposition)

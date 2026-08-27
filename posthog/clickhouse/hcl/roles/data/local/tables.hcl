@@ -1,100 +1,92 @@
 database "posthog" {
+  # Mirrors the events column set minus events' materialized property columns, with
+  # the full properties JSON kept as the source of truth. The typed property columns
+  # below carry their DEFAULT expression only on sharded_flag_evaluations; the
+  # Distributed proxy repeats them plain, because a Distributed engine computes
+  # nothing.
   table "_flag_evaluations_columns" {
     abstract = true
-    column "team_id" {
-      type = "Int64"
-    }
     column "uuid" {
       type = "UUID"
     }
+    column "event" {
+      type = "LowCardinality(String)"
+    }
+    column "properties" {
+      type = "String"
+    }
     column "timestamp" {
       type = "DateTime64(6, 'UTC')"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "distinct_id" {
+      type = "String"
+    }
+    column "created_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "person_id" {
+      type = "UUID"
+    }
+    column "person_properties" {
+      type = "String"
+    }
+    column "group0_properties" {
+      type = "String"
+    }
+    column "group1_properties" {
+      type = "String"
+    }
+    column "group2_properties" {
+      type = "String"
+    }
+    column "group3_properties" {
+      type = "String"
+    }
+    column "group4_properties" {
+      type = "String"
     }
     column "inserted_at" {
       type    = "DateTime64(6, 'UTC')"
       default = "timestamp"
     }
-    column "distinct_id" {
-      type = "String"
+    column "$group_0" {
+      type    = "String"
+      comment = "column_materializer::$group_0"
     }
-    column "session_id" {
-      type = "String"
+    column "$group_1" {
+      type    = "String"
+      comment = "column_materializer::$group_1"
     }
-    column "device_id" {
-      type = "String"
+    column "$group_2" {
+      type    = "String"
+      comment = "column_materializer::$group_2"
+    }
+    column "$group_3" {
+      type    = "String"
+      comment = "column_materializer::$group_3"
+    }
+    column "$group_4" {
+      type    = "String"
+      comment = "column_materializer::$group_4"
     }
     column "flag_key" {
-      type = "String"
+      type    = "String"
+      comment = "column_materializer::properties::$feature_flag"
     }
     column "response" {
-      type = "LowCardinality(String)"
+      type    = "LowCardinality(String)"
+      comment = "column_materializer::properties::$feature_flag_response"
     }
-    column "flag_id" {
-      type = "UInt64"
-    }
-    column "flag_version" {
-      type = "UInt32"
-    }
-    column "reason" {
-      type = "LowCardinality(String)"
+    column "session_id" {
+      type    = "String"
+      comment = "column_materializer::properties::$session_id"
     }
     column "request_id" {
-      type = "String"
-    }
-    column "evaluated_at" {
-      type    = "DateTime64(6, 'UTC')"
-      default = "timestamp"
-    }
-    column "error" {
-      type = "String"
-    }
-    column "locally_evaluated" {
-      type = "Bool"
-    }
-    column "lib" {
-      type = "LowCardinality(String)"
-    }
-    column "lib_version" {
-      type = "LowCardinality(String)"
-    }
-    column "is_server" {
-      type = "Bool"
-    }
-    column "os" {
-      type = "LowCardinality(String)"
-    }
-    column "os_version" {
-      type = "LowCardinality(String)"
-    }
-    column "app_version" {
-      type = "LowCardinality(String)"
-    }
-    column "current_url" {
-      type = "String"
-    }
-    column "pathname" {
-      type = "String"
-    }
-    column "country_code" {
-      type = "LowCardinality(String)"
-    }
-    column "subdivision_1_code" {
-      type = "LowCardinality(String)"
-    }
-    column "group_0" {
-      type = "String"
-    }
-    column "group_1" {
-      type = "String"
-    }
-    column "group_2" {
-      type = "String"
-    }
-    column "group_3" {
-      type = "String"
-    }
-    column "group_4" {
-      type = "String"
+      type    = "String"
+      comment = "column_materializer::properties::$feature_flag_request_id"
     }
     column "_timestamp" {
       type = "DateTime"
@@ -814,215 +806,6 @@ database "posthog" {
       zoo_path       = "/clickhouse/tables/noshard/posthog.error_tracking_issue_fingerprint_overrides"
       replica_name   = "{replica}-{shard}"
       version_column = "version"
-    }
-  }
-  table "events" {
-    column "uuid" {
-      type = "UUID"
-    }
-    column "event" {
-      type = "String"
-    }
-    column "properties" {
-      type  = "String"
-      codec = "ZSTD(3)"
-    }
-    column "timestamp" {
-      type = "DateTime64(6, 'UTC')"
-    }
-    column "team_id" {
-      type = "Int64"
-    }
-    column "distinct_id" {
-      type = "String"
-    }
-    column "elements_chain" {
-      type = "String"
-    }
-    column "created_at" {
-      type = "DateTime64(6, 'UTC')"
-    }
-    column "person_id" {
-      type = "UUID"
-    }
-    column "person_created_at" {
-      type = "DateTime64(3)"
-    }
-    column "person_properties" {
-      type  = "String"
-      codec = "ZSTD(3)"
-    }
-    column "group0_properties" {
-      type  = "String"
-      codec = "ZSTD(3)"
-    }
-    column "group1_properties" {
-      type  = "String"
-      codec = "ZSTD(3)"
-    }
-    column "group2_properties" {
-      type  = "String"
-      codec = "ZSTD(3)"
-    }
-    column "group3_properties" {
-      type  = "String"
-      codec = "ZSTD(3)"
-    }
-    column "group4_properties" {
-      type  = "String"
-      codec = "ZSTD(3)"
-    }
-    column "group0_created_at" {
-      type = "DateTime64(3)"
-    }
-    column "group1_created_at" {
-      type = "DateTime64(3)"
-    }
-    column "group2_created_at" {
-      type = "DateTime64(3)"
-    }
-    column "group3_created_at" {
-      type = "DateTime64(3)"
-    }
-    column "group4_created_at" {
-      type = "DateTime64(3)"
-    }
-    column "person_mode" {
-      type = "Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)"
-    }
-    column "historical_migration" {
-      type = "Bool"
-    }
-    column "dmat_string_0" {
-      type = "Nullable(String)"
-    }
-    column "dmat_string_1" {
-      type = "Nullable(String)"
-    }
-    column "dmat_string_2" {
-      type = "Nullable(String)"
-    }
-    column "dmat_string_3" {
-      type = "Nullable(String)"
-    }
-    column "dmat_string_4" {
-      type = "Nullable(String)"
-    }
-    column "dmat_string_5" {
-      type = "Nullable(String)"
-    }
-    column "dmat_string_6" {
-      type = "Nullable(String)"
-    }
-    column "dmat_string_7" {
-      type = "Nullable(String)"
-    }
-    column "dmat_string_8" {
-      type = "Nullable(String)"
-    }
-    column "dmat_string_9" {
-      type = "Nullable(String)"
-    }
-    column "$group_0" {
-      type    = "String"
-      comment = "column_materializer::$group_0"
-    }
-    column "$group_1" {
-      type    = "String"
-      comment = "column_materializer::$group_1"
-    }
-    column "$group_2" {
-      type    = "String"
-      comment = "column_materializer::$group_2"
-    }
-    column "$group_3" {
-      type    = "String"
-      comment = "column_materializer::$group_3"
-    }
-    column "$group_4" {
-      type    = "String"
-      comment = "column_materializer::$group_4"
-    }
-    column "$window_id" {
-      type    = "String"
-      comment = "column_materializer::$window_id"
-    }
-    column "$session_id" {
-      type    = "String"
-      comment = "column_materializer::$session_id"
-    }
-    column "$session_id_uuid" {
-      type = "Nullable(UInt128)"
-    }
-    column "elements_chain_href" {
-      type    = "String"
-      comment = "column_materializer::elements_chain::href"
-    }
-    column "elements_chain_texts" {
-      type    = "Array(String)"
-      comment = "column_materializer::elements_chain::texts"
-    }
-    column "elements_chain_ids" {
-      type    = "Array(String)"
-      comment = "column_materializer::elements_chain::ids"
-    }
-    column "elements_chain_elements" {
-      type    = "Array(Enum8('a'=1, 'button'=2, 'form'=3, 'input'=4, 'select'=5, 'textarea'=6, 'label'=7))"
-      comment = "column_materializer::elements_chain::elements"
-    }
-    column "properties_group_custom" {
-      type = "Map(String, String)"
-    }
-    column "properties_group_ai" {
-      type = "Map(String, String)"
-    }
-    column "properties_group_feature_flags" {
-      type = "Map(String, String)"
-    }
-    column "person_properties_map_custom" {
-      type = "Map(String, String)"
-    }
-    column "_timestamp" {
-      type = "DateTime"
-    }
-    column "_offset" {
-      type = "UInt64"
-    }
-    column "inserted_at" {
-      type    = "Nullable(DateTime64(6, 'UTC'))"
-      default = "now64()"
-    }
-    column "consumer_breadcrumbs" {
-      type = "Array(String)"
-    }
-    column "is_deleted" {
-      type = "Bool"
-    }
-    column "mat_$ai_trace_id" {
-      type    = "Nullable(String)"
-      comment = "column_materializer::properties::$ai_trace_id"
-    }
-    column "mat_$ai_session_id" {
-      type    = "Nullable(String)"
-      comment = "column_materializer::properties::$ai_session_id"
-    }
-    column "mat_$ai_is_error" {
-      type    = "Nullable(String)"
-      comment = "column_materializer::properties::$ai_is_error"
-    }
-    column "mat_$ai_prompt_name" {
-      type    = "Nullable(String)"
-      comment = "column_materializer::properties::$ai_prompt_name"
-    }
-    column "mat_$ai_experiment_id" {
-      type    = "Nullable(String)"
-      comment = "column_materializer::properties::$ai_experiment_id"
-    }
-    engine "distributed" {
-      cluster_name    = "posthog"
-      remote_database = "posthog"
-      remote_table    = "sharded_events"
-      sharding_key    = "sipHash64(distinct_id)"
     }
   }
   table "events_json" {
@@ -1782,110 +1565,6 @@ database "posthog" {
       zoo_path       = "/clickhouse/tables/{shard}/posthog.events_json"
       replica_name   = "{replica}"
       version_column = "_timestamp"
-    }
-  }
-  table "writable_events_json" {
-    column "uuid" {
-      type = "UUID"
-    }
-    column "event" {
-      type = "String"
-    }
-    column "properties" {
-      type = "JSON(max_dynamic_types=8, max_dynamic_paths=256, `$active_feature_flags` Array(String), `$ai_experiment_id` Nullable(String), `$ai_http_status` Nullable(String), `$ai_is_error` Nullable(String), `$ai_model` Nullable(String), `$ai_parent_id` Nullable(String), `$ai_prompt_name` Nullable(String), `$ai_provider` Nullable(String), `$ai_session_id` Nullable(String), `$ai_span_id` Nullable(String), `$ai_total_cost_usd` Nullable(String), `$ai_trace_id` Nullable(String), `$anon_distinct_id` Nullable(String), `$app_build` Nullable(String), `$app_namespace` Nullable(String), `$app_version` Nullable(String), `$browser` Nullable(String), `$browser_version` Nullable(String), `$current_url` Nullable(String), `$device` Nullable(String), `$device_id` Nullable(String), `$device_model` Nullable(String), `$device_type` Nullable(String), `$el_text` Nullable(String), `$event_type` Nullable(String), `$exception_fingerprint` Nullable(String), `$exception_functions` Array(String), `$exception_issue_id` Nullable(String), `$exception_sources` Array(String), `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flag` Nullable(String), `$feature_flag_payloads` Nullable(String), `$feature_flag_response` Nullable(String), `$geoip_city_name` Nullable(String), `$geoip_country_code` Nullable(String), `$geoip_country_name` Nullable(String), `$geoip_subdivision_1_code` Nullable(String), `$group_0` Nullable(String), `$group_1` Nullable(String), `$group_2` Nullable(String), `$group_3` Nullable(String), `$group_4` Nullable(String), `$groups` Nullable(String), `$host` Nullable(String), `$initial_pathname` Nullable(String), `$initial_referrer` Nullable(String), `$initial_referring_domain` Nullable(String), `$ip` Nullable(String), `$is_identified` Nullable(String), `$lib` Nullable(String), `$lib_custom_api_host` Nullable(String), `$lib_version` Nullable(String), `$lib_version__minor` Nullable(String), `$os` Nullable(String), `$os_name` Nullable(String), `$os_version` Nullable(String), `$pathname` Nullable(String), `$prev_pageview_max_content_percentage` Nullable(String), `$prev_pageview_max_scroll_percentage` Nullable(String), `$prev_pageview_pathname` Nullable(String), `$process_person_profile` Nullable(String), `$referrer` Nullable(String), `$referring_domain` Nullable(String), `$screen_height` Nullable(String), `$screen_name` Nullable(String), `$screen_width` Nullable(String), `$sent_at` Nullable(String), `$session_id` Nullable(String), `$survey_id` Nullable(String), `$survey_response` Nullable(String), `$survey_response_1` Nullable(String), `$time` Nullable(String), `$user_id` Nullable(String), `$viewport_height` Nullable(String), `$viewport_width` Nullable(String), `$web_vitals_CLS_value` Nullable(String), `$web_vitals_FCP_value` Nullable(String), `$web_vitals_INP_value` Nullable(String), `$web_vitals_LCP_value` Nullable(String), `$window_id` Nullable(String))"
-    }
-    column "timestamp" {
-      type = "DateTime64(6, 'UTC')"
-    }
-    column "team_id" {
-      type = "Int64"
-    }
-    column "distinct_id" {
-      type = "String"
-    }
-    column "elements_hash" {
-      type = "String"
-      default = "''"
-    }
-    column "created_at" {
-      type = "DateTime64(6, 'UTC')"
-    }
-    column "_timestamp" {
-      type = "DateTime"
-    }
-    column "_offset" {
-      type = "UInt64"
-    }
-    column "elements_chain" {
-      type = "String"
-    }
-    column "person_id" {
-      type = "UUID"
-    }
-    column "person_properties" {
-      type = "JSON(max_dynamic_types=6, max_dynamic_paths=32, `$app_version` Nullable(String), `$browser` Nullable(String), `$current_url` Nullable(String), `$geoip_continent_name` Nullable(String), `$geoip_country_code` Nullable(String), `$geoip_country_name` Nullable(String), `$initial_current_url` Nullable(String), `$initial_fbclid` Nullable(String), `$initial_gad_source` Nullable(String), `$initial_gbraid` Nullable(String), `$initial_gclid` Nullable(String), `$initial_msclkid` Nullable(String), `$initial_pathname` Nullable(String), `$initial_referring_domain` Nullable(String), `$initial_utm_campaign` Nullable(String), `$initial_utm_content` Nullable(String), `$initial_utm_medium` Nullable(String), `$initial_utm_source` Nullable(String), `$initial_utm_term` Nullable(String), `$initial_wbraid` Nullable(String), `$os_name` Nullable(String), `$referring_domain` Nullable(String))"
-    }
-    column "group0_properties" {
-      type = "String"
-      codec = "ZSTD(3)"
-    }
-    column "group1_properties" {
-      type = "String"
-      codec = "ZSTD(3)"
-    }
-    column "group2_properties" {
-      type = "String"
-      codec = "ZSTD(3)"
-    }
-    column "group3_properties" {
-      type = "String"
-      codec = "ZSTD(3)"
-    }
-    column "group4_properties" {
-      type = "String"
-      codec = "ZSTD(3)"
-    }
-    column "person_created_at" {
-      type = "DateTime64(3)"
-    }
-    column "group0_created_at" {
-      type = "DateTime64(3)"
-    }
-    column "group1_created_at" {
-      type = "DateTime64(3)"
-    }
-    column "group2_created_at" {
-      type = "DateTime64(3)"
-    }
-    column "group3_created_at" {
-      type = "DateTime64(3)"
-    }
-    column "group4_created_at" {
-      type = "DateTime64(3)"
-    }
-    column "inserted_at" {
-      type = "Nullable(DateTime64(6, 'UTC'))"
-      default = "now64()"
-    }
-    column "person_mode" {
-      type = "Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)"
-    }
-    column "is_deleted" {
-      type = "Bool"
-      default = "false"
-    }
-    column "consumer_breadcrumbs" {
-      type = "Array(String)"
-    }
-    column "historical_migration" {
-      type = "Bool"
-      default = "false"
-    }
-    engine "distributed" {
-      cluster_name    = "posthog"
-      remote_database = "posthog"
-      remote_table    = "sharded_events_json"
-      sharding_key    = "sipHash64(distinct_id)"
     }
   }
 
@@ -3737,392 +3416,6 @@ database "posthog" {
       sum_columns  = ["event_count"]
     }
   }
-  table "sharded_events" {
-    order_by     = ["team_id", "toDate(timestamp)", "event", "cityHash64(distinct_id)", "cityHash64(uuid)"]
-    partition_by = "toYYYYMM(timestamp)"
-    sample_by    = "cityHash64(distinct_id)"
-    settings = {
-      index_granularity = "8192"
-    }
-    column "uuid" {
-      type = "UUID"
-    }
-    column "event" {
-      type = "String"
-    }
-    column "properties" {
-      type  = "String"
-      codec = "ZSTD(3)"
-    }
-    column "timestamp" {
-      type = "DateTime64(6, 'UTC')"
-    }
-    column "team_id" {
-      type = "Int64"
-    }
-    column "distinct_id" {
-      type = "String"
-    }
-    column "elements_chain" {
-      type = "String"
-    }
-    column "created_at" {
-      type = "DateTime64(6, 'UTC')"
-    }
-    column "person_id" {
-      type = "UUID"
-    }
-    column "person_created_at" {
-      type = "DateTime64(3)"
-    }
-    column "person_properties" {
-      type  = "String"
-      codec = "ZSTD(3)"
-    }
-    column "group0_properties" {
-      type  = "String"
-      codec = "ZSTD(3)"
-    }
-    column "group1_properties" {
-      type  = "String"
-      codec = "ZSTD(3)"
-    }
-    column "group2_properties" {
-      type  = "String"
-      codec = "ZSTD(3)"
-    }
-    column "group3_properties" {
-      type  = "String"
-      codec = "ZSTD(3)"
-    }
-    column "group4_properties" {
-      type  = "String"
-      codec = "ZSTD(3)"
-    }
-    column "group0_created_at" {
-      type = "DateTime64(3)"
-    }
-    column "group1_created_at" {
-      type = "DateTime64(3)"
-    }
-    column "group2_created_at" {
-      type = "DateTime64(3)"
-    }
-    column "group3_created_at" {
-      type = "DateTime64(3)"
-    }
-    column "group4_created_at" {
-      type = "DateTime64(3)"
-    }
-    column "person_mode" {
-      type = "Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)"
-    }
-    column "historical_migration" {
-      type = "Bool"
-    }
-    column "dmat_string_0" {
-      type = "Nullable(String)"
-    }
-    column "dmat_string_1" {
-      type = "Nullable(String)"
-    }
-    column "dmat_string_2" {
-      type = "Nullable(String)"
-    }
-    column "dmat_string_3" {
-      type = "Nullable(String)"
-    }
-    column "dmat_string_4" {
-      type = "Nullable(String)"
-    }
-    column "dmat_string_5" {
-      type = "Nullable(String)"
-    }
-    column "dmat_string_6" {
-      type = "Nullable(String)"
-    }
-    column "dmat_string_7" {
-      type = "Nullable(String)"
-    }
-    column "dmat_string_8" {
-      type = "Nullable(String)"
-    }
-    column "dmat_string_9" {
-      type = "Nullable(String)"
-    }
-    column "$group_0" {
-      type         = "String"
-      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^\"|\"$', '')"
-      comment      = "column_materializer::$group_0"
-    }
-    column "$group_1" {
-      type         = "String"
-      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^\"|\"$', '')"
-      comment      = "column_materializer::$group_1"
-    }
-    column "$group_2" {
-      type         = "String"
-      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$group_2'), '^\"|\"$', '')"
-      comment      = "column_materializer::$group_2"
-    }
-    column "$group_3" {
-      type         = "String"
-      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$group_3'), '^\"|\"$', '')"
-      comment      = "column_materializer::$group_3"
-    }
-    column "$group_4" {
-      type         = "String"
-      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$group_4'), '^\"|\"$', '')"
-      comment      = "column_materializer::$group_4"
-    }
-    column "$window_id" {
-      type         = "String"
-      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$window_id'), '^\"|\"$', '')"
-      comment      = "column_materializer::$window_id"
-    }
-    column "$session_id" {
-      type         = "String"
-      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$session_id'), '^\"|\"$', '')"
-      comment      = "column_materializer::$session_id"
-    }
-    column "$session_id_uuid" {
-      type         = "Nullable(UInt128)"
-      materialized = "toUInt128(JSONExtract(properties, '$session_id', 'Nullable(UUID)'))"
-    }
-    column "elements_chain_href" {
-      type         = "String"
-      materialized = "EXTRACT(elements_chain, '(?::|\")href=\"(.*?)\"')"
-    }
-    column "elements_chain_texts" {
-      type         = "Array(String)"
-      materialized = "arrayDistinct(extractAll(elements_chain, '(?::|\")text=\"(.*?)\"'))"
-    }
-    column "elements_chain_elements" {
-      type         = "Array(Enum8('a'=1, 'button'=2, 'form'=3, 'input'=4, 'select'=5, 'textarea'=6, 'label'=7))"
-      materialized = "arrayDistinct(extractAll(elements_chain, '(?:^|;)(a|button|form|input|select|textarea|label)(?:\\\\.|$|:)'))"
-    }
-    column "properties_group_custom" {
-      type         = "Map(String, String)"
-      materialized = "mapSort(mapFilter((key, _) -> ((key NOT LIKE '$%') AND (key NOT IN ('token', 'distinct_id', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'gclid', 'gad_source', 'gclsrc', 'dclid', 'gbraid', 'wbraid', 'fbclid', 'msclkid', 'twclid', 'li_fat_id', 'mc_cid', 'igshid', 'ttclid', 'rdt_cid', 'epik', 'qclid', 'sccid', 'irclid', '_kx'))), CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)')))"
-      codec        = "ZSTD(1)"
-    }
-    column "properties_group_ai" {
-      type         = "Map(String, String)"
-      materialized = "mapSort(mapFilter((key, _) -> ((key LIKE '$ai_%') AND (key NOT IN ('$ai_input', '$ai_input_state', '$ai_output', '$ai_output_choices', '$ai_output_state', '$ai_tools'))), CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)')))"
-      codec        = "ZSTD(1)"
-    }
-    column "properties_group_feature_flags" {
-      type         = "Map(String, String)"
-      materialized = "mapSort(mapFilter((key, _) -> (key LIKE '$feature/%'), CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)')))"
-      codec        = "ZSTD(1)"
-    }
-    column "person_properties_map_custom" {
-      type         = "Map(String, String)"
-      materialized = "mapSort(mapFilter((key, _) -> (key NOT LIKE '$%'), CAST(JSONExtractKeysAndValues(person_properties, 'String'), 'Map(String, String)')))"
-      codec        = "ZSTD(1)"
-    }
-    column "_timestamp" {
-      type = "DateTime"
-    }
-    column "_offset" {
-      type = "UInt64"
-    }
-    column "inserted_at" {
-      type    = "Nullable(DateTime64(6, 'UTC'))"
-      default = "now64()"
-    }
-    column "consumer_breadcrumbs" {
-      type = "Array(String)"
-    }
-    column "elements_chain_ids" {
-      type         = "Array(String)"
-      materialized = "arrayDistinct(extractAll(elements_chain, '(?::|\")attr_id=\"(.*?)\"'))"
-    }
-    column "is_deleted" {
-      type = "Bool"
-    }
-    column "properties_map_ephemeral" {
-      type = "Map(String, String)"
-    }
-    column "person_properties_map_ephemeral" {
-      type = "Map(String, String)"
-    }
-    column "mat_$ai_trace_id" {
-      type         = "Nullable(String)"
-      materialized = "JSONExtract(properties, '$ai_trace_id', 'Nullable(String)')"
-    }
-    column "mat_$ai_session_id" {
-      type         = "Nullable(String)"
-      materialized = "JSONExtract(properties, '$ai_session_id', 'Nullable(String)')"
-    }
-    column "mat_$ai_is_error" {
-      type         = "Nullable(String)"
-      materialized = "JSONExtract(properties, '$ai_is_error', 'Nullable(String)')"
-    }
-    column "mat_$ai_prompt_name" {
-      type         = "Nullable(String)"
-      materialized = "JSONExtract(properties, '$ai_prompt_name', 'Nullable(String)')"
-    }
-    column "mat_$ai_experiment_id" {
-      type    = "Nullable(String)"
-      default = "JSONExtract(properties, '$ai_experiment_id', 'Nullable(String)')"
-    }
-    index "minmax_$group_0" {
-      expr        = "`$group_0`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_$group_1" {
-      expr        = "`$group_1`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_$group_2" {
-      expr        = "`$group_2`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_$group_3" {
-      expr        = "`$group_3`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_$group_4" {
-      expr        = "`$group_4`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_$window_id" {
-      expr        = "`$window_id`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_$session_id" {
-      expr        = "`$session_id`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_$session_id_uuid" {
-      expr        = "`$session_id_uuid`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "properties_group_custom_keys_bf" {
-      expr        = "mapKeys(properties_group_custom)"
-      type        = "bloom_filter"
-      granularity = 1
-    }
-    index "properties_group_custom_values_bf" {
-      expr        = "mapValues(properties_group_custom)"
-      type        = "bloom_filter"
-      granularity = 1
-    }
-    index "properties_group_ai_keys_bf" {
-      expr        = "mapKeys(properties_group_ai)"
-      type        = "bloom_filter"
-      granularity = 1
-    }
-    index "properties_group_ai_values_bf" {
-      expr        = "mapValues(properties_group_ai)"
-      type        = "bloom_filter"
-      granularity = 1
-    }
-    index "properties_group_feature_flags_keys_bf" {
-      expr        = "mapKeys(properties_group_feature_flags)"
-      type        = "bloom_filter"
-      granularity = 1
-    }
-    index "properties_group_feature_flags_values_bf" {
-      expr        = "mapValues(properties_group_feature_flags)"
-      type        = "bloom_filter"
-      granularity = 1
-    }
-    index "person_properties_map_custom_keys_bf" {
-      expr        = "mapKeys(person_properties_map_custom)"
-      type        = "bloom_filter"
-      granularity = 1
-    }
-    index "person_properties_map_custom_values_bf" {
-      expr        = "mapValues(person_properties_map_custom)"
-      type        = "bloom_filter"
-      granularity = 1
-    }
-    index "kafka_timestamp_minmax_sharded_events" {
-      expr        = "_timestamp"
-      type        = "minmax"
-      granularity = 3
-    }
-    index "minmax_inserted_at" {
-      expr        = "coalesce(inserted_at, _timestamp)"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "is_deleted_idx" {
-      expr        = "(is_deleted)"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "bloom_filter_$ai_trace_id" {
-      expr        = "`mat_$ai_trace_id`"
-      type        = "bloom_filter(0.001)"
-      granularity = 2
-    }
-    index "bloom_filter_$ai_session_id" {
-      expr        = "`mat_$ai_session_id`"
-      type        = "bloom_filter"
-      granularity = 1
-    }
-    index "minmax_$ai_session_id" {
-      expr        = "`mat_$ai_session_id`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "set_$ai_is_error" {
-      expr        = "`mat_$ai_is_error`"
-      type        = "set(7)"
-      granularity = 1
-    }
-    index "bloom_filter_distinct_id" {
-      expr        = "distinct_id"
-      type        = "bloom_filter"
-      granularity = 1
-    }
-    index "minmax_sharded_events_timestamp" {
-      expr        = "timestamp"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_historical_migration" {
-      expr        = "(historical_migration)"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "bloom_filter_$ai_prompt_name" {
-      expr        = "`mat_$ai_prompt_name`"
-      type        = "bloom_filter"
-      granularity = 1
-    }
-    index "minmax_$ai_prompt_name" {
-      expr        = "`mat_$ai_prompt_name`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "bloom_filter_$ai_experiment_id" {
-      expr        = "`mat_$ai_experiment_id`"
-      type        = "bloom_filter"
-      granularity = 1
-    }
-    index "minmax_$ai_experiment_id" {
-      expr        = "`mat_$ai_experiment_id`"
-      type        = "minmax"
-      granularity = 1
-    }
-    engine "replicated_replacing_merge_tree" {
-      zoo_path       = "/clickhouse/tables/{shard}/posthog.events"
-      replica_name   = "{replica}"
-      version_column = "_timestamp"
-    }
-  }
   table "sharded_experiment_exposures_preaggregated" {
     order_by     = ["team_id", "job_id", "entity_id", "breakdown_value"]
     partition_by = "toYYYYMMDD(expires_at)"
@@ -4181,8 +3474,40 @@ database "posthog" {
       ttl_only_drop_parts = "1"
     }
     extend = "_flag_evaluations_columns"
+    patch_column "$group_0" {
+      default = "replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^\"|\"$', '')"
+    }
+    patch_column "$group_1" {
+      default = "replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^\"|\"$', '')"
+    }
+    patch_column "$group_2" {
+      default = "replaceRegexpAll(JSONExtractRaw(properties, '$group_2'), '^\"|\"$', '')"
+    }
+    patch_column "$group_3" {
+      default = "replaceRegexpAll(JSONExtractRaw(properties, '$group_3'), '^\"|\"$', '')"
+    }
+    patch_column "$group_4" {
+      default = "replaceRegexpAll(JSONExtractRaw(properties, '$group_4'), '^\"|\"$', '')"
+    }
+    patch_column "flag_key" {
+      default = "replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag'), '^\"|\"$', '')"
+    }
+    patch_column "response" {
+      default = "replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^\"|\"$', '')"
+    }
+    patch_column "session_id" {
+      default = "replaceRegexpAll(JSONExtractRaw(properties, '$session_id'), '^\"|\"$', '')"
+    }
+    patch_column "request_id" {
+      default = "replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_request_id'), '^\"|\"$', '')"
+    }
     index "distinct_id_idx" {
       expr        = "distinct_id"
+      type        = "bloom_filter(0.01)"
+      granularity = 1
+    }
+    index "person_id_idx" {
+      expr        = "person_id"
       type        = "bloom_filter(0.01)"
       granularity = 1
     }
@@ -6373,41 +5698,6 @@ database "posthog" {
       sharding_key    = "sipHash64(distinct_id)"
     }
   }
-  table "writable_log_entries" {
-    column "team_id" {
-      type = "UInt64"
-    }
-    column "log_source" {
-      type = "LowCardinality(String)"
-    }
-    column "log_source_id" {
-      type = "String"
-    }
-    column "instance_id" {
-      type = "String"
-    }
-    column "timestamp" {
-      type = "DateTime64(6, 'UTC')"
-    }
-    column "level" {
-      type = "LowCardinality(String)"
-    }
-    column "message" {
-      type = "String"
-    }
-    column "_timestamp" {
-      type = "DateTime"
-    }
-    column "_offset" {
-      type = "UInt64"
-    }
-    engine "distributed" {
-      cluster_name    = "posthog"
-      remote_database = "posthog"
-      remote_table    = "sharded_log_entries"
-      sharding_key    = "rand()"
-    }
-  }
   table "writable_posthog_document_embeddings_text_embedding_3_large_3072" {
     column "team_id" {
       type = "Int64"
@@ -6860,103 +6150,6 @@ database "posthog" {
       remote_database = "posthog"
       remote_table    = "sharded_session_replay_embeddings"
       sharding_key    = "sipHash64(session_id)"
-    }
-  }
-  table "writable_session_replay_events" {
-    column "session_id" {
-      type = "String"
-    }
-    column "team_id" {
-      type = "Int64"
-    }
-    column "distinct_id" {
-      type = "String"
-    }
-    column "min_first_timestamp" {
-      type = "SimpleAggregateFunction(min, DateTime64(6, 'UTC'))"
-    }
-    column "max_last_timestamp" {
-      type = "SimpleAggregateFunction(max, DateTime64(6, 'UTC'))"
-    }
-    column "block_first_timestamps" {
-      type = "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC')))"
-    }
-    column "block_last_timestamps" {
-      type = "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC')))"
-    }
-    column "block_urls" {
-      type = "SimpleAggregateFunction(groupArrayArray, Array(String))"
-    }
-    column "first_url" {
-      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
-    }
-    column "all_urls" {
-      type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
-    }
-    column "click_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "keypress_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "mouse_activity_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "active_milliseconds" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "console_log_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "console_warn_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "console_error_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "size" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "message_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "event_count" {
-      type = "SimpleAggregateFunction(sum, Int64)"
-    }
-    column "snapshot_source" {
-      type = "AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))"
-    }
-    column "snapshot_library" {
-      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
-    }
-    column "_timestamp" {
-      type = "SimpleAggregateFunction(max, DateTime)"
-    }
-    column "is_deleted" {
-      type    = "SimpleAggregateFunction(max, UInt8)"
-      default = "0"
-    }
-    column "ai_tags_fixed" {
-      type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
-    }
-    column "ai_tags_freeform" {
-      type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
-    }
-    column "ai_highlighted" {
-      type    = "SimpleAggregateFunction(max, UInt8)"
-      default = "0"
-    }
-    column "surfacing_score" {
-      type = "SimpleAggregateFunction(max, Nullable(Float32))"
-    }
-    column "retention_period_days" {
-      type = "SimpleAggregateFunction(max, Nullable(Int64))"
-    }
-    engine "distributed" {
-      cluster_name    = "posthog"
-      remote_database = "posthog"
-      remote_table    = "sharded_session_replay_events"
-      sharding_key    = "sipHash64(distinct_id)"
     }
   }
   table "writable_sessions" {
@@ -8448,6 +7641,275 @@ SQL
     }
     layout "complex_key_hashed" {
       preallocate = 1
+    }
+  }
+  patch_table "sharded_events" {
+    modify_column "$group_0" {
+      type         = "String"
+      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^\"|\"$', '')"
+      comment      = "column_materializer::$group_0"
+    }
+    modify_column "$group_1" {
+      type         = "String"
+      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^\"|\"$', '')"
+      comment      = "column_materializer::$group_1"
+    }
+    modify_column "$group_2" {
+      type         = "String"
+      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$group_2'), '^\"|\"$', '')"
+      comment      = "column_materializer::$group_2"
+    }
+    modify_column "$group_3" {
+      type         = "String"
+      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$group_3'), '^\"|\"$', '')"
+      comment      = "column_materializer::$group_3"
+    }
+    modify_column "$group_4" {
+      type         = "String"
+      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$group_4'), '^\"|\"$', '')"
+      comment      = "column_materializer::$group_4"
+    }
+    modify_column "$window_id" {
+      type         = "String"
+      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$window_id'), '^\"|\"$', '')"
+      comment      = "column_materializer::$window_id"
+    }
+    modify_column "$session_id" {
+      type         = "String"
+      materialized = "replaceRegexpAll(JSONExtractRaw(properties, '$session_id'), '^\"|\"$', '')"
+      comment      = "column_materializer::$session_id"
+    }
+    modify_column "properties_group_custom" {
+      type         = "Map(String, String)"
+      materialized = "mapSort(mapFilter((key, _) -> ((key NOT LIKE '$%') AND (key NOT IN ('token', 'distinct_id', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'gclid', 'gad_source', 'gclsrc', 'dclid', 'gbraid', 'wbraid', 'fbclid', 'msclkid', 'twclid', 'li_fat_id', 'mc_cid', 'igshid', 'ttclid', 'rdt_cid', 'epik', 'qclid', 'sccid', 'irclid', '_kx'))), CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)')))"
+      codec        = "ZSTD(1)"
+    }
+    drop_columns = ["mat_historical_migration"]
+    column "elements_chain" {
+      type = "String"
+    }
+    column "person_id" {
+      type = "UUID"
+    }
+    column "person_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "person_properties" {
+      type  = "String"
+      codec = "ZSTD(3)"
+    }
+    column "group0_properties" {
+      type  = "String"
+      codec = "ZSTD(3)"
+    }
+    column "group1_properties" {
+      type  = "String"
+      codec = "ZSTD(3)"
+    }
+    column "group2_properties" {
+      type  = "String"
+      codec = "ZSTD(3)"
+    }
+    column "group3_properties" {
+      type  = "String"
+      codec = "ZSTD(3)"
+    }
+    column "group4_properties" {
+      type  = "String"
+      codec = "ZSTD(3)"
+    }
+    column "group0_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "group1_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "group2_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "group3_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "group4_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "mat_$ai_trace_id" {
+      type         = "Nullable(String)"
+      materialized = "JSONExtract(properties, '$ai_trace_id', 'Nullable(String)')"
+    }
+    drop_indexes = ["minmax_mat_historical_migration", "is_deleted_idx", "minmax_historical_migration"]
+    index "minmax_$group_0" {
+      expr        = "`$group_0`"
+      type        = "minmax"
+      granularity = 1
+    }
+    index "minmax_$group_1" {
+      expr        = "`$group_1`"
+      type        = "minmax"
+      granularity = 1
+    }
+    index "minmax_$group_2" {
+      expr        = "`$group_2`"
+      type        = "minmax"
+      granularity = 1
+    }
+    index "minmax_$group_3" {
+      expr        = "`$group_3`"
+      type        = "minmax"
+      granularity = 1
+    }
+    index "minmax_$group_4" {
+      expr        = "`$group_4`"
+      type        = "minmax"
+      granularity = 1
+    }
+    index "minmax_$window_id" {
+      expr        = "`$window_id`"
+      type        = "minmax"
+      granularity = 1
+    }
+    index "minmax_$session_id" {
+      expr        = "`$session_id`"
+      type        = "minmax"
+      granularity = 1
+    }
+    index "kafka_timestamp_minmax_sharded_events" {
+      expr        = "_timestamp"
+      type        = "minmax"
+      granularity = 3
+    }
+    index "is_deleted_idx" {
+      expr        = "(is_deleted)"
+      type        = "minmax"
+      granularity = 1
+    }
+    index "minmax_historical_migration" {
+      expr        = "(historical_migration)"
+      type        = "minmax"
+      granularity = 1
+    }
+  }
+
+  patch_table "events" {
+    modify_column "properties" {
+      type  = "String"
+      codec = "ZSTD(3)"
+    }
+    drop_columns = ["mat_historical_migration"]
+    column "elements_chain" {
+      type = "String"
+    }
+    column "person_id" {
+      type = "UUID"
+    }
+    column "person_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "person_properties" {
+      type  = "String"
+      codec = "ZSTD(3)"
+    }
+    column "group0_properties" {
+      type  = "String"
+      codec = "ZSTD(3)"
+    }
+    column "group1_properties" {
+      type  = "String"
+      codec = "ZSTD(3)"
+    }
+    column "group2_properties" {
+      type  = "String"
+      codec = "ZSTD(3)"
+    }
+    column "group3_properties" {
+      type  = "String"
+      codec = "ZSTD(3)"
+    }
+    column "group4_properties" {
+      type  = "String"
+      codec = "ZSTD(3)"
+    }
+    column "group0_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "group1_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "group2_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "group3_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "group4_created_at" {
+      type = "DateTime64(3)"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "mat_$ai_trace_id" {
+      type    = "Nullable(String)"
+      comment = "column_materializer::properties::$ai_trace_id"
+    }
+    column "mat_$ai_experiment_id" {
+      type    = "Nullable(String)"
+      comment = "column_materializer::properties::$ai_experiment_id"
+    }
+  }
+  table "sharded_billing_usage_records" {
+    order_by     = ["team_id", "toDate(timestamp)", "producer_id", "usage_key", "record_id"]
+    partition_by = "toYYYYMM(timestamp)"
+    settings = {
+      index_granularity = "8192"
+    }
+    column "schema_version" { type = "UInt8" }
+    column "record_id" { type = "String" }
+    column "producer_id" { type = "LowCardinality(String)" }
+    column "team_id" { type = "Int64" }
+    column "organization_id" { type = "UUID" }
+    column "usage_key" { type = "LowCardinality(String)" }
+    column "unit" { type = "LowCardinality(String)" }
+    column "quantity" { type = "Int64" }
+    column "timestamp" { type = "DateTime64(6, 'UTC')" }
+    column "inserted_at" { type = "DateTime64(6, 'UTC')" }
+    column "_timestamp" { type = "DateTime" }
+    column "_offset" { type = "UInt64" }
+    column "_partition" { type = "UInt64" }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/{shard}/posthog.sharded_billing_usage_records"
+      replica_name   = "{replica}"
+      version_column = "inserted_at"
+    }
+  }
+
+  table "billing_usage_records" {
+    column "schema_version" { type = "UInt8" }
+    column "record_id" { type = "String" }
+    column "producer_id" { type = "LowCardinality(String)" }
+    column "team_id" { type = "Int64" }
+    column "organization_id" { type = "UUID" }
+    column "usage_key" { type = "LowCardinality(String)" }
+    column "unit" { type = "LowCardinality(String)" }
+    column "quantity" { type = "Int64" }
+    column "timestamp" { type = "DateTime64(6, 'UTC')" }
+    column "inserted_at" { type = "DateTime64(6, 'UTC')" }
+    column "_timestamp" { type = "DateTime" }
+    column "_offset" { type = "UInt64" }
+    column "_partition" { type = "UInt64" }
+    engine "distributed" {
+      cluster_name    = "posthog"
+      remote_database = "posthog"
+      remote_table    = "sharded_billing_usage_records"
+      sharding_key    = "cityHash64(team_id)"
     }
   }
 }

@@ -29,22 +29,22 @@ import {
   EmptyTitle,
   Skeleton,
 } from "@posthog/quill";
-import {
-  type AgentConversationEvent,
-  MCP_TOOL_PERMISSION_OPTIONS,
-} from "@posthog/shared";
+import { MCP_TOOL_PERMISSION_OPTIONS } from "@posthog/shared";
+import type { Task } from "@posthog/shared/domain-types";
+import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
+import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { useUsageLimitStore } from "@posthog/ui/features/billing/usageLimitStore";
+import {
+  spendStopMessage,
+  useSpendStop,
+} from "@posthog/ui/features/billing/useSpendStop";
 import { PromptInput } from "@posthog/ui/features/message-editor/components/PromptInput";
 import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
 import { PermissionSelector } from "@posthog/ui/features/permissions/PermissionSelector";
-import {
-  CloudConnectionBanner,
-  CloudStreamDisconnectedBanner,
-} from "@posthog/ui/features/sessions/components/CloudSessionLifecycle";
+import { CloudStreamDisconnectedBanner } from "@posthog/ui/features/sessions/components/CloudSessionLifecycle";
 import { ContextUsageIndicator } from "@posthog/ui/features/sessions/components/ContextUsageIndicator";
 import { ChatThread } from "@posthog/ui/features/sessions/components/chat-thread/ChatThread";
 import type { PromptRecallHandler } from "@posthog/ui/features/sessions/components/chat-thread/composerPromptRecall";
-import { SessionInitializingView } from "@posthog/ui/features/sessions/components/SessionInitializingView";
 import { CHAT_CONTENT_MAX_WIDTH } from "@posthog/ui/features/sessions/constants";
 import { useMessagingModeStore } from "@posthog/ui/features/sessions/messagingModeStore";
 import { useWorkspace } from "@posthog/ui/features/workspace/useWorkspace";
@@ -76,8 +76,7 @@ import {
 const log = logger.scope("pi-session-view");
 
 interface PiSessionViewProps {
-  taskId: string;
-  taskRunId?: string;
+  task: Task;
   isCloud: boolean;
 }
 
@@ -94,13 +93,23 @@ type SetMessagingMode = ReturnType<
 >["setMode"];
 
 function usePiSessionConnection(
-  taskId: string,
-  taskRunId: string | undefined,
+  task: Task,
+  isTaskAuthor: boolean | undefined,
 ): void {
   const controller = useService<PiSessionController>(PI_SESSION_CONTROLLER);
+  const taskId = task.id;
+  const taskRunId = task.latest_run?.id;
+
+  useEffect(() => {
+    controller.setNotificationContext(taskId, {
+      taskTitle: task.title,
+      isTaskAuthor,
+    });
+  }, [controller, isTaskAuthor, task.title, taskId]);
+
   useEffect(() => {
     void controller.ensureConnected(taskId, taskRunId).catch(() => {});
-    return () => controller.disconnect(taskId);
+    return () => controller.release(taskId);
   }, [controller, taskId, taskRunId]);
 }
 
@@ -324,7 +333,9 @@ function usePiSubmit(
       );
       void controller
         .submit(taskId, message, isStreaming, messagingMode, pendingConfig)
-        .then(() => onSuccess(action))
+        .then(() => {
+          onSuccess(action);
+        })
         .catch((error) => {
           handleControllerError(
             error,
@@ -460,11 +471,15 @@ function usePiRemoveQueue(
   }, [controller, taskId]);
 }
 
-export function PiSessionView({
-  taskId,
-  taskRunId,
-  isCloud,
-}: PiSessionViewProps) {
+export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
+  const taskId = task.id;
+  const taskRunId = task.latest_run?.id;
+  const authenticatedClient = useOptionalAuthenticatedClient();
+  const { data: currentUser } = useCurrentUser({ client: authenticatedClient });
+  const isTaskAuthor =
+    currentUser?.uuid && task.created_by?.uuid
+      ? currentUser.uuid === task.created_by.uuid
+      : undefined;
   const piSessionController = useService<PiSessionController>(
     PI_SESSION_CONTROLLER,
   );
@@ -502,7 +517,7 @@ export function PiSessionView({
     [],
   );
 
-  usePiSessionConnection(taskId, taskRunId);
+  usePiSessionConnection(task, isTaskAuthor);
   usePiExtensionConnection(
     taskId,
     taskRunId,
@@ -590,14 +605,12 @@ export function PiSessionView({
     [mcpPermission, piSessionController, taskId],
   );
 
+  const spendStop = useSpendStop();
+
   if (!session) {
     return <TaskDetailSkeleton />;
   }
 
-  const latestProgress = session.events.findLast(
-    (event): event is Extract<AgentConversationEvent, { type: "progress" }> =>
-      event.type === "progress" && event.status === "in_progress",
-  );
   const isConnecting = session.connectionState === "connecting";
   const isAuthRestoring = session.authRestoring;
   const connectionError =
@@ -608,20 +621,6 @@ export function PiSessionView({
   );
   const sessionAvailable =
     session.connectionState === "connected" || hasTranscript;
-  const executionTarget = isCloud ? "cloud" : "local";
-  if (isConnecting && !hasTranscript) {
-    return (
-      <Box className="relative h-full">
-        <SessionInitializingView
-          executionTarget={executionTarget}
-          cloudStatus={session.cloudStatus}
-          heading={latestProgress?.label}
-          subtitle={latestProgress?.detail}
-        />
-      </Box>
-    );
-  }
-
   if (connectionError && !hasTranscript) {
     return (
       <Empty className="h-full">
@@ -643,7 +642,7 @@ export function PiSessionView({
     );
   }
 
-  if (!status && !hasTranscript) {
+  if (!status && !hasTranscript && !isConnecting) {
     return <TaskDetailSkeleton />;
   }
 
@@ -682,9 +681,6 @@ export function PiSessionView({
             piExtensionController.cancelExtensionUI(taskId, extensionDialog.id)
           }
         />
-      )}
-      {isAuthRestoring && (
-        <CloudConnectionBanner message="Restoring authentication..." />
       )}
       {connectionError && hasTranscript && (
         <CloudStreamDisconnectedBanner
@@ -751,7 +747,9 @@ export function PiSessionView({
         ) : (
           <PromptInput
             sessionId={taskId}
-            toolbarEndSlot={<ContextUsageIndicator usage={contextUsage} />}
+            toolbarEndSlot={
+              <ContextUsageIndicator usage={contextUsage} taskId={taskId} />
+            }
             taskId={taskId}
             repoPath={repoPath}
             placeholder="Type a message..."
@@ -762,7 +760,8 @@ export function PiSessionView({
               !status ||
               !isOnline ||
               hasQueuedMessage ||
-              isAuthRestoring
+              isAuthRestoring ||
+              spendStop !== null
             }
             submitTooltipOverride={
               !isOnline
@@ -771,7 +770,9 @@ export function PiSessionView({
                   ? "Restoring authentication"
                   : hasQueuedMessage
                     ? "A message is already queued"
-                    : undefined
+                    : spendStop
+                      ? spendStopMessage(spendStop)
+                      : undefined
             }
             enableBashMode
             enableCommands

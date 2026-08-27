@@ -18,14 +18,12 @@ import {
   DEEPSEEK_MODEL_FLAG,
   FAST_MODE_FLAG,
   GLM_MODEL_FLAG,
+  GLM53_FLASH_MODEL_FLAG,
+  GLM53_MODEL_FLAG,
   getCloudUrlFromRegion,
   KIMI_MODEL_FLAG,
 } from "@posthog/shared";
-import {
-  stripDeepseekModelOption,
-  stripGlmModelOption,
-  stripKimiModelOption,
-} from "@posthog/ui/features/sessions/modelOptionFilters";
+import { stripDisabledModelOption } from "@posthog/ui/features/sessions/modelOptionFilters";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { logger } from "../../../shell/logger";
 import { useAuthStateValue } from "../../auth/store";
@@ -63,6 +61,8 @@ function getOptionByCategory(
 export function usePreviewConfig(adapter: Adapter): PreviewConfigResult {
   const hostClient = useHostTRPCClient();
   const glmEnabled = useFeatureFlag(GLM_MODEL_FLAG);
+  const glm53Enabled = useFeatureFlag(GLM53_MODEL_FLAG);
+  const glm53FlashEnabled = useFeatureFlag(GLM53_FLASH_MODEL_FLAG);
   const deepseekEnabled = useFeatureFlag(DEEPSEEK_MODEL_FLAG);
   const kimiEnabled = useFeatureFlag(KIMI_MODEL_FLAG);
   const fastModeFlagEnabled = useFeatureFlag(FAST_MODE_FLAG);
@@ -115,17 +115,15 @@ export function usePreviewConfig(adapter: Adapter): PreviewConfigResult {
         if (abort.signal.aborted) return;
 
         const options = serverOptions
-          .map((option) => {
-            const withoutGlm = glmEnabled
-              ? option
-              : stripGlmModelOption(option);
-            const withoutDeepseek = deepseekEnabled
-              ? withoutGlm
-              : stripDeepseekModelOption(withoutGlm);
-            return kimiEnabled
-              ? withoutDeepseek
-              : stripKimiModelOption(withoutDeepseek);
-          })
+          .map((option) =>
+            stripDisabledModelOption(option, {
+              deepseek: deepseekEnabled,
+              glm: glmEnabled,
+              glm53: glm53Enabled,
+              glm53Flash: glm53FlashEnabled,
+              kimi: kimiEnabled,
+            }),
+          )
           .filter((option) => fastModeFlagEnabled || option.id !== "fast");
 
         const {
@@ -250,6 +248,8 @@ export function usePreviewConfig(adapter: Adapter): PreviewConfigResult {
     hostClient,
     hasHydrated,
     glmEnabled,
+    glm53Enabled,
+    glm53FlashEnabled,
     deepseekEnabled,
     kimiEnabled,
     fastModeFlagEnabled,

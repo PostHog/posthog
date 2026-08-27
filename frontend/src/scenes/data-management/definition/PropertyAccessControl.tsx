@@ -10,19 +10,14 @@ import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ProfileBubbles, ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { PROPERTY_ACCESS_LEVEL_OPTIONS } from 'lib/utils/accessControlUtils'
 
 import type { AccessLevelEnumApi } from 'products/access_control/frontend/generated/api.schemas'
 
 import { propertyAccessControlLogic, PropertyAccessControlLogicProps } from './propertyAccessControlLogic'
 
-const ACCESS_LEVEL_OPTIONS: LemonSelectOptionLeaf<AccessLevelEnumApi>[] = [
-    { value: 'read_write', label: 'Read & write' },
-    { value: 'read', label: 'Read only' },
-    { value: 'none', label: 'No access' },
-]
-
 const OVERRIDE_OPTIONS: LemonSelectOptionLeaf<AccessLevelEnumApi | null>[] = [
-    ...ACCESS_LEVEL_OPTIONS,
+    ...PROPERTY_ACCESS_LEVEL_OPTIONS,
     { value: null, label: 'Remove override' },
 ]
 
@@ -57,7 +52,7 @@ export function PropertyAccessControl({ propertyDefinitionId, teamId }: Property
                 <LemonSelect
                     value={defaultLevel}
                     onChange={(value) => setLocalDefaultLevel(value)}
-                    options={ACCESS_LEVEL_OPTIONS}
+                    options={PROPERTY_ACCESS_LEVEL_OPTIONS}
                     size="small"
                     className="max-w-48"
                     disabledReason={restrictedReason}
@@ -140,7 +135,7 @@ function OverrideCell({
             placement="bottom-end"
             overlay={
                 <div className="flex flex-col">
-                    {ACCESS_LEVEL_OPTIONS.map((option) => (
+                    {PROPERTY_ACCESS_LEVEL_OPTIONS.map((option) => (
                         <LemonButton
                             key={option.value}
                             size="small"

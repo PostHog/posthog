@@ -1,6 +1,7 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
 import { StepDefinition } from '../steps'
+import { getOtelSessionIdStep } from './_snippets/otel-session-id'
 
 export const getInstructorSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, CalloutBox, Markdown, Blockquote, dedent, snippets } = ctx
@@ -108,7 +109,7 @@ export const getInstructorSteps = (ctx: OnboardingComponentsContext): StepDefini
                                       }),
                                       spanProcessors: [
                                         new PostHogSpanProcessor({
-                                          apiKey: '<ph_project_token>',
+                                          projectToken: '<ph_project_token>',
                                           host: '<ph_client_api_host>',
                                         }),
                                       ],
@@ -203,6 +204,7 @@ export const getInstructorSteps = (ctx: OnboardingComponentsContext): StepDefini
                 </>
             ),
         },
+        getOtelSessionIdStep(ctx, { languages: ['Python', 'Node'] }),
     ]
 }
 

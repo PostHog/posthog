@@ -8,10 +8,10 @@ across different HyperCache types (flags, team metadata, etc.).
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
 
 import structlog
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.redis import get_client
@@ -86,7 +86,7 @@ def get_teams_with_expiring_caches(
         return []
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class CacheRefreshCounts:
     successful: int
     failed: int

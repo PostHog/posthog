@@ -2,6 +2,7 @@
 # module is reachable from warehouse_sources models at django.setup().
 from __future__ import annotations
 
+import datetime
 import dataclasses
 from collections.abc import AsyncIterable, Callable, Iterable
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, Protocol, TypeVar
@@ -42,7 +43,7 @@ class _Dataclass(Protocol):
 ResumableData = TypeVar("ResumableData", bound=_Dataclass)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)  # callers mutate `primary_keys` after construction
 class SourceResponse:
     name: str
     items: Callable[[], Iterable[Any] | AsyncIterable[Any]]
@@ -65,6 +66,10 @@ class SourceResponse:
     """Webhook-fed resource whose poll path does no backfill: after a wipe the poll cannot
     rebuild the table, so a requested pipeline reset preserves the Delta table and resumes
     webhook ingestion instead."""
+    cdc_write_mode: Optional[str] = None
+    """Set by a source serving change events, naming the lane the loader writes
+    (`incremental_merge`). Drives the loader's CDC enrichment and position resolution, and marks the
+    run incremental — a change stream must never write as a full_refresh overwrite."""
     chunk_size: Optional[int] = None
     """Override the batcher's rows-per-chunk (defaults to DEFAULT_CHUNK_SIZE)."""
     chunk_size_bytes: Optional[int] = None
@@ -79,7 +84,9 @@ class SourceResponse:
     """xmin syncs: epoch (high 32 bits of `xmin_ceiling_xid8`) at this run's ceiling."""
 
 
-@dataclasses.dataclass
+# Not frozen: nothing mutates it in place today, so freezing it is plausible, but every source
+# reads it and that migration is its own change to make and verify.
+@dataclasses.dataclass(frozen=False)
 class SourceInputs:
     """Contextual info required by a source to actually run"""
 
@@ -95,6 +102,12 @@ class SourceInputs:
     job_id: str
     logger: FilteringBoundLogger
     reset_pipeline: bool
+    # `db_incremental_field_last_value` as stored, before the lookback shifted it back. Rows at or
+    # before it are overlap the table already holds rather than new ground.
+    db_incremental_field_last_value_before_lookback: Optional[Any] = None
+    # Resolved from the schema for a source that declares a `history_lookback`; `None` means
+    # unbounded. See `sources/common/history_window.py`.
+    history_start: Optional[datetime.datetime] = None
     enabled_columns: Optional[list[str]] = None
     row_filters: Optional[list[ValidatedRowFilter]] = None
     # Multi-schema import context, read by `resolve_source_location`.
@@ -103,3 +116,7 @@ class SourceInputs:
     # Effective vendor API version: the source instance's pin resolved through the source's
     # `default_version`. Sources with a versioned vendor API thread it to their request layer.
     api_version: Optional[str] = None
+    # True when this schema is a fan-out child whose parent should be read from the warehouse
+    # (flag on + parents verified synced). Evaluated once by the run-time gate in
+    # `import_data_activity_sync` so sources don't re-evaluate the feature flag per run.
+    fanout_warehouse_reuse: bool = False

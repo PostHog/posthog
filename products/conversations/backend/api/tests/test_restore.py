@@ -559,12 +559,19 @@ class TestRestoreAPI(BaseTest):
             # delivers the restore token to attacker.example.
             ("raw_backslash", "https://attacker.example\\@allowed.com/support"),
             ("percent_encoded_backslash", "https://attacker.example%5C@allowed.com/support"),
+            # The emailed link keeps the authority as supplied, so a percent-encoded
+            # terminator sends the restore token to attacker.example for any client that
+            # decodes before splitting.
+            ("percent_encoded_slash", "https://attacker.example%2F@allowed.com/support"),
+            ("percent_encoded_question_mark", "https://attacker.example%3F@allowed.com/support"),
+            ("percent_encoded_hash", "https://attacker.example%23@allowed.com/support"),
+            ("percent_encoded_at", "https://attacker.example%40@allowed.com/support"),
         ]
     )
     @patch("products.conversations.backend.api.restore.RestoreRequestThrottle.allow_request", return_value=True)
     @patch("products.conversations.backend.api.restore.validate_origin", return_value=True)
     @patch("products.conversations.backend.api.restore.send_conversation_restore_email")
-    def test_restore_request_rejects_backslash_authority_bypass(
+    def test_restore_request_rejects_ambiguous_authority(
         self,
         _name,
         request_url,

@@ -35,7 +35,7 @@ from products.tasks.backend.models import Loop
 
 logger = structlog.get_logger(__name__)
 
-PUSH_TITLE = "PostHog Code"
+PUSH_TITLE = "PostHog Desktop"
 
 _COOLDOWN_EVENTS = frozenset({"run_failed", "needs_attention"})
 _COOLDOWN_TTL_SECONDS = 300

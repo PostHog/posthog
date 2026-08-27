@@ -71,6 +71,9 @@ _MULTINODE_HOST_PORT_OVERRIDES: dict[str, tuple[str, int]] = {
     "clickhouse-ops": ("localhost", 9300),
     "clickhouse-sessions": ("localhost", 9400),
     "clickhouse-logs": ("localhost", 9500),
+    "clickhouse-ingestion-events": ("localhost", 9600),
+    "clickhouse-ingestion-small": ("localhost", 9700),
+    "clickhouse-ingestion-medium": ("localhost", 9800),
 }
 
 
@@ -169,6 +172,10 @@ class ClickhouseCluster:
         self.__extra_hosts: set[HostInfo] = set()
 
         migrations_cluster = cluster or settings.CLICKHOUSE_CLUSTER
+        # The cluster whose DATA nodes back `shards`, which is what every sharded mutation
+        # dispatches over. Callers holding a table that lives elsewhere have no way to reach it
+        # through this instance, so they need to be able to ask.
+        self.__data_cluster_name = data_cluster or migrations_cluster
         cluster_hosts = self.__get_cluster_hosts(bootstrap_client, migrations_cluster, retry_policy)
 
         for row in cluster_hosts:
@@ -248,6 +255,36 @@ class ClickhouseCluster:
         self.__client_settings = client_settings
         self.__retry_policy = retry_policy
         self.__connection_overrides = dict(connection_overrides) if connection_overrides else {}
+        # Kept so `sibling` can build a handle for another cluster from the same connection.
+        self.__bootstrap_client = bootstrap_client
+        self.__extra_host_infos = list(extra_hosts) if extra_hosts else []
+        self.__siblings: dict[str, ClickhouseCluster] = {}
+
+    def sibling(self, cluster: str) -> ClickhouseCluster:
+        """A handle addressing ``cluster``, carrying this one's connection settings.
+
+        ``shards`` covers exactly one cluster, so a caller holding a table stored on another one
+        cannot dispatch to it through this instance. Deriving the second handle here rather than
+        from a second resource keeps host, credentials, client settings and retry policy in one
+        place: a handle assembled anywhere else can drift from the one the job already holds.
+
+        Memoized, because discovery costs a query per cluster and callers resolve the same table
+        once per op. Raises whatever the server says when no such cluster is defined here.
+        """
+        if cluster == self.__data_cluster_name:
+            return self
+        sibling = self.__siblings.get(cluster)
+        if sibling is None:
+            sibling = self.__siblings[cluster] = ClickhouseCluster(
+                self.__bootstrap_client,
+                extra_hosts=self.__extra_host_infos,
+                logger=self.__logger,
+                client_settings=self.__client_settings,
+                cluster=cluster,
+                retry_policy=self.__retry_policy,
+                connection_overrides=self.__connection_overrides,
+            )
+        return sibling
 
     def __get_cluster_hosts(self, client: Client, cluster: str, retry_policy: RetryPolicy | None = None):
         get_cluster_hosts_fn = lambda client: client.execute(
@@ -339,6 +376,10 @@ class ClickhouseCluster:
         for shard_hosts in self.__shards.values():
             hosts.update(shard_hosts)
         return hosts
+
+    @property
+    def data_cluster_name(self) -> str:
+        return self.__data_cluster_name
 
     @property
     def shards(self) -> list[int]:
@@ -856,7 +897,17 @@ class MutationRunner(abc.ABC):
         # ClickHouse normalizes bare references against the connection database when
         # storing the mutation, and a bare-vs-qualified mismatch defeats the join.
         alter_prefix = f"ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{self.table} "
-        per_command_alters = ", ".join(f"$__sql${alter_prefix}{cmd}$__sql$" for cmd in command_list)
+        # Render each command's parameters here and bind the finished text as an ordinary parameter,
+        # rather than interpolating the template into a $__sql$ heredoc and letting the driver
+        # substitute values inside it. The driver escapes quotes and backslashes but not `$`, so a
+        # value containing the heredoc delimiter would close it early and the rest would parse as
+        # SQL. Mutation parameters carry third-party strings (a person's distinct_id), so that is
+        # reachable input, and the injection is silent because the surrounding array keeps its length.
+        rendered_commands = [
+            client.substitute_params(f"{alter_prefix}{cmd}", self.parameters, client.connection.context)
+            for cmd in command_list
+        ]
+        per_command_alters = ", ".join(f"%(__command_{i})s" for i in range(len(rendered_commands)))
         mutations = client.execute(
             f"""
             SELECT mutation_id
@@ -893,10 +944,12 @@ class MutationRunner(abc.ABC):
             SETTINGS join_use_nulls = 1
             """,
             {
-                f"__database": settings.CLICKHOUSE_DATABASE,
-                f"__table": self.table,
-                f"__alter_prefix": alter_prefix,
-                **self.parameters,
+                "__database": settings.CLICKHOUSE_DATABASE,
+                "__table": self.table,
+                "__alter_prefix": alter_prefix,
+                # self.parameters are already rendered into __command_*; passing them again would
+                # reintroduce the substitution this avoids.
+                **{f"__command_{i}": text for i, text in enumerate(rendered_commands)},
             },
         )
         assert len(mutations) == len(command_list)

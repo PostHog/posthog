@@ -16,6 +16,7 @@ import type {
     EmailSendingSuspensionStatusApi,
     HogFlowApi,
     HogFlowBatchJobApi,
+    HogFlowBatchJobCancelResponseApi,
     HogFlowInvocationApi,
     HogFlowPublishRequestApi,
     HogFlowPublishResponseApi,
@@ -27,6 +28,7 @@ import type {
     HogFlowTemplatesLogsRetrieveParams,
     HogFlowsAssetContentRetrieveParams,
     HogFlowsAssetsRetrieveParams,
+    HogFlowsInvocationResultsCountRetrieveParams,
     HogFlowsInvocationResultsRetrieveParams,
     HogFlowsListParams,
     HogFlowsLogsRetrieveParams,
@@ -35,10 +37,13 @@ import type {
     HogFlowsMetricsTotalsRetrieveParams,
     HogFlowsReputationRetrieveParams,
     HogFlowsRevisionsListParams,
+    HogInvocationCancelRequestApi,
+    HogInvocationCancelResponseApi,
     HogInvocationRerunRequestApi,
     HogInvocationRerunResponseApi,
     HogInvocationResultApi,
     HogInvocationResultDetailApi,
+    HogInvocationResultsCountApi,
     MessageAssetApi,
     PaginatedHogFlowMinimalListApi,
     PaginatedHogFlowRevisionBasicListApi,
@@ -443,6 +448,33 @@ export const hogFlowsBatchJobsCreate = async (
     })
 }
 
+export const getHogFlowsBatchJobsCancelCreateUrl = (projectId: string, id: string, batchJobId: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/batch_jobs/${batchJobId}/cancel/`
+}
+
+/**
+ * Stop a batch run: no more of its audience is enrolled, and every run of it
+ * still in flight is canceled.
+ *
+ * Stopping is asynchronous: runs are flagged here, then terminated by the
+ * workflow workers. Steps that already executed, like sent messages, are not
+ * undone. Already-finished batch runs are left untouched.
+ */
+export const hogFlowsBatchJobsCancelCreate = async (
+    projectId: string,
+    id: string,
+    batchJobId: string,
+    options?: RequestInit
+): Promise<HogFlowBatchJobCancelResponseApi> => {
+    return apiMutator<HogFlowBatchJobCancelResponseApi>(
+        getHogFlowsBatchJobsCancelCreateUrl(projectId, id, batchJobId),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
+}
+
 export const getHogFlowsDiscardDraftCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/hog_flows/${id}/discard_draft/`
 }
@@ -527,6 +559,45 @@ export const hogFlowsInvocationResultRetrieve = async (
     )
 }
 
+export const getHogFlowsInvocationResultsCountRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: HogFlowsInvocationResultsCountRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/hog_flows/${id}/invocation_results_count/?${stringifiedParams}`
+        : `/api/projects/${projectId}/hog_flows/${id}/invocation_results_count/`
+}
+
+/**
+ * Count invocations matching the same filters as the list endpoint,
+ * without its 500-row cap.
+ */
+export const hogFlowsInvocationResultsCountRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: HogFlowsInvocationResultsCountRetrieveParams,
+    options?: RequestInit
+): Promise<HogInvocationResultsCountApi> => {
+    return apiMutator<HogInvocationResultsCountApi>(
+        getHogFlowsInvocationResultsCountRetrieveUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
 export const getHogFlowsInvocationsCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/hog_flows/${id}/invocations/`
 }
@@ -542,6 +613,32 @@ export const hogFlowsInvocationsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(hogFlowInvocationApi),
+    })
+}
+
+export const getHogFlowsInvocationsCancelCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/invocations/cancel/`
+}
+
+/**
+ * Cancel in-flight invocations of this workflow, by id or all at once.
+ *
+ * Cancellation is asynchronous: runs are flagged here, then terminated by
+ * the workflow workers, promptly for parked runs (delays and waits) and at
+ * the next step boundary for runs mid-execution. Steps that already
+ * executed are not undone. Canceled runs can be re-run later via `rerun`.
+ */
+export const hogFlowsInvocationsCancelCreate = async (
+    projectId: string,
+    id: string,
+    hogInvocationCancelRequestApi?: HogInvocationCancelRequestApi,
+    options?: RequestInit
+): Promise<HogInvocationCancelResponseApi> => {
+    return apiMutator<HogInvocationCancelResponseApi>(getHogFlowsInvocationsCancelCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(hogInvocationCancelRequestApi),
     })
 }
 

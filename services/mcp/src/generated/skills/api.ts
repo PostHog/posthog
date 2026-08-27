@@ -26,6 +26,12 @@ export const LlmSkillsListQueryParams = /* @__PURE__ */ zod.object({
     created_by_id: zod.number().optional().describe('Filter skills by the ID of the user who created them.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    owner_id: zod
+        .number()
+        .optional()
+        .describe(
+            'Filter skills by the ID of a user who owns them. Ownership is keyed on the logical skill, so this is stable across versions — unlike created_by_id, which tracks whoever published the latest version.'
+        ),
     search: zod.string().optional().describe('Optional substring filter applied to skill names and descriptions.'),
 })
 
@@ -192,6 +198,8 @@ export const llmSkillsNamePartialUpdateBodyFileEditsItemPathMax = 500
 
 export const llmSkillsNamePartialUpdateBodyOwnersMax = 25
 
+export const llmSkillsNamePartialUpdateBodyVersionDescriptionMax = 400
+
 export const LlmSkillsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
     body: zod
         .string()
@@ -286,6 +294,11 @@ export const LlmSkillsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Latest version you are editing from. Used for optimistic concurrency checks. Required when publishing content changes; optional for an owner-only update (when omitted, owners are replaced without a concurrency check).'
         ),
+    version_description: zod
+        .string()
+        .max(llmSkillsNamePartialUpdateBodyVersionDescriptionMax)
+        .optional()
+        .describe('Optional note describing what changed in this version. Shown in the version history.'),
 })
 
 export const llmSkillsNameArchiveCreatePathSkillNameRegExp = new RegExp('^[^\/]+$')

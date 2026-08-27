@@ -240,6 +240,12 @@ KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
                 "field_type": IncrementalFieldType.DateTime,
             },
         ],
+        description=(
+            "Includes each profile's subscriptions object by default: consent status per channel "
+            "(email, sms, push), global email suppressions in "
+            "subscriptions.email.marketing.suppression, and per-list email suppressions in "
+            "subscriptions.email.marketing.list_suppressions"
+        ),
     ),
     # Klaviyo only exposes list membership through per-list endpoints (which can't be called from
     # HogQL), so the many-to-many can't be joined. This table fans out one paginated request per list
@@ -282,7 +288,8 @@ KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
             "Incremental syncs pick up new joins and re-joins; profiles removed from a list are only "
             "reflected on a full refresh. List membership is not the same as subscription: check the "
             "$consent array in the profiles table's properties column to see which channels (sms, "
-            "email, push) a profile is currently subscribed to"
+            "email, push) a profile is currently subscribed to. Per-list email suppressions are in "
+            "the profiles table's subscriptions column, under email.marketing.list_suppressions"
         ),
     ),
     # Segment membership has the same shape as list membership: Klaviyo only exposes it per segment,
@@ -644,6 +651,23 @@ KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
         path="/accounts",
         page_size=0,
         incremental_fields=[],
+    ),
+    # Custom object records only exist per object type, so fan out over /object-types and pull each
+    # type's records. The endpoint exposes no timestamp filter or sort, so it is full refresh only.
+    # Klaviyo's compound record id (object_type_id:::record_id) is globally unique, so the default
+    # ["id"] primary key holds table-wide; object_type_id rides along as its own column for joins.
+    "custom_object_records": KlaviyoEndpointConfig(
+        name="custom_object_records",
+        path="/object-types/{object_type_id}/object-records",
+        page_size=100,  # object-records caps page[size] at 100
+        incremental_fields=[],
+        fan_out=KlaviyoFanOutConfig(
+            # /object-types exposes no page[size] param; parent_page_size=0 pages it by cursor alone.
+            parent_path="/object-types",
+            parent_page_size=0,
+            parent_id_column="object_type_id",
+        ),
+        description="One row per custom object record, carrying the object_type_id it belongs to",
     ),
 }
 

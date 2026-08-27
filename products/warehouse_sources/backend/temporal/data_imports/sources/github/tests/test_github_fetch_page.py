@@ -9,7 +9,9 @@ from prometheus_client import REGISTRY
 from posthog.egress.github.limiter import GitHubRateResource
 from posthog.egress.limiter.policies import Priority
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.github import github
+from products.warehouse_sources.backend.temporal.data_imports.sources.github.source import GithubSource
 
 
 def _ok_response() -> mock.Mock:
@@ -129,6 +131,17 @@ def test_fetch_page_reraises_other_422_errors():
             github._fetch_page("https://api.github.com/repos/o/r/stats/code_frequency", {}, mock.Mock())
 
 
+def test_fetch_page_treats_topics_422_as_resource_unavailable():
+    # GitHub 422s the topics endpoint for some repositories; it's optional metadata, so the caller
+    # must sync zero rows rather than crash and fail the schema over a raw 422.
+    session = mock.Mock()
+    session.request.return_value = _unprocessable_response("Validation failed")
+
+    with mock.patch.object(github, "make_tracked_session", return_value=session):
+        with pytest.raises(github.GithubResourceUnavailableError):
+            github._fetch_page("https://api.github.com/repos/o/r/topics?per_page=100", {}, mock.Mock())
+
+
 def test_fetch_page_retries_chunked_encoding_error():
     session = mock.Mock()
     session.request.side_effect = [requests.exceptions.ChunkedEncodingError("Connection broken"), _ok_response()]
@@ -215,6 +228,7 @@ def _error_response(status_code: int, message: str, headers: dict[str, str] | No
         # A real denial stays fatal, and carries GitHub's own reason so the curated copy can name it.
         ("Resource not accessible by integration", github.GithubAccessDeniedError),
         ("Must have admin rights to Repository.", github.GithubAccessDeniedError),
+        ("Resource protected by organization SAML enforcement", github.GithubAccessDeniedError),
     ],
 )
 def test_fetch_page_403_separates_switched_off_features_from_denials(message, expected_exc):
@@ -226,6 +240,63 @@ def test_fetch_page_403_separates_switched_off_features_from_denials(message, ex
             github._fetch_page("https://api.github.com/repos/o/r/dependabot/alerts", {}, mock.Mock(), repository="o/r")
 
     assert message in str(raised.value)
+
+
+@pytest.mark.parametrize(
+    "message,required_permission,expected_advice,carries_url",
+    [
+        # This message reaches the user as the schema's error, so a denial that omits the grant
+        # leaves them with a disabled table and no stated way to re-enable it. The user reads it,
+        # so the API URL stays in the log line instead.
+        ("Resource not accessible by integration", "deployments", "Deployments: read", False),
+        # An endpoint with no mapped grant still has to end in an action.
+        ("Resource not accessible by integration", None, "Add the missing permission", False),
+        # An organization-level denial is not about this table's grant, and naming one would send
+        # the user to the wrong setting. Curated copy replaces this one, so it keeps the URL.
+        ("Resource protected by organization SAML enforcement", "deployments", "GitHub denied access", True),
+    ],
+)
+def test_fetch_page_denial_states_the_action_that_fits_the_denial(
+    message, required_permission, expected_advice, carries_url
+):
+    session = mock.Mock()
+    session.request.return_value = _error_response(403, message)
+
+    with mock.patch.object(github, "make_tracked_session", return_value=session):
+        with pytest.raises(github.GithubAccessDeniedError) as raised:
+            github._fetch_page(
+                "https://api.github.com/repos/o/r/deployments",
+                {},
+                mock.Mock(),
+                repository="o/r",
+                required_permission=required_permission,
+            )
+
+    assert expected_advice in str(raised.value)
+    assert ("api.github.com" in str(raised.value)) is carries_url
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Resource not accessible by integration",
+        # Per-endpoint wording no enumerated error key can match; only the message prefix does.
+        "Must have push access to view repository collaborators",
+    ],
+)
+def test_denials_raised_by_fetch_page_are_classified_non_retryable(message):
+    # The raised message and GithubSource.get_non_retryable_errors are two halves of one contract:
+    # a denial that matches no key there keeps retrying and never disables the schema. Drive the
+    # real raised message through the real key set, so rewording either side alone fails here.
+    session = mock.Mock()
+    session.request.return_value = _error_response(403, message)
+
+    with mock.patch.object(github, "make_tracked_session", return_value=session):
+        with pytest.raises(github.GithubAccessDeniedError) as raised:
+            github._fetch_page("https://api.github.com/repos/o/r/collaborators", {}, mock.Mock(), repository="o/r")
+
+    errors = GithubSource().get_non_retryable_errors()
+    assert any(error_message_matches(str(raised.value), [key]) for key in errors)
 
 
 def test_fetch_page_403_from_rate_limit_is_not_a_denial():

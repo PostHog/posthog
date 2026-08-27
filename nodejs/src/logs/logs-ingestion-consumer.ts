@@ -25,8 +25,14 @@ import {
     recordLogsDropped,
     recordLogsReceived,
 } from './ingestion-otel-metrics'
+import { logsPatternForcedDecodeCounter, makePatternMaskingStage } from './log-pattern-stage'
 import { type PiiScrubStats } from './log-pii-scrub'
-import { type LogRecord, type LogRecordsTransform, processLogMessageBuffer } from './log-record-avro'
+import {
+    type LogRecord,
+    type LogRecordsTransform,
+    bufferProcessingMode,
+    processLogMessageBuffer,
+} from './log-record-avro'
 import type { CompiledMetricRule } from './metrics-rules/compile-metric-rules'
 import { MetricRulesCache } from './metrics-rules/metric-rules-cache'
 import { LogsMetricsEmitter } from './metrics-rules/metrics-emitter'
@@ -34,6 +40,9 @@ import { buildMetricRulesOtlpPayload } from './metrics-rules/otlp-payload'
 import { type BatchTallies, createBatchTallies, tallyRecords } from './metrics-rules/tally'
 import { LOGS_DLQ_OUTPUT, LOGS_OUTPUT, LogsDlqOutput, LogsOutput } from './outputs/outputs'
 import { EMPTY_DROP_STATS, type PipelineStage } from './pipeline/log-processing-pipeline'
+import type { CompiledRetentionRuleSet } from './retention/evaluate-retention'
+import { RetentionRulesCache } from './retention/retention-rules-cache'
+import { makeRetentionStage } from './retention/retention-stage'
 import type { CompiledRuleSet } from './sampling/evaluate'
 import { LogsSamplingService } from './sampling/logs-sampling.service'
 import { SamplingRulesCache } from './sampling/sampling-rules-cache'
@@ -52,6 +61,8 @@ export interface LogsIngestionConsumerDeps {
     metricsEmitter?: LogsMetricsEmitter
     /** When set, enabled teams run hog log transformations after the built-in processing. */
     logsTransformer?: LogsTransformerService
+    /** When set, enabled teams stamp per-row retention from retention rules before produce. */
+    retentionRulesCache?: RetentionRulesCache
     /**
      * Resolved outputs registry — must include `LOGS_OUTPUT`, `LOGS_DLQ_OUTPUT`,
      * and `APP_METRICS_OUTPUT`. The producer + topic for each is wired by the
@@ -302,6 +313,10 @@ export class LogsIngestionConsumer {
     private readonly metricRulesKillswitch: boolean
     private readonly transformationsEnabledTeamsRaw: string
     private readonly transformationsKillswitch: boolean
+    private readonly retentionEnabledTeamsRaw: string
+    private readonly retentionKillswitch: boolean
+    private readonly patternMaskingEnabledTeamsRaw: string
+    private readonly patternMaskingStage: PipelineStage
 
     protected groupId: string
     protected topic: string
@@ -349,6 +364,13 @@ export class LogsIngestionConsumer {
         this.metricRulesKillswitch = mergedConfig.LOGS_METRICS_RULES_KILLSWITCH
         this.transformationsEnabledTeamsRaw = mergedConfig.LOGS_TRANSFORMATIONS_ENABLED_TEAMS
         this.transformationsKillswitch = mergedConfig.LOGS_TRANSFORMATIONS_KILLSWITCH
+        this.retentionEnabledTeamsRaw = mergedConfig.LOGS_RETENTION_ENABLED_TEAMS
+        this.retentionKillswitch = mergedConfig.LOGS_RETENTION_KILLSWITCH
+        this.patternMaskingEnabledTeamsRaw = mergedConfig.LOGS_PATTERN_MASKING_ENABLED_TEAMS
+        this.patternMaskingStage = makePatternMaskingStage(
+            mergedConfig.LOGS_PATTERN_MASKING_MAX_INPUT_CHARS,
+            mergedConfig.LOGS_PATTERN_MASKING_MAX_OUTPUT_CHARS
+        )
     }
 
     private isSamplingEvalEnabledForTeam(teamId: number): boolean {
@@ -356,6 +378,13 @@ export class LogsIngestionConsumer {
             return false
         }
         return teamIdMatchesCsv(this.samplingEnabledTeamsRaw, teamId)
+    }
+
+    private isRetentionEvalEnabledForTeam(teamId: number): boolean {
+        if (this.retentionKillswitch) {
+            return false
+        }
+        return teamIdMatchesCsv(this.retentionEnabledTeamsRaw, teamId)
     }
 
     private isMetricRulesEnabledForTeam(teamId: number): boolean {
@@ -370,6 +399,15 @@ export class LogsIngestionConsumer {
             return false
         }
         return teamIdMatchesCsv(this.transformationsEnabledTeamsRaw, teamId)
+    }
+
+    /**
+     * Logs only. `TracesIngestionConsumer` subclasses this one and reads the same config key, but a
+     * trace record has no `body` field, so masking one measures nothing and would mix trace shapes
+     * into the log-body split these metrics exist to produce.
+     */
+    private isPatternMaskingEnabledForTeam(teamId: number): boolean {
+        return this.appSource === 'logs' && teamIdMatchesCsv(this.patternMaskingEnabledTeamsRaw, teamId)
     }
 
     /**
@@ -414,7 +452,7 @@ export class LogsIngestionConsumer {
           }
         | {
               outcome: 'all_dropped'
-              reason: 'sampling_all_dropped' | 'transformations_all_dropped'
+              reason: 'sampling_all_dropped' | 'transformations_all_dropped' | 'empty_batch'
               pii: PiiScrubStats
               recordsDropped: number
               recordsDroppedByRuleId: Map<string, number>
@@ -432,15 +470,43 @@ export class LogsIngestionConsumer {
         const useSamplingPipeline = Boolean(ruleSet && ruleSet.rules.length > 0)
         const recordsTransform = await this.buildRecordsTransform(message, batchBudget)
 
-        // Assemble the ordered decode → transform → encode pipeline: sampling drop rules + rate
-        // limits first, hog transformations last. An empty list (with no metric visitor) leaves the
-        // buffer as a no-decode passthrough inside `processLogMessageBuffer`.
+        // Per-row retention: resolve the team's retention rules when enabled. Any matching rule stamps
+        // `retention_days` per surviving record (falling back to the team default), which ClickHouse
+        // reads in place of the batch `retention-days` header. With no rules the header — still emitted
+        // below — carries the team default, keeping this a no-decode passthrough.
+        const retentionCache = this.deps.retentionRulesCache
+        const retentionEvalEnabled = this.isRetentionEvalEnabledForTeam(message.teamId)
+        let retentionRuleSet: CompiledRetentionRuleSet | null = null
+        if (retentionCache && retentionEvalEnabled) {
+            retentionRuleSet = await retentionCache.getCompiledRuleSet(message.teamId)
+        }
+        const useRetention = Boolean(retentionRuleSet && retentionRuleSet.rules.length > 0)
+
+        // Assemble the ordered decode → transform → encode pipeline: sampling drop rules + rate limits
+        // first, hog transformations next, per-row retention stamping last (so it only stamps
+        // survivors). An empty list (with no metric visitor) leaves the buffer as a no-decode passthrough
+        // inside `processLogMessageBuffer`.
         const stages: PipelineStage[] = []
         if (useSamplingPipeline && ruleSet) {
             stages.push(this.samplingService.makeSamplingStage(ruleSet, message.teamId, message.bytesUncompressed))
         }
         if (recordsTransform) {
             stages.push(makeTransformStage(recordsTransform))
+        }
+        if (useRetention && retentionRuleSet) {
+            const defaultRetentionDays = logsSettings.retention_days ?? DEFAULT_LOGS_RETENTION_DAYS
+            stages.push(makeRetentionStage(retentionRuleSet, message.teamId, defaultRetentionDays))
+        }
+
+        // Runs last so it only sees survivors. Adding any stage forces the full decode and re-encode,
+        // so a batch that would have passed through pays both, and one already decoded for a visitor
+        // pays the encode. The counter prices each.
+        if (this.isPatternMaskingEnabledForTeam(message.teamId)) {
+            const modeWithoutMasking = bufferProcessingMode(logsSettings, stages.length, Boolean(onRecordsDecoded))
+            if (modeWithoutMasking !== 'decode_and_reencode') {
+                logsPatternForcedDecodeCounter.inc({ from: modeWithoutMasking })
+            }
+            stages.push(this.patternMaskingStage)
         }
 
         trace.getActiveSpan()?.setAttributes({
@@ -451,6 +517,10 @@ export class LogsIngestionConsumer {
             'logs.sampling.eval_enabled_for_team': samplingEvalEnabled,
             'logs.sampling.compiled_rule_count': ruleSet?.rules.length ?? 0,
             'logs.transformations.enabled_for_team': Boolean(recordsTransform),
+            'logs.retention.cache_present': Boolean(retentionCache),
+            'logs.retention.eval_enabled_for_team': retentionEvalEnabled,
+            'logs.retention.compiled_rule_count': retentionRuleSet?.rules.length ?? 0,
+            'logs.retention.use_retention': useRetention,
             'logs.sampling.pipeline': useSamplingPipeline
                 ? 'decode_sample_encode'
                 : recordsTransform
@@ -473,9 +543,17 @@ export class LogsIngestionConsumer {
         }
 
         if (value === null) {
+            // `droppedBy` tells us which filter emptied the batch; its absence means the batch decoded
+            // to zero records to begin with, so attribute it to an empty batch rather than sampling.
+            const reason =
+                drops.droppedBy === 'transformations'
+                    ? 'transformations_all_dropped'
+                    : drops.droppedBy === 'sampling'
+                      ? 'sampling_all_dropped'
+                      : 'empty_batch'
             return {
                 outcome: 'all_dropped',
-                reason: drops.droppedBy === 'transformations' ? 'transformations_all_dropped' : 'sampling_all_dropped',
+                reason,
                 pii,
                 recordsDropped: drops.recordsDropped,
                 recordsDroppedByRuleId: drops.recordsDroppedByRuleId,
@@ -1064,7 +1142,7 @@ export class LogsIngestionConsumer {
                     const token = headers.token
 
                     if (!token) {
-                        logger.error('missing_token')
+                        logger.warn('missing_token')
                         logMessageDroppedCounter.inc({ reason: 'missing_token', team_id: 'unknown' })
                         recordLogMessageDropped('missing_token', 'unknown')
                         return
@@ -1086,7 +1164,11 @@ export class LogsIngestionConsumer {
                     }
 
                     if (!team) {
-                        logger.error('team_not_found', { token_with_no_team: token })
+                        // A well-formed but unknown or rotated token is a client-input problem, not a
+                        // service fault. capture-logs accepts any well-formed token shape and defers team
+                        // resolution to here because it has no Postgres access, so this fires on every
+                        // dropped message for a bad token. Already tracked via the metrics below.
+                        logger.warn('team_not_found', { token_with_no_team: token })
                         logMessageDroppedCounter.inc({ reason: 'team_not_found', team_id: 'unknown' })
                         recordLogMessageDropped('team_not_found', 'unknown')
                         return

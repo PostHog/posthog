@@ -41,7 +41,9 @@ describe("GatewayAddServer", () => {
       </Theme>,
     );
 
-    expect(screen.getByText("Available to team members")).toBeInTheDocument();
+    expect(
+      screen.getByText("Enabled for your organization"),
+    ).toBeInTheDocument();
     expect(screen.getByText("Share with agents")).toBeInTheDocument();
     expect(screen.getByText(account.name)).toBeInTheDocument();
     expect(screen.queryByText("One shared credential")).not.toBeInTheDocument();

@@ -6,6 +6,7 @@ from opentelemetry import trace
 from pymysql.constants import FIELD_TYPE as MYSQL_FIELD_TYPE
 from sqlparse import tokens as sqlparse_tokens
 from sqlparse.sql import Statement
+from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResult
@@ -176,7 +177,7 @@ class MySQLAdapter:
                         )
                         results = cursor.fetchall()
                         description = cursor.description or []
-        except (pymysql.MySQLError, ExposedHogQLError) as error:
+        except (pymysql.MySQLError, BaseSSHTunnelForwarderError, ExposedHogQLError) as error:
             span.set_attribute("error_type", error.__class__.__name__)
             if request.debug:
                 return DirectQueryResult(results=[], types=[], print_columns=[], error=mysql_error_to_message(error))

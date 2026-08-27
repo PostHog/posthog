@@ -110,6 +110,8 @@ export function SettingsTab(): JSX.Element {
                                     size="xsmall"
                                     icon={<IconPencil />}
                                     onClick={openStatsEngineModal}
+                                    tooltip="Edit statistics settings"
+                                    aria-label="Edit statistics settings"
                                 />
                             </div>
                             <StatsMethodModal />
@@ -126,6 +128,8 @@ export function SettingsTab(): JSX.Element {
                                     size="xsmall"
                                     icon={<IconPencil />}
                                     onClick={openCupedModal}
+                                    tooltip="Edit CUPED settings"
+                                    aria-label="Edit CUPED settings"
                                 />
                             </div>
                             <p className="text-muted text-xs m-0">

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import difflib
 from collections.abc import Generator
-from typing import Optional
+from typing import Optional, cast
 
 from pydantic import BaseModel
 
@@ -27,6 +27,7 @@ from posthog.hogql.database.models import (
     UUIDDatabaseField,
 )
 from posthog.hogql.errors import QueryError, ResolutionError, SyntaxError
+from posthog.hogql.escape_sql import escape_hogql_identifier
 
 
 def lookup_field_by_name(
@@ -167,6 +168,25 @@ def suggest_field_names(
     return difflib.get_close_matches(name, candidates, n=limit, cutoff=0.6)
 
 
+def suggested_field_fix(node: ast.Field, suggestion: str) -> Optional[str]:
+    """Replacement text for the range `node` marks, or None when no edit is safe to offer.
+
+    Three conditions have to hold. The node needs a span, because a notice without one marks the
+    whole query and applying the fix would overwrite it. The chain has to be a single name, because
+    the span covers the whole chain while the suggestion only stands in for its head, and a head
+    that is really a table alias draws its suggestions from field names, so the edit would be
+    confidently wrong. And the name has to survive escaping, which rejects a few.
+    """
+    if node.start is None or node.end is None:
+        return None
+    if len(node.chain) != 1:
+        return None
+    try:
+        return escape_hogql_identifier(suggestion)
+    except QueryError:
+        return None
+
+
 def lookup_table_by_name(
     scope: ast.SelectQueryType, ctes: dict[str, ast.CTE], node: ast.Field
 ) -> Optional[ast.TableOrSelectType]:
@@ -189,26 +209,28 @@ def lookup_cte_by_name(global_scopes: list[ast.SelectQueryType], name: str) -> O
 
 
 def get_long_table_name(select: ast.SelectQueryType, type: ast.Type) -> str:
-    if isinstance(type, ast.TableType):
-        return select.get_alias_for_table_type(type) or ""
-    elif isinstance(type, ast.LazyTableType):
-        return type.table.to_printed_hogql()
-    elif isinstance(type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
-        return type.alias
-    elif isinstance(type, ast.SelectQueryAliasType):
-        return type.alias
-    elif isinstance(type, ast.SelectViewType):
-        return type.alias
-    elif isinstance(type, ast.CTETableType):
-        return type.name
-    elif isinstance(type, ast.CTETableAliasType):
-        return type.alias
-    elif isinstance(type, ast.LazyJoinType):
-        return f"{get_long_table_name(select, type.table_type)}__{type.field}"
-    elif isinstance(type, ast.VirtualTableType):
-        return f"{get_long_table_name(select, type.table_type)}__{type.field}"
-    else:
-        raise ResolutionError(f"Unknown table type in LazyTableResolver: {type.__class__.__name__}")
+    match type:
+        case ast.TableType():
+            return select.get_alias_for_table_type(type) or ""
+        case ast.LazyTableType(table=table):
+            return table.to_printed_hogql()
+        case (
+            ast.TableAliasType(alias=alias)
+            | ast.ColumnAliasedTableType(alias=alias)
+            | ast.SelectQueryAliasType(alias=alias)
+            | ast.SelectViewType(alias=alias)
+            | ast.CTETableAliasType(alias=alias)
+        ):
+            return alias
+        case ast.CTETableType(name=name):
+            return name
+        case (
+            ast.LazyJoinType(table_type=table_type, field=field)
+            | ast.VirtualTableType(table_type=table_type, field=field)
+        ):
+            return f"{get_long_table_name(select, table_type)}__{field}"
+        case _:
+            raise ResolutionError(f"Unknown table type in LazyTableResolver: {type.__class__.__name__}")
 
 
 def ast_to_query_node(expr: ast.Expr | ast.HogQLXTag):
@@ -264,8 +286,11 @@ def extract_select_queries(select: ast.SelectSetQuery | ast.SelectQuery) -> Gene
             yield from extract_select_queries(select_query.select_query)
 
 
-def extract_base_table_types(select_type: ast.SelectQueryType | ast.SelectSetQueryType) -> list[ast.TableType]:
-    table_types: list[ast.TableType] = []
+def _collect_table_types(
+    select_type: ast.SelectQueryType | ast.SelectSetQueryType, wanted: tuple[type, ...]
+) -> list[ast.BaseTableType]:
+    """Every table type of the wanted classes reached from a FROM clause, unwrapping aliases and CTEs."""
+    table_types: list[ast.BaseTableType] = []
 
     def visit_query(query_type: ast.SelectQueryType | ast.SelectSetQueryType) -> None:
         if isinstance(query_type, ast.SelectSetQueryType):
@@ -280,8 +305,8 @@ def extract_base_table_types(select_type: ast.SelectQueryType | ast.SelectSetQue
             visit_query(anonymous_table)
 
     def visit_table_type(table_type: ast.TableOrSelectType) -> None:
-        if isinstance(table_type, ast.TableType):
-            table_types.append(table_type)
+        if isinstance(table_type, wanted):
+            table_types.append(cast(ast.BaseTableType, table_type))
         elif isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
             visit_table_type(table_type.table_type)
         elif isinstance(table_type, ast.CTETableType):
@@ -296,6 +321,19 @@ def extract_base_table_types(select_type: ast.SelectQueryType | ast.SelectSetQue
     visit_query(select_type)
 
     return table_types
+
+
+def extract_base_table_types(select_type: ast.SelectQueryType | ast.SelectSetQueryType) -> list[ast.TableType]:
+    return cast(list[ast.TableType], _collect_table_types(select_type, (ast.TableType,)))
+
+
+def extract_lazy_table_types(select_type: ast.SelectQueryType | ast.SelectSetQueryType) -> list[ast.LazyTableType]:
+    """Lazy tables a query selects from.
+
+    `extract_base_table_types` does not return these: `LazyTableType` is a `BaseTableType` but not a
+    `TableType`. Callers that dispatch a query by everything it reads need both halves.
+    """
+    return cast(list[ast.LazyTableType], _collect_table_types(select_type, (ast.LazyTableType,)))
 
 
 def _constant_type_to_database_field(name: str, const_type: ast.ConstantType) -> DatabaseField:

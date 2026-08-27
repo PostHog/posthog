@@ -8,6 +8,8 @@ import deltalake
 import deltalake.exceptions
 from structlog.types import FilteringBoundLogger
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import is_invalid_version_race
+
 T = TypeVar("T")
 
 
@@ -45,16 +47,20 @@ async def execute_with_conflict_retry(
     operation_name: str,
     logger: FilteringBoundLogger,
 ) -> T:
-    """Run a Delta operation that commits (merge, optimize.compact, vacuum, ...), refreshing the
-    table and re-running it on a commit conflict.
+    """Run a Delta operation that commits (merge, overwrite, append, optimize.compact, vacuum, ...),
+    refreshing the table and re-running it on a commit conflict.
 
-    See DELTA_MERGE_CONFLICT_RETRIES for why this can't rely on delta-rs's own retry budget.
+    See DELTA_MERGE_CONFLICT_RETRIES for why this can't rely on delta-rs's own retry budget. Also
+    retries `is_invalid_version_race` — the same race surfacing as a plain `DeltaError` rather than
+    `CommitFailedError` because delta-rs's Python binding doesn't give that variant its own class.
     """
     attempt = 0
     while True:
         try:
             return await asyncio.to_thread(operation_fn)
-        except deltalake.exceptions.CommitFailedError:
+        except deltalake.exceptions.DeltaError as e:
+            if not isinstance(e, deltalake.exceptions.CommitFailedError) and not is_invalid_version_race(e):
+                raise
             if attempt >= DELTA_MERGE_CONFLICT_RETRIES:
                 raise
             attempt += 1

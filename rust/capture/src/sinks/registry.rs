@@ -11,11 +11,8 @@
 //!
 //! Two outputs sit outside the completeness check: `Custom` topics are
 //! admin-supplied inline on the event's metadata (they carry their own topic),
-//! and the AI outputs are opt-in — setup separately requires
-//! `CAPTURE_ANALYTICS_AI_EVENTS_TOPIC` whenever the routing policy can produce
-//! `AiEvents` records.
-
-use tracing::log::warn;
+//! and `AiOverflow` is the opt-in overflow valve — unset means routing never
+//! selects it.
 
 use crate::config::KafkaConfig;
 
@@ -41,9 +38,7 @@ pub enum Output {
     Dlq,
     ErrorTrackingMain,
     /// The AI pipeline's main lane — the dedicated `$ai_*` topic
-    /// (`CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`). Opt-in, so not part of the
-    /// completeness check — setup validates it whenever the routing policy
-    /// can produce `AiEvents` records.
+    /// (`CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`).
     AiMain,
     /// The AI pipeline's overflow lane; only routed to when the AI overflow
     /// valve (`CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC`) is armed.
@@ -56,7 +51,7 @@ pub enum Output {
 impl Output {
     /// Every registered always-required output. `check_complete` walks this so
     /// a newly added output is caught at boot rather than at first produce.
-    const REGISTERED: [Output; 9] = [
+    const REGISTERED: [Output; 10] = [
         Output::AnalyticsMain,
         Output::AnalyticsOverflow,
         Output::AnalyticsHistorical,
@@ -66,6 +61,7 @@ impl Output {
         Output::SessionReplayOverflow,
         Output::Dlq,
         Output::ErrorTrackingMain,
+        Output::AiMain,
     ];
 
     /// Whether this output participates in the boot completeness check.
@@ -85,10 +81,11 @@ impl Output {
             | Output::SessionReplayMain
             | Output::SessionReplayOverflow
             | Output::Dlq
-            | Output::ErrorTrackingMain => true,
-            // Opt-in AI lanes (setup validates them against the routing
-            // mode) and per-event custom topics sit outside the check.
-            Output::AiMain | Output::AiOverflow | Output::Custom(_) => false,
+            | Output::ErrorTrackingMain
+            | Output::AiMain => true,
+            // The opt-in AI overflow valve and per-event custom topics sit
+            // outside the check.
+            Output::AiOverflow | Output::Custom(_) => false,
         }
     }
 
@@ -124,10 +121,9 @@ pub struct OutputRegistry {
     pub(crate) replay_overflow: String,
     pub(crate) dlq: String,
     pub(crate) error_tracking: String,
-    /// Dedicated topic for `Output::AiMain`. Optional because the AI lane
-    /// is opt-in: startup validation guarantees it is set whenever the routing
-    /// policy can produce `AiEvents` records.
-    pub(crate) ai_events: Option<String>,
+    /// Dedicated topic for `Output::AiMain` (`CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`,
+    /// required with a default).
+    pub(crate) ai_events: String,
     /// Overflow topic for the AI lane. Unset means the AI overflow valve is
     /// unarmed and routing never selects `Output::AiOverflow`.
     pub(crate) ai_events_overflow: Option<String>,
@@ -136,11 +132,6 @@ pub struct OutputRegistry {
 impl OutputRegistry {
     /// Resolve an output to its topic. Fixed outputs read the registered topic;
     /// `Custom` returns its inline, admin-supplied topic.
-    ///
-    /// An unset AI topic should be impossible for a reachable AI output
-    /// (startup validation requires `CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`
-    /// whenever the routing policy can produce `AiEvents`), so it falls back
-    /// to the main topic rather than failing the batch.
     pub fn topic_for<'a>(&'a self, output: &'a Output) -> &'a str {
         match output {
             Output::AnalyticsMain | Output::SessionReplayMain => &self.main,
@@ -151,12 +142,12 @@ impl OutputRegistry {
             Output::SessionReplayOverflow => &self.replay_overflow,
             Output::Dlq => &self.dlq,
             Output::ErrorTrackingMain => &self.error_tracking,
-            Output::AiMain => self.ai_events_topic_or_fallback(),
+            Output::AiMain => &self.ai_events,
             Output::AiOverflow => match self.ai_events_overflow.as_deref() {
                 Some(topic) if !topic.is_empty() => topic,
                 // Unreachable: routing only selects this output when the
                 // valve is armed, i.e. exactly when the topic is set.
-                _ => self.ai_events_topic_or_fallback(),
+                _ => &self.ai_events,
             },
             Output::Custom(topic) => topic,
         }
@@ -170,22 +161,11 @@ impl OutputRegistry {
             .is_some_and(|t| !t.is_empty())
     }
 
-    fn ai_events_topic_or_fallback(&self) -> &str {
-        match self.ai_events.as_deref() {
-            Some(topic) if !topic.is_empty() => topic,
-            _ => {
-                warn!(
-                    "CAPTURE_ANALYTICS_AI_EVENTS_TOPIC not configured for an AiEvents record; falling back to main topic"
-                );
-                &self.main
-            }
-        }
-    }
-
     /// Startup completeness check: every registered output must resolve to a
     /// non-empty topic, so a misconfigured or newly-added-but-unwired output
-    /// fails fast at boot instead of at first produce. `Custom` is excluded (it carries its own topic per event), as
-    /// are the opt-in AI outputs (validated by setup against the routing mode).
+    /// fails fast at boot instead of at first produce. `Custom` is excluded
+    /// (it carries its own topic per event), as is the opt-in `AiOverflow`
+    /// valve (unset means routing never selects it).
     pub fn check_complete(&self) -> anyhow::Result<()> {
         for output in &Output::REGISTERED {
             anyhow::ensure!(
@@ -230,7 +210,7 @@ pub(crate) fn test_topics() -> OutputRegistry {
         replay_overflow: "replay_overflow".to_string(),
         dlq: "events_plugin_ingestion_dlq".to_string(),
         error_tracking: "error_tracking_events".to_string(),
-        ai_events: Some("ai_events".to_string()),
+        ai_events: "ai_events".to_string(),
         ai_events_overflow: Some("ai_events_overflow".to_string()),
     }
 }
@@ -265,23 +245,15 @@ mod tests {
         );
     }
 
-    /// Unset AI topics carry no completeness requirement (they are opt-in) and
-    /// degrade to the main topic instead of failing the batch.
+    /// An unarmed overflow valve carries no completeness requirement and never
+    /// disarms the AI main lane.
     #[test]
-    fn unset_ai_outputs_fall_back_to_main() {
+    fn unset_ai_overflow_valve_is_unarmed() {
         let mut registry = test_topics();
-        registry.ai_events = None;
         registry.ai_events_overflow = None;
         assert!(registry.check_complete().is_ok());
         assert!(!registry.ai_events_overflow_armed());
-        assert_eq!(
-            registry.topic_for(&Output::AiMain),
-            "events_plugin_ingestion"
-        );
-        assert_eq!(
-            registry.topic_for(&Output::AiOverflow),
-            "events_plugin_ingestion"
-        );
+        assert_eq!(registry.topic_for(&Output::AiMain), "ai_events");
     }
 
     #[test]
@@ -331,6 +303,7 @@ mod tests {
     #[case("sessionreplay-overflow", |r: &mut OutputRegistry| r.replay_overflow.clear())]
     #[case("dlq", |r: &mut OutputRegistry| r.dlq.clear())]
     #[case("errortracking-main", |r: &mut OutputRegistry| r.error_tracking.clear())]
+    #[case("ai-main", |r: &mut OutputRegistry| r.ai_events.clear())]
     fn check_complete_rejects_empty_topic(
         #[case] output_name: &str,
         #[case] blank: fn(&mut OutputRegistry),

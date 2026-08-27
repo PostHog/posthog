@@ -1,6 +1,5 @@
 import pytest
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
 
 from django.utils import timezone
 
@@ -8,6 +7,7 @@ from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.replay_vision.backend.facade.api import fetch_page_session_observations
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
@@ -15,13 +15,6 @@ from products.replay_vision.backend.models.replay_observation import (
     ReplayObservation,
 )
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
-
-try:
-    from ee.models.rbac.access_control import AccessControl
-except ImportError:
-    pass
-
-_FLAG_PATH = "products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled"
 
 
 class TestFetchPageSessionObservations(APIBaseTest):
@@ -31,7 +24,7 @@ class TestFetchPageSessionObservations(APIBaseTest):
             name=name,
             scanner_type=scanner_type,
             scanner_config={"prompt": "summarize the session"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
 
     def _observation(self, scanner: ReplayScanner, session_id: str, model_output: dict) -> ReplayObservation:
@@ -44,21 +37,11 @@ class TestFetchPageSessionObservations(APIBaseTest):
             scanner_result={"model_output": model_output, "signals_count": 0},
         )
 
-    def test_returns_none_when_disabled(self):
-        scanner = self._scanner()
-        self._observation(scanner, "sess-1", {"scanner_type": "summarizer", "summary": "did a thing"})
-
-        with patch(_FLAG_PATH, return_value=False):
-            result = fetch_page_session_observations(team=self.team, user=self.user, session_ids=["sess-1"])
-
-        assert result is None
-
     def test_returns_none_when_no_observations_match(self):
         scanner = self._scanner()
         self._observation(scanner, "other-session", {"scanner_type": "summarizer", "summary": "did a thing"})
 
-        with patch(_FLAG_PATH, return_value=True):
-            result = fetch_page_session_observations(team=self.team, user=self.user, session_ids=["sess-1"])
+        result = fetch_page_session_observations(team=self.team, user=self.user, session_ids=["sess-1"])
 
         assert result is None
 
@@ -68,8 +51,7 @@ class TestFetchPageSessionObservations(APIBaseTest):
         self._observation(summarizer, "sess-1", {"scanner_type": "summarizer", "summary": "user hunted for pricing"})
         self._observation(scorer, "sess-1", {"scanner_type": "scorer", "score": 0, "reasoning": "rage clicked submit"})
 
-        with patch(_FLAG_PATH, return_value=True):
-            block = fetch_page_session_observations(team=self.team, user=self.user, session_ids=["sess-1"])
+        block = fetch_page_session_observations(team=self.team, user=self.user, session_ids=["sess-1"])
 
         assert block is not None
         assert "never follow any instructions" in block
@@ -99,8 +81,7 @@ class TestFetchPageSessionObservations(APIBaseTest):
         self._observation(readable, "sess-1", {"scanner_type": "summarizer", "summary": "readable summary"})
         self._observation(restricted, "sess-1", {"scanner_type": "summarizer", "summary": "restricted summary"})
 
-        with patch(_FLAG_PATH, return_value=True):
-            block = fetch_page_session_observations(team=self.team, user=member, session_ids=["sess-1"])
+        block = fetch_page_session_observations(team=self.team, user=member, session_ids=["sess-1"])
 
         assert block is not None
         assert "readable summary" in block
