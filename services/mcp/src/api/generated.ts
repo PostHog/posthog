@@ -50007,6 +50007,7 @@ export namespace Schemas {
     /**
      * * `BOUNCE` - Bounce
      * * `MANUAL` - Manual
+     * * `COMPLAINT` - Complaint
      */
     export type MessageSuppressionSourceEnum = typeof MessageSuppressionSourceEnum[keyof typeof MessageSuppressionSourceEnum];
 
@@ -50014,6 +50015,7 @@ export namespace Schemas {
     export const MessageSuppressionSourceEnum = {
       Bounce: 'BOUNCE',
       Manual: 'MANUAL',
+      Complaint: 'COMPLAINT',
     } as const;
 
     export interface MessageSuppression {
@@ -50021,10 +50023,11 @@ export namespace Schemas {
       readonly id: string;
       /** Normalized recipient email address. Suppression is keyed on this value, per team. */
       readonly identifier: string;
-      /** How the entry landed on the list: `BOUNCE` for automatic (bounce-driven), `MANUAL` for user-added via the UI/API.
+      /** How the entry landed on the list: `BOUNCE` for automatic (bounce-driven), `COMPLAINT` for automatic (the recipient reported a message as spam), `MANUAL` for user-added via the UI/API.
        *
        * * `BOUNCE` - Bounce
-       * * `MANUAL` - Manual */
+       * * `MANUAL` - Manual
+       * * `COMPLAINT` - Complaint */
       readonly source: MessageSuppressionSourceEnum;
       /**
          * Human-readable reason for the suppression (e.g. 'Auto-suppressed after 5 consecutive soft bounces').
@@ -51392,6 +51395,54 @@ export namespace Schemas {
     export interface OnboardingSession {
       /** The agent session opened in the team's #general space. */
       task_id: string;
+    }
+
+    export interface OnboardingSessionTest {
+      /**
+         * Company domain to research. Blank simulates a personal email address.
+         * @maxLength 253
+         */
+      company_domain?: string;
+      /** Whether the user is joining an organization that already has shared context. */
+      joining_existing_organization?: boolean;
+      /** Whether the project has ingested events. */
+      has_events?: boolean;
+      /**
+         * Number of findings waiting in #general.
+         * @minimum 0
+         * @maximum 10000
+         */
+      signal_reports_waiting?: number;
+      /**
+         * Display names of other Desktop users in the organization.
+         * @maxItems 25
+         * @items.maxLength 100
+         */
+      other_members?: string[];
+      /**
+         * Signal sources that were already enabled.
+         * @maxItems 25
+         * @items.maxLength 100
+         */
+      sources_enabled?: string[];
+      /**
+         * Signal sources the onboarding flow is watching.
+         * @maxItems 25
+         * @items.maxLength 100
+         */
+      sources_watching?: string[];
+      /** Whether onboarding enabled any signal sources. */
+      sources_newly_enabled?: boolean;
+    }
+
+    /**
+     * The first-run session that was started for the requester.
+     */
+    export interface OnboardingSessionTestResponse {
+      /** The agent session opened in the team's #general space. */
+      task_id: string;
+      /** The requester's personal space containing the session. */
+      channel_id: string;
     }
 
     /**
@@ -54649,16 +54700,22 @@ export namespace Schemas {
     }
 
     /**
-     * List response for sandbox environments (subset of fields).
+     * A sandbox environment, as returned by list, detail, create and update.
      */
     export interface SandboxEnvironmentDTO {
       id: string;
       name: string;
       network_access_level: string;
       allowed_domains?: string[];
+      include_default_domains: boolean;
       repositories?: string[];
+      /** Whether any environment variables are set on this environment. */
+      has_environment_variables?: boolean;
+      /** Names of the environment variables that are set, sorted. Values are write-only and never returned. */
+      environment_variable_keys?: string[];
       private: boolean;
       internal: boolean;
+      effective_domains?: string[];
       created_by?: TaskUserBasicInfo | null;
       /** @nullable */
       created_at?: string | null;
@@ -83425,6 +83482,13 @@ export namespace Schemas {
       channel?: string | null;
     }
 
+    export interface TeachingCanvas {
+      /** The teaching canvas that was resolved or created. */
+      canvas_id: string;
+      /** The requester's personal space containing the canvas. */
+      channel_id: string;
+    }
+
     export type TeamDefaultModifiers = { [key: string]: unknown };
 
     export type TeamGroupTypesItem = { [key: string]: unknown };
@@ -95092,7 +95156,7 @@ export namespace Schemas {
      */
     properties?: Property[];
     /**
-     * Search persons, either by email (full text search) or distinct_id (exact match).
+     * Search persons by email, name, person ID, or distinct ID. Partial values match. When the term is a complete email address or UUID that exactly matches a distinct ID or person ID, only that person is returned.
      */
     search?: string;
     };

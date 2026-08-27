@@ -1,5 +1,6 @@
 import { useServiceOptional } from "@posthog/di/react";
 import { useHostTRPC } from "@posthog/host-router/react";
+import { ONBOARDING_TEST_TOOLS_FLAG } from "@posthog/shared";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingStore";
 import {
@@ -15,6 +16,7 @@ import { clearApplicationStorage } from "@posthog/ui/utils/clearStorage";
 import { Button, Checkbox, Flex, Switch, Text } from "@radix-ui/themes";
 import { useQuery } from "@tanstack/react-query";
 import { useSyncExternalStore } from "react";
+import { OnboardingTestTools } from "./OnboardingTestTools";
 
 export function AdvancedSettings() {
   const showDebugLogsToggle =
@@ -34,6 +36,7 @@ export function AdvancedSettings() {
   const hostTRPC = useHostTRPC();
   const { data: rtkStatus } = useQuery(hostTRPC.agent.rtkStatus.queryOptions());
   const devModeClient = useServiceOptional<DevModeClient>(DEV_MODE_CLIENT);
+  const showOnboardingTools = useFeatureFlag(ONBOARDING_TEST_TOOLS_FLAG);
 
   return (
     <Flex direction="column">
@@ -86,23 +89,28 @@ export function AdvancedSettings() {
           )}
         </Flex>
       </SettingRow>
-      <SettingRow
-        label="Reset onboarding and tours"
-        description="Re-run the onboarding tutorial and product tours on next app restart"
-      >
-        <Button
-          variant="soft"
-          size="1"
-          onClick={() => {
-            closeSettings();
-            useOnboardingStore.getState().resetOnboarding();
-            useSetupStore.getState().resetSetup();
-            useTourStore.getState().resetTours();
-          }}
-        >
-          Reset
-        </Button>
-      </SettingRow>
+      {showOnboardingTools && (
+        <>
+          <SettingRow
+            label="Reset onboarding and tours"
+            description="Re-run the onboarding tutorial and product tours on next app restart"
+          >
+            <Button
+              variant="soft"
+              size="1"
+              onClick={() => {
+                closeSettings();
+                useOnboardingStore.getState().resetOnboarding();
+                useSetupStore.getState().resetSetup();
+                useTourStore.getState().resetTours();
+              }}
+            >
+              Reset
+            </Button>
+          </SettingRow>
+          <OnboardingTestTools />
+        </>
+      )}
       <SettingRow
         label="Clear application storage"
         description="This will remove all locally stored application data"

@@ -786,6 +786,14 @@ class SignalReportViewSet(
             qs = queryset.filter(team=self.team)
             qs = self._exclude_deleted_signal_reports(qs)
             return self._apply_signal_report_status_filter(qs)
+        if self.action in {"retrieve", "signals"}:
+            qs = self._scope_signal_report_queryset(queryset)
+            qs = self._exclude_deleted_signal_reports(qs)
+            qs = self._apply_signal_report_status_filter(qs)
+            qs = self._annotate_latest_actionability_value(qs)
+            qs = self._prefetch_signal_report_priority_artefacts(qs)
+            qs = self._annotate_is_suggested_reviewer(qs)
+            return annotate_first_billable_pr_run_at(qs)
         qs = queryset
         qs = self._scope_signal_report_queryset(qs)
         qs = self._exclude_deleted_signal_reports(qs)
@@ -1296,9 +1304,10 @@ class SignalReportViewSet(
 
     def filter_queryset(self, queryset):
         queryset = super().filter_queryset(queryset)
-        if self.action == "viewed":
-            # The lightweight viewed queryset skips the annotations the default ordering sorts
-            # by, and a by-ID lookup has nothing to order anyway.
+        if self.action != "list":
+            # A by-ID lookup has nothing to order. More importantly, keeping list ordering here
+            # forces every detail request to compute status/priority/reviewer annotations that
+            # cannot affect which primary-key row is returned.
             return queryset
         return self._apply_signal_report_ordering(queryset)
 

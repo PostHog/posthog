@@ -7,7 +7,13 @@ from unittest.mock import Mock, patch
 from django.test import override_settings
 
 from posthog.clickhouse.cluster import ClickhouseCluster, HostInfo
-from posthog.models.deletion_targets import DeletionTarget, UnreachableTargetError, dispatchable_here, placement_for
+from posthog.models.deletion_targets import (
+    DeletionTarget,
+    UnreachableTargetError,
+    dispatchable_here,
+    placement_for,
+    sweep_clusters,
+)
 
 # One data node each, so a table present on one cluster and absent from the other is the only
 # difference between them. That is the topology the placement resolution exists for and the one no
@@ -78,3 +84,22 @@ def test_dispatchable_here_refuses_a_target_another_cluster_carries() -> None:
     with _cluster_with({"data1": set(), "events1": {"sharded_events_json"}}) as cluster:
         with pytest.raises(UnreachableTargetError):
             dispatchable_here(cluster, _OFF_CLUSTER_TARGET)
+
+
+@override_settings(CLICKHOUSE_EVENTS_CLUSTER="events")
+def test_sweep_clusters_lists_every_cluster_a_mutation_runs_on() -> None:
+    # The delete predicate joins a dictionary, so the dictionary has to exist on each cluster this
+    # returns. Missing one there means the mutation runs against nothing and reports success.
+    with _cluster_with({"data1": set(), "events1": {"sharded_events_json"}}) as cluster:
+        clusters = sweep_clusters(cluster, [_OFF_CLUSTER_TARGET])
+
+        assert [handle.data_cluster_name for handle in clusters] == ["posthog", "events"]
+        assert clusters[0] is cluster
+
+
+@override_settings(CLICKHOUSE_EVENTS_CLUSTER="events")
+def test_sweep_clusters_does_not_repeat_the_handle_in_hand() -> None:
+    # Building the dictionary twice on one cluster is wasted work, and every sweep keyed off this
+    # list would run its mutations twice.
+    with _cluster_with({"data1": {"sharded_events_json"}, "events1": {"sharded_events_json"}}) as cluster:
+        assert sweep_clusters(cluster, [_OFF_CLUSTER_TARGET]) == [cluster]

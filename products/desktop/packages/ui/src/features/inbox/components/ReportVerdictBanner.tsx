@@ -15,6 +15,9 @@ import {
 import {
   Button,
   cn,
+  Field,
+  FieldDescription,
+  FieldLabel,
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -136,8 +139,13 @@ export function ReportVerdictBanner({
 
   const fireAction = useReportActionTracker(report);
   const queryClient = useQueryClient();
+  const [prOpen, setPrOpen] = useState(false);
+  const [prFeedback, setPrFeedback] = useState("");
+  const [askOpen, setAskOpen] = useState(false);
+  const [askQuestion, setAskQuestion] = useState("");
 
   const setChatOpen = useReportChatPanelStore((s) => s.setOpen);
+  const setPendingQuote = useReportChatPanelStore((s) => s.setPendingQuote);
   const rememberStartedTask = useReportChatPanelStore(
     (s) => s.rememberStartedTask,
   );
@@ -150,6 +158,8 @@ export function ReportVerdictBanner({
     (task: Task) => {
       queryClient.setQueryData(taskDetailQuery(task.id).queryKey, task);
       rememberStartedTask(report.id, task.id);
+      setAskOpen(false);
+      setAskQuestion("");
       setEngaged(true);
       setChatOpen(true);
       void queryClient.invalidateQueries({
@@ -176,9 +186,6 @@ export function ReportVerdictBanner({
     redirectOnSuccess: false,
     onTaskCreated: handleTaskCreated,
   });
-
-  const [prOpen, setPrOpen] = useState(false);
-  const [prFeedback, setPrFeedback] = useState("");
 
   // Archive is the "no" beside Fix & monitor's "yes" — a decision, so it lives in
   // the decision row. Offered wherever the report is waiting on a person
@@ -227,21 +234,30 @@ export function ReportVerdictBanner({
     if (isCreatingPr || isDiscussing || awaitingChannel || reportTasksLoading) {
       return;
     }
-    fireAction("discuss", { has_question: false });
+    const trimmed = askQuestion.trim();
+    fireAction("discuss", { has_question: trimmed.length > 0 });
     if (hasPriorEngagement) {
+      if (trimmed) {
+        setPendingQuote(report.id, trimmed);
+      }
+      setAskOpen(false);
+      setAskQuestion("");
       setEngaged(true);
       setChatOpen(true);
       onEngaged?.();
       return;
     }
-    void discussReport();
+    void discussReport(trimmed || undefined);
   }, [
     isCreatingPr,
     isDiscussing,
     awaitingChannel,
     reportTasksLoading,
+    askQuestion,
     fireAction,
     hasPriorEngagement,
+    report.id,
+    setPendingQuote,
     setChatOpen,
     onEngaged,
     discussReport,
@@ -365,20 +381,31 @@ export function ReportVerdictBanner({
             sideOffset={6}
             className="flex w-[420px] flex-col gap-2 p-3"
           >
-            <Textarea
-              aria-label="Optional direction for the agent"
-              autoFocus
-              placeholder="Add direction for the agent (optional)…"
-              rows={4}
-              value={prFeedback}
-              onChange={(event) => setPrFeedback(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-                  event.preventDefault();
-                  handleCreatePr();
-                }
-              }}
-            />
+            <Field>
+              <FieldLabel
+                className="sr-only"
+                htmlFor={`report-fix-direction-${report.id}`}
+              >
+                Optional direction for the agent
+              </FieldLabel>
+              <Textarea
+                id={`report-fix-direction-${report.id}`}
+                autoFocus
+                placeholder="Add direction for the agent (optional)…"
+                rows={4}
+                value={prFeedback}
+                onChange={(event) => setPrFeedback(event.target.value)}
+                onKeyDown={(event) => {
+                  if (
+                    event.key === "Enter" &&
+                    (event.metaKey || event.ctrlKey)
+                  ) {
+                    event.preventDefault();
+                    handleCreatePr();
+                  }
+                }}
+              />
+            </Field>
             <div className="flex items-center justify-between gap-2">
               <span className="text-[12px] text-gray-10">
                 {isMac ? "⌘↵" : "Ctrl+↵"} to start
@@ -387,6 +414,7 @@ export function ReportVerdictBanner({
                 type="button"
                 variant="primary"
                 size="sm"
+                loading={isCreatingPr}
                 disabled={isCreatingPr || isDiscussing}
                 onClick={handleCreatePr}
               >
@@ -396,19 +424,84 @@ export function ReportVerdictBanner({
           </PopoverContent>
         </Popover>
       ) : null}
-      <Button
-        type="button"
-        variant="outline"
-        loading={isDiscussing}
-        disabled={
-          isCreatingPr || isDiscussing || awaitingChannel || reportTasksLoading
-        }
-        onClick={handleAsk}
-        className={buttonClass}
+      <Popover
+        open={askOpen}
+        onOpenChange={(next) => {
+          setAskOpen(next);
+          if (!next && !isDiscussing) setAskQuestion("");
+        }}
       >
-        <ChatCircleIcon size={16} />
-        Ask about it
-      </Button>
+        <PopoverTrigger
+          render={
+            <Button
+              type="button"
+              variant="outline"
+              disabled={
+                isCreatingPr ||
+                isDiscussing ||
+                awaitingChannel ||
+                reportTasksLoading
+              }
+              className={buttonClass}
+            >
+              <ChatCircleIcon size={16} />
+              Ask about it
+            </Button>
+          }
+        />
+        <PopoverContent
+          align="start"
+          side="bottom"
+          sideOffset={6}
+          className="flex w-[420px] flex-col gap-2 p-3"
+        >
+          <Field>
+            <FieldLabel
+              className="sr-only"
+              htmlFor={`report-question-${report.id}`}
+            >
+              Optional question for the agent
+            </FieldLabel>
+            <Textarea
+              id={`report-question-${report.id}`}
+              autoFocus
+              placeholder="Ask a question or add direction (optional)…"
+              rows={4}
+              value={askQuestion}
+              onChange={(event) => setAskQuestion(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                  event.preventDefault();
+                  handleAsk();
+                }
+              }}
+            />
+            <FieldDescription>
+              The full report and its evidence are included.
+            </FieldDescription>
+          </Field>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[12px] text-gray-10">
+              {isMac ? "⌘↵" : "Ctrl+↵"} to start
+            </span>
+            <Button
+              type="button"
+              variant="primary"
+              size="sm"
+              loading={isDiscussing}
+              disabled={
+                isCreatingPr ||
+                isDiscussing ||
+                awaitingChannel ||
+                reportTasksLoading
+              }
+              onClick={handleAsk}
+            >
+              Start chat
+            </Button>
+          </div>
+        </PopoverContent>
+      </Popover>
       {canArchiveHere && !compact && (
         <Tooltip>
           <TooltipTrigger
