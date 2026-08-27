@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-08-26 10:11:58 UTC
+// Generated at: 2026-08-26 20:43:40 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -164,7 +164,6 @@ export type CanonicalProvider =
     | 'relace-bf16'
     | 'relace-fp4'
     | 'relace-fp8'
-    | 'sail-research-fp4'
     | 'sail-research-fp8'
     | 'sakana'
     | 'sambanova'
@@ -174,7 +173,6 @@ export type CanonicalProvider =
     | 'siliconflow'
     | 'siliconflow-fp8'
     | 'siliconflow-int4'
-    | 'stealth'
     | 'stepfun-fp8'
     | 'streamlake'
     | 'streamlake-fp8'

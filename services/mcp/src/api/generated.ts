@@ -32,6 +32,22 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `sessions` - sessions
+     * * `tool_calls` - tool_calls
+     * * `user_identity` - user_identity
+     * * `trace_structure` - trace_structure
+     */
+    export type AIObservabilityInstrumentationCheckEnum = typeof AIObservabilityInstrumentationCheckEnum[keyof typeof AIObservabilityInstrumentationCheckEnum];
+
+
+    export const AIObservabilityInstrumentationCheckEnum = {
+      Sessions: 'sessions',
+      ToolCalls: 'tool_calls',
+      UserIdentity: 'user_identity',
+      TraceStructure: 'trace_structure',
+    } as const;
+
+    /**
      * * `since_last_sent` - Since last report
      * * `last_n_days` - Last N days
      * * `days_ago_range` - Between X and Y days ago
@@ -5352,6 +5368,48 @@ export namespace Schemas {
       start?: number | null;
     }
 
+    export type PredicateScope = typeof PredicateScope[keyof typeof PredicateScope];
+
+
+    export const PredicateScope = {
+      Event: 'event',
+      Person: 'person',
+      Group: 'group',
+      Unknown: 'unknown',
+    } as const;
+
+    export type PredicateIndexVerdict = typeof PredicateIndexVerdict[keyof typeof PredicateIndexVerdict];
+
+
+    export const PredicateIndexVerdict = {
+      Indexed: 'indexed',
+      Blocked: 'blocked',
+      UnindexedColumn: 'unindexed_column',
+      UnindexedJson: 'unindexed_json',
+      OperatorNotIndexable: 'operator_not_indexable',
+    } as const;
+
+    export interface PredicateIndexUsage {
+      column_name?: string | null;
+      end?: number | null;
+      fix?: string | null;
+      message: string;
+      /** HogQL comparison operator, e.g. `==`, `in`, `ilike`. */
+      operator: string;
+      /** Type the value is physically stored as. */
+      physical_type: string;
+      property_name: string;
+      scope: PredicateScope;
+      /** Type the property definition declares. */
+      semantic_type: string;
+      /** Where the value is physically read from, e.g. `materialized column` or `JSON blob`. */
+      source_label: string;
+      start?: number | null;
+      /** Skip indexes this predicate can actually use. */
+      usable_indexes: string[];
+      verdict: PredicateIndexVerdict;
+    }
+
     export type QueryIndexUsage = typeof QueryIndexUsage[keyof typeof QueryIndexUsage];
 
 
@@ -5365,6 +5423,8 @@ export namespace Schemas {
     export interface HogQLMetadataResponse {
       ch_table_names?: string[] | null;
       errors: HogQLNotice[];
+      /** One entry per property filter, in query order. */
+      index_usage?: PredicateIndexUsage[] | null;
       isUsingIndices?: QueryIndexUsage | null;
       isValid?: boolean | null;
       notices: HogQLNotice[];
@@ -8452,6 +8512,18 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export interface BoxPlotSettings {
+      excludeOutliers?: boolean | null;
+      maxColumn?: string | null;
+      meanColumn?: string | null;
+      medianColumn?: string | null;
+      minColumn?: string | null;
+      p25Column?: string | null;
+      p75Column?: string | null;
+      seriesColumn?: string | null;
+      xAxisColumn?: string | null;
+    }
+
     export interface HeatmapGradientStop {
       color: string;
       value: number;
@@ -8607,6 +8679,7 @@ export namespace Schemas {
     export type ChartSettingsResultCustomizations = {[key: string]: ResultCustomizationByValue} | null;
 
     export interface ChartSettings {
+      boxPlot?: BoxPlotSettings | null;
       /** Chart rendering style overrides (line shape). Only applies to line and area charts. */
       chartStyle?: ChartStyle | null;
       goalLines?: GoalLine[] | null;
@@ -17609,11 +17682,6 @@ export namespace Schemas {
       StaleVersion: 'stale_version',
     } as const;
 
-    export interface CodeInviteRedeemRequest {
-      /** @maxLength 50 */
-      code: string;
-    }
-
     /**
      * * `codex` - codex
      */
@@ -23744,6 +23812,7 @@ export namespace Schemas {
      * * `SideShift` - SideShift
      * * `DuckLake` - DuckLake
      * * `Starburst` - Starburst
+     * * `Trino` - Trino
      * * `Easybill` - Easybill
      * * `Bexio` - Bexio
      * * `Umami` - Umami
@@ -25068,6 +25137,7 @@ export namespace Schemas {
       SideShift: 'SideShift',
       DuckLake: 'DuckLake',
       Starburst: 'Starburst',
+      Trino: 'Trino',
       Easybill: 'Easybill',
       Bexio: 'Bexio',
       Umami: 'Umami',
@@ -26406,6 +26476,7 @@ export namespace Schemas {
        * * `SideShift` - SideShift
        * * `DuckLake` - DuckLake
        * * `Starburst` - Starburst
+       * * `Trino` - Trino
        * * `Easybill` - Easybill
        * * `Bexio` - Bexio
        * * `Umami` - Umami
@@ -28432,6 +28503,7 @@ export namespace Schemas {
        * * `SideShift` - SideShift
        * * `DuckLake` - DuckLake
        * * `Starburst` - Starburst
+       * * `Trino` - Trino
        * * `Easybill` - Easybill
        * * `Bexio` - Bexio
        * * `Umami` - Umami
@@ -30175,6 +30247,7 @@ export namespace Schemas {
      * * `redshift` - redshift
      * * `clickhouse` - clickhouse
      * * `motherduck` - motherduck
+     * * `trino` - trino
      */
     export type EngineEnum = typeof EngineEnum[keyof typeof EngineEnum];
 
@@ -30187,6 +30260,7 @@ export namespace Schemas {
       Redshift: 'redshift',
       Clickhouse: 'clickhouse',
       Motherduck: 'motherduck',
+      Trino: 'trino',
     } as const;
 
     export interface EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra {
@@ -35244,7 +35318,8 @@ export namespace Schemas {
        * * `snowflake` - snowflake
        * * `redshift` - redshift
        * * `clickhouse` - clickhouse
-       * * `motherduck` - motherduck */
+       * * `motherduck` - motherduck
+       * * `trino` - trino */
       readonly engine: EngineEnum | null;
       /** The source type (e.g. 'Postgres', 'MySQL', 'Snowflake').
        *
@@ -36504,6 +36579,7 @@ export namespace Schemas {
        * * `SideShift` - SideShift
        * * `DuckLake` - DuckLake
        * * `Starburst` - Starburst
+       * * `Trino` - Trino
        * * `Easybill` - Easybill
        * * `Bexio` - Bexio
        * * `Umami` - Umami
@@ -37862,6 +37938,7 @@ export namespace Schemas {
        * * `SideShift` - SideShift
        * * `DuckLake` - DuckLake
        * * `Starburst` - Starburst
+       * * `Trino` - Trino
        * * `Easybill` - Easybill
        * * `Bexio` - Bexio
        * * `Umami` - Umami
@@ -38064,7 +38141,8 @@ export namespace Schemas {
        * * `snowflake` - snowflake
        * * `redshift` - redshift
        * * `clickhouse` - clickhouse
-       * * `motherduck` - motherduck */
+       * * `motherduck` - motherduck
+       * * `trino` - trino */
       readonly engine: EngineEnum | null;
       /** @nullable */
       readonly last_run_at: string | null;
@@ -44408,6 +44486,8 @@ export namespace Schemas {
       filters?: HogQLFilters | null;
       /** Extra globals for the query */
       globals?: HogQLMetadataGlobals;
+      /** Analyze how each property filter reads its data. Costs a second type-resolution pass, so only editors that render the result should ask for it. */
+      indexUsage?: boolean | null;
       kind?: 'HogQLMetadata';
       /** Language to validate */
       language: HogLanguage;
@@ -45122,6 +45202,69 @@ export namespace Schemas {
       agent_ids?: string[];
       /** In-app path to land back on after the OAuth round-trip. Must be a same-app relative path. */
       return_path?: string;
+    }
+
+    /**
+     * Counts this check was graded from, over the same window. Which counts appear depends on the check.
+     */
+    export type InstrumentationCheckStats = {[key: string]: number};
+
+    /**
+     * * `ok` - ok
+     * * `warning` - warning
+     * * `pending` - pending
+     * * `dismissed` - dismissed
+     */
+    export type InstrumentationCheckStatusEnum = typeof InstrumentationCheckStatusEnum[keyof typeof InstrumentationCheckStatusEnum];
+
+
+    export const InstrumentationCheckStatusEnum = {
+      Ok: 'ok',
+      Warning: 'warning',
+      Pending: 'pending',
+      Dismissed: 'dismissed',
+    } as const;
+
+    export interface InstrumentationCheck {
+      /** Identifier of the check. Stable across statuses, so a surface can key its own copy off it.
+       *
+       * * `sessions` - sessions
+       * * `tool_calls` - tool_calls
+       * * `user_identity` - user_identity
+       * * `trace_structure` - trace_structure */
+      key: AIObservabilityInstrumentationCheckEnum;
+      /** How the check graded: 'ok' when the instrumentation is present, 'warning' when it is absent, 'pending' when the project has too little traffic to judge, and 'dismissed' when someone on the team marked the check as not applicable.
+       *
+       * * `ok` - ok
+       * * `warning` - warning
+       * * `pending` - pending
+       * * `dismissed` - dismissed */
+      status: InstrumentationCheckStatusEnum;
+      /** Short label for the check, the same for every status. */
+      title: string;
+      /** Sentence explaining what the counts mean and, for a warning, what to send. A dismissed check keeps the sentence its counts earned. */
+      detail: string;
+      /** Documentation page covering how to send the missing instrumentation. */
+      docs_url: string;
+      /** Counts this check was graded from, over the same window. Which counts appear depends on the check. */
+      stats: InstrumentationCheckStats;
+    }
+
+    export interface InstrumentationCheckAction {
+      /** Key of the check to dismiss or restore.
+       *
+       * * `sessions` - sessions
+       * * `tool_calls` - tool_calls
+       * * `user_identity` - user_identity
+       * * `trace_structure` - trace_structure */
+      check: AIObservabilityInstrumentationCheckEnum;
+    }
+
+    export interface InstrumentationChecklist {
+      /** Length in days of the event window the checks were graded over. */
+      window_days: number;
+      /** Every check, graded. Checks are always all returned, including the ones that pass. */
+      checks: InstrumentationCheck[];
     }
 
     /**
@@ -46431,7 +46574,7 @@ export namespace Schemas {
     }
 
     export interface LegacyDesktopAccessResponse {
-      /** Whether the user has legacy PostHog Desktop access. */
+      /** Whether the current project can use PostHog Desktop. */
       has_access: boolean;
       /** Whether the independent Loops feature is enabled. */
       has_loops_access: boolean;
@@ -49997,6 +50140,7 @@ export namespace Schemas {
     /**
      * * `BOUNCE` - Bounce
      * * `MANUAL` - Manual
+     * * `COMPLAINT` - Complaint
      */
     export type MessageSuppressionSourceEnum = typeof MessageSuppressionSourceEnum[keyof typeof MessageSuppressionSourceEnum];
 
@@ -50004,6 +50148,7 @@ export namespace Schemas {
     export const MessageSuppressionSourceEnum = {
       Bounce: 'BOUNCE',
       Manual: 'MANUAL',
+      Complaint: 'COMPLAINT',
     } as const;
 
     export interface MessageSuppression {
@@ -50011,10 +50156,11 @@ export namespace Schemas {
       readonly id: string;
       /** Normalized recipient email address. Suppression is keyed on this value, per team. */
       readonly identifier: string;
-      /** How the entry landed on the list: `BOUNCE` for automatic (bounce-driven), `MANUAL` for user-added via the UI/API.
+      /** How the entry landed on the list: `BOUNCE` for automatic (bounce-driven), `COMPLAINT` for automatic (the recipient reported a message as spam), `MANUAL` for user-added via the UI/API.
        *
        * * `BOUNCE` - Bounce
-       * * `MANUAL` - Manual */
+       * * `MANUAL` - Manual
+       * * `COMPLAINT` - Complaint */
       readonly source: MessageSuppressionSourceEnum;
       /**
          * Human-readable reason for the suppression (e.g. 'Auto-suppressed after 5 consecutive soft bounces').
@@ -50385,6 +50531,21 @@ export namespace Schemas {
       readonly id: string;
     } | null;
 
+    /**
+     * One notebook-level variable. Shared by the notebook's own `variables` field and a run body.
+     */
+    export interface NotebookVariable {
+      /**
+         * Identifier the cell reads: `{name}` in a SQL cell, a plain global in a Python cell.
+         * @maxLength 200
+         */
+      name: string;
+      /** How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'. */
+      type: string;
+      /** The variable's current value. A 'date' accepts an absolute date or a relative expression ('-7d', 'mStart'), resolved against the project timezone. */
+      value?: unknown;
+    }
+
     export interface Notebook {
       /** UUID of the notebook. */
       readonly id: string;
@@ -50425,6 +50586,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly parent_resource: NotebookParentResource;
+      /** Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique. */
+      variables?: NotebookVariable[];
       _create_in_folder?: string;
     }
 
@@ -50796,6 +50959,8 @@ export namespace Schemas {
       output_name?: string;
       /** Available upstream nodes, keyed by dataframe name. A SQL node inlines referenced hogql refs as CTEs — unless it references a local ref, which reroutes the run to the sandbox's DuckDB; a python node materializes the hogql refs its code reads as pandas frames. */
       refs?: NotebookSQLV2RunRequestRefs;
+      /** Notebook-level variables in scope for this run. A SQL node has each `{name}` bound to its value before dispatch; a Python node gets them as globals in the kernel namespace. A SQL node reading a `{name}` that is absent here fails the dispatch. */
+      variables?: NotebookVariable[];
       /**
          * SQL nodes only: id of a direct-query-capable external data source to run against instead of PostHog's ClickHouse. Omit to query PostHog.
          * @nullable
@@ -51073,6 +51238,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `configured` - Configured
+     * * `inline` - Inline
+     */
+    export type ScannerOriginEnum = typeof ScannerOriginEnum[keyof typeof ScannerOriginEnum];
+
+
+    export const ScannerOriginEnum = {
+      Configured: 'configured',
+      Inline: 'inline',
+    } as const;
+
+    /**
      * * `pending` - Pending
      * * `running` - Running
      * * `succeeded` - Succeeded
@@ -51161,6 +51338,11 @@ export namespace Schemas {
       readonly id: string;
       /** The scanner that produced this observation. */
       readonly scanner_id: string;
+      /** Where the producing scanner came from. `configured` scanners are saved, named, and have a detail page; `inline` ones are throwaways minted for a one-off scan and are not addressable, so callers must not link to them.
+       *
+       * * `configured` - Configured
+       * * `inline` - Inline */
+      readonly scanner_origin: ScannerOriginEnum;
       /** Session recording id this scanner was applied to. */
       readonly session_id: string;
       /** Observation status (pending, running, succeeded, failed, ineligible).
@@ -51171,7 +51353,7 @@ export namespace Schemas {
        * * `failed` - Failed
        * * `ineligible` - Ineligible */
       readonly status: ObservationStatusEnum;
-      /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events / no_snapshots. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / infra_transient / internal_error / orphaned. */
+      /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events / no_snapshots / too_large. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / infra_transient / internal_error / orphaned. */
       readonly error_reason: string;
       /** Temporal workflow id for progress queries and debugging. Empty until the workflow starts. */
       readonly workflow_id: string;
@@ -51384,6 +51566,54 @@ export namespace Schemas {
       task_id: string;
     }
 
+    export interface OnboardingSessionTest {
+      /**
+         * Company domain to research. Blank simulates a personal email address.
+         * @maxLength 253
+         */
+      company_domain?: string;
+      /** Whether the user is joining an organization that already has shared context. */
+      joining_existing_organization?: boolean;
+      /** Whether the project has ingested events. */
+      has_events?: boolean;
+      /**
+         * Number of findings waiting in #general.
+         * @minimum 0
+         * @maximum 10000
+         */
+      signal_reports_waiting?: number;
+      /**
+         * Display names of other Desktop users in the organization.
+         * @maxItems 25
+         * @items.maxLength 100
+         */
+      other_members?: string[];
+      /**
+         * Signal sources that were already enabled.
+         * @maxItems 25
+         * @items.maxLength 100
+         */
+      sources_enabled?: string[];
+      /**
+         * Signal sources the onboarding flow is watching.
+         * @maxItems 25
+         * @items.maxLength 100
+         */
+      sources_watching?: string[];
+      /** Whether onboarding enabled any signal sources. */
+      sources_newly_enabled?: boolean;
+    }
+
+    /**
+     * The first-run session that was started for the requester.
+     */
+    export interface OnboardingSessionTestResponse {
+      /** The agent session opened in the team's #general space. */
+      task_id: string;
+      /** The requester's personal space containing the session. */
+      channel_id: string;
+    }
+
     /**
      * * `later` - Later
      * * `other` - Other
@@ -51559,6 +51789,11 @@ export namespace Schemas {
       /** When False, members (below admin) only see themselves in the members list and only project members in access control. */
       members_can_see_org_members?: boolean;
       allow_publicly_shared_resources?: boolean;
+      /**
+         * When True, requests through the PostHog MCP server can read but not change this organization's data.
+         * @nullable
+         */
+      read_only_mcp_access?: boolean | null;
       readonly member_count: number;
       /** @nullable */
       is_ai_data_processing_approved?: boolean | null;
@@ -54639,16 +54874,22 @@ export namespace Schemas {
     }
 
     /**
-     * List response for sandbox environments (subset of fields).
+     * A sandbox environment, as returned by list, detail, create and update.
      */
     export interface SandboxEnvironmentDTO {
       id: string;
       name: string;
       network_access_level: string;
       allowed_domains?: string[];
+      include_default_domains: boolean;
       repositories?: string[];
+      /** Whether any environment variables are set on this environment. */
+      has_environment_variables?: boolean;
+      /** Names of the environment variables that are set, sorted. Values are write-only and never returned. */
+      environment_variable_keys?: string[];
       private: boolean;
       internal: boolean;
+      effective_domains?: string[];
       created_by?: TaskUserBasicInfo | null;
       /** @nullable */
       created_at?: string | null;
@@ -54961,6 +55202,7 @@ export namespace Schemas {
      * * `signal_finding` - Signal Finding
      * * `repo_selection` - Repo Selection
      * * `suggested_reviewers` - Suggested Reviewers
+     * * `channel_assignment` - Channel Assignment
      * * `dismissal` - Dismissal
      * * `code_reference` - Code Reference
      * * `commit` - Commit
@@ -54982,6 +55224,7 @@ export namespace Schemas {
       SignalFinding: 'signal_finding',
       RepoSelection: 'repo_selection',
       SuggestedReviewers: 'suggested_reviewers',
+      ChannelAssignment: 'channel_assignment',
       Dismissal: 'dismissal',
       CodeReference: 'code_reference',
       Commit: 'commit',
@@ -55181,6 +55424,11 @@ export namespace Schemas {
        * * `posthog_onboarding` - PostHog onboarding
        * * `posthog_system` - PostHog system */
       readonly billing_exempt_reason: BillingExemptReasonEnum | null;
+      /**
+         * The space (task channel) this report is assigned to, or null when unassigned. The general view lists every report regardless of this value.
+         * @nullable
+         */
+      readonly channel_id: string | null;
     }
 
     export interface PaginatedSignalReportList {
@@ -56520,6 +56768,8 @@ export namespace Schemas {
       updated_at?: string | null;
       /** @nullable */
       completed_at?: string | null;
+      /** True when this run's sandbox serves a dev stack preview, so clients can offer the preview link. Open it through the run's `preview/` endpoint, which mints a fresh access token on every request. */
+      preview_available?: boolean;
     }
 
     export interface SlackThreadReferenceDTO {
@@ -57875,6 +58125,208 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: VisionActionRunList[];
+    }
+
+    /**
+     * * `metric` - Metric
+     * * `match` - Match
+     */
+    export type VisionAlertConfigurationKindEnum = typeof VisionAlertConfigurationKindEnum[keyof typeof VisionAlertConfigurationKindEnum];
+
+
+    export const VisionAlertConfigurationKindEnum = {
+      Metric: 'metric',
+      Match: 'match',
+    } as const;
+
+    export interface VisionAlertSelection {
+      /**
+         * Monitor verdicts to match, e.g. ['yes'].
+         * @maxItems 10
+         * @items.maxLength 100
+         */
+      verdict?: string[];
+      /**
+         * Classifier tags to match; an observation matches when it carries any of them.
+         * @maxItems 20
+         * @items.maxLength 200
+         */
+      tags?: string[];
+      /** Minimum scorer score (inclusive). */
+      min_score?: number;
+      /** Maximum scorer score (inclusive). */
+      max_score?: number;
+    }
+
+    /**
+     * * `count` - Count matching observations
+     * * `avg_score` - Average score
+     */
+    export type VisionAlertConfigurationMetricEnum = typeof VisionAlertConfigurationMetricEnum[keyof typeof VisionAlertConfigurationMetricEnum];
+
+
+    export const VisionAlertConfigurationMetricEnum = {
+      Count: 'count',
+      AvgScore: 'avg_score',
+    } as const;
+
+    export interface VisionAlertConfiguration {
+      /** Unique identifier for this alert. */
+      readonly id: string;
+      /** Scanner whose observations this alert watches. Immutable after creation. */
+      scanner_id: string;
+      /**
+         * Human-readable name for this alert. Defaults to 'Untitled alert' on create when omitted.
+         * @maxLength 255
+         */
+      name?: string;
+      /** Whether the alert is active. Disabling a metric alert resets its state to not_firing. */
+      enabled?: boolean;
+      /** 'metric' fires when a metric crosses a threshold over a rolling window; 'match' fires on every observation that matches the selection. Immutable after creation.
+       *
+       * * `metric` - Metric
+       * * `match` - Match */
+      kind: VisionAlertConfigurationKindEnum;
+      /** Which observations count. Empty matches every observation of the scanner. */
+      selection?: VisionAlertSelection;
+      /** Metric alerts only: what to measure over the window. 'avg_score' requires a scorer scanner.
+       *
+       * * `count` - Count matching observations
+       * * `avg_score` - Average score */
+      metric?: VisionAlertConfigurationMetricEnum;
+      /** Metric alerts only: whether the alert fires at or above, or at or below, the threshold.
+       *
+       * * `above` - At or above
+       * * `below` - At or below */
+      direction?: VisionAlertDirectionEnum;
+      /**
+         * Metric alerts only: the threshold value. Required for metric alerts, must be omitted for match alerts.
+         * @nullable
+         */
+      threshold?: number | null;
+      /** Metric alerts only: rolling window in days. Allowed values: [1, 3, 7, 14, 30]. */
+      window_days?: number;
+      /**
+         * Metric alerts only: evaluation cadence in minutes, at least 15.
+         * @minimum 15
+         */
+      check_interval_minutes?: number;
+      /** Current lifecycle state. Always not_firing for match alerts. Server-managed.
+       *
+       * * `not_firing` - Not firing
+       * * `firing` - Firing
+       * * `pending_resolve` - Pending resolve
+       * * `errored` - Errored
+       * * `snoozed` - Snoozed
+       * * `broken` - Broken */
+      readonly state: LogsAlertConfigurationStateEnum;
+      /**
+         * Metric alerts only: total check periods in the sliding evaluation window (M in N-of-M).
+         * @minimum 1
+         * @maximum 10
+         */
+      evaluation_periods?: number;
+      /**
+         * Metric alerts only: how many periods must breach to fire (N in N-of-M).
+         * @minimum 1
+         * @maximum 10
+         */
+      datapoints_to_alarm?: number;
+      /**
+         * Metric alerts only: minimum minutes between repeated notifications. 0 means no cooldown.
+         * @minimum 0
+         */
+      cooldown_minutes?: number;
+      /** Blocked local time windows when the alert must not notify. Times use the project timezone. Null disables quiet hours. */
+      schedule_restriction?: AlertScheduleRestriction | null;
+      /**
+         * ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.
+         * @nullable
+         */
+      snooze_until?: string | null;
+      /**
+         * When the next evaluation is scheduled. Server-managed.
+         * @nullable
+         */
+      readonly next_check_at: string | null;
+      /**
+         * When the last notification was sent. Server-managed.
+         * @nullable
+         */
+      readonly last_notified_at: string | null;
+      /**
+         * When the alert was last evaluated. Server-managed.
+         * @nullable
+         */
+      readonly last_checked_at: string | null;
+      /** Consecutive evaluation failures. Resets on success. Server-managed. */
+      readonly consecutive_failures: number;
+      /**
+         * When the alert was first enabled. Null means still a draft.
+         * @nullable
+         */
+      readonly first_enabled_at: string | null;
+      /** When the alert was created. */
+      readonly created_at: string;
+      readonly created_by: UserBasic;
+      /**
+         * When the alert was last modified.
+         * @nullable
+         */
+      readonly updated_at: string | null;
+    }
+
+    export interface PaginatedVisionAlertConfigurationList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: VisionAlertConfiguration[];
+    }
+
+    /**
+     * * `check` - Check
+     * * `reset` - Reset
+     * * `enable` - Enable
+     * * `disable` - Disable
+     * * `snooze` - Snooze
+     * * `unsnooze` - Unsnooze
+     * * `threshold_change` - Threshold change
+     */
+    export type VisionAlertEventKindEnum = typeof VisionAlertEventKindEnum[keyof typeof VisionAlertEventKindEnum];
+
+
+    export const VisionAlertEventKindEnum = {
+      Check: 'check',
+      Reset: 'reset',
+      Enable: 'enable',
+      Disable: 'disable',
+      Snooze: 'snooze',
+      Unsnooze: 'unsnooze',
+      ThresholdChange: 'threshold_change',
+    } as const;
+
+    export interface VisionAlertEvent {
+      readonly id: string;
+      readonly created_at: string;
+      readonly kind: VisionAlertEventKindEnum;
+      readonly state_before: string;
+      readonly state_after: string;
+      readonly threshold_breached: boolean;
+      /** @nullable */
+      readonly metric_value: number | null;
+      /** @nullable */
+      readonly error_message: string | null;
+    }
+
+    export interface PaginatedVisionAlertEventList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: VisionAlertEvent[];
     }
 
     /**
@@ -60784,7 +61236,8 @@ export namespace Schemas {
        * * `snowflake` - snowflake
        * * `redshift` - redshift
        * * `clickhouse` - clickhouse
-       * * `motherduck` - motherduck */
+       * * `motherduck` - motherduck
+       * * `trino` - trino */
       readonly engine?: EngineEnum | null;
       /** @nullable */
       readonly last_run_at?: string | null;
@@ -62367,6 +62820,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly parent_resource?: PatchedNotebookParentResource;
+      /** Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique. */
+      variables?: NotebookVariable[];
       _create_in_folder?: string;
     }
 
@@ -62432,6 +62887,11 @@ export namespace Schemas {
       /** When False, members (below admin) only see themselves in the members list and only project members in access control. */
       members_can_see_org_members?: boolean;
       allow_publicly_shared_resources?: boolean;
+      /**
+         * When True, requests through the PostHog MCP server can read but not change this organization's data.
+         * @nullable
+         */
+      read_only_mcp_access?: boolean | null;
       readonly member_count?: number;
       /** @nullable */
       is_ai_data_processing_approved?: boolean | null;
@@ -63659,6 +64119,15 @@ export namespace Schemas {
       readonly last_rolled_at?: string | null;
       /** Project-wide API scopes granted to this key. Project secret API keys do not honor object-level access controls, so a scope can access resources of that type even when per-resource RBAC would hide them from an individual user. */
       scopes?: string[];
+    }
+
+    export interface PatchedProxyRecordUpdate {
+      /**
+         * HTTPS URL that requests to the proxy domain root redirect to, or null to disable the redirect. The URL must use the same registrable domain as the managed proxy.
+         * @maxLength 1024
+         * @nullable
+         */
+      root_redirect_url?: string | null;
     }
 
     /**
@@ -65318,16 +65787,6 @@ export namespace Schemas {
      */
     export type PatchedTaskRunUpdateStateAppend = { [key: string]: unknown };
 
-    /**
-     * * `local` - local
-     */
-    export type TaskRunUpdateEnvironmentEnum = typeof TaskRunUpdateEnvironmentEnum[keyof typeof TaskRunUpdateEnvironmentEnum];
-
-
-    export const TaskRunUpdateEnvironmentEnum = {
-      Local: 'local',
-    } as const;
-
     export interface PatchedTaskRunUpdate {
       /** Current execution status
        *
@@ -65361,10 +65820,6 @@ export namespace Schemas {
          * @nullable
          */
       error_message?: string | null;
-      /** Transition a cloud run to local. Use the resume_in_cloud action to move a run into cloud.
-       *
-       * * `local` - local */
-      environment?: TaskRunUpdateEnvironmentEnum;
     }
 
     /**
@@ -65727,100 +66182,6 @@ export namespace Schemas {
     }
 
     /**
-     * Mixin for serializers to add user access control fields
-     */
-    export interface PatchedTicket {
-      readonly id?: string;
-      readonly ticket_number?: number;
-      readonly channel_source?: ChannelSourceEnum;
-      readonly channel_detail?: ChannelDetailEnum | null;
-      readonly distinct_id?: string;
-      /** Ticket status: new, open, pending, on_hold, or resolved
-       *
-       * * `new` - New
-       * * `open` - Open
-       * * `pending` - Pending
-       * * `on_hold` - On hold
-       * * `resolved` - Resolved */
-      status?: TicketStatusEnum;
-      /** Ticket priority: low, medium, high, or critical. Null if unset.
-       *
-       * * `low` - Low
-       * * `medium` - Medium
-       * * `high` - High
-       * * `critical` - Critical */
-      priority?: TicketPriorityEnum | BlankEnum | null;
-      readonly assignee?: TicketAssignment;
-      /** Customer-provided traits such as name and email */
-      anonymous_traits?: unknown;
-      /**
-         * Trust signal indicating whether the ticket's claimed identity was attested by the server (widget HMAC, SPF-authenticated email, or a signature-validated platform webhook). True when verified, false when assessed but not attested, null when unknown (e.g. created before this signal existed).
-         * @nullable
-         */
-      readonly identity_verified?: boolean | null;
-      ai_resolved?: boolean;
-      /** @nullable */
-      escalation_reason?: string | null;
-      /** AI support pipeline triage and outcome (status, result, ticket_type, confidence, attempts, etc.). */
-      readonly ai_triage?: unknown;
-      readonly created_at?: string;
-      readonly updated_at?: string;
-      readonly message_count?: number;
-      /** @nullable */
-      readonly last_message_at?: string | null;
-      /** @nullable */
-      readonly last_message_text?: string | null;
-      readonly unread_team_count?: number;
-      readonly unread_customer_count?: number;
-      /** @nullable */
-      readonly session_id?: string | null;
-      readonly session_context?: unknown;
-      /**
-         * SLA deadline set via workflows. Null means no SLA.
-         * @nullable
-         */
-      sla_due_at?: string | null;
-      /** @nullable */
-      snoozed_until?: string | null;
-      /** @nullable */
-      readonly slack_channel_id?: string | null;
-      /** @nullable */
-      readonly slack_thread_ts?: string | null;
-      /** @nullable */
-      readonly slack_team_id?: string | null;
-      /** @nullable */
-      readonly email_subject?: string | null;
-      /** @nullable */
-      readonly email_from?: string | null;
-      /** @nullable */
-      readonly email_to?: string | null;
-      readonly cc_participants?: unknown;
-      /** @nullable */
-      readonly github_repo?: string | null;
-      /** @nullable */
-      readonly github_issue_number?: number | null;
-      /** @nullable */
-      readonly zendesk_ticket_id?: number | null;
-      /**
-         * Customer's PostHog organization group key, resolved at ticket creation. Null when unknown.
-         * @nullable
-         */
-      readonly organization_id?: string | null;
-      /**
-         * How organization_id was resolved: 'person' (from the requester's identity) or 'slack_channel_account' (inferred from the customer analytics account linked to the ticket's Slack channel). Null when organization_id is unset.
-         * @nullable
-         */
-      readonly organization_id_source?: string | null;
-      readonly person?: TicketPerson | null;
-      tags?: unknown[];
-      /**
-         * The effective access level the user has for this object
-         * @nullable
-         */
-      readonly user_access_level?: string | null;
-    }
-
-    /**
      * Payload for updating a private note on a ticket.
      */
     export interface PatchedTicketNoteUpdateRequest {
@@ -65831,6 +66192,86 @@ export namespace Schemas {
       message?: string;
       /** Optional TipTap rich content JSON. Omit or pass null to clear previous rich content so the thread falls back to the markdown message. */
       rich_content?: unknown;
+    }
+
+    /**
+     * Assign the ticket to a user.
+     */
+    export type UserTicketAssigneeRequestType = typeof UserTicketAssigneeRequestType[keyof typeof UserTicketAssigneeRequestType];
+
+
+    export const UserTicketAssigneeRequestType = {
+      User: 'user',
+    } as const;
+
+    export interface UserTicketAssigneeRequest {
+      /** Assign the ticket to a user. */
+      type: UserTicketAssigneeRequestType;
+      /** User ID. */
+      id: number;
+    }
+
+    /**
+     * Assign the ticket to a role.
+     */
+    export type RoleTicketAssigneeRequestType = typeof RoleTicketAssigneeRequestType[keyof typeof RoleTicketAssigneeRequestType];
+
+
+    export const RoleTicketAssigneeRequestType = {
+      Role: 'role',
+    } as const;
+
+    export interface RoleTicketAssigneeRequest {
+      /** Assign the ticket to a role. */
+      type: RoleTicketAssigneeRequestType;
+      /** Role ID. */
+      id: string;
+    }
+
+    export type TicketAssigneeRequest = UserTicketAssigneeRequest | RoleTicketAssigneeRequest;
+
+    /**
+     * Fields accepted when updating a ticket.
+     */
+    export interface PatchedTicketUpdateRequest {
+      /** Ticket status: new, open, pending, on_hold, or resolved.
+       *
+       * * `new` - New
+       * * `open` - Open
+       * * `pending` - Pending
+       * * `on_hold` - On hold
+       * * `resolved` - Resolved */
+      status?: TicketStatusEnum;
+      /** Ticket priority: low, medium, high, or critical. Pass null to clear it.
+       *
+       * * `low` - Low
+       * * `medium` - Medium
+       * * `high` - High
+       * * `critical` - Critical */
+      priority?: TicketPriorityEnum | BlankEnum | null;
+      /** User or role to assign. Pass null to remove the current assignee. */
+      assignee?: TicketAssigneeRequest | null;
+      /** Customer details such as name and email. */
+      anonymous_traits?: unknown;
+      /** Whether AI resolved the ticket. */
+      ai_resolved?: boolean;
+      /**
+         * Reason the ticket was escalated. Pass null to clear it.
+         * @nullable
+         */
+      escalation_reason?: string | null;
+      /**
+         * SLA deadline. Pass null to clear it.
+         * @nullable
+         */
+      sla_due_at?: string | null;
+      /**
+         * Time to reopen the ticket. Pass null to reopen it now.
+         * @nullable
+         */
+      snoozed_until?: string | null;
+      /** Tag names to set on the ticket. */
+      tags?: string[];
     }
 
     export interface PatchedTicketView {
@@ -66316,6 +66757,112 @@ export namespace Schemas {
       /** User who created the action. */
       readonly created_by?: UserBasic | null;
       readonly updated_at?: string;
+    }
+
+    export interface PatchedVisionAlertConfiguration {
+      /** Unique identifier for this alert. */
+      readonly id?: string;
+      /** Scanner whose observations this alert watches. Immutable after creation. */
+      scanner_id?: string;
+      /**
+         * Human-readable name for this alert. Defaults to 'Untitled alert' on create when omitted.
+         * @maxLength 255
+         */
+      name?: string;
+      /** Whether the alert is active. Disabling a metric alert resets its state to not_firing. */
+      enabled?: boolean;
+      /** 'metric' fires when a metric crosses a threshold over a rolling window; 'match' fires on every observation that matches the selection. Immutable after creation.
+       *
+       * * `metric` - Metric
+       * * `match` - Match */
+      kind?: VisionAlertConfigurationKindEnum;
+      /** Which observations count. Empty matches every observation of the scanner. */
+      selection?: VisionAlertSelection;
+      /** Metric alerts only: what to measure over the window. 'avg_score' requires a scorer scanner.
+       *
+       * * `count` - Count matching observations
+       * * `avg_score` - Average score */
+      metric?: VisionAlertConfigurationMetricEnum;
+      /** Metric alerts only: whether the alert fires at or above, or at or below, the threshold.
+       *
+       * * `above` - At or above
+       * * `below` - At or below */
+      direction?: VisionAlertDirectionEnum;
+      /**
+         * Metric alerts only: the threshold value. Required for metric alerts, must be omitted for match alerts.
+         * @nullable
+         */
+      threshold?: number | null;
+      /** Metric alerts only: rolling window in days. Allowed values: [1, 3, 7, 14, 30]. */
+      window_days?: number;
+      /**
+         * Metric alerts only: evaluation cadence in minutes, at least 15.
+         * @minimum 15
+         */
+      check_interval_minutes?: number;
+      /** Current lifecycle state. Always not_firing for match alerts. Server-managed.
+       *
+       * * `not_firing` - Not firing
+       * * `firing` - Firing
+       * * `pending_resolve` - Pending resolve
+       * * `errored` - Errored
+       * * `snoozed` - Snoozed
+       * * `broken` - Broken */
+      readonly state?: LogsAlertConfigurationStateEnum;
+      /**
+         * Metric alerts only: total check periods in the sliding evaluation window (M in N-of-M).
+         * @minimum 1
+         * @maximum 10
+         */
+      evaluation_periods?: number;
+      /**
+         * Metric alerts only: how many periods must breach to fire (N in N-of-M).
+         * @minimum 1
+         * @maximum 10
+         */
+      datapoints_to_alarm?: number;
+      /**
+         * Metric alerts only: minimum minutes between repeated notifications. 0 means no cooldown.
+         * @minimum 0
+         */
+      cooldown_minutes?: number;
+      /** Blocked local time windows when the alert must not notify. Times use the project timezone. Null disables quiet hours. */
+      schedule_restriction?: AlertScheduleRestriction | null;
+      /**
+         * ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.
+         * @nullable
+         */
+      snooze_until?: string | null;
+      /**
+         * When the next evaluation is scheduled. Server-managed.
+         * @nullable
+         */
+      readonly next_check_at?: string | null;
+      /**
+         * When the last notification was sent. Server-managed.
+         * @nullable
+         */
+      readonly last_notified_at?: string | null;
+      /**
+         * When the alert was last evaluated. Server-managed.
+         * @nullable
+         */
+      readonly last_checked_at?: string | null;
+      /** Consecutive evaluation failures. Resets on success. Server-managed. */
+      readonly consecutive_failures?: number;
+      /**
+         * When the alert was first enabled. Null means still a draft.
+         * @nullable
+         */
+      readonly first_enabled_at?: string | null;
+      /** When the alert was created. */
+      readonly created_at?: string;
+      readonly created_by?: UserBasic;
+      /**
+         * When the alert was last modified.
+         * @nullable
+         */
+      readonly updated_at?: string | null;
     }
 
     /**
@@ -68718,6 +69265,13 @@ export namespace Schemas {
       domain: string;
       /** The CNAME target to add as a DNS record for your domain. Point your domain's CNAME to this value. */
       readonly target_cname: string;
+      /**
+         * HTTPS URL that requests to the proxy domain root redirect to, or null when disabled.
+         * @nullable
+         */
+      readonly root_redirect_url: string | null;
+      /** Whether this managed proxy supports a redirect from its root URL. */
+      readonly root_redirect_supported: boolean;
       /** Current provisioning status. Values: waiting (DNS verification pending), issuing (SSL certificate being issued), valid (proxy is live and working), warning (proxy has issues but is operational), erroring (proxy setup failed), deleting (removal in progress), timed_out (DNS verification timed out).
        *
        * * `waiting` - Waiting
@@ -69591,6 +70145,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative9 {
       ch_table_names?: string[] | null;
       errors: HogQLNotice[];
+      /** One entry per property filter, in query order. */
+      index_usage?: PredicateIndexUsage[] | null;
       isUsingIndices?: QueryIndexUsage | null;
       isValid?: boolean | null;
       notices: HogQLNotice[];
@@ -75010,7 +75566,7 @@ export namespace Schemas {
      * against the type's schema (see `products/signals/backend/artefact_schemas.py`).
      */
     export interface SignalReportArtefactLogCreate {
-      /** The artefact type. One of: actionability_judgment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers, task_run. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
+      /** The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers, task_run. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
       artefact_type: string;
       /** The artefact payload as a JSON object or array; shape depends on artefact_type and is validated against its schema. */
       content: unknown;
@@ -77087,6 +77643,7 @@ export namespace Schemas {
        * * `SideShift` - SideShift
        * * `DuckLake` - DuckLake
        * * `Starburst` - Starburst
+       * * `Trino` - Trino
        * * `Easybill` - Easybill
        * * `Bexio` - Bexio
        * * `Umami` - Umami
@@ -78453,6 +79010,7 @@ export namespace Schemas {
        * * `SideShift` - SideShift
        * * `DuckLake` - DuckLake
        * * `Starburst` - Starburst
+       * * `Trino` - Trino
        * * `Easybill` - Easybill
        * * `Bexio` - Bexio
        * * `Umami` - Umami
@@ -79809,6 +80367,7 @@ export namespace Schemas {
        * * `SideShift` - SideShift
        * * `DuckLake` - DuckLake
        * * `Starburst` - Starburst
+       * * `Trino` - Trino
        * * `Easybill` - Easybill
        * * `Bexio` - Bexio
        * * `Umami` - Umami
@@ -83096,6 +83655,13 @@ export namespace Schemas {
       channel?: string | null;
     }
 
+    export interface TeachingCanvas {
+      /** The teaching canvas that was resolved or created. */
+      canvas_id: string;
+      /** The requester's personal space containing the canvas. */
+      channel_id: string;
+    }
+
     export type TeamDefaultModifiers = { [key: string]: unknown };
 
     export type TeamGroupTypesItem = { [key: string]: unknown };
@@ -83696,6 +84262,50 @@ export namespace Schemas {
       rich_content?: unknown;
     }
 
+    /**
+     * Fields accepted when updating a ticket.
+     */
+    export interface TicketUpdateRequest {
+      /** Ticket status: new, open, pending, on_hold, or resolved.
+       *
+       * * `new` - New
+       * * `open` - Open
+       * * `pending` - Pending
+       * * `on_hold` - On hold
+       * * `resolved` - Resolved */
+      status?: TicketStatusEnum;
+      /** Ticket priority: low, medium, high, or critical. Pass null to clear it.
+       *
+       * * `low` - Low
+       * * `medium` - Medium
+       * * `high` - High
+       * * `critical` - Critical */
+      priority?: TicketPriorityEnum | BlankEnum | null;
+      /** User or role to assign. Pass null to remove the current assignee. */
+      assignee?: TicketAssigneeRequest | null;
+      /** Customer details such as name and email. */
+      anonymous_traits?: unknown;
+      /** Whether AI resolved the ticket. */
+      ai_resolved?: boolean;
+      /**
+         * Reason the ticket was escalated. Pass null to clear it.
+         * @nullable
+         */
+      escalation_reason?: string | null;
+      /**
+         * SLA deadline. Pass null to clear it.
+         * @nullable
+         */
+      sla_due_at?: string | null;
+      /**
+         * Time to reopen the ticket. Pass null to reopen it now.
+         * @nullable
+         */
+      snoozed_until?: string | null;
+      /** Tag names to set on the ticket. */
+      tags?: string[];
+    }
+
     export interface TopPage {
       /** Host for the page, if recorded. */
       host: string;
@@ -84156,6 +84766,18 @@ export namespace Schemas {
       notes: string[];
     }
 
+    /**
+     * Request body for POST /api/users/verify_email/. Exactly one of token or code is required.
+     */
+    export interface VerifyEmailRequest {
+      /** UUID of the user whose email is being verified. */
+      uuid: string;
+      /** Verification token from the emailed link. Required unless a code is provided. */
+      token?: string;
+      /** The 6-digit verification code emailed at signup. Whitespace, invisible characters, and grouping hyphens are removed and compatibility digits are folded to ASCII before checking. */
+      code?: string;
+    }
+
     export interface ViewLinkValidation {
       /**
          * Name of the table or view being joined onto the source table.
@@ -84264,6 +84886,48 @@ export namespace Schemas {
       readonly synthesized_markdown: string;
       /** Recordings this run included in its summary, in summary order. Empty for runs recorded before this was tracked, and for skipped/failed runs. */
       readonly observations: readonly RunObservation[];
+    }
+
+    /**
+     * * `slack` - slack
+     * * `webhook` - webhook
+     */
+    export type VisionAlertCreateDestinationTypeEnum = typeof VisionAlertCreateDestinationTypeEnum[keyof typeof VisionAlertCreateDestinationTypeEnum];
+
+
+    export const VisionAlertCreateDestinationTypeEnum = {
+      Slack: 'slack',
+      Webhook: 'webhook',
+    } as const;
+
+    export interface VisionAlertCreateDestination {
+      /** Notification destination type.
+       *
+       * * `slack` - slack
+       * * `webhook` - webhook */
+      type: VisionAlertCreateDestinationTypeEnum;
+      /** Integration ID for the Slack workspace. Required when type=slack. */
+      slack_workspace_id?: number;
+      /** Slack channel ID. Required when type=slack. */
+      slack_channel_id?: string;
+      /** Human-readable channel name for display. */
+      slack_channel_name?: string;
+      /** HTTPS endpoint to post to. Required when type=webhook. */
+      webhook_url?: string;
+    }
+
+    export interface VisionAlertDeleteDestination {
+      /**
+         * HogFunction IDs to delete as one atomic destination group.
+         * @minItems 1
+         * @maxItems 5
+         */
+      hog_function_ids: string[];
+    }
+
+    export interface VisionAlertDestinationResponse {
+      /** HogFunctions backing the created destination, one per event kind. */
+      hog_function_ids: string[];
     }
 
     export interface VisionQuota {
@@ -93794,6 +94458,31 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type LlmSkillsBundleRetrieveParams = {
+    /**
+     * What each skill directory in the zip contains. 'stub' (default) writes a SKILL.md with the name, description and instructions to fetch the skill over the PostHog MCP when it is invoked. 'full' writes the rendered SKILL.md, every bundled file and the Codex sidecar.
+     *
+     * * `stub` - stub
+     * * `full` - full
+     * @minLength 1
+     */
+    content?: LlmSkillsBundleRetrieveContent;
+    /**
+     * Maximum number of skills in the zip, newest first; default 20, at most 100. Every skill in the zip costs the agent prompt context on each turn, so pick what the harness can usefully carry. Skills past the limit are reported in X-Skills-Dropped.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    };
+
+    export type LlmSkillsBundleRetrieveContent = typeof LlmSkillsBundleRetrieveContent[keyof typeof LlmSkillsBundleRetrieveContent];
+
+
+    export const LlmSkillsBundleRetrieveContent = {
+      Stub: 'stub',
+      Full: 'full',
+    } as const;
+
     export type LlmSkillsNameRetrieveParams = {
     /**
      * Maximum number of characters of the body to return starting at body_offset. Omit to return the whole body from the offset onwards. When the slice stops before the end, body_next_offset is the offset to request next.
@@ -94721,7 +95410,7 @@ export namespace Schemas {
      */
     properties?: Property[];
     /**
-     * Search persons, either by email (full text search) or distinct_id (exact match).
+     * Search persons by email, name, person ID, or distinct ID. Partial values match. When the term is a complete email address or UUID that exactly matches a distinct ID or person ID, only that person is returned.
      */
     search?: string;
     };
@@ -95493,6 +96182,10 @@ export namespace Schemas {
     };
 
     export type SignalsReportsListParams = {
+    /**
+     * Narrow to reports assigned to one space (channel). Absent or empty means all reports regardless of assignment.
+     */
+    channel_id?: string;
     /**
      * Filter reports by whether a shipped implementation pull request exists. 'true' keeps only reports with a PR; 'false' keeps only those without. Pair with limit=1 to count PR reports cheaply.
      */
@@ -96723,6 +97416,49 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type VisionAlertsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Only return alerts on this scanner.
+     */
+    scanner_id?: string;
+    };
+
+    export type VisionAlertsEventsListParams = {
+    /**
+     * Narrow the history to one event kind.
+     */
+    kind?: VisionAlertsEventsListKind;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type VisionAlertsEventsListKind = typeof VisionAlertsEventsListKind[keyof typeof VisionAlertsEventsListKind];
+
+
+    export const VisionAlertsEventsListKind = {
+      Check: 'check',
+      Disable: 'disable',
+      Enable: 'enable',
+      Reset: 'reset',
+      Snooze: 'snooze',
+      ThresholdChange: 'threshold_change',
+      Unsnooze: 'unsnooze',
+    } as const;
 
     export type VisionObservationsListParams = {
     /**

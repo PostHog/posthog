@@ -81,8 +81,12 @@ export type MlMirrorConfig = {
 
     /** While true, the fetch lane parses input but sends no request and writes no crawl history. */
     SESSION_RECORDING_ML_IMAGE_FETCH_DRY_RUN: boolean
+    /** Optional topic for rejected frontier records. Empty commits and drops rejected input without quarantine. */
+    SESSION_RECORDING_ML_IMAGE_FETCH_DLQ_TOPIC: string
     SESSION_RECORDING_ML_IMAGE_FETCH_GROUP_ID: string
     SESSION_RECORDING_ML_IMAGE_FETCH_BATCH_SIZE: number
+    /** Kafka group members per image-fetch worker. Their batches join into one fetch pass. */
+    SESSION_RECORDING_ML_IMAGE_FETCH_TARGET_PARTITIONS_PER_BATCH: number
     AI_RESEARCH_IMAGE_FETCH_DYNAMODB_TABLE: string
     /** Bounds one DynamoDB request so an unavailable store cannot hold the poll loop. */
     AI_RESEARCH_IMAGE_FETCH_DYNAMODB_TIMEOUT_MS: number
@@ -229,8 +233,10 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_URL_CRAWL_HISTORY_PRECHECK_TIMEOUT_MS: 500,
         WEB_BOT_AUTH_PRIVATE_KEYS: '',
         SESSION_RECORDING_ML_IMAGE_FETCH_DRY_RUN: true,
+        SESSION_RECORDING_ML_IMAGE_FETCH_DLQ_TOPIC: '',
         SESSION_RECORDING_ML_IMAGE_FETCH_GROUP_ID: 'session-replay-ml-image-fetch',
         SESSION_RECORDING_ML_IMAGE_FETCH_BATCH_SIZE: 500,
+        SESSION_RECORDING_ML_IMAGE_FETCH_TARGET_PARTITIONS_PER_BATCH: 2,
         AI_RESEARCH_IMAGE_FETCH_DYNAMODB_TABLE: '',
         AI_RESEARCH_IMAGE_FETCH_DYNAMODB_TIMEOUT_MS: 5_000,
         AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS: 30 * 24 * 60 * 60,
