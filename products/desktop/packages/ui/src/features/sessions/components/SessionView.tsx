@@ -980,7 +980,10 @@ export function SessionView({
         }
         onConfirm={confirmModelSwitch}
         onCompactAndConfirm={
-          !isPromptPending && !isCompacting
+          // While a queued message is being edited, onSendPrompt routes the
+          // synthetic "/compact" into that edit and overwrites the user's text.
+          // Withhold the action until the edit is saved or cancelled.
+          !isPromptPending && !isCompacting && !isEditingQueued
             ? compactAndConfirmModelSwitch
             : undefined
         }
