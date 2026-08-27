@@ -204,7 +204,16 @@ class GoogleAdsIntegration:
                     },
                     timeout=10,
                 )
-            except GoogleAdsUnavailableError:
+            except GoogleAdsUnavailableError as e:
+                # One branch failed after retries. Keep the accounts already collected rather than failing
+                # the whole walk, but log the dropped branch so a short list is traceable to a transient
+                # failure instead of looking complete.
+                logger.warning(
+                    "GoogleAdsIntegration: Google Ads unavailable walking account hierarchy",
+                    status_code=e.response.status_code,
+                    account_id=account_id,
+                    integration_id=self.integration.id,
+                )
                 return accounts
 
             if response.status_code != 200:
