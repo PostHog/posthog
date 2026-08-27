@@ -55,6 +55,7 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.experiments.backend.experiment_service import ExperimentService, ExperimentVersionConflict
+from products.experiments.backend.facade import api as experiments_facade
 from products.experiments.backend.llm_metric_templates import build_template, list_templates
 
 # TODO: Route through facade instead of direct import
@@ -88,6 +89,8 @@ from products.experiments.backend.presentation.serializers import (
     RecalculateMetricsRequestSerializer,
     RunningTimeCalculationInputSerializer,
     RunningTimeCalculationResultSerializer,
+    RunningTimeEstimateSerializer,
+    RunningTimeEstimatesResponseSerializer,
     ShipVariantSerializer,
 )
 from products.experiments.backend.recalculation import (
@@ -150,6 +153,27 @@ LIST_DEFERRED_FIELDS = (
 # `list[str]` annotation there resolves to that method (a runtime crash, and a mypy error).
 # Reference this module-level alias instead.
 RequiredScopes = list[str]
+
+# Cap the batch so one request can't fan out an unbounded number of per-experiment reads.
+MAX_RUNNING_TIME_ESTIMATE_IDS = 100
+
+
+def _parse_experiment_ids(ids_param: str | None) -> list[int]:
+    """Parse a comma-separated experiment-id query param, skipping blanks and non-integers."""
+    if not ids_param:
+        return []
+    parsed: list[int] = []
+    for raw in ids_param.split(","):
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            parsed.append(int(raw))
+        except ValueError:
+            continue
+        if len(parsed) >= MAX_RUNNING_TIME_ESTIMATE_IDS:
+            break
+    return parsed
 
 
 def flag_evaluation_contexts_prefetch() -> Prefetch:
@@ -1354,6 +1378,43 @@ class EnterpriseExperimentsViewSet(
                 "recommended_running_time_days": calculate_running_time_days(recommended_sample_size, exposure_rate),
             }
         )
+
+    @extend_schema(
+        description=(
+            "Running-time estimates for a batch of experiments, keyed by experiment id. Derives each estimate "
+            "from the experiment's latest results (automatic mode) or saved manual config, reading a short-lived "
+            "cache. Pass a comma-separated `ids` query param; unknown ids are omitted from the response."
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="ids",
+                location=OpenApiParameter.QUERY,
+                type=str,
+                required=True,
+                description="Comma-separated experiment ids to estimate, e.g. `12,45,88`.",
+            )
+        ],
+        responses={200: OpenApiResponse(response=RunningTimeEstimatesResponseSerializer)},
+    )
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="running_time_estimates",
+        required_scopes=["experiment:read"],
+        pagination_class=None,
+    )
+    def running_time_estimates(self, request: Request, **kwargs: Any) -> Response:
+        """Batch running-time estimates keyed by experiment id, for the experiments list."""
+        ids = _parse_experiment_ids(request.query_params.get("ids"))
+        if not ids:
+            return Response({"results": {}})
+
+        experiments = self.get_queryset().filter(id__in=ids)
+        estimates = experiments_facade.get_running_time_estimates(experiments)
+        results = {
+            experiment_id: RunningTimeEstimateSerializer(estimate).data for experiment_id, estimate in estimates.items()
+        }
+        return Response({"results": results})
 
     @extend_schema(
         description=(

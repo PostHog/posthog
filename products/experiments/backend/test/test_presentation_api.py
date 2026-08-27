@@ -8847,6 +8847,69 @@ class TestCalculateRunningTimeEndpoint(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
 
 
+class TestRunningTimeEstimatesEndpoint(APILicensedTest):
+    def _manual_experiment(self, name: str, flag_key: str) -> Experiment:
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key=flag_key,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+        return Experiment.objects.create(
+            team=self.team,
+            name=name,
+            feature_flag=flag,
+            running_time_calculation={
+                "minimum_detectable_effect": 50,
+                "exposure_estimate_config": {
+                    "conversionRateInputType": "manual",
+                    "manualMetricType": "funnel",
+                    "manualBaselineValue": 10,
+                    "manualExposureRate": 100,
+                },
+            },
+        )
+
+    def _get(self, ids: str):
+        return self.client.get(f"/api/projects/{self.team.id}/experiments/running_time_estimates/?ids={ids}")
+
+    def test_returns_manual_estimate_keyed_by_id(self):
+        experiment = self._manual_experiment("Manual estimate", "manual-estimate-flag")
+        response = self._get(str(experiment.id))
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        results = response.json()["results"]
+        # funnel p=0.10, mde 50% -> N=1152; at 100/day -> 12 days.
+        self.assertEqual(
+            results[str(experiment.id)],
+            {"target_sample_size": 1152, "current_exposures": None, "remaining_days": 12},
+        )
+
+    def test_omits_experiment_from_another_team(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        other_flag = FeatureFlag.objects.create(team=other_team, created_by=self.user, key="other-team-flag")
+        other = Experiment.objects.create(team=other_team, name="Other", feature_flag=other_flag)
+        mine = self._manual_experiment("Mine", "mine-flag")
+
+        response = self._get(f"{mine.id},{other.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        results = response.json()["results"]
+        self.assertIn(str(mine.id), results)
+        self.assertNotIn(str(other.id), results)
+
+    def test_empty_ids_returns_empty_object(self):
+        response = self._get("")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json(), {"results": {}})
+
+
 class TestExperimentSerializerSuperset(unittest.TestCase):
     """Structural guard: ExperimentBasicSerializer must stay a subset of ExperimentSerializer.
 
