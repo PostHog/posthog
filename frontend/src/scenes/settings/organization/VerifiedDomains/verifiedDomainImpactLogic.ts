@@ -51,9 +51,9 @@ export interface verifiedDomainImpactLogicActions {
                 | 'members_can_create_projects'
                 | 'members_can_invite'
                 | 'members_can_see_org_members'
-                | 'read_only_mcp_access'
                 | 'members_can_use_personal_api_keys'
                 | 'name'
+                | 'read_only_mcp_access'
             >
         >
     ) => Partial<
@@ -71,9 +71,9 @@ export interface verifiedDomainImpactLogicActions {
             | 'members_can_create_projects'
             | 'members_can_invite'
             | 'members_can_see_org_members'
-            | 'read_only_mcp_access'
             | 'members_can_use_personal_api_keys'
             | 'name'
+            | 'read_only_mcp_access'
         >
     > // organizationLogic
     closeEnforcementPrompt: () => {
