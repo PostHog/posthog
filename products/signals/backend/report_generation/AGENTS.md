@@ -23,6 +23,13 @@ It is exercised locally via management commands, and it is also used by the prod
   - very short factual summary
   - optional charts (see below), when the team is opted in
     The repository used for research is tracked separately via the `repo_selection` artefact.
+- `open_prs.py`
+  Collects the team's still-open self-driving pull requests so the research prompt can name them, instead of leaving the agent to rediscover our own work with `gh pr list`.
+  - Sources: the tasks facade's `get_open_pr_runs_for_team` (PR-bearing runs whose `output.pr_state` / `output.pr_merged` say the PR has not merged or closed), joined back to reports through the `task_run` artefact log and the legacy `SignalReportTask` gate rows.
+  - Research, repo-selection, and scout runs are excluded (`NON_PR_BEARING_TASK_RUN_TYPES`): a PR URL on one of those is a PR the agent read while checking for in-flight work, not one it opened.
+  - Bounded for the prompt: a 30-day lookback, one PR per report, at most `MAX_OPEN_SELF_DRIVING_PRS`, and `MAX_CODE_PATHS_PER_PR` paths each. The repository this run is about sorts first, because a same-repo overlap is what produces a competing PR.
+  - The caller activity's `_load_open_self_driving_prs` runs it, fails open to an empty list, and writes a `note` artefact recording what research was shown — so a wrong `already_addressed: false` can be audited against the list the agent actually received.
+  - The prompt pointers into the block (`_OPEN_PRS_PROTOCOL_POINTER`, `_OPEN_PRS_ACTIONABILITY_POINTER` in `research.py`) render only when the list is non-empty, so no prompt ever refers to a section it doesn't carry.
 - `reviewer_telemetry.py`
   Emits the `signals_suggested_reviewers_resolved` product-analytics event whenever a report's suggested reviewers are persisted, recording which GitHub logins link to a PostHog user and which don't (unlinkable reviewers can't be routed or run autostart, but still count as "assigned" in reviewer metrics).
   - Called after the artefact write commits (via `transaction.on_commit` where a transaction is open), never in-transaction: the research activity (`source="pipeline"`), scout report creation and reviewer edits (`"scout"` / `"scout_edit"`), custom-agent persistence (`"custom_agent"`), the app reviewers PUT (`"user_edit"`), and the artefacts POST (`"api"`).
