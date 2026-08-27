@@ -397,7 +397,6 @@ describe('experimentsLogic', () => {
             const copiedExperiment = createMockExperiment({ id: 999 })
             api.create.mockResolvedValue(copiedExperiment)
 
-            //@ts-expect-error
             const toastSpy = jest.spyOn(lemonToast, 'success').mockImplementation(jest.fn())
             const projectSpy = jest.spyOn(urls, 'project').mockImplementation(() => {
                 throw new Error('navigation-called')
