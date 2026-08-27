@@ -302,7 +302,10 @@ export function GeneralSettings() {
         description="Defaults for every new task. You can change any of these per task in the composer."
       >
         <SettingsCard>
-          <SettingsCardRow label="Start in">
+          <SettingsCardRow
+            label="Start in"
+            description="The mode a new task opens in. Plan drafts an approach before any changes."
+          >
             <SettingsSegmented
               ariaLabel="Initial task mode"
               value={defaultInitialTaskMode}
@@ -318,7 +321,10 @@ export function GeneralSettings() {
             />
           </SettingsCardRow>
 
-          <SettingsCardRow label="Effort">
+          <SettingsCardRow
+            label="Effort"
+            description="How much reasoning the agent puts into each turn."
+          >
             <ReasoningLevelDropdown
               value={defaultReasoningEffort}
               options={DEFAULT_EFFORT_OPTIONS}
@@ -428,7 +434,10 @@ export function GeneralSettings() {
         description="Where diffs open and what happens while agents run."
       >
         <SettingsCard>
-          <SettingsCardRow label="Open diffs in">
+          <SettingsCardRow
+            label="Open diffs in"
+            description="Which pane a changed file opens in when you click it."
+          >
             <SettingsSelect
               ariaLabel="Open diffs in"
               value={diffOpenMode}
