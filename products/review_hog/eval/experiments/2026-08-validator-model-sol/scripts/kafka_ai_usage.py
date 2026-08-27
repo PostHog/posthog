@@ -1,6 +1,6 @@
 """Token usage, reasoning tokens, effort and gateway-computed cost per pipeline stage, read straight from the
 local Kafka topic the LLM gateway's `$ai_generation` events land in (they stay there when the local ingestion
-consumer is down). Authoritative where `usage_from_logs.py` is not: it sees every LLM call, not one per turn.
+consumer is down). Authoritative, unlike the earlier agent-log method: it sees every LLM call, not one per turn.
 
     TOPIC=events_plugin_ingestion_ai RUN_START_EPOCH=<epoch> RUN_END_EPOCH=<epoch> OUT=<json> \
     python products/review_hog/eval/experiments/2026-08-validator-model-sol/scripts/kafka_ai_usage.py
@@ -57,7 +57,7 @@ for msg in c:
         }
     )
 print(f"scanned {n} messages, {len(rows)} $ai_generation events in window")
-agg = defaultdict(lambda: [0, 0, 0, 0, 0, 0, 0.0])
+agg: defaultdict[tuple[str | None, str | None], list[float]] = defaultdict(lambda: [0, 0, 0, 0, 0, 0, 0.0])
 for r in rows:
     a = agg[(r["stage"], r["model"])]
     a[0] += 1
@@ -67,7 +67,8 @@ for r in rows:
     a[4] += r["out"]
     a[5] += r["reasoning"]
     a[6] += float(r["cost"] or 0)
-fam = defaultdict(lambda: [0, 0, 0, 0, 0, 0, 0.0, set()])
+fam: defaultdict[tuple[str, str | None], list[float]] = defaultdict(lambda: [0, 0, 0, 0, 0, 0, 0.0])
+fam_effort: defaultdict[tuple[str, str | None], set[str]] = defaultdict(set)
 for r in rows:
     st = r["stage"] or "?"
     f = (
@@ -87,12 +88,12 @@ for r in rows:
     a[4] += r["out"]
     a[5] += r["reasoning"]
     a[6] += float(r["cost"] or 0)
-    a[7].add(str(r["effort"]))
+    fam_effort[(f, r["model"])].add(str(r["effort"]))
 print("| stage family | model | calls | input | cache read | output | reasoning | gateway $ | effort |")
 print("| --- | --- | --- | --- | --- | --- | --- | --- | --- |")
 for (f, model), a in sorted(fam.items(), key=lambda kv: str(kv[0])):
     print(
-        f"| {f} | {model} | {a[0]} | {a[1]:,} | {a[2]:,} | {a[4]:,} | {a[5]:,} | ${a[6]:.2f} | {','.join(sorted(a[7]))} |"
+        f"| {f} | {model} | {a[0]} | {a[1]:,} | {a[2]:,} | {a[4]:,} | {a[5]:,} | ${a[6]:.2f} | {','.join(sorted(fam_effort[(f, model)]))} |"
     )
 print()
 print("| stage | model | calls | input | cache read | cache write | output | reasoning | gateway $ |")

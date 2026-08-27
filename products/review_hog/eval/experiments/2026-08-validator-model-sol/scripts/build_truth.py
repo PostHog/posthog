@@ -17,7 +17,7 @@ match = json.load(open(EXP / "findings" / f"{S}.match.json"))
 findings = {f["id"]: f for f in json.load(open(EXP / "findings" / f"{S}.json"))}
 SEV = {"must_fix": 0, "should_fix": 1, "consider": 2}
 # precedent per-finding verdicts from earlier sets (same PR, same protocol)
-prec = {}
+prec: dict[int | None, list[tuple[str, bool, str | None, str | None, str]]] = {}
 for p in ["KA", "KB", "KC"]:
     t = json.load(open(EXP / "findings" / f"{p}.truth.json"))
     m = json.load(open(EXP / "findings" / f"{p}.match.json"))

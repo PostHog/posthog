@@ -10,12 +10,13 @@ import re
 import sys
 import json
 from pathlib import Path
+from typing import Any
 
 text = Path(sys.argv[1]).read_text()
 letter = sys.argv[2]
 section = text.split("## Findings (post-dedup) with validator verdict", 1)[1]
 blocks = re.split(r"\n### ", section)[1:]
-out = []
+out: list[dict[str, Any]] = []
 for i, b in enumerate(blocks, 1):
     head, _, body = b.partition("\n")
     m = re.match(r"\[(.+?)\] (\w+)(?: \(validator→(\w+)\))?(?: · (\S+))? — (.+?):([\d,\-]+):?\s*$", head.strip())

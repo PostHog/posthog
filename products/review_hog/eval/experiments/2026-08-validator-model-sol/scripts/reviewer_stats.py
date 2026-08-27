@@ -37,6 +37,6 @@ for letter in sys.argv[1:]:
     )
     for r in sorted(real, key=lambda r: SEV_RANK.get(r[1], 9)):
         print(f"- REAL {r[0]:<4} sev={r[1]:<10} cluster={r[2]}  {r[3]}")
-    for r in not_real:
-        print(f"- not  {r[0]:<4} cluster={r[1]}  {r[2]}")
+    for nr in not_real:
+        print(f"- not  {nr[0]:<4} cluster={nr[1]}  {nr[2]}")
     print()

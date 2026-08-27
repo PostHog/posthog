@@ -30,9 +30,9 @@ for arg in sys.argv[1:]:
         {truth[f["id"]]["cluster"] for f in fs if truth[f["id"]]["is_real"] and truth[f["id"]]["cluster"] is not None}
     )
     ev = json.load(open(EXP / "runs" / f"{label}.gateway_events.json"))
-    cost = defaultdict(float)
-    calls = defaultdict(int)
-    effort = defaultdict(set)
+    cost: defaultdict[str, float] = defaultdict(float)
+    calls: defaultdict[str, int] = defaultdict(int)
+    effort: defaultdict[str, set[str]] = defaultdict(set)
     for r in ev:
         st = r["stage"] or "?"
         fam = (

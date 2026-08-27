@@ -80,7 +80,7 @@ LABEL=K-sol-validator-1 RUN_SECONDS=<s> RUN_START_EPOCH=<epoch> OUT_DIR=$PWD/run
 - **Costs re-measured at the gateway (23:50).** The `$ai_generation` events sit unconsumed in the local Kafka topic
   `events_plugin_ingestion_ai` (ingestion is blocked on personhog); read directly (`scripts/kafka_ai_usage.py`). Validation:
   K1 $3.39 (79 calls), K2 $2.53 (67), K3 $1.44 (37) at the gateway's LiteLLM rates. The agent-log method
-  (`scripts/usage_from_logs.py`) undercounts 3–4× because the ACP per-turn usage is the last LLM call of the turn, not the sum of
+  (`usage_from_logs.py`, since removed) undercounts 3–4× because the ACP per-turn usage is the last LLM call of the turn, not the sum of
   its tool round-trips. FINAL_REPORT.md uses the gateway numbers.
 - **Effort never reached Codex (00:10, 2026-08-26).** Every `gpt-5.6-sol` call in K1, K2 and K3 carries `$ai_effort=low`
   (the gateway reads it from the request's `reasoning.effort`); the Sonnet one-shots carry `xhigh`. Same in prod: 100% `low`

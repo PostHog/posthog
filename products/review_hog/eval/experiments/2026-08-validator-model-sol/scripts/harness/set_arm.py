@@ -28,4 +28,6 @@ assert len(pat.findall(s)) == 1
 s2 = pat.sub({"L": L, "M": M, "N": N}[arm], s)
 p.write_text(s2)
 print("arm", arm, "written; block now:")
-print(pat.search(s2).group(0))
+block = pat.search(s2)
+assert block is not None
+print(block.group(0))

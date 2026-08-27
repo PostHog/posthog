@@ -43,7 +43,7 @@ Sol costs come from the gateway's own `$ai_generation` events (read from the loc
 `events_plugin_ingestion_ai` with `scripts/kafka_ai_usage.py`, because local ingestion is down), at the gateway's
 LiteLLM rates ($4 / $20 per M in / out, $0.40 cache read). Opus costs are the cache-aware list-price figures from the
 July dumps, built from the same events. Earlier versions of this report quoted $0.72–0.93 for Sol validation from the
-agent logs (`scripts/usage_from_logs.py`); that method counts only the last LLM call of each turn and undercounted
+agent logs (a `usage_from_logs.py` script, since removed); that method counts only the last LLM call of each turn and undercounted
 3–4×. Sol is ~4–5× cheaper per verdict than Opus, not ~12×. Selection and dedup one-shots (Sonnet, ≤ $0.15) are not
 counted on either side.
 

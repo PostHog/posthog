@@ -37,7 +37,7 @@ for i, c in enumerate(clusters, 1):
     vs = {m: verdicts.get(m) for m in c["members"]}
     known = {m: v for m, v in vs.items() if v}
     n_real = sum(1 for v in known.values() if v.get("is_real"))
-    sev = sorted({v.get("severity") for v in known.values() if v.get("is_real")} - {None})
+    sev = sorted({str(v["severity"]) for v in known.values() if v.get("is_real") and v.get("severity") is not None})
     files = sorted(
         {
             m.group(0)
