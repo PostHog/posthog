@@ -54,6 +54,7 @@ from products.replay_vision.backend.models.replay_observation import (
     ObservationTrigger,
     ReplayObservation,
     annotate_output_number,
+    hydrate_for_serialization,
     jsonb_typeof,
 )
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
@@ -152,7 +153,6 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
     scanner_origin = serializers.ChoiceField(
         choices=ScannerOrigin.choices,
         read_only=True,
-        source="scanner.origin",
         help_text=(
             "Where the producing scanner came from. `configured` scanners are saved, named, and have a detail "
             "page; `inline` ones are throwaways minted for a one-off scan and are not addressable, so callers "
@@ -817,13 +817,11 @@ class ReplayObservationViewSet(
         # `_scanner_for_url` gated the scanner's *current* experiment; this gates each row against the
         # experiment recorded in its own snapshot, so retargeting can't surface historical rows the
         # caller can't access.
-        return (
+        return hydrate_for_serialization(
             accessible_observations(
                 self.user_access_control, self.team_id, queryset.filter(team_id=self.team_id, scanner_id=scanner.id)
             )
-            .select_related("scanner", "triggered_by_user", "label")
-            .order_by("-created_at", "id")
-        )
+        ).order_by("-created_at", "id")
 
     def filter_queryset(self, queryset: QuerySet[ReplayObservation]) -> QuerySet[ReplayObservation]:
         # List filters scope prev/next neighbors only; the observation itself must always resolve on retrieve.
@@ -1213,15 +1211,13 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
         # targeting included), then gate each row against the experiment in its own snapshot so a
         # retargeted scanner can't surface historical rows the caller can't access.
         readable_scanner_ids = readable_observation_scanner_ids(self.user_access_control, self.team_id)
-        queryset = (
+        queryset = hydrate_for_serialization(
             accessible_observations(
                 self.user_access_control,
                 self.team_id,
                 queryset.filter(team_id=self.team_id, scanner_id__in=readable_scanner_ids),
             )
-            .select_related("scanner", "triggered_by_user", "label")
-            .order_by("-created_at", "id")
-        )
+        ).order_by("-created_at", "id")
         # A bare list would scan the whole team's observation history; the replay page always has a session.
         if self.action == "list":
             session_id = self.request.query_params.get("session_id")

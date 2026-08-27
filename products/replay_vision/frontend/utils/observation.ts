@@ -3,41 +3,23 @@ import { dayjs } from 'lib/dayjs'
 import { type ReplayObservationApi, ScannerOriginEnumApi, ScannerTypeEnumApi } from '../generated/api.schemas'
 import { citedTextToPlainText, parseCitedSegments } from './citations'
 
-/**
- * Whether this observation came from a one-off scan, meaning the player's "Summarize this recording"
- * rather than a saved scanner.
- *
- * A one-off scan runs on an inline scanner, which is an unnamed throwaway keyed to that single
- * question, so there is no scanner name to show next to the result.
- */
-function isOneOffScan(obs: Pick<ReplayObservationApi, 'scanner_origin'>): boolean {
-    return obs.scanner_origin === ScannerOriginEnumApi.Inline
-}
+/** The dock's built-in prompt and the observations it produces have to answer to one name. */
+export const BUILT_IN_SUMMARY_LABEL = 'Quick summary'
 
-/**
- * Whether there is a scanner page to send someone to.
- *
- * Deliberately the opposite polarity to [isOneOffScan]: only a confirmed saved scanner answers true,
- * so an inline scanner, and any origin a later release adds, both fall through to the safe side. The
- * scanner endpoints serve configured scanners only, so guessing wrong here means a 404.
- */
+/** Only a confirmed saved scanner has a page, so an origin a later release adds fails safe to no link. */
 export function hasScannerPage(obs: Pick<ReplayObservationApi, 'scanner_origin'>): boolean {
     return obs.scanner_origin === ScannerOriginEnumApi.Configured
 }
 
-/**
- * What to call the scan behind an observation, anywhere one is named next to its result.
- *
- * A one-off scan has no scanner name to borrow. The player's dock already calls the built-in prompt
- * behind almost all of them "Quick summary", so their results answer to that same name instead of a
- * second name for one thing. Max can run a one-off scan that is not a summary, and that stays
- * generic, because calling it a summary would be wrong.
- */
+/** What to call the scan behind an observation, anywhere one is named next to its result. */
 export function scannerLabel(obs: Pick<ReplayObservationApi, 'scanner_origin' | 'scanner_snapshot'>): string {
-    if (!isOneOffScan(obs)) {
+    if (obs.scanner_origin !== ScannerOriginEnumApi.Inline) {
         return obs.scanner_snapshot?.name || 'Scanner'
     }
-    return obs.scanner_snapshot?.scanner_type === ScannerTypeEnumApi.Summarizer ? 'Quick summary' : 'One-off scan'
+    // A one-off scan has no name to borrow, so its result answers to whatever the dock called the prompt.
+    return obs.scanner_snapshot?.scanner_type === ScannerTypeEnumApi.Summarizer
+        ? BUILT_IN_SUMMARY_LABEL
+        : 'One-off scan'
 }
 
 export function readModelOutput(obs: ReplayObservationApi): Record<string, unknown> | null {

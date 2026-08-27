@@ -44,10 +44,12 @@ function SearchResultCard({
             data-attr="vision-search-result"
         >
             <div className="flex items-center gap-2 min-w-0">
-                {showScanner && snapshot && (
+                {showScanner && (
                     <>
                         <span className="font-semibold text-sm truncate">{scannerLabel(observation)}</span>
-                        <ScannerTypeBadge scannerType={snapshot.scanner_type} size="small" variant="muted" />
+                        {snapshot && (
+                            <ScannerTypeBadge scannerType={snapshot.scanner_type} size="small" variant="muted" />
+                        )}
                     </>
                 )}
                 <span className="font-mono text-xs text-muted truncate">{observation.session_id}</span>

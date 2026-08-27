@@ -44,9 +44,8 @@ export function neighborFilterParams(searchParams: Record<string, unknown>): Vis
 /**
  * Where an observation belongs, and so where both ways off its page lead: going back, and retrying.
  *
- * A saved scanner owns its observations and has a page listing them. A one-off scan is owned by the
- * recording it was run from, which is where the person started and the only place its result is
- * listed. The recording is also the safe side of [hasScannerPage], because it always resolves.
+ * A saved scanner owns its observations and lists them. A one-off scan is owned by the recording it
+ * ran from, which is also the safe side of [hasScannerPage] because it always resolves.
  */
 export function observationParentUrl(observation: ReplayObservationApi): string {
     return hasScannerPage(observation)
@@ -194,12 +193,10 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
                 // The retried row is deleted, so this page's id dangles afterwards. Hand off to whatever
                 // owns the observation, which is where the replacement appears.
                 const observation = values.observation
-                const landsOnScanner = !!observation && hasScannerPage(observation)
+                const lands = observation && hasScannerPage(observation) ? 'scanner page' : 'recording'
                 const retried = await requestObservationRetry(
                     props.id,
-                    landsOnScanner
-                        ? 'Retrying scan. The new observation will appear on the scanner page shortly.'
-                        : 'Retrying scan. The new observation will appear on the recording shortly.'
+                    `Retrying scan. The new observation will appear on the ${lands} shortly.`
                 )
                 if (!retried) {
                     actions.retryObservationFailure()
