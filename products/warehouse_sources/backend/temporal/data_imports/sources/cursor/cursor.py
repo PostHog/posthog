@@ -11,6 +11,8 @@ from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from urllib3.util.retry import Retry
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -241,6 +243,12 @@ _WINDOWED_NORMALIZERS = {
 }
 
 
+@frozen
+class WindowStart:
+    start_ms: int
+    first_page: int
+
+
 def _resolve_window_start(
     config: CursorEndpointConfig,
     logger: FilteringBoundLogger,
@@ -248,8 +256,8 @@ def _resolve_window_start(
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
     end_ms: int,
-) -> tuple[int, int]:
-    """Return (start_ms, first_window_page) for a windowed sync.
+) -> WindowStart:
+    """Return the first window start and page for a windowed sync.
 
     Prefer a saved resume point; otherwise start at the incremental watermark, and fall back to
     the default lookback for a first sync.
@@ -257,15 +265,17 @@ def _resolve_window_start(
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume is not None and resume.window_start is not None:
         logger.debug(f"Cursor: resuming {config.name} from window_start={resume.window_start}, page={resume.page}")
-        return resume.window_start, resume.page
+        return WindowStart(start_ms=resume.window_start, first_page=resume.page)
 
     if should_use_incremental_field and db_incremental_field_last_value is not None:
         # startDate/endDate bounds are inclusive, so starting at the watermark re-fetches the
         # rows at exactly the watermark value — merge dedupes them, and for daily_usage it also
         # refreshes the partial day the previous sync ended on.
-        return min(_to_epoch_ms(db_incremental_field_last_value), end_ms), 1
+        return WindowStart(start_ms=min(_to_epoch_ms(db_incremental_field_last_value), end_ms), first_page=1)
 
-    return end_ms - int(timedelta(days=DEFAULT_LOOKBACK_DAYS).total_seconds() * 1000), 1
+    return WindowStart(
+        start_ms=end_ms - int(timedelta(days=DEFAULT_LOOKBACK_DAYS).total_seconds() * 1000), first_page=1
+    )
 
 
 def _paginate_window(
@@ -316,7 +326,7 @@ def _get_windowed_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     end_ms = _now_ms()
 
-    start_ms, first_window_page = _resolve_window_start(
+    window_start = _resolve_window_start(
         config,
         logger,
         resumable_source_manager,
@@ -329,19 +339,20 @@ def _get_windowed_rows(
     if normalize is None:
         raise ValueError(f"No normalizer defined for windowed endpoint: {config.name}")
 
-    for window_start, window_end in _build_windows(start_ms, end_ms):
+    first_page = window_start.first_page
+    for start, end in _build_windows(window_start.start_ms, end_ms):
         yield from _paginate_window(
             session,
             config,
             logger,
             resumable_source_manager,
             normalize,
-            window_start,
-            window_end,
+            start,
+            end,
             end_ms,
-            first_window_page,
+            first_page,
         )
-        first_window_page = 1  # only the resumed-into window starts mid-pagination
+        first_page = 1  # only the resumed-into window starts mid-pagination
 
 
 def cursor_source(
