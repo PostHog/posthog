@@ -553,7 +553,26 @@ export const loginLogic = kea<loginLogicType>([
             () => [router.selectors.searchParams],
             (searchParams: Record<string, string>): boolean => {
                 const nextParam = getRelativeNextPath(searchParams['next'], location)
-                return !!nextParam && nextParam.startsWith(urls.stripeConfirmInstall())
+                if (!nextParam) {
+                    return false
+                }
+                // The confirm page is reached client-side only after auth, but a session that dies
+                // between the callback and confirm hops can still land a logged-out user on login
+                // with it as `next`.
+                if (nextParam.startsWith(urls.stripeConfirmInstall())) {
+                    return true
+                }
+                // A logged-out marketplace visitor first hits /integrations/stripe/callback, so
+                // Django bounces them to login with that raw callback URL as `next`. Recognize it
+                // the same way the OAuth callback handler does: stripe callback carrying `code` and
+                // `stripe_user_id` with no PostHog-minted `state`.
+                const nextUrl = new URL(nextParam, location.origin)
+                return (
+                    nextUrl.pathname === urls.integrationsRedirect('stripe') &&
+                    !!nextUrl.searchParams.get('code') &&
+                    !!nextUrl.searchParams.get('stripe_user_id') &&
+                    !nextUrl.searchParams.get('state')
+                )
             },
         ],
     })),

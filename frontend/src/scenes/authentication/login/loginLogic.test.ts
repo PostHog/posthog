@@ -58,6 +58,40 @@ describe('loginLogic', () => {
         }
     })
 
+    describe('isStripeMarketplaceInstall', () => {
+        let logic: ReturnType<typeof loginLogic.build>
+
+        beforeEach(() => {
+            initKeaTests()
+            logic = loginLogic()
+            logic.mount()
+        })
+
+        // Django bounces a logged-out marketplace visitor to login with the raw Stripe callback
+        // URL as `next` — the client-only confirm page is never reached unauthenticated.
+        const cases: [string, boolean][] = [
+            ['/integrations/stripe/callback?code=abc&stripe_user_id=acct_1', true],
+            ['/integrations/stripe/confirm-install?code=abc&stripe_user_id=acct_1', true],
+            // A PostHog-minted state means the normal OAuth flow, not a marketplace install.
+            ['/integrations/stripe/callback?state=xyz&code=abc&stripe_user_id=acct_1', false],
+            ['/integrations/stripe/callback', false],
+            ['/integrations/hubspot/callback?code=abc&stripe_user_id=acct_1', false],
+            ['/insights', false],
+        ]
+
+        for (const [next, expected] of cases) {
+            it(`for next "${next}" returns ${expected}`, () => {
+                router.actions.push(`/login?next=${encodeURIComponent(next)}`)
+                expect(logic.values.isStripeMarketplaceInstall).toEqual(expected)
+            })
+        }
+
+        it('returns false without a next param', () => {
+            router.actions.push('/login')
+            expect(logic.values.isStripeMarketplaceInstall).toBe(false)
+        })
+    })
+
     describe('parseLoginRedirectURL', () => {
         let logic: ReturnType<typeof loginLogic.build>
 
