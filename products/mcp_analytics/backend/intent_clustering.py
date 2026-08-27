@@ -26,6 +26,7 @@ where a ``$mcp_tools_list`` catalog was observed, how often agents discover the
 tool when it is advertised.
 """
 
+import re
 import math
 import asyncio
 import hashlib
@@ -71,6 +72,10 @@ MAX_SAMPLE_INTENTS_PER_CLUSTER = 3
 MAX_DESCRIPTION_LENGTH = 512
 # Below this many advertised sessions a discovery rate is noise, so it stays null.
 MIN_ADVERTISED_SESSIONS = 5
+# A cluster holding one intent has no competition to report: its tool spread is one
+# agent's call sequence. Naming a runner-up there presents a sequence as a routing
+# conflict, so `top_competitor` stays null until a cluster groups intents.
+MIN_INTENTS_FOR_COMPETITOR = 2
 # Payload bounds for the snapshot blob. Only the two top-level caps report what they
 # dropped (`dropped_tools`, `dropped_overlap_pairs` in computed_with); the per-cluster
 # caps below truncate silently, so `computed_with` is not a completeness check for them.
@@ -679,6 +684,32 @@ def fetch_tool_descriptions(
     }
 
 
+# A run id stamped into an otherwise fixed template makes one recurring goal
+# arrive as one distinct intent per run. Each variant carries too few calls to
+# clear the top-N cut, so the calls drop out of clustering entirely rather than
+# grouping under the goal they belong to. Folding the id back in lifts the whole
+# family above the cut as a single intent.
+_INTENT_RUN_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.IGNORECASE)
+# Agents end the same sentence with and without a period, which splits an intent
+# in two for a character no reader would notice.
+_INTENT_TRAILING_PUNCTUATION = re.compile(r"[.!?:;,]+$")
+_WHITESPACE_RUN = re.compile(r"\s+")
+
+
+def normalize_intent_text(text: str) -> str:
+    """Fold the spellings of one intent onto a single key before it is counted.
+
+    Deliberately narrow. Every rule is a chance to merge two goals that differ for
+    a reason, so each one here was measured against a real corpus and the rules
+    that merged only a handful of calls were dropped rather than kept for
+    tidiness. Case is left alone: the surviving text becomes the cluster label,
+    and folding case buys little next to the two rules below.
+    """
+    text = _INTENT_RUN_ID.sub("<id>", text)
+    text = _WHITESPACE_RUN.sub(" ", text).strip()
+    return _INTENT_TRAILING_PUNCTUATION.sub("", text).strip()
+
+
 def build_call_corpus(
     rows: list[tuple[str, str, str, bool]],
     top_n: int = DEFAULT_TOP_N_INTENTS,
@@ -707,7 +738,9 @@ def build_call_corpus(
         # constant. It is not an intent, and clustering it forms a pseudo-cluster.
         if text == NO_INTENT_RECORDED_FALLBACK:
             text = ""
-        text = text[:MAX_INTENT_TEXT_LENGTH]
+        # Clip before normalizing so the regex work stays bounded by the same
+        # limit the SQL applies.
+        text = normalize_intent_text(text[:MAX_INTENT_TEXT_LENGTH])
 
         intent_text: str | None
         if text:
@@ -1127,9 +1160,13 @@ def compute_tool_pivot(
             weighted_entropy[tool] += entry["count"] * cluster["routing_entropy"]
             if not in_snapshot:
                 continue
-            competitor = next(
-                ({"tool": other["tool"], "pct": other["pct"]} for other in distribution if other["tool"] != tool),
-                None,
+            competitor = (
+                next(
+                    ({"tool": other["tool"], "pct": other["pct"]} for other in distribution if other["tool"] != tool),
+                    None,
+                )
+                if cluster.get("intent_count", 0) >= MIN_INTENTS_FOR_COMPETITOR
+                else None
             )
             per_tool_clusters[tool].append(
                 {

@@ -18,8 +18,14 @@ export function ClusteringCoverageBanner(): JSX.Element | null {
 
     const parts: string[] = []
     if (meta.window_sessions !== null && meta.window_sessions !== undefined) {
+        // The share is what makes the two counts readable at a glance. "1,548 of
+        // 468,042" is easy to skim past; "0.3% of them" is not.
+        const share =
+            meta.session_coverage_pct !== null && meta.session_coverage_pct !== undefined
+                ? ` (${meta.session_coverage_pct < 1 ? meta.session_coverage_pct.toFixed(1) : meta.session_coverage_pct.toFixed(0)}% of them)`
+                : ''
         parts.push(
-            `Based on ${humanFriendlyNumber(meta.sampled_sessions)} sampled sessions out of ${humanFriendlyNumber(meta.window_sessions)} in the window`
+            `Based on ${humanFriendlyNumber(meta.sampled_sessions)} sampled sessions out of ${humanFriendlyNumber(meta.window_sessions)} in the window${share}`
         )
     } else {
         parts.push(`Based on ${humanFriendlyNumber(meta.sampled_sessions)} sampled sessions`)
