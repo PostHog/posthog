@@ -739,7 +739,6 @@ export const ReplayFiltersTab = ({
     const categoryDropdownVariant = resolveCategoryDropdownVariant(
         featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]
     )
-    const showFeedbackButton = useFeatureFlag('SHOW_REPLAY_FILTERS_FEEDBACK_BUTTON')
 
     useMountedLogic(cohortsModel)
     useMountedLogic(actionsModel)
@@ -1017,17 +1016,6 @@ export const ReplayFiltersTab = ({
                     <LemonDivider className="mt-4" />
 
                     <div className="flex items-center py-2 justify-between px-2 gap-2">
-                        {showFeedbackButton && (
-                            <LemonButton
-                                id="replay-filters-feedback-button"
-                                type="tertiary"
-                                status="danger"
-                                size="small"
-                                data-attr="replay-filters-feedback-button"
-                            >
-                                Unexpected filter results?
-                            </LemonButton>
-                        )}
                         <div className="flex gap-2 ml-auto">
                             {resetButton}
                             <LemonButton type="primary" size="small" onClick={() => setIsSaveFiltersModalOpen(true)}>
