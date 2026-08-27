@@ -274,10 +274,32 @@ fn is_fatal_accept_error(e: &io::Error) -> bool {
 /// independent histogram quantiles.
 pub const PROCESSING_TIME_HEADER: &str = "x-processing-time-ms";
 
+/// The `code` label for a response, in the [`code_as_str`] vocabulary.
+///
+/// A failed gRPC call is a trailers-only response — an empty body and
+/// `grpc-status` in the headers — so this layer sees the status without
+/// polling the body. tonic's own handler errors, [`GrpcLoadShedLayer`]
+/// and a proxying caller's hand-built error responses all take that
+/// shape. An absent header therefore means the handler returned Ok,
+/// whose `grpc-status: 0` rides the body trailers instead.
+///
+/// This holds while every method is unary. A server-streaming method
+/// that failed part way through its stream would read as `ok` here, and
+/// would need the trailers read from the response body.
+fn response_code(headers: &http::HeaderMap) -> &'static str {
+    let Some(raw) = headers.get("grpc-status") else {
+        return "ok";
+    };
+    raw.to_str()
+        .ok()
+        .and_then(|s| s.parse::<i32>().ok())
+        .map_or(NON_STATUS, |c| code_as_str(tonic::Code::from_i32(c)))
+}
+
 /// Tower layer that instruments gRPC requests with timing and concurrency metrics.
 ///
 /// Records:
-/// - `grpc_server_requests_total` - counter with method and client labels
+/// - `grpc_server_requests_total` - counter with method, client and code labels
 /// - `grpc_server_request_duration_ms` - histogram with method and client labels
 /// - `grpc_server_requests_in_flight` - gauge with method and client labels
 ///
@@ -386,9 +408,14 @@ where
         match this.inner.poll(cx) {
             Poll::Ready(mut result) => {
                 let duration_ms = this.start.elapsed().as_secs_f64() * 1000.0;
+                let code = match &result {
+                    Ok(response) => response_code(response.headers()),
+                    Err(_) => NON_STATUS,
+                };
                 counter!("grpc_server_requests_total",
                     "method" => this.method.clone(),
-                    "client" => this.client.clone())
+                    "client" => this.client.clone(),
+                    "code" => code)
                 .increment(1);
                 histogram!("grpc_server_request_duration_ms",
                     "method" => this.method.clone(),
@@ -712,6 +739,44 @@ mod tests {
 
         // Existing in-flight count unchanged after shed
         assert_eq!(in_flight.load(Ordering::Relaxed), 5);
+    }
+
+    /// The shed response is the one rejection this layer produces itself,
+    /// and the metrics layer sits above the load shed layer in every
+    /// server, so it must read as `unavailable` rather than as a success.
+    #[tokio::test]
+    async fn shed_response_reads_as_unavailable() {
+        let in_flight = Arc::new(AtomicUsize::new(1));
+        let layer = GrpcLoadShedLayer {
+            max_requests: 1,
+            in_flight: in_flight.clone(),
+        };
+        let mut svc = layer.layer(OkService);
+
+        let resp = svc.call(grpc_request("/pkg.Svc/Method")).await.unwrap();
+        assert_eq!(response_code(resp.headers()), "unavailable");
+    }
+
+    #[test]
+    fn response_code_vocabulary() {
+        let code_of = |status: Option<&str>| {
+            let mut headers = http::HeaderMap::new();
+            if let Some(s) = status {
+                headers.insert("grpc-status", HeaderValue::from_str(s).unwrap());
+            }
+            response_code(&headers)
+        };
+
+        // A success carries its status in the body trailers, not here.
+        assert_eq!(code_of(None), "ok");
+        assert_eq!(code_of(Some("0")), "ok");
+        assert_eq!(code_of(Some("3")), "invalid_argument");
+        assert_eq!(code_of(Some("5")), "not_found");
+        assert_eq!(code_of(Some("14")), "unavailable");
+        // An out-of-range or unparseable status stays inside the
+        // vocabulary rather than passing for a success.
+        assert_eq!(code_of(Some("99")), "unknown");
+        assert_eq!(code_of(Some("banana")), NON_STATUS);
     }
 
     #[test]
