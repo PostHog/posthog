@@ -344,7 +344,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
                 model=model,
                 seed=MODEL_SEED,
                 messages=messages,
-                response_format={"type": "json_schema", "json_schema": json_schema},  # type: ignore
+                response_format={"type": "json_schema", "json_schema": json_schema},
                 posthog_distinct_id=distinct_id,
                 posthog_trace_id=trace_id,
                 posthog_properties={

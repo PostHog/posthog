@@ -14,6 +14,7 @@ from products.signals.backend import contracts
 from products.signals.backend.billing import REFUND_INELIGIBILITY_REASONS, refund_ineligibility_reason
 from products.signals.backend.contracts import DEFAULT_NOT_ACTIONABLE_KEY, STEERING_KEY, STEERING_MAX_LENGTH
 from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
+from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus
 
 from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES
 from .daily_limit import reports_generated_today, team_day_start
@@ -105,16 +106,16 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
             .exclude(source__deleted=True)
             .values_list("status", flat=True)
         )
-        if ExternalDataSchema.Status.RUNNING in statuses:
+        if ExternalDataSchemaStatus.RUNNING in statuses:
             return "running"
         # One failing repo outranks its siblings' success, so a broken repo is never hidden.
         if statuses & {
-            ExternalDataSchema.Status.FAILED,
-            ExternalDataSchema.Status.BILLING_LIMIT_REACHED,
-            ExternalDataSchema.Status.BILLING_LIMIT_TOO_LOW,
+            ExternalDataSchemaStatus.FAILED,
+            ExternalDataSchemaStatus.BILLING_LIMIT_REACHED,
+            ExternalDataSchemaStatus.BILLING_LIMIT_TOO_LOW,
         }:
             return "failed"
-        if ExternalDataSchema.Status.COMPLETED in statuses:
+        if ExternalDataSchemaStatus.COMPLETED in statuses:
             return "completed"
         return None
 
@@ -485,6 +486,14 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "`[label](chart:<chart_id>)` link; the rest render below it."
         ),
     )
+    suggested_prompts = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+        help_text=(
+            "Follow-up questions the report's author suggests asking about it, in the order they were "
+            "written. The inbox offers them above the `Ask AI` box; clicking one fills the box with it."
+        ),
+    )
     refund_ineligibility_reason = serializers.SerializerMethodField(
         help_text=(
             "Why refunding this report's PR would be rejected right now, or null when a refund "
@@ -530,6 +539,14 @@ class SignalReportSerializer(serializers.ModelSerializer):
     refund = serializers.SerializerMethodField(
         help_text="The report's PR refund, when one exists. One refund per report, ever.",
     )
+    channel_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "The space (task channel) this report is assigned to, or null when unassigned. "
+            "The general view lists every report regardless of this value."
+        ),
+    )
 
     class Meta:
         model = SignalReport
@@ -545,6 +562,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "updated_at",
             "artefact_count",
             "charts",
+            "suggested_prompts",
             "priority",
             "actionability",
             "already_addressed",
@@ -558,6 +576,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "refund",
             "refund_ineligibility_reason",
             "billing_exempt_reason",
+            "channel_id",
         ]
         read_only_fields = fields
         extra_kwargs = {
@@ -923,7 +942,7 @@ _ARTEFACT_TYPES_HELP = (
     "The artefact type. One of: "
     + ", ".join(_WRITABLE_ARTEFACT_TYPES)
     + ". Log types accumulate; status types (safety_judgment, actionability_judgment, "
-    "priority_judgment, repo_selection, suggested_reviewers) are latest-wins — appending a new "
+    "priority_judgment, repo_selection, suggested_reviewers, channel_assignment) are latest-wins — appending a new "
     "version supersedes the previous one as the report's canonical status."
 )
 

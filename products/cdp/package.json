@@ -5,9 +5,11 @@
     },
     "dependencies": {
         "kea": "catalog:",
-        "kea-loaders": "catalog:"
+        "kea-loaders": "catalog:",
+        "kea-subscriptions": "catalog:"
     },
     "devDependencies": {
+        "@storybook/react": "catalog:",
         "kea-test-utils": "catalog:"
     },
     "peerDependencies": {

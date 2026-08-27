@@ -12,8 +12,33 @@ sharp.block({ operation: ['VipsForeignLoadTiff', 'VipsForeignLoadVips'] })
 export const LIMIT_INPUT_PIXELS = 50_000_000
 
 export class PermanentImageError extends Error {}
-export class UndecodableImageError extends PermanentImageError {}
+export type UndecodableImageReason =
+    | 'decode_failed'
+    | 'invalid_body'
+    | 'invalid_dimensions'
+    | 'pixel_limit'
+    | 'unsupported_format'
+
+export class UndecodableImageError extends PermanentImageError {
+    public constructor(
+        public readonly reason: UndecodableImageReason,
+        message: string
+    ) {
+        super(message)
+    }
+}
 export class ImageOptOutError extends PermanentImageError {}
+
+export function undecodableImageErrorFromDecodeFailure(error: unknown): UndecodableImageError {
+    const message = error instanceof Error ? error.message : String(error)
+    const normalizedMessage = message.toLowerCase()
+    const reason = normalizedMessage.includes('pixel limit')
+        ? 'pixel_limit'
+        : normalizedMessage.includes('unsupported image format')
+          ? 'unsupported_format'
+          : 'decode_failed'
+    return new UndecodableImageError(reason, message)
+}
 
 export interface ImageDescription {
     width: number
@@ -24,10 +49,10 @@ export interface ImageDescription {
 export async function inspectImage(input: Buffer): Promise<ImageDescription> {
     const metadata = await sharp(input, { limitInputPixels: LIMIT_INPUT_PIXELS }).metadata()
     if (!metadata.width || !metadata.height) {
-        throw new UndecodableImageError('image has invalid dimensions')
+        throw new UndecodableImageError('invalid_dimensions', 'image has invalid dimensions')
     }
     if (metadata.width * metadata.height > LIMIT_INPUT_PIXELS) {
-        throw new UndecodableImageError('image exceeds the pixel limit')
+        throw new UndecodableImageError('pixel_limit', 'image exceeds the pixel limit')
     }
     if (imageMetadataProhibitsAiTraining(input, metadata.xmp)) {
         throw new ImageOptOutError('image metadata prohibits AI training')

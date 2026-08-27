@@ -1,5 +1,5 @@
 import { closeHub, createHub } from '~/common/utils/db/hub'
-import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { createTeam, createTestTeamFixture, getTeam } from '~/tests/helpers/sql'
 import { Hub, RedisPool, Team } from '~/types'
 
 import { QUOTA_LIMITER_CACHE_KEY, QuotaLimiting, QuotaResource } from './quota-limiting.service'
@@ -24,12 +24,12 @@ describe('QuotaLimiting', () => {
 
     beforeEach(async () => {
         hub = await createHub()
-        await resetTestDatabase()
         redisPool = hub.redisPool
         service = new QuotaLimiting(redisPool, hub.teamManager)
-        team = await getFirstTeam(hub.postgres)
+        const fixture = await createTestTeamFixture(hub.postgres)
+        team = fixture.team
 
-        const otherTeamId = await createTeam(hub.postgres, team!.organization_id)
+        const otherTeamId = await createTeam(hub.postgres, team.organization_id)
         team2 = (await getTeam(hub.postgres, otherTeamId))!
 
         await setupQuotaLimits('events', [])

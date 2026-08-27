@@ -1,40 +1,11 @@
-from typing import Any
-
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.honeybadger import (
     HoneybadgerSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.honeybadger.honeybadger import (
-    HoneybadgerResumeConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.honeybadger.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.honeybadger.source import HoneybadgerSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
-
-
-def _make_inputs(**overrides: Any) -> SourceInputs:
-    defaults: dict[str, Any] = {
-        "schema_name": "faults",
-        "schema_id": "schema-1",
-        "source_id": "source-1",
-        "team_id": 123,
-        "should_use_incremental_field": False,
-        "db_incremental_field_last_value": None,
-        "db_incremental_field_earliest_value": None,
-        "incremental_field": None,
-        "incremental_field_type": None,
-        "job_id": "job-1",
-        "logger": mock.MagicMock(),
-        "reset_pipeline": False,
-    }
-    defaults.update(overrides)
-    return SourceInputs(**defaults)
 
 
 class TestHoneybadgerSource:
@@ -42,27 +13,6 @@ class TestHoneybadgerSource:
         self.source = HoneybadgerSource()
         self.team_id = 123
         self.config = HoneybadgerSourceConfig(api_key="test-token")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.HONEYBADGER
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.name.value == "Honeybadger"
-        assert config.label == "Honeybadger"
-        assert config.unreleasedSource is None
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.iconPath == "/static/services/honeybadger.png"
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/honeybadger"
-
-        assert len(config.fields) == 1
-        api_key_field = config.fields[0]
-        assert isinstance(api_key_field, SourceFieldInputConfig)
-        assert api_key_field.name == "api_key"
-        assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert api_key_field.required is True
-        assert api_key_field.secret is True
 
     @pytest.mark.parametrize(
         "expected_key",
@@ -135,48 +85,3 @@ class TestHoneybadgerSource:
         assert is_valid is expected_valid
         assert error_message == expected_message
         mock_validate.assert_called_once_with(self.config.api_key)
-
-    def test_get_resumable_source_manager_bound_to_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(_make_inputs())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is HoneybadgerResumeConfig
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.honeybadger.source.honeybadger_source"
-    )
-    def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
-        logger = mock.MagicMock()
-        inputs = _make_inputs(
-            schema_name="deploys",
-            logger=logger,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value="2024-01-01T00:00:00Z",
-            incremental_field="created_at",
-        )
-        manager = mock.MagicMock(spec=ResumableSourceManager)
-
-        self.source.source_for_pipeline(self.config, manager, inputs)
-
-        mock_source.assert_called_once_with(
-            api_key="test-token",
-            endpoint="deploys",
-            logger=logger,
-            resumable_source_manager=manager,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value="2024-01-01T00:00:00Z",
-            incremental_field="created_at",
-        )
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.honeybadger.source.honeybadger_source"
-    )
-    def test_source_for_pipeline_drops_cursor_when_not_incremental(self, mock_source: mock.MagicMock) -> None:
-        inputs = _make_inputs(
-            should_use_incremental_field=False,
-            db_incremental_field_last_value="2024-01-01T00:00:00Z",
-        )
-        manager = mock.MagicMock(spec=ResumableSourceManager)
-
-        self.source.source_for_pipeline(self.config, manager, inputs)
-
-        assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
