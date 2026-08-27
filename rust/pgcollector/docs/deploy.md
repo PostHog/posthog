@@ -54,19 +54,27 @@ group's setting on Aurora Postgres).
 
 ### Extensions and Aurora functions
 
-* `pg_stat_statements` — `CREATE EXTENSION` in the maintenance database
-  (`postgres`) of each cluster; already in `shared_preload_libraries`.
-* `pg_proctab` — `CREATE EXTENSION pg_proctab` in the maintenance database.
-  No `shared_preload_libraries` change, no reboot. Its functions are created
-  owned by the DDL user; `GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO
-  pgcollector` if they aren't executable by PUBLIC. Enables `system_cpu`,
-  `system_memory`, `system_disk`, `backend_cpu`.
+Nothing here requires a parameter-group change or a reboot.
+
+* `pg_stat_statements` — already in `shared_preload_libraries` on every
+  cluster, but `CREATE EXTENSION` is per database and the collector reads
+  cluster-wide stats from the **maintenance database (`postgres`)**. Run
+  `CREATE EXTENSION IF NOT EXISTS pg_stat_statements` there (DDL user) if it
+  hasn't been. This is the only step that is genuinely required.
+* `pg_proctab` — optional. Not installed anywhere today; `CREATE EXTENSION
+  pg_proctab` in the maintenance database enables `system_cpu`,
+  `system_memory`, `system_disk`, `backend_cpu`. Until then those four log one
+  `skipping: prerequisite not met` line and re-check every 10 minutes. Its
+  functions may need `GRANT EXECUTE ... TO pgcollector`.
 * `aurora_stat_*` / `aurora_replica_status` — built in, no setup.
   `aurora_compute_plan_id` (default on, 14.10+/15.5+) must stay on for
   `aurora_plans` and `plan_id` in activity samples.
 
-Collectors whose prerequisites are missing log one `skipping: prerequisite not
-met` line and re-check every 10 minutes.
+Parameter-group niceties (dynamic, no reboot; both optional): append `%Q` to
+`log_line_prefix` so log rows join `cur_queries` by query id instead of text
+fingerprint; the log sampling, lock-wait and CloudWatch-export settings the
+logs collector relies on are already set fleet-wide. Clusters that don't
+preload `auto_explain` simply produce no `ts_log_plans`.
 
 ### Discovering every database on a cluster
 
