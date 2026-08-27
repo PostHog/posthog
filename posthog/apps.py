@@ -65,7 +65,9 @@ class PostHogConfig(AppConfig):
             getattr(settings, "DEV_API_KEY", None) if settings.DEBUG else None,
         )
         posthoganalytics.poll_interval = 90  # ty: ignore[invalid-assignment]
-        posthoganalytics.enable_exception_autocapture = True  # ty: ignore[invalid-assignment]
+        # Do not autocapture exceptions from interactive shells. A typo in a `manage.py shell`
+        # session is not a production error, and its captured local variables can hold customer rows.
+        posthoganalytics.enable_exception_autocapture = not settings.IS_INTERACTIVE_SHELL  # ty: ignore[invalid-assignment]
         posthoganalytics.log_captured_exceptions = True  # ty: ignore[invalid-assignment]
         posthoganalytics.super_properties = {  # ty: ignore[invalid-assignment]
             "region": get_instance_region(),
@@ -87,7 +89,9 @@ class PostHogConfig(AppConfig):
             "environment": os.getenv("OTEL_SERVICE_ENVIRONMENT"),
         }
 
-        if str_to_bool(os.environ.get("TEMPORAL_DISABLE_EXCEPTION_VARIABLE_CAPTURE", "false")):
+        if settings.IS_INTERACTIVE_SHELL or str_to_bool(
+            os.environ.get("TEMPORAL_DISABLE_EXCEPTION_VARIABLE_CAPTURE", "false")
+        ):
             posthoganalytics.capture_exception_code_variables = False
         else:
             posthoganalytics.capture_exception_code_variables = True  # ty: ignore[invalid-assignment]
