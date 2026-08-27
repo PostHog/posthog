@@ -2000,7 +2000,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         category: ProductItemCategory.ANALYTICS,
         iconType: 'data_warehouse',
         href: urls.dataCatalog(),
-        flag: FEATURE_FLAGS.PRODUCT_DATA_CATALOG,
         tags: ['beta'],
         sceneKey: 'DataCatalog',
         sceneKeys: ['DataCatalog', 'DataCatalogMetric'],

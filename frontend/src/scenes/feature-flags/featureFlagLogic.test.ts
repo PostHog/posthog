@@ -11,11 +11,9 @@ import { expectLogic, partial } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 
@@ -29,8 +27,10 @@ import {
     OrganizationFeatureFlag,
     PropertyFilterType,
     PropertyOperator,
+    RecurrenceInterval,
     ScheduledChangeModels,
     ScheduledChangeOperationType,
+    ScheduledChangeRequestState,
     ScheduledChangeType,
 } from '~/types'
 import { FeatureFlagFilters } from '~/types'
@@ -1908,6 +1908,7 @@ describe('featureFlagLogic', () => {
             cron_expression: null,
             last_executed_at: null,
             end_date: null,
+            change_request: null,
             ...overrides,
         })
 
@@ -1955,6 +1956,78 @@ describe('featureFlagLogic', () => {
             await expectLogic(logic).toMatchValues({
                 activeSchedules: expectedIds.map((id) => partial({ id })),
             })
+        })
+
+        it('moves one-time schedules with a rejected or expired approval to history, keeps others active', async () => {
+            useMocks({
+                get: {
+                    [schedulesUrl]: () => [
+                        200,
+                        {
+                            results: [
+                                makeScheduledChange({
+                                    id: 1,
+                                    change_request: { id: 'cr-1', state: ScheduledChangeRequestState.Rejected },
+                                }),
+                                makeScheduledChange({
+                                    id: 2,
+                                    change_request: { id: 'cr-2', state: ScheduledChangeRequestState.Expired },
+                                }),
+                                makeScheduledChange({
+                                    id: 3,
+                                    change_request: { id: 'cr-3', state: ScheduledChangeRequestState.Pending },
+                                }),
+                                // A recurring schedule re-gates each occurrence, so a denied request is not terminal.
+                                makeScheduledChange({
+                                    id: 4,
+                                    is_recurring: true,
+                                    recurrence_interval: RecurrenceInterval.Daily,
+                                    change_request: { id: 'cr-4', state: ScheduledChangeRequestState.Expired },
+                                }),
+                                // An executed row pins how denied rows interleave with real history:
+                                // executed first, never-executed denied rows after.
+                                makeScheduledChange({
+                                    id: 5,
+                                    scheduled_at: '2025-12-01T00:00:00Z',
+                                    executed_at: '2025-12-01T00:00:00Z',
+                                }),
+                            ],
+                        },
+                    ],
+                },
+            })
+            await expectLogic(logic, () => {
+                logic.actions.loadScheduledChanges()
+            }).toDispatchActions(['loadScheduledChangesSuccess'])
+
+            await expectLogic(logic).toMatchValues({
+                activeSchedules: [partial({ id: 3 }), partial({ id: 4 })],
+                completedSchedules: [partial({ id: 5 }), partial({ id: 2 }), partial({ id: 1 })],
+            })
+        })
+
+        it.each([
+            {
+                name: 'gated create toasts pending approval',
+                change_request: { id: 'cr-toast', state: ScheduledChangeRequestState.Pending },
+                expectedMessage:
+                    'Change scheduled - pending approval. It will be skipped if not approved before the scheduled time.',
+            },
+            {
+                name: 'ungated create toasts plain success',
+                change_request: null,
+                expectedMessage: 'Change scheduled successfully',
+            },
+        ])('$name', async ({ change_request, expectedMessage }) => {
+            useMocks({ get: { [schedulesUrl]: () => [200, { results: [] }] } })
+            // The success listener reports to eventUsageLogic, but featureFlagLogic does not mount it via connect().
+            eventUsageLogic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.createScheduledChangeSuccess(makeScheduledChange({ change_request }))
+            }).toFinishAllListeners()
+
+            expect(lemonToast.success).toHaveBeenCalledWith(expectedMessage)
         })
 
         it('orders completed changes most-recent first', async () => {
@@ -2163,23 +2236,20 @@ describe('featureFlagLogic', () => {
 
             expect(dialogOpenSpy).toHaveBeenCalledTimes(1)
             const dialogProps = dialogOpenSpy.mock.calls[0][0]
-            expect(dialogProps.title).toBe('Disable feature flag "test-flag"?')
-            expect(dialogProps.primaryButton?.children).toBe('Disable flag')
+            expect(dialogProps.title).toBe('Disable this flag?')
+            expect(dialogProps.primaryButton?.children).toBe('Disable only')
             dialogOpenSpy.mockRestore()
         })
 
         // onDisableAndArchive is optional at every hop between this listener and
         // checkFeatureFlagConfirmation, so dropping it anywhere still compiles and would silently
-        // put test-variant users back on the control dialog.
-        it('offers disable and archive to the test variant, archiving via the disable confirmation', async () => {
+        // fall back to the plain status confirmation without the archive option.
+        it('offers disable and archive, archiving via the disable confirmation', async () => {
             const dialogOpenSpy = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
             jest.spyOn(api, 'update').mockResolvedValueOnce({
                 ...MOCK_FEATURE_FLAG,
                 archived: true,
                 active: false,
-            })
-            enabledFeaturesLogic.actions.setFeatureFlags([FEATURE_FLAGS.FEATURE_FLAG_DISABLE_AND_ARCHIVE_EXPERIMENT], {
-                [FEATURE_FLAGS.FEATURE_FLAG_DISABLE_AND_ARCHIVE_EXPERIMENT]: 'test',
             })
             logic.actions.setFeatureFlag({ ...MOCK_FEATURE_FLAG, active: true })
 
