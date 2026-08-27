@@ -295,28 +295,42 @@ pub(crate) fn run_plain_gzip_producer(raw_file_path: PathBuf, tx: mpsc::Sender<B
     let mut produced_any = false;
 
     loop {
-        match reader.read(&mut buffer) {
-            Ok(0) => break,
-            Ok(n) => {
-                produced_any = true;
-                last_byte = Some(buffer[n - 1]);
-                if tx.blocking_send(Ok(buffer[..n].to_vec())).is_err() {
+        // Fill the block across multiple reads before sending: one decoder read
+        // never crosses a gzip member boundary, so per-record members would
+        // otherwise produce one allocation and one channel send per record.
+        let mut filled = 0usize;
+        let mut eof = false;
+        while filled < buffer.len() {
+            match reader.read(&mut buffer[filled..]) {
+                Ok(0) => {
+                    eof = true;
+                    break;
+                }
+                Ok(n) => filled += n,
+                Err(e) => {
+                    // In passthrough mode the reader is the plain file, so a read
+                    // failure is an I/O problem (permissions, disk), not corruption.
+                    let msg = match sniffed {
+                        Some("gzip") => format!("Failed to decompress gzip data: {e}"),
+                        _ => format!(
+                            "Failed to read plaintext file {}: {e}",
+                            raw_file_path.display()
+                        ),
+                    };
+                    let _unused = tx.blocking_send(Err(msg));
                     return;
                 }
             }
-            Err(e) => {
-                // In passthrough mode the reader is the plain file, so a read
-                // failure is an I/O problem (permissions, disk), not corruption.
-                let msg = match sniffed {
-                    Some("gzip") => format!("Failed to decompress gzip data: {e}"),
-                    _ => format!(
-                        "Failed to read plaintext file {}: {e}",
-                        raw_file_path.display()
-                    ),
-                };
-                let _unused = tx.blocking_send(Err(msg));
+        }
+        if filled > 0 {
+            produced_any = true;
+            last_byte = Some(buffer[filled - 1]);
+            if tx.blocking_send(Ok(buffer[..filled].to_vec())).is_err() {
                 return;
             }
+        }
+        if eof {
+            break;
         }
     }
 
@@ -374,21 +388,33 @@ pub(crate) fn run_zip_gzip_json_producer(raw_file_path: PathBuf, tx: mpsc::Sende
         let mut entry_bytes: u64 = 0;
 
         loop {
-            match decoder.read(&mut buffer) {
-                Ok(0) => break,
-                Ok(n) => {
-                    entry_bytes += n as u64;
-                    last_byte = Some(buffer[n - 1]);
-                    if tx.blocking_send(Ok(buffer[..n].to_vec())).is_err() {
+            // Fill the block across multiple reads, as in run_plain_gzip_producer.
+            let mut filled = 0usize;
+            let mut eof = false;
+            while filled < buffer.len() {
+                match decoder.read(&mut buffer[filled..]) {
+                    Ok(0) => {
+                        eof = true;
+                        break;
+                    }
+                    Ok(n) => filled += n,
+                    Err(e) => {
+                        let _unused = tx.blocking_send(Err(format!(
+                            "Failed to decompress gzip data from {name}: {e}"
+                        )));
                         return;
                     }
                 }
-                Err(e) => {
-                    let _unused = tx.blocking_send(Err(format!(
-                        "Failed to decompress gzip data from {name}: {e}"
-                    )));
+            }
+            if filled > 0 {
+                entry_bytes += filled as u64;
+                last_byte = Some(buffer[filled - 1]);
+                if tx.blocking_send(Ok(buffer[..filled].to_vec())).is_err() {
                     return;
                 }
+            }
+            if eof {
+                break;
             }
         }
 
