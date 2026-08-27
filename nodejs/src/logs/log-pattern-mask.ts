@@ -2,9 +2,9 @@ import { createTrackedRE2 } from '~/common/utils/tracked-re2'
 
 import { parseLogBodyForIngestion } from './log-body-parse'
 
-export const PATTERN_VERSION = 2
+export const PATTERN_VERSION = 3
 
-export type MaskRuleName = 'timestamp' | 'uuid' | 'email' | 'host' | 'hex0x' | 'hex' | 'ipv4' | 'num'
+export type MaskRuleName = 'timestamp' | 'klogtime' | 'uuid' | 'email' | 'host' | 'hex0x' | 'hex' | 'ipv4' | 'num'
 
 export type MaskRule = {
     name: MaskRuleName
@@ -18,6 +18,23 @@ export const MASK_RULES: readonly MaskRule[] = [
         pattern: '\\b\\d{4}-\\d{2}-\\d{2}[T ]\\d{2}:\\d{2}:\\d{2}(?:[.,]\\d+)?(?:Z|[+-]\\d{2}:?\\d{2})?',
         replacement: '<TIMESTAMP>',
     },
+    // klog / glog headers ("I0827 11:39:40.307946") carry no year and no separators, so the
+    // timestamp rule above misses them and `\b\d+` cannot reach the date either — there is no word
+    // boundary between the severity letter and the digits, so the date survives as a literal and
+    // the pattern changes every midnight.
+    //
+    // One rule per severity letter, rather than one rule with a lookbehind. The letter is content,
+    // not a variable, so it has to survive into the output; replacements are constant strings, so
+    // the only way to keep it is to consume it and write it back. Lookbehind and backreferences are
+    // both unavailable — RE2 lacks the first, and the rule-fire attribution in MASK_COMBINED_RE
+    // indexes capture groups positionally, so a rule may not add one.
+    //
+    // The letter also guards the match. Without it, `\d{4} \d{2}:\d{2}:\d{2}` would claim any count
+    // followed by a time of day.
+    { name: 'klogtime', pattern: '\\bI\\d{4} \\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?', replacement: 'I<KLOGTIME>' },
+    { name: 'klogtime', pattern: '\\bW\\d{4} \\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?', replacement: 'W<KLOGTIME>' },
+    { name: 'klogtime', pattern: '\\bE\\d{4} \\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?', replacement: 'E<KLOGTIME>' },
+    { name: 'klogtime', pattern: '\\bF\\d{4} \\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?', replacement: 'F<KLOGTIME>' },
     {
         name: 'uuid',
         pattern: '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}',
