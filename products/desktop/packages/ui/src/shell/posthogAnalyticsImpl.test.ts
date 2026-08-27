@@ -142,6 +142,7 @@ describe("track", () => {
     expect(mockPosthog.capture).toHaveBeenCalledWith(
       ANALYTICS_EVENTS.SIGNAL_SOURCE_CONNECTED,
       expect.objectContaining({ inbox_client: "code" }),
+      undefined,
     );
   });
 
@@ -154,6 +155,7 @@ describe("track", () => {
     expect(mockPosthog.capture).toHaveBeenCalledWith(
       ANALYTICS_EVENTS.PROMPT_HISTORY_OPENED,
       expect.not.objectContaining({ inbox_client: expect.anything() }),
+      undefined,
     );
   });
 

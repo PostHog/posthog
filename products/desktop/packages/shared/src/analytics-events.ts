@@ -642,8 +642,8 @@ export type InboxReportOpenMethod =
 export type InboxReportCloseMethod =
   | "next_report"
   | "deselected"
-  | "navigated_away"
-  | "unmount";
+  | "unmount"
+  | "page_unload";
 
 export type InboxReportActionType =
   | "dismiss"

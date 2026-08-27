@@ -7,6 +7,7 @@ import type { InboxReportCloseMethod } from "@posthog/shared/analytics-events";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { SignalReport } from "@posthog/shared/types";
 import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAllReports";
+import type { TrackOptions } from "@posthog/ui/shell/analytics";
 import { track } from "@posthog/ui/shell/analytics";
 import { useEffect, useRef } from "react";
 
@@ -78,11 +79,11 @@ export function useReportOpenTracker(
   reportRef.current = report;
 
   // Detect a report→report switch during render so the close cleanup can label
-  // it `next_report` rather than `navigated_away`. Writing a ref during render
+  // it `next_report` rather than `unmount`. Writing a ref during render
   // is the React-sanctioned "track the previous prop" pattern, and crucially it
   // runs before the outgoing effect's cleanup, which is where we read it.
   const renderedIdRef = useRef<string | null>(null);
-  const closeMethodRef = useRef<InboxReportCloseMethod>("navigated_away");
+  const closeMethodRef = useRef<InboxReportCloseMethod>("unmount");
   if (renderedIdRef.current !== null && renderedIdRef.current !== report.id) {
     closeMethodRef.current = "next_report";
   }
@@ -110,19 +111,47 @@ export function useReportOpenTracker(
     });
     lastOpenedReportId = opened.id;
 
+    // Emit the dwell-time close once. The effect cleanup (in-app teardown or a
+    // report switch) and the `pagehide` flush (tab/window close) both call this,
+    // so whichever fires first wins and the other is a no-op.
+    let closed = false;
+    const close = (
+      closeMethod: InboxReportCloseMethod,
+      options?: TrackOptions,
+    ): void => {
+      if (closed) {
+        return;
+      }
+      closed = true;
+      track(
+        ANALYTICS_EVENTS.INBOX_REPORT_CLOSED,
+        {
+          report_id: opened.id,
+          report_title: opened.title ?? null,
+          report_age_hours: reportAgeHours(opened.created_at),
+          priority: opened.priority ?? null,
+          actionability: opened.actionability ?? null,
+          time_spent_ms: Date.now() - openedAt,
+          scrolled: false,
+          close_method: closeMethod,
+        },
+        options,
+      );
+    };
+
+    // A tab or window close never unmounts the detail route, so the cleanup
+    // below never runs and the close is lost. Flush on `pagehide` with
+    // `send_instantly` so the event leaves before the page goes. Mirrors the
+    // cloud inbox logic.
+    const onPageHide = (): void =>
+      close("page_unload", { send_instantly: true });
+    window.addEventListener("pagehide", onPageHide);
+
     return () => {
-      track(ANALYTICS_EVENTS.INBOX_REPORT_CLOSED, {
-        report_id: opened.id,
-        report_title: opened.title ?? null,
-        report_age_hours: reportAgeHours(opened.created_at),
-        priority: opened.priority ?? null,
-        actionability: opened.actionability ?? null,
-        time_spent_ms: Date.now() - openedAt,
-        scrolled: false,
-        close_method: closeMethodRef.current,
-      });
+      window.removeEventListener("pagehide", onPageHide);
+      close(closeMethodRef.current);
       // Reset to the exit default; a subsequent switch re-sets it during render.
-      closeMethodRef.current = "navigated_away";
+      closeMethodRef.current = "unmount";
     };
   }, [report.id]);
 }
