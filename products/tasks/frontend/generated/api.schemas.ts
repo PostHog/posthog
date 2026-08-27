@@ -849,16 +849,22 @@ export interface SandboxCustomImageBuildApi {
 }
 
 /**
- * List response for sandbox environments (subset of fields).
+ * A sandbox environment, as returned by list, detail, create and update.
  */
 export interface SandboxEnvironmentDTOApi {
     id: string
     name: string
     network_access_level: string
     allowed_domains?: string[]
+    include_default_domains: boolean
     repositories?: string[]
+    /** Whether any environment variables are set on this environment. */
+    has_environment_variables?: boolean
+    /** Names of the environment variables that are set, sorted. Values are write-only and never returned. */
+    environment_variable_keys?: string[]
     private: boolean
     internal: boolean
+    effective_domains?: string[]
     created_by?: TaskUserBasicInfoApi | null
     /** @nullable */
     created_at?: string | null
