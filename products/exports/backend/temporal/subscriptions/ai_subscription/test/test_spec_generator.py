@@ -1,3 +1,4 @@
+import hashlib
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -13,6 +14,7 @@ from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models import EventDefinition, EventProperty, PropertyDefinition, Team
 
 from products.exports.backend.models.subscription import Subscription
+from products.exports.backend.temporal.subscriptions.ai_subscription.anchor_context import EMPTY_ANCHOR_HASH
 from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import (
     QueryPlan,
     QueryPlanStep,
@@ -165,6 +167,20 @@ class TestSelectRelevantEvents(APIBaseTest):
         )
 
         assert _select_relevant_events(self.team, self.user, "how are exports doing?") == expected
+
+    @patch(f"{_SG}.MaxChatOpenAI")
+    def test_anchor_events_pin_only_when_in_taxonomy(self, mock_chat: MagicMock) -> None:
+        # Anchor query definitions are user-editable JSON, so a name not in the event taxonomy must
+        # not reach the planner context via extra_pinned.
+        EventDefinition.objects.create(team=self.team, name="export created")
+        EventDefinition.objects.create(team=self.team, name="alert created")
+        mock_chat.return_value.with_structured_output.return_value.invoke.return_value = RelevantEvents(events=[])
+
+        selected = _select_relevant_events(
+            self.team, self.user, "how are things?", extra_pinned=["export created", "fabricated event"]
+        )
+
+        assert selected == ["export created"]
 
     @patch(f"{_SG}.MaxChatOpenAI")
     def test_substitutes_prompt_and_event_names_into_system_message(self, mock_chat: MagicMock) -> None:
@@ -898,6 +914,60 @@ class TestBuildFrozenPrompt(APIBaseTest):
         # ...and the plan round-trips byte-for-byte (persist shape == reuse shape), HogQL placeholder intact.
         assert spec.plan.model_dump() == stored["plan"]
         assert "{{date_range}}" in spec.plan.steps[0].hogql
+
+    @parameterized.expand(
+        [
+            # A frozen plan answers the anchor content it was built against. Anchor content changed
+            # (tile added, query edited, anchor removed): the plan must re-plan, not replay.
+            ("anchor_added_since_freeze", None, "abc123", "Anchor"),
+            ("anchor_changed_since_freeze", "abc123", "def456", "Anchor"),
+            ("anchor_removed_since_freeze", "abc123", None, "Anchor"),
+        ]
+    )
+    @patch(f"{_SG}.get_group_types_for_project", return_value=[])
+    @patch(f"{_SG}._top_event_names", return_value=[])
+    def test_anchor_content_change_invalidates_frozen_plan(
+        self,
+        _name: str,
+        stored_hash: str | None,
+        current_hash: str | None,
+        match: str,
+        _mock_top: object,
+        _mock_groups: object,
+    ) -> None:
+        stored = self._stored_plan()
+        if stored_hash is not None:
+            stored["anchor_hash"] = stored_hash
+        kwargs = {} if current_hash is None else {"anchor_hash": current_hash}
+
+        with pytest.raises(StoredPlanInvalidError, match=match):
+            build_frozen_prompt(team=self.team, prompt="p", window=_window(7), ai_query_plan=stored, **kwargs)
+
+        # A pre-anchor envelope (no key) with no current anchor stays valid — see EMPTY_ANCHOR_HASH.
+        spec = build_frozen_prompt(
+            team=self.team,
+            prompt="p",
+            window=_window(7),
+            ai_query_plan=self._stored_plan(),
+            anchor_hash=EMPTY_ANCHOR_HASH,
+        )
+        assert spec.plan.model_dump() == self._stored_plan()["plan"]
+
+    @patch(f"{_SG}.build_context_blob", return_value="blob")
+    def test_frozen_path_passes_anchor_blob_to_context(self, mock_blob: MagicMock) -> None:
+        blob = "- Anchored dashboard: Growth"
+        stored = {**self._stored_plan(), "anchor_hash": hashlib.sha256(blob.encode()).hexdigest()}
+
+        build_frozen_prompt(
+            team=self.team,
+            prompt="p",
+            window=_window(7),
+            ai_query_plan=stored,
+            anchor_blob=blob,
+            anchor_hash=stored["anchor_hash"],
+        )
+
+        assert mock_blob.call_args.kwargs["anchor_blob"] == blob
 
     @patch(f"{_SG}.build_context_blob", return_value="blob")
     def test_rebuilds_property_aware_blob_from_stored_relevant_events(self, mock_blob: MagicMock) -> None:

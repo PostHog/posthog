@@ -31,6 +31,10 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.charts impo
     render_charts,
     validate_chart,
 )
+from products.exports.backend.temporal.subscriptions.ai_subscription.anchor_context import (
+    EMPTY_ANCHOR_HASH,
+    AnchorContext,
+)
 from products.exports.backend.temporal.subscriptions.ai_subscription.prompts import (
     AI_SUBSCRIPTION_SYNTHESIS_PROMPT,
     HOGQL_FIX_PROMPT,
@@ -201,6 +205,7 @@ async def generate_ai_report(
     prompt: Optional[str],
     window: ReportWindow,
     ai_query_plan: Optional[dict] = None,
+    anchor: Optional[AnchorContext] = None,
     trace_correlation_id: Optional[Union[int, str]] = None,
 ) -> AiReportResult:
     if user is None:
@@ -221,7 +226,7 @@ async def generate_ai_report(
             if ai_query_plan is not None:
                 try:
                     spec = await _spec_from_frozen_plan(
-                        team=team, prompt=prompt, window=window, ai_query_plan=ai_query_plan
+                        team=team, prompt=prompt, window=window, ai_query_plan=ai_query_plan, anchor=anchor
                     )
                     freshly_planned = False
                 except StoredPlanInvalidError as exc:
@@ -230,11 +235,13 @@ async def generate_ai_report(
                     )
                     capture_exception(exc, {"trace_correlation_id": trace_correlation_id, "feature": "ai_subscription"})
                     spec = await _plan(
-                        team=team, user=user, prompt=prompt, window=window, trace_id=trace_correlation_id
+                        team=team, user=user, prompt=prompt, window=window, anchor=anchor, trace_id=trace_correlation_id
                     )
                     freshly_planned = True
             else:
-                spec = await _plan(team=team, user=user, prompt=prompt, window=window, trace_id=trace_correlation_id)
+                spec = await _plan(
+                    team=team, user=user, prompt=prompt, window=window, anchor=anchor, trace_id=trace_correlation_id
+                )
                 freshly_planned = True
             charts_enabled_for_team = await database_sync_to_async(charts_enabled, thread_sensitive=False)(team, user)
             execution = await _execute_plan(
@@ -310,6 +317,7 @@ async def generate_ai_report(
             failed_count=failed_count,
             total_steps=total_steps,
             relevant_events=spec.relevant_events,
+            anchor_hash=anchor.content_hash if anchor else EMPTY_ANCHOR_HASH,
             trace_correlation_id=trace_correlation_id,
             chart_failure_count=chart_spec_failures,
         )
@@ -346,6 +354,7 @@ def _plan_to_freeze(
     failed_count: int,
     total_steps: int,
     relevant_events: Sequence[str],
+    anchor_hash: str,
     trace_correlation_id: Optional[Union[int, str]],
     chart_failure_count: int = 0,
 ) -> Optional[dict]:
@@ -383,11 +392,24 @@ def _plan_to_freeze(
     # Versioned envelope: bumping AI_QUERY_PLAN_VERSION lazily re-plans every frozen subscription.
     # relevant_events travels with the plan so the reuse path rebuilds the same property-aware
     # context_blob the fixer relies on (an events-only blob makes the fixer schema-blind).
-    return {"version": AI_QUERY_PLAN_VERSION, "plan": plan.model_dump(), "relevant_events": list(relevant_events)}
+    # anchor_hash is stored even for unanchored plans (as the empty hash) so an anchor added
+    # later invalidates the plan on its first anchored delivery.
+    return {
+        "version": AI_QUERY_PLAN_VERSION,
+        "plan": plan.model_dump(),
+        "relevant_events": list(relevant_events),
+        "anchor_hash": anchor_hash,
+    }
 
 
 async def _plan(
-    *, team: Team, user: User, prompt: Optional[str], window: ReportWindow, trace_id: Optional[Union[int, str]]
+    *,
+    team: Team,
+    user: User,
+    prompt: Optional[str],
+    window: ReportWindow,
+    anchor: Optional[AnchorContext],
+    trace_id: Optional[Union[int, str]],
 ) -> EnrichedPromptSpec:
     try:
         return await database_sync_to_async(build_enriched_prompt, thread_sensitive=False)(
@@ -396,6 +418,8 @@ async def _plan(
             prompt=prompt,
             window=window,
             trace_correlation_id=trace_id,
+            anchor_blob=anchor.blob if anchor else "",
+            anchor_event_names=anchor.event_names if anchor else (),
         )
     except PromptRejectedError:
         raise
@@ -404,7 +428,12 @@ async def _plan(
 
 
 async def _spec_from_frozen_plan(
-    *, team: Team, prompt: Optional[str], window: ReportWindow, ai_query_plan: dict
+    *,
+    team: Team,
+    prompt: Optional[str],
+    window: ReportWindow,
+    ai_query_plan: dict,
+    anchor: Optional[AnchorContext],
 ) -> EnrichedPromptSpec:
     try:
         return await database_sync_to_async(build_frozen_prompt, thread_sensitive=False)(
@@ -412,6 +441,8 @@ async def _spec_from_frozen_plan(
             prompt=prompt,
             window=window,
             ai_query_plan=ai_query_plan,
+            anchor_blob=anchor.blob if anchor else "",
+            anchor_hash=anchor.content_hash if anchor else EMPTY_ANCHOR_HASH,
         )
     except (PromptRejectedError, StoredPlanInvalidError):
         raise

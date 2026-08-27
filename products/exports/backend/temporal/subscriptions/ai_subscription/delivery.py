@@ -20,6 +20,10 @@ from posthog.utils import absolute_uri
 
 from products.exports.backend.facade.api import get_delivery_image_url
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery, get_unsubscribe_token
+from products.exports.backend.temporal.subscriptions.ai_subscription.anchor_context import (
+    AnchorContext,
+    build_anchor_context,
+)
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
     AiReportResult,
     generate_ai_report,
@@ -145,10 +149,11 @@ def _last_scheduled_report_cutoff(subscription: Subscription) -> datetime | None
 
 def _resolve_subscription_context(
     subscription: Subscription,
-) -> tuple[Team, User | None, ReportWindow, dict | None]:
+) -> tuple[Team, User | None, ReportWindow, dict | None, AnchorContext | None]:
     # team/created_by are FK relations and the last-delivery lookup hits the DB; resolving the window
     # here keeps all ORM access (and the timezone math) off the event loop in one sync hop. The frozen
-    # plan (if any) is read here too so the generation path stays free of ORM access.
+    # plan (if any) and the anchor context are read here too so the generation path stays free of
+    # ORM access.
     team = subscription.team
     # Day-based window modes don't anchor to delivery history — skip the lookup for them.
     last_scheduled_cutoff = (
@@ -165,7 +170,7 @@ def _resolve_subscription_context(
         start_days_ago=subscription.ai_window_start_days_ago,
         end_days_ago=subscription.ai_window_end_days_ago,
     )
-    return team, subscription.created_by, window, subscription.ai_query_plan
+    return team, subscription.created_by, window, subscription.ai_query_plan, build_anchor_context(subscription)
 
 
 def _persist_ai_query_plan(subscription_id: int, team_id: int, prompt: str | None, plan: dict) -> None:
@@ -176,7 +181,7 @@ def _persist_ai_query_plan(subscription_id: int, team_id: int, prompt: str | Non
 
 
 async def build_ai_subscription_report(subscription: Subscription) -> AiReportResult:
-    team, user, window, ai_query_plan = await database_sync_to_async(
+    team, user, window, ai_query_plan, anchor = await database_sync_to_async(
         _resolve_subscription_context, thread_sensitive=False
     )(subscription)
     # created_by is FK SET_NULL; the pipeline requires a non-None user
@@ -189,6 +194,7 @@ async def build_ai_subscription_report(subscription: Subscription) -> AiReportRe
         prompt=subscription.prompt,
         window=window,
         ai_query_plan=ai_query_plan,
+        anchor=anchor,
         trace_correlation_id=subscription.id,
     )
 

@@ -536,10 +536,10 @@ class TestFreezePlanPersistence:
         sub.ai_query_plan = ai_query_plan
         return sub
 
-    def _context(self, sub: MagicMock) -> tuple[MagicMock, MagicMock, ReportWindow, dict | None]:
+    def _context(self, sub: MagicMock) -> tuple[MagicMock, MagicMock, ReportWindow, dict | None, None]:
         end = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
         window = ReportWindow(start=end - timedelta(days=1), end=end)
-        return MagicMock(), MagicMock(), window, sub.ai_query_plan
+        return MagicMock(), MagicMock(), window, sub.ai_query_plan, None
 
     async def test_first_run_persists_freshly_generated_plan(self) -> None:
         sub = self._subscription(ai_query_plan=None)

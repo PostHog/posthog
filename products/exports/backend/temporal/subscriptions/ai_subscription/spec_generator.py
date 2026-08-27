@@ -18,6 +18,7 @@ from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.security.llm_prompt_sanitization import sanitize_user_text
 
 from products.exports.backend.models.subscription import Subscription
+from products.exports.backend.temporal.subscriptions.ai_subscription.anchor_context import EMPTY_ANCHOR_HASH
 from products.exports.backend.temporal.subscriptions.ai_subscription.prompts import (
     EVENT_SELECTION_PROMPT,
     EVENT_SELECTION_PROMPT_NAME,
@@ -400,12 +401,22 @@ def _llm_selected_events(
 
 
 def _select_relevant_events(
-    team: Team, user: User, prompt: str, trace_correlation_id: Optional[Union[int, str]] = None
+    team: Team,
+    user: User,
+    prompt: str,
+    trace_correlation_id: Optional[Union[int, str]] = None,
+    extra_pinned: Sequence[str] = (),
 ) -> list[str]:
     # Returns RAW event names (the EventProperty lookup is keyed on them).
     recent_names = _recent_event_names(team, PINNED_EVENT_SCAN_LIMIT)
     candidates = _candidate_event_names(recent_names[:CANDIDATE_EVENTS_LIMIT])
     pinned = _pinned_event_names(prompt, recent_names)
+    if extra_pinned:
+        # Events the anchor's queries reference. Restricted to the known taxonomy so a stale or
+        # hand-edited query definition can't inject arbitrary names, and capped like prompt pins.
+        known = set(recent_names)
+        anchor_pins = [name for name in extra_pinned if name in known]
+        pinned = list(dict.fromkeys((*pinned, *anchor_pins)))[:MAX_PINNED_EVENTS]
     if not candidates:
         # No candidate vocabulary for the LLM pass, but explicit pins still count — the pin scan
         # covers the full recent-names window, not just the candidate slice.
@@ -439,7 +450,9 @@ def _event_property_names(team: Team, events: list[str], per_event_limit: int) -
     return by_event
 
 
-def build_context_blob(team: Team, window: ReportWindow, relevant_events: Sequence[str] = ()) -> str:
+def build_context_blob(
+    team: Team, window: ReportWindow, relevant_events: Sequence[str] = (), anchor_blob: str = ""
+) -> str:
     # Only a hint — the planner's actual event names arrive via `relevant_events` from the Postgres
     # taxonomy — so a ClickHouse timeout on the 30-day scan behind it degrades rather than costing the
     # whole report, as `_llm_selected_events` already does. None means "unknown", never "none".
@@ -526,6 +539,10 @@ def build_context_blob(team: Team, window: ReportWindow, relevant_events: Sequen
             "the account itself via the raw key $group_<index>, e.g. uniq($group_2), never bare "
             "group_<index>; no JOIN needed): " + ", ".join(group_labels)
         )
+    if anchor_blob:
+        # Prebuilt and sanitized by anchor_context.build_anchor_context. Kept descriptive for the
+        # same reason as the lines above: this blob is also quoted into the synthesis prompt.
+        lines.append(anchor_blob)
     return "\n".join(lines)
 
 
@@ -574,10 +591,14 @@ def build_enriched_prompt(
     prompt: Optional[str],
     window: ReportWindow,
     trace_correlation_id: Optional[Union[int, str]] = None,
+    anchor_blob: str = "",
+    anchor_event_names: Sequence[str] = (),
 ) -> EnrichedPromptSpec:
     cleaned = sanitize_prompt(prompt)
-    relevant_events = _select_relevant_events(team, user, cleaned, trace_correlation_id)
-    context_blob = build_context_blob(team, window, relevant_events=relevant_events)
+    relevant_events = _select_relevant_events(
+        team, user, cleaned, trace_correlation_id, extra_pinned=anchor_event_names
+    )
+    context_blob = build_context_blob(team, window, relevant_events=relevant_events, anchor_blob=anchor_blob)
     plan = generate_query_plan(
         cleaned_prompt=cleaned,
         context_blob=context_blob,
@@ -596,6 +617,8 @@ def build_frozen_prompt(
     prompt: Optional[str],
     window: ReportWindow,
     ai_query_plan: dict,
+    anchor_blob: str = "",
+    anchor_hash: str = EMPTY_ANCHOR_HASH,
 ) -> EnrichedPromptSpec:
     """Rebuild the spec from a persisted plan without either LLM pass — the deterministic reuse path.
 
@@ -606,6 +629,12 @@ def build_frozen_prompt(
     cleaned = sanitize_prompt(prompt)
     if ai_query_plan.get("version") != AI_QUERY_PLAN_VERSION:
         raise StoredPlanInvalidError("Stored query plan version is stale.")
+    # A plan answers the anchor content it was built against. Anchor changed (tiles added, anchor
+    # deleted, queries edited) means the plan is stale the same way a stale version is. Envelopes
+    # written before anchors existed carry no key and read as EMPTY_ANCHOR_HASH, so unanchored
+    # subscriptions are unaffected.
+    if ai_query_plan.get("anchor_hash", EMPTY_ANCHOR_HASH) != anchor_hash:
+        raise StoredPlanInvalidError("Anchor content changed since the plan was frozen.")
     try:
         plan = QueryPlan.model_validate(ai_query_plan.get("plan"))
     except ValidationError as exc:
@@ -615,7 +644,7 @@ def build_frozen_prompt(
     # wrong field. The version bump guarantees pre-relevant_events envelopes re-plan rather than
     # silently running with an empty list.
     relevant_events = ai_query_plan.get("relevant_events") or []
-    context_blob = build_context_blob(team, window, relevant_events=relevant_events)
+    context_blob = build_context_blob(team, window, relevant_events=relevant_events, anchor_blob=anchor_blob)
     return EnrichedPromptSpec(
         cleaned_prompt=cleaned, context_blob=context_blob, plan=plan, relevant_events=relevant_events
     )

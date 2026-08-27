@@ -17,6 +17,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.charts impo
     RenderedChart,
     ValidatedChart,
 )
+from products.exports.backend.temporal.subscriptions.ai_subscription.anchor_context import EMPTY_ANCHOR_HASH
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
     _MAX_CONCURRENT_STEPS,
     QUERY_FAILED_PREFIX,
@@ -574,6 +575,7 @@ async def test_unfrozen_run_returns_plan_to_persist(
         "version": AI_QUERY_PLAN_VERSION,
         "plan": spec.plan.model_dump(),
         "relevant_events": ["export created"],
+        "anchor_hash": EMPTY_ANCHOR_HASH,
     }
 
 
@@ -605,6 +607,7 @@ def test_plan_to_freeze_requires_no_failures(total_steps: int, failed_count: int
         failed_count=failed_count,
         total_steps=total_steps,
         relevant_events=["export created"],
+        anchor_hash=EMPTY_ANCHOR_HASH,
         trace_correlation_id=None,
     )
     if should_freeze:
@@ -612,6 +615,7 @@ def test_plan_to_freeze_requires_no_failures(total_steps: int, failed_count: int
             "version": AI_QUERY_PLAN_VERSION,
             "plan": plan.model_dump(),
             "relevant_events": ["export created"],
+            "anchor_hash": EMPTY_ANCHOR_HASH,
         }
     else:
         assert result is None

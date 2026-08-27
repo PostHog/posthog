@@ -107,6 +107,11 @@ Output rules:
   When context lists "Events matching your request", prefer those exact event names — they were
   selected for this prompt. For an event's properties, use only the names listed under its
   "`<event>` properties" line (access as `properties.<name>`); do not invent property names.
+- When context includes an "Anchored dashboard" or "Anchored insight" section, the user created this
+  subscription from that resource. When the prompt refers to metrics it covers, mirror its query
+  definitions (same events, filters, and breakdowns) so the report matches what the user sees there.
+  The anchor informs the plan but does not limit it: when the prompt asks for something the anchor
+  does not cover, use any of the project's events.
 - The analysis window is fixed, but you must NOT write its dates yourself. Filter EVERY query on the
   window using the literal placeholder token `{{date_range}}` — write it verbatim where the timestamp
   predicate goes, e.g. `WHERE {{date_range}}` or `WHERE event = '$pageview' AND {{date_range}}`. The
