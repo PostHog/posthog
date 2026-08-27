@@ -31,6 +31,13 @@ PERSON_ARRAYS_CTE = "person_arrays"
 # table; this way they keep their credit, and only first touch becomes approximate for such a person.
 MAX_TOUCHPOINTS_PER_PERSON = 500
 
+# The same ceiling for the other side of the fan-out. Without it, a person with many conversions
+# multiplies the two downstream ARRAY JOINs by an unbounded factor, which is the shape that makes the
+# query run out of memory. The most recent are kept for the mirror of the reason above: a conversion
+# is credited by touchpoints that precede it, and the recent ones are those with touchpoints still in
+# the collected window.
+MAX_CONVERSIONS_PER_PERSON = 500
+
 
 class AttributionQueryRunnerBase(MarketingSessionBreakdownQueryRunnerBase[ResponseType], Generic[ResponseType]):
     # Narrower than the session-breakdown base's union: everything below reads attribution-only fields.
@@ -91,7 +98,7 @@ class AttributionQueryRunnerBase(MarketingSessionBreakdownQueryRunnerBase[Respon
             ),
         ]
 
-    def _build_converters_select(self, date_range: QueryDateRange) -> ast.SelectQuery:
+    def _build_converters_select(self, date_range: QueryDateRange, *, with_bounds: bool = False) -> ast.SelectQuery:
         """Persons who converted in the window.
 
         This is not an optimization — it is what makes the query affordable. Widening touchpoints from
@@ -99,8 +106,29 @@ class AttributionQueryRunnerBase(MarketingSessionBreakdownQueryRunnerBase[Respon
         it to converters (typically low single-digit percent of persons) more than pays that back. Removing
         this semi-join changes no results and costs one to two orders of magnitude more.
         """
+        select: list[ast.Expr] = [ast.Field(chain=["events", "person_id"])]
+        if with_bounds:
+            # The person's first and last conversion. A touchpoint outside
+            # [first conversion - attribution window, last conversion] cannot be credited by any of
+            # them, so carrying these lets the caller drop it before it reaches the arrays.
+            select += [
+                ast.Alias(
+                    alias="first_conversion",
+                    expr=ast.Call(
+                        name="min",
+                        args=[ast.Call(name="toUnixTimestamp", args=[ast.Field(chain=["events", "timestamp"])])],
+                    ),
+                ),
+                ast.Alias(
+                    alias="last_conversion",
+                    expr=ast.Call(
+                        name="max",
+                        args=[ast.Call(name="toUnixTimestamp", args=[ast.Field(chain=["events", "timestamp"])])],
+                    ),
+                ),
+            ]
         return ast.SelectQuery(
-            select=[ast.Field(chain=["events", "person_id"])],
+            select=select,
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             where=ast.And(
                 exprs=[
@@ -186,6 +214,14 @@ class AttributionQueryRunnerBase(MarketingSessionBreakdownQueryRunnerBase[Respon
                     ast.Constant(value=1),
                 ],
             )
+        else:
+            conversions = ast.Call(
+                name="arraySlice",
+                args=[
+                    ast.Call(name="arraySort", args=[conversions]),
+                    ast.Constant(value=-MAX_CONVERSIONS_PER_PERSON),
+                ],
+            )
 
         return ast.SelectQuery(
             select=[
@@ -193,14 +229,24 @@ class AttributionQueryRunnerBase(MarketingSessionBreakdownQueryRunnerBase[Respon
                 ast.Alias(alias="conversions", expr=conversions),
                 ast.Alias(alias="touchpoints", expr=touchpoints),
             ],
-            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            select_from=ast.JoinExpr(
+                table=ast.Field(chain=["events"]),
+                next_join=ast.JoinExpr(
+                    join_type="INNER JOIN",
+                    table=self._build_converters_select(date_range, with_bounds=True),
+                    alias="conv_bounds",
+                    constraint=ast.JoinConstraint(
+                        expr=ast.CompareOperation(
+                            left=ast.Field(chain=["events", "person_id"]),
+                            op=ast.CompareOperationOp.Eq,
+                            right=ast.Field(chain=["conv_bounds", "person_id"]),
+                        ),
+                        constraint_type="ON",
+                    ),
+                ),
+            ),
             where=ast.And(
                 exprs=[
-                    ast.CompareOperation(
-                        left=ast.Field(chain=["events", "person_id"]),
-                        op=ast.CompareOperationOp.In,
-                        right=self._build_converters_select(date_range),
-                    ),
                     ast.Or(
                         exprs=[
                             ast.And(
@@ -213,6 +259,27 @@ class AttributionQueryRunnerBase(MarketingSessionBreakdownQueryRunnerBase[Respon
                                 exprs=[
                                     self._pageview_condition(),
                                     *self._lookback_date_conditions(date_range),
+                                    # Narrower than the range bounds above: a touchpoint before this
+                                    # person's first conversion minus the window, or after their last
+                                    # one, cannot be credited by any conversion they have.
+                                    ast.CompareOperation(
+                                        left=ast.Call(
+                                            name="toUnixTimestamp", args=[ast.Field(chain=["events", "timestamp"])]
+                                        ),
+                                        op=ast.CompareOperationOp.GtEq,
+                                        right=ast.ArithmeticOperation(
+                                            left=ast.Field(chain=["conv_bounds", "first_conversion"]),
+                                            op=ast.ArithmeticOperationOp.Sub,
+                                            right=ast.Constant(value=self.attribution_window_seconds),
+                                        ),
+                                    ),
+                                    ast.CompareOperation(
+                                        left=ast.Call(
+                                            name="toUnixTimestamp", args=[ast.Field(chain=["events", "timestamp"])]
+                                        ),
+                                        op=ast.CompareOperationOp.LtEq,
+                                        right=ast.Field(chain=["conv_bounds", "last_conversion"]),
+                                    ),
                                 ]
                             ),
                         ]

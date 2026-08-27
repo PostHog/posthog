@@ -19,7 +19,6 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.property_access_types import RestrictedProperty
-from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.models import PropertyDefinition
 from posthog.models.team.team_marketing_analytics_config import MAX_ATTRIBUTION_WINDOW_DAYS
@@ -639,18 +638,17 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
         person_arrays = ctes["person_arrays"].expr
         assert isinstance(person_arrays, ast.SelectQuery)
 
-        class FindSubqueryIn(TraversingVisitor):
-            def __init__(self) -> None:
-                self.found = False
-
-            def visit_compare_operation(self, node: ast.CompareOperation) -> None:
-                if node.op == ast.CompareOperationOp.In and isinstance(node.right, ast.SelectQuery):
-                    self.found = True
-                super().visit_compare_operation(node)
-
-        finder = FindSubqueryIn()
-        finder.visit(person_arrays.where)
-        self.assertTrue(finder.found, "person_arrays must restrict the events scan to converting persons")
+        # The restriction is a join against the converters subquery. Asserting on the join rather than
+        # on a bare `IN` keeps the test about the property (only converters are scanned) instead of the
+        # operator that happens to express it.
+        join = person_arrays.select_from
+        assert join is not None
+        restrictions = []
+        while join is not None:
+            if isinstance(join.table, ast.SelectQuery):
+                restrictions.append(join)
+            join = join.next_join
+        self.assertTrue(restrictions, "person_arrays must restrict the events scan to converting persons")
 
     def test_action_goals_credit_the_events_the_action_matches(self):
         # The action branch resolves the goal through Postgres and `action_to_expr` rather than a plain
