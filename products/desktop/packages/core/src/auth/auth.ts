@@ -1128,6 +1128,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       return false;
     }
     this.persistProjectPreference(session);
+    const desktopAccess = this.carryDesktopAccessInto(session);
     this.session = session;
     this.scheduleImpersonationExpiry(session);
     this.updateState({
@@ -1137,11 +1138,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       orgProjectsMap: session.orgProjectsMap,
       currentOrgId: session.currentOrgId,
       currentProjectId: session.currentProjectId,
-      desktopAccess: {
-        projectId: session.currentProjectId,
-        status: "checking",
-        reason: null,
-      },
+      desktopAccess,
       needsScopeReauth: false,
       sessionType: session.sessionType,
       sessionExpiresAt: session.accessTokenExpiresAt,
@@ -1306,6 +1303,30 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       sessionExpiresAt: null,
       sessionEndReason: partial.sessionEndReason ?? null,
     });
+  }
+
+  /**
+   * A token refresh for the same account and project keeps the access result
+   * already on screen while the recheck runs. Dropping back to "checking"
+   * would unmount the whole app for every refresh.
+   */
+  private carryDesktopAccessInto(session: InMemorySession): DesktopAccess {
+    const previous = this.state.desktopAccess;
+    const sameIdentity =
+      this.session !== null &&
+      this.session.accountKey === session.accountKey &&
+      previous.projectId === session.currentProjectId;
+    if (
+      sameIdentity &&
+      (previous.status === "allowed" || previous.status === "blocked")
+    ) {
+      return previous;
+    }
+    return {
+      projectId: session.currentProjectId,
+      status: "checking",
+      reason: null,
+    };
   }
 
   private async updateDesktopAccessFromSession(

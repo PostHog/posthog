@@ -2334,6 +2334,36 @@ describe("AuthService", () => {
       });
     });
 
+    it("keeps the current access result on screen while a token refresh rechecks it", async () => {
+      let checks = 0;
+      let release!: () => void;
+      const pending = new Promise<Response>((resolve) => {
+        release = () => resolve(okBody({ allowed: true, reason: null }));
+      });
+      stubAuthFetch({
+        desktopAccessResponse: () => {
+          checks += 1;
+          if (checks === 1) return okBody({ allowed: true, reason: null });
+          return pending as unknown as Response;
+        },
+      });
+
+      await service.initialize();
+      expect(service.getState().desktopAccess.status).toBe("allowed");
+
+      const refresh = service.refreshAccessToken();
+      await vi.waitFor(() => expect(checks).toBe(2));
+      expect(service.getState().desktopAccess).toEqual({
+        projectId: 42,
+        status: "allowed",
+        reason: null,
+      });
+
+      release();
+      await refresh;
+      expect(service.getState().desktopAccess.status).toBe("allowed");
+    });
+
     it("rechecks access after selecting an eligible project", async () => {
       const orgs = {
         "org-1": {
