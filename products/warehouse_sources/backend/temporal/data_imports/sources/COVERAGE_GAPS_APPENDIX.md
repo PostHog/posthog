@@ -2621,6 +2621,16 @@ Diffed against: <https://raw.githubusercontent.com/e2b-dev/infra/main/spec/opena
 
 Note: E2B's public API is genuinely small (~20 GET-able paths, most of them template build plumbing or admin/api-key management). The source is static: E2B_ENDPOINTS in settings.py hardcodes /v2/sandboxes, /v2/templates and /snapshots with no dynamic discovery, and correctly uses the v2 sandbox listing (all states) rather than the running-only v1.
 
+## Easybill — gaps
+
+Today (7): `Customers`, `CustomerGroups`, `DocumentPayments`, `Documents`, `IncomingDocuments`, `Positions`, `Projects`
+
+Diffed against: <https://api.easybill.de/rest/v1/swagger.json>
+
+- [x] `incoming-documents (GET /rest/v1/incoming-documents)` — received supplier invoices and credit notes with extracted amounts, supplier, status and payments; the accounts-payable side of the accounting data (medium)
+
+Note: `/incoming-documents` is read-only and its only list filter is `created_at`, so it syncs full-refresh like `/customers` (a `created_at` cursor would miss later edits). The sub-resources `/incoming-documents/{id}/files` and `.../download` are file-download plumbing (binary/URLs), not warehouse-table material, so they were excluded rather than reported as gaps.
+
 ## Easypost — gaps
 
 Today (9): `addresses`, `batches`, `events`, `insurances`, `pickups`, `refunds`, `scan_forms`, `shipments`, `trackers`
