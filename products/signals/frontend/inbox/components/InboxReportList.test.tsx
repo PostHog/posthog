@@ -5,7 +5,7 @@ import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { INBOX_FLAT_TAB_LIST_PARAMS } from '../logics/reportListLogic'
+import { INBOX_FLAT_TAB_LIST_PARAMS, reportListLogic } from '../logics/reportListLogic'
 import { SignalReport, SignalReportStatus } from '../types'
 import { InboxReportList, InboxReportCardProps } from './InboxReportList'
 
@@ -107,5 +107,52 @@ describe('InboxReportList', () => {
 
         await screen.findByText('Report page-2')
         expect(requestedOffsets).toEqual(['0', '1'])
+    })
+
+    it('holds the empty state for a settled-zero tab while its list loads', async () => {
+        // The tab bar's `FlatTabCount` settles a tab's badge count to zero before it is opened. When
+        // the tab then mounts, the count is a known zero while the list request is still in flight.
+        // The tab is known-empty, so it must show the empty state — never blank into a 0-card
+        // skeleton for the length of that request.
+        let releaseList: () => void = () => {}
+        const listHeld = new Promise<void>((resolve) => {
+            releaseList = resolve
+        })
+        const emptyPage = { count: 0, next: null, previous: null, results: [] }
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/reports/available_reviewers': {},
+                '/api/projects/:team_id/signals/reports/': async ({ request }) => {
+                    const { searchParams } = new URL(request.url)
+                    // The badge count (`limit=1`) settles at zero right away.
+                    if (searchParams.get('limit') === '1') {
+                        return [200, emptyPage]
+                    }
+                    // Hold the list page so the mid-load render (list in flight, count already 0) is
+                    // observable rather than settling past.
+                    await listHeld
+                    return [200, emptyPage]
+                },
+            },
+        })
+
+        render(
+            <InboxReportList
+                tabKey="reports"
+                listParams={INBOX_FLAT_TAB_LIST_PARAMS.reports}
+                Card={StubCard}
+                emptyState={{ content: <div>empty</div> }}
+            />
+        )
+
+        await screen.findByText('empty')
+
+        // Release the held request and let it settle so nothing resolves after teardown.
+        act(() => releaseList())
+        await waitFor(() =>
+            expect(
+                reportListLogic({ tabKey: 'reports', listParams: INBOX_FLAT_TAB_LIST_PARAMS.reports }).values.isLoaded
+            ).toBe(true)
+        )
     })
 })

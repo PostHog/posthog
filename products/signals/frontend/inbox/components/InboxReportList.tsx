@@ -44,8 +44,17 @@ export function InboxReportList(props: InboxReportListProps): JSX.Element {
 }
 
 function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps): JSX.Element {
-    const { reports, count, totalCount, hasMore, reportsResponseLoading, isLoaded, loadedQueryKey, loadedContext } =
-        useValues(reportListLogic)
+    const {
+        reports,
+        count,
+        countLoading,
+        totalCount,
+        hasMore,
+        reportsResponseLoading,
+        isLoaded,
+        loadedQueryKey,
+        loadedContext,
+    } = useValues(reportListLogic)
     const { ensureLoaded, loadMore, archiveReport, restoreReport, refresh } = useActions(reportListLogic)
     const { hasActiveFilters, sourceProductFilter, priorityFilter, scope } = useValues(inboxFiltersLogic)
     // The list stays mounted (hidden) while a report/scout detail is open, so gate the view event on
@@ -178,10 +187,12 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
     )
     useEffect(() => () => observerRef.current?.disconnect(), [])
 
-    // Skeleton until the first response lands. Before the count or list request resolves `count` is
-    // null, and an empty `reports` can't be told apart from a still-loading tab — so gate on
-    // `count !== 0` to keep the empty state from flashing before `ensureLoaded()` starts the request.
-    const showSkeleton = !isLoaded && (reportsResponseLoading || count !== 0)
+    // Skeleton only while the tab might still hold contents: the badge count is unknown or in
+    // flight (`count` null / `countLoading`), or is positive. A settled zero count means the tab is
+    // empty — show the empty state at once and keep it stable while the list request confirms.
+    // Gating on `reportsResponseLoading` here would blank a known-empty tab into a 0-card skeleton
+    // for the length of that request.
+    const showSkeleton = !isLoaded && (countLoading || count !== 0)
 
     return (
         <div className="@container mx-auto max-w-4xl flex flex-col gap-4 px-6 py-4">
