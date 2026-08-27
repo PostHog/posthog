@@ -40,8 +40,9 @@ pub struct Args {
     /// How the release is associated with exceptions. `symbol-set`, the default, resolves a release
     /// (from the flags above or git) and binds it to every uploaded symbol set, so an exception
     /// takes the release of the symbol sets its frames resolved against. EXPERIMENTAL `event`
-    /// instead uploads the symbol sets release-independent: the release rides the event as
-    /// `$release_id`, which the SDK reports from `POSTHOG_RELEASE_ID` (posthog-rs 0.26+). So one
+    /// instead uploads new symbol sets release-independent (an already-bound symbol set keeps its
+    /// release): each exception carries the release as `$release_id`, which the SDK reports from
+    /// `POSTHOG_RELEASE_ID` (posthog-rs 0.26+). So one
     /// symbol set serves every release of an unchanged binary, and the release flags are not needed
     /// here — name the release with `posthog-cli release resolve` instead. Also settable via
     /// `POSTHOG_RELEASE_MODE`.
@@ -62,7 +63,6 @@ pub fn upload(args: &Args) -> Result<()> {
         include_source,
         release_mode,
     } = args;
-    let release_args = release.resolve_info_plist()?;
 
     let directory = directory.canonicalize().map_err(|e| {
         anyhow!(
@@ -116,6 +116,9 @@ pub fn upload(args: &Args) -> Result<()> {
         // Resolve a release (explicit flags win, git info is metadata/fallback) and stamp it on
         // every set, so an exception takes the release of the symbol sets it resolves against.
         ReleaseMode::SymbolSet => {
+            // Only this mode reads release metadata, so resolve the Info.plist here rather than up
+            // front — an event-mode upload never uses it and must not abort on a bad --info-plist.
+            let release_args = release.resolve_info_plist()?;
             let mut release_builder = ReleaseBuilder::default();
             if let Ok(Some(git_info)) = get_git_info(Some(directory.clone())) {
                 release_builder.with_git(git_info);
@@ -145,7 +148,7 @@ pub fn upload(args: &Args) -> Result<()> {
         ReleaseMode::Event => {
             info!(
                 "--release-mode=event: uploading symbol sets release-independent; the release is \
-                 carried on each event as $release_id (POSTHOG_RELEASE_ID)"
+                 carried on each exception as $release_id (POSTHOG_RELEASE_ID)"
             );
         }
     }
@@ -157,7 +160,7 @@ pub fn upload(args: &Args) -> Result<()> {
     let (_summary, upload_result) = api::symbol_sets::upload_with_retry(
         uploads,
         10,
-        release_args.skip_release_on_fail,
+        release.skip_release_on_fail,
         effective_force,
         conflict.skip_on_conflict,
     );

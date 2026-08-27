@@ -98,7 +98,7 @@ impl FileSelectionArgs {
 pub enum ReleaseMode {
     /// Bind the release to the uploaded symbol sets (the previous behavior)
     SymbolSet,
-    /// EXPERIMENTAL: resolve the release per event from an id injected into each chunk
+    /// EXPERIMENTAL: resolve the release per event, keeping the uploaded chunks release-independent
     Event,
 }
 
@@ -135,13 +135,12 @@ pub struct ReleaseArgs {
 
 #[derive(clap::Args, Clone, Default)]
 pub struct UploadConflictArgs {
-    /// Allow overwriting an existing symbol set whose content has changed. Always on with
-    /// `--release-mode=event`. [default: false]
+    /// Allow overwriting an existing symbol set whose content has changed. [default: false]
     #[arg(long, default_value_t = false, conflicts_with = "skip_on_conflict")]
     pub force: bool,
 
     /// Skip symbol sets that already exist with different content instead of failing.
-    /// Existing symbol sets are left unchanged. Ignored with `--release-mode=event`. [default: false]
+    /// Existing symbol sets are left unchanged. [default: false]
     #[arg(long, default_value_t = false, conflicts_with = "force")]
     pub skip_on_conflict: bool,
 }

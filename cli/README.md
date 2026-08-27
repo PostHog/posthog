@@ -118,14 +118,17 @@ Explicit `--release-name`, `--release-version`, and `--build` values take preced
 
 A web build injects `$release_id` into its bundle. A compiled binary has no bundle, so it reports the release from an environment variable instead.
 
-Upload the debug symbols with `--release-mode=event`, so the symbol sets upload **release-independent** — bound to no release. Then resolve the release, put its id in `POSTHOG_RELEASE_ID`, and run the app with that variable set:
+Upload the debug symbols with `--release-mode=event`, so newly created symbol sets upload **release-independent** — bound to no release. (An already-bound symbol set keeps its release: event mode does not detach existing bindings, so older builds keep resolving.) Then resolve the release, put its id in `POSTHOG_RELEASE_ID`, and run the app with that variable set:
 
 ```bash
 # Symbols, release-independent — no --release-name/--release-version needed here.
 posthog-cli symbol-sets upload --directory target/release --release-mode=event
 
-# The release is named here, and its id goes to the app.
-export POSTHOG_RELEASE_ID=$(posthog-cli release resolve --release-name my-app --release-version 1.4.0)
+# The release is named here, and its id goes to the app. Assign first, then export: `export
+# X=$(cmd)` takes export's own exit status, so a failing release resolve would slip through and
+# launch the app with an empty id.
+RELEASE_ID=$(posthog-cli release resolve --release-name my-app --release-version 1.4.0)
+export POSTHOG_RELEASE_ID=$RELEASE_ID
 ./my-app
 ```
 
