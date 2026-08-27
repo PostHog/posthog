@@ -33316,7 +33316,7 @@ export namespace Schemas {
     export interface FeatureFlagFilterPropertyGenericSchema {
       /** Property key used in this feature flag condition. */
       key: string;
-      /** Property filter type. Common values are 'person' and 'cohort'.
+      /** Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.
        *
        * * `cohort` - cohort
        * * `person` - person
@@ -33328,7 +33328,7 @@ export namespace Schemas {
          */
       cohort_name?: string | null;
       /**
-         * Group type index when using group-based filters.
+         * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
          * @nullable
          */
       group_type_index?: number | null;
@@ -33356,7 +33356,7 @@ export namespace Schemas {
     export interface FeatureFlagFilterPropertyExistsSchema {
       /** Property key used in this feature flag condition. */
       key: string;
-      /** Property filter type. Common values are 'person' and 'cohort'.
+      /** Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.
        *
        * * `cohort` - cohort
        * * `person` - person
@@ -33368,7 +33368,7 @@ export namespace Schemas {
          */
       cohort_name?: string | null;
       /**
-         * Group type index when using group-based filters.
+         * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
          * @nullable
          */
       group_type_index?: number | null;
@@ -33384,7 +33384,7 @@ export namespace Schemas {
     export interface FeatureFlagFilterPropertyDateSchema {
       /** Property key used in this feature flag condition. */
       key: string;
-      /** Property filter type. Common values are 'person' and 'cohort'.
+      /** Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.
        *
        * * `cohort` - cohort
        * * `person` - person
@@ -33396,7 +33396,7 @@ export namespace Schemas {
          */
       cohort_name?: string | null;
       /**
-         * Group type index when using group-based filters.
+         * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
          * @nullable
          */
       group_type_index?: number | null;
@@ -33439,7 +33439,7 @@ export namespace Schemas {
     export interface FeatureFlagFilterPropertySemverSchema {
       /** Property key used in this feature flag condition. */
       key: string;
-      /** Property filter type. Common values are 'person' and 'cohort'.
+      /** Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.
        *
        * * `cohort` - cohort
        * * `person` - person
@@ -33451,7 +33451,7 @@ export namespace Schemas {
          */
       cohort_name?: string | null;
       /**
-         * Group type index when using group-based filters.
+         * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
          * @nullable
          */
       group_type_index?: number | null;
@@ -33486,7 +33486,7 @@ export namespace Schemas {
     export interface FeatureFlagFilterPropertyMultiContainsSchema {
       /** Property key used in this feature flag condition. */
       key: string;
-      /** Property filter type. Common values are 'person' and 'cohort'.
+      /** Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.
        *
        * * `cohort` - cohort
        * * `person` - person
@@ -33498,7 +33498,7 @@ export namespace Schemas {
          */
       cohort_name?: string | null;
       /**
-         * Group type index when using group-based filters.
+         * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
          * @nullable
          */
       group_type_index?: number | null;
@@ -33546,7 +33546,7 @@ export namespace Schemas {
          */
       cohort_name?: string | null;
       /**
-         * Group type index when using group-based filters.
+         * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
          * @nullable
          */
       group_type_index?: number | null;
@@ -33592,7 +33592,7 @@ export namespace Schemas {
          */
       cohort_name?: string | null;
       /**
-         * Group type index when using group-based filters.
+         * Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.
          * @nullable
          */
       group_type_index?: number | null;
@@ -34315,6 +34315,8 @@ export namespace Schemas {
      * * `cold_run` - Cold Run
      * * `stale_refresh` - Stale Refresh
      * * `auto_refresh` - Auto Refresh
+     * * `experiment_config_change` - Experiment Config Change
+     * * `metric_config_change` - Metric Config Change
      * * `config_change` - Config Change
      * * `experiment_launch` - Experiment Launch
      * * `experiment_stop` - Experiment Stop
@@ -34329,6 +34331,8 @@ export namespace Schemas {
       ColdRun: 'cold_run',
       StaleRefresh: 'stale_refresh',
       AutoRefresh: 'auto_refresh',
+      ExperimentConfigChange: 'experiment_config_change',
+      MetricConfigChange: 'metric_config_change',
       ConfigChange: 'config_change',
       ExperimentLaunch: 'experiment_launch',
       ExperimentStop: 'experiment_stop',
@@ -34414,6 +34418,8 @@ export namespace Schemas {
        * * `cold_run` - Cold Run
        * * `stale_refresh` - Stale Refresh
        * * `auto_refresh` - Auto Refresh
+       * * `experiment_config_change` - Experiment Config Change
+       * * `metric_config_change` - Metric Config Change
        * * `config_change` - Config Change
        * * `experiment_launch` - Experiment Launch
        * * `experiment_stop` - Experiment Stop
@@ -72870,6 +72876,8 @@ export namespace Schemas {
        * * `cold_run` - Cold Run
        * * `stale_refresh` - Stale Refresh
        * * `auto_refresh` - Auto Refresh
+       * * `experiment_config_change` - Experiment Config Change
+       * * `metric_config_change` - Metric Config Change
        * * `config_change` - Config Change
        * * `experiment_launch` - Experiment Launch
        * * `experiment_stop` - Experiment Stop
@@ -87184,6 +87192,23 @@ export namespace Schemas {
       groupBy?: _MetricGroupBy[];
     }
 
+    export interface _MetricErrorSpike {
+      /** When the error spike was detected, ISO 8601. */
+      detected_at: string;
+      /** Error Tracking issue that spiked. */
+      issue_id: string;
+      /**
+         * Issue name, if one is set.
+         * @nullable
+         */
+      issue_name: string | null;
+    }
+
+    export interface _MetricErrorSpikesResponse {
+      /** Error Tracking issue spikes detected in the window, newest first. Team-wide: not yet scoped to a specific metric's service. */
+      results: _MetricErrorSpike[];
+    }
+
     /**
      * Per-emission attributes (high-cardinality labels on the data point).
      */
@@ -95606,6 +95631,17 @@ export namespace Schemas {
      * @maxLength 255
      */
     search?: string;
+    };
+
+    export type MetricsErrorSpikesRetrieveParams = {
+    /**
+     * Lower bound (inclusive) for the spike window. ISO 8601.
+     */
+    dateFrom: string;
+    /**
+     * Upper bound (exclusive) for the spike window. Defaults to now if omitted.
+     */
+    dateTo?: string;
     };
 
     export type MetricsValuesRetrieveParams = {
