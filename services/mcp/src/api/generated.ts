@@ -34315,6 +34315,8 @@ export namespace Schemas {
      * * `cold_run` - Cold Run
      * * `stale_refresh` - Stale Refresh
      * * `auto_refresh` - Auto Refresh
+     * * `experiment_config_change` - Experiment Config Change
+     * * `metric_config_change` - Metric Config Change
      * * `config_change` - Config Change
      * * `experiment_launch` - Experiment Launch
      * * `experiment_stop` - Experiment Stop
@@ -34329,6 +34331,8 @@ export namespace Schemas {
       ColdRun: 'cold_run',
       StaleRefresh: 'stale_refresh',
       AutoRefresh: 'auto_refresh',
+      ExperimentConfigChange: 'experiment_config_change',
+      MetricConfigChange: 'metric_config_change',
       ConfigChange: 'config_change',
       ExperimentLaunch: 'experiment_launch',
       ExperimentStop: 'experiment_stop',
@@ -34414,6 +34418,8 @@ export namespace Schemas {
        * * `cold_run` - Cold Run
        * * `stale_refresh` - Stale Refresh
        * * `auto_refresh` - Auto Refresh
+       * * `experiment_config_change` - Experiment Config Change
+       * * `metric_config_change` - Metric Config Change
        * * `config_change` - Config Change
        * * `experiment_launch` - Experiment Launch
        * * `experiment_stop` - Experiment Stop
@@ -72870,6 +72876,8 @@ export namespace Schemas {
        * * `cold_run` - Cold Run
        * * `stale_refresh` - Stale Refresh
        * * `auto_refresh` - Auto Refresh
+       * * `experiment_config_change` - Experiment Config Change
+       * * `metric_config_change` - Metric Config Change
        * * `config_change` - Config Change
        * * `experiment_launch` - Experiment Launch
        * * `experiment_stop` - Experiment Stop
