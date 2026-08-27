@@ -23,10 +23,11 @@ preserved, so there is no WAL gap and no re-sync.
 
 ## Before flipping
 
-0. The team runs the v3 pipeline for this source type. **The command refuses to flip a v2 team.**
-   Position resolution lives only in the v3 loader; on v2 nothing records a load position, so every
-   scheduled sync re-merges the entire buffer and no file is ever deleted — per-run row counts grow
-   with the buffer on every tick.
+0. Pipeline version needs no preparation: the scheduled sync forces the v3 pipeline for
+   buffered-consolidated schemas, because only the v3 loader records the load position that proves
+   buffer files consumed. The team's `warehouse-pipelines-v3` rollout flag neither enables nor
+   blocks the flip, and narrowing it later does not affect flipped sources. Do not flip while a
+   deploy is rolling out, so every worker already runs the forcing.
 1. `dwh-cdc-write-resolution` is on for the team. **The command refuses to flip without it.**
    Without the flag the loader records no load position, so no consumed file is ever proven safe to
    delete; the buffer then fills until the S3 TTL expires it, with the slot long advanced past those

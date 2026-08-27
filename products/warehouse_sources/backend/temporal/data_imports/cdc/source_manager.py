@@ -84,6 +84,19 @@ def is_buffered_consolidated(schema: ExternalDataSchema, *, ingest_mode: str) ->
     return ingest_mode == "buffered" and serves_buffered_lane(schema)
 
 
+def scheduled_sync_consumes_buffer(schema: ExternalDataSchema) -> bool:
+    """Whether this schema's scheduled sync consumes the S3 change buffer.
+
+    Doubles as the pipeline-version override: buffered consumption must run the v3 pipeline,
+    because only the v3 loader records the load position that proves buffer files consumed and
+    resolves versions and deletes. The team's general rollout flag cannot make that call (it can
+    neither see individual sources nor be trusted to stay wide after a flip), so the version
+    check consults this predicate before the flag.
+    """
+    ingest_mode = str((schema.source.job_inputs or {}).get("cdc_ingest_mode") or "legacy")
+    return is_buffered_consolidated(schema, ingest_mode=ingest_mode)
+
+
 def has_pending_legacy_backlog(schema: ExternalDataSchema) -> bool:
     """Whether legacy-lane deliveries for this schema are still in flight.
 

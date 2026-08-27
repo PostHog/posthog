@@ -510,6 +510,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 CheckPipelineVersionActivityInputs(
                     team_id=inputs.team_id,
                     source_id=inputs.external_data_source_id,
+                    schema_id=inputs.external_data_schema_id,
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=1),
                 retry_policy=RetryPolicy(maximum_attempts=1),
