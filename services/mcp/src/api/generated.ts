@@ -56601,6 +56601,11 @@ export namespace Schemas {
       /** @nullable */
       channel?: string | null;
       readonly slack_thread_references: readonly SlackThreadReferenceDTO[];
+      /**
+         * Stable key of the server-side flow that created this task, e.g. `desktop_onboarding_session:<user_id>`. Null for tasks people create themselves.
+         * @nullable
+         */
+      origin_key?: string | null;
     }
 
     export interface PaginatedTaskDetailDTOList {
