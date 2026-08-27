@@ -1,4 +1,5 @@
 from collections import Counter
+from collections.abc import Iterable
 from datetime import timedelta
 from typing import Any, Optional
 
@@ -133,6 +134,12 @@ class Command(BaseCommand):
                 reason=decision.reason,
             )
 
+    def _current_tiers(self, team_ids: Iterable[int]) -> dict[int, int]:
+        return {
+            row["team_id"]: row["email_sending_tier"]
+            for row in TeamWorkflowsConfig.objects.filter(team_id__in=team_ids).values("team_id", "email_sending_tier")
+        }
+
     def _report(
         self,
         *,
@@ -142,9 +149,14 @@ class Command(BaseCommand):
         applied: bool,
     ) -> None:
         moved_to = {decision.team_id: decision.new_tier for decision in decisions}
+        current_tiers = self._current_tiers(histories.keys())
         distribution: Counter[int] = Counter()
         for team_id in histories:
-            distribution[moved_to.get(team_id, MIN_EMAIL_SENDING_TIER)] += 1
+            # Report the tier the team would actually hold: the new tier if it moved, otherwise its
+            # stored tier, or the default 0 when it has no stored row yet. An unchanged or pinned
+            # team keeps its stored tier, so a re-run must not count it back down to tier 0.
+            effective_tier = moved_to.get(team_id, current_tiers.get(team_id, MIN_EMAIL_SENDING_TIER))
+            distribution[effective_tier] += 1
 
         sending_teams = len(histories)
         self.stdout.write(f"Read {days} days of history for {sending_teams} teams that sent workflow email.")
@@ -161,7 +173,7 @@ class Command(BaseCommand):
         self.stdout.write("")
 
         dirty = [team_id for team_id, history in histories.items() if not history.rates_are_clean]
-        self.stdout.write(f"Teams held at tier 0 by rates above the threshold: {len(dirty)}")
+        self.stdout.write(f"Teams with complaint or bounce rates above the threshold: {len(dirty)}")
         self.stdout.write(f"Teams whose tier would change: {len(decisions)}")
 
         if applied:
