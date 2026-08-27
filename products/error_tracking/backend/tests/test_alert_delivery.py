@@ -105,7 +105,7 @@ class TestAlertDeliveryPlanning(AlertTestMixin):
                 team=self.team,
                 alert=alert,
                 issue=self.issue,
-                destination=alert.destinations.first(),
+                destination=alert.destinations.get(),
             )
 
         planned = plan_alert_deliveries(self._inputs("$error_tracking_issue_resolved"))
@@ -122,7 +122,7 @@ class TestAlertDeliveryPlanning(AlertTestMixin):
                 team=self.team,
                 alert=alert,
                 issue=self.issue,
-                destination=alert.destinations.first(),
+                destination=alert.destinations.get(),
             )
 
         planned = plan_alert_deliveries(self._inputs("$error_tracking_issue_reopened"))
@@ -134,7 +134,7 @@ class TestAlertDeliveryPlanning(AlertTestMixin):
     def test_multi_destination_alert_plans_per_destination(self):
         alert = self._create_alert(triggers=["issue_created"])
         with team_scope(self.team.id):
-            first_destination = alert.destinations.first()
+            first_destination = alert.destinations.get()
             second_destination = alert.destinations.create(
                 team=self.team,
                 channel_type="slack",
