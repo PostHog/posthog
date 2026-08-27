@@ -1,41 +1,41 @@
 # CI: things already tried
 
-A lookup list for one question: **someone has an idea for CI or the dev environment. Was it already tried?**
+This file answers one question. **You have an idea for CI or the dev environment. Did someone try it before?**
 
-Most CI ideas here are good ideas. They were tried because they sounded right.
-The value of this file is the part that is expensive to rediscover: what happened when someone actually built it, and why the result did not match the pitch.
+Most of the ideas here are good ideas. People tried them because they sounded correct.
+This file records the part that costs the most to find again. It records what happened when someone built the idea, and why the result did not agree with the proposal.
 
-## How to use this
+## How to use this file
 
-Search before you build, not after.
+Search before you build.
 
 ```bash
 rg -i "xdist|parallel" docs/internal/ci-things-already-tried.md
 ```
 
-Entries are titled as the **proposal**, in the words someone would use to propose it.
-They are not titled by the symptom that eventually showed up.
-Each entry ends with _Also asked as_, which exists so a grep for different wording still lands.
+Each entry has the title of the **proposal**. The title uses the words that a person uses to propose the idea.
+The title does not use the symptom that appeared later.
+Each entry ends with _Also asked as_. This line gives other words for the same idea, so that a different search finds the entry.
 
-**A verdict is not a ban.** Every entry carries the date and the specific reason it failed.
-Read the reason and check whether it still holds. Runner sizes, prices, and tooling all move.
-If the blocker is gone, say so in the PR and try again.
+**A verdict is not a prohibition.** Each entry gives the date and the specific reason for the result.
+Read the reason. Then examine if the reason is still correct. Runner sizes, prices, and tools change.
+If the reason is no longer correct, write this in the PR and try the idea again.
 
 ## Verdicts
 
-| Verdict      | Meaning                                               |
-| ------------ | ----------------------------------------------------- |
-| `rejected`   | Built and measured. The result did not justify it.    |
-| `reverted`   | Shipped to master, then pulled back out.              |
-| `superseded` | The problem was real. A different approach solved it. |
-| `abandoned`  | Started, never finished. No verdict was ever reached. |
-| `open`       | Good idea, still unfinished. Worth picking up.        |
+| Verdict      | Meaning                                                         |
+| ------------ | --------------------------------------------------------------- |
+| `rejected`   | Someone built the idea and measured it. The result was too bad. |
+| `reverted`   | The change went to master. Then someone removed it.             |
+| `superseded` | The problem was real. A different solution replaced this one.   |
+| `abandoned`  | Someone started the work and stopped. There is no verdict.      |
+| `open`       | The idea is good. The work is incomplete. You can continue it.  |
 
-## Adding an entry
+## Add an entry
 
-Add one when you close a PR without merging it, or when you revert something.
-Title it as the idea. State the verdict, the date, and the measurement.
-One entry, five lines, is worth more than a design doc nobody opens.
+Add an entry when you close a PR and do not merge it. Add an entry when you revert a change.
+Give the entry the title of the idea. Then give the verdict, the date, and the measurement.
+An entry of five lines has more value than a design document that nobody opens.
 
 ---
 
@@ -45,14 +45,14 @@ One entry, five lines, is worth more than a design doc nobody opens.
 
 **Verdict: rejected** · Oct 2025 · [#38927](https://github.com/PostHog/posthog/pull/38927)
 
-Measured across 53 shards with `-n 4`.
-Wall time fell from about 15 minutes to about 9, a 42.8% speedup that was statistically solid.
-CPU cost rose from 1,572 to 3,908 core-minutes, about 2.5x.
+The test used 53 shards and `-n 4`.
+Wall time decreased from approximately 15 minutes to approximately 9 minutes. This is a speed increase of 42.8%, and the measurement is statistically strong.
+CPU cost increased from 1,572 to 3,908 core-minutes. This is a factor of approximately 2.5.
 
-The speedup was real. The price was the problem.
-Buying wall-clock with a 2.5x compute multiplier did not clear the bar.
+The speed increase is real. The cost is the problem.
+A factor of 2.5 in compute is too much for 3 minutes of wall time.
 
-`pytest-xdist` is still a dev dependency, so it works locally. It is not wired into the CI shards.
+`pytest-xdist` is still a development dependency, and it operates correctly on a local machine. CI does not use it in the shards.
 
 _Also asked as:_ parallelize tests within a shard, `-n auto`, use the idle cores on the runner, why is each shard single-process
 
@@ -60,26 +60,28 @@ _Also asked as:_ parallelize tests within a shard, `-n auto`, use the idle cores
 
 **Verdict: reverted** · Feb 2026 · [#46774](https://github.com/PostHog/posthog/pull/46774), reverted by [#46853](https://github.com/PostHog/posthog/pull/46853)
 
-Four shards were added to narrow the retry scope for flaky tests.
-The setup cost per shard was the thing that was missed: about 7.5 minutes, of which migrations alone are 3 minutes.
+The change added four shards. The purpose was a smaller retry set for unreliable tests.
 
-All 110 tests run in about 4 minutes with 6 workers.
-So 4 shards spent roughly 22 extra minutes of CPU per run to save about 3 minutes of wall clock.
+The setup cost of each shard is the item that the proposal did not include. Each shard needs approximately 7.5 minutes of setup. The migrations alone need 3 minutes.
 
-Retrying a shard also replays the 7.5 minute setup, so a "fast" shard retry was not much faster than rerunning everything.
+All 110 tests complete in approximately 4 minutes with 6 workers.
+Thus four shards used approximately 22 more minutes of CPU in each run, and decreased wall time by approximately 3 minutes.
 
-The workflow still carries an inline note pointing at this decision. See the `runs-on` comment in `.github/workflows/ci-e2e-playwright.yml`.
+A shard retry also repeats the 7.5 minutes of setup. Thus a retry of one shard is not much faster than a retry of all the tests.
+
+The workflow contains a comment about this decision. Read the comment near `runs-on` in `.github/workflows/ci-e2e-playwright.yml`.
 
 _Also asked as:_ split the E2E tests across runners, parallelize Playwright, reduce flaky retry scope by sharding
 
 ### Use Bazel to scope product tests
 
-**Verdict: abandoned** · opened Dec 2025, closed Mar 2026 · [#43397](https://github.com/PostHog/posthog/pull/43397)
+**Verdict: abandoned** · Dec 2025 to Mar 2026 · [#43397](https://github.com/PostHog/posthog/pull/43397)
 
-Products would opt into Bazel targets so a product-only change could skip the legacy pytest jobs.
-The branch went stale and was closed without a verdict, so this is not evidence that Bazel cannot work.
+Each product could select Bazel targets. Then a change to one product could skip the legacy pytest jobs.
 
-The same goal was met another way. Product tests moved to Turborepo in [#46971](https://github.com/PostHog/posthog/pull/46971), and file-level backend selection followed later.
+The branch became inactive, and the stale bot closed it. Nobody measured the result. Thus this entry is not evidence against Bazel.
+
+A different solution achieved the same goal. The product tests moved to Turborepo in [#46971](https://github.com/PostHog/posthog/pull/46971). File-level backend selection came later.
 
 _Also asked as:_ Bazel, build graph for test selection, only run tests for the product I changed
 
@@ -89,26 +91,26 @@ _Also asked as:_ Bazel, build graph for test selection, only run tests for the p
 
 **Verdict: reverted** · Mar 2026 · [#50137](https://github.com/PostHog/posthog/pull/50137), reverted by [#50181](https://github.com/PostHog/posthog/pull/50181)
 
-The filter left product backend changes to `contract-check`, which decides whether Django tests are needed.
+The filter gave the decision to `contract-check`. `contract-check` decides if the Django tests are necessary for a change in a product.
 
-That assumed products are isolated. Most were not.
-Core code imports product views, serializers, and models directly, through `posthog/api/__init__.py`, `posthog/tasks/`, and migrations.
-`contract-check` only watches facade files, so it could not see those crossings.
+This assumes that the products are isolated. Most products were not isolated.
+Core code imports product views, serializers, and models directly. It imports them through `posthog/api/__init__.py`, `posthog/tasks/`, and the migrations.
+`contract-check` examines only the facade files. Thus it cannot see these imports.
 
-The lesson generalizes: a path filter that skips tests is a claim about the import graph. Check the graph before making the claim.
+The rule is general. A path filter that skips tests makes a statement about the import graph. Examine the import graph before you make the statement.
 
 _Also asked as:_ narrow the backend paths filter, skip Django tests for product-only changes, trust contract-check
 
-### Certify a facade by reading its `__all__`
+### Certify a facade with its `__all__`
 
 **Verdict: superseded** · Jul 2026 · [#71127](https://github.com/PostHog/posthog/pull/71127), replaced by [#71486](https://github.com/PostHog/posthog/pull/71486)
 
-The detector tried to prove a facade does not re-export internals by inspecting `__all__`.
+The detector read `__all__` to prove that a facade does not re-export internal names.
 
-Two things broke it. The detector grew a new hole in every review round.
-More basically, most facade modules declare no `__all__` at all, so it could only ever certify the part of the surface that was advertised.
+Two problems stopped it. Each review round found a new gap in the detector.
+Also, most facade modules do not declare `__all__`. Thus the detector could certify only the part of the surface that the module declares.
 
-The replacement writes the rule into `products/architecture.md` and makes `contract-check` inputs narrow-or-nothing instead of a per-file glob list.
+The replacement puts the rule in `products/architecture.md`. It also makes the `contract-check` inputs narrow or absent, instead of a list of file globs.
 
 _Also asked as:_ detect facade leaks, check `__all__`, verify a product is really isolated
 
@@ -116,38 +118,38 @@ _Also asked as:_ detect facade leaks, check `__all__`, verify a product is reall
 
 **Verdict: superseded** · Apr 2026 · [#56370](https://github.com/PostHog/posthog/pull/56370)
 
-This collected the data rather than wiring the selection.
-52 shard artifacts were merged into a map of 28,322 tests over 3,691 production files, about 1.3M mappings.
+This PR collected the data. It did not connect the selection to CI.
+The merge of 52 shard artifacts gave a map of 28,322 tests over 3,691 production files. The map has approximately 1.3 million entries.
 
-The selectivity was strong: a single changed file triggered a median of 45 tests, a 99.8% skip rate.
+The selectivity was high. One changed file caused a median of 45 tests. This is a skip rate of 99.8%.
 
-Two findings matter more than the numbers.
-There were no high-confidence stale tests, so a testmon-driven cleanup had nothing to delete.
-And 1,020 tests appeared to touch no production code, but nearly all were false positives from mock-heavy async code, property-based tests, and migration-rule tests. Testmon cannot trace through those.
+Two results have more importance than these numbers.
+First, there were no stale tests with high confidence. Thus a cleanup from this data had nothing to delete.
+Second, 1,020 tests appeared to touch no production code. Almost all of these results are false. They come from code with many mocks, from property-based tests, and from tests of migration rules. Testmon cannot trace these paths.
 
-Backend test selection later shipped from a different mechanism. See [#85530](https://github.com/PostHog/posthog/pull/85530) and [#88265](https://github.com/PostHog/posthog/pull/88265).
+Backend test selection came later from a different mechanism. Read [#85530](https://github.com/PostHog/posthog/pull/85530) and [#88265](https://github.com/PostHog/posthog/pull/88265).
 
 _Also asked as:_ coverage-based test selection, testmon, find stale tests from coverage, only run affected tests
 
-### Disable pytest's `unraisableexception` and `threadexception` plugins
+### Disable the pytest `unraisableexception` and `threadexception` plugins
 
-**Verdict: open, and already approved** · Jul 2026 · [#70886](https://github.com/PostHog/posthog/pull/70886)
+**Verdict: open, and approved** · Jul 2026 · [#70886](https://github.com/PostHog/posthog/pull/70886)
 
-Every pytest session pays several full-heap `gc.collect()` passes at cleanup.
-Those plugins run them only to report `__del__` and thread exceptions as warnings.
-`addopts` already sets `-p no:warnings`, so those warnings can never become failures. The passes are pure teardown cost.
+Each pytest session runs several full-heap `gc.collect()` passes at cleanup.
+These plugins run the passes only to report `__del__` exceptions and thread exceptions as warnings.
+`addopts` already sets `-p no:warnings`. Thus these warnings cannot become failures, and the passes give no value.
 
-Measured on a fixed 320-test benchmark: 24.7s to 21.8s.
+A fixed benchmark of 320 tests decreased from 24.7 seconds to 21.8 seconds.
 
-The PR was reviewed and approved. It then went stale and closed without merging.
-It is worth reopening as-is.
+A reviewer approved the PR. The branch then became inactive, and the stale bot closed it.
+You can open this PR again without changes.
 
-This is the entry to read before reaching for a different fix to pytest teardown cost.
-A related attempt in [#88759](https://github.com/PostHog/posthog/pull/88759) tried to reorder a GC freeze around the same cost, by deleting the `gc.unfreeze()` in `pytest_unconfigure`.
-That unfreeze is not incidental. It was added in [#62707](https://github.com/PostHog/posthog/pull/62707) after the Temporal shards segfaulted with exit 139, and CI reproduced the same crash on #88759.
-Frozen objects skip the final cyclic collections of `Py_FinalizeEx`, so their finalizers run in late teardown, after extension modules are gone.
+Read this entry before you try a different solution for the pytest cleanup cost.
+[#88759](https://github.com/PostHog/posthog/pull/88759) tried a different solution. It deleted the `gc.unfreeze()` in `pytest_unconfigure`.
+That call is necessary. [#62707](https://github.com/PostHog/posthog/pull/62707) added it after the Temporal shards stopped with a segmentation fault and exit code 139. CI made the same crash again on #88759.
+Frozen objects do not get the final cyclic collections of `Py_FinalizeEx`. Thus their finalizers run late in the teardown, after Python removes the extension modules.
 
-_Also asked as:_ pytest teardown is slow, reduce gc.collect at session end, speed up pytest cleanup, why does the shard hang after tests pass
+_Also asked as:_ pytest teardown is slow, reduce gc.collect at session end, speed up pytest cleanup, why does the shard hang after the tests pass
 
 ## Docker and image builds
 
@@ -155,154 +157,154 @@ _Also asked as:_ pytest teardown is slow, reduce gc.collect at session end, spee
 
 **Verdict: rejected** · Oct 2025 · [#39700](https://github.com/PostHog/posthog/pull/39700)
 
-Cache mounts were added for apt, pip, uv, node, and Playwright, following Depot's published guidance.
+The change added cache mounts for apt, pip, uv, node, and Playwright. It followed the documented guidance from Depot.
 
-Measured against master with a warm cache, it was slower.
-Backend changes went from 52.7s to 57.5s, about 9% slower. Frontend changes went from 55.5s to 62.2s, about 12% slower.
+A measurement against master with a warm cache showed a slower build.
+A backend change increased from 52.7 to 57.5 seconds. This is approximately 9% slower. A frontend change increased from 55.5 to 62.2 seconds. This is approximately 12% slower.
 
-The reason is workload shape. Cache mounts add 5 to 7 seconds of overhead even on a hit, and they only pay off when dependencies change.
-About 95% of PRs change code, not dependencies. So the change taxed the common case to speed up the rare one.
+The workload is the reason. A cache mount adds 5 to 7 seconds of overhead, even when the cache has the data. A cache mount gives a benefit only when the dependencies change.
+Approximately 95% of PRs change code and do not change dependencies. Thus the change made the frequent case slower to make the rare case faster.
 
 _Also asked as:_ `--mount=type=cache`, speed up Docker builds, follow Depot cache best practices
 
-### Move source COPY to the end of the Dockerfile
+### Move the source COPY to the end of the Dockerfile
 
 **Verdict: rejected** · Oct 2025 · [#39695](https://github.com/PostHog/posthog/pull/39695)
 
-It was already there. The Dockerfile's layer order was already correct, so the change was a no-op.
+The source COPY was already at the end. The layer order in the Dockerfile was already correct. Thus the change did nothing.
 
-Worth remembering as a class of idea: confirm the current state before optimizing it.
+Remember this type of proposal. Examine the current state before you optimize it.
 
 _Also asked as:_ improve Docker layer caching, reorder Dockerfile layers
 
-### Chase Docker Hub credentials when CI hits pull rate limits
+### Examine the Docker Hub credentials when CI reports a pull rate limit
 
-**Verdict: superseded by the real cause** · Aug 2026 · [#81963](https://github.com/PostHog/posthog/pull/81963)
+**Verdict: the cause was different** · Aug 2026 · [#81963](https://github.com/PostHog/posthog/pull/81963)
 
-CI failed with `toomanyrequests: You have reached your unauthenticated pull rate limit`.
-At peak this hit roughly 45% of backend CI jobs, against a baseline of zero.
+CI failed with this message: `toomanyrequests: You have reached your unauthenticated pull rate limit`.
+At the maximum, this failure occurred in approximately 45% of the backend CI jobs. The usual rate is zero.
 
-The message points at authentication, and that is what made it expensive.
-`docker login` succeeded the whole time, and `Login Succeeded` was accurate.
+The message indicates an authentication problem. This is why the diagnosis took a long time.
+`docker login` was successful during all of this period, and the message `Login Succeeded` was correct.
 
-The actual cause was a Docker Hub **billing lapse**. A lapsed plan removes entitlement, so Docker issues anonymous-class pull tokens while still accepting the login.
+The true cause was a lapse in the Docker Hub subscription. A lapsed plan removes the entitlement. Docker then issues anonymous tokens for the pulls, but it continues to accept the login.
 
-If this wording appears again, check the plan status before re-plumbing secrets.
+If you see this message again, examine the subscription status before you change the secrets.
 
 _Also asked as:_ Docker Hub rate limit in CI, unauthenticated pull limit, DOCKERHUB secret is wrong
 
 ## CI orchestration
 
-### Skip Storybook and E2E on bot snapshot-only commits
+### Skip Storybook and E2E for snapshot-only commits from the bot
 
 **Verdict: reverted** · Mar 2026 · [#49997](https://github.com/PostHog/posthog/pull/49997), reverted by [#51212](https://github.com/PostHog/posthog/pull/51212)
 
-Shipped, then pulled back a week later.
+The change went to master. One week later, a revert removed it.
 
 _Also asked as:_ skip CI for snapshot commits, ignore bot commits in CI, don't rerun visual tests for the snapshot bot
 
-### Force-cancel backend CI when pytest hangs on cancellation
+### Force-cancel the backend CI run when pytest does not stop
 
 **Verdict: reverted** · Apr 2026 · [#54261](https://github.com/PostHog/posthog/pull/54261), reverted by [#54685](https://github.com/PostHog/posthog/pull/54685)
 
-A watchdog job was added to force-cancel a run when pytest would not exit.
-It lasted one day.
+The change added a watchdog job. The job cancels a run when pytest does not exit.
+The change stayed in master for one day.
 
 _Also asked as:_ cancel watchdog, kill hung CI jobs, pytest ignores SIGTERM
 
-### Add a CI step that nudges humans to self-assign on bot PRs
+### Add a CI step that asks a person to take a bot PR
 
 **Verdict: rejected** · Jun 2026 · [#62111](https://github.com/PostHog/posthog/pull/62111)
 
-Bot-authored PRs cannot be auto-assigned, since the bot account is not a team member.
-A CI step tried to nudge a human into claiming them.
+CI cannot assign a PR from a bot automatically, because the bot account is not a member of the team.
+The CI step asked a person to take the PR.
 
-It was dropped for a lighter approach. A CI step has to guess who is behind a bot PR.
-The agent opening the PR already knows, so the guidance moved into the PR template instead.
+A different solution replaced it. A CI step must guess which person controls a bot PR.
+The agent that opens the PR already knows this person. Thus the instruction moved to the PR template.
 
 _Also asked as:_ auto-assign bot PRs, find the human behind an agent PR, nudge for ownership
 
 ## Dev environment
 
-### Run a dmypy daemon for fast local type checking
+### Run a dmypy daemon for fast local type checks
 
 **Verdict: rejected** · Oct 2025 · [#39319](https://github.com/PostHog/posthog/pull/39319)
 
-A pre-commit hook used the daemon when it was already running, giving roughly 0.6 to 1.7s checks once warm.
+A pre-commit hook used the daemon if the daemon was already active. A warm daemon gives a check of approximately 0.6 to 1.7 seconds.
 
-The warm-up never got cheaper, so the first check still paid full cost.
-Starting the daemon from mprocs was tried too, and then commits hung while the daemon was still warming.
+The warm-up time did not decrease. Thus the first check still has the full cost.
+A start of the daemon from mprocs was also tested. The commits then stopped and waited, because the daemon was still warm.
 
 _Also asked as:_ dmypy, speed up mypy locally, type-check on commit, mypy daemon
 
-### Run `uv sync` on every flox re-activate
+### Run `uv sync` at each flox re-activation
 
 **Verdict: rejected** · Feb 2026 · [#49183](https://github.com/PostHog/posthog/pull/49183)
 
-Shell profiles would sync dependencies on every shell start, about 660ms when already current.
+The shell profiles synchronize the dependencies at each start of a shell. This needs approximately 660 ms when the dependencies are current.
 
-It was dropped as trying too hard. Profiles run in subshells too, so the cost is paid far more often than the problem occurs.
+The reason for the rejection is the frequency. The profiles also run in subshells. Thus the cost occurs much more frequently than the problem.
 
 _Also asked as:_ auto-sync deps, keep the venv current automatically, uv sync in the shell profile
 
-### Upgrade Python past what flox's uv can install
+### Upgrade Python to a version that the flox uv cannot install
 
 **Verdict: reverted** · Oct 2025 · [#40286](https://github.com/PostHog/posthog/pull/40286), reverted by [#40290](https://github.com/PostHog/posthog/pull/40290)
 
-3.12.12 needs uv 0.9.2 or newer. Flox pinned uv 0.8.23, which could only fetch up to 3.12.10.
-Anyone without 3.12.12 already installed could not build the environment.
+Python 3.12.12 needs uv 0.9.2 or later. Flox pinned uv 0.8.23, and that version can get Python 3.12.10 at the maximum.
+Thus a person without Python 3.12.12 on the local machine could not build the environment.
 
-The constraint is the shape to remember, not the versions. The repo is now on 3.13.13, so this specific pin is long gone.
-Before bumping Python, check what the flox-pinned uv can actually fetch.
+Remember the constraint, not the versions. The repository now uses Python 3.13.13, and this pin is obsolete.
+Before you increase the Python version, examine which versions the pinned flox uv can get.
 
 _Also asked as:_ bump Python, upgrade the interpreter, why is Python pinned to an exact version
 
-### Replace Unit and Uvicorn with Granian everywhere at once
+### Replace Unit and Uvicorn with Granian in one step
 
 **Verdict: superseded** · Oct 2025 · [#40450](https://github.com/PostHog/posthog/pull/40450), replaced by [#40847](https://github.com/PostHog/posthog/pull/40847)
 
-The straight swap was closed for a dual-mode version that defaults to Unit and enables Granian behind `USE_GRANIAN=true`.
-Same work, safer rollout. Granian is a dependency today.
+A dual-mode PR replaced the direct exchange. The dual mode keeps Unit as the default and starts Granian when `USE_GRANIAN=true`.
+The work is the same, and the rollout is safer. Granian is a dependency today.
 
 _Also asked as:_ migrate to Granian, replace Nginx Unit, unify the ASGI server
 
-### Swap the object storage service from MinIO to SeaweedFS
+### Change the object storage service from MinIO to SeaweedFS
 
-**Verdict: eventually shipped, after several failed attempts** · first attempt Mar 2026 · [#49827](https://github.com/PostHog/posthog/pull/49827)
+**Verdict: shipped, after several unsuccessful attempts** · first attempt Mar 2026 · [#49827](https://github.com/PostHog/posthog/pull/49827)
 
-Worth knowing that earlier attempts by other people also failed before this one.
-It has since landed. Both S3-compatible stores in the dev and CI stack are SeaweedFS now, and `AGENTS.md` treats new MinIO dependencies as off-limits.
+Other people made earlier attempts, and those attempts also failed.
+The change is complete now. The dev stack and CI use SeaweedFS for both S3-compatible stores. `AGENTS.md` prohibits new dependencies on MinIO.
 
-Read this entry as evidence that a repeatedly failed migration can still be the right call.
+This entry is evidence that a migration can be correct after several failures.
 
 _Also asked as:_ remove MinIO, SeaweedFS, replace the object storage container
 
 ## Product isolation
 
-### Use `logs` as the first product to isolate behind a facade
+### Use `logs` as the first product behind a facade
 
 **Verdict: superseded** · Jun 2026 · [#63184](https://github.com/PostHog/posthog/pull/63184)
 
-`logs` was picked as the field test. Core imported its models, query runner, celery task, and temporal wiring, so it was a genuinely hard case.
+`logs` was the first candidate for the field test. Core imports its models, its query runner, its celery task, and its temporal wiring. Thus `logs` is a difficult example.
 
-The field test moved to `web_analytics` in [#63535](https://github.com/PostHog/posthog/pull/63535), and the tooling and skill were consolidated in [#63193](https://github.com/PostHog/posthog/pull/63193).
-The note on closing was that `logs` can be re-cut from that tooling quickly if it is still wanted.
-The doctrine that came out of this line of work landed later, in [#71486](https://github.com/PostHog/posthog/pull/71486).
+The field test moved to `web_analytics` in [#63535](https://github.com/PostHog/posthog/pull/63535). [#63193](https://github.com/PostHog/posthog/pull/63193) collected the tools and the skill.
+The note at the closure says that the tools can isolate `logs` quickly, if the team still wants this.
+The doctrine from this work came later, in [#71486](https://github.com/PostHog/posthog/pull/71486).
 
 _Also asked as:_ which product should we isolate first, facade migration example, isolate logs
 
-## Splitting work into PRs
+## PR structure
 
-### Split closely coupled layers into separate stacked PRs
+### Put two closely coupled layers in two stacked PRs
 
-**Verdict: rejected for this case** · Aug 2026 · [#87643](https://github.com/PostHog/posthog/pull/87643), folded into [#87644](https://github.com/PostHog/posthog/pull/87644)
+**Verdict: rejected for this change** · Aug 2026 · [#87643](https://github.com/PostHog/posthog/pull/87643), merged into [#87644](https://github.com/PostHog/posthog/pull/87644)
 
-Two layers of a change read well as two stories but not as two diffs.
-Both rewrote the same four modules, sometimes the same lines.
-The upper layer deleted a block the lower layer was fixing, and re-signatured a function the lower layer was splitting.
+The two layers read well as two stories. They did not work as two diffs.
+Both layers changed the same four modules, and sometimes the same lines.
+The upper layer deleted a block that the lower layer corrected. It also changed the signature of a function that the lower layer divided.
 
-Every fix had to be replayed through those collisions, and the replay repeats on each restack.
+Each correction in the lower layer needed a repeat through these collisions. The repeat occurs again at each restack.
 
-Split by diff surface, not by narrative. If two layers touch the same lines, one PR is cheaper to review than two.
+Divide a change by its diff surface, not by its story. If two layers touch the same lines, one PR needs less review effort than two.
 
 _Also asked as:_ should I stack these, split this PR, break the change into reviewable layers
