@@ -21,6 +21,7 @@ checked against rather than a second copy of the same assumptions.
 from __future__ import annotations
 
 import datetime as dt
+import math
 from collections.abc import Mapping, Sequence
 from enum import StrEnum
 from typing import TypeVar
@@ -169,10 +170,16 @@ def _deduped_in_time_order(samples: Sequence[Sample]) -> list[Sample]:
     A series re-delivered by the collector arrives as two rows sharing a
     timestamp. That is one observation, so anything that adds samples together
     has to collapse it first or the total moves with delivery luck.
+
+    Non-finite readings are dropped, matching the runner's `isFinite` filter.
+    An ingest NaN/Inf is not a number: leaving it in would let it poison a
+    sum/`argMax` differently than the chart, and the two paths would report a
+    disagreement that is not a reduction bug.
     """
     by_timestamp: dict[dt.datetime, Sample] = {}
     for sample in sorted(samples, key=lambda s: s.timestamp):
-        by_timestamp.setdefault(sample.timestamp, sample)
+        if math.isfinite(sample.value):
+            by_timestamp.setdefault(sample.timestamp, sample)
     return list(by_timestamp.values())
 
 

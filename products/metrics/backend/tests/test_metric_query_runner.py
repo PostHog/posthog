@@ -977,6 +977,56 @@ class TestRateIncrease(ClickhouseTestMixin, APIBaseTest):
         rows = self._run("rate")
         self.assertEqual([row["value"] for row in rows], [0.5])
 
+    def test_duplicate_cumulative_sample_does_not_double_count(self):
+        # A collector re-delivery lands as a second row sharing a timestamp. Verified
+        # against real ClickHouse: the table's ORDER BY (...timestamp) makes the
+        # window function's equal-timestamp order physical, and MergeTree inserts are
+        # appended in arrival order, so a duplicate of the same reading diffs to 0.
+        # The counter total is NOT double-counted. This test pins that behavior.
+        self._seed_counter(
+            [
+                (self.anchor + dt.timedelta(seconds=0), 10.0),
+                (self.anchor + dt.timedelta(seconds=15), 20.0),
+                (self.anchor + dt.timedelta(seconds=15), 20.0),  # duplicate scrape, same reading
+                (self.anchor + dt.timedelta(seconds=30), 30.0),
+            ]
+        )
+        rows = self._run("increase")
+        self.assertEqual([row["value"] for row in rows], [20.0])
+
+    def test_reset_after_duplicate_is_still_detected(self):
+        # The identical duplicate diffs to 0 regardless of partition order, so the
+        # odometer reset on the next reading is still caught. Verified against ClickHouse.
+        self._seed_counter(
+            [
+                (self.anchor + dt.timedelta(seconds=0), 10.0),
+                (self.anchor + dt.timedelta(seconds=15), 20.0),
+                (self.anchor + dt.timedelta(seconds=15), 20.0),  # duplicate scrape
+                (self.anchor + dt.timedelta(seconds=30), 5.0),  # counter restarted
+                (self.anchor + dt.timedelta(seconds=45), 15.0),
+            ]
+        )
+        rows = self._run("increase")
+        # 0(first) + 10 + 5(reset post value) + 10 = 25
+        self.assertEqual([row["value"] for row in rows], [25.0])
+
+    def test_duplicate_delta_sample_does_not_double_count(self):
+        # A delta sample re-sent at the same timestamp is one increment delivered
+        # twice and must be counted once. The runner passes delta samples straight
+        # to sum() with no deduplication, so it counts both (returns 10, not 7).
+        # Verified against real ClickHouse 24.8 — this test fails until the delta
+        # path collapses duplicate timestamps the way the fundamentals reference does.
+        self._seed_counter(
+            [
+                (self.anchor + dt.timedelta(seconds=0), 3.0),
+                (self.anchor + dt.timedelta(seconds=0), 3.0),  # duplicate
+                (self.anchor + dt.timedelta(seconds=15), 4.0),
+            ],
+            aggregation_temporality="delta",
+        )
+        rows = self._run("increase")
+        self.assertEqual([row["value"] for row in rows], [7.0])
+
     def test_counter_reset_counts_post_reset_value(self):
         self._seed_counter(
             [

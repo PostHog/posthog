@@ -178,6 +178,28 @@ def _aggregation_expr(name: str, value: ast.Expr) -> ast.Expr:
     raise ValueError(f"Unsupported aggregation: {name!r}")
 
 
+def _series_value_expr(aggregation: str) -> ast.Expr:
+    """Collapse one series' in-bucket samples to that series' value — the inner
+    step of `value(bucket) = spatial(over each series: temporal(its samples))`.
+
+    Aggregations that plot the *current* level keep the latest reading
+    (`argMax`): a gauge sample is a re-reading, so a series scraped several
+    times in a bucket still contributes once, and a duplicate landing at the
+    newest timestamp is the same observation. `avg` is the outlier — the
+    readings inside a bucket are all real observations, so its per-series step
+    is their mean (`avg(value)`), matching the `AVG_OVER_TIME` reference in
+    `fundamentals`. Averaging series *after* collapsing each to its last
+    reading measured a different statistic and made the fundamentals check
+    disagree with every in-bucket-moving gauge.
+
+    Rows with a non-finite reading are dropped first: an ingest NaN/Inf is not
+    a number, and it must not be selectable by `argMax` or poison an average.
+    """
+    if aggregation == "avg":
+        return parse_expr("avg(value)")
+    return parse_expr("argMax(value, timestamp)")
+
+
 def _finite_or_none(value: float | None) -> float | None:
     """ClickHouse float aggregates can overflow to inf/-inf (or produce NaN);
     a non-finite value has no JSON representation and downstream renderers
@@ -538,11 +560,11 @@ class MetricQueryRunner:
         """sum/avg/count/p95: collapse each series to one value per bucket,
         then aggregate across series — PromQL instant-vector semantics.
 
-        The inner query takes each series' last sample in the bucket, so a
-        metric scraped ten times contributes once rather than ten times.
-        Aggregating raw rows instead multiplied the cross-series total by the
-        scrape count, and the multiplier moved with partial buckets and
-        dropped scrapes.
+        The inner query reduces each series to one value in the bucket (latest
+        reading, or its mean for `avg` — see `_series_value_expr`), so a metric
+        scraped ten times contributes once rather than ten times. Aggregating
+        raw rows instead multiplied the cross-series total by the scrape count,
+        and the multiplier moved with partial buckets and dropped scrapes.
 
         Two samples of one series sharing a timestamp (a duplicate scrape)
         make `argMax` pick between them arbitrarily; they are the same
@@ -562,11 +584,12 @@ class MetricQueryRunner:
                 FROM (
                     SELECT
                         toStartOfInterval(timestamp, {interval}) AS time,
-                        argMax(value, timestamp) AS series_value
+                        {series_value} AS series_value
                     FROM posthog.metrics
                     WHERE metric_name = {metric_name}
                       AND timestamp >= {date_from}
                       AND timestamp < {date_to}
+                      AND isFinite(value)
                       AND {filters}
                       AND {type_filter}
                     GROUP BY time
@@ -578,6 +601,7 @@ class MetricQueryRunner:
             placeholders={
                 "interval": _interval_expr(self.interval),
                 "aggregation": _aggregation_expr(self.aggregation, ast.Field(chain=["series_value"])),
+                "series_value": _series_value_expr(self.aggregation),
                 "metric_name": ast.Constant(value=self.metric_name),
                 "date_from": ast.Constant(value=self.date_from),
                 "date_to": ast.Constant(value=self.date_to),
@@ -612,6 +636,14 @@ class MetricQueryRunner:
           buckets too).
         - delta temporality: each sample already is the increase, so it
           contributes its own value.
+
+        The innermost read collapses duplicate timestamps to one reading per
+        series (`argMax`) before any diffing. A collector re-delivery lands as
+        a second row sharing a timestamp; that is one observed increment, not
+        two, so a delta series summing both would inflate the total in step
+        with delivery luck (the gauge path `-_build_simple_query` already
+        avoids this by collapsing to one reading per series). Rows with a
+        non-finite value are dropped for the same reason.
 
         `increase` sums contributions per bucket; `rate` divides by the
         bucket length in seconds.
@@ -652,12 +684,24 @@ class MetricQueryRunner:
                                 ORDER BY timestamp ASC
                                 ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING
                             ) AS prev_value
-                        FROM posthog.metrics
-                        WHERE metric_name = {metric_name}
-                          AND timestamp >= {scan_from}
-                          AND timestamp < {date_to}
-                          AND {filters}
-                          AND {type_filter}
+                        FROM (
+                            SELECT
+                                timestamp,
+                                service_name,
+                                resource_attributes,
+                                attributes,
+                                metric_type,
+                                any(aggregation_temporality) AS aggregation_temporality,
+                                argMax(value, timestamp) AS value
+                            FROM posthog.metrics
+                            WHERE metric_name = {metric_name}
+                              AND timestamp >= {scan_from}
+                              AND timestamp < {date_to}
+                              AND isFinite(value)
+                              AND {filters}
+                              AND {type_filter}
+                            GROUP BY timestamp, {series_key}
+                        )
                     )
                 )
                 WHERE sample_timestamp >= {date_from}
