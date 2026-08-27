@@ -113,7 +113,8 @@ def _rewrite_select_expr(expr: ast.Expr, alias: str) -> Optional[ast.Expr]:
         subchain = _person_subchain(first, alias)
         if subchain is None:
             return None
-        return ast.Call(name="any", args=[ast.Field(chain=subchain)])
+        # Table-qualified so an output alias like `AS created_at` cannot capture the field.
+        return ast.Call(name="any", args=[ast.Field(chain=["persons", *subchain])])
     return None
 
 
@@ -193,21 +194,41 @@ def _try_rewrite(node: ast.SelectQuery) -> Optional[ast.SelectQuery]:
     )
 
 
+# The rewrite reads `events` and emits `persons` and `person_distinct_ids`, all matched
+# by unresolved name, so a CTE shadowing any of them disqualifies the enclosed scope.
+_SHADOWABLE_NAMES = {"events", "persons", "person_distinct_ids"}
+
+
 class _PersonLookupRewriter(CloningVisitor):
     def __init__(self):
         super().__init__(clear_types=True, clear_locations=False)
         self._cte_scope_names: list[set[str]] = []
 
+    def _push_scope(self, names: set[str]):
+        self._cte_scope_names.append(names & _SHADOWABLE_NAMES)
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery):
+        # CTEs declared on one branch stay in SQL scope for the later set-operation
+        # branches, so hold every branch's names for the whole set traversal.
+        names: set[str] = set()
+        for select_query in node.select_queries():
+            if isinstance(select_query, ast.SelectQuery) and select_query.ctes:
+                names.update(select_query.ctes.keys())
+        self._push_scope(names)
+        try:
+            return super().visit_select_set_query(node)
+        finally:
+            self._cte_scope_names.pop()
+
     def visit_select_query(self, node: ast.SelectQuery):
         # The resolver inherits CTEs from enclosing scopes, so a subquery's `events` can
         # refer to an outer `WITH events AS (...)` rather than the real table.
-        events_shadowed = any("events" in names for names in self._cte_scope_names)
-        if not events_shadowed:
+        if not any(self._cte_scope_names):
             rewritten = _try_rewrite(node)
             if rewritten is not None:
                 tag_queries(person_lookup_rewrite=1)
                 return rewritten
-        self._cte_scope_names.append(set(node.ctes.keys()) if node.ctes else set())
+        self._push_scope(set(node.ctes.keys()) if node.ctes else set())
         try:
             return super().visit_select_query(node)
         finally:

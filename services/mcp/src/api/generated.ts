@@ -966,8 +966,6 @@ export namespace Schemas {
       personsOnEventsMode?: PersonsOnEventsMode | null;
       propertyGroupsMode?: PropertyGroupsMode | null;
       pushDownPredicates?: boolean | null;
-      /** Rewrite single-person lookups on events (person-only select, person.id/distinct_id equality filters, no time bound) to read the persons table instead of scanning event history */
-      rewritePersonEventLookups?: boolean | null;
       s3TableUseInvalidColumns?: boolean | null;
       /** Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter. */
       sessionIdPushdown?: boolean | null;
@@ -9343,12 +9341,19 @@ export namespace Schemas {
       display_label: string;
     }
 
+    /**
+     * @nullable
+     */
+    export type AlertCheckError = {[key: string]: string} | null;
+
     export interface AlertCheck {
       readonly id: string;
       readonly created_at: string;
       /** @nullable */
       readonly calculated_value: number | null;
       readonly state: AlertCheckStateEnum;
+      /** @nullable */
+      readonly error: AlertCheckError;
       readonly targets_notified: boolean;
       readonly anomaly_scores: unknown;
       readonly triggered_points: unknown;

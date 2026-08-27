@@ -220,8 +220,7 @@ class HogQLQueryExecutor:
         # In the no-override mode `person.id` matches raw event rows, so a merged-away
         # person's history is reachable there but absent from persons; skip that mode.
         if (
-            self.query_modifiers.rewritePersonEventLookups
-            and self.connection_id is None
+            self.connection_id is None
             and self.query_modifiers.personsOnEventsMode
             != PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
         ):

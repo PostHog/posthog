@@ -1,4 +1,5 @@
 from posthog.test.base import BaseTest, ClickhouseTestMixin
+from unittest import mock
 
 from parameterized import parameterized
 
@@ -67,14 +68,33 @@ class TestPersonLookupRewrite(BaseTest):
         assert "FROM persons" in result
         assert "persons.id" in result
 
-    def test_outer_cte_named_events_shadows_the_table(self):
-        # Printing is impossible here (the shadowed query cannot resolve `person`), which
-        # is the point: a retarget to persons would turn an invalid query into data.
+    @parameterized.expand([("id",), ("properties",), ("created_at",)])
+    def test_rewritten_select_fields_are_table_qualified_against_alias_capture(self, colliding_name):
+        result = self._transform(
+            f"select any(person.properties.email) as {colliding_name}, any(person.{colliding_name}) "
+            "from events where person.id = '019cf684-0000-0000-0000-000000000000'"
+        )
+        assert "FROM persons" in result
+        assert f"any(persons.{colliding_name}) FROM" in result
+
+    @parameterized.expand(
+        [
+            ("events", "person.id = '019cf684-0000-0000-0000-000000000000'"),
+            ("persons", "person.id = '019cf684-0000-0000-0000-000000000000'"),
+            ("person_distinct_ids", "distinct_id = 'abc'"),
+        ]
+    )
+    def test_outer_cte_shadowing_a_source_or_target_table_disables_the_rewrite(self, cte_name, predicate):
+        # `events` is what the rewrite reads; `persons` and `person_distinct_ids` are what
+        # it emits. A CTE with any of these names would capture the unresolved reference,
+        # so the lookup must stay on events. (Printing the events-shadowed variant is
+        # impossible — the CTE cannot resolve `person` — which is the point: a retarget
+        # would turn an invalid query into data.)
         node = rewrite_person_lookups(
             parse_select(
-                "with events as (select 1 as x) "
+                f"with {cte_name} as (select 1 as x) "
                 "select properties from "
-                "(select any(person.properties) as properties from events where person.id = '019cf684-0000-0000-0000-000000000000')"
+                f"(select any(person.properties) as properties from events where {predicate})"
             )
         )
         assert isinstance(node, ast.SelectQuery)
@@ -84,6 +104,38 @@ class TestPersonLookupRewrite(BaseTest):
         assert inner.select_from is not None
         assert isinstance(inner.select_from.table, ast.Field)
         assert inner.select_from.table.chain == ["events"]
+
+    def test_cte_on_one_union_branch_shadows_the_other_branches(self):
+        # The CTE attaches to the first branch's AST node, but stays in SQL scope for the
+        # whole set expression, so the later branch's `events` is the CTE too.
+        node = rewrite_person_lookups(
+            parse_select(
+                "with events as (select 1 as x) select x from events "
+                "union all "
+                "select any(person.properties) from events where person.id = '019cf684-0000-0000-0000-000000000000'"
+            )
+        )
+        assert isinstance(node, ast.SelectSetQuery)
+        later = node.subsequent_select_queries[0].select_query
+        assert isinstance(later, ast.SelectQuery)
+        assert later.select_from is not None
+        assert isinstance(later.select_from.table, ast.Field)
+        assert later.select_from.table.chain == ["events"]
+
+    def test_union_branches_rewrite_when_nothing_is_shadowed(self):
+        node = rewrite_person_lookups(
+            parse_select(
+                "select any(person.properties) from events where person.id = '019cf684-0000-0000-0000-000000000000' "
+                "union all "
+                "select any(person.properties) from events where person.id = '019cf684-1111-0000-0000-000000000000'"
+            )
+        )
+        assert isinstance(node, ast.SelectSetQuery)
+        for branch in node.select_queries():
+            assert isinstance(branch, ast.SelectQuery)
+            assert branch.select_from is not None
+            assert isinstance(branch.select_from.table, ast.Field)
+            assert branch.select_from.table.chain == ["persons"]
 
     @parameterized.expand(
         [
@@ -229,13 +281,11 @@ class TestPersonLookupRewrite(BaseTest):
 
 class TestPersonLookupRewriteExecution(ClickhouseTestMixin, BaseTest):
     def _lookup(self, person_uuid, rewrite: bool):
-        from posthog.schema import HogQLQueryModifiers
-
-        return execute_hogql_query(
-            f"select any(person.properties.email) from events where person.id = '{person_uuid}'",
-            team=self.team,
-            modifiers=HogQLQueryModifiers(rewritePersonEventLookups=rewrite),
-        ).results
+        query = f"select any(person.properties.email) from events where person.id = '{person_uuid}'"
+        if rewrite:
+            return execute_hogql_query(query, team=self.team).results
+        with mock.patch("posthog.hogql.query.rewrite_person_lookups", new=lambda node: node):
+            return execute_hogql_query(query, team=self.team).results
 
     @parameterized.expand([("one_event", 1), ("multiple_events", 3)])
     def test_lookup_parity_when_person_has_events(self, _name, event_count):
