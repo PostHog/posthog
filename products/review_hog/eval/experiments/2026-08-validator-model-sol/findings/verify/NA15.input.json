@@ -1,0 +1,12 @@
+{
+    "id": "NA15",
+    "file": "products/review_hog/backend/receivers.py",
+    "lines": "219-225",
+    "priority": "should_fix",
+    "title": "The queue callback imports the full Stamphog worker stack",
+    "problem": "This callback runs on the TaskRun save path. `queue_inbox_pr_review` imports `products.stamphog.backend.tasks.tasks` before it publishes the Celery message. That module loads the GitHub and Temporal clients at module scope. A clean post-setup import took about 0.6 seconds locally. Each web process pays this delay once and retains those modules.",
+    "suggestion": "Publish the task by its registered name with `current_app.send_task`, as other cross-product facades do. Alternatively, add a lightweight task wrapper that imports the handler only inside the Celery worker. Keep the live save path limited to message serialization and publication.",
+    "cluster": null,
+    "cluster_issue": null,
+    "cluster_verified": null
+}
