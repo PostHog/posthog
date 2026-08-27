@@ -5,10 +5,9 @@ from posthog.models.file_system.user_product_list import UserProductList
 
 @admin.register(UserProductList)
 class UserProductListAdmin(admin.ModelAdmin):
-    list_display = ("id", "user", "team", "product_path", "reason", "enabled", "updated_at")
+    list_display = ("id", "user", "team", "product_path", "enabled", "updated_at")
     list_display_links = ("id",)
     list_filter = (
-        "reason",
         "product_path",
         "enabled",
         ("created_at", admin.DateFieldListFilter),
@@ -22,8 +21,6 @@ class UserProductListAdmin(admin.ModelAdmin):
         "user",
         "team",
         "product_path",
-        "reason",
-        "reason_text",
         "enabled",
         "created_at",
         "updated_at",
@@ -39,7 +36,7 @@ class UserProductListAdmin(admin.ModelAdmin):
         (
             "Status",
             {
-                "fields": ["enabled", "reason", "reason_text"],
+                "fields": ["enabled"],
             },
         ),
         (

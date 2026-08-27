@@ -72,83 +72,10 @@ class TestPopulateUserProductListOp:
             assert entry is not None
             assert entry.product_path == "product_analytics"
             assert entry.enabled is True
-            assert entry.reason is None
 
             metadata = context.get_output_metadata("result")
             assert metadata["created"].value == 1
             assert metadata["skipped"].value == 0
-
-    @pytest.mark.django_db
-    def test_populate_with_reason(self):
-        org = Organization.objects.create(name="Test Org")
-        team = Team.objects.create(organization=org, name="Test Team")
-        user = User.objects.create(email="test@example.com", first_name="Test", allow_sidebar_suggestions=True)
-        user.join(organization=org)
-
-        with patch(
-            "products.growth.dags.user_product_list.get_valid_product_paths",
-            return_value={"product_analytics"},
-        ):
-            context = build_default_context(
-                op_config={
-                    "product_paths": ["product_analytics"],
-                    "reason": "product_intent",
-                }
-            )
-
-            populate_user_product_list(context)
-
-            entry = UserProductList.objects.get(user=user, team=team, product_path="product_analytics")
-            assert entry.reason == "product_intent"
-
-    @pytest.mark.django_db
-    def test_populate_with_reason_text(self):
-        org = Organization.objects.create(name="Test Org")
-        team = Team.objects.create(organization=org, name="Test Team")
-        user = User.objects.create(email="test@example.com", first_name="Test", allow_sidebar_suggestions=True)
-        user.join(organization=org)
-
-        with patch(
-            "products.growth.dags.user_product_list.get_valid_product_paths",
-            return_value={"product_analytics"},
-        ):
-            context = build_default_context(
-                op_config={
-                    "product_paths": ["product_analytics"],
-                    "reason": "product_intent",
-                    "reason_text": "You've been using this product frequently",
-                }
-            )
-
-            populate_user_product_list(context)
-
-            entry = UserProductList.objects.get(user=user, team=team, product_path="product_analytics")
-            assert entry.reason == "product_intent"
-            assert entry.reason_text == "You've been using this product frequently"
-
-    @pytest.mark.django_db
-    def test_populate_with_reason_text_only(self):
-        org = Organization.objects.create(name="Test Org")
-        team = Team.objects.create(organization=org, name="Test Team")
-        user = User.objects.create(email="test@example.com", first_name="Test", allow_sidebar_suggestions=True)
-        user.join(organization=org)
-
-        with patch(
-            "products.growth.dags.user_product_list.get_valid_product_paths",
-            return_value={"product_analytics"},
-        ):
-            context = build_default_context(
-                op_config={
-                    "product_paths": ["product_analytics"],
-                    "reason_text": "Custom message for user",
-                }
-            )
-
-            populate_user_product_list(context)
-
-            entry = UserProductList.objects.get(user=user, team=team, product_path="product_analytics")
-            assert entry.reason is None
-            assert entry.reason_text == "Custom message for user"
 
     @pytest.mark.django_db
     def test_populate_respects_allow_sidebar_suggestions_false(self):
@@ -251,7 +178,6 @@ class TestPopulateUserProductListOp:
             team=team,
             product_path="product_analytics",
             enabled=True,
-            reason="product_intent",
         )
 
         with patch(
@@ -261,7 +187,6 @@ class TestPopulateUserProductListOp:
             context = build_default_context(
                 op_config={
                     "product_paths": ["product_analytics"],
-                    "reason": "new_product",
                 }
             )
 
@@ -269,9 +194,6 @@ class TestPopulateUserProductListOp:
 
             entries = UserProductList.objects.filter(user=user, team=team, product_path="product_analytics")
             assert entries.count() == 1
-            entry = entries.first()
-            assert entry is not None
-            assert entry.reason == "product_intent"
 
             metadata = context.get_output_metadata("result")
             assert metadata["created"].value == 0
@@ -395,22 +317,6 @@ class TestPopulateUserProductListOp:
             )
 
             with pytest.raises(dagster.Failure, match="Invalid require_existing_product"):
-                populate_user_product_list(context)
-
-    @pytest.mark.django_db
-    def test_populate_fails_with_invalid_reason(self):
-        with patch(
-            "products.growth.dags.user_product_list.get_valid_product_paths",
-            return_value={"product_analytics"},
-        ):
-            context = build_default_context(
-                op_config={
-                    "product_paths": ["product_analytics"],
-                    "reason": "invalid_reason",
-                }
-            )
-
-            with pytest.raises(Exception):  # Dagster will fail at config validation time
                 populate_user_product_list(context)
 
     @pytest.mark.django_db
@@ -790,7 +696,6 @@ class TestPopulateUserProductListJob:
                         "populate_user_product_list": {
                             "config": {
                                 "product_paths": ["product_analytics"],
-                                "reason": "product_intent",
                             }
                         }
                     }
@@ -800,8 +705,7 @@ class TestPopulateUserProductListJob:
 
             assert result.success
 
-            entry = UserProductList.objects.get(user=user, team=team, product_path="product_analytics")
-            assert entry.reason == "product_intent"
+            assert UserProductList.objects.filter(user=user, team=team, product_path="product_analytics").exists()
 
     @pytest.mark.django_db
     def test_job_respects_allow_sidebar_suggestions(self):

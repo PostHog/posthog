@@ -40,7 +40,6 @@ class TestUserProductList(BaseTest):
         assert {row.product_path for row in rows} == set(DEFAULT_PRODUCT_PATHS)
         for row in rows:
             assert row.enabled is True
-            assert row.reason == UserProductList.Reason.DEFAULT
 
     def test_add_default_products_leaves_existing_rows_untouched(self):
         user = User.objects.create_user(email="user@posthog.com", password="password", first_name="User")
@@ -50,7 +49,6 @@ class TestUserProductList(BaseTest):
             team=self.team,
             product_path="Product analytics",
             enabled=False,
-            reason=UserProductList.Reason.PRODUCT_INTENT,
         )
 
         created_items = add_default_products_for_user(user, self.team)
@@ -58,7 +56,6 @@ class TestUserProductList(BaseTest):
         assert "Product analytics" not in {item.product_path for item in created_items}
         existing = UserProductList.objects.get(user=user, team=self.team, product_path="Product analytics")
         assert existing.enabled is False
-        assert existing.reason == UserProductList.Reason.PRODUCT_INTENT
 
         add_default_products_for_user(user, self.team)
         assert UserProductList.objects.filter(user=user, team=self.team).count() == len(DEFAULT_PRODUCT_PATHS)
@@ -74,7 +71,6 @@ class TestUserProductList(BaseTest):
         assert {row.product_path for row in rows} == set(DEFAULT_PRODUCT_PATHS)
         for row in rows:
             assert row.enabled is True
-            assert row.reason == UserProductList.Reason.DEFAULT
 
     def test_sync_cross_sell_products_suggests_same_category_or_favored(self):
         user = User.objects.create_user(
@@ -93,7 +89,6 @@ class TestUserProductList(BaseTest):
 
         assert len(created_items) == 1
         for item in created_items:
-            assert item.reason == UserProductList.Reason.USED_SIMILAR_PRODUCTS
             assert item.enabled is True
             assert item.product_path in valid_candidates
             assert item.product_path != "Product analytics"
@@ -287,7 +282,6 @@ class TestUserProductList(BaseTest):
 
         assert {item.product_path for item in created_items} == {"Session replay", "Surveys"}
         for item in created_items:
-            assert item.reason == UserProductList.Reason.USED_BY_COLLEAGUES
             assert item.enabled is True
 
     def test_sync_from_team_colleagues_ranks_by_counts_and_respects_limit(self):
@@ -371,11 +365,3 @@ class TestUserProductList(BaseTest):
             {"product_path": "Product analytics", "colleague_count": 2},
             {"product_path": "Feature flags", "colleague_count": 1},
         ]
-
-    def test_user_product_list_reason_enum_matches_backend(self):
-        from posthog.schema import UserProductListReason
-
-        backend_reasons = {key for key, _ in UserProductList.Reason.choices}
-        schema_reasons = {value for _, value in UserProductListReason.__members__.items()}
-
-        assert backend_reasons == schema_reasons, "Backend reasons do not match schema reasons"

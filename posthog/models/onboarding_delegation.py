@@ -135,11 +135,7 @@ def _seed_sidebar_for_delegator(*, user_id: int, organization_id: UUID | str) ->
             team = Team.objects.filter(organization_id=organization_id).order_by("id").first()
         if team is None:
             return
-        UserProductList.enable_all_for_user(
-            user=user,
-            team=team,
-            reason=UserProductList.Reason.ONBOARDING_DELEGATED,
-        )
+        UserProductList.enable_all_for_user(user=user, team=team)
     except Exception as exc:  # noqa: BLE001 - sidebar seeding must never block delegation
         capture_exception(exc)
         # Pair the Sentry capture with an indexable structured log so ops can correlate

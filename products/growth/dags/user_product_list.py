@@ -65,15 +65,6 @@ class PopulateConfig(dagster.Config):
         default=[],
         description="List of product paths to add to users' product lists",
     )
-    reason: str | None = pydantic.Field(
-        default=None,
-        description="Reason for creating UserProductList entries",
-        examples=UserProductList.Reason.values,
-    )
-    reason_text: str | None = pydantic.Field(
-        default=None,
-        description="Optional freeform text to be displayed to the user on hover",
-    )
     require_existing_product: str | None = pydantic.Field(
         default=None,
         description="Only create entries for users who already have this product enabled in their UserProductList",
@@ -96,8 +87,6 @@ def populate_user_product_list(
 ) -> None:
     """
     Populate UserProductList with configurable options:
-    - Set a specific reason for created entries
-    - Set optional reason_text for display to users
     - Only create for users who have a specific product enabled
     - Filter by role_at_organization (e.g., 'engineering', 'data', 'product')
     - Filter by emails from an S3 URL (s3://bucket/key) containing one email per line
@@ -116,11 +105,6 @@ def populate_user_product_list(
         raise dagster.Failure(
             f"Invalid require_existing_product: {config.require_existing_product}. Valid options: {sorted(valid_paths)}"
         )
-
-    # Validate reason if provided
-    if config.reason:
-        if config.reason not in UserProductList.Reason.values:
-            raise dagster.Failure(f"Invalid reason: {config.reason}. Valid options: {UserProductList.Reason.values}")
 
     # Validate role_at_organization if provided
 
@@ -188,11 +172,7 @@ def populate_user_product_list(
                     team=team,
                     user=user,
                     product_path=product_path,
-                    defaults={
-                        "enabled": True,
-                        "reason": config.reason,
-                        "reason_text": config.reason_text,
-                    },
+                    defaults={"enabled": True},
                 )
 
                 if created:
@@ -212,7 +192,6 @@ def populate_user_product_list(
             "created": dagster.MetadataValue.int(created_count),
             "skipped": dagster.MetadataValue.int(skipped_count),
             "total_products": dagster.MetadataValue.int(len(config.product_paths)),
-            "reason": dagster.MetadataValue.text(config.reason or "None"),
         }
     )
 
@@ -222,8 +201,6 @@ def populate_user_product_list_job():
     """
     Add products to users' product lists with configurable options.
     - product_paths: List of product paths to add (required)
-    - reason: Optional reason from UserProductList.Reason
-    - reason_text: Optional freeform text to display to users on hover
     - require_existing_product: Only add for users who have this product enabled
     - role_at_organization: Only process users with this role (e.g., 'engineering', 'data')
     - email_filter_s3_url: S3 URL (s3://bucket/key) to a file containing emails (one per line) to filter users by

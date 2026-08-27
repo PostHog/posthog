@@ -183,25 +183,19 @@ class ErrorIssueList(RootModel):
     root: list[DigestErrorIssue]
 
 
-PRODUCT_SUGGESTION_REASON_DEFAULTS: dict[str, str] = {
-    "new_product": "This is a brand new product. Give it a try!",
-    "sales_led": "This product is recommended for you by our team.",
-}
+# Shown when the campaign carries no hand-written promo copy. Mirrors the nav card's
+# DEFAULT_PRODUCT_PUSH_DISPLAY tagline so both surfaces say the same thing.
+DEFAULT_PRODUCT_SUGGESTION_TEXT = "We think your organization would get a lot out of this product. Give it a try!"
 
 
 class DigestProductSuggestion(BaseModel):
     team_id: int
     product_path: str  # This is the product name (e.g., "Product analytics")
-    reason: str | None
     reason_text: str | None
 
-    def get_readable_reason_text(self) -> str | None:
-        """Returns human-readable reason text for email interpolation."""
-        if self.reason_text:
-            return self.reason_text
-        if self.reason:
-            return PRODUCT_SUGGESTION_REASON_DEFAULTS.get(self.reason)
-        return None
+    def get_readable_reason_text(self) -> str:
+        """Returns human-readable suggestion copy for email interpolation."""
+        return self.reason_text or DEFAULT_PRODUCT_SUGGESTION_TEXT
 
 
 # mypy and ruff do not agree about TypeAlias
