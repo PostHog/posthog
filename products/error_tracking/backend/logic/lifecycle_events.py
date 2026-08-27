@@ -10,7 +10,6 @@ import json
 from typing import Any, Optional
 
 from django.db import transaction
-from django.utils import timezone
 
 import structlog
 
@@ -65,10 +64,11 @@ def produce_issue_lifecycle_event_on_commit(
     # Snapshot everything now: the issue row may be mutated again (or deleted, for
     # merge sources) before the surrounding transaction commits.
     team_id = issue.team_id
-    # Destination message templates deep-link issues via `fingerprint` plus
-    # `exception_timestamp` (see the error tracking sub-templates). Manual
-    # transitions have no triggering exception, so any of the issue's
-    # fingerprints and the transition time keep those links working.
+    # Destination message templates deep-link issues via `fingerprint` (see the
+    # error tracking sub-templates). Manual transitions have no triggering
+    # exception, so any of the issue's fingerprints keeps those links working;
+    # `exception_timestamp` stays absent so the issue scene falls back to the
+    # issue's latest exception instead of an empty window around the mutation.
     fingerprint = (
         ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team_id, issue_id=issue.id)
         .values_list("fingerprint", flat=True)
@@ -78,7 +78,6 @@ def produce_issue_lifecycle_event_on_commit(
         "name": issue.name,
         "description": issue.description,
         "status": status_label(status if status is not None else issue.status),
-        "exception_timestamp": timezone.now().isoformat(),
         **({"fingerprint": fingerprint} if fingerprint is not None else {}),
         **(extra_properties or {}),
     }

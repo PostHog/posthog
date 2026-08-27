@@ -524,9 +524,10 @@ class TestErrorTracking(APIBaseTest):
         assert event.distinct_id == str(issue.id)
         assert event.properties["status"] == status_prop
         assert event.properties["previous_status"] == previous_prop
-        # Destination templates deep-link issues from these two properties.
+        # Destination templates deep-link issues from the fingerprint; no
+        # exception_timestamp, so the issue scene falls back to the latest event.
         assert event.properties["fingerprint"] == "lifecycle_fingerprint"
-        assert event.properties["exception_timestamp"] is not None
+        assert "exception_timestamp" not in event.properties
         assert kwargs["person"].id == str(self.user.id)
 
     def test_issue_update_without_status_transition_produces_no_lifecycle_event(self):
