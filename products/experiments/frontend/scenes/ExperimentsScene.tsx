@@ -27,7 +27,6 @@ import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { pluralize } from 'lib/utils/strings'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { CONCLUSION_DISPLAY_CONFIG } from 'scenes/experiments/constants'
-import { CopyExperimentToProjectModal } from 'scenes/experiments/CopyExperimentToProjectModal'
 import { DuplicateExperimentModal } from 'scenes/experiments/DuplicateExperimentModal'
 import {
     canArchiveExperiment,
@@ -56,6 +55,7 @@ import {
     ExperimentsTabs,
 } from '~/types'
 
+import { CopyExperimentToProjectModal } from 'products/experiments/frontend/components/CopyExperimentToProjectModal'
 import { ExperimentVelocityStats } from 'products/experiments/frontend/components/ExperimentVelocityStats'
 import { StatusTag } from 'products/experiments/frontend/components/StatusTag'
 import { experimentsEmptyState } from 'products/experiments/frontend/emptyState/experimentsEmptyState'
