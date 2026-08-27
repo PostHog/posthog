@@ -197,6 +197,36 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual({insight["id"] for insight in response_env_current["results"]}, {insight_a.id, insight_b.id})
         self.assertEqual({insight["id"] for insight in response_env_other["results"]}, {insight_a.id, insight_b.id})
 
+    def _expected_capture_properties(self, short_id: str) -> dict[str, Any]:
+        return {
+            "$current_url": "https://posthog.com/my-referer",
+            "$host": "posthog.com",
+            "$pathname": "/my-referer",
+            "$session_id": "my-session-id",
+            "source": "web",
+            "was_impersonated": False,
+            "access_method": None,
+            "user_agent": None,
+            "mcp_user_agent": None,
+            "mcp_client_name": None,
+            "mcp_client_version": None,
+            "mcp_protocol_version": None,
+            "mcp_oauth_client_name": None,
+            "insight_id": short_id,
+            # The insight carries a query, so the event reports what the query is.
+            "query_kind": "InsightVizNode",
+            "query_source_kind": "TrendsQuery",
+            "series_length": 1,
+            "event_entity_count": 1,
+            "action_entity_count": 0,
+            "data_warehouse_entity_count": 0,
+            "has_properties": False,
+            "filter_test_accounts": False,
+            "breakdown_type": "event",
+            "has_formula": False,
+            "$set_once": {"email": self.user.email},
+        }
+
     @patch("posthoganalytics.capture")
     def test_created_updated_and_last_modified(self, mock_capture: mock.Mock) -> None:
         alt_user = User.objects.create_and_join(self.organization, "team2@posthog.com", None)
@@ -245,34 +275,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             mock_capture.assert_any_call(
                 distinct_id=self.user.distinct_id,
                 event="insight created",
-                properties={
-                    "$current_url": "https://posthog.com/my-referer",
-                    "$host": "posthog.com",
-                    "$pathname": "/my-referer",
-                    "$session_id": "my-session-id",
-                    "source": "web",
-                    "was_impersonated": False,
-                    "access_method": None,
-                    "user_agent": None,
-                    "mcp_user_agent": None,
-                    "mcp_client_name": None,
-                    "mcp_client_version": None,
-                    "mcp_protocol_version": None,
-                    "mcp_oauth_client_name": None,
-                    "insight_id": response_1.json()["short_id"],
-                    # The insight now carries a query, so the event reports what it is.
-                    "query_kind": "InsightVizNode",
-                    "query_source_kind": "TrendsQuery",
-                    "series_length": 1,
-                    "event_entity_count": 1,
-                    "action_entity_count": 0,
-                    "data_warehouse_entity_count": 0,
-                    "has_properties": False,
-                    "filter_test_accounts": False,
-                    "breakdown_type": "event",
-                    "has_formula": False,
-                    "$set_once": {"email": self.user.email},
-                },
+                properties=self._expected_capture_properties(response_1.json()["short_id"]),
                 groups=ANY,
                 send_feature_flags=False,
             )
@@ -304,23 +307,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             mock_capture.assert_any_call(
                 distinct_id=self.user.distinct_id,
                 event="insight updated",
-                properties={
-                    "$current_url": "https://posthog.com/my-referer",
-                    "$host": "posthog.com",
-                    "$pathname": "/my-referer",
-                    "$session_id": "my-session-id",
-                    "source": "web",
-                    "was_impersonated": False,
-                    "access_method": None,
-                    "user_agent": None,
-                    "mcp_user_agent": None,
-                    "mcp_client_name": None,
-                    "mcp_client_version": None,
-                    "mcp_protocol_version": None,
-                    "mcp_oauth_client_name": None,
-                    "insight_id": insight_short_id,
-                    "$set_once": {"email": self.user.email},
-                },
+                properties=self._expected_capture_properties(insight_short_id),
                 groups=ANY,
                 send_feature_flags=False,
             )
