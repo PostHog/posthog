@@ -100,6 +100,12 @@
   dockerfile: ./rust/Dockerfile
   project: wb2br45dsr # pg-monitoring
 
+# API + MCP server over the pgcollector stats database (Postgres telemetry).
+# Internal, edge-authenticated (Cognito ingress + Tailscale whois). See rust/pgapi.
+- image: pgapi
+  dockerfile: ./rust/Dockerfile
+  project: wb2br45dsr # pg-monitoring
+
 - image: kafka-deduplicator
   dockerfile: ./rust/Dockerfile
   project: vznmbshh6q
