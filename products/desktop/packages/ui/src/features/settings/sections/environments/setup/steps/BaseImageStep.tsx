@@ -39,7 +39,7 @@ export function BaseImageStep({
   return (
     <StepBody
       title="Base image"
-      description="What every session in this environment boots from."
+      description="What every session in this environment boots from"
     >
       <RadioCards<BaseImageChoice>
         ariaLabel="Base image"
