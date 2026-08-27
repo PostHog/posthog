@@ -22,7 +22,6 @@ from products.error_tracking.backend.models import (
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueFingerprintV2,
 )
-from products.error_tracking.backend.temporal.alerts.dispatch import start_alert_delivery_workflow
 
 logger = structlog.get_logger(__name__)
 
@@ -141,12 +140,21 @@ def produce_issue_lifecycle_event_on_commit(
         actor_email = user.email
 
     def _produce() -> None:
+        # Importing the dispatcher pulls in the temporal package aggregator, which
+        # loads every worker-only workflow module; keep it off the web import path.
+        from products.error_tracking.backend.temporal.alerts.dispatch import (  # noqa: PLC0415
+            start_alert_delivery_workflow,
+        )
+
         try:
             produce_internal_event(team_id=team_id, event=internal_event, person=person)
         except Exception:
             # Already logged by produce_internal_event; alert emission must never
             # fail the mutation that triggered it.
             pass
+        # Dispatch is deliberately synchronous here: it is double-gated (alert rows,
+        # then flag), swallows every failure, and only flagged teams with alerts pay
+        # the cost. A queued dispatch is planned before any broad rollout.
         status_property = properties.get("status")
         assignee_property_value = properties.get("assignee")
         start_alert_delivery_workflow(

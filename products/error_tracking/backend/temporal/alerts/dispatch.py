@@ -23,6 +23,17 @@ from products.error_tracking.backend.temporal.alerts.workflow import WORKFLOW_NA
 
 logger = structlog.get_logger(__name__)
 
+# Issue names/descriptions are unbounded text; notifications only need a headline,
+# and an oversized Temporal payload (~2 MiB cap) would silently skip the alert.
+MAX_ISSUE_NAME_LENGTH = 500
+MAX_ISSUE_DESCRIPTION_LENGTH = 5000
+
+
+def _truncate(value: str | None, limit: int) -> str | None:
+    if value is None or len(value) <= limit:
+        return value
+    return value[: limit - 1] + "…"
+
 
 def start_alert_delivery_workflow(
     *,
@@ -52,8 +63,8 @@ def start_alert_delivery_workflow(
             team_id=team_id,
             issue_id=issue_id,
             event=event,
-            issue_name=issue_name,
-            issue_description=issue_description,
+            issue_name=_truncate(issue_name, MAX_ISSUE_NAME_LENGTH),
+            issue_description=_truncate(issue_description, MAX_ISSUE_DESCRIPTION_LENGTH),
             status=status,
             assignee=assignee,
             actor_email=actor_email,
