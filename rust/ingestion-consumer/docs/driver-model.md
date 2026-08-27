@@ -164,7 +164,7 @@ State transitions split across two single-threaded tasks — the domain's on the
 
 1. **Poll delivered** — the loop obtains an accumulator and lends it down with the poll: the partition drivers add the offsets to their ledgers and push the demuxed groups into the buffer. The cascade returns; the loop releases the accumulator to the batcher.
 2. **Completion received** — the loop drains one completion (an ACKed request's groups) and hands it to the partition manager: ledgers complete, frontiers advance, and every advance goes straight to the commit manager (`progress`), which issues on its own algorithm. No accumulator here — completions produce no new work for the transport. A `Drained` marker on the same channel ends a partition's drain instead: `finish_revoke`, then unassign (§4.5).
-3. **Housekeeping tick** — the loop's one clock: give the commit manager its clock (`tick` — it issues if its own delay is up, refunding the retired work) and check the partition drivers' stall deadlines. These jobs exist because they must run when *no* events arrive — commits must land at low traffic to keep the replay window small, and a stall watchdog by definition fires on the absence of progress.
+3. **Housekeeping tick** — the loop's one clock: give the commit manager its clock (`tick` — it issues if its own delay is up, refunding the charge of the work it covers) and check the partition drivers' stall deadlines. These jobs exist because they must run when *no* events arrive — commits must land at low traffic to keep the replay window small, and a stall watchdog by definition fires on the absence of progress.
 
 And the batcher's:
 
@@ -354,7 +354,7 @@ fn accept(msgs, acc) -> Charge {             // one poll, demuxed to its partiti
 }
 
 fn complete(completed) -> Vec<Advance> {     // one ACKed request's groups, distributed;
-    completed.groups                         //   Advance = (partition, frontier, retired)
+    completed.groups                         //   Advance = (partition, frontier, charge)
         .filter(|g| !g.epoch.dead())         // stragglers after a drain's teardown (§4.5)
         .filter_map(|g| partitions[g.partition].complete(g))     //   die here; mid-drain
 }                                                                //   completions land
@@ -383,9 +383,9 @@ fn accept(msgs, acc) -> Charge {             // one poll's messages for this par
 }
 
 fn complete(group) -> Option<Advance> {      // one ACKed group — the record of what landed
-    ledger.complete(group.offsets).map(|(frontier, retired)| {
+    ledger.complete(group.offsets).map(|(frontier, charge)| {
         stall_deadline = now + STALL_TIMEOUT;
-        Advance { partition: group.partition, frontier, retired }
+        Advance { partition: group.partition, frontier, charge }
     })
 }
 
@@ -411,26 +411,26 @@ struct OffsetLedger {
 
 struct Slot {
     done: bool,
-    charge: Charge,                          // this message's events+bytes — for retired,
-}                                            //   the drain's dropped, and nothing else
+    charge: Charge,                          // this message's events+bytes — the budget's
+}                                            //   unit: in at poll, back at commit or drain
 
 fn add_pending(msgs) -> Charge {             // in offset order, so appending keeps the
     for m in msgs {                          //   ring dense — no map, no search
         slots.push_back(Slot { done: false, charge: m.charge })
     }
     msgs.charge()                            // the debit for B — measured by the same
-}                                            //   slots that later retire or drop (§8.2)
+}                                            //   slots that later refund it (§8.2)
 
 fn complete(offsets) -> Option<(Offset, Charge)> {
     for o in offsets {                       // a group's offsets are any subset of the
         slots[o - base].done = true          //   ring (keys interleave in the partition):
     }                                        //   index arithmetic, O(1) per offset
-    let mut retired = 0;                     // then pop the done prefix in the same call —
+    let mut charge = 0;                      // then pop the done prefix in the same call —
     while slots.front().is_done() {          //   marking and advancing are never separate
-        retired += slots.pop_front().charge; //   steps; what the frontier walked over is
+        charge += slots.pop_front().charge;  //   steps; what the frontier walked over is
         base += 1;                           //   exactly the newly committable span
     }
-    (retired > 0).then(|| (base - 1, retired))
+    (charge > 0).then(|| (base - 1, charge))
 }
 
 fn frontier() -> Offset { base - 1 }         // highest contiguous completed offset (§8)
@@ -450,7 +450,7 @@ fn pending_charge() -> Charge {              // the drain's dropped (§4.5): eve
 // It owns the pending frontiers, the delay algorithm, the §2.3 sentinel and issued
 // record; the kafka client is handed in, and it holds none of the loop's other state.
 struct CommitManager {
-    pending: Map<Partition, Advance>,        // latest unissued frontier + retired tally
+    pending: Map<Partition, Advance>,        // latest unissued frontier + charge tally
     last_issue: Instant,                     // the delay algorithm's state — today a plain
     revoking: Set<Partition>,                //   COMMIT_INTERVAL; thresholds, eager modes,
     commit_sentinel, issued,                 //   or per-partition policy change here only
@@ -470,7 +470,7 @@ fn finish_revoke(kafka, harvest) -> Refund { // the drain's end: issue p's final
     let held = pending.remove(harvest.p);    //   NOW — the rebalance is waiting. Every
     issue(kafka, [(harvest.p, harvest.frontier + 1)]);   //   completed span was already
     revoking.remove(harvest.p);              //   reported via progress, so the refund is
-    held.retired + harvest.dropped           //   the held tally plus the never-completed
+    held.charge + harvest.dropped            //   the held tally plus the never-completed
 }                                            //   charge — nothing counts twice
 
 fn maybe_issue(kafka) -> Refund {            // the algorithm — today: at most one batched
@@ -483,7 +483,7 @@ fn issue(kafka, batch) -> Refund {
     commit_sentinel.assert(batch);           //   the loop; commit exactly the frontier —
     issued.record(batch);                    //   B = polled minus committed
     last_issue = now;
-    batch.retired()
+    batch.charge()
 }
 
 // Separate long-lived task: read-only against the broker, owns nothing of the loop's.
@@ -753,9 +753,9 @@ The consumer's vocabulary has to survive three audiences at once: this crate, th
 | `completion stream` | the transport's outlet: completions, drained by the loop | result stream |
 | `parked` | a ready key the pool cannot take; its groups simply stay queued (§4.5) | a separate buffer |
 | `drain` | revocation: drop queued work, settle in-flight, final-commit, unassign (§4.5) | the worker-drain sense — that stays "draining worker" |
-| `advance` | one frontier movement: partition, new frontier, retired events+bytes | — |
+| `advance` | one frontier movement: partition, new frontier, the span's charge | — |
 | `charge` | a message's events+bytes, as debited from `B` at poll | cost, weight |
-| `retired` | the charge of work an advance made committable; refunded from `B` at issue | — |
+| `refund` | a charge returning to `B`: at commit issue, or at a drain's end | — |
 | `dropped` | the charge a drain abandons (never completed); refunded at `finish_revoke` | — |
 
 ### 8.2 Why these words are reserved
@@ -766,7 +766,7 @@ The consumer's vocabulary has to survive three audiences at once: this crate, th
 - **`cohort` → `affinity`**: cohort is a core product noun (user cohorts, the cohorts API, five `rust/cohort-*` crates). The hint is the partition id used as a packing preference; affinity says exactly that.
 - **`fence`** stays only because the merged worker-stream code uses it in the same sense personhog does — a barrier that stops the old flow before new work may start. Partition→pod placement (§7.3) is *isolation*, not fencing.
 - **`frontier` vs `watermark`**: watermark is claimed twice already — this crate uses it for the per-key ACK point (order sentinel), and Kafka itself uses low/high watermark for broker-side log bounds (log start, replicated-up-to), neither of which is consumer bookkeeping. The highest *contiguous completed* offset has no standard Kafka name at all, because the in-order consumer never needs it; the word comes from dataflow systems, where the frontier is precisely "everything below this is complete". Earlier drafts used frontier and watermark interchangeably.
-- **`charge`, `retired`, `dropped`** — one unit (events+bytes), three moments: charged into `B` at poll; retired out of it when the commit covering the work issues; dropped out of it when a drain abandons it. Every charge leaves exactly once — that is the whole `B` accounting, and why `B = polled minus committed` stays exact. *Retire* is the CPU-pipeline term for precisely this: instructions execute out of order but retire in order at the commit point, as our groups complete out of order and their charge retires in offset order at the frontier. Not "released" — that word is the accumulator hand-off's.
+- **`charge` and `refund`** — the budget's two verbs, one unit (events+bytes). Every message's charge is debited from `B` at poll, measured by the ledger slot that will later return it, and refunded exactly once: when the commit covering it issues, or as a drain's `dropped` when the work never completed. That is the whole `B` accounting, and why `B = polled minus committed` stays exact. Not "released" — that word is the accumulator hand-off's; earlier drafts said "retired" (the CPU-pipeline sense), but charge/refund reads plainly beside `budget`.
 - **`worker batcher` and `accumulator`**: earlier drafts split the transport into a loop-owned "sender" behind a sink trait; the accumulator hand-off (§4.1) retired both names — the batcher is whole again, and the domain's outbound face is data, not an interface. A channel's ends are `Tx`/`Rx` ("send side"/"receive side") in code and prose, so "sender" stays free of meaning. The `bin` (the batcher's per-stream buffer) and the `accumulator` (the domain's per-cascade buffer) are deliberately distinct words for distinct waiting rooms.
 
 ### 8.3 Cleanups this implies in today's code
