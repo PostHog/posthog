@@ -1,10 +1,10 @@
 ---
 name: reviewing-before-pr
 description: >
-  Run the one local Greptile review of a branch before its PR opens, with `hogli review`.
-  Use when instructed to open a PR or a draft PR (before `gh pr create`), or before marking
-  a draft ready for review when the branch never had a local review. Trigger terms: hogli review,
-  greptile, local review, pre-PR review, review before opening.
+  Run one local Greptile review of a branch before its PR opens, with `hogli review`.
+  Opt-in: it needs a seat on PostHog's Greptile workspace, which most people do not have yet,
+  so use it only when someone asks for a local Greptile review by name. Trigger terms:
+  hogli review, greptile, local review, pre-PR review.
 ---
 
 # Reviewing before opening a PR
@@ -14,8 +14,8 @@ A finding handled here is an ordinary pre-push edit; the same finding after the 
 
 ## When to run
 
-- Run it **once**, right before `gh pr create`, whenever you were instructed to open a PR or a draft PR.
-- Also run it once before marking a draft ready for review, if the branch never had a local review.
+- Only when someone asks for it. A Greptile seat is per-person and hand-granted today, so opening a PR does not call for this review by default — the PR bot still reviews every PR.
+- When asked, run it **once**, on the committed branch, right before `gh pr create`.
 - Do not loop it after every push, and do not re-run it after addressing findings — each run is a paid review, and the PR bot passes over the final state anyway. `hogli review` enforces this by re-printing HEAD's existing completed review instead of starting a new one.
 - Skip it for changes trivial enough for the `skip-agent-review` label.
 

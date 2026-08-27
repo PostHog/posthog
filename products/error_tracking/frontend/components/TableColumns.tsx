@@ -6,7 +6,6 @@ import { LemonCheckbox, Link } from '@posthog/lemon-ui'
 
 import { ErrorTrackingRuntime } from 'lib/components/Errors/types'
 import { getRuntimeFromLib } from 'lib/components/Errors/utils'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Button, ButtonGroup, SelectTriggerIcon } from 'lib/ui/quill'
 import { Params } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -72,8 +71,6 @@ export const IssueListTitleColumn = (props: {
     const { updateIssueAssignee, updateIssueSeverity, updateIssueStatus } = useActions(issueActionsLogic)
     const { severityUpdateInFlightIds } = useValues(issueActionsLogic)
     const { dateRange, filterGroup, filterTestAccounts, searchQuery } = useValues(issueFiltersLogic)
-    const hasSeverityRules = useFeatureFlag('ERROR_TRACKING_SEVERITY_RULES')
-
     const checked = selectedIssueIds.includes(record.id)
     const runtime = getRuntimeFromLib(record.library)
 
@@ -127,7 +124,6 @@ export const IssueListTitleColumn = (props: {
                 )}
                 <IssueMetadata
                     record={record}
-                    showSeverity={hasSeverityRules}
                     severityLoading={severityUpdateInFlightIds.includes(record.id)}
                     onStatusChange={(status) => updateIssueStatus(record.id, status)}
                     onSeverityChange={(severity) => updateIssueSeverity(record.id, severity)}
@@ -168,14 +164,12 @@ const IssueTitle = ({
 
 const IssueMetadata = ({
     record,
-    showSeverity,
     severityLoading,
     onStatusChange,
     onSeverityChange,
     onAssigneeChange,
 }: {
     record: ErrorTrackingIssue
-    showSeverity: boolean
     severityLoading: boolean
     onStatusChange: (status: ErrorTrackingIssue['status']) => void
     onSeverityChange: (severity: NonNullable<ErrorTrackingIssue['severity']> | null) => void
@@ -184,9 +178,7 @@ const IssueMetadata = ({
     <div className="my-1 flex h-6 items-center text-secondary">
         <ButtonGroup>
             <IssueStatusSelect status={record.status} onChange={onStatusChange} />
-            {showSeverity ? (
-                <IssueSeveritySelect severity={record.severity} onChange={onSeverityChange} loading={severityLoading} />
-            ) : null}
+            <IssueSeveritySelect severity={record.severity} onChange={onSeverityChange} loading={severityLoading} />
             <QuillAssigneeSelect assignee={record.assignee} onChange={onAssigneeChange}>
                 {(anyAssignee) => (
                     <Button variant="outline" size="sm">
