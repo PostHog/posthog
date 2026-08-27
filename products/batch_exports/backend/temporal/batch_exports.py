@@ -27,7 +27,7 @@ from posthog.temporal.common.client import connect
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
 from posthog.usage_ingestion.client import UsageRecord, report_usage
 
-from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportRun
+from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
 from products.batch_exports.backend.service import (
     BackfillDetails,
     BatchExportField,
@@ -633,6 +633,18 @@ class FinishBatchExportRunInputs:
     on_demand: bool = False
 
 
+def _is_billable(run: BatchExportRun) -> bool:
+    # Mirrors get_teams_with_rows_exported_in_period in the nightly report, which bills neither
+    # HTTP nor Workflows destinations, and skips a run whose export has been deleted.
+    export = run.batch_export or run.batch_export_on_demand
+    if export is None or export.deleted:
+        return False
+    return export.destination.type not in (
+        BatchExportDestination.Destination.HTTP,
+        BatchExportDestination.Destination.WORKFLOWS,
+    )
+
+
 @activity.defn
 async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
     """Activity that finishes a 'BatchExportRun'.
@@ -680,7 +692,11 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
         **update_params,
     )
 
-    if batch_export_run.status == BatchExportRun.Status.COMPLETED and batch_export_run.records_completed:
+    if (
+        batch_export_run.status == BatchExportRun.Status.COMPLETED
+        and batch_export_run.records_completed
+        and _is_billable(batch_export_run)
+    ):
         await asyncio.to_thread(
             report_usage,
             [

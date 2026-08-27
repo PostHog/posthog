@@ -1040,7 +1040,12 @@ def update_batch_export_run(
         run_id: The id of the BatchExportRun to update.
     """
     # nosemgrep: idor-lookup-without-team (internal service, team_id passed as parameter)
-    model = BatchExportRun.objects.select_related("batch_export", "batch_export__destination").filter(id=run_id)
+    model = BatchExportRun.objects.select_related(
+        "batch_export",
+        "batch_export__destination",
+        "batch_export_on_demand",
+        "batch_export_on_demand__destination",
+    ).filter(id=run_id)
     update_at = dt.datetime.now(dt.UTC)
 
     updated = model.update(
