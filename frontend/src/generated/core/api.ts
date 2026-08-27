@@ -17,6 +17,7 @@ import type {
     CimdVerificationTokensListParams,
     DomainsListParams,
     EnterprisePropertyDefinitionApi,
+    EventIngestionRestrictionApi,
     ExportedAssetApi,
     ExportedAssetCreateApi,
     ExportsListParams,
@@ -39,6 +40,7 @@ import type {
     OrganizationDomainApi,
     OrganizationInviteApi,
     OrganizationInviteDelegateApi,
+    OrganizationsProjectsEventIngestionRestrictionsListParams,
     OrganizationsProjectsListParams,
     PaginatedCIMDVerificationTokenListApi,
     PaginatedEnterprisePropertyDefinitionListApi,
@@ -88,6 +90,7 @@ import type {
     UsersIntegrationsListParams,
     UsersListParams,
     UsersLoginSessionsListParams,
+    VerifyEmailRequestApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -1039,20 +1042,37 @@ export const organizationsProjectsDeleteSecretTokenBackupPartialUpdate = async (
     )
 }
 
-export const getOrganizationsProjectsEventIngestionRestrictionsRetrieveUrl = (organizationId: string, id: number) => {
-    return `/api/organizations/${organizationId}/projects/${id}/event_ingestion_restrictions/`
+export const getOrganizationsProjectsEventIngestionRestrictionsListUrl = (
+    organizationId: string,
+    id: number,
+    params?: OrganizationsProjectsEventIngestionRestrictionsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/projects/${id}/event_ingestion_restrictions/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/projects/${id}/event_ingestion_restrictions/`
 }
 
 /**
  * Projects for the current organization.
  */
-export const organizationsProjectsEventIngestionRestrictionsRetrieve = async (
+export const organizationsProjectsEventIngestionRestrictionsList = async (
     organizationId: string,
     id: number,
+    params?: OrganizationsProjectsEventIngestionRestrictionsListParams,
     options?: RequestInit
-): Promise<ProjectBackwardCompatApi> => {
-    return apiMutator<ProjectBackwardCompatApi>(
-        getOrganizationsProjectsEventIngestionRestrictionsRetrieveUrl(organizationId, id),
+): Promise<EventIngestionRestrictionApi[]> => {
+    return apiMutator<EventIngestionRestrictionApi[]>(
+        getOrganizationsProjectsEventIngestionRestrictionsListUrl(organizationId, id, params),
         {
             ...options,
             method: 'GET',
@@ -3103,11 +3123,14 @@ export const getUsersVerifyEmailCreateUrl = () => {
     return `/api/users/verify_email/`
 }
 
-export const usersVerifyEmailCreate = async (userApi: NonReadonly<UserApi>, options?: RequestInit): Promise<void> => {
+export const usersVerifyEmailCreate = async (
+    verifyEmailRequestApi: VerifyEmailRequestApi,
+    options?: RequestInit
+): Promise<void> => {
     return apiMutator<void>(getUsersVerifyEmailCreateUrl(), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(userApi),
+        body: JSON.stringify(verifyEmailRequestApi),
     })
 }

@@ -695,14 +695,6 @@ CREATE TABLE posthog.kafka_precalculated_person_properties (
   matches Bool,
   source String
 ) ENGINE = Kafka() SETTINGS kafka_broker_list = 'msk_cluster', kafka_flush_interval_ms = 7500, kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'clickhouse_precalculated_person_properties\'', kafka_max_block_size = 1000000, kafka_num_consumers = 1, kafka_poll_max_batch_size = 100000, kafka_poll_timeout_ms = 1000, kafka_skip_broken_messages = 100, kafka_topic_list = 'kafka_topic_list = \'clickhouse_precalculated_person_properties\'';
-CREATE TABLE posthog.kafka_precalculated_person_properties_ws (
-  team_id Int64,
-  distinct_id String,
-  person_id UUID,
-  condition String,
-  matches Bool,
-  source String
-) ENGINE = Kafka() SETTINGS kafka_broker_list = 'warpstream_calculated_events', kafka_flush_interval_ms = 7500, kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'clickhouse_precalculated_person_properties_ws\'', kafka_max_block_size = 1000000, kafka_num_consumers = 1, kafka_poll_max_batch_size = 100000, kafka_poll_timeout_ms = 1000, kafka_skip_broken_messages = 100, kafka_topic_list = 'kafka_topic_list = \'clickhouse_precalculated_person_properties\'';
 CREATE TABLE posthog.kafka_property_values (
   team_id Int64,
   property_type LowCardinality(String),
@@ -4835,16 +4827,6 @@ CREATE MATERIALIZED VIEW posthog.precalculated_person_properties_mv TO posthog.w
   _timestamp,
   _offset
 FROM posthog.kafka_precalculated_person_properties;
-CREATE MATERIALIZED VIEW posthog.precalculated_person_properties_ws_mv TO posthog.writable_precalculated_person_properties (team_id Int64, distinct_id String, person_id UUID, condition String, matches Bool, source String, _timestamp Nullable(DateTime), _offset UInt64) AS SELECT
-  team_id,
-  distinct_id,
-  person_id,
-  condition,
-  matches,
-  source,
-  _timestamp,
-  _offset
-FROM posthog.kafka_precalculated_person_properties_ws;
 CREATE MATERIALIZED VIEW posthog.property_values_mv TO posthog.property_values (team_id Int64, property_type LowCardinality(String), property_key String, property_value String, property_count UInt64, last_seen DateTime) AS SELECT
   team_id,
   property_type,
