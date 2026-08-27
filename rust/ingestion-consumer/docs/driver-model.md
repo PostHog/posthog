@@ -155,8 +155,8 @@ Below the consumer loop the tree has exactly two sides — the **domain side** (
 - **Key driver** — a passive state machine (a struct in a map, not a task; key cardinality is unbounded): a FIFO of groups, **at most one group released at a time** (binned, parked, or in flight), the rest queued behind it. On ACK: report offsets to the partition ledger, remember which worker served it (the sticky pin), push the key's next group into the lent accumulator. On failure: take the group back at queue head and release it again in the same cascade — re-placement, not waiting, is the response, because retry pacing lives in the transport (§2.9, §4.5). It names a *preference*, never a worker — placement is the batcher's. Created on first group, evicted when idle and empty.
 - **Accumulator factory** — the loop's supply of per-tick buffers, and the holder of the batcher's send side. `obtain()` hands the loop a buffer at the start of a producing tick; `release(acc)` sends a non-empty one to the batcher whole, by value — the hand-off's only coordination — and recycles an empty one. The domain never sees the factory: it is lent the buffer, never the machinery.
 - **Worker batcher** — the transport side, whole, as one background task. Each received accumulator is placed (router + pins-as-preferences, §4.3), binned per worker, and fired as target-sized requests down the ordered streams; each runner resolution frees its stream, is forwarded to the result stream, and refills the stream from its bin at once. A release no worker can take is **parked** inside the batcher and re-placed on its next wake (§4.5) — nothing is ever handed back. It never calls a driver. The packer and the §2.10 size defense sit below it, as do the stream runners: one task per worker — connect, greet with the assignment epoch, transmit, await ACKs, depth 1 — and the transport classifier, §2.9 unchanged (backpressure vs fault vs non-retriable, backpressure excluded from passive health).
-- **Result stream** — the transport's outlet: one **request result** at a time — every group a resolved request carried, with its outcome — and nothing else escapes. The batcher forwards each resolution the moment it arrives; the loop drains it and feeds the partition manager.
-- **Commit manager** — on the commit cadence, reads each partition driver's frontier, issues one batched manual commit, and refunds the budget for the retired work. The §2.3 verification rides here unchanged: the commit sentinel as a cheap assert, the commit monitor because librdkafka still drops async commit results.
+- **Result stream** — the transport's outlet, and nothing more than a channel: one **request result** at a time — every group a resolved request carried, with its outcome — and nothing else escapes. The batcher forwards each resolution the moment it arrives; the loop drains it and feeds the partition manager.
+- **Commit manager** — the commit bookkeeping. On the housekeeping tick the loop harvests the advanced frontiers from the partition manager, refunds the budget for the retired work, and hands the batch here for one batched manual commit. The §2.3 verification rides unchanged: the commit sentinel as a cheap assert, the commit monitor because librdkafka still drops async commit results.
 - **Budget** — the `B` accounting (charged at poll, refunded at commit and at revoke teardown). The design has exactly two clocks: the loop's single housekeeping tick — driving the commit cadence and the stall checks, the two jobs that must run even when no events arrive — and the batcher's park-retry, armed only while an unroutable pool leaves releases parked (§4.5). Key drivers own no deadlines at all: retry pacing is transport-level, so unbounded key cardinality meets no per-key timer anywhere.
 
 ### 4.2 Two tasks, synchronous cascades
@@ -165,7 +165,7 @@ State transitions split across two single-threaded tasks — the domain's on the
 
 1. **Poll delivered** — the loop obtains an accumulator and lends it down with the poll: the partition manager demuxes to partition drivers → key drivers enqueue and push what they release straight into the lent buffer. The cascade returns; the loop releases the accumulator to the batcher.
 2. **Request resolved** — the loop drains one **request result**, obtains an accumulator, and hands both to the partition manager: ACK ⇒ ledgers update, key drivers advance, their next groups accumulate; failure ⇒ groups go back to their key drivers' queue heads and re-release into the same buffer (§4.5). The loop releases it the same way.
-3. **Housekeeping tick** — the loop's one clock, at the commit cadence: the commit manager commits the advanced frontiers, and the partition drivers' stall deadlines are checked. Both jobs exist because they must run when *no* events arrive — commits must land at low traffic to keep the replay window small, and a stall watchdog by definition fires on the absence of progress.
+3. **Housekeeping tick** — the loop's one clock, at the commit cadence: harvest the advanced frontiers from the partition manager, refund the budget for the retired work, hand the batch to the commit manager for one batched commit, and check the partition drivers' stall deadlines. These jobs exist because they must run when *no* events arrive — commits must land at low traffic to keep the replay window small, and a stall watchdog by definition fires on the absence of progress.
 
 And the batcher's:
 
@@ -226,7 +226,7 @@ results       mpsc, bound ≥ pool size   batcher → loop      ≤1 unresolved 
 health        snapshot (ArcSwap-style)  probes → router     the only cross-task shared read
 ```
 
-The `accumulators` channel is unbounded in count but self-limiting in content: every queued release is uncommitted work under the `B` gate, and a lagging batcher starves the domain of ACKs, which closes polling. The domain's outbound face is not an interface at all — it is the accumulator, plain data the loop's factory obtains each tick and the cascade fills under `&mut`; the loop's inbound face is `next() -> RequestResult`. The values crossing the seam are:
+The `accumulators` channel is unbounded in count but self-limiting in content: every queued release is uncommitted work under the `B` gate, and a lagging batcher starves the domain of ACKs, which closes polling. The domain's outbound face is not an interface at all — it is the accumulator, plain data the loop's factory obtains each tick and the cascade fills under `&mut`; the loop's inbound face is the result stream's receive side, a bare channel end. The values crossing the seam are:
 
 ```rust
 struct Accumulator(Vec<Release>);            // one tick's releases, in cascade order —
@@ -256,10 +256,10 @@ There is no `Mutex`, no `Arc`'d mutable state, and no atomic in the model: every
 struct ConsumerLoop {
     partitions: PartitionManager,            // the domain side: assignments + distribution
     accumulators: AccumulatorFactory,        // per-tick buffers + the batcher's send side
-    results: ResultStream,                   // the transport's outlet: resolved requests
+    results: Rx<RequestResult>,              // the result stream: the transport's outlet
     tick: Interval,                          // COMMIT_INTERVAL — one housekeeping cadence
     budget: Budget,                          // uncommitted events+bytes — the B gate (§4.4)
-    commits: CommitManager,                  // frontiers → one batched commit; owns its cadence
+    commits: CommitManager,                  // commit bookkeeping: sentinel + issued record
     kafka: KafkaConsumer,                    // rdkafka client: poll, commits, rebalance events
 }
 
@@ -267,16 +267,18 @@ loop {
     select! {                                // the loop's ONLY await point; arms run to
         biased;                              //   completion — drain before taking new work
 
-        result = results.next() => {         // one resolved request, whole — a value, not
+        result = results.recv() => {         // one resolved request, whole — a value, not
             let mut acc = accumulators.obtain();     //   a callback into the drivers
             partitions.apply(result, &mut acc);
             accumulators.release(acc);       // successors and re-releases, off to the batcher
         }
 
         _ = tick.next() => {                 // the loop's one clock — the jobs that must
-            commits.tick();                  //   run when no events arrive: commit the
-            partitions.check_stalls();       //   advanced frontiers, check the per-
-        }                                    //   partition stall deadlines (§4.5)
+            let batch = partitions.committable();    //   run when no events arrive:
+            budget.refund(batch.retired);    //   harvest the advanced frontiers, commit
+            commits.commit(kafka, batch);    //   them, check the per-partition stall
+            partitions.check_stalls();       //   deadlines (§4.5)
+        }
 
         msgs = kafka.recv(), if budget.used < B => {
             // the gate is rdkafka pause/resume, not an unpolled consumer: polling must
@@ -345,6 +347,11 @@ fn apply(result, acc) {                      // one request result, distributed
     }
 }
 
+fn committable() -> CommitBatch {            // harvest for the housekeeping tick: every
+    partitions.filter(frontier advanced)     //   frontier advanced since the last harvest,
+        .map(|p| (p, p.frontier + 1))        //   with the retired events+bytes for the
+}                                            //   budget refund
+
 fn check_stalls() {                          // driven by the loop's housekeeping tick;
     for p in partitions { p.check_stall() }  //   produces no releases, so no accumulator
 }
@@ -390,13 +397,13 @@ fn check_stall() {
 **Commit manager — frontiers to one batched commit.** The §2.3 verification rides here unchanged.
 
 ```rust
-// The consumer loop's `commits` field; tick() runs synchronously on the loop's
-// housekeeping tick and never blocks it.
-fn tick() {
-    let batch = partitions.filter(frontier advanced).map(|p| (p, p.frontier + 1));
+// The consumer loop's `commits` field: what was issued and the §2.3 sentinel, behind
+// one synchronous call from the housekeeping tick. Everything else it needs — the
+// harvest, the kafka client — is handed in; it owns none of the loop's state.
+fn commit(kafka, batch) {
     kafka.commit(batch);                     // manual, async, fire-and-forget: never blocks
-    budget.refund(retired_by(batch));        //   the loop; commit exactly the frontier —
-    commit_sentinel.assert(batch);           //   B = polled minus committed
+    commit_sentinel.assert(batch);           //   the loop; commit exactly the frontier —
+    issued.record(batch);                    //   B = polled minus committed
 }
 
 // Separate long-lived task: read-only against the broker, owns nothing of the loop's.
@@ -523,18 +530,6 @@ fn try_fire(w) {                             // the single send-origination site
     requests[w].try_send(request).unwrap();  // non-blocking; capacity 1, provably never full:
     busy[w] = true;                          //   sends happen only while !busy, and busy
 }                                            //   clears only on this request's resolution
-```
-
-**Result stream — the transport's outlet.** The batcher forwards each resolution the moment it arrives; the loop hands it to the partition manager.
-
-```rust
-// Loop-owned receive half. Everything a resolved request carried, with its outcome —
-// nothing else escapes the transport side.
-struct ResultStream {
-    results: Rx<RequestResult>,              // forwarded by the batcher, one per resolution
-}
-
-async fn next() -> RequestResult { results.recv().await }
 ```
 
 **Router placement** (§4.3) — inside the batcher; `sticky` is the release's preference, not a constraint:
