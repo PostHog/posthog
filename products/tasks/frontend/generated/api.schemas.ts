@@ -1287,6 +1287,54 @@ export interface OnboardingSessionApi {
     task_id: string
 }
 
+export interface OnboardingSessionTestApi {
+    /**
+     * Company domain to research. Blank simulates a personal email address.
+     * @maxLength 253
+     */
+    company_domain?: string
+    /** Whether the user is joining an organization that already has shared context. */
+    joining_existing_organization?: boolean
+    /** Whether the project has ingested events. */
+    has_events?: boolean
+    /**
+     * Number of findings waiting in #general.
+     * @minimum 0
+     * @maximum 10000
+     */
+    signal_reports_waiting?: number
+    /**
+     * Display names of other Desktop users in the organization.
+     * @maxItems 25
+     * @items.maxLength 100
+     */
+    other_members?: string[]
+    /**
+     * Signal sources that were already enabled.
+     * @maxItems 25
+     * @items.maxLength 100
+     */
+    sources_enabled?: string[]
+    /**
+     * Signal sources the onboarding flow is watching.
+     * @maxItems 25
+     * @items.maxLength 100
+     */
+    sources_watching?: string[]
+    /** Whether onboarding enabled any signal sources. */
+    sources_newly_enabled?: boolean
+}
+
+/**
+ * The first-run session that was started for the requester.
+ */
+export interface OnboardingSessionTestResponseApi {
+    /** The agent session opened in the team's #general space. */
+    task_id: string
+    /** The requester's personal space containing the session. */
+    channel_id: string
+}
+
 /**
  * The requester's default channels, plus whether this call is what created them.
  */
@@ -1297,6 +1345,13 @@ export interface ProvisionedChannelsApi {
     personal_created: boolean
     /** Whether this call created the team's shared #general channel. True only for the first user to provision it, so clients can branch first-user setup on it. */
     general_created: boolean
+}
+
+export interface TeachingCanvasApi {
+    /** The teaching canvas that was resolved or created. */
+    canvas_id: string
+    /** The requester's personal space containing the canvas. */
+    channel_id: string
 }
 
 /**

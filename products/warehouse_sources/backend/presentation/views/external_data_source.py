@@ -641,11 +641,18 @@ def get_postgres_source_table_location(
     )
 
 
-DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE = (
-    "Direct query mode is currently supported only for Postgres, MySQL, Snowflake, Redshift, and ClickHouse sources."
-)
+DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE = "Direct query mode is currently supported only for Postgres, MySQL, Snowflake, Redshift, ClickHouse, MotherDuck, and Trino sources."
 # Engines surfaced on a direct connection's `connection_metadata.engine` (duckdb backs direct Postgres).
-DIRECT_CONNECTION_ENGINE_CHOICES = ["duckdb", "postgres", "mysql", "snowflake", "redshift", "clickhouse", "motherduck"]
+DIRECT_CONNECTION_ENGINE_CHOICES = [
+    "duckdb",
+    "postgres",
+    "mysql",
+    "snowflake",
+    "redshift",
+    "clickhouse",
+    "motherduck",
+    "trino",
+]
 
 
 def count_active_sources(team_id: int, source_type: str) -> int:
@@ -1694,6 +1701,10 @@ class ExternalDataSourceCreateResponseSerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="ID of the created external data source.")
 
 
+class ExternalDataSourceErrorResponseSerializer(serializers.Serializer):
+    message = serializers.CharField(help_text="Human-readable explanation of why the source could not be created.")
+
+
 class SourceConnectLinkSerializer(serializers.Serializer):
     source_type = serializers.CharField(help_text="The source type the link is for.")
     auth_method = serializers.ChoiceField(
@@ -2438,6 +2449,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     payload[key] = value.strip()
         source_type_model = ExternalDataSourceType(source_type)
         source = SourceRegistry.get_source(source_type_model)
+        if not is_direct_query and not source.supports_scheduled_sync:
+            return Response(
+                ExternalDataSourceErrorResponseSerializer(
+                    {"message": f"{source_type_model.label} is available only as a direct connection."}
+                ).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         max_instances = source.max_instances_per_team
         if max_instances is not None and count_active_sources(self.team_id, source_type_model) >= max_instances:
             return Response(
@@ -2531,7 +2549,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         schema_names = [schema.name for schema in source_schemas]
         source_config_dict = source_config.to_dict()
         default_source_schema = source_config_dict.get("schema")
-        default_source_catalog = source_config_dict.get("database")
+        default_source_catalog = source_config_dict.get("database") or source_config_dict.get("catalog")
         schema_label_by_name = {s.name: s.label for s in source_schemas}
 
         # Omitting `schemas` means "sync what you found", the same defaults `setup` builds. A

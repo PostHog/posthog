@@ -23744,6 +23744,7 @@ export namespace Schemas {
      * * `SideShift` - SideShift
      * * `DuckLake` - DuckLake
      * * `Starburst` - Starburst
+     * * `Trino` - Trino
      * * `Easybill` - Easybill
      * * `Bexio` - Bexio
      * * `Umami` - Umami
@@ -25068,6 +25069,7 @@ export namespace Schemas {
       SideShift: 'SideShift',
       DuckLake: 'DuckLake',
       Starburst: 'Starburst',
+      Trino: 'Trino',
       Easybill: 'Easybill',
       Bexio: 'Bexio',
       Umami: 'Umami',
@@ -26406,6 +26408,7 @@ export namespace Schemas {
        * * `SideShift` - SideShift
        * * `DuckLake` - DuckLake
        * * `Starburst` - Starburst
+       * * `Trino` - Trino
        * * `Easybill` - Easybill
        * * `Bexio` - Bexio
        * * `Umami` - Umami
@@ -28432,6 +28435,7 @@ export namespace Schemas {
        * * `SideShift` - SideShift
        * * `DuckLake` - DuckLake
        * * `Starburst` - Starburst
+       * * `Trino` - Trino
        * * `Easybill` - Easybill
        * * `Bexio` - Bexio
        * * `Umami` - Umami
@@ -28711,6 +28715,12 @@ export namespace Schemas {
          * @maxLength 2000
          */
       goal: string;
+      /**
+         * Goal-based flow only: how many replays a month the scanner may watch. The draft solves `sampling_mode` and `sampling_rate` so the projection lands on this number. Omitted on the legacy flow, and ignored while the goal-based flow's flag is off for the caller.
+         * @minimum 1
+         * @maximum 1000000
+         */
+      monthly_scan_budget?: number;
     }
 
     /**
@@ -28727,6 +28737,20 @@ export namespace Schemas {
       Classifier: 'classifier',
       Scorer: 'scorer',
       Summarizer: 'summarizer',
+    } as const;
+
+    /**
+     * * `focused` - Focused
+     * * `balanced` - Balanced
+     * * `comprehensive` - Comprehensive
+     */
+    export type SamplingModeEnum = typeof SamplingModeEnum[keyof typeof SamplingModeEnum];
+
+
+    export const SamplingModeEnum = {
+      Focused: 'focused',
+      Balanced: 'balanced',
+      Comprehensive: 'comprehensive',
     } as const;
 
     /**
@@ -28750,6 +28774,22 @@ export namespace Schemas {
       rationale: string;
       /** `RecordingsQuery` narrowing which sessions get scanned; null when the draft targets every session. */
       query: unknown;
+      /** Goal-based flow only: the quality pre-filter the draft chose for the goal. Null on the legacy flow, and null when the costing estimate failed — the wizard keeps its defaults.
+       *
+       * * `focused` - Focused
+       * * `balanced` - Balanced
+       * * `comprehensive` - Comprehensive */
+      sampling_mode: SamplingModeEnum | null;
+      /**
+         * Goal-based flow only: the random sampling rate solved from `monthly_scan_budget`, 0..1. 1.0 when the budget covers every matching recording. Floored at the minimum rate, so a budget below that floor keeps the minimum. Null whenever `sampling_mode` is.
+         * @nullable
+         */
+      sampling_rate: number | null;
+      /**
+         * Goal-based flow only: recordings a month the drafted scanner is projected to watch under the solved dials. At or under `monthly_scan_budget`, except when the budget is below what the minimum sampling rate can reach, where this is the floor and exceeds the budget. Null whenever `sampling_mode` is.
+         * @nullable
+         */
+      estimated_monthly_observations: number | null;
     }
 
     export interface DraftStatusResponse {
@@ -30139,6 +30179,7 @@ export namespace Schemas {
      * * `redshift` - redshift
      * * `clickhouse` - clickhouse
      * * `motherduck` - motherduck
+     * * `trino` - trino
      */
     export type EngineEnum = typeof EngineEnum[keyof typeof EngineEnum];
 
@@ -30151,6 +30192,7 @@ export namespace Schemas {
       Redshift: 'redshift',
       Clickhouse: 'clickhouse',
       Motherduck: 'motherduck',
+      Trino: 'trino',
     } as const;
 
     export interface EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra {
@@ -31722,20 +31764,6 @@ export namespace Schemas {
       /** Hash of the uploaded symbol set content. */
       content_hash: string;
     }
-
-    /**
-     * * `focused` - Focused
-     * * `balanced` - Balanced
-     * * `comprehensive` - Comprehensive
-     */
-    export type SamplingModeEnum = typeof SamplingModeEnum[keyof typeof SamplingModeEnum];
-
-
-    export const SamplingModeEnum = {
-      Focused: 'focused',
-      Balanced: 'balanced',
-      Comprehensive: 'comprehensive',
-    } as const;
 
     /**
      * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
@@ -35222,7 +35250,8 @@ export namespace Schemas {
        * * `snowflake` - snowflake
        * * `redshift` - redshift
        * * `clickhouse` - clickhouse
-       * * `motherduck` - motherduck */
+       * * `motherduck` - motherduck
+       * * `trino` - trino */
       readonly engine: EngineEnum | null;
       /** The source type (e.g. 'Postgres', 'MySQL', 'Snowflake').
        *
@@ -36482,6 +36511,7 @@ export namespace Schemas {
        * * `SideShift` - SideShift
        * * `DuckLake` - DuckLake
        * * `Starburst` - Starburst
+       * * `Trino` - Trino
        * * `Easybill` - Easybill
        * * `Bexio` - Bexio
        * * `Umami` - Umami
@@ -37840,6 +37870,7 @@ export namespace Schemas {
        * * `SideShift` - SideShift
        * * `DuckLake` - DuckLake
        * * `Starburst` - Starburst
+       * * `Trino` - Trino
        * * `Easybill` - Easybill
        * * `Bexio` - Bexio
        * * `Umami` - Umami
@@ -38042,7 +38073,8 @@ export namespace Schemas {
        * * `snowflake` - snowflake
        * * `redshift` - redshift
        * * `clickhouse` - clickhouse
-       * * `motherduck` - motherduck */
+       * * `motherduck` - motherduck
+       * * `trino` - trino */
       readonly engine: EngineEnum | null;
       /** @nullable */
       readonly last_run_at: string | null;
@@ -51362,6 +51394,54 @@ export namespace Schemas {
       task_id: string;
     }
 
+    export interface OnboardingSessionTest {
+      /**
+         * Company domain to research. Blank simulates a personal email address.
+         * @maxLength 253
+         */
+      company_domain?: string;
+      /** Whether the user is joining an organization that already has shared context. */
+      joining_existing_organization?: boolean;
+      /** Whether the project has ingested events. */
+      has_events?: boolean;
+      /**
+         * Number of findings waiting in #general.
+         * @minimum 0
+         * @maximum 10000
+         */
+      signal_reports_waiting?: number;
+      /**
+         * Display names of other Desktop users in the organization.
+         * @maxItems 25
+         * @items.maxLength 100
+         */
+      other_members?: string[];
+      /**
+         * Signal sources that were already enabled.
+         * @maxItems 25
+         * @items.maxLength 100
+         */
+      sources_enabled?: string[];
+      /**
+         * Signal sources the onboarding flow is watching.
+         * @maxItems 25
+         * @items.maxLength 100
+         */
+      sources_watching?: string[];
+      /** Whether onboarding enabled any signal sources. */
+      sources_newly_enabled?: boolean;
+    }
+
+    /**
+     * The first-run session that was started for the requester.
+     */
+    export interface OnboardingSessionTestResponse {
+      /** The agent session opened in the team's #general space. */
+      task_id: string;
+      /** The requester's personal space containing the session. */
+      channel_id: string;
+    }
+
     /**
      * * `later` - Later
      * * `other` - Other
@@ -54939,6 +55019,7 @@ export namespace Schemas {
      * * `signal_finding` - Signal Finding
      * * `repo_selection` - Repo Selection
      * * `suggested_reviewers` - Suggested Reviewers
+     * * `channel_assignment` - Channel Assignment
      * * `dismissal` - Dismissal
      * * `code_reference` - Code Reference
      * * `commit` - Commit
@@ -54960,6 +55041,7 @@ export namespace Schemas {
       SignalFinding: 'signal_finding',
       RepoSelection: 'repo_selection',
       SuggestedReviewers: 'suggested_reviewers',
+      ChannelAssignment: 'channel_assignment',
       Dismissal: 'dismissal',
       CodeReference: 'code_reference',
       Commit: 'commit',
@@ -55159,6 +55241,11 @@ export namespace Schemas {
        * * `posthog_onboarding` - PostHog onboarding
        * * `posthog_system` - PostHog system */
       readonly billing_exempt_reason: BillingExemptReasonEnum | null;
+      /**
+         * The space (task channel) this report is assigned to, or null when unassigned. The general view lists every report regardless of this value.
+         * @nullable
+         */
+      readonly channel_id: string | null;
     }
 
     export interface PaginatedSignalReportList {
@@ -57853,6 +57940,208 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: VisionActionRunList[];
+    }
+
+    /**
+     * * `metric` - Metric
+     * * `match` - Match
+     */
+    export type VisionAlertConfigurationKindEnum = typeof VisionAlertConfigurationKindEnum[keyof typeof VisionAlertConfigurationKindEnum];
+
+
+    export const VisionAlertConfigurationKindEnum = {
+      Metric: 'metric',
+      Match: 'match',
+    } as const;
+
+    export interface VisionAlertSelection {
+      /**
+         * Monitor verdicts to match, e.g. ['yes'].
+         * @maxItems 10
+         * @items.maxLength 100
+         */
+      verdict?: string[];
+      /**
+         * Classifier tags to match; an observation matches when it carries any of them.
+         * @maxItems 20
+         * @items.maxLength 200
+         */
+      tags?: string[];
+      /** Minimum scorer score (inclusive). */
+      min_score?: number;
+      /** Maximum scorer score (inclusive). */
+      max_score?: number;
+    }
+
+    /**
+     * * `count` - Count matching observations
+     * * `avg_score` - Average score
+     */
+    export type VisionAlertConfigurationMetricEnum = typeof VisionAlertConfigurationMetricEnum[keyof typeof VisionAlertConfigurationMetricEnum];
+
+
+    export const VisionAlertConfigurationMetricEnum = {
+      Count: 'count',
+      AvgScore: 'avg_score',
+    } as const;
+
+    export interface VisionAlertConfiguration {
+      /** Unique identifier for this alert. */
+      readonly id: string;
+      /** Scanner whose observations this alert watches. Immutable after creation. */
+      scanner_id: string;
+      /**
+         * Human-readable name for this alert. Defaults to 'Untitled alert' on create when omitted.
+         * @maxLength 255
+         */
+      name?: string;
+      /** Whether the alert is active. Disabling a metric alert resets its state to not_firing. */
+      enabled?: boolean;
+      /** 'metric' fires when a metric crosses a threshold over a rolling window; 'match' fires on every observation that matches the selection. Immutable after creation.
+       *
+       * * `metric` - Metric
+       * * `match` - Match */
+      kind: VisionAlertConfigurationKindEnum;
+      /** Which observations count. Empty matches every observation of the scanner. */
+      selection?: VisionAlertSelection;
+      /** Metric alerts only: what to measure over the window. 'avg_score' requires a scorer scanner.
+       *
+       * * `count` - Count matching observations
+       * * `avg_score` - Average score */
+      metric?: VisionAlertConfigurationMetricEnum;
+      /** Metric alerts only: whether the alert fires at or above, or at or below, the threshold.
+       *
+       * * `above` - At or above
+       * * `below` - At or below */
+      direction?: VisionAlertDirectionEnum;
+      /**
+         * Metric alerts only: the threshold value. Required for metric alerts, must be omitted for match alerts.
+         * @nullable
+         */
+      threshold?: number | null;
+      /** Metric alerts only: rolling window in days. Allowed values: [1, 3, 7, 14, 30]. */
+      window_days?: number;
+      /**
+         * Metric alerts only: evaluation cadence in minutes, at least 15.
+         * @minimum 15
+         */
+      check_interval_minutes?: number;
+      /** Current lifecycle state. Always not_firing for match alerts. Server-managed.
+       *
+       * * `not_firing` - Not firing
+       * * `firing` - Firing
+       * * `pending_resolve` - Pending resolve
+       * * `errored` - Errored
+       * * `snoozed` - Snoozed
+       * * `broken` - Broken */
+      readonly state: LogsAlertConfigurationStateEnum;
+      /**
+         * Metric alerts only: total check periods in the sliding evaluation window (M in N-of-M).
+         * @minimum 1
+         * @maximum 10
+         */
+      evaluation_periods?: number;
+      /**
+         * Metric alerts only: how many periods must breach to fire (N in N-of-M).
+         * @minimum 1
+         * @maximum 10
+         */
+      datapoints_to_alarm?: number;
+      /**
+         * Metric alerts only: minimum minutes between repeated notifications. 0 means no cooldown.
+         * @minimum 0
+         */
+      cooldown_minutes?: number;
+      /** Blocked local time windows when the alert must not notify. Times use the project timezone. Null disables quiet hours. */
+      schedule_restriction?: AlertScheduleRestriction | null;
+      /**
+         * ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.
+         * @nullable
+         */
+      snooze_until?: string | null;
+      /**
+         * When the next evaluation is scheduled. Server-managed.
+         * @nullable
+         */
+      readonly next_check_at: string | null;
+      /**
+         * When the last notification was sent. Server-managed.
+         * @nullable
+         */
+      readonly last_notified_at: string | null;
+      /**
+         * When the alert was last evaluated. Server-managed.
+         * @nullable
+         */
+      readonly last_checked_at: string | null;
+      /** Consecutive evaluation failures. Resets on success. Server-managed. */
+      readonly consecutive_failures: number;
+      /**
+         * When the alert was first enabled. Null means still a draft.
+         * @nullable
+         */
+      readonly first_enabled_at: string | null;
+      /** When the alert was created. */
+      readonly created_at: string;
+      readonly created_by: UserBasic;
+      /**
+         * When the alert was last modified.
+         * @nullable
+         */
+      readonly updated_at: string | null;
+    }
+
+    export interface PaginatedVisionAlertConfigurationList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: VisionAlertConfiguration[];
+    }
+
+    /**
+     * * `check` - Check
+     * * `reset` - Reset
+     * * `enable` - Enable
+     * * `disable` - Disable
+     * * `snooze` - Snooze
+     * * `unsnooze` - Unsnooze
+     * * `threshold_change` - Threshold change
+     */
+    export type VisionAlertEventKindEnum = typeof VisionAlertEventKindEnum[keyof typeof VisionAlertEventKindEnum];
+
+
+    export const VisionAlertEventKindEnum = {
+      Check: 'check',
+      Reset: 'reset',
+      Enable: 'enable',
+      Disable: 'disable',
+      Snooze: 'snooze',
+      Unsnooze: 'unsnooze',
+      ThresholdChange: 'threshold_change',
+    } as const;
+
+    export interface VisionAlertEvent {
+      readonly id: string;
+      readonly created_at: string;
+      readonly kind: VisionAlertEventKindEnum;
+      readonly state_before: string;
+      readonly state_after: string;
+      readonly threshold_breached: boolean;
+      /** @nullable */
+      readonly metric_value: number | null;
+      /** @nullable */
+      readonly error_message: string | null;
+    }
+
+    export interface PaginatedVisionAlertEventList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: VisionAlertEvent[];
     }
 
     /**
@@ -60762,7 +61051,8 @@ export namespace Schemas {
        * * `snowflake` - snowflake
        * * `redshift` - redshift
        * * `clickhouse` - clickhouse
-       * * `motherduck` - motherduck */
+       * * `motherduck` - motherduck
+       * * `trino` - trino */
       readonly engine?: EngineEnum | null;
       /** @nullable */
       readonly last_run_at?: string | null;
@@ -66294,6 +66584,112 @@ export namespace Schemas {
       /** User who created the action. */
       readonly created_by?: UserBasic | null;
       readonly updated_at?: string;
+    }
+
+    export interface PatchedVisionAlertConfiguration {
+      /** Unique identifier for this alert. */
+      readonly id?: string;
+      /** Scanner whose observations this alert watches. Immutable after creation. */
+      scanner_id?: string;
+      /**
+         * Human-readable name for this alert. Defaults to 'Untitled alert' on create when omitted.
+         * @maxLength 255
+         */
+      name?: string;
+      /** Whether the alert is active. Disabling a metric alert resets its state to not_firing. */
+      enabled?: boolean;
+      /** 'metric' fires when a metric crosses a threshold over a rolling window; 'match' fires on every observation that matches the selection. Immutable after creation.
+       *
+       * * `metric` - Metric
+       * * `match` - Match */
+      kind?: VisionAlertConfigurationKindEnum;
+      /** Which observations count. Empty matches every observation of the scanner. */
+      selection?: VisionAlertSelection;
+      /** Metric alerts only: what to measure over the window. 'avg_score' requires a scorer scanner.
+       *
+       * * `count` - Count matching observations
+       * * `avg_score` - Average score */
+      metric?: VisionAlertConfigurationMetricEnum;
+      /** Metric alerts only: whether the alert fires at or above, or at or below, the threshold.
+       *
+       * * `above` - At or above
+       * * `below` - At or below */
+      direction?: VisionAlertDirectionEnum;
+      /**
+         * Metric alerts only: the threshold value. Required for metric alerts, must be omitted for match alerts.
+         * @nullable
+         */
+      threshold?: number | null;
+      /** Metric alerts only: rolling window in days. Allowed values: [1, 3, 7, 14, 30]. */
+      window_days?: number;
+      /**
+         * Metric alerts only: evaluation cadence in minutes, at least 15.
+         * @minimum 15
+         */
+      check_interval_minutes?: number;
+      /** Current lifecycle state. Always not_firing for match alerts. Server-managed.
+       *
+       * * `not_firing` - Not firing
+       * * `firing` - Firing
+       * * `pending_resolve` - Pending resolve
+       * * `errored` - Errored
+       * * `snoozed` - Snoozed
+       * * `broken` - Broken */
+      readonly state?: LogsAlertConfigurationStateEnum;
+      /**
+         * Metric alerts only: total check periods in the sliding evaluation window (M in N-of-M).
+         * @minimum 1
+         * @maximum 10
+         */
+      evaluation_periods?: number;
+      /**
+         * Metric alerts only: how many periods must breach to fire (N in N-of-M).
+         * @minimum 1
+         * @maximum 10
+         */
+      datapoints_to_alarm?: number;
+      /**
+         * Metric alerts only: minimum minutes between repeated notifications. 0 means no cooldown.
+         * @minimum 0
+         */
+      cooldown_minutes?: number;
+      /** Blocked local time windows when the alert must not notify. Times use the project timezone. Null disables quiet hours. */
+      schedule_restriction?: AlertScheduleRestriction | null;
+      /**
+         * ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.
+         * @nullable
+         */
+      snooze_until?: string | null;
+      /**
+         * When the next evaluation is scheduled. Server-managed.
+         * @nullable
+         */
+      readonly next_check_at?: string | null;
+      /**
+         * When the last notification was sent. Server-managed.
+         * @nullable
+         */
+      readonly last_notified_at?: string | null;
+      /**
+         * When the alert was last evaluated. Server-managed.
+         * @nullable
+         */
+      readonly last_checked_at?: string | null;
+      /** Consecutive evaluation failures. Resets on success. Server-managed. */
+      readonly consecutive_failures?: number;
+      /**
+         * When the alert was first enabled. Null means still a draft.
+         * @nullable
+         */
+      readonly first_enabled_at?: string | null;
+      /** When the alert was created. */
+      readonly created_at?: string;
+      readonly created_by?: UserBasic;
+      /**
+         * When the alert was last modified.
+         * @nullable
+         */
+      readonly updated_at?: string | null;
     }
 
     /**
@@ -74988,7 +75384,7 @@ export namespace Schemas {
      * against the type's schema (see `products/signals/backend/artefact_schemas.py`).
      */
     export interface SignalReportArtefactLogCreate {
-      /** The artefact type. One of: actionability_judgment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers, task_run. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
+      /** The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers, task_run. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
       artefact_type: string;
       /** The artefact payload as a JSON object or array; shape depends on artefact_type and is validated against its schema. */
       content: unknown;
@@ -77065,6 +77461,7 @@ export namespace Schemas {
        * * `SideShift` - SideShift
        * * `DuckLake` - DuckLake
        * * `Starburst` - Starburst
+       * * `Trino` - Trino
        * * `Easybill` - Easybill
        * * `Bexio` - Bexio
        * * `Umami` - Umami
@@ -78431,6 +78828,7 @@ export namespace Schemas {
        * * `SideShift` - SideShift
        * * `DuckLake` - DuckLake
        * * `Starburst` - Starburst
+       * * `Trino` - Trino
        * * `Easybill` - Easybill
        * * `Bexio` - Bexio
        * * `Umami` - Umami
@@ -79787,6 +80185,7 @@ export namespace Schemas {
        * * `SideShift` - SideShift
        * * `DuckLake` - DuckLake
        * * `Starburst` - Starburst
+       * * `Trino` - Trino
        * * `Easybill` - Easybill
        * * `Bexio` - Bexio
        * * `Umami` - Umami
@@ -83074,6 +83473,13 @@ export namespace Schemas {
       channel?: string | null;
     }
 
+    export interface TeachingCanvas {
+      /** The teaching canvas that was resolved or created. */
+      canvas_id: string;
+      /** The requester's personal space containing the canvas. */
+      channel_id: string;
+    }
+
     export type TeamDefaultModifiers = { [key: string]: unknown };
 
     export type TeamGroupTypesItem = { [key: string]: unknown };
@@ -84242,6 +84648,48 @@ export namespace Schemas {
       readonly synthesized_markdown: string;
       /** Recordings this run included in its summary, in summary order. Empty for runs recorded before this was tracked, and for skipped/failed runs. */
       readonly observations: readonly RunObservation[];
+    }
+
+    /**
+     * * `slack` - slack
+     * * `webhook` - webhook
+     */
+    export type VisionAlertCreateDestinationTypeEnum = typeof VisionAlertCreateDestinationTypeEnum[keyof typeof VisionAlertCreateDestinationTypeEnum];
+
+
+    export const VisionAlertCreateDestinationTypeEnum = {
+      Slack: 'slack',
+      Webhook: 'webhook',
+    } as const;
+
+    export interface VisionAlertCreateDestination {
+      /** Notification destination type.
+       *
+       * * `slack` - slack
+       * * `webhook` - webhook */
+      type: VisionAlertCreateDestinationTypeEnum;
+      /** Integration ID for the Slack workspace. Required when type=slack. */
+      slack_workspace_id?: number;
+      /** Slack channel ID. Required when type=slack. */
+      slack_channel_id?: string;
+      /** Human-readable channel name for display. */
+      slack_channel_name?: string;
+      /** HTTPS endpoint to post to. Required when type=webhook. */
+      webhook_url?: string;
+    }
+
+    export interface VisionAlertDeleteDestination {
+      /**
+         * HogFunction IDs to delete as one atomic destination group.
+         * @minItems 1
+         * @maxItems 5
+         */
+      hog_function_ids: string[];
+    }
+
+    export interface VisionAlertDestinationResponse {
+      /** HogFunctions backing the created destination, one per event kind. */
+      hog_function_ids: string[];
     }
 
     export interface VisionQuota {
@@ -95472,6 +95920,10 @@ export namespace Schemas {
 
     export type SignalsReportsListParams = {
     /**
+     * Narrow to reports assigned to one space (channel). Absent or empty means all reports regardless of assignment.
+     */
+    channel_id?: string;
+    /**
      * Filter reports by whether a shipped implementation pull request exists. 'true' keeps only reports with a PR; 'false' keeps only those without. Pair with limit=1 to count PR reports cheaply.
      */
     has_implementation_pr?: boolean;
@@ -96701,6 +97153,49 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type VisionAlertsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Only return alerts on this scanner.
+     */
+    scanner_id?: string;
+    };
+
+    export type VisionAlertsEventsListParams = {
+    /**
+     * Narrow the history to one event kind.
+     */
+    kind?: VisionAlertsEventsListKind;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type VisionAlertsEventsListKind = typeof VisionAlertsEventsListKind[keyof typeof VisionAlertsEventsListKind];
+
+
+    export const VisionAlertsEventsListKind = {
+      Check: 'check',
+      Disable: 'disable',
+      Enable: 'enable',
+      Reset: 'reset',
+      Snooze: 'snooze',
+      ThresholdChange: 'threshold_change',
+      Unsnooze: 'unsnooze',
+    } as const;
 
     export type VisionObservationsListParams = {
     /**
