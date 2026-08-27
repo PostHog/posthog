@@ -304,8 +304,11 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
                               : undefined,
             }),
             submit: ({ prs }) => {
-                const { product, pricePerPrUsd, freePrs } = values
-                if (!product || pricePerPrUsd == null || prs == null) {
+                const { product, pricePerPrUsd, freePrs, billingLoading } = values
+                // Bail while a write is in flight. The Save button is disabled during the PATCH, but
+                // the focused input still submits on Enter, so a second Enter would fire a duplicate
+                // limit write. billingLoading stays true for the whole round trip.
+                if (!product || pricePerPrUsd == null || prs == null || billingLoading) {
                     return
                 }
                 const usd = Math.max(0, prs - freePrs) * pricePerPrUsd

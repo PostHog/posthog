@@ -208,4 +208,62 @@ describe('inboxUsageLogic', () => {
         }).toDispatchActions(['loadRefundSummary'])
         expect(logic.values.isModalOpen).toBe(false)
     })
+
+    // The Save button is disabled during a write, but the focused input still submits on Enter. A
+    // second submit while the first PATCH is in flight must not fire a duplicate limit write — the
+    // submit handler bails while billingLoading is true.
+    it('does not fire a second limit write while the first is in flight', async () => {
+        let releasePatch = (): void => {}
+        const patchGate = new Promise<void>((resolve) => {
+            releasePatch = resolve
+        })
+        const inboxProduct = {
+            type: 'inbox',
+            display_divisor: CREDITS_PER_PR,
+            unit_amount_usd: '0.01',
+            current_usage: 0,
+        }
+        useMocks({
+            get: {
+                '/api/billing': () => [200, { products: [inboxProduct] }],
+                '/api/projects/:team_id/signals/reports/refund-summary/': () => [
+                    200,
+                    { credited_refund_count: 0, quota_limited: false, period_billable_credits: 0, credited_credits: 0 },
+                ],
+            },
+            patch: {
+                '/api/billing': async () => {
+                    await patchGate
+                    return [200, { products: [inboxProduct], custom_limits_usd: { inbox: 150 } }]
+                },
+            },
+        })
+        featureFlagLogic.mount()
+        setRefundsFlag()
+        logic = inboxUsageLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.openModal()
+        logic.actions.setLimitFormValue('prs', 10)
+
+        // First submit starts the write and holds billingLoading true until the gated PATCH resolves.
+        await expectLogic(logic, () => {
+            logic!.actions.submitLimitForm()
+        })
+            .toDispatchActions(['updateBillingLimits'])
+            .toMatchValues({ billingLoading: true })
+
+        // Second submit while loading completes but must not dispatch a duplicate updateBillingLimits.
+        await expectLogic(logic, () => {
+            logic!.actions.submitLimitForm()
+        })
+            .toDispatchActions(['submitLimitFormSuccess'])
+            .toNotHaveDispatchedActions(['updateBillingLimits'])
+
+        // Releasing the PATCH lets the single write land, which closes the modal via the success listener.
+        releasePatch()
+        await expectLogic(logic).toDispatchActions(['closeModal'])
+        expect(logic.values.isModalOpen).toBe(false)
+    })
 })
