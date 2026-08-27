@@ -128,6 +128,8 @@ interface TaskInputProps {
   onTaskCreated?: (task: Task) => void;
   onTaskCreatedEffect?: (task: Task) => void;
   initialPrompt?: string;
+  /** Full editor content to prefill (chips + attachments), preferred over initialPrompt. */
+  initialContent?: EditorContent;
   initialPromptKey?: string;
   initialCloudRepository?: string;
   initialModel?: string;
@@ -196,6 +198,7 @@ export function TaskInput({
   onTaskCreated,
   onTaskCreatedEffect,
   initialPrompt,
+  initialContent,
   initialPromptKey,
   initialCloudRepository,
   initialModel,
@@ -363,19 +366,30 @@ export function TaskInput({
 
   // Applying a prefilled prompt replaces whatever the composer had, so it must
   // happen exactly once per request — not again on every remount, which would
-  // clobber a draft the user typed in between.
+  // clobber a draft the user typed in between. initialContent wins over
+  // initialPrompt so a recovered prompt keeps its chips and attachments.
   const lastAppliedPromptKeyRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!initialPrompt || !prefillRequestKey) return;
+    if (!prefillRequestKey) return;
+    if (!initialContent && !initialPrompt) return;
     if (lastAppliedPromptKeyRef.current === prefillRequestKey) return;
     lastAppliedPromptKeyRef.current = prefillRequestKey;
-    useDraftStore.getState().actions.setPendingContent(sessionId, {
-      segments: [{ type: "text", text: initialPrompt }],
-    });
+    useDraftStore.getState().actions.setPendingContent(
+      sessionId,
+      initialContent ?? {
+        segments: [{ type: "text", text: initialPrompt ?? "" }],
+      },
+    );
     if (initialPromptKey) {
       useTaskInputPrefillStore.getState().consumePrompt(initialPromptKey);
     }
-  }, [initialPrompt, initialPromptKey, prefillRequestKey, sessionId]);
+  }, [
+    initialContent,
+    initialPrompt,
+    initialPromptKey,
+    prefillRequestKey,
+    sessionId,
+  ]);
 
   useEffect(() => {
     reportInputHadContentRef.current = false;

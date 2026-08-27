@@ -1,3 +1,4 @@
+import type { EditorContent } from "@posthog/core/message-editor/content";
 import {
   type TaskInputReportAssociation,
   useTaskInputPrefillStore,
@@ -31,6 +32,7 @@ export interface AppView {
   pendingTaskKey?: string;
   taskInputRequestId?: string;
   initialPrompt?: string;
+  initialContent?: EditorContent;
   initialCloudRepository?: string;
   initialModel?: string;
   initialMode?: string;
@@ -150,6 +152,7 @@ export function useAppView(): AppView {
         folderId: prefill.folderId,
         folderRepository: prefill.folderRepository,
         initialPrompt: prefill.initialPrompt,
+        initialContent: prefill.initialContent,
         initialCloudRepository: prefill.initialCloudRepository,
         initialModel: prefill.initialModel,
         initialMode: prefill.initialMode,

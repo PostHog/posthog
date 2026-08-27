@@ -67,7 +67,6 @@ import { useTourStore } from "../../tour/tourStore";
 import { createFirstTaskTour } from "../../tour/tours/createFirstTaskTour";
 import { useExistingWorktreeConfirmStore } from "../stores/existingWorktreeConfirmStore";
 import { useRemoteBranchConfirmStore } from "../stores/remoteBranchConfirmStore";
-import { restoreTaskInputTab } from "../taskInputTab";
 
 const log = logger.scope("task-creation");
 
@@ -361,6 +360,10 @@ export function useTaskCreation({
               id: a.id,
               label: a.label,
             })),
+            // The serialized content restores file chips and attachments on
+            // recovery, so an interrupted prompt comes back whole, not as bare
+            // text.
+            contentXml: serializedContent,
           });
           // Fade the composer out before the chat fades in, so the phases
           // hand over instead of cutting.
@@ -571,11 +574,13 @@ export function useTaskCreation({
               });
             }
             if (pendingTaskKey) {
-              pendingTaskPromptStoreApi.clear(pendingTaskKey);
-              if (createdTaskId) {
-                pendingTaskPromptStoreApi.clear(createdTaskId);
-              }
-              restoreTaskInputTab(originTabId, channelContextId ?? channelId);
+              // Never drop the prompt on failure. Keep the record and flag it
+              // interrupted so the pending view offers to recover or discard it,
+              // instead of navigating back to a composer that may not have it.
+              pendingTaskPromptStoreApi.markInterrupted(
+                createdTaskId ?? pendingTaskKey,
+                isOnline ? "failed" : "offline",
+              );
             }
           }
           return result.success;
@@ -586,11 +591,11 @@ export function useTaskCreation({
           toastError("Failed to create task", error);
           log.error("Unexpected error during task creation", { error });
           if (pendingTaskKey) {
-            pendingTaskPromptStoreApi.clear(pendingTaskKey);
-            if (createdTaskId) {
-              pendingTaskPromptStoreApi.clear(createdTaskId);
-            }
-            restoreTaskInputTab(originTabId, channelContextId ?? channelId);
+            // Keep the prompt recoverable from the pending view.
+            pendingTaskPromptStoreApi.markInterrupted(
+              createdTaskId ?? pendingTaskKey,
+              isOnline ? "failed" : "offline",
+            );
           }
           return false;
         }
@@ -642,6 +647,7 @@ export function useTaskCreation({
       queryClient,
       taskService,
       tasks,
+      isOnline,
     ],
   );
 

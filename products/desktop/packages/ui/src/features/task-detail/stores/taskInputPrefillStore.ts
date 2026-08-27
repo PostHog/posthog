@@ -1,3 +1,4 @@
+import type { EditorContent } from "@posthog/core/message-editor/content";
 import { create } from "zustand";
 
 export interface TaskInputReportAssociation {
@@ -11,6 +12,12 @@ export interface TaskInputPrefill {
   /** `owner/repo` of the picked sidebar group, for groups with no folder. */
   folderRepository?: string;
   initialPrompt?: string;
+  /**
+   * Full editor content to restore, including file chips and attachments.
+   * Preferred over initialPrompt when set (e.g. recovering an interrupted
+   * prompt); initialPrompt stays for plain-text callers.
+   */
+  initialContent?: EditorContent;
   initialCloudRepository?: string;
   initialModel?: string;
   initialMode?: string;
@@ -53,6 +60,7 @@ export const useTaskInputPrefillStore = create<PrefillStoreState>((set) => ({
             prefill: {
               ...s.prefill,
               initialPrompt: undefined,
+              initialContent: undefined,
               requestId: undefined,
             },
           }
