@@ -45,6 +45,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     _handle_null_columns_with_definitions,
     evolve_pyarrow_schema,
     merge_observed_columns_into_schema_metadata,
+    normalize_column_name,
     normalize_table_column_names,
     observe_and_project_table,
     reconcile_batch_to_accumulated_schema,
@@ -461,9 +462,15 @@ class PipelineV3(Generic[ResumableData]):
         pa_table = _handle_null_columns_with_definitions(pa_table, self._resource)
 
         # Converge this batch onto the column types earlier batches in this run already used,
-        # and backfill columns they had that this one doesn't.
+        # and backfill columns they had that this one doesn't. The cursor column is named both
+        # raw and normalized because `normalize_table_column_names` above may have renamed it.
+        cursor_columns = (
+            {self._schema.incremental_field, normalize_column_name(self._schema.incremental_field)}
+            if self._schema.incremental_field
+            else set()
+        )
         pa_table, self._accumulated_pa_schema = reconcile_batch_to_accumulated_schema(
-            pa_table, self._accumulated_pa_schema
+            pa_table, self._accumulated_pa_schema, self._logger, protected_columns=cursor_columns
         )
 
         batch_result = await asyncio.to_thread(self._s3_batch_writer.write_batch, pa_table, batch_index)

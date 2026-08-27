@@ -5,7 +5,7 @@ import math
 import uuid
 import decimal
 import datetime
-from collections.abc import Callable, Iterable, Iterator, Sequence
+from collections.abc import Callable, Collection, Iterable, Iterator, Sequence
 from functools import _make_key, wraps
 from ipaddress import IPv4Address, IPv6Address
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast
@@ -787,15 +787,27 @@ def restrict_schema_to_columns(schema: pa.Schema, column_names: Sequence[str]) -
     return pa.schema([field for field in schema if field.name in present])
 
 
-def _stringify_column(column: pa.ChunkedArray | pa.Array) -> pa.Array:
-    """Render a column as text, JSON-encoding anything that isn't a plain scalar."""
-    return pa.array(
-        [
-            None if value is None else (_json_dumps(value) if isinstance(value, dict | list) else str(value))
-            for value in _to_list_array(column)
-        ],
-        type=pa.string(),
-    )
+def _stringify_column(column: pa.ChunkedArray | pa.Array) -> pa.ChunkedArray | pa.Array:
+    """Render a column as text.
+
+    Prefer Arrow's own cast: it is vectorized and renders values the same way as sibling
+    batches that were cast (rather than stringified) into the same string column. Only what
+    Arrow can't cast takes the per-value pass — nested values as JSON, bytes decoded.
+    """
+    casted = _cast_column_to(column, pa.string())
+    if casted is not None:
+        return casted
+
+    def _render(value: object) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, dict | list):
+            return _json_dumps(value)
+        if isinstance(value, bytes | bytearray):
+            return bytes(value).decode("utf-8", errors="replace")
+        return str(value)
+
+    return pa.array([_render(value) for value in _to_list_array(column)], type=pa.string())
 
 
 def _cast_column_to(column: pa.ChunkedArray | pa.Array, target: pa.DataType) -> pa.ChunkedArray | pa.Array | None:
@@ -817,8 +829,30 @@ def _common_type(left: pa.DataType, right: pa.DataType) -> pa.DataType | None:
     return unified.field("f").type
 
 
+def _cast_is_faithful(source: pa.DataType, target: pa.DataType) -> bool:
+    """Whether a successful `pc.cast(source → target)` converts values rather than reinterpreting them.
+
+    Arrow "casts" int64 → timestamp by reading the ints as the target's epoch unit, numeric → bool
+    by truthiness, and struct → struct by dropping unmatched fields and null-filling the rest —
+    silent corruption, not conversion, so those pairs must fall through to the text fallback
+    instead. String targets render faithfully, string sources parse (raising on values that don't
+    fit), and pairs Arrow itself promotes (numeric widening, decimal rescaling, temporal unit
+    changes) convert.
+    """
+    if pa.types.is_nested(source) or pa.types.is_nested(target):
+        return False
+    if pa.types.is_string(target) or pa.types.is_large_string(target):
+        return True
+    if pa.types.is_string(source) or pa.types.is_large_string(source):
+        return True
+    return _common_type(source, target) is not None
+
+
 def reconcile_batch_to_accumulated_schema(
-    pa_table: pa.Table, accumulated_schema: pa.Schema | None
+    pa_table: pa.Table,
+    accumulated_schema: pa.Schema | None,
+    logger: FilteringBoundLogger | None = None,
+    protected_columns: Collection[str] = (),
 ) -> tuple[pa.Table, pa.Schema]:
     """Make a batch's schema consistent with the batches already written in this run.
 
@@ -830,13 +864,27 @@ def reconcile_batch_to_accumulated_schema(
 
     Reconciling here converges every batch onto one type for the run, preferring in order:
     the type earlier batches already wrote (nothing to rewrite), Arrow's own promotion (e.g.
-    int64 + double → double), and finally text, which holds anything.
+    int64 + double → double), and finally text, which holds anything. Casts are only taken when
+    they convert values; pairs Arrow would reinterpret (int ↔ timestamp, numeric → bool, nested
+    shapes) go straight to text.
 
     Also backfills columns that earlier batches had and this one doesn't, so a column that only
     appears in some batches still lands with a stable type.
+
+    Convergence is per run: parts written before a mid-run flip keep their original type, and a
+    new Delta table adopts the first part's type at load. A column whose values genuinely cannot
+    cast between the flipped types therefore still fails the run — at the load stage, classified
+    as a column type change — rather than being silently rewritten. What this removes is the
+    extract-time merge crash and the per-source field allowlists.
+
+    `protected_columns` (the incremental cursor) must never converge to text: a lexicographic
+    watermark silently corrupts incremental progress, so an unresolvable flip there raises
+    instead.
     """
     if accumulated_schema is None:
         return pa_table, pa_table.schema
+
+    protected = frozenset(protected_columns)
 
     for accumulated_field in accumulated_schema:
         name = accumulated_field.name
@@ -851,21 +899,67 @@ def reconcile_batch_to_accumulated_schema(
         if incoming_type == accumulated_field.type:
             continue
 
-        casted = _cast_column_to(pa_table.column(name), accumulated_field.type)
-        resolved_type = accumulated_field.type
+        column = pa_table.column(name)
 
-        if casted is None:
-            promoted = _common_type(accumulated_field.type, incoming_type)
-            casted = None if promoted is None else _cast_column_to(pa_table.column(name), promoted)
-            resolved_type = promoted if casted is not None else pa.string()
+        if name in protected:
+            # The cursor may widen numerically or parse numeric text back toward the accumulated
+            # type, but must never become text: `max()` over a string cursor orders
+            # lexicographically and silently corrupts the persisted watermark.
+            casted = None
+            resolved_type = accumulated_field.type
+            resolution = "cast_to_accumulated"
+            if not pa.types.is_string(accumulated_field.type) and not pa.types.is_large_string(accumulated_field.type):
+                casted = (
+                    _cast_column_to(column, accumulated_field.type)
+                    if _cast_is_faithful(incoming_type, accumulated_field.type)
+                    else None
+                )
             if casted is None:
-                casted = _stringify_column(pa_table.column(name))
-
-        pa_table = pa_table.set_column(index, pa.field(name, resolved_type, nullable=True), casted)
-        if resolved_type != accumulated_field.type:
-            accumulated_schema = accumulated_schema.set(
-                accumulated_schema.get_field_index(name), pa.field(name, resolved_type, nullable=True)
+                promoted = _common_type(accumulated_field.type, incoming_type)
+                if promoted is not None and _cast_is_faithful(incoming_type, promoted):
+                    casted = _cast_column_to(column, promoted)
+                    resolved_type = promoted
+                    resolution = "promoted"
+            if casted is None:
+                raise ValueError(
+                    f"Incremental cursor column '{name}' changed type across batches "
+                    f"({accumulated_field.type} vs {incoming_type}) and cannot be safely converged"
+                )
+        else:
+            casted = (
+                _cast_column_to(column, accumulated_field.type)
+                if _cast_is_faithful(incoming_type, accumulated_field.type)
+                else None
             )
+            resolved_type = accumulated_field.type
+            resolution = "cast_to_accumulated"
+
+            if casted is None:
+                promoted = _common_type(accumulated_field.type, incoming_type)
+                if promoted is not None and _cast_is_faithful(incoming_type, promoted):
+                    casted = _cast_column_to(column, promoted)
+                if casted is not None:
+                    resolved_type = promoted
+                    resolution = "promoted"
+                else:
+                    casted = _stringify_column(column)
+                    resolved_type = pa.string()
+                    resolution = "stringified"
+
+        if logger is not None:
+            logger.warning(
+                "Reconciled a batch column type against the run's accumulated schema",
+                column=name,
+                incoming_type=str(incoming_type),
+                accumulated_type=str(accumulated_field.type),
+                resolved_type=str(resolved_type),
+                resolution=resolution,
+            )
+
+        resolved_field = accumulated_field.with_type(resolved_type).with_nullable(True)
+        pa_table = pa_table.set_column(index, resolved_field, casted)
+        if resolved_type != accumulated_field.type:
+            accumulated_schema = accumulated_schema.set(accumulated_schema.get_field_index(name), resolved_field)
 
     for field in pa_table.schema:
         if field.name not in accumulated_schema.names:
@@ -874,7 +968,7 @@ def reconcile_batch_to_accumulated_schema(
     return pa_table, accumulated_schema
 
 
-def unify_schemas_with_text_fallback(schemas: list[pa.Schema]) -> pa.Schema:
+def unify_schemas_with_text_fallback(schemas: list[pa.Schema], logger: FilteringBoundLogger | None = None) -> pa.Schema:
     """Merge batch schemas, resolving any field Arrow refuses to merge to text.
 
     `reconcile_batch_to_accumulated_schema` converges a run onto one type per column, but batches
@@ -897,8 +991,16 @@ def unify_schemas_with_text_fallback(schemas: list[pa.Schema]) -> pa.Schema:
                 continue
             if existing.type == field.type:
                 continue
-            promoted = _common_type(existing.type, field.type)
-            merged[field.name] = pa.field(field.name, promoted or pa.string(), nullable=True)
+            resolved = _common_type(existing.type, field.type) or pa.string()
+            if logger is not None:
+                logger.warning(
+                    "Batch schemas disagree on a column type; describing it in the merged schema",
+                    column=field.name,
+                    first_type=str(existing.type),
+                    second_type=str(field.type),
+                    resolved_type=str(resolved),
+                )
+            merged[field.name] = existing.with_type(resolved).with_nullable(True)
 
     return pa.schema(list(merged.values()))
 

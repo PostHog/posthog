@@ -149,7 +149,7 @@ class S3BatchWriter:
             # double in a later one (whole vs fractional values). Permissive promotion widens to the
             # common type; flips promotion can't reconcile (string vs int64) fall back to text
             # instead of raising ArrowTypeError.
-            self._schema = unify_schemas_with_text_fallback([self._schema, pa_table.schema])
+            self._schema = unify_schemas_with_text_fallback([self._schema, pa_table.schema], self._logger)
 
         self._logger.debug(
             f"Batch {batch_index} written successfully",

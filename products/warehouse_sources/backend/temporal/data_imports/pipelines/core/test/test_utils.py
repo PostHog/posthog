@@ -1930,6 +1930,17 @@ class TestReconcileBatchToAccumulatedSchema:
             (pa.table({"f": [None]}), pa.table({"f": [3]}), pa.int64(), [3]),
             # Nothing else holds both, so text does.
             (pa.table({"f": [1]}), pa.table({"f": ["nope"]}), pa.string(), ["nope"]),
+            # Pairs Arrow would "cast" by reinterpretation must degrade to text instead: ints
+            # read as the accumulated timestamp's epoch unit would turn 2023 data into 1970
+            # dates, and numeric ↔ bool casts truthify.
+            (
+                pa.table({"f": pa.array([datetime.datetime(2023, 11, 14)], type=pa.timestamp("us"))}),
+                pa.table({"f": [1700000000]}),
+                pa.string(),
+                ["1700000000"],
+            ),
+            (pa.table({"f": [True]}), pa.table({"f": [7]}), pa.string(), ["7"]),
+            (pa.table({"f": [1]}), pa.table({"f": [True]}), pa.string(), ["true"]),
         ],
     )
     def test_conflicting_column_types_converge(
@@ -1957,6 +1968,47 @@ class TestReconcileBatchToAccumulatedSchema:
         _, accumulated = reconcile_batch_to_accumulated_schema(pa.table({"a": [2], "b": ["x"]}), accumulated)
 
         assert accumulated.names == ["a", "b"]
+
+    def test_nested_shapes_degrade_to_json_text_not_reshaped_structs(self):
+        # pc.cast(struct → struct) "succeeds" by dropping unmatched fields and null-filling the
+        # rest, silently emptying the column. A nested column whose shape changes between
+        # batches must render as JSON text instead.
+        _, accumulated = reconcile_batch_to_accumulated_schema(pa.table({"f": [{"a": 1}]}), None)
+
+        result, accumulated = reconcile_batch_to_accumulated_schema(pa.table({"f": [{"b": "x"}]}), accumulated)
+
+        assert result.schema.field("f").type == pa.string()
+        [rendered] = result.column("f").to_pylist()
+        assert rendered is not None
+        assert orjson.loads(rendered) == {"b": "x"}
+        assert accumulated.field("f").type == pa.string()
+
+    def test_protected_cursor_column_still_converges_castable_flips(self):
+        # The known Intercom shape on the cursor itself: numeric text parses back to the
+        # accumulated numeric type, so incremental syncs keep working.
+        _, accumulated = reconcile_batch_to_accumulated_schema(pa.table({"updated_at": [1700000000]}), None)
+
+        result, _ = reconcile_batch_to_accumulated_schema(
+            pa.table({"updated_at": ["1700000001"]}), accumulated, protected_columns={"updated_at"}
+        )
+
+        assert result.column("updated_at").to_pylist() == [1700000001]
+
+    @pytest.mark.parametrize(
+        "first,second",
+        [
+            # True text in the cursor: a string watermark would compare lexicographically and
+            # silently corrupt incremental progress, so refuse loudly.
+            (pa.table({"updated_at": [1700000000]}), pa.table({"updated_at": ["not-a-number"]})),
+            # A cursor that accumulated as text must not quietly absorb numbers either.
+            (pa.table({"updated_at": ["2024-01-01T00:00:00"]}), pa.table({"updated_at": [1700000000]})),
+        ],
+    )
+    def test_protected_cursor_column_refuses_text_convergence(self, first: pa.Table, second: pa.Table):
+        _, accumulated = reconcile_batch_to_accumulated_schema(first, None)
+
+        with pytest.raises(ValueError, match="cursor column"):
+            reconcile_batch_to_accumulated_schema(second, accumulated, protected_columns={"updated_at"})
 
     def test_batches_of_source_rows_that_flip_type_stay_mergeable(self):
         # The prod failure: a source returns the same field as an int on some rows and a string
