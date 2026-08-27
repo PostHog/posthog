@@ -44,6 +44,12 @@ import type { MetricsChartSeries } from './metricsSeries'
 export type MetricAggregation = 'sum' | 'avg' | 'count' | 'p95' | 'rate' | 'increase'
 export const METRIC_AGGREGATIONS: MetricAggregation[] = ['sum', 'avg', 'count', 'p95', 'rate', 'increase']
 
+const METRIC_AGGREGATIONS: MetricAggregation[] = ['sum', 'avg', 'count', 'p95', 'rate', 'increase']
+
+/** Narrows an untrusted value (a URL param, a saved link) to an aggregation the backend accepts. */
+export const isMetricAggregation = (value: unknown): value is MetricAggregation =>
+    typeof value === 'string' && METRIC_AGGREGATIONS.includes(value as MetricAggregation)
+
 export type MetricsViewerSeries = _MetricSeriesApi
 
 // Display shape for the "vs baseline" anomaly badge (null = no anomaly / flat metric).
