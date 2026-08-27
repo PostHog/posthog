@@ -56170,14 +56170,14 @@ export namespace Schemas {
       prompt?: string | null;
       /** Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes. */
       ai_prompt_config?: AIPromptConfig;
-      /** AI report subscriptions only: dashboard IDs whose insights ground the generated report. Combined with context_insights, at most 25 context items are allowed. */
       context_dashboards?: number[];
-      /** AI report subscriptions only: insight IDs that ground the generated report. Combined with context_dashboards, at most 25 context items are allowed. */
       context_insights?: number[];
       /** AI report subscriptions only: typed context items that ground the generated report. Combined with dashboards and insights, at most 25 context items are allowed. */
       context_items?: SubscriptionContextItem[];
       /** The dashboards and insights grounding an AI report, for display. Deleted context is omitted. */
       readonly contexts: readonly SubscriptionContext[];
+      /** Whether this subscription can only be paused or cleared because its creator lost context access. */
+      readonly context_recovery: boolean;
       /** Delivery channel: email or slack.
        *
        * * `email` - Email
@@ -65157,14 +65157,14 @@ export namespace Schemas {
       prompt?: string | null;
       /** Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes. */
       ai_prompt_config?: AIPromptConfig;
-      /** AI report subscriptions only: dashboard IDs whose insights ground the generated report. Combined with context_insights, at most 25 context items are allowed. */
       context_dashboards?: number[];
-      /** AI report subscriptions only: insight IDs that ground the generated report. Combined with context_dashboards, at most 25 context items are allowed. */
       context_insights?: number[];
       /** AI report subscriptions only: typed context items that ground the generated report. Combined with dashboards and insights, at most 25 context items are allowed. */
       context_items?: SubscriptionContextItem[];
       /** The dashboards and insights grounding an AI report, for display. Deleted context is omitted. */
       readonly contexts?: readonly SubscriptionContext[];
+      /** Whether this subscription can only be paused or cleared because its creator lost context access. */
+      readonly context_recovery?: boolean;
       /** Delivery channel: email or slack.
        *
        * * `email` - Email

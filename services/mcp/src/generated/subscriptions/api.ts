@@ -136,18 +136,8 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             .describe(
                 "Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes."
             ),
-        context_dashboards: zod
-            .array(zod.number())
-            .optional()
-            .describe(
-                'AI report subscriptions only: dashboard IDs whose insights ground the generated report. Combined with context_insights, at most 25 context items are allowed.'
-            ),
-        context_insights: zod
-            .array(zod.number())
-            .optional()
-            .describe(
-                'AI report subscriptions only: insight IDs that ground the generated report. Combined with context_dashboards, at most 25 context items are allowed.'
-            ),
+        context_dashboards: zod.array(zod.number()).optional(),
+        context_insights: zod.array(zod.number()).optional(),
         context_items: zod
             .array(
                 zod.object({
@@ -351,18 +341,8 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             .describe(
                 "Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes."
             ),
-        context_dashboards: zod
-            .array(zod.number())
-            .optional()
-            .describe(
-                'AI report subscriptions only: dashboard IDs whose insights ground the generated report. Combined with context_insights, at most 25 context items are allowed.'
-            ),
-        context_insights: zod
-            .array(zod.number())
-            .optional()
-            .describe(
-                'AI report subscriptions only: insight IDs that ground the generated report. Combined with context_dashboards, at most 25 context items are allowed.'
-            ),
+        context_dashboards: zod.array(zod.number()).optional(),
+        context_insights: zod.array(zod.number()).optional(),
         context_items: zod
             .array(
                 zod.object({
