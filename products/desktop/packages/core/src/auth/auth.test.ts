@@ -2315,32 +2315,82 @@ describe("AuthService", () => {
     it.each([
       {
         name: "keeps the current result on screen while a refresh for the same account rechecks it",
-        refreshedAccountKey: "user-1",
+        bootAccountKey: "user-1" as string | null,
+        refreshedAccountKey: "user-1" as string | null,
         statusDuringRecheck: "allowed",
       },
       {
         // A failed account lookup is an unknown account, not another one.
         name: "keeps the current result on screen while a refresh whose account lookup failed rechecks it",
+        bootAccountKey: "user-1" as string | null,
         refreshedAccountKey: null as string | null,
         statusDuringRecheck: "allowed",
       },
       {
+        // Same on the other side: a boot whose lookup failed must not turn
+        // every later refresh into a full-app remount.
+        name: "keeps the current result on screen when the boot account lookup failed and a refresh resolves one",
+        bootAccountKey: null as string | null,
+        refreshedAccountKey: "user-1" as string | null,
+        statusDuringRecheck: "allowed",
+      },
+      {
         name: "shows checking while a refresh that lands on another account rechecks",
-        refreshedAccountKey: "user-2",
+        bootAccountKey: "user-1" as string | null,
+        refreshedAccountKey: "user-2" as string | null,
         statusDuringRecheck: "checking",
       },
-    ])("$name", async ({ refreshedAccountKey, statusDuringRecheck }) => {
+    ])(
+      "$name",
+      async ({ bootAccountKey, refreshedAccountKey, statusDuringRecheck }) => {
+        let release!: () => void;
+        const pending = new Promise<Response>((resolve) => {
+          release = () => resolve(okBody({ allowed: true, reason: null }));
+        });
+        stubAuthFetch({ accountKey: bootAccountKey });
+        await service.initialize();
+        expect(service.getState().desktopAccess.status).toBe("allowed");
+
+        let checks = 0;
+        stubAuthFetch({
+          accountKey: refreshedAccountKey,
+          desktopAccessResponse: () => {
+            checks += 1;
+            return pending as unknown as Response;
+          },
+        });
+        const refresh = service.refreshAccessToken();
+        await vi.waitFor(() => expect(checks).toBe(1));
+        expect(service.getState().desktopAccess.status).toBe(
+          statusDuringRecheck,
+        );
+
+        release();
+        await refresh;
+        expect(service.getState().desktopAccess.status).toBe("allowed");
+      },
+    );
+
+    it("keeps the live project and settled access when a refresh rebuild omits the project", async () => {
+      // One 4xx or timeout on a per-org or per-team fetch during a token
+      // refresh rebuilds the map without the project the app is showing.
+      // Adopting the fallback selection then swaps the project and unmounts
+      // the whole app. The #88289 test covers the initialize path with no
+      // live session; this one covers a refresh over a live session.
       let release!: () => void;
       const pending = new Promise<Response>((resolve) => {
         release = () => resolve(okBody({ allowed: true, reason: null }));
       });
       stubAuthFetch();
       await service.initialize();
+      expect(service.getState().currentProjectId).toBe(42);
       expect(service.getState().desktopAccess.status).toBe("allowed");
 
       let checks = 0;
       stubAuthFetch({
-        accountKey: refreshedAccountKey,
+        orgs: {
+          "org-1": { name: "Org 1", projects: [{ id: 7, name: "Project 7" }] },
+        },
         desktopAccessResponse: () => {
           checks += 1;
           return pending as unknown as Response;
@@ -2348,10 +2398,12 @@ describe("AuthService", () => {
       });
       const refresh = service.refreshAccessToken();
       await vi.waitFor(() => expect(checks).toBe(1));
-      expect(service.getState().desktopAccess.status).toBe(statusDuringRecheck);
+      expect(service.getState().currentProjectId).toBe(42);
+      expect(service.getState().desktopAccess.status).toBe("allowed");
 
       release();
       await refresh;
+      expect(service.getState().currentProjectId).toBe(42);
       expect(service.getState().desktopAccess.status).toBe("allowed");
     });
 
