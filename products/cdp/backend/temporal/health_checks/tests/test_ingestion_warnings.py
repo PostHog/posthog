@@ -66,6 +66,13 @@ class TestIngestionWarningsSignal(SimpleTestCase):
         assert "may be" in signal.description
         assert "were dropped" not in signal.description
 
+    def test_error_warning_for_update_only_type_names_the_update(self):
+        # person_properties_size_violation rejects only the person update; the event still
+        # ingests. Error copy must not tell users the event itself failed to ingest.
+        signal = IngestionWarningsCheck.render_signal(_issue("person_properties_size_violation", "size", "error"))
+        assert signal is not None
+        assert "update" in signal.description
+
     def test_info_warning_does_not_claim_every_event_was_dropped(self):
         # replay_lib_version_too_old and client_ingestion_warning drop nothing, so the info
         # copy must not tell users every info warning intentionally dropped their events.

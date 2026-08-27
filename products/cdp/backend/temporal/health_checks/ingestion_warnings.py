@@ -55,7 +55,8 @@ def _impact_and_guidance(category: str | None, severity: str | None) -> tuple[st
         )
     if severity == "error":
         return (
-            "The affected events failed to ingest and were dropped, so that data is incomplete.",
+            "Either the affected events failed to ingest and were dropped, or the events ingested but a "
+            "person or group update they carried was rejected. Some of that data is incomplete.",
             "Review the ingestion warnings page to find the source and fix the instrumentation that produced them.",
         )
     if severity == "info":
