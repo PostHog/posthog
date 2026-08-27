@@ -3054,6 +3054,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     return []
                 }
 
+                if (productTab === ProductTab.AGENTS) {
+                    return []
+                }
+
                 return allTiles
                     .filter(isNotNil)
                     .filter((tile) =>
@@ -3175,6 +3179,20 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     urlParams.delete('referrer')
                 }
                 return `/web/page-performance${urlParams.toString() ? '?' + urlParams.toString() : ''}`
+            } else if (productTab === ProductTab.AGENTS) {
+                urlParams.delete('filters')
+                if (dateFrom !== INITIAL_DATE_FROM || dateTo !== INITIAL_DATE_TO || interval !== INITIAL_INTERVAL) {
+                    urlParams.set('date_from', dateFrom ?? '')
+                    urlParams.set('date_to', dateTo ?? '')
+                    urlParams.set('interval', interval ?? '')
+                } else {
+                    urlParams.delete('date_from')
+                    urlParams.delete('date_to')
+                    urlParams.delete('interval')
+                }
+                urlParams.set('filter_test_accounts', shouldFilterTestAccounts.toString())
+                urlParams.set('compare_filter', JSON.stringify(rawCompareFilter))
+                return `/web/agents${urlParams.toString() ? '?' + urlParams.toString() : ''}`
             }
 
             // Make sure we're storing the raw filters only, or else we'll have issues with the domain/device type filters
@@ -3338,6 +3356,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     ProductTab.LIVE,
                     ProductTab.BOT_ANALYTICS,
                     ProductTab.PAGE_PERFORMANCE,
+                    ProductTab.AGENTS,
                 ].includes(productTab)
             ) {
                 return
@@ -3360,6 +3379,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 return
             }
 
+            if (productTab === ProductTab.AGENTS && !values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_AGENT_ANALYTICS]) {
+                router.actions.replace(urls.webAnalytics())
+                return
+            }
+
             cache.hasRestoredWebUrl = true
 
             // Stamp the last-used timestamp for feature flag targeting (throttled to once per day per browser).
@@ -3377,7 +3401,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     if (botLogic && !objectsEqual(nextFilters, botLogic.values.rawBotAnalyticsFilters)) {
                         botLogic.actions.setBotAnalyticsFilters(nextFilters)
                     }
-                } else if (!objectsEqual(nextFilters, values.rawWebAnalyticsFilters)) {
+                } else if (
+                    productTab !== ProductTab.AGENTS &&
+                    !objectsEqual(nextFilters, values.rawWebAnalyticsFilters)
+                ) {
                     actions.setWebAnalyticsFilters(nextFilters)
                 }
             }
@@ -3551,6 +3578,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             '/web': toAction,
             '/web/bots': (_, searchParams) => {
                 toAction({ productTab: ProductTab.BOT_ANALYTICS }, searchParams)
+            },
+            '/web/agents': (_, searchParams) => {
+                toAction({ productTab: ProductTab.AGENTS }, searchParams)
             },
             '/web/:productTab': toAction,
         }
