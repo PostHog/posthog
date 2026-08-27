@@ -1,4 +1,3 @@
-import uuid
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -7,15 +6,15 @@ from django.utils import timezone
 
 import structlog
 
-from posthog.api.app_metrics2 import fetch_app_metric_daily_totals_by_team, fetch_app_metric_totals_by_team_and_source
+from posthog.api.app_metrics2 import fetch_app_metric_daily_totals_by_team
 from posthog.dataclasses import frozen
 
-from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.utils.email_sending_tiers import (
     MIN_EMAIL_SENDING_TIER,
     get_email_sending_tier_limits,
     max_email_sending_tier,
+    min_days_at_tier,
 )
 
 logger = structlog.get_logger(__name__)
@@ -56,10 +55,19 @@ class TeamSendingHistory:
             # Nothing sent means nothing measured, so the rates neither pass nor fail. Callers pair
             # this with the volume bar, which a team that sent nothing cannot clear.
             return True
-        return (
-            self.complaint_rate <= settings.WORKFLOWS_EMAIL_TIER_MAX_COMPLAINT_RATE
-            and self.hard_bounce_rate <= settings.WORKFLOWS_EMAIL_TIER_MAX_BOUNCE_RATE
+        # A rate needs a denominator to mean anything: at the 0.1% complaint threshold, one
+        # complaint per 1,000 sends is exactly the line, so on a smaller window a single complaint
+        # would read as dirty. Below the floor, complaints only count through the absolute
+        # backstop, and the bounce rate does not count at all.
+        complaints_are_dirty = self.complaint_rate > settings.WORKFLOWS_EMAIL_TIER_MAX_COMPLAINT_RATE and (
+            self.sent >= settings.WORKFLOWS_EMAIL_TIER_COMPLAINT_RATE_MIN_SENDS
+            or self.complained >= settings.WORKFLOWS_EMAIL_TIER_COMPLAINT_COUNT_BACKSTOP
         )
+        bounces_are_dirty = (
+            self.hard_bounce_rate > settings.WORKFLOWS_EMAIL_TIER_MAX_BOUNCE_RATE
+            and self.sent >= settings.WORKFLOWS_EMAIL_TIER_BOUNCE_RATE_MIN_SENDS
+        )
+        return not (complaints_are_dirty or bounces_are_dirty)
 
 
 @frozen
@@ -103,6 +111,7 @@ def decide_tier(
     current_tier: int,
     tier_updated_at: Optional[datetime],
     suspended: bool,
+    recent_history: Optional[TeamSendingHistory] = None,
     now: Optional[datetime] = None,
     require_time_at_tier: bool = True,
     single_step: bool = True,
@@ -110,12 +119,18 @@ def decide_tier(
     """
     The tier a team should hold, given its sending history.
 
+    `history` covers the promotion window and `recent_history` the shorter demotion window, so an
+    incident demotes while it is fresh but stops holding the team down once it ages out of the
+    short window, while promotion still requires the full window to be clean. Callers with a
+    single window (the backfill) omit `recent_history`.
+
     `require_time_at_tier` and `single_step` are both off for the backfill, which reads a long
     history at once and must land an established sender on its real tier immediately instead of
     walking it up one step per run.
     """
     now = now or timezone.now()
     top = max_email_sending_tier()
+    recent = recent_history or history
 
     if suspended:
         return TierDecision(
@@ -125,20 +140,42 @@ def decide_tier(
             reason="staff_suspension",
         )
 
-    if history.auto_paused:
+    if recent.auto_paused or not recent.rates_are_clean:
+        # One incident stays inside the demotion window for days and the sweep runs daily, so
+        # without a cooldown the same incident would demote the team again on every run and
+        # cascade it to the bottom. One step per cooldown period keeps the response proportionate.
+        cooldown = timedelta(days=settings.WORKFLOWS_EMAIL_TIER_DEMOTION_COOLDOWN_DAYS)
+        if tier_updated_at is not None and now - tier_updated_at < cooldown:
+            return TierDecision(
+                team_id=history.team_id,
+                previous_tier=current_tier,
+                new_tier=current_tier,
+                reason="demotion_cooldown",
+            )
         return TierDecision(
             team_id=history.team_id,
             previous_tier=current_tier,
             new_tier=max(MIN_EMAIL_SENDING_TIER, current_tier - 1),
-            reason="workflow_auto_paused",
+            reason="workflow_auto_paused" if recent.auto_paused else "rates_above_threshold",
         )
 
-    if not history.rates_are_clean:
+    decay_days = settings.WORKFLOWS_EMAIL_TIER_INACTIVITY_DECAY_DAYS
+    if (
+        decay_days > 0
+        and current_tier > MIN_EMAIL_SENDING_TIER
+        and history.sent == 0
+        and tier_updated_at is not None
+        and now - tier_updated_at >= timedelta(days=decay_days)
+    ):
+        # Mailbox providers keep roughly 30 days of reputation history, so a long-dormant
+        # allowance is no longer earned, and a comeback blast from a stale list is exactly what
+        # the caps exist to prevent. Each decay step resets tier_updated_at, so a dormant team
+        # steps down one tier per decay period rather than dropping at once.
         return TierDecision(
             team_id=history.team_id,
             previous_tier=current_tier,
-            new_tier=max(MIN_EMAIL_SENDING_TIER, current_tier - 1),
-            reason="rates_above_threshold",
+            new_tier=current_tier - 1,
+            reason="inactive",
         )
 
     if current_tier >= top:
@@ -146,9 +183,16 @@ def decide_tier(
             team_id=history.team_id, previous_tier=current_tier, new_tier=current_tier, reason="already_top_tier"
         )
 
+    if not history.rates_are_clean:
+        # The recent window recovered but the promotion window has not. Hold rather than promote,
+        # so a team does not climb while its long-run rates are still over the threshold.
+        return TierDecision(
+            team_id=history.team_id, previous_tier=current_tier, new_tier=current_tier, reason="rates_recovering"
+        )
+
     if require_time_at_tier:
         anchor = tier_updated_at
-        if anchor is not None and now - anchor < timedelta(days=settings.WORKFLOWS_EMAIL_TIER_MIN_DAYS_AT_TIER):
+        if anchor is not None and now - anchor < timedelta(days=min_days_at_tier(current_tier)):
             return TierDecision(
                 team_id=history.team_id, previous_tier=current_tier, new_tier=current_tier, reason="too_soon"
             )
@@ -172,81 +216,71 @@ def build_sending_histories(
     before: Optional[datetime] = None,
     team_ids: Optional[list[int]] = None,
 ) -> dict[int, TeamSendingHistory]:
-    """Read every team's workflow email metrics for the window in two grouped queries."""
+    """Read every team's workflow email metrics for the window in one grouped query."""
+    daily_by_team = _fetch_daily_metrics(after=after, before=before, team_ids=team_ids)
+    return {team_id: _history_from_daily(team_id, days) for team_id, days in daily_by_team.items()}
+
+
+@frozen
+class SendingHistoryWindows:
+    """Per-team sending histories over the promotion window and the shorter demotion window."""
+
+    window: dict[int, TeamSendingHistory]
+    recent: dict[int, TeamSendingHistory]
+
+
+def build_sending_history_windows(
+    *,
+    after: datetime,
+    recent_after: datetime,
+    before: Optional[datetime] = None,
+    team_ids: Optional[list[int]] = None,
+) -> SendingHistoryWindows:
+    """The full promotion window and the shorter demotion window, from one query.
+
+    The recent window is cut on calendar days (UTC), matching the day granularity the metrics are
+    fetched at, so its edge can be up to a day coarser than `recent_after`.
+    """
+    daily_by_team = _fetch_daily_metrics(after=after, before=before, team_ids=team_ids)
+    recent_key = recent_after.strftime("%Y-%m-%d")
+    return SendingHistoryWindows(
+        window={team_id: _history_from_daily(team_id, days) for team_id, days in daily_by_team.items()},
+        recent={
+            team_id: _history_from_daily(team_id, {day: counts for day, counts in days.items() if day >= recent_key})
+            for team_id, days in daily_by_team.items()
+        },
+    )
+
+
+def _fetch_daily_metrics(
+    *,
+    after: datetime,
+    before: Optional[datetime],
+    team_ids: Optional[list[int]],
+) -> dict[int, dict[str, dict[str, int]]]:
     auto_pause_metrics = [name for name in settings.WORKFLOWS_EMAIL_TIER_AUTO_PAUSE_METRIC_NAMES if name]
     metric_names = [SENT_METRIC, HARD_BOUNCE_METRIC, COMPLAINT_METRIC, *auto_pause_metrics]
-
-    totals_by_team = fetch_app_metric_totals_by_team_and_source(
+    return fetch_app_metric_daily_totals_by_team(
         app_source=APP_SOURCE,
         name=metric_names,
         after=after,
         before=before,
         team_ids=team_ids,
     )
-    daily_by_team = fetch_app_metric_daily_totals_by_team(
-        app_source=APP_SOURCE,
-        name=[SENT_METRIC],
-        after=after,
-        before=before,
-        team_ids=team_ids,
+
+
+def _history_from_daily(team_id: int, days: dict[str, dict[str, int]]) -> TeamSendingHistory:
+    # The tier decision only reads team totals, so metrics recorded under a batch job id and under
+    # its parent workflow id sum the same either way and need no per-source resolution.
+    auto_pause_metrics = [name for name in settings.WORKFLOWS_EMAIL_TIER_AUTO_PAUSE_METRIC_NAMES if name]
+    return TeamSendingHistory(
+        team_id=team_id,
+        sent=sum(counts.get(SENT_METRIC, 0) for counts in days.values()),
+        hard_bounced=sum(counts.get(HARD_BOUNCE_METRIC, 0) for counts in days.values()),
+        complained=sum(counts.get(COMPLAINT_METRIC, 0) for counts in days.values()),
+        auto_paused=any(counts.get(metric, 0) > 0 for counts in days.values() for metric in auto_pause_metrics),
+        daily_sends={day: counts.get(SENT_METRIC, 0) for day, counts in days.items() if counts.get(SENT_METRIC, 0)},
     )
-
-    batch_job_to_flow = _resolve_batch_jobs(totals_by_team)
-
-    histories: dict[int, TeamSendingHistory] = {}
-    for team_id, totals_by_source in totals_by_team.items():
-        # Metrics land under the workflow id for event-triggered runs and under the batch job id for
-        # batch runs. The team totals are the same either way, but folding batch jobs into their
-        # parent workflow is what makes the per-workflow signals (an auto-pause) attributable.
-        folded = _fold_batch_jobs_into_workflows(totals_by_source, batch_job_to_flow)
-        histories[team_id] = TeamSendingHistory(
-            team_id=team_id,
-            sent=sum(counts.get(SENT_METRIC, 0) for counts in folded.values()),
-            hard_bounced=sum(counts.get(HARD_BOUNCE_METRIC, 0) for counts in folded.values()),
-            complained=sum(counts.get(COMPLAINT_METRIC, 0) for counts in folded.values()),
-            auto_paused=any(counts.get(metric, 0) > 0 for counts in folded.values() for metric in auto_pause_metrics),
-            daily_sends={day: counts.get(SENT_METRIC, 0) for day, counts in daily_by_team.get(team_id, {}).items()},
-        )
-    return histories
-
-
-def _looks_like_uuid(value: str) -> bool:
-    try:
-        uuid.UUID(value)
-        return True
-    except (ValueError, AttributeError, TypeError):
-        return False
-
-
-def _resolve_batch_jobs(totals_by_team: dict[int, dict[str, dict[str, int]]]) -> dict[str, str]:
-    """Map every batch-job source id in the sweep to its parent workflow id, in one query.
-
-    Non-UUID source ids are dropped first because a UUID column lookup rejects them outright.
-    """
-    source_ids = [
-        source_id
-        for totals_by_source in totals_by_team.values()
-        for source_id in totals_by_source
-        if _looks_like_uuid(source_id)
-    ]
-    if not source_ids:
-        return {}
-    return {
-        str(batch_job_id): str(flow_id)
-        for batch_job_id, flow_id in HogFlowBatchJob.objects.filter(id__in=source_ids).values_list("id", "hog_flow_id")
-    }
-
-
-def _fold_batch_jobs_into_workflows(
-    totals_by_source: dict[str, dict[str, int]], batch_job_to_flow: dict[str, str]
-) -> dict[str, dict[str, int]]:
-    folded: dict[str, dict[str, int]] = {}
-    for source_id, counts in totals_by_source.items():
-        key = batch_job_to_flow.get(source_id, source_id)
-        target = folded.setdefault(key, {})
-        for metric_name, count in counts.items():
-            target[metric_name] = target.get(metric_name, 0) + count
-    return folded
 
 
 def _empty_history(team_id: int) -> TeamSendingHistory:
@@ -279,9 +313,11 @@ def recompute_email_sending_tiers(team_ids: Optional[list[int]] = None) -> list[
     only be corrected by a run: a suspended team owed a demotion, and any team already above tier 0.
     A pinned team is skipped in both directions.
     """
-    window_days = settings.WORKFLOWS_EMAIL_TIER_RATE_WINDOW_DAYS
-    after = timezone.now() - timedelta(days=window_days)
-    histories = build_sending_histories(after=after, team_ids=team_ids)
+    now = timezone.now()
+    after = now - timedelta(days=settings.WORKFLOWS_EMAIL_TIER_RATE_WINDOW_DAYS)
+    recent_after = now - timedelta(days=settings.WORKFLOWS_EMAIL_TIER_DEMOTION_WINDOW_DAYS)
+    windows = build_sending_history_windows(after=after, recent_after=recent_after, team_ids=team_ids)
+    histories = windows.window
 
     stateful_teams = TeamWorkflowsConfig.objects.filter(email_sending_tier_pinned=False).exclude(
         email_sending_tier=MIN_EMAIL_SENDING_TIER, email_sending_suspended_at__isnull=True
@@ -310,6 +346,7 @@ def recompute_email_sending_tiers(team_ids: Optional[list[int]] = None) -> list[
 
         decision = decide_tier(
             history=histories.get(team_id) or _empty_history(team_id),
+            recent_history=windows.recent.get(team_id) or _empty_history(team_id),
             current_tier=config.email_sending_tier,
             tier_updated_at=config.email_sending_tier_updated_at or config.team.created_at,
             suspended=config.email_sending_suspended_at is not None,

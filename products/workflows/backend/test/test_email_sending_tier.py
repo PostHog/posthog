@@ -10,6 +10,7 @@ from parameterized import parameterized
 
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.services.email_sending_tier import (
+    SendingHistoryWindows,
     TeamSendingHistory,
     decide_tier,
     highest_qualifying_tier,
@@ -17,19 +18,25 @@ from products.workflows.backend.services.email_sending_tier import (
 )
 from products.workflows.backend.utils.email_sending_tiers import get_email_sending_tier_limits
 
-TIER_HOURLY_CAPS = [200, 2000, 10000, 50000, 200000]
-TIER_DAILY_CAPS = [1000, 10000, 50000, 250000, 1000000]
-TIER_BATCH_CAPS = [1000, 10000, 50000, 250000, 1000000]
+TIER_HOURLY_CAPS = [200, 600, 2000, 6000, 20000, 60000, 200000]
+TIER_DAILY_CAPS = [1000, 3000, 10000, 30000, 100000, 300000, 1000000]
+TIER_BATCH_CAPS = [1000, 3000, 10000, 30000, 100000, 300000, 1000000]
 
 TIER_SETTINGS = {
     "WORKFLOWS_EMAIL_TIER_HOURLY_CAPS": TIER_HOURLY_CAPS,
     "WORKFLOWS_EMAIL_TIER_DAILY_CAPS": TIER_DAILY_CAPS,
     "WORKFLOWS_EMAIL_TIER_BATCH_AUDIENCE_CAPS": TIER_BATCH_CAPS,
-    "WORKFLOWS_EMAIL_TIER_MIN_DAYS_AT_TIER": 3,
+    "WORKFLOWS_EMAIL_TIER_MIN_DAYS_AT_TIER": [3],
     "WORKFLOWS_EMAIL_TIER_MIN_ACTIVE_DAYS": 2,
     "WORKFLOWS_EMAIL_TIER_MIN_DAILY_USE_RATIO": 0.5,
     "WORKFLOWS_EMAIL_TIER_MAX_COMPLAINT_RATE": 0.001,
     "WORKFLOWS_EMAIL_TIER_MAX_BOUNCE_RATE": 0.02,
+    "WORKFLOWS_EMAIL_TIER_COMPLAINT_RATE_MIN_SENDS": 1000,
+    "WORKFLOWS_EMAIL_TIER_COMPLAINT_COUNT_BACKSTOP": 3,
+    "WORKFLOWS_EMAIL_TIER_BOUNCE_RATE_MIN_SENDS": 200,
+    "WORKFLOWS_EMAIL_TIER_DEMOTION_WINDOW_DAYS": 7,
+    "WORKFLOWS_EMAIL_TIER_DEMOTION_COOLDOWN_DAYS": 3,
+    "WORKFLOWS_EMAIL_TIER_INACTIVITY_DECAY_DAYS": 30,
     "WORKFLOWS_EMAIL_TIER_AUTO_PAUSE_METRIC_NAMES": [],
 }
 
@@ -136,6 +143,94 @@ class TestEmailSendingTierDecision(BaseTest):
         )
         assert decision.new_tier == 0
 
+    def test_dirty_rates_inside_the_cooldown_hold_instead_of_demoting_again(self) -> None:
+        # The sweep runs daily and one incident stays in the demotion window for days, so without
+        # the cooldown the same incident would demote the team on every run until it hits tier 0.
+        decision = decide_tier(
+            history=history(sent=10_000, complained=50),
+            current_tier=2,
+            tier_updated_at=timezone.now() - timedelta(days=1),
+            suspended=False,
+        )
+        assert decision.new_tier == 2
+        assert decision.reason == "demotion_cooldown"
+
+    # Demotion reads the short recent window and promotion the full window, so an aged-out
+    # incident stops demoting but still blocks the climb until the full window is clean.
+    @parameterized.expand(
+        [
+            ("recent incident demotes despite a clean full window", 50, 0, 1, "rates_above_threshold"),
+            ("aged-out incident blocks promotion but stops demoting", 0, 200, 2, "rates_recovering"),
+        ]
+    )
+    def test_demotion_and_promotion_read_different_windows(
+        self, _name: str, recent_complaints: int, older_complaints: int, expected_tier: int, expected_reason: str
+    ) -> None:
+        used = clean_days(5, TIER_DAILY_CAPS[2])
+        decision = decide_tier(
+            history=history(sent=100_000, complained=recent_complaints + older_complaints, daily_sends=used),
+            recent_history=history(sent=10_000, complained=recent_complaints),
+            current_tier=2,
+            tier_updated_at=timezone.now() - timedelta(days=30),
+            suspended=False,
+        )
+        assert decision.new_tier == expected_tier
+        assert decision.reason == expected_reason
+
+    # At the 0.1% threshold one complaint per 1,000 sends is exactly the line, so a small window
+    # must not turn a single complaint into a demotion, while the absolute backstop still catches
+    # an egregious small sender.
+    @parameterized.expand(
+        [
+            ("one complaint under the denominator floor stays clean", 900, 0, 1, 2),
+            ("complaints at the backstop demote despite the floor", 900, 0, 3, 1),
+            ("high bounce rate under the denominator floor stays clean", 150, 20, 0, 2),
+        ]
+    )
+    def test_rates_only_count_on_a_meaningful_denominator(
+        self, _name: str, sent: int, bounced: int, complained: int, expected_tier: int
+    ) -> None:
+        decision = decide_tier(
+            history=history(sent=sent, hard_bounced=bounced, complained=complained),
+            current_tier=2,
+            tier_updated_at=timezone.now() - timedelta(days=30),
+            suspended=False,
+        )
+        assert decision.new_tier == expected_tier
+
+    # A dormant allowance is no longer earned: mailbox providers keep about 30 days of reputation
+    # history, and a comeback blast from a stale list is what the caps exist to prevent.
+    @parameterized.expand(
+        [
+            ("dormant past the decay period drops one tier", 3, 40, 2, "inactive"),
+            ("dormant but inside the decay period holds", 3, 10, 3, "tier_not_used_enough"),
+            ("the lowest tier never decays", 0, 40, 0, "tier_not_used_enough"),
+        ]
+    )
+    def test_inactivity_decays_one_tier_per_period(
+        self, _name: str, current_tier: int, days_since_update: int, expected_tier: int, expected_reason: str
+    ) -> None:
+        decision = decide_tier(
+            history=history(sent=0),
+            current_tier=current_tier,
+            tier_updated_at=timezone.now() - timedelta(days=days_since_update),
+            suspended=False,
+        )
+        assert decision.new_tier == expected_tier
+        assert decision.reason == expected_reason
+
+    @parameterized.expand([("dwell met at the low tier", 0, 1), ("dwell not met at the high tier", 2, 2)])
+    @override_settings(WORKFLOWS_EMAIL_TIER_MIN_DAYS_AT_TIER=[3, 3, 5])
+    def test_the_promotion_dwell_is_indexed_by_tier(self, _name: str, current_tier: int, expected_tier: int) -> None:
+        used = clean_days(4, TIER_DAILY_CAPS[current_tier])
+        decision = decide_tier(
+            history=history(sent=sum(used.values()), daily_sends=used),
+            current_tier=current_tier,
+            tier_updated_at=timezone.now() - timedelta(days=4),
+            suspended=False,
+        )
+        assert decision.new_tier == expected_tier
+
     def test_suspension_drops_straight_to_tier_zero(self) -> None:
         decision = decide_tier(
             history=history(sent=100_000, daily_sends=clean_days(10, TIER_DAILY_CAPS[3])),
@@ -182,10 +277,14 @@ class TestRecomputeEmailSendingTiers(BaseTest):
         config, _ = TeamWorkflowsConfig.objects.update_or_create(team=self.team, defaults=fields)
         return config
 
-    def _run(self, histories: dict[int, TeamSendingHistory]) -> None:
+    def _run(
+        self,
+        histories: dict[int, TeamSendingHistory],
+        recent: dict[int, TeamSendingHistory] | None = None,
+    ) -> None:
         with patch(
-            "products.workflows.backend.services.email_sending_tier.build_sending_histories",
-            return_value=histories,
+            "products.workflows.backend.services.email_sending_tier.build_sending_history_windows",
+            return_value=SendingHistoryWindows(window=histories, recent=recent if recent is not None else histories),
         ):
             recompute_email_sending_tiers()
 
@@ -196,6 +295,7 @@ class TestRecomputeEmailSendingTiers(BaseTest):
 
         config = TeamWorkflowsConfig.objects.get(team=self.team)
         assert config.email_sending_tier == 1
+        assert config.email_sending_tier_updated_at is not None
         assert config.email_sending_tier_updated_at > timezone.now() - timedelta(minutes=1)
 
     def test_suspended_team_is_demoted_even_with_no_recent_sending(self) -> None:
