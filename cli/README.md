@@ -123,7 +123,7 @@ export POSTHOG_RELEASE_ID=$(posthog-cli release resolve --release-name my-app --
 ./my-app
 ```
 
-The SDK reads `POSTHOG_RELEASE_ID` at runtime and reports it as `$release_id` on every event, so the server resolves each exception's release by a direct id lookup. The release name and version do not have to match anything the app reports. posthog-rs reads this variable (PostHog/posthog-rs#239); other native SDKs read the same one.
+The SDK reads `POSTHOG_RELEASE_ID` at runtime and reports it as `$release_id` on each exception, so the server resolves that exception's release by a direct id lookup. The release name and version do not have to match anything the app reports. posthog-rs reads this variable (PostHog/posthog-rs#239); other native SDKs read the same one.
 
 Upload the debug symbols the usual way, with `symbol-sets upload` and no extra flag, so native frames still symbolicate. The symbols carry no release, so an unchanged binary keeps one symbol set across releases.
 
