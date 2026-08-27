@@ -25,7 +25,7 @@ from products.signals.backend.artefact_schemas import (
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
 
 # Task ORM model needed to build cross-product fixtures; the tasks facade exposes DTOs only.
-from products.tasks.backend.models import Task  # tach-ignore
+from products.tasks.backend.models import Channel, Task  # tach-ignore
 
 
 def _attach_github_login(user: User, login: str, *, uid: str | None = None) -> None:
@@ -659,6 +659,7 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
             ("priority_judgment", SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT),
             ("signal_finding", SignalReportArtefact.ArtefactType.SIGNAL_FINDING),
             ("repo_selection", SignalReportArtefact.ArtefactType.REPO_SELECTION),
+            ("channel_assignment", SignalReportArtefact.ArtefactType.CHANNEL_ASSIGNMENT),
             ("dismissal", SignalReportArtefact.ArtefactType.DISMISSAL),
             ("code_reference", SignalReportArtefact.ArtefactType.CODE_REFERENCE),
             ("commit", SignalReportArtefact.ArtefactType.COMMIT),
@@ -951,6 +952,42 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
         assert report_response.status_code == status.HTTP_200_OK
         assert report_response.json()["priority"] == "P1"
 
+    def test_post_channel_assignment_moves_report_and_keeps_history(self):
+        report = self._create_report()
+        first_channel = Channel.objects.create(team=self.team, name="First")
+        second_channel = Channel.objects.create(team=self.team, name="Second")
+
+        for channel in (first_channel, second_channel):
+            response = self.client.post(
+                self._list_url(str(report.id)),
+                data=json.dumps({"artefact_type": "channel_assignment", "content": {"channel_id": str(channel.id)}}),
+                content_type="application/json",
+            )
+            assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        assignments = SignalReportArtefact.objects.filter(
+            report=report,
+            type=SignalReportArtefact.ArtefactType.CHANNEL_ASSIGNMENT,
+        ).order_by("created_at")
+        assert list(assignments.values_list("channel_id", flat=True)) == [first_channel.id, second_channel.id]
+
+        report_response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
+        assert report_response.status_code == status.HTTP_200_OK
+        assert report_response.json()["channel_id"] == str(second_channel.id)
+
+    def test_post_channel_assignment_rejects_another_teams_channel(self):
+        report = self._create_report()
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        channel = Channel.objects.create(team=other_team, name="Other")
+
+        response = self.client.post(
+            self._list_url(str(report.id)),
+            data=json.dumps({"artefact_type": "channel_assignment", "content": {"channel_id": str(channel.id)}}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not SignalReportArtefact.objects.filter(report=report).exists()
+
     def test_post_status_type_with_invalid_content_returns_400(self):
         report = self._create_report()
         response = self.client.post(
@@ -1192,6 +1229,46 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
         response = self.client.delete(self._detail_url(str(report.id), str(artefact.id)))
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert not SignalReportArtefact.objects.filter(id=artefact.id).exists()
+
+    @parameterized.expand([("exact", "signals"), ("padded", " signals ")])
+    def test_create_task_run_cannot_assert_the_signals_product(self, _name: str, asserted_product: str):
+        # `signals` is what the per-report task cap counts, so a client that could assert it
+        # would fill another report's discussion allowance with its own tasks — permanently,
+        # since the log is append-only. The padded case is the one a raw comparison misses:
+        # content validation strips the value before it is stored, so it lands as `signals`.
+        report = self._create_report()
+        task = Task.objects.create(
+            team=self.team, title="t", description="d", origin_product=Task.OriginProduct.SIGNAL_REPORT
+        )
+
+        response = self.client.post(
+            self._list_url(str(report.id)),
+            data=json.dumps(
+                {
+                    "artefact_type": "task_run",
+                    "content": {"task_id": str(task.id), "product": asserted_product, "type": "discussion"},
+                }
+            ),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert not SignalReportArtefact.objects.filter(
+            report=report, type=SignalReportArtefact.ArtefactType.TASK_RUN
+        ).exists()
+
+        # The default namespace still associates the task, which is what agents actually need.
+        allowed = self.client.post(
+            self._list_url(str(report.id)),
+            data=json.dumps({"artefact_type": "task_run", "content": {"task_id": str(task.id)}}),
+            content_type="application/json",
+        )
+        assert allowed.status_code in (status.HTTP_200_OK, status.HTTP_201_CREATED), allowed.json()
+        assert (
+            json.loads(
+                SignalReportArtefact.objects.get(report=report, type=SignalReportArtefact.ArtefactType.TASK_RUN).content
+            )["product"]
+            == "tasks"
+        )
 
     def test_delete_task_run_artefact_is_rejected(self):
         # The work log is what the per-report task cap counts; a deletable log would let a

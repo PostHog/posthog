@@ -668,6 +668,17 @@ def motherduck_columns_to_dwh_columns(columns: list[tuple[str, str, bool]]) -> d
     }
 
 
+def trino_column_to_dwh_column(column_name: str, trino_type: str, nullable: bool) -> dict[str, Any]:
+    return motherduck_column_to_dwh_column(column_name, trino_type, nullable)
+
+
+def trino_columns_to_dwh_columns(columns: list[tuple[str, str, bool]]) -> dict[str, dict[str, Any]]:
+    return {
+        column_name: trino_column_to_dwh_column(column_name, trino_type, nullable)
+        for column_name, trino_type, nullable in columns
+    }
+
+
 # Used by mixins.resolve_host for direct SQL-source connections (its own IP-pinning check).
 # validate_warehouse_table_url_pattern below calls posthog.security.url_validation instead.
 def _is_safe_public_ip(host: str) -> bool:

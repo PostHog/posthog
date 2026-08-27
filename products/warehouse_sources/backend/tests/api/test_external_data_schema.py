@@ -8,6 +8,7 @@ from posthog.test.base import APIBaseTest
 from unittest import mock
 
 from django.conf import settings
+from django.test import SimpleTestCase
 from django.test.client import Client as HttpClient
 
 import psycopg
@@ -37,6 +38,7 @@ from products.warehouse_sources.backend.facade.models import (
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.warehouse_sources.backend.presentation.views.external_data_schema import schema_display_status
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     VersionDeprecation,
     WebhookCreationResult,
@@ -3339,6 +3341,7 @@ class TestSyncTypeConfigLostUpdateProtection(APIBaseTest):
                 "cdc_table_mode": "consolidated",
                 "cdc_last_log_position": "0/100",
                 "primary_key_columns": ["id"],
+                "schema_metadata": {"columns": [{"name": "id", "data_type": "integer", "is_nullable": False}]},
             },
         )
 
@@ -3469,12 +3472,11 @@ class TestAvailableColumnsAcrossSqlSources(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert response.json()["available_columns"] == []
 
-    def test_available_columns_falls_back_to_synced_table_when_metadata_missing(self):
-        # `schema_metadata` is empty whenever it hasn't been reconciled (non-SQL sources, or SQL schemas
-        # discovered/added after the last reload). available_columns must then fall back to the synced
-        # table's columns — otherwise the Descriptions UI shows no columns (even when annotations exist)
-        # and users can't edit them. Internal plumbing columns (`_dlt_id`, …) stay hidden.
-        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.POSTGRES)
+    def test_available_columns_falls_back_to_synced_table_for_pipeline_projected_source(self):
+        # Non-SQL sources match selections against dlt-normalized Arrow columns, so the synced
+        # table remains a safe fallback when observed source metadata is unavailable. Internal
+        # plumbing columns (`_dlt_id`, …) stay hidden.
+        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.HUBSPOT)
         table = DataWarehouseTable.objects.create(
             name="billing_customer",
             format="DeltaS3Wrapper",
@@ -3504,6 +3506,69 @@ class TestAvailableColumnsAcrossSqlSources(APIBaseTest):
             {"name": "balance", "data_type": "Int64", "is_nullable": True},
             {"name": "id", "data_type": "String", "is_nullable": False},
         ]
+
+    def test_available_columns_fallback_preserves_descriptions_for_source_projection(self):
+        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.POSTGRES)
+        table = DataWarehouseTable.objects.create(
+            name="billing_customer",
+            format="DeltaS3Wrapper",
+            team=self.team,
+            url_pattern="https://bucket.s3/data/*",
+            columns={"account_id": {"clickhouse": "String"}},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="billing_customer",
+            team=self.team,
+            source=source,
+            table=table,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/")
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["available_columns"] == [
+            {"name": "account_id", "data_type": "String", "is_nullable": False}
+        ]
+        assert response.json()["source_column_metadata_available"] is False
+
+    def test_enabled_columns_rejected_without_source_metadata_for_source_projection(self):
+        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.POSTGRES)
+        schema = ExternalDataSchema.objects.create(name="customers", team=self.team, source=source)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+            data={"enabled_columns": ["account_id"]},
+        )
+
+        assert response.status_code == 400
+        assert "Pull new schemas" in str(response.json())
+
+    def test_unchanged_enabled_columns_do_not_block_unrelated_update_without_source_metadata(self):
+        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.POSTGRES)
+        schema = ExternalDataSchema.objects.create(
+            name="customers", team=self.team, source=source, enabled_columns=["account_id"], should_sync=True
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+            data={"enabled_columns": ["account_id"], "should_sync": False},
+        )
+
+        assert response.status_code == 200, response.json()
+        schema.refresh_from_db()
+        assert schema.should_sync is False
+
+    def test_empty_enabled_columns_allowed_without_source_metadata(self):
+        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.POSTGRES)
+        schema = ExternalDataSchema.objects.create(name="customers", team=self.team, source=source)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}", data={"enabled_columns": []}
+        )
+
+        assert response.status_code == 200, response.json()
 
     @parameterized.expand(
         [
@@ -3965,3 +4030,16 @@ class TestFanoutParentSelection(APIBaseTest):
                     stack.enter_context(p)
                 response = self.client.delete(f"/api/environments/{self.team.pk}/external_data_schemas/{parent.id}")
             assert response.status_code == 204
+
+
+class TestSchemaDisplayStatus(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (ExternalDataSchema.Status.BILLING_LIMIT_REACHED, "Billing limits"),
+            (ExternalDataSchema.Status.BILLING_LIMIT_TOO_LOW, "Billing limits too low"),
+            (ExternalDataSchema.Status.RUNNING, ExternalDataSchema.Status.RUNNING),
+            (None, None),
+        ]
+    )
+    def test_maps_billing_statuses_to_labels(self, raw_status, expected):
+        assert schema_display_status(ExternalDataSchema(status=raw_status)) == expected

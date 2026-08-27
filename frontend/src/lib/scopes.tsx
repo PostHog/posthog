@@ -17,6 +17,32 @@ export type APIScope = {
     unprivilegedExcluded?: boolean
 }
 
+/** Fields a scope search matches against. `label` covers rows that show a name outside `objectName`. */
+export type ScopeSearchFields = {
+    key?: string
+    objectName?: string
+    objectPlural?: string
+    label?: string
+    info?: string | JSX.Element
+}
+
+/**
+ * Shared scope-search matcher for every scope picker. It splits the term into tokens and requires
+ * each token to appear in the scope's key, names, or info text, so a multi-word or plural search
+ * still matches the label the row shows. Keep all pickers on this one matcher so they can't drift.
+ */
+export function scopeMatchesSearch(scope: ScopeSearchFields, searchTerm: string): boolean {
+    const tokens = searchTerm.toLowerCase().trim().split(/\s+/).filter(Boolean)
+    if (tokens.length === 0) {
+        return true
+    }
+    const haystack = [scope.key, scope.objectName, scope.objectPlural, scope.label, scope.info]
+        .filter((field): field is string => typeof field === 'string')
+        .join(' ')
+        .toLowerCase()
+    return tokens.every((token) => haystack.includes(token))
+}
+
 // Scopes whose write action also writes a feature flag as a side effect (survey targeting flag,
 // early access feature linked flag), so they imply `feature_flag:write`. Single source of truth for
 // both the picker warning (attached below) and the auto-select in personalAPIKeysLogic, so the rule
@@ -208,12 +234,13 @@ export const API_SCOPES: APIScope[] = [
         },
     },
     { key: 'signal_scout', objectName: 'Signals agent', objectPlural: 'signals agents' },
-    { key: 'review_hog', objectName: 'ReviewHog', objectPlural: 'ReviewHog reviews' },
+    { key: 'review_hog', objectName: 'PostHog Review', objectPlural: 'PostHog Review reviews' },
     { key: 'stamphog', objectName: 'Stamphog', objectPlural: 'stamphog' },
     { key: 'streamlit_app', objectName: 'Streamlit app', objectPlural: 'Streamlit apps' },
     { key: 'task', objectName: 'Task', objectPlural: 'tasks' },
     { key: 'user_interview', objectName: 'User interview', objectPlural: 'user interviews' },
     { key: 'vision_action', objectName: 'Vision action', objectPlural: 'vision actions' },
+    { key: 'vision_alert', objectName: 'Vision alert', objectPlural: 'vision alerts' },
     { key: 'visual_review', objectName: 'Visual review', objectPlural: 'visual reviews' },
     {
         key: 'webhook',

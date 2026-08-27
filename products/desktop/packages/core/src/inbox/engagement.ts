@@ -214,7 +214,7 @@ export type BuildInboxViewedInput =
   | (BuildInboxViewedInputBase & {
       filters: DesktopInboxViewedFilterState;
       /** Tab badge counts shown in the desktop header. */
-      tabCounts: { pulls: number; reports: number };
+      tabCounts?: { pulls: number; reports: number };
     })
   | (BuildInboxViewedInputBase & {
       filters: MobileInboxViewedFilterState;
@@ -233,7 +233,7 @@ export function buildInboxViewedProperties(
   input: BuildInboxViewedInput,
 ): InboxViewedProperties {
   const { visibleReports, totalCount, filters } = input;
-  const tabCounts = input.tabCounts ?? { pulls: 0, reports: totalCount };
+  const tabCounts = input.tabCounts;
 
   const priorityCounts = { P0: 0, P1: 0, P2: 0, P3: 0, P4: 0, unknown: 0 };
   const actionabilityCounts = {
@@ -299,7 +299,11 @@ export function buildInboxViewedProperties(
       actionabilityCounts.requires_human_input,
     actionability_not_actionable_count: actionabilityCounts.not_actionable,
     actionability_unknown_count: actionabilityCounts.unknown,
-    pulls_tab_count: tabCounts.pulls,
-    reports_tab_count: tabCounts.reports,
+    ...(tabCounts
+      ? {
+          pulls_tab_count: tabCounts.pulls,
+          reports_tab_count: tabCounts.reports,
+        }
+      : {}),
   };
 }

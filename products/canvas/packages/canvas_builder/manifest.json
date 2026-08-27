@@ -54,7 +54,7 @@
         "react-markdown",
         "papaparse"
     ],
-    "csp": "sandbox allow-scripts; default-src 'none'; base-uri 'none'; object-src 'none'; form-action 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'none'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob:; worker-src 'self' blob:",
+    "csp": "sandbox allow-scripts; default-src 'none'; base-uri 'none'; object-src 'none'; form-action 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'none'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob:; frame-src 'none'; worker-src 'self' blob:",
     "limits": {
         "maxSourceFiles": 64,
         "maxSourceFileBytes": 524288,

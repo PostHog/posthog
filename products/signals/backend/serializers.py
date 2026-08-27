@@ -14,6 +14,7 @@ from products.signals.backend import contracts
 from products.signals.backend.billing import REFUND_INELIGIBILITY_REASONS, refund_ineligibility_reason
 from products.signals.backend.contracts import DEFAULT_NOT_ACTIONABLE_KEY, STEERING_KEY, STEERING_MAX_LENGTH
 from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
+from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus
 
 from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES
 from .daily_limit import reports_generated_today, team_day_start
@@ -21,7 +22,6 @@ from .models import (
     AutonomyPriority,
     SignalReport,
     SignalReportArtefact,
-    SignalReportCanvas,
     SignalReportRefund,
     SignalSourceConfig,
     SignalTeamConfig,
@@ -106,16 +106,16 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
             .exclude(source__deleted=True)
             .values_list("status", flat=True)
         )
-        if ExternalDataSchema.Status.RUNNING in statuses:
+        if ExternalDataSchemaStatus.RUNNING in statuses:
             return "running"
         # One failing repo outranks its siblings' success, so a broken repo is never hidden.
         if statuses & {
-            ExternalDataSchema.Status.FAILED,
-            ExternalDataSchema.Status.BILLING_LIMIT_REACHED,
-            ExternalDataSchema.Status.BILLING_LIMIT_TOO_LOW,
+            ExternalDataSchemaStatus.FAILED,
+            ExternalDataSchemaStatus.BILLING_LIMIT_REACHED,
+            ExternalDataSchemaStatus.BILLING_LIMIT_TOO_LOW,
         }:
             return "failed"
-        if ExternalDataSchema.Status.COMPLETED in statuses:
+        if ExternalDataSchemaStatus.COMPLETED in statuses:
             return "completed"
         return None
 
@@ -171,6 +171,12 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
             config.setdefault("sample_rate", DEFAULT_SESSION_ANALYSIS_SAMPLE_RATE)
             validated_data["config"] = config
         return super().create(validated_data)
+
+
+# A team overrides the base branch for a handful of its repos; a map larger than this is abuse,
+# not use. Bounding it caps the per-write activity-log row (which stores the full before/after map)
+# and the request body a caller can push through this field.
+MAX_AUTOSTART_BASE_BRANCH_ENTRIES = 500
 
 
 class SignalTeamConfigSerializer(serializers.ModelSerializer):
@@ -264,9 +270,18 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
         }
 
     def validate_autostart_base_branches(self, value: dict) -> dict:
+        if len(value) > MAX_AUTOSTART_BASE_BRANCH_ENTRIES:
+            raise serializers.ValidationError(
+                f"Too many repository overrides ({len(value)}); the maximum is {MAX_AUTOSTART_BASE_BRANCH_ENTRIES}."
+            )
         cleaned: dict[str, str] = {}
         for repo, branch in value.items():
             repo_key = (repo or "").strip()
+            # Bound the key too — the DictField child only caps the branch value, so an
+            # oversized key would otherwise slip a large string into the stored map and its
+            # activity-log copy.
+            if len(repo_key) > 255:
+                raise serializers.ValidationError("Repository keys must be at most 255 characters.")
             if repo_key.count("/") != 1 or any(not part for part in repo_key.split("/")):
                 raise serializers.ValidationError(
                     f"Repository keys must be in 'organization/repository' form, got '{repo}'."
@@ -461,21 +476,6 @@ class ReportChartSerializer(serializers.Serializer):
     )
 
 
-class SignalReportCanvasSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = SignalReportCanvas
-        fields = [
-            "canvas_id",
-            "discussion_task_id",
-            "generation_task_id",
-            "generation_status",
-            "collaboration_mode",
-            "failure_reason",
-            "updated_at",
-        ]
-        read_only_fields = fields
-
-
 class SignalReportSerializer(serializers.ModelSerializer):
     artefact_count = serializers.IntegerField(read_only=True)
     charts = ReportChartSerializer(
@@ -486,10 +486,13 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "`[label](chart:<chart_id>)` link; the rest render below it."
         ),
     )
-    canvas_session = SignalReportCanvasSerializer(
+    suggested_prompts = serializers.ListField(
+        child=serializers.CharField(),
         read_only=True,
-        allow_null=True,
-        help_text="The persistent canvas and shared discussion created for this report, when available.",
+        help_text=(
+            "Follow-up questions the report's author suggests asking about it, in the order they were "
+            "written. The inbox offers them above the `Ask AI` box; clicking one fills the box with it."
+        ),
     )
     refund_ineligibility_reason = serializers.SerializerMethodField(
         help_text=(
@@ -536,6 +539,14 @@ class SignalReportSerializer(serializers.ModelSerializer):
     refund = serializers.SerializerMethodField(
         help_text="The report's PR refund, when one exists. One refund per report, ever.",
     )
+    channel_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "The space (task channel) this report is assigned to, or null when unassigned. "
+            "The general view lists every report regardless of this value."
+        ),
+    )
 
     class Meta:
         model = SignalReport
@@ -551,7 +562,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "updated_at",
             "artefact_count",
             "charts",
-            "canvas_session",
+            "suggested_prompts",
             "priority",
             "actionability",
             "already_addressed",
@@ -565,6 +576,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "refund",
             "refund_ineligibility_reason",
             "billing_exempt_reason",
+            "channel_id",
         ]
         read_only_fields = fields
         extra_kwargs = {
@@ -930,7 +942,7 @@ _ARTEFACT_TYPES_HELP = (
     "The artefact type. One of: "
     + ", ".join(_WRITABLE_ARTEFACT_TYPES)
     + ". Log types accumulate; status types (safety_judgment, actionability_judgment, "
-    "priority_judgment, repo_selection, suggested_reviewers) are latest-wins — appending a new "
+    "priority_judgment, repo_selection, suggested_reviewers, channel_assignment) are latest-wins — appending a new "
     "version supersedes the previous one as the report's canonical status."
 )
 

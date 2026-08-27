@@ -24,6 +24,9 @@ import {
     ErrorTrackingQueryIssuesListCreateBody,
     ErrorTrackingRecommendationsListQueryParams,
     ErrorTrackingSettingsUpdateSettingsPartialUpdateBody,
+    ErrorTrackingSeverityRulesCreateBody,
+    ErrorTrackingSeverityRulesUpdateBody,
+    ErrorTrackingSeverityRulesUpdateParams,
     ErrorTrackingSuppressionRulesCreateBody,
     ErrorTrackingSuppressionRulesListQueryParams,
     ErrorTrackingSuppressionRulesUpdateBody,
@@ -411,6 +414,79 @@ const errorTrackingSettingsUpdate = (): ToolBase<
     },
 })
 
+const ErrorTrackingSeverityRulesCreateSchema = ErrorTrackingSeverityRulesCreateBody
+
+const errorTrackingSeverityRulesCreate = (): ToolBase<
+    typeof ErrorTrackingSeverityRulesCreateSchema,
+    Schemas.ErrorTrackingSeverityRule
+> => ({
+    name: 'error-tracking-severity-rules-create',
+    schema: ErrorTrackingSeverityRulesCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof ErrorTrackingSeverityRulesCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.filters !== undefined) {
+            body['filters'] = params.filters
+        }
+        if (params.severity !== undefined) {
+            body['severity'] = params.severity
+        }
+        if (params.order_key !== undefined) {
+            body['order_key'] = params.order_key
+        }
+        const result = await context.api.request<Schemas.ErrorTrackingSeverityRule>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/severity_rules/`,
+            body,
+        })
+        return result
+    },
+})
+
+const ErrorTrackingSeverityRulesListSchema = z.object({})
+
+const errorTrackingSeverityRulesList = (): ToolBase<
+    typeof ErrorTrackingSeverityRulesListSchema,
+    Schemas.ErrorTrackingSeverityRuleListResponse
+> => ({
+    name: 'error-tracking-severity-rules-list',
+    schema: ErrorTrackingSeverityRulesListSchema,
+    // eslint-disable-next-line no-unused-vars
+    handler: async (context: Context, params: z.infer<typeof ErrorTrackingSeverityRulesListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ErrorTrackingSeverityRuleListResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/severity_rules/`,
+        })
+        return result
+    },
+})
+
+const ErrorTrackingSeverityRulesUpdateSchema = ErrorTrackingSeverityRulesUpdateParams.omit({ project_id: true }).extend(
+    ErrorTrackingSeverityRulesUpdateBody.shape
+)
+
+const errorTrackingSeverityRulesUpdate = (): ToolBase<typeof ErrorTrackingSeverityRulesUpdateSchema, unknown> => ({
+    name: 'error-tracking-severity-rules-update',
+    schema: ErrorTrackingSeverityRulesUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof ErrorTrackingSeverityRulesUpdateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.filters !== undefined) {
+            body['filters'] = params.filters
+        }
+        if (params.severity !== undefined) {
+            body['severity'] = params.severity
+        }
+        const result = await context.api.request<unknown>({
+            method: 'PUT',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/severity_rules/${encodeURIComponent(String(params.id))}/`,
+            body,
+        })
+        return result
+    },
+})
+
 const ErrorTrackingSuppressionRulesCreateSchema = ErrorTrackingSuppressionRulesCreateBody
 
 const errorTrackingSuppressionRulesCreate = (): ToolBase<
@@ -740,6 +816,7 @@ const queryErrorTrackingIssuesList = (): ToolBase<
                         'name',
                         'description',
                         'status',
+                        'severity',
                         'first_seen',
                         'last_seen',
                         'library',
@@ -780,6 +857,9 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'error-tracking-recommendations-list': errorTrackingRecommendationsList,
     'error-tracking-settings-get': errorTrackingSettingsGet,
     'error-tracking-settings-update': errorTrackingSettingsUpdate,
+    'error-tracking-severity-rules-create': errorTrackingSeverityRulesCreate,
+    'error-tracking-severity-rules-list': errorTrackingSeverityRulesList,
+    'error-tracking-severity-rules-update': errorTrackingSeverityRulesUpdate,
     'error-tracking-suppression-rules-create': errorTrackingSuppressionRulesCreate,
     'error-tracking-suppression-rules-list': errorTrackingSuppressionRulesList,
     'error-tracking-suppression-rules-update': errorTrackingSuppressionRulesUpdate,

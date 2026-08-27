@@ -5,6 +5,7 @@ import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { GitHubInstallRequestsBanner } from 'lib/integrations/GitHubInstallRequestsBanner'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import type { IntegrationConnectSurface } from 'lib/integrations/utils'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
@@ -31,14 +32,18 @@ export function GithubIntegration({
     const { currentTeam } = useValues(teamLogic)
     const { linkedGithubInstallationLoading, githubAvailableInstallations, githubPersonalConnected } =
         useValues(integrationsLogic)
-    const { linkExistingGithubInstallation, loadGithubAvailableInstallations } = useActions(integrationsLogic)
+    const { linkExistingGithubInstallation, loadGithubAvailableInstallations, startPolling, stopPolling } =
+        useActions(integrationsLogic)
     const { reportIntegrationConnectClicked } = useActions(eventUsageLogic)
     const githubIntegrations = useIntegrations('github')
 
     // integrationsLogic is a singleton mounted from dozens of unrelated surfaces, so this fetch
-    // hangs off the GitHub setup UI instead of the shared integrations load.
+    // hangs off the GitHub setup UI instead of the shared integrations load. Polling is likewise
+    // scoped to the settings surface: an uninstall on GitHub should show up while someone is looking.
     useOnMountEffect(() => {
         loadGithubAvailableInstallations()
+        startPolling()
+        return () => stopPolling()
     })
 
     const settingsPath = next ?? urls.settings('environment-integrations')
@@ -65,6 +70,10 @@ export function GithubIntegration({
             {/* w-full because Integration drops its children into a bare flex row, which would
                 otherwise size the banner to its longest word. */}
             <div className="flex flex-col gap-y-4 w-full">
+                <GitHubInstallRequestsBanner
+                    finishConnectingUrl={authorizationUrl}
+                    onFinishConnecting={() => reportConnect('install_approved_banner')}
+                />
                 {/* An install GitHub already has is the exception, not a second way to connect, so it
                     reads as an aside with its own action rather than a button competing with the one
                     below. */}

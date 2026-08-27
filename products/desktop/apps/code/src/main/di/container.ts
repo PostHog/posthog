@@ -43,14 +43,10 @@ import {
 } from "@posthog/core/git/identifiers";
 import { gitPrModule } from "@posthog/core/git-pr/git-pr.module";
 import { GIT_DIFF_SOURCE } from "@posthog/core/git-pr/identifiers";
-import { handoffModule } from "@posthog/core/handoff/handoff.module";
-import { HANDOFF_HOST } from "@posthog/core/handoff/identifiers";
 import { integrationsModule } from "@posthog/core/integrations/integrations.module";
-import { ApprovalLinkService } from "@posthog/core/links/approval-link";
 import { CanvasLinkService } from "@posthog/core/links/canvas-link";
 import { ChannelLinkService } from "@posthog/core/links/channel-link";
 import {
-  APPROVAL_LINK_SERVICE,
   CANVAS_LINK_SERVICE,
   CHANNEL_LINK_SERVICE,
   INBOX_LINK_SERVICE,
@@ -176,12 +172,6 @@ import type { ExternalAppsPreferences } from "@posthog/workspace-server/services
 import { foldersModule } from "@posthog/workspace-server/services/folders/folders.module";
 import { GitService } from "@posthog/workspace-server/services/git/service";
 import { TaskPrStatusService } from "@posthog/workspace-server/services/git/task-pr-status";
-import {
-  HANDOFF_GIT_GATEWAY,
-  HANDOFF_LOG_GATEWAY,
-} from "@posthog/workspace-server/services/handoff/identifiers";
-import type { HandoffGitGateway } from "@posthog/workspace-server/services/handoff/ports";
-import { HandoffHostService } from "@posthog/workspace-server/services/handoff/service";
 import { LOGS_SERVICE } from "@posthog/workspace-server/services/local-logs/identifiers";
 import { localMcpModule } from "@posthog/workspace-server/services/local-mcp/local-mcp.module";
 import { mcpCallbackModule } from "@posthog/workspace-server/services/mcp-callback/mcp-callback.module";
@@ -191,7 +181,6 @@ import { MCP_RELAY_SERVICE } from "@posthog/workspace-server/services/mcp-relay/
 import { mcpRelayModule } from "@posthog/workspace-server/services/mcp-relay/mcp-relay.module";
 import { OAUTH_CALLBACK_SERVER } from "@posthog/workspace-server/services/oauth-callback/identifiers";
 import { oauthCallbackModule } from "@posthog/workspace-server/services/oauth-callback/oauth-callback.module";
-import { onboardingImportModule } from "@posthog/workspace-server/services/onboarding-import/onboarding-import.module";
 import { osModule } from "@posthog/workspace-server/services/os/os.module";
 import {
   PI_RPC_CLIENT_FACTORY,
@@ -288,7 +277,6 @@ import { quickAskStore, rendererStore } from "../utils/store";
 import type { MainBindings } from "./bindings";
 import {
   APP_LIFECYCLE_SERVICE as MAIN_APP_LIFECYCLE_SERVICE,
-  APPROVAL_LINK_SERVICE as MAIN_APPROVAL_LINK_SERVICE,
   ARCHIVE_REPOSITORY as MAIN_ARCHIVE_REPOSITORY,
   AUTH_PREFERENCE_REPOSITORY as MAIN_AUTH_PREFERENCE_REPOSITORY,
   AUTH_SERVICE as MAIN_AUTH_SERVICE,
@@ -603,44 +591,6 @@ container
   .bind<IGitPrStatus>(GIT_PR_STATUS_PROVIDER)
   .to(TaskPrStatusService)
   .inSingletonScope();
-container.load(handoffModule);
-container.bind(HANDOFF_HOST).to(HandoffHostService).inSingletonScope();
-container.bind(HANDOFF_GIT_GATEWAY).toDynamicValue((ctx): HandoffGitGateway => {
-  const workspace = ctx.get<WorkspaceClient>(MAIN_WORKSPACE_CLIENT);
-  return {
-    async getChangedFiles(repoPath) {
-      const files = await workspace.git.getChangedFilesHead.query({
-        directoryPath: repoPath,
-      });
-      return files.map((f) => ({
-        path: f.path,
-        status: f.status,
-        linesAdded: f.linesAdded,
-        linesRemoved: f.linesRemoved,
-      }));
-    },
-    getLocalGitState: (repoPath) =>
-      workspace.git.readHandoffLocalGitState.query({
-        directoryPath: repoPath,
-      }),
-    cleanupAfterCloudHandoff: (repoPath, branchName) =>
-      workspace.git.cleanupAfterCloudHandoff.mutate({
-        directoryPath: repoPath,
-        branchName,
-      }),
-  };
-});
-container.bind(HANDOFF_LOG_GATEWAY).toDynamicValue((ctx) => {
-  const ws = ctx.get<WorkspaceClient>(MAIN_WORKSPACE_CLIENT);
-  return {
-    seedLocalLogs: (taskRunId: string, content: string) =>
-      ws.localLogs.seed.mutate({ taskRunId, content }),
-    countLocalLogEntries: (taskRunId: string) =>
-      ws.localLogs.count.query({ taskRunId }),
-    deleteLocalLogCache: (taskRunId: string) =>
-      ws.localLogs.delete.mutate({ taskRunId }),
-  };
-});
 container.load(mcpCallbackModule);
 container.bind(NOTIFICATION_SERVICE).to(NotificationService);
 container.load(oauthCallbackModule);
@@ -665,7 +615,6 @@ container.bind(MAIN_POSTHOG_PLUGIN_SERVICE).toService(POSTHOG_PLUGIN_SERVICE);
 container.load(skillsModule);
 container.load(skillsMarketplaceModule);
 container.load(releaseFeedModule);
-container.load(onboardingImportModule);
 container.load(localMcpModule);
 container.load(mcpRelayModule);
 // Core's cloud-task service executes MCP relay requests through this seam;
@@ -712,8 +661,6 @@ container.bind(MAIN_SCOUT_LINK_SERVICE).to(ScoutLinkService);
 container.bind(SCOUT_LINK_SERVICE).toService(MAIN_SCOUT_LINK_SERVICE);
 container.bind(MAIN_NEW_TASK_LINK_SERVICE).to(NewTaskLinkService);
 container.bind(NEW_TASK_LINK_SERVICE).toService(MAIN_NEW_TASK_LINK_SERVICE);
-container.bind(MAIN_APPROVAL_LINK_SERVICE).to(ApprovalLinkService);
-container.bind(APPROVAL_LINK_SERVICE).toService(MAIN_APPROVAL_LINK_SERVICE);
 container.bind(MAIN_OPEN_TARGET_LINK_SERVICE).to(OpenTargetLinkService);
 container
   .bind(OPEN_TARGET_LINK_SERVICE)
