@@ -7,6 +7,7 @@ import {
   Cube,
   DiscordLogo,
   Folder,
+  Gauge,
   GearSix,
   GithubLogo,
   Keyboard,
@@ -79,7 +80,10 @@ const SIDEBAR_GROUPS: SidebarGroup[] = [
   },
   {
     label: "Account",
-    items: [{ id: "plan-usage", icon: <CreditCard size={16} /> }],
+    items: [
+      { id: "plan-usage", icon: <CreditCard size={16} /> },
+      { id: "cost-management", icon: <Gauge size={16} /> },
+    ],
   },
   {
     label: "Code",

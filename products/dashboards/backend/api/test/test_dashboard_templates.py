@@ -15,13 +15,12 @@ from posthog.models import User
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.api.dashboard_templates import (
     MAX_DASHBOARD_TEMPLATES_PER_ORGANIZATION,
     organization_dashboard_template_limit_detail,
 )
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
-
-from ee.models.rbac.access_control import AccessControl
 
 
 def assert_template_equals(received, expected):

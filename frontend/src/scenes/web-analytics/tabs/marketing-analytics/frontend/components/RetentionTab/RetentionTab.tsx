@@ -56,8 +56,6 @@ export function RetentionTab(): JSX.Element {
                     People who arrived in this period become the cohorts. Each cohort is then followed forward.
                 </div>
             </div>
-            {/* Next to the period count on purpose: how long a period is and how many of them to show
-                are the same decision, and the filter bar has no room for both. */}
             <div>
                 <div className="text-muted mb-2 text-xs font-semibold uppercase">Period length</div>
                 <LemonSelect

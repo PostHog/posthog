@@ -2,10 +2,6 @@ import { BREAKDOWN_OTHER_STRING_LABEL } from 'scenes/insights/utils'
 
 import { ConversionGoalFilter, MarketingAnalyticsAttributionBreakdown, NodeKind } from '~/queries/schema/schema-general'
 
-/**
- * Shared by every marketing surface that slices sessions by a dimension. Lives apart from either
- * explorer's logic so the retention tab doesn't have to import the attribution tab to render a label.
- */
 export const BREAKDOWN_LABELS: Record<MarketingAnalyticsAttributionBreakdown, string> = {
     [MarketingAnalyticsAttributionBreakdown.Channel]: 'Channel',
     [MarketingAnalyticsAttributionBreakdown.Source]: 'Source',
@@ -20,10 +16,7 @@ export const BREAKDOWN_LABELS: Record<MarketingAnalyticsAttributionBreakdown, st
 /** True for the row the backend folds the long tail of breakdown values into. */
 export const isFoldedBreakdownValue = (value: string): boolean => value === BREAKDOWN_OTHER_STRING_LABEL
 
-/**
- * What a breakdown value reads as. The folded row arrives as a sentinel string, and a value can be
- * empty when the session carried nothing for this dimension — neither is something to show a marketer.
- */
+/** Neither the folded sentinel nor an empty value is something to show a marketer raw. */
 export const displayBreakdownValue = (value: string, dimensionLabel: string): string => {
     if (isFoldedBreakdownValue(value)) {
         return 'Other'
@@ -31,9 +24,6 @@ export const displayBreakdownValue = (value: string, dimensionLabel: string): st
     return value || `(no ${dimensionLabel.toLowerCase()})`
 }
 
-/**
- * Goals these explorers can count. Data warehouse goals are excluded: their conversions live in a
- * warehouse table keyed by distinct id, so the events-based session queries have nothing to join them on.
- */
+/** Warehouse goals are keyed by distinct id, so the events-based session queries can't join them. */
 export const attributableConversionGoals = (conversionGoals: ConversionGoalFilter[]): ConversionGoalFilter[] =>
     (conversionGoals || []).filter((goal) => goal.kind !== NodeKind.DataWarehouseNode)

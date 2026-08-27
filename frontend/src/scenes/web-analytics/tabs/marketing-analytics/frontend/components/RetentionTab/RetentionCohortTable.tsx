@@ -24,19 +24,15 @@ import {
 } from '../../logic/marketingRetentionLogic'
 import { RetentionSummaryTable } from './RetentionSummaryTable'
 
-/** Breakdown values expanded on arrival. The rest collapse, so a wide breakdown stays scannable. */
 const EXPANDED_BY_DEFAULT = 3
 
-/** Matches PostHog's retention table: the darkest cell is full retention, and 0% still reads as a cell. */
+/** Same values as PostHog's retention table, so a rate reads as the same shade on both. */
 const CELL_COLOR = '#1d4aff'
 const CELL_COLOR_FLOOR = 0.1
-
-/** Above this rate the cell is dark enough that the theme's dark text fails WCAG AA contrast, so the
- *  text flips to white. Same threshold PostHog's retention table uses. */
+/** Past this the background is dark enough that the theme's text fails WCAG AA. */
 const CELL_TEXT_LIGHT_THRESHOLD = 0.4
 
-/** Read in the team's timezone, not the browser's: a UTC cohort viewed from New York would otherwise
- *  be labelled with the previous day. */
+/** In the team's timezone: a UTC cohort read from New York would be labelled with the previous day. */
 const cohortLabel = (isoDate: string, interval: MarketingAnalyticsRetentionInterval, timezone: string): string => {
     const date = parseDateInTimezone(isoDate, timezone)
     switch (interval) {
@@ -61,7 +57,6 @@ export function RetentionCohortTable({
     query: MarketingAnalyticsRetentionQuery
     attachTo?: LogicWrapper | BuiltLogic
 }): JSX.Element {
-    // Registered under the tab's shared collection so the filter bar's ReloadAll reaches this query.
     const logic = dataNodeLogic({
         query,
         key: RETENTION_DATA_NODE_KEY,
@@ -79,8 +74,6 @@ export function RetentionCohortTable({
     const interval = retentionResponse?.interval ?? MarketingAnalyticsRetentionInterval.Week
     const dimensionLabel = BREAKDOWN_LABELS[breakdownBy]
 
-    // Both caps change what the table covers, so neither can stay silent: without this the tab shows a
-    // narrower range than the date filter says, and an "Other" row of unknown size.
     const caveats: string[] = []
     if (retentionResponse?.truncatedCohorts) {
         caveats.push(
@@ -119,8 +112,6 @@ export function RetentionCohortTable({
                     return null
                 }
                 if (!cell.complete) {
-                    // A period that hasn't fully elapsed. Rendering its 0% like any other cell reads as
-                    // churn rather than as a week that hasn't happened yet.
                     return (
                         <Tooltip title="This period hasn't finished yet, so there's nothing to measure.">
                             <span className="text-muted">–</span>
@@ -149,8 +140,7 @@ export function RetentionCohortTable({
     for (const row of rows) {
         byBreakdown.set(row.breakdownValue, [...(byBreakdown.get(row.breakdownValue) ?? []), row])
     }
-    // "Other" is a sum of the tail, so ranking it by size can float it above every real channel and
-    // spend one of the expanded-by-default slots on a row nobody can act on. Pinned last instead.
+    // "Other" is a sum of the tail, so ranking it by size floats it above real channels.
     const breakdownValues = [...byBreakdown.keys()].sort((a, b) => {
         if (isFoldedBreakdownValue(a) !== isFoldedBreakdownValue(b)) {
             return isFoldedBreakdownValue(a) ? 1 : -1
@@ -158,8 +148,6 @@ export function RetentionCohortTable({
         return totalAcquired(byBreakdown.get(b)) - totalAcquired(byBreakdown.get(a))
     })
 
-    // Loading, empty and populated are three different screens. Falling through to the collapse while
-    // the query is in flight renders an empty bordered box with no sign anything is happening.
     if (responseLoading || !breakdownValues.length) {
         return (
             <LemonTable
@@ -213,8 +201,6 @@ const totalAcquired = (rows: MarketingAnalyticsRetentionRow[] | undefined): numb
     (rows ?? []).reduce((total, row) => total + row.cohortSize, 0)
 
 /**
- * The same cohorts with the breakdown collapsed away, so a channel can be read against the average.
- *
  * Rates are recomputed from the summed counts, because averaging per-channel rates would weight a
  * channel with ten people the same as one with ten thousand.
  */

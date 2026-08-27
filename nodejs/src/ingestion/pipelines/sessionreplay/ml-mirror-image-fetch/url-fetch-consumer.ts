@@ -4,11 +4,20 @@ import { logger } from '~/common/utils/logger'
 
 import { FetchCandidate, MAX_HOPS, UrlDropReason, parseCollectedUrlsRecord } from './collected-urls-record'
 import { CrawlHistoryItem, CrawlHistoryStore, UrlCrawlHistoryItem, configurationCacheKey } from './crawl-history'
-import { AttemptOutcome, DELAY_TOO_LONG, FetchAttempt, FetchPass, HOPS_EXHAUSTED } from './fetch-runner'
-import { FrontierPublisher } from './frontier-publisher'
+import { mergeDuplicateFetchCandidates } from './fetch-candidate-queue'
+import {
+    AttemptOutcome,
+    DELAY_TOO_LONG,
+    FetchAttempt,
+    FetchPass,
+    HOPS_EXHAUSTED,
+    isTransientOutcome,
+} from './fetch-runner'
+import { FrontierPublisher, RepublishBatch } from './frontier-publisher'
 import { ImageFetchConsumerMetrics, ImageFetchRequestMetrics } from './metrics'
 
 const ONE_HOUR_MS = 60 * 60 * 1000
+const REPUBLISH_DEADLINE_FROM_BATCH_START_MS = 200_000
 
 export interface UrlFetchConsumerOptions {
     seenTtlSeconds: number
@@ -33,10 +42,14 @@ export class UrlFetchConsumer {
 
     public async handleBatch(messages: Message[], nowMs: number): Promise<void> {
         const startedAt = process.hrtime.bigint()
+        const republishDeadlineAtMonotonicMs = performance.now() + REPUBLISH_DEADLINE_FROM_BATCH_START_MS
         const drops = new Map<UrlDropReason, number>()
         const candidatesByRef = new Map<string, FetchCandidate>()
         let dedupedInBatch = 0
         let originCount = 0
+        let registrableDomainCount = 0
+        let originCandidateCounts: number[] = []
+        let registrableDomainCandidateCounts: number[] = []
         ImageFetchConsumerMetrics.startBatch()
 
         try {
@@ -54,16 +67,28 @@ export class UrlFetchConsumer {
                     const existing = candidatesByRef.get(candidate.originalRef)
                     if (existing) {
                         dedupedInBatch += 1
-                        candidatesByRef.set(candidate.originalRef, foldDuplicateCandidate(existing, candidate))
-                        continue
+                        candidatesByRef.set(candidate.originalRef, mergeDuplicateFetchCandidates(existing, candidate))
+                    } else {
+                        candidatesByRef.set(candidate.originalRef, candidate)
                     }
-                    ImageFetchConsumerMetrics.observeAge(Math.max(0, nowMs - candidate.firstSeenAtMs) / 1000)
-                    candidatesByRef.set(candidate.originalRef, candidate)
                 }
             }
             const candidates = [...candidatesByRef.values()]
-            const origins = new Set(candidates.map((candidate) => candidate.origin))
+            candidatesByRef.clear()
+            const origins = new Map<string, number>()
+            const registrableDomains = new Map<string, number>()
+            for (const candidate of candidates) {
+                ImageFetchConsumerMetrics.observeAge(Math.max(0, nowMs - candidate.firstSeenAtMs) / 1000)
+                origins.set(candidate.origin, (origins.get(candidate.origin) ?? 0) + 1)
+                registrableDomains.set(
+                    candidate.registrableDomain,
+                    (registrableDomains.get(candidate.registrableDomain) ?? 0) + 1
+                )
+            }
             originCount = origins.size
+            registrableDomainCount = registrableDomains.size
+            originCandidateCounts = [...origins.values()]
+            registrableDomainCandidateCounts = [...registrableDomains.values()]
 
             if (this.options.dryRun || candidates.length === 0) {
                 return
@@ -71,7 +96,7 @@ export class UrlFetchConsumer {
 
             const keys = [
                 ...candidates.map((candidate) => candidate.originalRef),
-                ...[...origins].flatMap((origin) => [
+                ...[...origins.keys()].flatMap((origin) => [
                     configurationCacheKey(origin, 'robots'),
                     configurationCacheKey(origin, 'tdmrep'),
                 ]),
@@ -94,8 +119,13 @@ export class UrlFetchConsumer {
             }
             ImageFetchConsumerMetrics.incFetchable(fetchable.length)
 
-            const attempts = await this.runner!.run(fetchable, stored)
-            attempts.push(...(await Promise.all(notReady.map((candidate) => this.republishNotReady(candidate, nowMs)))))
+            const republishBatch = this.publisher.createRepublishBatch(republishDeadlineAtMonotonicMs)
+            const attempts = await this.runner!.run(fetchable, stored, republishBatch)
+            attempts.push(
+                ...(await Promise.all(
+                    notReady.map((candidate) => this.republishNotReady(republishBatch, candidate, nowMs))
+                ))
+            )
             const updates: CrawlHistoryItem[] = []
             for (const attempt of attempts) {
                 updates.push(...attempt.configurationUpdates)
@@ -106,13 +136,27 @@ export class UrlFetchConsumer {
             if (updates.length > 0) {
                 await this.runCrawlHistoryOperation('write', updates.length, () => this.crawlHistory.write(updates))
             }
-            const lost = attempts.filter((attempt) => attempt.lost).length
+            const republishResult = await republishBatch.flush()
+            const lost = attempts.filter((attempt) => attempt.lost).length + republishResult.failedUrls
             if (lost > 0) {
                 throw new Error(`the image fetch lane could not account for ${lost} URLs`)
             }
+            for (const attempt of attempts) {
+                if (!attempt.finished && isTransientOutcome(attempt.outcome)) {
+                    ImageFetchRequestMetrics.incRetryCause(attempt.outcome)
+                }
+            }
         } finally {
             ImageFetchConsumerMetrics.finishBatch()
-            this.recordMetrics(drops, dedupedInBatch, originCount, startedAt)
+            this.recordMetrics(
+                drops,
+                dedupedInBatch,
+                originCount,
+                registrableDomainCount,
+                originCandidateCounts,
+                registrableDomainCandidateCounts,
+                startedAt
+            )
         }
     }
 
@@ -149,12 +193,16 @@ export class UrlFetchConsumer {
         }
     }
 
-    private async republishNotReady(candidate: FetchCandidate, nowMs: number): Promise<FetchAttempt> {
+    private async republishNotReady(
+        republishBatch: RepublishBatch,
+        candidate: FetchCandidate,
+        nowMs: number
+    ): Promise<FetchAttempt> {
         if (candidate.remainingHops === 0) {
             return this.terminalAttempt(candidate, HOPS_EXHAUSTED, nowMs)
         }
         const waitMs = candidate.notBeforeMs - nowMs
-        const result = await this.publisher.republish(
+        const result = await republishBatch.republish(
             candidate,
             {
                 currentUrl: candidate.currentUrl,
@@ -172,7 +220,7 @@ export class UrlFetchConsumer {
             candidate,
             outcome: 'backoff',
             finished: false,
-            lost: result === 'failed',
+            lost: false,
             configurationUpdates: [],
         }
     }
@@ -211,6 +259,9 @@ export class UrlFetchConsumer {
         drops: Map<UrlDropReason, number>,
         dedupedInBatch: number,
         origins: number,
+        registrableDomains: number,
+        originCandidateCounts: number[],
+        registrableDomainCandidateCounts: number[],
         startedAt: bigint
     ): void {
         if (dedupedInBatch > 0) {
@@ -219,29 +270,11 @@ export class UrlFetchConsumer {
         for (const [reason, count] of drops) {
             ImageFetchConsumerMetrics.incDropped(reason, count)
         }
-        ImageFetchConsumerMetrics.observeBatch(origins, Number(process.hrtime.bigint() - startedAt) / 1e9)
-    }
-}
-
-function foldDuplicateCandidate(left: FetchCandidate, right: FetchCandidate): FetchCandidate {
-    let preferredRoute = left
-    if (
-        right.remainingHops < left.remainingHops ||
-        (right.remainingHops === left.remainingHops && right.republishCount > left.republishCount) ||
-        (right.remainingHops === left.remainingHops &&
-            right.republishCount === left.republishCount &&
-            right.fetchCount > left.fetchCount)
-    ) {
-        preferredRoute = right
-    }
-    const latestState = left.republishCount >= right.republishCount ? left : right
-    return {
-        ...preferredRoute,
-        remainingHops: Math.min(left.remainingHops, right.remainingHops),
-        notBeforeMs: Math.max(left.notBeforeMs, right.notBeforeMs),
-        firstSeenAtMs: Math.min(left.firstSeenAtMs, right.firstSeenAtMs),
-        fetchCount: Math.max(left.fetchCount, right.fetchCount),
-        republishCount: Math.max(left.republishCount, right.republishCount),
-        lastRepublishReason: latestState.lastRepublishReason,
+        ImageFetchConsumerMetrics.observeBatchDiversity(originCandidateCounts, registrableDomainCandidateCounts)
+        ImageFetchConsumerMetrics.observeBatch(
+            origins,
+            registrableDomains,
+            Number(process.hrtime.bigint() - startedAt) / 1e9
+        )
     }
 }

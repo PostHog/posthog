@@ -4,6 +4,7 @@ import { createBrotliDecompress, createGunzip, createInflate, createZstdDecompre
 export const MAX_UNCOMPRESSED_IMAGE_BYTES = 20 * 1024 * 1024
 export const CONTENT_TYPE_HEADER = 'content-type'
 export const CONTENT_ENCODING_HEADER = 'content-encoding'
+export const CAPTURE_TIMESTAMP_HEADER = 'capture-timestamp-ms'
 
 const MAX_CONTENT_ENCODING_LAYERS = 4
 
@@ -11,7 +12,24 @@ export const SUPPORTED_IMAGE_MEDIA_TYPES = ['image/png', 'image/jpeg', 'image/gi
 
 export type SupportedImageMediaType = (typeof SUPPORTED_IMAGE_MEDIA_TYPES)[number]
 
-export class InvalidImageTransportError extends Error {}
+export type ImageTransportRejectionReason =
+    | 'content_encoding_too_deep'
+    | 'malformed_content_encoding'
+    | 'unsupported_content_encoding'
+    | 'decompression_failed'
+    | 'decoded_too_large'
+    | 'missing_content_type'
+    | 'unsupported_content_type'
+    | 'content_type_mismatch'
+
+export class InvalidImageTransportError extends Error {
+    public constructor(
+        public readonly reason: ImageTransportRejectionReason,
+        message: string
+    ) {
+        super(message)
+    }
+}
 
 const decoderFactories: Record<string, () => Transform> = {
     gzip: createGunzip,
@@ -26,10 +44,13 @@ function parseContentEncodings(contentEncoding: string | undefined): string[] {
     }
     const encodings = contentEncoding.split(',').map((encoding) => encoding.trim().toLowerCase())
     if (encodings.length > MAX_CONTENT_ENCODING_LAYERS) {
-        throw new InvalidImageTransportError(`content-encoding exceeds ${MAX_CONTENT_ENCODING_LAYERS} codings`)
+        throw new InvalidImageTransportError(
+            'content_encoding_too_deep',
+            `content-encoding exceeds ${MAX_CONTENT_ENCODING_LAYERS} codings`
+        )
     }
     if (encodings.some((encoding) => encoding.length === 0)) {
-        throw new InvalidImageTransportError('content-encoding contains an empty coding')
+        throw new InvalidImageTransportError('malformed_content_encoding', 'content-encoding contains an empty coding')
     }
     return encodings.filter((encoding) => encoding !== 'identity')
 }
@@ -37,7 +58,10 @@ function parseContentEncodings(contentEncoding: string | undefined): string[] {
 async function decodeWithLimit(bytes: Buffer, encoding: string): Promise<Buffer> {
     const decoderFactory = decoderFactories[encoding]
     if (!decoderFactory) {
-        throw new InvalidImageTransportError(`unsupported content-encoding: ${encoding}`)
+        throw new InvalidImageTransportError(
+            'unsupported_content_encoding',
+            `unsupported content-encoding: ${encoding}`
+        )
     }
 
     const input = Readable.from([bytes])
@@ -50,7 +74,10 @@ async function decodeWithLimit(bytes: Buffer, encoding: string): Promise<Buffer>
         for await (const chunk of decoder) {
             const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
             if (outputBytes + buffer.length > MAX_UNCOMPRESSED_IMAGE_BYTES) {
-                throw new InvalidImageTransportError(`decoded image exceeds ${MAX_UNCOMPRESSED_IMAGE_BYTES} bytes`)
+                throw new InvalidImageTransportError(
+                    'decoded_too_large',
+                    `decoded image exceeds ${MAX_UNCOMPRESSED_IMAGE_BYTES} bytes`
+                )
             }
             chunks.push(buffer)
             outputBytes += buffer.length
@@ -59,7 +86,7 @@ async function decodeWithLimit(bytes: Buffer, encoding: string): Promise<Buffer>
         if (error instanceof InvalidImageTransportError) {
             throw error
         }
-        throw new InvalidImageTransportError(`invalid ${encoding} content: ${String(error)}`)
+        throw new InvalidImageTransportError('decompression_failed', `invalid ${encoding} content: ${String(error)}`)
     } finally {
         input.destroy()
         decoder.destroy()
@@ -111,11 +138,17 @@ export async function prepareFetchedImage(
     contentType: string | undefined,
     contentEncoding: string | undefined
 ): Promise<Buffer> {
-    if (!contentType || !isSupportedImageMediaType(contentType)) {
-        throw new InvalidImageTransportError(`unsupported content-type: ${contentType ?? 'missing'}`)
+    if (!contentType) {
+        throw new InvalidImageTransportError('missing_content_type', 'unsupported content-type: missing')
+    }
+    if (!isSupportedImageMediaType(contentType)) {
+        throw new InvalidImageTransportError('unsupported_content_type', `unsupported content-type: ${contentType}`)
     }
     if (bytes.length > MAX_UNCOMPRESSED_IMAGE_BYTES) {
-        throw new InvalidImageTransportError(`decoded image exceeds ${MAX_UNCOMPRESSED_IMAGE_BYTES} bytes`)
+        throw new InvalidImageTransportError(
+            'decoded_too_large',
+            `decoded image exceeds ${MAX_UNCOMPRESSED_IMAGE_BYTES} bytes`
+        )
     }
 
     let decoded = bytes
@@ -124,7 +157,10 @@ export async function prepareFetchedImage(
         decoded = await decodeWithLimit(decoded, encoding)
     }
     if (!imageBytesMatchMediaType(decoded, contentType)) {
-        throw new InvalidImageTransportError(`image bytes do not match content-type ${contentType}`)
+        throw new InvalidImageTransportError(
+            'content_type_mismatch',
+            `image bytes do not match content-type ${contentType}`
+        )
     }
     return decoded
 }
