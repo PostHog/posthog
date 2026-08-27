@@ -7,7 +7,6 @@ serialize the result. Nothing here runs a check -- every trigger hands off to Te
 a suite-run handle to poll.
 """
 
-import json
 from collections import defaultdict
 from collections.abc import Callable
 from typing import ClassVar, cast
@@ -122,51 +121,89 @@ class _QualityGatedViewSet(TeamAndOrgViewSetMixin):
             self._denied_subjects_cache = cached
         return cached
 
-    def _reads_denied_subject(self, check_type: str, config: dict, denied: set[str]) -> bool:
-        """Whether this definition reads a subject the caller is denied.
+    def _reads_unreadable_subject(self, check_type: str, config: dict) -> bool:
+        """Whether this definition reads a subject the caller cannot be shown to be allowed.
 
         The parent is not the only subject a check reads: a relationships check names a second
         subject and a custom_sql query selects arbitrary tables, both run by the worker with team
         scope only. Authorize them too, or a check on an allowed subject is a count oracle over a
         denied one.
+
+        A denied name is only the case where the subject still exists. Deleting it takes its denial
+        with it, so a name that neither resolves nor is denied proves nothing either way and is
+        refused on the same fail-closed terms.
         """
-        return any(
-            api.is_subject_denied(name, denied)
-            for name in api.referenced_subject_names(self.team.id, check_type, config)
-        )
+        refs = api.referenced_subjects(self.team.id, check_type, config)
+        if refs.unresolved_reference:
+            return True
+        if any(api.is_subject_denied(name, self._denied_subject_names()) for name in refs.names):
+            return True
+        return bool(self._unconfirmable_names(refs.names))
+
+    def _unconfirmable_names(self, names: tuple[str, ...]) -> set[str]:
+        # Memoized per request: the lookup rebuilds the caller's HogQL database, and a suite re-runs
+        # the same definitions.
+        cache: dict[str, bool] = getattr(self, "_unconfirmable_cache", {})
+        self._unconfirmable_cache = cache
+        unseen = tuple(name for name in names if name not in cache)
+        if unseen:
+            unconfirmable = api.unconfirmable_subject_names(
+                self.team,
+                cast(User, self.request.user),
+                unseen,
+                user_access_control=self.user_access_control,
+            )
+            cache.update({name: name in unconfirmable for name in unseen})
+        return {name for name in names if cache[name]}
 
     def _require_referenced_subject_access(self, check_type: str, config: dict) -> None:
-        denied = self._denied_subject_names()
-        if not denied:
+        if not self._can_be_object_denied():
             return
-        if self._reads_denied_subject(check_type, config, denied):
+        if self._reads_unreadable_subject(check_type, config):
             raise PermissionDenied("You don't have access to a table or view this check reads.")
 
     def _readable_runs(self, runs: list[DataQualityCheckRun]) -> list[DataQualityCheckRun]:
-        """Drop the runs whose definition read a subject the caller is denied.
-
-        Judged from the definition each run executed, not the one its check carries now, so editing
-        a check cannot retroactively expose or hide its history. Runs older than the config snapshot
-        fall back to their check; one that predates it and has lost its check is withheld, since what
-        it read cannot be established.
-        """
-        denied = self._denied_subject_names()
-        if not denied:
+        """Drop the runs that read a subject the caller cannot be shown to be allowed."""
+        if not self._can_be_object_denied():
             return runs
-        verdicts: dict[str, bool] = {}
-        readable = []
-        for run in runs:
-            config = run.check_config if run.check_config is not None else getattr(run.quality_check, "config", None)
-            if config is None:
-                continue
-            # One verdict per definition: a suite re-runs the same checks, and resolving a
-            # relationships target costs a query.
-            cache_key = f"{run.check_type}:{json.dumps(config, sort_keys=True, default=str)}"
-            if cache_key not in verdicts:
-                verdicts[cache_key] = self._reads_denied_subject(run.check_type, config, denied)
-            if not verdicts[cache_key]:
-                readable.append(run)
-        return readable
+        return [run for run in runs if self._run_is_readable(run)]
+
+    def _run_is_readable(self, run: DataQualityCheckRun) -> bool:
+        """Whether every subject this run read is one the caller may read now.
+
+        Judged from the identities the run pinned as it executed, never from the definition its
+        check carries now, so editing a check cannot retroactively expose the history it used to
+        read -- and never from names, which a deleted object frees for anyone to take.
+
+        A run that pinned nothing predates that recording. It falls back to its type: one that
+        cannot read past its own subject read only the parent this surface already authorized, and
+        anything that can is withheld, since there is no longer evidence of what it reached.
+        """
+        pinned = api.pinned_subjects(run.referenced_subjects)
+        if pinned is None:
+            return not api.check_type_reads_beyond_subject(run.check_type)
+        return all(self._pinned_subject_is_readable(subject) for subject in pinned)
+
+    def _pinned_subject_is_readable(self, subject: api.PinnedSubject) -> bool:
+        # Memoized per request: a suite re-runs the same checks over the same subjects, and each
+        # resolution costs a query.
+        cache: dict[tuple[str, str], bool] = getattr(self, "_pinned_subject_cache", {})
+        self._pinned_subject_cache = cache
+        key = (subject.subject_type, subject.subject_uuid)
+        if key not in cache:
+            cache[key] = self._resolves_to_a_readable_subject(subject)
+        return cache[key]
+
+    def _resolves_to_a_readable_subject(self, subject: api.PinnedSubject) -> bool:
+        try:
+            ref = api.resolve_subject(self.team.id, subject.subject_type, subject.subject_uuid)
+        except ValueError:
+            return False
+        # A subject that no longer resolves took its denial with it, so nothing left can show the
+        # caller was allowed the object this run read.
+        if not ref.exists:
+            return False
+        return not api.is_subject_denied(ref.name, self._denied_subject_names())
 
 
 class _SubjectScopedViewSet(_QualityGatedViewSet):
@@ -423,8 +460,13 @@ class _BaseSuiteRunViewSet(
     @action(methods=["GET"], detail=True, url_path="check_runs", pagination_class=None)
     def check_runs(self, request: Request, **kwargs) -> Response:
         suite_run = self.get_object()
-        runs = DataQualityCheckRun.objects.for_team(self.team_id).filter(suite_run=suite_run).order_by("-created_at")
-        return Response(DataQualityCheckRunSerializer(runs, many=True).data)
+        runs = list(
+            DataQualityCheckRun.objects.for_team(self.team_id)
+            .filter(suite_run=suite_run)
+            .select_related("quality_check")
+            .order_by("-created_at")
+        )
+        return Response(DataQualityCheckRunSerializer(self._readable_runs(runs), many=True).data)
 
 
 def _parent_id_parameter(name: str, description: str) -> Callable[[type], type]:
