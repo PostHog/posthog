@@ -5664,14 +5664,22 @@ export interface SampleRatioMismatch {
     p_value: number
 }
 
+export enum MultiVariantBiasKind {
+    /** Uneven split drops users from the smaller variant more than the larger one. */
+    AsymmetricExclusion = 'asymmetric_exclusion',
+    /** The same person gets different distinct IDs (for example before and after login), so identity churn drops them. */
+    IdentityChurn = 'identity_churn',
+}
+
 /**
- * Empirically observed multi-variant exclusion bias risk: uneven split + `EXCLUDE`
- * handling + observed `$multiple` share above the threshold. Present on the response
- * only when the experiment is currently at risk.
+ * Multi-variant exclusion bias risk under `EXCLUDE` handling: observed `$multiple`
+ * share above the threshold. Present on the response only when the experiment is
+ * currently at risk. `kind` says which failure mode the share points to.
  */
 export interface BiasRisk {
     /** Observed share of users assigned to `$multiple`, as a percentage (0-100). */
     multiple_variant_percentage: number
+    kind: MultiVariantBiasKind
 }
 
 export interface ExperimentExposureQueryResponse {

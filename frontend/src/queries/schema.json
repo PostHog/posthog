@@ -5984,14 +5984,17 @@
         },
         "BiasRisk": {
             "additionalProperties": false,
-            "description": "Empirically observed multi-variant exclusion bias risk: uneven split + `EXCLUDE` handling + observed `$multiple` share above the threshold. Present on the response only when the experiment is currently at risk.",
+            "description": "Multi-variant exclusion bias risk under `EXCLUDE` handling: observed `$multiple` share above the threshold. Present on the response only when the experiment is currently at risk. `kind` says which failure mode the share points to.",
             "properties": {
+                "kind": {
+                    "$ref": "#/definitions/MultiVariantBiasKind"
+                },
                 "multiple_variant_percentage": {
                     "description": "Observed share of users assigned to `$multiple`, as a percentage (0-100).",
                     "type": "number"
                 }
             },
-            "required": ["multiple_variant_percentage"],
+            "required": ["multiple_variant_percentage", "kind"],
             "type": "object"
         },
         "BillingSpendResponseBreakdownType": {
@@ -37311,6 +37314,10 @@
         "MultiQuestionFormQuestionType": {
             "description": "Question types: select/multi_select for standalone, multi_field for composite",
             "enum": ["select", "multi_select", "multi_field"],
+            "type": "string"
+        },
+        "MultiVariantBiasKind": {
+            "enum": ["asymmetric_exclusion", "identity_churn"],
             "type": "string"
         },
         "MultiVisualizationMessage": {

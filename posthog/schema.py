@@ -191,6 +191,7 @@ from posthog.schema_enums import (
     MultipleVariantHandling as MultipleVariantHandling,
     MultiQuestionFormFieldType as MultiQuestionFormFieldType,
     MultiQuestionFormQuestionType as MultiQuestionFormQuestionType,
+    MultiVariantBiasKind as MultiVariantBiasKind,
     NativeMarketingSource as NativeMarketingSource,
     NeighborDirection as NeighborDirection,
     NodeKind as NodeKind,
@@ -879,16 +880,6 @@ class BaseAssistantMessage(BaseModel):
     )
     id: str | None = None
     parent_tool_call_id: str | None = None
-
-
-class BiasRisk(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    multiple_variant_percentage: float = Field(
-        ...,
-        description=("Observed share of users assigned to `$multiple`, as a percentage (0-100)."),
-    )
 
 
 class BoxPlotSettings(BaseModel):
@@ -4545,6 +4536,17 @@ class AutocompleteCompletionItem(BaseModel):
             " backend can rank a suggestion, for example a function whose return type"
             " fits the comparison being written."
         ),
+    )
+
+
+class BiasRisk(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: MultiVariantBiasKind
+    multiple_variant_percentage: float = Field(
+        ...,
+        description=("Observed share of users assigned to `$multiple`, as a percentage (0-100)."),
     )
 
 
