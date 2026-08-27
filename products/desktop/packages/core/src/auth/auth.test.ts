@@ -2407,6 +2407,39 @@ describe("AuthService", () => {
       expect(service.getState().desktopAccess.status).toBe("allowed");
     });
 
+    it("applies a check that finished after the session rotated to the same account and project", async () => {
+      // Dropping the result because the session object rotated mid-check
+      // strands the published state on "checking", which keeps the whole app
+      // unmounted until an unrelated sync happens to answer.
+      stubAuthFetch();
+      await service.initialize();
+      expect(service.getState().desktopAccess.status).toBe("allowed");
+
+      const releases: Array<() => void> = [];
+      stubAuthFetch({
+        desktopAccessResponse: () =>
+          new Promise<Response>((resolve) => {
+            releases.push(() =>
+              resolve(okBody({ allowed: true, reason: null })),
+            );
+          }) as unknown as Response,
+      });
+      const retry = service.retryDesktopAccess();
+      await vi.waitFor(() => expect(releases.length).toBe(1));
+      expect(service.getState().desktopAccess.status).toBe("checking");
+
+      const refresh = service.refreshAccessToken();
+      await vi.waitFor(() => expect(releases.length).toBe(2));
+
+      releases[0]();
+      await retry;
+      expect(service.getState().desktopAccess.status).toBe("allowed");
+
+      releases[1]();
+      await refresh;
+      expect(service.getState().desktopAccess.status).toBe("allowed");
+    });
+
     it("keeps the current result while a commit that leaves the project alone rechecks it", async () => {
       // Background org recovery commits the project it already had. Publishing
       // "checking" there unmounts the whole app after it finished loading.

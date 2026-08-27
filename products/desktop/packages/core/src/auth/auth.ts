@@ -1335,7 +1335,25 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     session: InMemorySession,
   ): Promise<void> {
     const desktopAccess = await this.checkDesktopAccess(session);
-    if (this.session !== session) return;
+    if (this.session !== session) {
+      // The session rotated while the check was in flight. The result is
+      // scoped to (account, project): when the rotation kept both and nothing
+      // newer has answered, the result still applies, and dropping it would
+      // strand the published state on "checking" until an unrelated sync.
+      const current = this.session;
+      const accountChanged =
+        current !== null &&
+        current.accountKey !== null &&
+        session.accountKey !== null &&
+        current.accountKey !== session.accountKey;
+      const stillAnswers =
+        current !== null &&
+        !accountChanged &&
+        current.currentProjectId === session.currentProjectId &&
+        this.state.desktopAccess.status === "checking" &&
+        this.state.desktopAccess.projectId === session.currentProjectId;
+      if (!stillAnswers) return;
+    }
     this.updateState({ desktopAccess });
   }
 
