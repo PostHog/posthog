@@ -11,7 +11,7 @@
 //! guarantee holds while it grows and the violation counter stays flat.
 //!
 //! **Per-key send order** ([`KeyOrderSentinel`]): for every routing key
-//! (`token:distinct_id`), messages must be handed to workers in Kafka offset
+//! (the Kafka message key), messages must be handed to workers in Kafka offset
 //! order, and a message must never be re-sent after it was ACKed. Replays of
 //! un-ACKed messages on the retry paths ([`SendKind::Resend`]: send failure →
 //! deferred flush) are legal at-least-once behavior and are counted separately

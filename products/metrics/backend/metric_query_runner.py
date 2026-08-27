@@ -18,6 +18,7 @@ import math
 import datetime as dt
 from collections.abc import Sequence
 from typing import Any, Literal
+from zoneinfo import ZoneInfo
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
@@ -262,13 +263,7 @@ def _interval_step(name: str) -> dt.timedelta:
     raise ValueError(f"Unknown interval: {name!r}")
 
 
-# The grids `toStartOfInterval` produces: intervals count from the epoch,
-# except weeks, which count from a Monday.
-_EPOCH = dt.datetime(1970, 1, 1, tzinfo=dt.UTC)
-_WEEK_EPOCH = dt.datetime(1970, 1, 5, tzinfo=dt.UTC)
-
-
-def _align_to_interval(timestamp: dt.datetime, interval: str) -> dt.datetime:
+def _align_to_interval(timestamp: dt.datetime, interval: str, *, tzinfo: ZoneInfo) -> dt.datetime:
     """Floor `timestamp` onto the bucket grid `toStartOfInterval` uses.
 
     The bucket labels come from `toStartOfInterval(sample_timestamp)`, so a
@@ -278,6 +273,15 @@ def _align_to_interval(timestamp: dt.datetime, interval: str) -> dt.datetime:
     its full interval. Relative ranges like "-1h" resolve to now-minus-offset
     with second precision, which makes the unaligned case the normal one.
 
+    The grid lives in `tzinfo`, the project's timezone, not in UTC. HogQL
+    rewrites a `DateTime` column read into `toTimeZone(<column>, <project
+    timezone>)` (`PropertySwapper.visit_field`), so `toStartOfInterval` sees a
+    local-time value and counts every step from local midnight. Flooring in UTC
+    instead lands on the same instant for the sub-hour steps, but drifts for
+    `hour_6`, `day` and `week`, and for `hour` in a zone whose offset is not a
+    whole number of hours (Asia/Kolkata is +05:30, so its hour boundaries sit
+    at :30 past each UTC hour).
+
     Not `posthog.interval_specs.align`: that grid honors the team's
     `week_start_day` and lacks the sub-hour steps, where `toStartOfInterval`
     always counts weeks from Monday — the two would disagree exactly where
@@ -285,9 +289,20 @@ def _align_to_interval(timestamp: dt.datetime, interval: str) -> dt.datetime:
     """
     if timestamp.tzinfo is None:
         timestamp = timestamp.replace(tzinfo=dt.UTC)
-    epoch = _WEEK_EPOCH if interval == "week" else _EPOCH
+    local = timestamp.astimezone(tzinfo)
+    midnight = local.replace(hour=0, minute=0, second=0, microsecond=0)
+    if interval == "week":
+        # ClickHouse's week interval starts on Monday, unlike its own
+        # `toStartOfWeek`, which defaults to Sunday.
+        return (midnight - dt.timedelta(days=midnight.weekday())).astimezone(dt.UTC)
+    if interval == "day":
+        return midnight.astimezone(dt.UTC)
+    # ClickHouse counts elapsed seconds from the midnight instant, so this adds
+    # a real duration rather than doing wall-clock arithmetic. A day shortened
+    # or lengthened by a DST transition then keeps both grids on the same
+    # boundaries.
     step = _interval_step(interval)
-    return epoch + ((timestamp - epoch) // step) * step
+    return midnight.astimezone(dt.UTC) + (local.astimezone(dt.UTC) - midnight.astimezone(dt.UTC)) // step * step
 
 
 # Prometheus's default lookback delta. One interval step on its own is not
@@ -388,7 +403,7 @@ class MetricQueryRunner:
         if interval is not None and interval not in {name for name, _, _ in _INTERVAL_LADDER}:
             raise ValueError(f"Unknown interval: {interval!r}")
         if interval is not None:
-            step = next(step for name, step, _ in _INTERVAL_LADDER if name == interval)
+            step = _interval_step(interval)
             if (date_to - date_from) / step > _ROW_LIMIT:
                 raise ValueError(
                     f"interval {interval!r} produces more than {_ROW_LIMIT} buckets over this range; "
@@ -404,7 +419,7 @@ class MetricQueryRunner:
         self.interval = interval or _pick_interval(date_from, date_to)
         # Validation above bounds the requested range; the scan then starts at
         # the bucket boundary so the first bucket covers its whole interval.
-        self.date_from = _align_to_interval(date_from, self.interval)
+        self.date_from = _align_to_interval(date_from, self.interval, tzinfo=team.timezone_info)
         self.date_to = date_to
         self.filters = tuple(filters)
         self.group_by = tuple(group_by)

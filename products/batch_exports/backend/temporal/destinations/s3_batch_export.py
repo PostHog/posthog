@@ -375,7 +375,7 @@ class S3BatchExportResult(BatchExportResult):
 class PolicyStatement(typing.TypedDict):
     Effect: typing.Literal["Allow", "Deny"]
     Action: list[str]
-    Resource: str
+    Resource: list[str] | str
 
 
 async def get_credentials_using_user_aws_role(
