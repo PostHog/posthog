@@ -67,7 +67,7 @@ class MalformedLLMResponseError(Exception):
 MALFORMED_RESPONSE_SNIPPET_LIMIT = 200
 
 
-def _extract_text_content(response: Message) -> str:
+def _extract_text_content(response: object) -> str:
     """Extract text content from Anthropic response."""
     if not isinstance(response, Message):
         snippet = repr(response)[:MALFORMED_RESPONSE_SNIPPET_LIMIT]
