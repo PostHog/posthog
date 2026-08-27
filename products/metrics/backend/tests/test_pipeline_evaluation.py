@@ -222,6 +222,47 @@ class TestEvaluatePipeline:
         assert runner.requests, "expected at least one query"
         assert all(len(request.clauses) == 1 for request in runner.requests)
 
+    def test_breakdown_and_stat_queries_opt_out_of_zero_fill(self):
+        # Grouped series share one bucket grid that the runner zero-fills, so a
+        # group that went silent would surface in the table as reporting zero
+        # and feed that false value into the "others" rollup.
+        stat = {
+            "id": "s1",
+            "label": "lag",
+            "format": "count",
+            "metric_name": "m1",
+            "aggregation": "sum",
+            "breakdown": {"group_by_key": "partition", "top_n": 5},
+        }
+        config = make_config(stat_overrides=stat)
+        _, runner = evaluate(config, respond_with({"s1": [1.0]}))
+        assert runner.requests
+        assert all(request.zero_fill is False for request in runner.requests)
+
+    def test_silent_breakdown_group_is_dropped(self):
+        stat = {
+            "id": "s1",
+            "label": "lag",
+            "format": "count",
+            "metric_name": "m1",
+            "aggregation": "sum",
+            "breakdown": {"group_by_key": "partition", "top_n": 5},
+        }
+        config = make_config(stat_overrides=stat)
+
+        def grouped(request, clause):
+            if clause.group_by:
+                return [
+                    series([5.0, 7.0], labels={"partition": "p1"}, clause=clause.name),
+                    # p2 stopped reporting: its trailing bucket is a gap, not a zero.
+                    series([9.0, None], labels={"partition": "p2"}, clause=clause.name),
+                ]
+            return [series([7.0], clause=clause.name)]
+
+        evaluation, _ = evaluate(config, respond_with({"s1": grouped}))
+        rows = {row.label: row.value for row in evaluation.nodes[0].stats[0].breakdown_rows}
+        assert rows == {"p1": 7.0, "p2": 9.0}
+
     def test_alerts_derived_from_breached_stats(self):
         second = [
             {

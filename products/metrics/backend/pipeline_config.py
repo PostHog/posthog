@@ -17,6 +17,7 @@ from typing import Any
 from products.metrics.backend.facade.contracts import (
     MAX_PIPELINE_BREAKDOWN_TOP_N,
     MAX_PIPELINE_EDGES,
+    MAX_PIPELINE_EVALUATION_QUERIES,
     MAX_PIPELINE_NODES,
     MAX_PIPELINE_STATS_PER_NODE,
     MetricFilter,
@@ -331,5 +332,12 @@ def parse_pipeline_config(data: Any) -> PipelineConfig:
     for key in variable_keys:
         if variable_keys.count(key) > 1:
             raise ValueError(f"variables: duplicate variable key {key!r}")
+
+    queries = sum(1 + (1 if stat.breakdown else 0) for node in nodes for stat in node.stats) + 2 * len(edges)
+    if queries > MAX_PIPELINE_EVALUATION_QUERIES:
+        raise ValueError(
+            f"this topology would run {queries} queries per evaluation; "
+            f"at most {MAX_PIPELINE_EVALUATION_QUERIES} are allowed"
+        )
 
     return PipelineConfig(nodes=nodes, edges=edges, variables=variables)

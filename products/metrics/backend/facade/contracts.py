@@ -37,12 +37,18 @@ METRICS_FEATURE_FLAG = "metrics"
 PIPELINES_FEATURE_FLAG = "metrics-pipelines"
 
 # Caps enforced by `parse_pipeline_config`, mirrored in the serializer so the
-# two can't drift. Sized so one evaluation stays a bounded number of
-# ClickHouse queries.
+# two can't drift.
 MAX_PIPELINE_NODES = 20
 MAX_PIPELINE_STATS_PER_NODE = 12
 MAX_PIPELINE_EDGES = 40
 MAX_PIPELINE_BREAKDOWN_TOP_N = 20
+
+# The per-item caps above multiply out to far more ClickHouse queries than one
+# evaluation should ever issue, so the total is capped directly. A stat costs
+# one query, a breakdown adds another, and an edge costs two (current window
+# plus baseline). The evaluate endpoint's throttles only bind personal API key
+# traffic, so this is what bounds a session-authenticated caller.
+MAX_PIPELINE_EVALUATION_QUERIES = 120
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,6 +111,11 @@ class MetricQueryRequest:
     date_to: dt.datetime
     interval: str | None = None
     formula: str | None = None
+    # Charts want a gap-free line, so a bucket a series did not report is
+    # filled with 0.0 by default. Set False when the caller has to tell
+    # "reported zero" apart from "did not report" — a series that stopped
+    # mid-window would otherwise read as currently sitting at zero.
+    zero_fill: bool = True
 
     def __post_init__(self) -> None:
         if not self.clauses:

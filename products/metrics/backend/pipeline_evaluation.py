@@ -151,7 +151,9 @@ def _evaluate_node(
     # same and keeps each stat on its own grid.
     series_by_stat: dict[str, MetricSeries] = {}
     for stat in node.stats:
-        request = MetricQueryRequest(clauses=(_stat_clause(stat, extra_filters),), date_from=date_from, date_to=date_to)
+        request = MetricQueryRequest(
+            clauses=(_stat_clause(stat, extra_filters),), date_from=date_from, date_to=date_to, zero_fill=False
+        )
         for series in run_query(request):
             # An ungrouped clause returns exactly one series; keep the first
             # defensively if a runner ever returns more.
@@ -163,8 +165,14 @@ def _evaluate_node(
         if stat.breakdown is None:
             continue
         group_by = (MetricGroupBy(key=stat.breakdown.group_by_key, scope=stat.breakdown.scope),)
+        # Grouped series share one grid, so a group that stopped reporting would
+        # gain trailing zeros from its siblings' buckets and show in the table as
+        # currently sitting at zero instead of being dropped.
         request = MetricQueryRequest(
-            clauses=(_stat_clause(stat, extra_filters, group_by=group_by),), date_from=date_from, date_to=date_to
+            clauses=(_stat_clause(stat, extra_filters, group_by=group_by),),
+            date_from=date_from,
+            date_to=date_to,
+            zero_fill=False,
         )
         breakdown_by_stat[stat.id] = _breakdown_rows(stat, run_query(request))
 
@@ -208,9 +216,11 @@ def _evaluate_edge(
         metric_type=edge.metric_type,
     )
     offset = parse_relative_offset(edge.baseline_offset)
-    current_series = run_query(MetricQueryRequest(clauses=(clause,), date_from=date_from, date_to=date_to))
+    current_series = run_query(
+        MetricQueryRequest(clauses=(clause,), date_from=date_from, date_to=date_to, zero_fill=False)
+    )
     baseline_series = run_query(
-        MetricQueryRequest(clauses=(clause,), date_from=date_from - offset, date_to=date_to - offset)
+        MetricQueryRequest(clauses=(clause,), date_from=date_from - offset, date_to=date_to - offset, zero_fill=False)
     )
 
     current = _mean_value(current_series[0] if current_series else None)

@@ -76,11 +76,12 @@ MAX_SERIES_PER_CLAUSE = 100
 
 
 def _assemble_series(
-    rows: list[dict[str, Any]], *, metric_name: str, clause_name: str, grid: list[str]
+    rows: list[dict[str, Any]], *, metric_name: str, clause_name: str, grid: list[str], zero_fill: bool = True
 ) -> list[MetricSeries]:
-    """Split bucketed rows into one series per label-set, zero-filled onto
-    the shared grid so every series (and later, every clause of a formula)
-    has identical timestamps."""
+    """Split bucketed rows into one series per label-set, laid onto the shared
+    grid so every series (and later, every clause of a formula) has identical
+    timestamps. Buckets a series did not report become 0.0, or None when
+    `zero_fill` is False."""
     by_labels: dict[tuple[tuple[str, str], ...], dict[str, float | None]] = {}
     for row in rows:
         key = tuple(sorted(row["labels"].items()))
@@ -93,10 +94,11 @@ def _assemble_series(
     ranked = sorted(
         by_labels.items(), key=lambda item: (-sum(abs(v) for v in item[1].values() if v is not None), item[0])
     )
+    filler: float | None = 0.0 if zero_fill else None
     return [
         MetricSeries(
             labels=dict(key),
-            points=tuple(MetricPoint(time=time, value=values.get(time, 0.0)) for time in grid),
+            points=tuple(MetricPoint(time=time, value=values.get(time, filler)) for time in grid),
             metric_name=metric_name,
             clause=clause_name,
         )
@@ -215,7 +217,11 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
 
     series_by_clause = {
         clause.name: _assemble_series(
-            rows_by_clause[clause.name], metric_name=clause.metric_name, clause_name=clause.name, grid=grid
+            rows_by_clause[clause.name],
+            metric_name=clause.metric_name,
+            clause_name=clause.name,
+            grid=grid,
+            zero_fill=request.zero_fill,
         )
         for clause in request.clauses
     }

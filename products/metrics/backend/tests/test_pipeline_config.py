@@ -4,7 +4,11 @@ import pytest
 
 from parameterized import parameterized
 
-from products.metrics.backend.facade.contracts import MAX_PIPELINE_EDGES
+from products.metrics.backend.facade.contracts import (
+    MAX_PIPELINE_EDGES,
+    MAX_PIPELINE_NODES,
+    MAX_PIPELINE_STATS_PER_NODE,
+)
 from products.metrics.backend.facade.enums import HealthState, MetricAggregation
 from products.metrics.backend.pipeline_config import parse_pipeline_config, parse_relative_offset
 
@@ -152,6 +156,24 @@ class TestParsePipelineConfig:
         extra = [{**dict(nodes[1]), "id": f"n{i}"} for i in range(MAX_PIPELINE_EDGES + 1)]
         with pytest.raises(ValueError, match="at most"):
             parse_pipeline_config(config_with(nodes=[nodes[0], *extra], edges=many))
+
+    def test_evaluation_query_budget_enforced(self):
+        # The per-item caps multiply out to far more queries than one refresh
+        # tick should issue, so the total is capped directly.
+        stats = [
+            {
+                "id": f"s{i}",
+                "label": f"s{i}",
+                "format": "count",
+                "metric_name": "m",
+                "aggregation": "sum",
+                "breakdown": {"group_by_key": "k"},
+            }
+            for i in range(MAX_PIPELINE_STATS_PER_NODE)
+        ]
+        nodes = [{"id": f"n{i}", "name": f"N{i}", "kind": "", "stats": stats} for i in range(MAX_PIPELINE_NODES)]
+        with pytest.raises(ValueError, match="queries per evaluation"):
+            parse_pipeline_config(config_with(nodes=nodes, edges=[]))
 
     def test_duplicate_variable_keys_rejected(self):
         variables = [dict(VALID_CONFIG["variables"][0]), dict(VALID_CONFIG["variables"][0])]
