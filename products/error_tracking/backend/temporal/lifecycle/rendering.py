@@ -97,22 +97,15 @@ def _is_dev_hostname(hostname: str) -> bool:
     return ip.is_private or ip.is_loopback or ip.is_link_local
 
 
-def _origin_netloc(event_properties: dict[str, object]) -> tuple[str | None, str | None]:
+def parse_origin(event_properties: dict[str, object]) -> Origin:
     current_url = _string(event_properties.get("$current_url"))
     netloc = urlparse(current_url).netloc if current_url else ""
     if not netloc:
         netloc = _string(event_properties.get("$host"))
-    if not netloc:
-        return None, None
     # Drop any userinfo, keep host and port. Path and query never reach here, since both
     # $current_url and $host carry an authority only.
-    display = netloc.rsplit("@", 1)[-1]
-    hostname = urlparse(f"//{netloc}").hostname
-    return display or None, hostname
-
-
-def parse_origin(event_properties: dict[str, object]) -> Origin:
-    display, hostname = _origin_netloc(event_properties)
+    display = netloc.rsplit("@", 1)[-1] or None
+    hostname = urlparse(f"//{netloc}").hostname if netloc else None
     return Origin(
         host=display,
         is_dev_host=_is_dev_hostname(hostname) if hostname else False,
