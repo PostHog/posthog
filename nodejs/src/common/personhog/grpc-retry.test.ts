@@ -140,6 +140,9 @@ describe('withRetry', () => {
             ).catch((e: unknown) => e)
             await jest.runAllTimersAsync()
             const error = (await promise) as Error
+            // Error tracking hashes the exception type (name), not the message, once the
+            // stack resolves, so the name is what splits the fingerprint per caller.
+            expect(error.name).toBe('personhog cdp-events-consumer/fetchPersonsByDistinctIds')
             expect(error.message).toContain('personhog cdp-events-consumer/fetchPersonsByDistinctIds')
         })
     })

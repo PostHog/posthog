@@ -43,14 +43,19 @@ function isRetryable(error: unknown): error is ConnectError {
 }
 
 /**
- * Encode the method and client into the error message. Error tracking mints one
- * fingerprint per distinct message, so a raw `[deadline_exceeded] the operation
- * timed out` collapses every service and method into one context-free issue.
- * A distinct message per method and client splits them, so a real read failure
- * stays visible.
+ * Encode the method and client into the error so a slow personhog window no
+ * longer collapses every service into one context-free issue. Error tracking
+ * hashes the exception type (from `error.name`) on every event, but hashes the
+ * message only when the stack does not resolve. A posthog-node capture always
+ * carries a resolved stack, so the type is what splits the fingerprint. Set a
+ * distinct `name` per client and method so a real read failure surfaces as its
+ * own issue. Keep the same context in the message so a person reading the issue
+ * still sees the caller. The `ConnectError` code and rawMessage stay unchanged.
  */
 function withCallerContext(error: ConnectError, client: string, method: string): ConnectError {
-    error.message = `personhog ${client}/${method}: ${error.message}`
+    const context = `personhog ${client}/${method}`
+    error.name = context
+    error.message = `${context}: ${error.message}`
     return error
 }
 
