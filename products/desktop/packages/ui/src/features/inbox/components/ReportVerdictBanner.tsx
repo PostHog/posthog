@@ -1,6 +1,7 @@
 import {
   ArchiveIcon,
   ArrowSquareOutIcon,
+  ChatCircleIcon,
   ClockIcon,
   GitPullRequestIcon,
 } from "@phosphor-icons/react";
@@ -23,19 +24,25 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@posthog/quill";
-import type { SignalReport } from "@posthog/shared/types";
+import type { SignalReport, Task } from "@posthog/shared/types";
+import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useCreatePrReport } from "@posthog/ui/features/inbox/hooks/useCreatePrReport";
+import { useDiscussReport } from "@posthog/ui/features/inbox/hooks/useDiscussReport";
 import { useInboxBulkActions } from "@posthog/ui/features/inbox/hooks/useInboxBulkActions";
 import { useInboxReportDismissAction } from "@posthog/ui/features/inbox/hooks/useInboxReportDismissAction";
 import { useInboxReportArtefacts } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import { useReportActionTracker } from "@posthog/ui/features/inbox/hooks/useReportActionTracker";
 import {
   findContinuableImplementationTask,
+  findLatestDiscussionTask,
+  findPendingStartedTaskId,
   getTaskPrUrl,
   useReportTasks,
 } from "@posthog/ui/features/inbox/hooks/useReportTasks";
 import { useReportChatPanelStore } from "@posthog/ui/features/inbox/stores/reportChatPanelStore";
+import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
+import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 const isMac =
@@ -63,6 +70,8 @@ interface ReportVerdictBannerProps {
   variant?: ReportVerdictBannerVariant;
   /** Key that fires the primary action (triage mode passes "f"). */
   actionHotkey?: string;
+  /** Hide the full banner after the reader starts or resumes report work. */
+  initialEngagementOnly?: boolean;
   /**
    * Called after an action opens the report's conversation dock. Surfaces
    * without a dock (the triage card) navigate to the report here.
@@ -79,6 +88,7 @@ export function ReportVerdictBanner({
   report,
   variant = "full",
   actionHotkey,
+  initialEngagementOnly = false,
   onEngaged,
 }: ReportVerdictBannerProps) {
   const compact = variant === "header-actions";
@@ -114,14 +124,40 @@ export function ReportVerdictBanner({
   const existingPrUrl =
     livePrUrl ?? (continuableTask ? getTaskPrUrl(continuableTask) : null);
   const hasExistingPr = !!existingPrUrl || !!continuableTask;
+  const startedTaskId = useReportChatPanelStore(
+    (state) => state.startedTaskIdByReport[report.id] ?? null,
+  );
+  const hasPriorEngagement =
+    findPendingStartedTaskId(reportTasks, startedTaskId) !== null ||
+    hasExistingPr ||
+    findLatestDiscussionTask(reportTasks) !== null;
 
   const verdict = deriveReportVerdict(report, { hasExistingPr });
 
   const fireAction = useReportActionTracker(report);
+  const queryClient = useQueryClient();
 
   const setChatOpen = useReportChatPanelStore((s) => s.setOpen);
   const rememberStartedTask = useReportChatPanelStore(
     (s) => s.rememberStartedTask,
+  );
+  const [engaged, setEngaged] = useState(false);
+  const { generalChannel, isLoading: channelsLoading } = useTaskChannels();
+  const taskChannelId = report.channel_id ?? generalChannel?.id ?? null;
+  const awaitingChannel = taskChannelId === null && channelsLoading;
+
+  const handleTaskCreated = useCallback(
+    (task: Task) => {
+      queryClient.setQueryData(taskDetailQuery(task.id).queryKey, task);
+      rememberStartedTask(report.id, task.id);
+      setEngaged(true);
+      setChatOpen(true);
+      void queryClient.invalidateQueries({
+        queryKey: ["inbox", "report-tasks", report.id],
+      });
+      onEngaged?.();
+    },
+    [queryClient, rememberStartedTask, report.id, setChatOpen, onEngaged],
   );
 
   const { createPrReport, isCreatingPr } = useCreatePrReport({
@@ -132,11 +168,13 @@ export function ReportVerdictBanner({
     // the view advance. A failed create (offline, missing repo/integration/
     // model, API error) never reaches here, so the report and its actions stay
     // put instead of opening an empty dock or, in triage, navigating away.
-    onTaskCreated: (task) => {
-      rememberStartedTask(report.id, task.id);
-      setChatOpen(true);
-      onEngaged?.();
-    },
+    onTaskCreated: handleTaskCreated,
+  });
+  const { discussReport, isDiscussing } = useDiscussReport({
+    report,
+    channelId: taskChannelId,
+    redirectOnSuccess: false,
+    onTaskCreated: handleTaskCreated,
   });
 
   const [prOpen, setPrOpen] = useState(false);
@@ -180,9 +218,34 @@ export function ReportVerdictBanner({
     fireAction("open_pr");
     // The conversation opens docked beside the report — the full task page
     // stays one click away in the dock header.
+    setEngaged(true);
     setChatOpen(true);
     onEngaged?.();
   }, [continuableTask, fireAction, setChatOpen, onEngaged]);
+
+  const handleAsk = useCallback(() => {
+    if (isCreatingPr || isDiscussing || awaitingChannel || reportTasksLoading) {
+      return;
+    }
+    fireAction("discuss", { has_question: false });
+    if (hasPriorEngagement) {
+      setEngaged(true);
+      setChatOpen(true);
+      onEngaged?.();
+      return;
+    }
+    void discussReport();
+  }, [
+    isCreatingPr,
+    isDiscussing,
+    awaitingChannel,
+    reportTasksLoading,
+    fireAction,
+    hasPriorEngagement,
+    setChatOpen,
+    onEngaged,
+    discussReport,
+  ]);
 
   // The banner carries the report's one action: create the PR, or continue the
   // one in flight. Offer it whenever the report can start a PR (`canCreatePr`
@@ -193,7 +256,7 @@ export function ReportVerdictBanner({
     report.status === "resolved" ||
     report.status === "suppressed" ||
     report.status === "deleted";
-  const showActions = !isTerminalReport && (canCreatePr || hasExistingPr);
+  const showActions = !isTerminalReport;
 
   // One key fires the primary action (triage mode passes "f"): continue the
   // task when a PR exists, otherwise start the fix with no extra direction.
@@ -236,6 +299,13 @@ export function ReportVerdictBanner({
     handleCreatePr,
   ]);
 
+  if (
+    initialEngagementOnly &&
+    (reportTasksLoading || engaged || hasPriorEngagement)
+  ) {
+    return null;
+  }
+
   const actionsRow = showActions ? (
     <div className="flex flex-wrap items-center gap-2.5">
       {report.status === "ready" && hasExistingPr ? (
@@ -243,7 +313,7 @@ export function ReportVerdictBanner({
           <Button
             type="button"
             variant="primary"
-            disabled={isCreatingPr || !continuableTask}
+            disabled={isCreatingPr || isDiscussing || !continuableTask}
             onClick={handleContinuePr}
             className={buttonClass}
           >
@@ -281,7 +351,7 @@ export function ReportVerdictBanner({
               <Button
                 type="button"
                 variant="primary"
-                disabled={isCreatingPr}
+                disabled={isCreatingPr || isDiscussing}
                 className={buttonClass}
               >
                 {isCreatingPr ? <Spinner /> : <GitPullRequestIcon size={15} />}
@@ -317,7 +387,7 @@ export function ReportVerdictBanner({
                 type="button"
                 variant="primary"
                 size="sm"
-                disabled={isCreatingPr}
+                disabled={isCreatingPr || isDiscussing}
                 onClick={handleCreatePr}
               >
                 Fix & monitor
@@ -326,6 +396,19 @@ export function ReportVerdictBanner({
           </PopoverContent>
         </Popover>
       ) : null}
+      <Button
+        type="button"
+        variant="outline"
+        loading={isDiscussing}
+        disabled={
+          isCreatingPr || isDiscussing || awaitingChannel || reportTasksLoading
+        }
+        onClick={handleAsk}
+        className={buttonClass}
+      >
+        <ChatCircleIcon size={16} />
+        Ask about it
+      </Button>
       {canArchiveHere && !compact && (
         <Tooltip>
           <TooltipTrigger
@@ -373,7 +456,7 @@ export function ReportVerdictBanner({
   return (
     <div
       className={cn(
-        "flex flex-col gap-3 rounded-lg border p-4",
+        "flex select-none flex-col gap-3 rounded-lg border p-4",
         TONE_CLASS[verdict.tone],
       )}
     >

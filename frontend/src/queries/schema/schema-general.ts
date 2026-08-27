@@ -9140,6 +9140,7 @@ export const externalDataSources = [
     'SideShift',
     'DuckLake',
     'Starburst',
+    'Trino',
     'Easybill',
     'Bexio',
     'Umami',
@@ -9200,6 +9201,8 @@ export const externalDataSources = [
     'Liveblocks',
     'NationBuilder',
     'Tana',
+    'Zenchef',
+    'Lovable',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
