@@ -19,11 +19,14 @@ export interface CloudArtifactPresignedPost {
 
 export interface PreparedCloudArtifact extends CloudArtifactUploadRequest {
   id: string;
+  storage_path: string;
   presigned_post: CloudArtifactPresignedPost;
 }
 
+/** The finalize call answers with the run's whole manifest, so callers match on the path they reserved. */
 export interface FinalizedCloudArtifact {
   id: string;
+  storage_path?: string;
 }
 
 export interface CloudArtifactClient {

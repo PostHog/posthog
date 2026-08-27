@@ -845,7 +845,7 @@ describe("createPiConversationTranslator", () => {
     ]);
   });
 
-  it("streams a step's live work as nested tool calls and card text", () => {
+  it("streams a step's live work as nested tool calls and its latest line", () => {
     const translator = createPiConversationTranslator();
     const stream = (event: Record<string, unknown>) =>
       translator.translateEvent({
@@ -897,7 +897,7 @@ describe("createPiConversationTranslator", () => {
           content: [
             {
               type: "content",
-              content: { type: "text", text: "first thought\n\nsecond" },
+              content: { type: "text", text: "second" },
             },
           ],
         },
@@ -1074,5 +1074,86 @@ describe("createPiConversationTranslator", () => {
         content: { type: "text", text: "Step 1 of 2 started." },
       },
     ]);
+  });
+
+  it("keeps the document a step first reported when it revises", () => {
+    const translator = createPiConversationTranslator();
+    const finished = (version: number) =>
+      translator.translateEvent({
+        type: "message_end" as const,
+        message: {
+          role: "custom" as const,
+          customType: "posthog-agent-flow",
+          content: "the plan",
+          display: true,
+          details: {
+            flowId: "flow-1",
+            flowName: "Plan and build",
+            status: "running",
+            event: "step_finished",
+            stepIndex: 0,
+            stepName: "Plan",
+            handoff: {
+              stepIndex: 0,
+              stepName: "Plan",
+              title: "Plan",
+              artifactName: "plan-and-build-step-1-plan.md",
+              version,
+              markdown: `version ${version}`,
+            },
+          },
+          timestamp: 10,
+        },
+      });
+
+    const rawInput = (events: unknown): unknown =>
+      (events as [{ toolCall: { rawInput?: unknown } }])[0].toolCall.rawInput;
+
+    expect(rawInput(finished(1))).toMatchObject({ version: 1 });
+    expect(rawInput(finished(2))).toBeUndefined();
+  });
+
+  it("closes a review the flow never answered with a canceled line", () => {
+    const translator = createPiConversationTranslator();
+    const flowEvent = (details: Record<string, unknown>) =>
+      translator.translateEvent({
+        type: "message_end" as const,
+        message: {
+          role: "custom" as const,
+          customType: "posthog-agent-flow",
+          content: "Review the Plan handoff.",
+          display: true,
+          details: { flowId: "flow-1", flowName: "Plan and build", ...details },
+          timestamp: 10,
+        },
+      });
+
+    flowEvent({
+      status: "running",
+      event: "approval_requested",
+      approvalId: "a1",
+      stepIndex: 0,
+      stepName: "Plan",
+    });
+
+    expect(
+      flowEvent({ status: "stopped", event: "flow_stopped", stepIndex: 0 }),
+    ).toContainEqual({
+      type: "tool_call_updated",
+      timestamp: 10,
+      toolCall: {
+        id: "agent-flow:flow-1:approval:a1",
+        status: "failed",
+        content: [
+          {
+            type: "content",
+            content: {
+              type: "text",
+              text: "Review canceled because the flow stopped.",
+            },
+          },
+        ],
+      },
+    });
   });
 });

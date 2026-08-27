@@ -1,11 +1,13 @@
 import {
   type AgentFlowDefinition,
+  type AgentFlowHandoff,
   type AgentFlowRole,
   buildAgentFlowRunCommand,
 } from "@posthog/shared";
 import { describe, expect, it, vi } from "vitest";
 import { createAgentFlowExtension, extractHandoff } from "./extension";
 import { tryRouteFlowInput } from "./flow-input";
+import type { HandoffSubmission } from "./handoff";
 import type { StepSessionResult } from "./step-session";
 
 type CommandHandler = (args: string, ctx: unknown) => Promise<void>;
@@ -21,6 +23,7 @@ interface SentMessage {
     stepIndex?: number;
     event?: string;
     approvalId?: string;
+    handoff?: AgentFlowHandoff;
   };
 }
 
@@ -54,10 +57,12 @@ function harness(
   runStepResult: (options: { task: string }) => Promise<StepSessionResult>,
   revise?: (feedback: string) => Promise<StepSessionResult>,
   flowSkills: Array<{ flow: AgentFlowDefinition; dirName: string }> = [],
+  peekHandoff?: () => HandoffSubmission | null,
 ) {
   const runStep = async (options: { task: string }) => ({
     result: await runStepResult(options),
     revise: revise ?? (async () => runResult("<handoff>revised</handoff>")),
+    ...(peekHandoff ? { peekHandoff } : {}),
     dispose: () => {},
   });
   const sentMessages: SentMessage[] = [];
@@ -355,6 +360,75 @@ describe("createAgentFlowExtension", () => {
     );
     await vi.waitFor(() => expect(h.lastStatus()).toBe("completed"));
     expect(tasks[1]).toContain("plan v2");
+  });
+
+  it("sends the submitted document as the step handoff", async () => {
+    const h = harness(
+      () => Promise.resolve(runResult("chatter the user does not need")),
+      undefined,
+      [],
+      () => ({ title: "The plan", markdown: "# Plan\n\nDo it." }),
+    );
+
+    await h.run("task", flowDefinition());
+    await vi.waitFor(() => expect(h.lastStatus()).toBe("completed"));
+
+    const finished = h.sentMessages.find(
+      (message) => message.details?.event === "step_finished",
+    );
+    expect(finished?.details?.handoff).toMatchObject({
+      title: "The plan",
+      artifactName: "plan-and-build-step-1-plan.md",
+      version: 1,
+      markdown: "# Plan\n\nDo it.",
+    });
+    expect(finished?.content).toContain("# Plan");
+  });
+
+  it("reminds a step that submitted nothing, then falls back to its reply", async () => {
+    const reviseCalls: string[] = [];
+    const h = harness(
+      () => Promise.resolve(runResult("no document here")),
+      async (feedback) => {
+        reviseCalls.push(feedback);
+        return runResult("<handoff>late document</handoff>");
+      },
+      [],
+      () => null,
+    );
+
+    await h.run("task", flowDefinition());
+    await vi.waitFor(() => expect(h.lastStatus()).toBe("completed"));
+
+    expect(reviseCalls[0]).toContain("submit_handoff");
+    const finished = h.sentMessages.find(
+      (message) => message.details?.event === "step_finished",
+    );
+    expect(finished?.details?.handoff?.markdown).toBe("late document");
+  });
+
+  it("carries the comments of an approved handoff into the next step", async () => {
+    const tasks: string[] = [];
+    const h = harness((options) => {
+      tasks.push(options.task);
+      return Promise.resolve(runResult("<handoff>plan</handoff>"));
+    });
+
+    await h.run("task", flowDefinition({ approvalAfter: true }));
+    await vi.waitFor(() => expect(h.lastApprovalId()).toBeDefined());
+
+    const review = {
+      comments: [{ quote: "step 2", body: "name the file you change" }],
+    };
+    await h.respond(
+      `${encodeURIComponent(h.lastApprovalId() as string)} approve ${encodeURIComponent(
+        JSON.stringify(review),
+      )}`,
+    );
+    await vi.waitFor(() => expect(h.lastStatus()).toBe("completed"));
+
+    expect(tasks[1]).toContain("name the file you change");
+    expect(tasks[1]).toContain("step 2");
   });
 });
 

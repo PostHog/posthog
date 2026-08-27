@@ -33,9 +33,7 @@ function isMessage(message: AgentMessage): message is Message {
 
 function customMessageEvents(
   message: AgentMessage,
-  flowSteps: FlowStepCards,
-  flowStepCardText: FlowStepCardText,
-  flowApprovals: FlowStepCards,
+  flowCards: FlowCardState,
 ): AgentConversationEvent[] {
   if (message.role === "bashExecution") {
     const id = `pi-bash-${message.timestamp}`;
@@ -99,14 +97,7 @@ function customMessageEvents(
 
   const flowDetails = agentFlowDetails(message);
   if (flowDetails) {
-    return agentFlowEvents(
-      message.timestamp,
-      text,
-      flowDetails,
-      flowSteps,
-      flowStepCardText,
-      flowApprovals,
-    );
+    return agentFlowEvents(message.timestamp, text, flowDetails, flowCards);
   }
 
   return [
@@ -118,6 +109,8 @@ function customMessageEvents(
   ];
 }
 
+const CANCELED_REVIEW_TEXT = "Review canceled because the flow stopped.";
+
 const AGENT_FLOW_STOP_REASONS: Partial<Record<AgentFlowMessageStatus, string>> =
   {
     completed: "stop",
@@ -127,13 +120,18 @@ const AGENT_FLOW_STOP_REASONS: Partial<Record<AgentFlowMessageStatus, string>> =
 
 type FlowStepCards = Map<string, string>;
 
-type FlowStepCardText = Map<string, string>;
+/** Per-flow card bookkeeping the translator carries across messages. */
+interface FlowCardState {
+  steps: FlowStepCards;
+  approvals: FlowStepCards;
+  /** Step cards that already carry a handoff document, so a revision leaves theirs alone. */
+  documented: Set<string>;
+}
 
 const STEP_CARD_TEXT_CAP = 4_000;
 
 function flowStepStreamEvents(
   payload: AgentFlowStepStreamEvent,
-  cardText: FlowStepCardText,
 ): AgentConversationEvent[] {
   const cardId = agentFlowStepCardId(payload.flowId, payload.stepIndex);
   const stepEvent = payload.event;
@@ -194,18 +192,16 @@ function flowStepStreamEvents(
     ];
   }
 
-  const combined = [cardText.get(cardId), stepEvent.text]
-    .filter(Boolean)
-    .join("\n\n");
-  const capped = combined.slice(-STEP_CARD_TEXT_CAP);
-  cardText.set(cardId, capped);
+  // The card reports what the step says now, so the last message replaces the
+  // one before it.
+  const latest = stepEvent.text.trim().slice(-STEP_CARD_TEXT_CAP);
   return [
     {
       type: "tool_call_updated",
       timestamp: payload.timestamp,
       toolCall: {
         id: cardId,
-        content: [{ type: "content", content: { type: "text", text: capped } }],
+        content: [{ type: "content", content: { type: "text", text: latest } }],
       },
     },
   ];
@@ -228,10 +224,9 @@ function agentFlowEvents(
   timestamp: number,
   text: string,
   details: AgentFlowMessageDetails,
-  flowSteps: FlowStepCards,
-  flowStepCardText: FlowStepCardText,
-  flowApprovals: FlowStepCards,
+  flowCards: FlowCardState,
 ): AgentConversationEvent[] {
+  const { steps: flowSteps, approvals: flowApprovals } = flowCards;
   const events: AgentConversationEvent[] = [];
 
   if (details.event === "approval_requested" && details.approvalId) {
@@ -247,6 +242,7 @@ function agentFlowEvents(
           kind: "question",
           status: "in_progress",
           content: [{ type: "content", content: { type: "text", text } }],
+          rawInput: details.handoff,
         },
       },
     ];
@@ -263,6 +259,8 @@ function agentFlowEvents(
           status:
             details.approvalOutcome === "approved" ? "completed" : "failed",
           content: [{ type: "content", content: { type: "text", text } }],
+          rawInput: details.handoff,
+          rawOutput: details.review,
         },
       },
     ];
@@ -318,34 +316,55 @@ function agentFlowEvents(
   }
 
   if (details.event === "step_finished" && details.stepIndex !== undefined) {
+    const cardId = agentFlowStepCardId(details.flowId, details.stepIndex);
     flowSteps.delete(details.flowId);
-    flowStepCardText.delete(
-      agentFlowStepCardId(details.flowId, details.stepIndex),
-    );
+    // A revision reuses this card, and its document belongs to the review card
+    // that asked for it. Keep the version this step first reported.
+    const firstDocument = details.handoff && !flowCards.documented.has(cardId);
+    if (firstDocument) {
+      flowCards.documented.add(cardId);
+    }
     return [
       {
         type: "tool_call_updated",
         timestamp,
         toolCall: {
-          id: agentFlowStepCardId(details.flowId, details.stepIndex),
+          id: cardId,
           status: "completed",
           content: [{ type: "content", content: { type: "text", text } }],
+          ...(firstDocument ? { rawInput: details.handoff } : {}),
         },
       },
     ];
   }
 
   if (isAgentFlowTerminalStatus(details.status)) {
-    for (const open of [flowSteps, flowApprovals]) {
-      const openCardId = open.get(details.flowId);
-      if (openCardId) {
-        open.delete(details.flowId);
-        events.push({
-          type: "tool_call_updated",
-          timestamp,
-          toolCall: { id: openCardId, status: "failed" },
-        });
-      }
+    const openStepCardId = flowSteps.get(details.flowId);
+    if (openStepCardId) {
+      flowSteps.delete(details.flowId);
+      events.push({
+        type: "tool_call_updated",
+        timestamp,
+        toolCall: { id: openStepCardId, status: "failed" },
+      });
+    }
+    const openApprovalCardId = flowApprovals.get(details.flowId);
+    if (openApprovalCardId) {
+      flowApprovals.delete(details.flowId);
+      events.push({
+        type: "tool_call_updated",
+        timestamp,
+        toolCall: {
+          id: openApprovalCardId,
+          status: "failed",
+          content: [
+            {
+              type: "content",
+              content: { type: "text", text: CANCELED_REVIEW_TEXT },
+            },
+          ],
+        },
+      });
     }
   }
 
@@ -394,9 +413,11 @@ export interface PiConversationTranslator {
 
 export function createPiConversationTranslator(): PiConversationTranslator {
   const messageTranslator = createPiMessageTranslator();
-  const flowSteps: FlowStepCards = new Map();
-  const flowStepCardText: FlowStepCardText = new Map();
-  const flowApprovals: FlowStepCards = new Map();
+  const flowCards: FlowCardState = {
+    steps: new Map(),
+    approvals: new Map(),
+    documented: new Set(),
+  };
   let historyTurnActive = false;
   let activeAssistantStream: ActiveAssistantStream | undefined;
   let latestRuntimeTimestamp = 0;
@@ -526,14 +547,7 @@ export function createPiConversationTranslator(): PiConversationTranslator {
     if (isMessage(message)) {
       events.push(...messageTranslator.translate(message));
     } else {
-      events.push(
-        ...customMessageEvents(
-          message,
-          flowSteps,
-          flowStepCardText,
-          flowApprovals,
-        ),
-      );
+      events.push(...customMessageEvents(message, flowCards));
     }
 
     if (message.role === "user") {
@@ -613,9 +627,7 @@ export function createPiConversationTranslator(): PiConversationTranslator {
   ): AgentConversationEvent[] {
     if ((event as { type: string }).type === AGENT_FLOW_STEP_EVENT_TYPE) {
       const parsed = agentFlowStepStreamEventSchema.safeParse(event);
-      return parsed.success
-        ? flowStepStreamEvents(parsed.data, flowStepCardText)
-        : [];
+      return parsed.success ? flowStepStreamEvents(parsed.data) : [];
     }
 
     if (event.type === "message_start") {
@@ -779,12 +791,7 @@ export function createPiConversationTranslator(): PiConversationTranslator {
       );
 
       if (!isMessage(event.message)) {
-        return customMessageEvents(
-          event.message,
-          flowSteps,
-          flowStepCardText,
-          flowApprovals,
-        );
+        return customMessageEvents(event.message, flowCards);
       }
 
       if (isAssistantMessage(event.message)) {

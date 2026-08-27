@@ -7,7 +7,9 @@ import {
   SessionManager,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
+import { AGENT_FLOW_HANDOFF_TOOL } from "@posthog/shared";
 import type { AgentConfig } from "../subagent/agents";
+import { createHandoffTool, type HandoffSubmission } from "./handoff";
 
 const MAX_STEP_TURNS = 80;
 const GRACE_TURNS = 5;
@@ -58,6 +60,8 @@ export interface StepSessionResult {
 export interface StepSessionHandle {
   result: StepSessionResult;
   revise(feedback: string): Promise<StepSessionResult>;
+  /** The document the step submitted in its last turn, if it submitted one. */
+  peekHandoff?(): HandoffSubmission | null;
   dispose(): void;
 }
 
@@ -215,6 +219,11 @@ export async function runStepSession(
     ctx.modelRegistry as unknown as { runtime?: unknown }
   ).runtime;
 
+  let submitted: HandoffSubmission | null = null;
+  const handoffTool = createHandoffTool((submission) => {
+    submitted = submission;
+  });
+
   const { session } = await createAgentSession({
     cwd: ctx.cwd,
     agentDir,
@@ -222,7 +231,11 @@ export async function runStepSession(
     ...(options.thinkingLevel
       ? { thinkingLevel: options.thinkingLevel as never }
       : {}),
-    ...(agent.tools && agent.tools.length > 0 ? { tools: agent.tools } : {}),
+    customTools: [handoffTool],
+    // An allowlist disables every tool it omits, the custom one included.
+    ...(agent.tools && agent.tools.length > 0
+      ? { tools: [...agent.tools, AGENT_FLOW_HANDOFF_TOOL] }
+      : {}),
     resourceLoader: loader,
     sessionManager: SessionManager.create(ctx.cwd, undefined, {
       parentSession: ctx.sessionManager?.getSessionFile?.() ?? undefined,
@@ -296,6 +309,7 @@ export async function runStepSession(
   }
 
   const runPrompt = async (text: string): Promise<StepSessionResult> => {
+    submitted = null;
     const startIndex = session.messages.length;
     await session.prompt(text);
     const output = lastAssistantText(session, startIndex);
@@ -327,6 +341,7 @@ export async function runStepSession(
   return {
     result,
     revise: (feedback) => runPrompt(feedback),
+    peekHandoff: () => submitted,
     dispose,
   };
 }

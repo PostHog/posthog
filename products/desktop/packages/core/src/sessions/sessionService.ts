@@ -8862,6 +8862,22 @@ export class SessionService {
     );
   }
 
+  /** The id of the task's current run, creating the run when it has none. */
+  async ensureTaskRunId(taskId: string): Promise<string> {
+    const authStatus = await this.getAuthCredentialsStatus();
+    if (authStatus.kind !== "ready") {
+      throw new Error("Not signed in to PostHog");
+    }
+    const client = authStatus.auth.client;
+    const task = await client.getTask(taskId);
+    const runId =
+      task.latest_run?.id ?? (await client.createTaskRun(taskId))?.id;
+    if (!runId) {
+      throw new Error("Failed to create a task run");
+    }
+    return runId;
+  }
+
   async setCloudRunArtifactsDismissed(
     taskId: string,
     runId: string,

@@ -6,6 +6,8 @@ import { SubagentToolView } from "@posthog/ui/features/sessions/components/sessi
 import type { ToolViewProps } from "@posthog/ui/features/sessions/components/session-update/toolCallUtils";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { FlowHandoffCard } from "./FlowHandoffCard";
+import { readFlowHandoff } from "./useFlowHandoffArtifact";
 
 interface FlowStepViewProps extends ToolViewProps {
   childItems: ConversationItem[];
@@ -21,10 +23,18 @@ export function FlowStepView(props: FlowStepViewProps) {
     )
     .join("\n")
     .trim();
+  const handoff = readFlowHandoff(props.toolCall.rawInput);
+  const running = props.toolCall.status === "in_progress";
   return (
     <div className="flex flex-col gap-1">
       <SubagentToolView {...props} defaultExpanded />
-      {text ? (
+      {handoff ? (
+        <div className="ml-6">
+          <FlowHandoffCard handoff={handoff} />
+        </div>
+      ) : running && text ? (
+        <p className="ml-6 truncate text-[12px] text-gray-10">{text}</p>
+      ) : text ? (
         <div className="chat-markdown ml-6 max-w-3xl rounded-md border border-gray-4 bg-gray-1 px-3 py-2 text-[13px] text-gray-12">
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
         </div>

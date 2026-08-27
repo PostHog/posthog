@@ -73,6 +73,58 @@ export type AgentFlowRunPayload = z.infer<typeof agentFlowRunPayloadSchema>;
 
 export const AGENT_FLOW_MESSAGE_TYPE = "posthog-agent-flow";
 
+export const AGENT_FLOW_HANDOFF_TOOL = "submit_handoff";
+
+export const agentFlowHandoffSchema = z.object({
+  stepIndex: z.number().int().nonnegative(),
+  stepName: z.string().min(1),
+  title: z.string().min(1),
+  artifactName: z.string().min(1),
+  version: z.number().int().positive(),
+  markdown: z.string(),
+});
+
+export type AgentFlowHandoff = z.infer<typeof agentFlowHandoffSchema>;
+
+export const agentFlowReviewCommentSchema = z.object({
+  quote: z.string().optional(),
+  body: z.string().min(1),
+});
+
+export const agentFlowReviewSchema = z.object({
+  note: z.string().optional(),
+  comments: z.array(agentFlowReviewCommentSchema).default([]),
+});
+
+export type AgentFlowReviewComment = z.infer<
+  typeof agentFlowReviewCommentSchema
+>;
+export type AgentFlowReview = z.infer<typeof agentFlowReviewSchema>;
+
+export function isEmptyAgentFlowReview(review: AgentFlowReview): boolean {
+  return !review.note?.trim() && review.comments.length === 0;
+}
+
+export function formatAgentFlowReview(review: AgentFlowReview): string {
+  const parts: string[] = [];
+  if (review.note?.trim()) {
+    parts.push(review.note.trim());
+  }
+  for (const [index, comment] of review.comments.entries()) {
+    const lines = [`${index + 1}. ${comment.body.trim()}`];
+    if (comment.quote?.trim()) {
+      lines.push(
+        ...comment.quote
+          .trim()
+          .split("\n")
+          .map((line) => `   > ${line}`),
+      );
+    }
+    parts.push(lines.join("\n"));
+  }
+  return parts.join("\n\n");
+}
+
 export const AGENT_FLOW_MESSAGE_STATUSES = [
   "running",
   "completed",
@@ -104,6 +156,8 @@ export const agentFlowMessageDetailsSchema = z.object({
   approvalId: z.string().optional(),
   approvalOutcome: z.enum(["approved", "rejected"]).optional(),
   stepPrompt: z.string().optional(),
+  handoff: agentFlowHandoffSchema.optional(),
+  review: agentFlowReviewSchema.optional(),
 });
 
 export type AgentFlowMessageStatus =
@@ -151,16 +205,44 @@ export function isAgentFlowApprovalCardId(id: string | undefined): boolean {
 export function buildAgentFlowRespondCommand(
   approvalId: string,
   outcome: "approve" | "reject",
-  reason?: string,
+  review?: AgentFlowReview,
 ): string {
-  const trimmed = reason?.trim();
-  return `/agent-flow-respond ${encodeURIComponent(approvalId)} ${outcome}${trimmed ? ` ${trimmed}` : ""}`;
+  const encoded =
+    review && !isEmptyAgentFlowReview(review)
+      ? ` ${encodeURIComponent(JSON.stringify(review))}`
+      : "";
+  return `/agent-flow-respond ${encodeURIComponent(approvalId)} ${outcome}${encoded}`;
 }
 
 export interface AgentFlowRespondPayload {
   approvalId: string;
   outcome: "approve" | "reject";
-  reason?: string;
+  review: AgentFlowReview;
+}
+
+/** Reads the review, or the plain-text reason older sessions still carry. */
+function parseReviewArgument(raw: string | undefined): AgentFlowReview {
+  const trimmed = raw?.trim();
+  if (!trimmed) {
+    return { comments: [] };
+  }
+  let decoded = trimmed;
+  try {
+    decoded = decodeURIComponent(trimmed);
+  } catch {
+    // A legacy reason may hold a stray percent sign.
+  }
+  if (decoded.startsWith("{")) {
+    try {
+      const parsed = agentFlowReviewSchema.safeParse(JSON.parse(decoded));
+      if (parsed.success) {
+        return parsed.data;
+      }
+    } catch {
+      // Fall through to the plain-text reading.
+    }
+  }
+  return { note: decoded, comments: [] };
 }
 
 export function parseAgentFlowRespondArgs(
@@ -175,7 +257,7 @@ export function parseAgentFlowRespondArgs(
   return {
     approvalId: decodeURIComponent(match[1]),
     outcome: match[2] as "approve" | "reject",
-    reason: match[3]?.trim() || undefined,
+    review: parseReviewArgument(match[3]),
   };
 }
 
@@ -254,6 +336,15 @@ export function agentFlowSkillSlug(name: string): string {
     .slice(0, 64)
     .replace(/-+$/g, "");
   return slug || "flow";
+}
+
+/** Stable across revisions, so every revision lands as a new version of one artifact. */
+export function agentFlowHandoffArtifactName(
+  flowName: string,
+  stepIndex: number,
+  stepName: string,
+): string {
+  return `${agentFlowSkillSlug(flowName)}-step-${stepIndex + 1}-${agentFlowSkillSlug(stepName)}.md`;
 }
 
 export function buildAgentFlowSkillDescription(

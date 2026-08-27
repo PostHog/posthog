@@ -115,12 +115,15 @@ describe("CloudArtifactService", () => {
         name: "a.txt",
         type: "user_attachment",
         size: 5,
+        storage_path: "runs/run-1/a.txt",
         presigned_post: { url: "https://s3/upload", fields: { key: "k" } },
       },
     ]);
     (
       client.finalizeTaskRunArtifactUploads as ReturnType<typeof vi.fn>
-    ).mockResolvedValue([{ id: "artifact-1" }]);
+    ).mockResolvedValue([
+      { id: "artifact-1", storage_path: "runs/run-1/a.txt" },
+    ]);
 
     const ids = await service.uploadRunAttachments(client, "task-1", "run-1", [
       "/tmp/a.txt",
@@ -152,6 +155,7 @@ describe("CloudArtifactService", () => {
         name: "a.txt",
         type: "user_attachment",
         size: 5,
+        storage_path: "runs/run-1/a.txt",
         presigned_post: { url: "https://s3/upload", fields: { key: "k" } },
       },
     ]);
@@ -161,9 +165,7 @@ describe("CloudArtifactService", () => {
 
     await expect(
       service.uploadRunAttachments(client, "task-1", "run-1", ["/tmp/a.txt"]),
-    ).rejects.toThrow(
-      "Finalized uploads do not match the selected attachments",
-    );
+    ).rejects.toThrow("The upload of a.txt was not finalized");
     fetchMock.mockRestore();
   });
 
@@ -186,12 +188,15 @@ describe("CloudArtifactService", () => {
         type: "output",
         size: 16,
         content_type: "text/markdown",
+        storage_path: "runs/run-1/report.md",
         presigned_post: { url: "https://s3/upload", fields: { key: "k" } },
       },
     ]);
     (
       client.finalizeTaskRunArtifactUploads as ReturnType<typeof vi.fn>
-    ).mockResolvedValue([{ id: "artifact-2" }]);
+    ).mockResolvedValue([
+      { id: "artifact-2", storage_path: "runs/run-1/report.md" },
+    ]);
 
     const id = await service.uploadRunOutput(
       client,
@@ -227,6 +232,48 @@ describe("CloudArtifactService", () => {
     fetchMock.mockRestore();
   });
 
+  it("returns the new version's id when finalize answers with the whole manifest", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue({ ok: true } as Response);
+    const service = new CloudArtifactService(
+      vi.fn(),
+      bundleLocalSkill,
+      passthroughDeps,
+    );
+    const client = makeClient();
+    (
+      client.prepareTaskRunArtifactUploads as ReturnType<typeof vi.fn>
+    ).mockResolvedValue([
+      {
+        id: "prep-2",
+        name: "report.md",
+        type: "output",
+        size: 8,
+        storage_path: "runs/run-1/report-v2.md",
+        presigned_post: { url: "https://s3/upload", fields: { key: "k" } },
+      },
+    ]);
+    (
+      client.finalizeTaskRunArtifactUploads as ReturnType<typeof vi.fn>
+    ).mockResolvedValue([
+      { id: "artifact-v1", storage_path: "runs/run-1/report-v1.md" },
+      { id: "artifact-v2", storage_path: "runs/run-1/report-v2.md" },
+    ]);
+
+    const id = await service.uploadRunOutput(
+      client,
+      "task-1",
+      "run-1",
+      "report.md",
+      "# v2",
+      "text/markdown",
+    );
+
+    expect(id).toBe("artifact-v2");
+    fetchMock.mockRestore();
+  });
+
   it("uploads local skill bundles as skill bundle artifacts", async () => {
     const fetchMock = vi
       .spyOn(globalThis, "fetch")
@@ -246,12 +293,15 @@ describe("CloudArtifactService", () => {
         name: "local-skill.zip",
         type: "skill_bundle",
         size: 12,
+        storage_path: "runs/run-1/local-skill.zip",
         presigned_post: { url: "https://s3/upload", fields: { key: "k" } },
       },
     ]);
     (
       client.finalizeTaskRunArtifactUploads as ReturnType<typeof vi.fn>
-    ).mockResolvedValue([{ id: "skill-artifact-1" }]);
+    ).mockResolvedValue([
+      { id: "skill-artifact-1", storage_path: "runs/run-1/local-skill.zip" },
+    ]);
 
     const ids = await service.uploadRunAttachments(
       client,
@@ -305,12 +355,16 @@ describe("CloudArtifactService", () => {
         name: `skill-${index}.zip`,
         type: "skill_bundle",
         size: 12,
+        storage_path: `runs/run-1/skill-${index}.zip`,
         presigned_post: { url: "https://s3/upload", fields: { key: "k" } },
       })),
     );
     (
       client.finalizeTaskRunArtifactUploads as ReturnType<typeof vi.fn>
-    ).mockResolvedValue([{ id: "primary-1" }, { id: "dep-1" }]);
+    ).mockResolvedValue([
+      { id: "primary-1", storage_path: "runs/run-1/skill-0.zip" },
+      { id: "dep-1", storage_path: "runs/run-1/skill-1.zip" },
+    ]);
 
     const ids = await service.uploadRunAttachments(
       client,

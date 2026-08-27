@@ -6,11 +6,17 @@ import {
   type ExtensionFactory,
 } from "@earendil-works/pi-coding-agent";
 import {
+  AGENT_FLOW_HANDOFF_TOOL,
   AGENT_FLOW_MESSAGE_TYPE,
   type AgentFlowDefinition,
+  type AgentFlowHandoff,
   type AgentFlowMessageDetails,
+  type AgentFlowReview,
   type AgentFlowRole,
   type AgentFlowRunPayload,
+  agentFlowHandoffArtifactName,
+  formatAgentFlowReview,
+  isEmptyAgentFlowReview,
   parseAgentFlowRespondArgs,
   parseAgentFlowRunPayload,
 } from "@posthog/shared";
@@ -19,6 +25,7 @@ import { findBundledAgent } from "../subagent/agents";
 import { truncateForModel } from "../subagent/format";
 import { setFlowInputRouter } from "./flow-input";
 import { findFlowSkill, listFlowSkills } from "./flow-skills";
+import { HANDOFF_GUIDANCE, HANDOFF_REMINDER } from "./handoff";
 import { emitFlowStepEvent } from "./step-events";
 import { runStepSession as defaultRunStepSession } from "./step-session";
 
@@ -37,9 +44,11 @@ const HANDOFF_PATTERN = /<handoff>([\s\S]*?)<\/handoff>/g;
 
 interface ApprovalResponse {
   approved: boolean;
-  reason?: string;
+  review: AgentFlowReview;
   aborted?: boolean;
 }
+
+const NO_REVIEW: AgentFlowReview = { comments: [] };
 
 interface ActiveFlow {
   flow: AgentFlowDefinition;
@@ -103,6 +112,7 @@ export function stepTask(
   prompt: string,
   handoff: string | null,
   guidance: string[],
+  review?: AgentFlowReview,
 ): string {
   const step = flow.steps[stepIndex];
   const isLastStep = stepIndex === flow.steps.length - 1;
@@ -116,6 +126,11 @@ export function stepTask(
   if (handoff) {
     parts.push(`Handoff from the prior step:\n${handoff}`);
   }
+  if (review && !isEmptyAgentFlowReview(review)) {
+    parts.push(
+      `The user approved that handoff with comments. Act on them:\n${formatAgentFlowReview(review)}`,
+    );
+  }
   if (guidance.length > 0) {
     parts.push(
       `The user sent additional guidance while the flow was running:\n${guidance
@@ -125,8 +140,10 @@ export function stepTask(
   }
   parts.push(
     isLastStep
-      ? "You are the last step. End your reply with the final result for the user inside <handoff></handoff> tags."
-      : "End your reply with a compact handoff for the next step inside <handoff></handoff> tags: decisions made, files changed, and open questions.",
+      ? `End your turn by calling the ${AGENT_FLOW_HANDOFF_TOOL} tool with the final result for the user.`
+      : `End your turn by calling the ${AGENT_FLOW_HANDOFF_TOOL} tool with your handoff for the next step.`,
+    HANDOFF_GUIDANCE,
+    `If the ${AGENT_FLOW_HANDOFF_TOOL} tool is not available, end your reply with the same document inside <handoff></handoff> tags.`,
   );
   return parts.join("\n\n");
 }
@@ -143,6 +160,194 @@ function startMessage(
   );
 }
 
+/** What one finished step hands to the next: its document and the review of it. */
+interface StepOutcome {
+  handoff: AgentFlowHandoff;
+  review: AgentFlowReview;
+}
+
+async function executeStep(options: {
+  pi: ExtensionAPI;
+  ctx: ExtensionContext;
+  flow: AgentFlowDefinition;
+  prompt: string;
+  active: ActiveFlow;
+  runStep: RunStepFn;
+  stepIndex: number;
+  previous: StepOutcome | null;
+}): Promise<StepOutcome> {
+  const { pi, ctx, flow, prompt, active, runStep, stepIndex, previous } =
+    options;
+  const step = flow.steps[stepIndex];
+  const baseAgent = findBundledAgent(ROLE_AGENT_NAMES[step.role]);
+  if (!baseAgent) {
+    throw new Error(`The ${step.role} agent is not available.`);
+  }
+
+  const stepDetails = {
+    status: "running" as const,
+    stepIndex,
+    stepCount: flow.steps.length,
+    stepName: step.name,
+  };
+  const guidance = active.pendingGuidance.splice(0);
+  const stepPrompt = stepTask(
+    flow,
+    stepIndex,
+    prompt,
+    previous?.handoff.markdown ?? null,
+    guidance,
+    previous?.review,
+  );
+  pi.sendMessage(
+    flowMessage(
+      flow,
+      `**Step ${stepIndex + 1} of ${flow.steps.length}: ${step.name}** (${step.model.name}, ${step.effort} effort)`,
+      {
+        ...stepDetails,
+        event: "step_started",
+        stepPrompt: stepPrompt.slice(0, 8_000),
+      },
+    ),
+  );
+
+  const stepStartedAt = Date.now();
+  let handle: Awaited<ReturnType<RunStepFn>>;
+  try {
+    handle = await runStep({
+      ctx,
+      agent: { ...baseAgent, name: step.name },
+      model: { provider: step.model.provider, id: step.model.id },
+      thinkingLevel: step.effort,
+      task: stepPrompt,
+      signal: active.controller.signal,
+      onStreamEvent: (event) =>
+        emitFlowStepEvent({
+          type: "posthog_flow_step_event",
+          flowId: flow.id,
+          stepIndex,
+          timestamp: Date.now(),
+          event,
+        }),
+      onSteerAvailable: (steer) => {
+        active.steerCurrentStep = steer;
+        active.currentStepName = step.name;
+      },
+    });
+  } catch (error) {
+    active.steerCurrentStep = null;
+    active.currentStepName = null;
+    throw error;
+  }
+
+  try {
+    let version = 0;
+    const artifactName = agentFlowHandoffArtifactName(
+      flow.name,
+      stepIndex,
+      step.name,
+    );
+    const finishStep = (stepResult: typeof handle.result): AgentFlowHandoff => {
+      const output = truncateForModel(stepResult.output);
+      if (stepResult.failed) {
+        throw new Error(
+          `${step.name} failed: ${stepResult.errorMessage ?? output ?? "no output"}`,
+        );
+      }
+      const submission = handle.peekHandoff?.() ?? null;
+      version += 1;
+      const stepHandoff: AgentFlowHandoff = {
+        stepIndex,
+        stepName: step.name,
+        title: submission?.title ?? step.name,
+        artifactName,
+        version,
+        markdown: submission?.markdown ?? extractHandoff(output),
+      };
+      pi.sendMessage(
+        flowMessage(
+          flow,
+          `${stepHandoff.markdown}\n\n_${step.name} finished in ${formatDuration(Date.now() - stepStartedAt)}._`,
+          { ...stepDetails, event: "step_finished", handoff: stepHandoff },
+        ),
+      );
+      return stepHandoff;
+    };
+
+    let result = handle.result;
+    // One deterministic nudge for a step that ignored the tool.
+    if (!result.failed && handle.peekHandoff && !handle.peekHandoff()) {
+      result = await handle.revise(HANDOFF_REMINDER);
+    }
+    let handoff = finishStep(result);
+
+    if (!step.approvalAfter || stepIndex === flow.steps.length - 1) {
+      return { handoff, review: NO_REVIEW };
+    }
+
+    for (let attempt = 0; ; attempt += 1) {
+      const approvalId = `${flow.id}:${stepIndex}:${attempt}`;
+      pi.sendMessage(
+        flowMessage(flow, `Review the **${step.name}** handoff.`, {
+          ...stepDetails,
+          event: "approval_requested",
+          approvalId,
+          handoff,
+        }),
+      );
+      const response = await active.awaitApproval(approvalId);
+      if (response.aborted) {
+        throw new Error("The flow was stopped.");
+      }
+      const hasReview = !isEmptyAgentFlowReview(response.review);
+      const commentCount = response.review.comments.length;
+      const withComments =
+        commentCount > 0
+          ? ` with ${commentCount} comment${commentCount === 1 ? "" : "s"}`
+          : "";
+      pi.sendMessage(
+        flowMessage(
+          flow,
+          response.approved
+            ? `${step.name} handoff approved${withComments}.`
+            : `${step.name} handoff sent back for changes${withComments}.`,
+          {
+            ...stepDetails,
+            event: "approval_resolved",
+            approvalId,
+            approvalOutcome: response.approved ? "approved" : "rejected",
+            handoff,
+            ...(hasReview ? { review: response.review } : {}),
+          },
+        ),
+      );
+      if (response.approved) {
+        return { handoff, review: response.review };
+      }
+      pi.sendMessage(
+        flowMessage(flow, `**${step.name}** is revising the handoff.`, {
+          ...stepDetails,
+          event: "step_revising",
+        }),
+      );
+      result = await handle.revise(
+        [
+          "The user reviewed your handoff and asked for changes.",
+          hasReview
+            ? `Their review:\n${formatAgentFlowReview(response.review)}`
+            : "They did not say what to change; reconsider your handoff critically.",
+          `Rework the document and submit the new version with the ${AGENT_FLOW_HANDOFF_TOOL} tool.`,
+        ].join("\n\n"),
+      );
+      handoff = finishStep(result);
+    }
+  } finally {
+    active.steerCurrentStep = null;
+    active.currentStepName = null;
+    handle.dispose();
+  }
+}
+
 async function executeFlow(options: {
   pi: ExtensionAPI;
   ctx: ExtensionContext;
@@ -153,144 +358,22 @@ async function executeFlow(options: {
 }): Promise<void> {
   const { pi, ctx, flow, prompt, active, runStep } = options;
   const flowStartedAt = Date.now();
-  let handoff: string | null = null;
   let currentStepIndex = 0;
 
   try {
-    for (const [stepIndex, step] of flow.steps.entries()) {
+    let previous: StepOutcome | null = null;
+    for (const stepIndex of flow.steps.keys()) {
       currentStepIndex = stepIndex;
-      const baseAgent = findBundledAgent(ROLE_AGENT_NAMES[step.role]);
-      if (!baseAgent) {
-        throw new Error(`The ${step.role} agent is not available.`);
-      }
-
-      const stepDetails = {
-        status: "running" as const,
+      previous = await executeStep({
+        pi,
+        ctx,
+        flow,
+        prompt,
+        active,
+        runStep,
         stepIndex,
-        stepCount: flow.steps.length,
-        stepName: step.name,
-      };
-      const guidance = active.pendingGuidance.splice(0);
-      const stepPrompt = stepTask(flow, stepIndex, prompt, handoff, guidance);
-      pi.sendMessage(
-        flowMessage(
-          flow,
-          `**Step ${stepIndex + 1} of ${flow.steps.length}: ${step.name}** (${step.model.name}, ${step.effort} effort)`,
-          {
-            ...stepDetails,
-            event: "step_started",
-            stepPrompt: stepPrompt.slice(0, 8_000),
-          },
-        ),
-      );
-
-      const stepStartedAt = Date.now();
-      let handle: Awaited<ReturnType<RunStepFn>>;
-      try {
-        handle = await runStep({
-          ctx,
-          agent: { ...baseAgent, name: step.name },
-          model: { provider: step.model.provider, id: step.model.id },
-          thinkingLevel: step.effort,
-          task: stepPrompt,
-          signal: active.controller.signal,
-          onStreamEvent: (event) =>
-            emitFlowStepEvent({
-              type: "posthog_flow_step_event",
-              flowId: flow.id,
-              stepIndex,
-              timestamp: Date.now(),
-              event,
-            }),
-          onSteerAvailable: (steer) => {
-            active.steerCurrentStep = steer;
-            active.currentStepName = step.name;
-          },
-        });
-      } catch (error) {
-        active.steerCurrentStep = null;
-        active.currentStepName = null;
-        throw error;
-      }
-
-      try {
-        let result = handle.result;
-        const finishStep = (stepResult: typeof result): string => {
-          const output = truncateForModel(stepResult.output);
-          if (stepResult.failed) {
-            throw new Error(
-              `${step.name} failed: ${stepResult.errorMessage ?? output ?? "no output"}`,
-            );
-          }
-          const stepHandoff = extractHandoff(output);
-          pi.sendMessage(
-            flowMessage(
-              flow,
-              `${stepHandoff}\n\n_${step.name} finished in ${formatDuration(Date.now() - stepStartedAt)}._`,
-              { ...stepDetails, event: "step_finished" },
-            ),
-          );
-          return stepHandoff;
-        };
-
-        handoff = finishStep(result);
-
-        if (step.approvalAfter && stepIndex < flow.steps.length - 1) {
-          let attempt = 0;
-          for (;;) {
-            const approvalId = `${flow.id}:${stepIndex}:${attempt}`;
-            pi.sendMessage(
-              flowMessage(flow, handoff ?? "", {
-                ...stepDetails,
-                event: "approval_requested",
-                approvalId,
-              }),
-            );
-            const response = await active.awaitApproval(approvalId);
-            if (response.aborted) {
-              throw new Error("The flow was stopped.");
-            }
-            pi.sendMessage(
-              flowMessage(
-                flow,
-                response.approved
-                  ? `${step.name} handoff approved.`
-                  : `${step.name} handoff sent back for changes${response.reason ? `:\n\n> ${response.reason}` : "."}`,
-                {
-                  ...stepDetails,
-                  event: "approval_resolved",
-                  approvalId,
-                  approvalOutcome: response.approved ? "approved" : "rejected",
-                },
-              ),
-            );
-            if (response.approved) {
-              break;
-            }
-            attempt += 1;
-            pi.sendMessage(
-              flowMessage(flow, `**${step.name}** is revising the handoff.`, {
-                ...stepDetails,
-                event: "step_revising",
-              }),
-            );
-            result = await handle.revise(
-              [
-                "The user reviewed your handoff and requested changes.",
-                response.reason
-                  ? `Their feedback:\n${response.reason}`
-                  : "They did not give a reason; reconsider your handoff critically.",
-                "Rework it and end your reply with the revised handoff inside <handoff></handoff> tags.",
-              ].join("\n\n"),
-            );
-            handoff = finishStep(result);
-          }
-        }
-      } finally {
-        active.steerCurrentStep = null;
-        active.currentStepName = null;
-        handle.dispose();
-      }
+        previous,
+      });
     }
 
     pi.sendMessage(
@@ -394,7 +477,7 @@ export function createAgentFlowExtension(
         active.pendingApprovals.delete(payload.approvalId);
         resolve({
           approved: payload.outcome === "approve",
-          reason: payload.reason,
+          review: payload.review,
         });
       },
     });
@@ -423,7 +506,7 @@ export function createAgentFlowExtension(
         awaitApproval(approvalId) {
           return new Promise<ApprovalResponse>((resolve) => {
             if (controller.signal.aborted) {
-              resolve({ approved: false, aborted: true });
+              resolve({ approved: false, review: NO_REVIEW, aborted: true });
               return;
             }
             pendingApprovals.set(approvalId, resolve);
@@ -431,7 +514,11 @@ export function createAgentFlowExtension(
               "abort",
               () => {
                 if (pendingApprovals.delete(approvalId)) {
-                  resolve({ approved: false, aborted: true });
+                  resolve({
+                    approved: false,
+                    review: NO_REVIEW,
+                    aborted: true,
+                  });
                 }
               },
               { once: true },

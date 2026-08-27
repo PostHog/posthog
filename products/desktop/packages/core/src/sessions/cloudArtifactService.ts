@@ -108,6 +108,25 @@ function getCloudAttachmentSizeError(
   return `${getFileName(filePath)} exceeds the ${maxMb}MB attachment limit`;
 }
 
+/**
+ * The finalize call answers with the run's whole manifest, so the position of
+ * an upload in the answer is not its position in the request. The prepare step
+ * reserves a storage path for every upload and the manifest reports it for
+ * every stored file, so that path is the only identity the two lists share.
+ */
+function matchFinalizedArtifact(
+  prepared: PreparedCloudArtifact,
+  finalizedArtifacts: FinalizedCloudArtifact[],
+): FinalizedCloudArtifact {
+  const matched = finalizedArtifacts.find(
+    (artifact) => artifact.storage_path === prepared.storage_path,
+  );
+  if (!matched) {
+    throw new Error(`The upload of ${prepared.name} was not finalized`);
+  }
+  return matched;
+}
+
 @injectable()
 export class CloudArtifactService {
   constructor(
@@ -178,11 +197,7 @@ export class CloudArtifactService {
       runId,
       preparedArtifacts,
     );
-    const finalizedArtifact = finalizedArtifacts[0];
-    if (!finalizedArtifact) {
-      throw new Error("Artifact upload was not finalized");
-    }
-    return finalizedArtifact.id;
+    return matchFinalizedArtifact(preparedArtifacts[0], finalizedArtifacts).id;
   }
 
   async uploadRunAttachments(
@@ -221,17 +236,9 @@ export class CloudArtifactService {
     preparedArtifacts: PreparedCloudArtifact[],
     finalizedArtifacts: FinalizedCloudArtifact[],
   ): string[] {
-    const artifactIds = finalizedArtifacts
-      .map((artifact) => artifact.id)
-      .filter((artifactId) => artifactId.trim().length > 0);
-
-    if (artifactIds.length !== preparedArtifacts.length) {
-      throw new Error(
-        "Finalized uploads do not match the selected attachments",
-      );
-    }
-
-    return artifactIds;
+    return preparedArtifacts.map(
+      (prepared) => matchFinalizedArtifact(prepared, finalizedArtifacts).id,
+    );
   }
 
   private async loadCloudAttachments(
