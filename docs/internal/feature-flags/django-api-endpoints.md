@@ -59,7 +59,8 @@ Standard REST on `/api/projects/{id}/feature_flags/`. Hard `DELETE` is blocked â
 | `POST` | `.../feature_flags/{pk}/create_static_cohort_for_flag/` | Create a static cohort from matched users                                       |
 | `GET`  | `.../feature_flags/{pk}/status/`                        | Flag status (ACTIVE, STALE, DELETED, UNKNOWN)                                   |
 | `GET`  | `.../feature_flags/{pk}/dependent_flags/`               | Flags that depend on this flag                                                  |
-| `POST` | `.../feature_flags/{pk}/dashboard/`                     | Create a usage dashboard for the flag                                           |
+| `POST` | `.../feature_flags/{pk}/dashboard/`                     | Deprecated: create a usage dashboard (sunsets September 25, 2026)               |
+| `POST` | `.../feature_flags/{pk}/enrich_usage_dashboard/`        | Deprecated: enrich an existing legacy usage dashboard (no removal date set)     |
 
 ### Organization endpoints
 
