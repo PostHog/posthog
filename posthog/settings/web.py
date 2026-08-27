@@ -1227,6 +1227,57 @@ HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS: set[int] = {
     int(team_id) for team_id in get_list(get_from_env("HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS", ""))
 }
 
+# Trust-tiered per-team caps on workflow email ("team warming"). All workflow email shares one SES
+# account, so the complaint rate that account is judged on pools every team's sends. A team starts
+# at tier 0 and earns the next tier by sending cleanly over time, which bounds how much damage an
+# unproven team can do and keeps its early volume small enough that complaint feedback (which lags
+# by hours) arrives while total volume is still low.
+# The three lists are indexed by tier and must all be the same length. The top tier matches
+# HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED so a fully graduated team is no more limited than it was
+# before tiers existed.
+WORKFLOWS_EMAIL_TIER_HOURLY_CAPS: list[int] = [
+    int(cap) for cap in get_list(get_from_env("WORKFLOWS_EMAIL_TIER_HOURLY_CAPS", "200,2000,10000,50000,200000"))
+]
+WORKFLOWS_EMAIL_TIER_DAILY_CAPS: list[int] = [
+    int(cap) for cap in get_list(get_from_env("WORKFLOWS_EMAIL_TIER_DAILY_CAPS", "1000,10000,50000,250000,1000000"))
+]
+WORKFLOWS_EMAIL_TIER_BATCH_AUDIENCE_CAPS: list[int] = [
+    int(cap)
+    for cap in get_list(get_from_env("WORKFLOWS_EMAIL_TIER_BATCH_AUDIENCE_CAPS", "1000,10000,50000,250000,1000000"))
+]
+
+# Promotion bar. A team must sit at its tier for this long, actually use the tier, and keep its
+# rates under the thresholds below before it moves up one step.
+WORKFLOWS_EMAIL_TIER_MIN_DAYS_AT_TIER = int(get_from_env("WORKFLOWS_EMAIL_TIER_MIN_DAYS_AT_TIER", 3))
+# Trailing window the complaint and bounce rates are measured over. 30 days is how the industry
+# quotes these thresholds, and it matches the reputation surface in the workflows UI.
+WORKFLOWS_EMAIL_TIER_RATE_WINDOW_DAYS = int(get_from_env("WORKFLOWS_EMAIL_TIER_RATE_WINDOW_DAYS", 30))
+WORKFLOWS_EMAIL_TIER_MAX_COMPLAINT_RATE = float(get_from_env("WORKFLOWS_EMAIL_TIER_MAX_COMPLAINT_RATE", 0.001))
+WORKFLOWS_EMAIL_TIER_MAX_BOUNCE_RATE = float(get_from_env("WORKFLOWS_EMAIL_TIER_MAX_BOUNCE_RATE", 0.02))
+# A team that has sent nothing has proven nothing, so promotion also needs real use of the current
+# tier: this many separate days on which the team sent at least this fraction of its daily cap.
+WORKFLOWS_EMAIL_TIER_MIN_ACTIVE_DAYS = int(get_from_env("WORKFLOWS_EMAIL_TIER_MIN_ACTIVE_DAYS", 2))
+WORKFLOWS_EMAIL_TIER_MIN_DAILY_USE_RATIO = float(get_from_env("WORKFLOWS_EMAIL_TIER_MIN_DAILY_USE_RATIO", 0.5))
+# app_metrics2 metric names that count as a per-workflow auto-pause for the tier decision. Empty
+# means the signal contributes nothing, so the decision rests on rates and staff suspensions.
+WORKFLOWS_EMAIL_TIER_AUTO_PAUSE_METRIC_NAMES: list[str] = get_list(
+    get_from_env("WORKFLOWS_EMAIL_TIER_AUTO_PAUSE_METRIC_NAMES", "")
+)
+
+# Rollout mode, shared by the batch audience cap and the send-time cap:
+#   "off"     - tiers are computed and stored, nothing reads them. Pre-tier behavior everywhere.
+#   "shadow"  - tiers are computed and stored, and every send that a cap would have delayed is
+#               logged, but no send is delayed and no audience is rejected.
+#   "enforce" - caps apply.
+# The email worker has its own copy of these two, EMAIL_TEAM_SENDING_CAP_MODE and
+# EMAIL_TEAM_SENDING_CAP_TEAMS_CREATED_AFTER in nodejs/src/cdp/config.ts, because it never reads
+# Django settings. Set both sides together: this pair drives the batch audience cap and what the
+# workflows UI shows, and the worker's pair drives the send-time cap.
+WORKFLOWS_EMAIL_TIER_MODE = get_from_env("WORKFLOWS_EMAIL_TIER_MODE", "off")
+# Narrows enforcement to teams created on or after this date (ISO 8601, e.g. "2026-01-01"), so the
+# caps can be turned on for new projects without touching established ones. Empty means all teams.
+WORKFLOWS_EMAIL_TIER_ENFORCE_TEAMS_CREATED_AFTER = get_from_env("WORKFLOWS_EMAIL_TIER_ENFORCE_TEAMS_CREATED_AFTER", "")
+
 # Comma-separated list of org ids allowed to receive the Error Tracking weekly digest
 # "*" for all, empty to disable feature
 ERROR_TRACKING_WEEKLY_DIGEST_ORG_IDS = get_list(get_from_env("ERROR_TRACKING_WEEKLY_DIGEST_ORG_IDS", ""))
