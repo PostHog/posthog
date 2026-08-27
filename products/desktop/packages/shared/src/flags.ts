@@ -7,6 +7,8 @@ export const EXPERIMENT_SUGGESTIONS_FLAG =
 /** Autoresearch (metric-optimization loop). Staff-gated while it bakes. */
 export const AUTORESEARCH_FLAG = "posthog-code-autoresearch";
 export const DISCOVERY_RUN_FLAG = "posthog-code-discovery-run";
+export const ONBOARDING_TEST_TOOLS_FLAG =
+  "posthog-desktop-onboarding-test-tools";
 // Gates the entire canvas feature: the app rail's Channels space, the /website
 // routes, channels and dashboards.
 export const PROJECT_BLUEBIRD_FLAG = "project-bluebird";
@@ -16,13 +18,23 @@ export const PROJECT_BLUEBIRD_FLAG = "project-bluebird";
  * project-bluebird. The key predates the rename, matching the live flag.
  */
 export const CHANNELS_LAYOUT_FLAG = "code-spaces-layout";
+/**
+ * Gates the browser-tab strip inside the spaces layout. Off is the same code
+ * path with a single tab (the tab is the window), not a second implementation,
+ * so per-tab history and view state behave as their window-global predecessors.
+ * Requires the spaces layout.
+ */
+export const SPACES_TABS_FLAG = "posthog-desktop-spaces-tabs";
 // Gates the Loops feature: the sidebar Loops space and the per-channel Loops tab.
 export const LOOPS_FLAG = "loops";
+export const DESKTOP_HOME_FLAG = "desktop-home-flag";
 export const TASKS_PREWARM_SANDBOX_FLAG = "tasks-prewarm-sandbox";
 export const GLM_MODEL_FLAG = "posthog-code-glm-model";
 export const GLM53_MODEL_FLAG = "posthog-code-glm-53-model";
 /** PostHog Desktop: show DeepSeek V4 Flash in the model picker. Off = hidden. */
 export const DEEPSEEK_MODEL_FLAG = "posthog-code-deepseek-model";
+
+export const TASK_ANALYSIS_FLAG = "posthog-code-task-analysis";
 export const KIMI_MODEL_FLAG = "tasks-kimi-k3";
 /** Gates the Fast Mode section of the reasoning dropdown. */
 export const FAST_MODE_FLAG = "posthog-desktop-fast-mode";
@@ -52,8 +64,25 @@ export const TASK_COST_VISIBLE_FLAG = "posthog-code-task-cost-visible";
 export const ANNOUNCEMENTS_FLAG = "posthog-desktop-announcements";
 /** Gates the PR-refund action in the inbox (matches the web SIGNALS_PR_REFUNDS flag). */
 export const SIGNALS_PR_REFUNDS_FLAG = "signals-pr-refunds";
-/** Gates replacing Inbox report navigation with generated report canvases. */
-export const REPORT_CANVAS_INBOX_FLAG = "posthog-desktop-report-canvases";
+/**
+ * Gates reports living in the channels sidebar: the per-space Reports tab and its
+ * report detail route, plus report entries in the feed. Requires project-bluebird.
+ */
+export const CHANNEL_REPORTS_FLAG = "posthog-desktop-channel-reports";
+
+/**
+ * The global reports inbox: one sectioned, keyboard-triageable page for every
+ * report, reclaiming the inbox nav slot from the channel-reports takeover.
+ * The per-space sidebar list stays the working set beside it.
+ */
+export const REPORTS_INBOX_FLAG = "posthog-desktop-reports-inbox";
+
+/**
+ * One-report-at-a-time keyboard triage inside the reports inbox. On by
+ * default in dev builds for iteration (see useTriageFocusEnabled); off in
+ * production until it stabilizes.
+ */
+export const TRIAGE_FOCUS_FLAG = "posthog-desktop-triage-focus";
 
 /**
  * Serves a session's Claude traffic from Bedrock instead of Anthropic. The
@@ -74,3 +103,5 @@ export const BEDROCK_LLM_GATEWAY_FLAG = "bedrock-llm-gateway";
 export const BEDROCK_GATEWAY_VARIANTS = ["test", "control"] as const;
 
 export type BedrockGatewayVariant = (typeof BEDROCK_GATEWAY_VARIANTS)[number];
+/** Gates the organization context wiki: the Context explorer in the nav rails. */
+export const CONTEXT_LAYER_FLAG = "context-layer";

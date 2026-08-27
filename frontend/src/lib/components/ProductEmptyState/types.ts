@@ -80,10 +80,20 @@ export interface ProductEmptyStateConfig {
     accentColorDark?: string
     /** A `pngHoggie(...)`-wrapped hedgehog, rendered above the product name */
     hedgehog?: ComponentType<{ className?: string; style?: CSSProperties }>
+    /**
+     * Where the hedgehog sits: `above` (default) is a small illustration above the
+     * product name; `beside` renders it large next to the text and install command,
+     * for wide scene-setting illustrations.
+     */
+    hedgehogPlacement?: 'above' | 'beside'
     text: ProductEmptyStateTextByMode
     /** Install-command CTA. Omit for creation-first products (use `primaryAction`) or self-hosted-only flows */
     wizard?: ProductEmptyStateWizard
-    /** Primary CTA for products set up in the UI rather than via the wizard, e.g. "Create your first flag" */
+    /**
+     * Primary CTA for products set up in the UI rather than via the wizard, e.g. "Create your first flag".
+     * With `wizard` also set, the terminal card stays the hero and this renders as a secondary button
+     * (in place of the "Configure manually" link), for products with both a terminal and an in-app path.
+     */
     primaryAction?: ProductEmptyStatePrimaryAction
     /**
      * Rendered in the primary-action slot instead of the `primaryAction` button, for

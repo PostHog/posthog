@@ -316,6 +316,10 @@ CLICKHOUSE_WRITABLE_CLUSTER: str = os.getenv("CLICKHOUSE_WRITABLE_CLUSTER", "pos
 CLICKHOUSE_PRIMARY_REPLICA_CLUSTER: str = os.getenv("CLICKHOUSE_PRIMARY_REPLICA_CLUSTER", "posthog_primary_replica")
 CLICKHOUSE_AUX_CLUSTER: str = os.getenv("CLICKHOUSE_AUX_CLUSTER", "aux")
 CLICKHOUSE_AI_EVENTS_CLUSTER: str = os.getenv("CLICKHOUSE_AI_EVENTS_CLUSTER", "ai_events")
+# The cluster the native-JSON events tables are rolled out on. Named here so the deletion
+# registry can say where a storage table lives; whether a given deployment can reach it is
+# decided by probing the hosts, not by comparing this against the handle's cluster.
+CLICKHOUSE_EVENTS_CLUSTER: str = os.getenv("CLICKHOUSE_EVENTS_CLUSTER", "events")
 # CI uses this to run the test suite against both schemas. Production reads use the instance settings.
 CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: bool = TEST and get_from_env(
     "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA", False, type_cast=str_to_bool
@@ -363,6 +367,10 @@ CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION: bool = get_from_env(
 )
 
 CLICKHOUSE_LOGS_CLUSTER: str = os.getenv("CLICKHOUSE_LOGS_CLUSTER", "posthog_single_shard")
+# The name the logs cluster answers to from the ingestion-events nodes, which host the logs Kafka
+# table and the Distributed front that writes into it. Cloud names it the same from both sides, so it
+# defaults to CLICKHOUSE_LOGS_CLUSTER; the local multinode stack does not, and sets this explicitly.
+CLICKHOUSE_LOGS_WRITE_CLUSTER: str = os.getenv("CLICKHOUSE_LOGS_WRITE_CLUSTER", CLICKHOUSE_LOGS_CLUSTER)
 CLICKHOUSE_LOGS_CLUSTER_HOST: str = os.getenv("CLICKHOUSE_LOGS_CLUSTER_HOST", "localhost")
 CLICKHOUSE_LOGS_CLUSTER_PORT: str = os.getenv("CLICKHOUSE_LOGS_CLUSTER_PORT", "9000")
 CLICKHOUSE_LOGS_CLUSTER_USER: str = os.getenv("CLICKHOUSE_LOGS_CLUSTER_USER", "default")
@@ -551,6 +559,17 @@ INTERNAL_API_SECRET_FALLBACKS = get_list(os.getenv("INTERNAL_API_SECRET_FALLBACK
 # The dev/test value must match the plugin server's default (nodejs/src/cdp/config.ts).
 WORKFLOWS_RESCHEDULE_JWT_SECRETS = get_list(
     get_from_env("WORKFLOWS_RESCHEDULE_JWT_SECRET", "local-dev-workflows-reschedule-jwt" if DEBUG or TEST else "")
+)
+
+# Scoped JWT keys for the workflows cancel routes (invocations/cancel and batch_jobs/:id/cancel).
+# Web mints, the plugin server's cancel routes verify. A dedicated key per the scoped-JWT rule
+# (one key per caller/callee surface), so cancel from the web tier never carries the reschedule
+# sweep's key, and a leak of one can't forge the other. Comma-separated, newest first: the first
+# key signs, the plugin server verifies against all. Empty outside dev/test, so the cancel routes
+# fail closed until provisioned. The dev/test value must match the plugin server's default
+# (nodejs/src/cdp/config.ts).
+WORKFLOWS_CANCEL_JWT_SECRETS = get_list(
+    get_from_env("WORKFLOWS_CANCEL_JWT_SECRET", "local-dev-workflows-cancel-jwt" if DEBUG or TEST else "")
 )
 
 # Signs the tokens a workflow's "Create AI task" action calls back with. The dev/test value

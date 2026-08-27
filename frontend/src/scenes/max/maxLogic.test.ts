@@ -27,11 +27,22 @@ import { MOCK_CONVERSATION, MOCK_CONVERSATION_ID, maxMocks } from './testUtils'
 describe('maxLogic', () => {
     let logic: ReturnType<typeof maxLogic.build>
     let threadLogic: ReturnType<typeof maxThreadLogic.build> | null = null
+    let actionsRequestCount: number
 
     beforeEach(() => {
         localStorage.clear()
         sessionStorage.clear()
-        useMocks(maxMocks)
+        actionsRequestCount = 0
+        useMocks({
+            ...maxMocks,
+            get: {
+                ...maxMocks.get,
+                '/api/projects/:team/actions/': () => {
+                    actionsRequestCount++
+                    return [200, { results: [], count: 0 }]
+                },
+            },
+        })
         initKeaTests()
     })
 
@@ -54,6 +65,15 @@ describe('maxLogic', () => {
             panelId: 'notebook-inline-inline-chat-id',
             conversationId: 'chat-id',
         })
+    })
+
+    it('does not load actions when Max mounts', async () => {
+        logic = maxLogic({ panelId: 'test' })
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadConversationHistorySuccess'])
+
+        expect(actionsRequestCount).toBe(0)
     })
 
     it('sets the question when URL has hash param #panel=max:Foo', async () => {

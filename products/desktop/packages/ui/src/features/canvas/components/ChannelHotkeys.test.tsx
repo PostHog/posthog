@@ -3,12 +3,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   channelsLayout: true,
+  /** With tabs on, ⌘1-9 switches tabs and this component yields the keys. */
+  spacesTabs: false,
   slots: [] as { id: string; name: string; path: string }[],
   navigateToChannel: vi.fn(),
 }));
 
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
   useChannelsLayout: () => mocks.channelsLayout,
+}));
+vi.mock("@posthog/ui/features/feature-flags/useSpacesTabs", () => ({
+  useSpacesTabs: () => mocks.spacesTabs,
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useStarredChannelSlots", () => ({
   useStarredChannelSlots: () => ({
@@ -22,14 +27,20 @@ vi.mock("@posthog/ui/router/navigationBridge", () => ({
 }));
 vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
 
+import {
+  showChannelPane,
+  useChannelPaneStore,
+} from "@posthog/ui/features/canvas/stores/channelPaneStore";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
+import { useSidebarSearchStore } from "@posthog/ui/features/canvas/stores/sidebarSearchStore";
+import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { ChannelHotkeys } from "./ChannelHotkeys";
 
-function press(digit: string, modifiers: Partial<KeyboardEventInit> = {}) {
+function press(key: string, modifiers: Partial<KeyboardEventInit> = {}) {
   document.dispatchEvent(
     new KeyboardEvent("keydown", {
-      key: digit,
-      code: `Digit${digit}`,
+      key,
+      code: /^\d$/.test(key) ? `Digit${key}` : `Key${key.toUpperCase()}`,
       bubbles: true,
       cancelable: true,
       ...modifiers,
@@ -40,12 +51,18 @@ function press(digit: string, modifiers: Partial<KeyboardEventInit> = {}) {
 describe("ChannelHotkeys", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.spacesTabs = false;
     mocks.channelsLayout = true;
     mocks.slots = [
       { id: "me-id", name: "me", path: "/me" },
       { id: "eng-id", name: "eng", path: "/eng" },
     ];
     useCurrentChannelStore.setState({ currentChannelId: null });
+    useSidebarSearchStore.setState({
+      focusRequest: 0,
+    });
+    useSidebarStore.setState({ open: false });
+    showChannelPane();
   });
 
   // The regression: this component is rendered ALONE — no sidebar at all.
@@ -87,10 +104,30 @@ describe("ChannelHotkeys", () => {
     expect(mocks.navigateToChannel).not.toHaveBeenCalled();
   });
 
+  it("yields the keys to the tab strip when tabs are on", () => {
+    mocks.spacesTabs = true;
+    mocks.slots = [{ id: "personal", name: "me", path: "/spaces/personal" }];
+    render(<ChannelHotkeys />);
+
+    press("1");
+
+    expect(mocks.navigateToChannel).not.toHaveBeenCalled();
+  });
+
   it("stays out of the way when the layout is off", () => {
     mocks.channelsLayout = false;
     render(<ChannelHotkeys />);
     press("1", { metaKey: true });
     expect(mocks.navigateToChannel).not.toHaveBeenCalled();
+  });
+
+  it("opens the space list and requests focus for its search", () => {
+    render(<ChannelHotkeys />);
+
+    press("s", { metaKey: true, shiftKey: true });
+
+    expect(useSidebarStore.getState().open).toBe(true);
+    expect(useChannelPaneStore.getState().pane).toBe("list");
+    expect(useSidebarSearchStore.getState().focusRequest).toBe(1);
   });
 });

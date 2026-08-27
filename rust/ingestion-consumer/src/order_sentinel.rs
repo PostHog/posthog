@@ -13,9 +13,11 @@
 //! **Per-key send order** ([`KeyOrderSentinel`]): for every routing key
 //! (`token:distinct_id`), messages must be handed to workers in Kafka offset
 //! order, and a message must never be re-sent after it was ACKed. Replays of
-//! un-ACKed messages (send failure → deferred flush) are legal at-least-once
-//! behavior and are counted separately (`ingestion_consumer_key_replays_total`)
-//! rather than flagged. Checked in the dispatcher at assignment time — the
+//! un-ACKed messages on the retry paths ([`SendKind::Resend`]: send failure →
+//! deferred flush) are legal at-least-once behavior and are counted separately
+//! (`ingestion_consumer_key_replays_total`) rather than flagged; the same
+//! regression on a fresh assignment is a `send_below_last_sent` violation.
+//! Checked in the dispatcher at assignment time — the
 //! point that defines the intended per-key order — under the pin-table lock.
 //! Only messages produced with a Kafka key participate: null-key production
 //! (e.g. overflow rerouting) spreads a routing key across partitions,
@@ -39,13 +41,13 @@
 //! The sentinels are pure observers: they never influence routing or commits.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use metrics::{counter, gauge};
 use rdkafka::consumer::{BaseConsumer, ConsumerContext, Rebalance};
-use rdkafka::ClientContext;
+use rdkafka::{ClientContext, Statistics};
 use tracing::{info, warn};
 
 use crate::types::SerializedKafkaMessage;
@@ -309,6 +311,9 @@ pub enum KeyOrderViolationKind {
     /// A message at or below the key's highest ACKed offset was sent again —
     /// duplicate processing of an already-acknowledged message.
     ResendAfterAck,
+    /// A fresh (non-retry) send at or below the key's highest sent offset —
+    /// a newer batch's send overtook an older batch's for the same key.
+    SendBelowLastSent,
 }
 
 impl KeyOrderViolationKind {
@@ -316,8 +321,22 @@ impl KeyOrderViolationKind {
         match self {
             KeyOrderViolationKind::IntraGroupDisorder => "intra_group_disorder",
             KeyOrderViolationKind::ResendAfterAck => "resend_after_ack",
+            KeyOrderViolationKind::SendBelowLastSent => "send_below_last_sent",
         }
     }
+}
+
+/// Whether a send may legitimately repeat offsets the key has already sent.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SendKind {
+    /// A first-time assignment. Fresh sends run in batch order over a key's
+    /// single partition, so their offsets must only move forward; a regression
+    /// is a [`KeyOrderViolationKind::SendBelowLastSent`] violation.
+    Fresh,
+    /// A retry path (deferred flush or eager release) that re-routes messages
+    /// whose earlier send failed — repeating un-ACKed offsets is expected
+    /// at-least-once behavior, not a violation.
+    Resend,
 }
 
 /// One detected per-key order violation, returned for tests and logged.
@@ -375,16 +394,19 @@ impl KeyOrderSentinel {
         }
     }
 
-    /// Record that `messages` for `routing_key` are being handed to a worker
-    /// (fresh assignment or deferred flush). Call at assignment time, under the
-    /// dispatcher's pin-table lock, so the check order matches the intended
-    /// per-key send order. Null-key messages are skipped — they carry no
-    /// per-key order promise (see module docs). Emits metrics and logs;
-    /// returns violations for tests.
+    /// Record that `messages` for `routing_key` are being handed to a worker.
+    /// `kind` distinguishes a fresh assignment (offsets must only move
+    /// forward) from a retry-path resend (repeating un-ACKed offsets is
+    /// legal). Call at assignment time, under the dispatcher's pin-table
+    /// lock, so the check order matches the intended per-key send order.
+    /// Null-key messages are skipped — they carry no per-key order promise
+    /// (see module docs). Emits metrics and logs; returns violations for
+    /// tests.
     pub fn note_sent(
         &self,
         routing_key: &str,
         messages: &[SerializedKafkaMessage],
+        kind: SendKind,
     ) -> Vec<KeyOrderViolation> {
         if !self.enabled.load(Ordering::Relaxed) {
             return Vec::new();
@@ -450,10 +472,23 @@ impl KeyOrderSentinel {
                         offset: first.offset,
                     });
                     state.last_sent = state.last_sent.max(last.offset);
-                } else {
+                } else if kind == SendKind::Resend {
                     // Replay of a not-yet-ACKed range: the legal retry path
                     // (send failure → defer → flush re-routes the same messages).
                     counter!("ingestion_consumer_key_replays_total").increment(1);
+                    state.last_sent = state.last_sent.max(last.offset);
+                } else {
+                    // A fresh send regressed: a newer batch's assignment for
+                    // this key overtook an older batch's. (A rebalance racing
+                    // an in-flight batch can produce a rare false positive
+                    // until epoch-scoped baselines land — treat as near-zero,
+                    // not hard-zero.)
+                    violations.push(KeyOrderViolation {
+                        kind: KeyOrderViolationKind::SendBelowLastSent,
+                        routing_key: routing_key.to_string(),
+                        partition: first.partition,
+                        offset: first.offset,
+                    });
                     state.last_sent = state.last_sent.max(last.offset);
                 }
             }
@@ -523,10 +558,15 @@ impl KeyOrderSentinel {
 
 /// The consumer's rdkafka context: observes async commit results (a
 /// fire-and-forget `CommitMode::Async` failure is otherwise invisible until
-/// restart-time redelivery) and resets sentinel baselines around rebalances.
+/// restart-time redelivery), resets sentinel baselines around rebalances, and
+/// exports librdkafka's internal statistics (see [`crate::kafka_stats`]).
 pub struct SentinelContext {
     commit_sentinel: Arc<CommitSentinel>,
     key_sentinel: Arc<KeyOrderSentinel>,
+    /// Bumped on every partition assignment; the gRPC transport stamps it on
+    /// sub-batches so the worker's feed-order sentinel rebaselines across
+    /// rebalances. `None` on the HTTP transport.
+    assignment_epoch: Option<Arc<AtomicU64>>,
 }
 
 impl SentinelContext {
@@ -534,7 +574,14 @@ impl SentinelContext {
         Self {
             commit_sentinel,
             key_sentinel,
+            assignment_epoch: None,
         }
+    }
+
+    /// Wire the gRPC transport's assignment-epoch counter. Call before the
+    /// context is handed to the Kafka consumer.
+    pub fn set_assignment_epoch(&mut self, epoch: Arc<AtomicU64>) {
+        self.assignment_epoch = Some(epoch);
     }
 
     /// A context with its own free-standing sentinels, for tests and tools
@@ -551,7 +598,13 @@ impl SentinelContext {
     }
 }
 
-impl ClientContext for SentinelContext {}
+impl ClientContext for SentinelContext {
+    /// Fired on a librdkafka thread every `statistics.interval.ms`; disabled
+    /// when that is 0.
+    fn stats(&self, stats: Statistics) {
+        crate::kafka_stats::export(&stats);
+    }
+}
 
 impl ConsumerContext for SentinelContext {
     fn pre_rebalance(&self, _consumer: &BaseConsumer<Self>, rebalance: &Rebalance) {
@@ -578,6 +631,9 @@ impl ConsumerContext for SentinelContext {
         if let Rebalance::Assign(tpl) = rebalance {
             counter!("ingestion_consumer_rebalances_total", "event" => "assign").increment(1);
             info!(partitions = tpl.count(), "Rebalance: partitions assigned");
+            if let Some(epoch) = &self.assignment_epoch {
+                epoch.fetch_add(1, Ordering::Relaxed);
+            }
         }
     }
 
@@ -732,17 +788,17 @@ mod tests {
     fn forward_sends_pass() {
         let sentinel = KeyOrderSentinel::new();
         assert!(sentinel
-            .note_sent("t:a", &[msg_at(0, 1), msg_at(0, 2)])
+            .note_sent("t:a", &[msg_at(0, 1), msg_at(0, 2)], SendKind::Fresh)
             .is_empty());
         assert!(sentinel
-            .note_sent("t:a", &[msg_at(0, 3), msg_at(0, 4)])
+            .note_sent("t:a", &[msg_at(0, 3), msg_at(0, 4)], SendKind::Fresh)
             .is_empty());
     }
 
     #[test]
     fn intra_group_disorder_is_detected() {
         let sentinel = KeyOrderSentinel::new();
-        let violations = sentinel.note_sent("t:a", &[msg_at(0, 2), msg_at(0, 1)]);
+        let violations = sentinel.note_sent("t:a", &[msg_at(0, 2), msg_at(0, 1)], SendKind::Fresh);
         assert_eq!(violations.len(), 1);
         assert_eq!(
             violations[0].kind,
@@ -753,19 +809,36 @@ mod tests {
     #[test]
     fn replay_of_unacked_range_is_not_a_violation() {
         let sentinel = KeyOrderSentinel::new();
-        sentinel.note_sent("t:a", &[msg_at(0, 1), msg_at(0, 2)]);
+        sentinel.note_sent("t:a", &[msg_at(0, 1), msg_at(0, 2)], SendKind::Fresh);
         // Send failed (no ACK) → deferred flush re-sends the same messages.
         assert!(sentinel
-            .note_sent("t:a", &[msg_at(0, 1), msg_at(0, 2)])
+            .note_sent("t:a", &[msg_at(0, 1), msg_at(0, 2)], SendKind::Resend)
+            .is_empty());
+    }
+
+    #[test]
+    fn fresh_send_below_last_sent_is_a_violation() {
+        // A fresh assignment regressing below the key's sent watermark means a
+        // newer batch's send overtook an older batch's — the race the
+        // consumer-loop assignment ordering exists to prevent.
+        let sentinel = KeyOrderSentinel::new();
+        sentinel.note_sent("t:a", &[msg_at(0, 3), msg_at(0, 4)], SendKind::Fresh);
+        let violations = sentinel.note_sent("t:a", &[msg_at(0, 1), msg_at(0, 2)], SendKind::Fresh);
+        assert_eq!(violations.len(), 1);
+        assert_eq!(violations[0].kind, KeyOrderViolationKind::SendBelowLastSent);
+        // The watermark still advanced: the next in-order send is clean.
+        assert!(sentinel
+            .note_sent("t:a", &[msg_at(0, 5)], SendKind::Fresh)
             .is_empty());
     }
 
     #[test]
     fn resend_after_ack_is_a_violation() {
         let sentinel = KeyOrderSentinel::new();
-        sentinel.note_sent("t:a", &[msg_at(0, 1), msg_at(0, 2)]);
+        sentinel.note_sent("t:a", &[msg_at(0, 1), msg_at(0, 2)], SendKind::Fresh);
         sentinel.note_acked("t:a", 2);
-        let violations = sentinel.note_sent("t:a", &[msg_at(0, 2)]);
+        // Even the legal retry path must never repeat an ACKed offset.
+        let violations = sentinel.note_sent("t:a", &[msg_at(0, 2)], SendKind::Resend);
         assert_eq!(violations.len(), 1);
         assert_eq!(violations[0].kind, KeyOrderViolationKind::ResendAfterAck);
     }
@@ -776,9 +849,9 @@ mod tests {
         // newer messages were sent and ACKed while its older ones were still
         // deferred — flushing the older ones now is out-of-order processing.
         let sentinel = KeyOrderSentinel::new();
-        sentinel.note_sent("t:a", &[msg_at(0, 4), msg_at(0, 5)]);
+        sentinel.note_sent("t:a", &[msg_at(0, 4), msg_at(0, 5)], SendKind::Fresh);
         sentinel.note_acked("t:a", 5);
-        let violations = sentinel.note_sent("t:a", &[msg_at(0, 1), msg_at(0, 2)]);
+        let violations = sentinel.note_sent("t:a", &[msg_at(0, 1), msg_at(0, 2)], SendKind::Resend);
         assert_eq!(violations.len(), 1);
         assert_eq!(violations[0].kind, KeyOrderViolationKind::ResendAfterAck);
     }
@@ -786,15 +859,17 @@ mod tests {
     #[test]
     fn out_of_order_acks_only_advance_the_watermark() {
         let sentinel = KeyOrderSentinel::new();
-        sentinel.note_sent("t:a", &[msg_at(0, 1), msg_at(0, 2)]);
-        sentinel.note_sent("t:a", &[msg_at(0, 3), msg_at(0, 4)]);
+        sentinel.note_sent("t:a", &[msg_at(0, 1), msg_at(0, 2)], SendKind::Fresh);
+        sentinel.note_sent("t:a", &[msg_at(0, 3), msg_at(0, 4)], SendKind::Fresh);
         // Sub-batch ACKs arrive in reverse HTTP-completion order.
         sentinel.note_acked("t:a", 4);
         sentinel.note_acked("t:a", 2);
         // Forward progress from the true high-water mark is still clean.
-        assert!(sentinel.note_sent("t:a", &[msg_at(0, 5)]).is_empty());
+        assert!(sentinel
+            .note_sent("t:a", &[msg_at(0, 5)], SendKind::Fresh)
+            .is_empty());
         // …and re-sending below it still fires.
-        let violations = sentinel.note_sent("t:a", &[msg_at(0, 3)]);
+        let violations = sentinel.note_sent("t:a", &[msg_at(0, 3)], SendKind::Resend);
         assert_eq!(violations.len(), 1);
         assert_eq!(violations[0].kind, KeyOrderViolationKind::ResendAfterAck);
     }
@@ -802,23 +877,27 @@ mod tests {
     #[test]
     fn eviction_drops_state_and_rebaselines() {
         let sentinel = KeyOrderSentinel::new();
-        sentinel.note_sent("t:a", &[msg_at(0, 5)]);
+        sentinel.note_sent("t:a", &[msg_at(0, 5)], SendKind::Fresh);
         sentinel.note_acked("t:a", 5);
         sentinel.evict("t:a");
         assert_eq!(sentinel.key_count(), 0);
         // A rebaselined key doesn't compare against evicted history.
-        assert!(sentinel.note_sent("t:a", &[msg_at(0, 6)]).is_empty());
+        assert!(sentinel
+            .note_sent("t:a", &[msg_at(0, 6)], SendKind::Fresh)
+            .is_empty());
     }
 
     #[test]
     fn clear_resets_all_keys() {
         let sentinel = KeyOrderSentinel::new();
-        sentinel.note_sent("t:a", &[msg_at(0, 5)]);
-        sentinel.note_sent("t:b", &[msg_at(1, 7)]);
+        sentinel.note_sent("t:a", &[msg_at(0, 5)], SendKind::Fresh);
+        sentinel.note_sent("t:b", &[msg_at(1, 7)], SendKind::Fresh);
         sentinel.clear();
         assert_eq!(sentinel.key_count(), 0);
         // Post-rebalance redelivery of uncommitted offsets must not fire.
-        assert!(sentinel.note_sent("t:a", &[msg_at(0, 3)]).is_empty());
+        assert!(sentinel
+            .note_sent("t:a", &[msg_at(0, 3)], SendKind::Fresh)
+            .is_empty());
     }
 
     #[test]
@@ -831,9 +910,9 @@ mod tests {
 
         let keys = KeyOrderSentinel::new();
         keys.set_enabled(false);
-        keys.note_sent("t:a", &[msg_at(0, 5)]);
+        keys.note_sent("t:a", &[msg_at(0, 5)], SendKind::Fresh);
         assert!(keys
-            .note_sent("t:a", &[msg_at(0, 2), msg_at(0, 1)])
+            .note_sent("t:a", &[msg_at(0, 2), msg_at(0, 1)], SendKind::Fresh)
             .is_empty());
         assert_eq!(keys.key_count(), 0, "no state accumulates while disabled");
     }
@@ -841,20 +920,24 @@ mod tests {
     #[test]
     fn disabling_key_sentinel_clears_stale_watermarks() {
         let keys = KeyOrderSentinel::new();
-        keys.note_sent("t:a", &[msg_at(0, 5)]);
+        keys.note_sent("t:a", &[msg_at(0, 5)], SendKind::Fresh);
         keys.note_acked("t:a", 5);
         keys.set_enabled(false);
         keys.set_enabled(true);
         // Re-enable rebaselines: no comparison against pre-disable history.
-        assert!(keys.note_sent("t:a", &[msg_at(0, 3)]).is_empty());
+        assert!(keys
+            .note_sent("t:a", &[msg_at(0, 3)], SendKind::Fresh)
+            .is_empty());
     }
 
     #[test]
     fn partition_move_rebaselines() {
         let sentinel = KeyOrderSentinel::new();
-        sentinel.note_sent("t:a", &[msg_at(0, 100)]);
+        sentinel.note_sent("t:a", &[msg_at(0, 100)], SendKind::Fresh);
         // Same key on a different partition: offsets aren't comparable.
-        assert!(sentinel.note_sent("t:a", &[msg_at(3, 1)]).is_empty());
+        assert!(sentinel
+            .note_sent("t:a", &[msg_at(3, 1)], SendKind::Fresh)
+            .is_empty());
     }
 
     #[test]
@@ -863,11 +946,11 @@ mod tests {
         // Null-key production round-robins a key across partitions; there is
         // no per-key order to check, even when offsets regress across sends.
         assert!(sentinel
-            .note_sent("t:a", &[unkeyed_msg_at(1, 5000)])
+            .note_sent("t:a", &[unkeyed_msg_at(1, 5000)], SendKind::Fresh)
             .is_empty());
         assert_eq!(sentinel.key_count(), 0, "unkeyed sends hold no state");
         assert!(sentinel
-            .note_sent("t:a", &[unkeyed_msg_at(0, 3)])
+            .note_sent("t:a", &[unkeyed_msg_at(0, 3)], SendKind::Fresh)
             .is_empty());
     }
 
@@ -879,9 +962,15 @@ mod tests {
         // send would fire a false resend_after_ack.
         let sentinel = KeyOrderSentinel::new();
         assert!(sentinel
-            .note_sent("t:a", &[msg_at(0, 100), unkeyed_msg_at(1, 5000)])
+            .note_sent(
+                "t:a",
+                &[msg_at(0, 100), unkeyed_msg_at(1, 5000)],
+                SendKind::Fresh
+            )
             .is_empty());
         sentinel.note_acked("t:a", 100);
-        assert!(sentinel.note_sent("t:a", &[msg_at(0, 101)]).is_empty());
+        assert!(sentinel
+            .note_sent("t:a", &[msg_at(0, 101)], SendKind::Fresh)
+            .is_empty());
     }
 }

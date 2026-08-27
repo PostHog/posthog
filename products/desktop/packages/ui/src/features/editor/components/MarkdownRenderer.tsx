@@ -1,9 +1,8 @@
 import { isPostHogCodeDeeplink } from "@posthog/shared";
 import { ArtifactRefChip } from "@posthog/ui/features/editor/components/ArtifactRefChip";
 import { EvidenceRefChip } from "@posthog/ui/features/editor/components/EvidenceRefChip";
-import { GithubRefChip } from "@posthog/ui/features/editor/components/GithubRefChip";
+import { githubRefChipFor } from "@posthog/ui/features/editor/components/githubRefChipFor";
 import { MessageChartCard } from "@posthog/ui/features/editor/components/MessageChartCard";
-import { parseGithubIssueUrl } from "@posthog/ui/features/message-editor/githubIssueUrl";
 import { CodeBlock } from "@posthog/ui/primitives/CodeBlock";
 import { Divider } from "@posthog/ui/primitives/Divider";
 import { HighlightedCode } from "@posthog/ui/primitives/HighlightedCode";
@@ -177,18 +176,8 @@ export const baseComponents: Components = {
         </ArtifactRefChip>
       );
     }
-    const githubRef = href ? parseGithubIssueUrl(href) : null;
-    if (githubRef) {
-      const isAutoLink = typeof children === "string" && children === href;
-      const label = isAutoLink
-        ? `${githubRef.owner}/${githubRef.repo}#${githubRef.number}`
-        : children;
-      return (
-        <GithubRefChip href={githubRef.normalizedUrl} kind={githubRef.kind}>
-          {label}
-        </GithubRefChip>
-      );
-    }
+    const githubChip = githubRefChipFor(href, children);
+    if (githubChip) return githubChip;
     return <ExternalMarkdownLink href={href}>{children}</ExternalMarkdownLink>;
   },
   kbd: ({ children }) => <Kbd>{children}</Kbd>,

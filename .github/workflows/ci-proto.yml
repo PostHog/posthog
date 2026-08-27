@@ -17,7 +17,9 @@ jobs:
     changes:
         runs-on: ubuntu-24.04
         timeout-minutes: 5
-        if: github.repository == 'PostHog/posthog'
+        # trunk-merge/** heads are skipped: merge-queue PRs are ephemeral and every
+        # constituent PR already ran this in full.
+        if: github.repository == 'PostHog/posthog' && !startsWith(github.head_ref, 'trunk-merge/')
         name: Determine need to run proto checks
         outputs:
             proto: ${{ steps.filter.outputs.proto || 'true' }}
@@ -25,6 +27,8 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
+                  sparse-checkout: .github/actions/paths-filter
+                  sparse-checkout-cone-mode: false
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
               if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
@@ -42,7 +46,9 @@ jobs:
                         - 'posthog/personhog_client/proto/generated/**'
                         - 'bin/generate_personhog_proto.sh'
                         - 'nodejs/src/common/generated/personhog/**'
+                        - 'nodejs/src/common/generated/ingestion-worker/**'
                         - 'nodejs/buf.gen.yaml'
+                        - 'nodejs/buf.gen.ingestion-worker.yaml'
                         - 'nodejs/package.json'
                         - '.github/workflows/ci-proto.yml'
 
@@ -157,16 +163,18 @@ jobs:
                   install-command: pnpm --filter=@posthog/nodejs... install --frozen-lockfile
 
             - name: Regenerate Node proto stubs
-              run: pnpm --dir nodejs run generate:personhog-proto
+              run: |
+                  pnpm --dir nodejs run generate:personhog-proto
+                  pnpm --dir nodejs run generate:ingestion-worker-proto
 
             - name: Check for diff
               run: |
                   # Intent-to-add so brand-new generated files show up in git diff
-                  git add -N nodejs/src/common/generated/personhog/
-                  if ! git diff --exit-code nodejs/src/common/generated/personhog/; then
+                  git add -N nodejs/src/common/generated/personhog/ nodejs/src/common/generated/ingestion-worker/
+                  if ! git diff --exit-code nodejs/src/common/generated/personhog/ nodejs/src/common/generated/ingestion-worker/; then
                     echo ""
                     echo "ERROR: Generated Node proto stubs are out of date."
-                    echo "Run 'pnpm run generate:personhog-proto' in nodejs/ and commit the result."
+                    echo "Run 'pnpm run generate:personhog-proto' and 'pnpm run generate:ingestion-worker-proto' in nodejs/ and commit the result."
                     exit 1
                   fi
                   echo "Generated Node proto stubs are up to date."

@@ -4,7 +4,7 @@ import { HogFunctionType } from '~/cdp/types'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { forSnapshot } from '~/tests/helpers/snapshots'
-import { createTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { createTeam, createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub } from '~/types'
 
 import { insertHogFunction } from '../../_tests/fixtures'
@@ -22,13 +22,11 @@ describe('HogFunctionManager', () => {
 
     beforeEach(async () => {
         hub = await createHub()
-        await resetTestDatabase()
         manager = new HogFunctionManagerService(hub.postgres, hub.pubSub, hub.encryptedFields)
 
-        const team = await getTeam(hub.postgres, 2)
-
-        teamId1 = await createTeam(hub.postgres, team!.organization_id)
-        teamId2 = await createTeam(hub.postgres, team!.organization_id)
+        const { organizationId, team } = await createTestTeamFixture(hub.postgres)
+        teamId1 = team.id
+        teamId2 = await createTeam(hub.postgres, organizationId)
 
         hogFunctions = []
 
@@ -288,12 +286,11 @@ describe('Hogfunction Manager - Execution Order', () => {
         // faking them can cause tests to hang or timeout
 
         hub = await createHub()
-        await resetTestDatabase()
         manager = new HogFunctionManagerService(hub.postgres, hub.pubSub, hub.encryptedFields)
 
-        const team = await getTeam(hub.postgres, 2)
-        teamId = await createTeam(hub.postgres, team!.organization_id)
-        teamId2 = await createTeam(hub.postgres, team!.organization_id)
+        const { organizationId, team } = await createTestTeamFixture(hub.postgres)
+        teamId = team.id
+        teamId2 = await createTeam(hub.postgres, organizationId)
 
         hogFunctions = []
 
