@@ -15881,6 +15881,9 @@
                 "seriesBreakdownColumn": {
                     "type": ["string", "null"]
                 },
+                "showAnnotations": {
+                    "type": "boolean"
+                },
                 "showLegend": {
                     "type": "boolean"
                 },

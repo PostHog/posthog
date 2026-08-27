@@ -60,6 +60,50 @@ describe('DisplayTab', () => {
         expect(screen.queryByText('Show labels')).not.toBeInTheDocument()
     })
 
+    it('keeps annotations off by default and persists the toggle', async () => {
+        initKeaTests()
+
+        const key = 'display-tab-annotations-test'
+        let query: DataVisualizationNode = {
+            kind: NodeKind.DataVisualizationNode,
+            source: {
+                kind: NodeKind.HogQLQuery,
+                query: 'select day, accounts from numbers(2)',
+            },
+            display: ChartDisplayType.ActionsLineGraph,
+            chartSettings: {},
+        }
+
+        const props: DataVisualizationLogicProps = {
+            key,
+            query,
+            dataNodeCollectionId: key,
+            setQuery: (setter) => {
+                query = setter(query)
+            },
+        }
+
+        dataVisualizationLogic(props).mount()
+        displayLogic({ key }).mount()
+
+        render(
+            <BindLogic logic={dataVisualizationLogic} props={props}>
+                <BindLogic logic={displayLogic} props={{ key }}>
+                    <DisplayTab />
+                </BindLogic>
+            </BindLogic>
+        )
+
+        const annotationsToggle = await screen.findByLabelText('Show annotations')
+        expect(annotationsToggle).not.toBeChecked()
+
+        await userEvent.click(annotationsToggle)
+
+        await waitFor(() => {
+            expect(query.chartSettings?.showAnnotations).toBe(true)
+        })
+    })
+
     it('persists chart axis labels without dropping existing axis settings', async () => {
         initKeaTests()
 

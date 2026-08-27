@@ -146,6 +146,17 @@ export const DisplayTab = (): JSX.Element => {
                                         }}
                                     />
                                 )}
+                                {!isPieChart && !isScatterPlot && (
+                                    <LemonSwitch
+                                        className="flex-1 w-full"
+                                        data-attr="data-visualization-show-annotations"
+                                        label="Show annotations"
+                                        checked={chartSettings.showAnnotations ?? false}
+                                        onChange={(value) => {
+                                            updateChartSettings({ showAnnotations: value })
+                                        }}
+                                    />
+                                )}
                                 {isPieChart ? (
                                     <>
                                         <div className="flex flex-col gap-1">
