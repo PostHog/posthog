@@ -1,0 +1,12 @@
+{
+    "id": "LA6",
+    "file": "products/stamphog/backend/tasks/tasks.py",
+    "lines": "1109-1112,1232-1237",
+    "priority": "should_fix",
+    "title": "Worker loss or short outages can strand initial reviews",
+    "problem": "The new task uses Celery's default early acknowledgement and retries only three times with a five-second delay. A worker loss can remove the message before a `ReviewRun` exists. A longer GitHub or Temporal outage can leave no request, or a `QUEUED` run without a workflow. There is no scheduled reconciler for either state.",
+    "suggestion": "Set `acks_late=True` and `reject_on_worker_lost=True`; the head-keyed dedupe makes redelivery safe. Use exponential backoff over a useful outage window. Reconcile stale `QUEUED` rows, and mark permanent failures as `FAILED`.",
+    "cluster": 58,
+    "cluster_issue": "Initial inbox review dispatch is fire-and-forget with no durable pending record or reconciliation, so a broker enqueue failure or exhaustion of the task's three retries silently drops the review",
+    "cluster_verified": "1/6"
+}
