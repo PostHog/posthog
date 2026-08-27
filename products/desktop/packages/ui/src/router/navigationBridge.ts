@@ -42,6 +42,13 @@ export function navigateToActivity(): void {
   void getRouterOrNull()?.navigate({ to: "/activity" });
 }
 
+export function navigateToCanvases(canvasId?: string): void {
+  void getRouterOrNull()?.navigate({
+    to: "/canvases",
+    search: { canvas: canvasId },
+  });
+}
+
 export function navigateToHome(): void {
   void getRouterOrNull()?.navigate({ to: "/" });
 }
@@ -124,6 +131,10 @@ export function navigateToInbox(): void {
   void getRouterOrNull()?.navigate({ to: "/inbox" });
 }
 
+export function navigateToInboxReports(): void {
+  void getRouterOrNull()?.navigate({ to: "/inbox/reports" });
+}
+
 export function navigateToInboxPullRequestDetail(reportId: string): void {
   void getRouterOrNull()?.navigate({
     to: "/inbox/pulls/$reportId",
@@ -142,6 +153,16 @@ export function navigateToInboxDismissedDetail(reportId: string): void {
   void getRouterOrNull()?.navigate({
     to: "/inbox/dismissed/$reportId",
     params: { reportId },
+  });
+}
+
+export function navigateToChannelReportDetail(
+  channelId: string,
+  reportId: string,
+): void {
+  void getRouterOrNull()?.navigate({
+    to: "/spaces/$channelId/reports/$reportId",
+    params: { channelId, reportId },
   });
 }
 

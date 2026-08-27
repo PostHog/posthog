@@ -157,14 +157,43 @@ function getBillingAlertBillingUrl(billingAlert: BillingAlertConfig): string {
     return urls.organizationBilling(billingAlert.productKey ? [billingAlert.productKey] : undefined)
 }
 
+function isBillingPathname(pathname: string): boolean {
+    const billingPathname = urls.organizationBilling()
+
+    return pathname === billingPathname || pathname.startsWith(`${billingPathname}/`)
+}
+
+function isCurrentBillingAlertBillingUrl(
+    billingAlert: BillingAlertConfig,
+    currentLocation: { pathname: string; searchParams: Record<string, any> }
+): boolean {
+    if (!isBillingPathname(currentLocation.pathname)) {
+        return false
+    }
+
+    if (!billingAlert.productKey) {
+        return true
+    }
+
+    const productsParam = currentLocation.searchParams.products
+    const productKeys = Array.isArray(productsParam)
+        ? productsParam
+        : typeof productsParam === 'string'
+          ? productsParam.split(',')
+          : []
+
+    return productKeys.includes(billingAlert.productKey)
+}
+
 function buildBillingAlertNotice(
     billingAlert: BillingAlertConfig,
     canAccessBilling: boolean,
-    currentLocation: { pathname: string; search: string }
+    currentLocation: { pathname: string; searchParams: Record<string, any> }
 ): ProjectNoticeBlueprint {
-    const currentUrl = `${currentLocation.pathname}${currentLocation.search}`
     const showButton =
-        billingAlert.action || billingAlert.contactSupport || currentUrl !== getBillingAlertBillingUrl(billingAlert)
+        billingAlert.action ||
+        billingAlert.contactSupport ||
+        !isCurrentBillingAlertBillingUrl(billingAlert, currentLocation)
     const action = buildBillingAlertAction(billingAlert, canAccessBilling)
 
     return {
@@ -246,7 +275,7 @@ export interface projectNoticeLogicMeta {
             memberCount: number,
             internetConnectionIssue: boolean,
             hasProjectNoticeRestriction: boolean,
-            proxyRecords: ProxyRecord[] | null,
+            proxyRecords: import('products/platform_features/frontend/generated/api.schemas').ProxyRecordApi[] | null,
             effectiveBillingAlert: BillingAlertConfig | null,
             currentLocation: {
                 hash: string

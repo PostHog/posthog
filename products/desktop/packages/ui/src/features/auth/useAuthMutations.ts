@@ -3,7 +3,6 @@ import { useHostTRPCClient } from "@posthog/host-router/react";
 import type { CloudRegion } from "@posthog/shared";
 import { clearCapturedLogs } from "@posthog/ui/shell/logCapture";
 import { useMutation } from "@tanstack/react-query";
-import { clearAuthScopedQueries, refreshAuthStateQuery } from "./authQueries";
 import { AUTH_SIDE_EFFECTS, type IAuthSideEffects } from "./identifiers";
 
 export function useLoginMutation() {
@@ -48,18 +47,14 @@ export function useSwitchOrgMutation() {
       fx.beforeProjectSwitch();
       return hostClient.auth.switchOrg.mutate({ orgId });
     },
-    onSuccess: async () => {
-      clearAuthScopedQueries();
-      await refreshAuthStateQuery();
-    },
+    onSuccess: () => fx.onProjectSelected(),
   });
 }
 
-export function useRedeemInviteCodeMutation() {
+export function useRetryDesktopAccessMutation() {
   const hostClient = useHostTRPCClient();
   return useMutation({
-    mutationFn: (code: string) =>
-      hostClient.auth.redeemInviteCode.mutate({ code }),
+    mutationFn: () => hostClient.auth.retryDesktopAccess.mutate(),
   });
 }
 
@@ -72,10 +67,10 @@ export function useLogoutMutation() {
       await hostClient.auth.logout.mutate();
       return previous;
     },
-    onSuccess: (previous) => {
+    onSuccess: async (previous) => {
       // Privacy boundary: error bundles must never export another account's logs.
       clearCapturedLogs();
-      fx.onLogout(previous.cloudRegion);
+      await fx.onLogout(previous.cloudRegion);
     },
   });
 }

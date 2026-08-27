@@ -9,8 +9,9 @@ import { PendingChangeRequestBanner } from 'scenes/approvals/PendingChangeReques
 import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { LegacyExperimentView } from '~/scenes/experiments/legacy'
 import { ActivityScope } from '~/types'
+
+import { LegacyExperimentView } from 'products/experiments/frontend/legacy'
 
 import { EmptyMetricsPanel } from '../ExperimentForm/MetricsPanel/EmptyMetricsPanel'
 import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'

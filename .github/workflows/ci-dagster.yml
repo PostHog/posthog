@@ -12,6 +12,7 @@ concurrency:
 
 permissions:
     contents: read
+    actions: read
     pull-requests: read
 
 env:
@@ -83,11 +84,20 @@ jobs:
             # fetch-depth=1000 + blob:none mirrors ci-backend's turbo-discover so
             # HEAD^2 (PR branch tip) is reachable for the merge-base step below
             # without the cost of fetching blobs.
+            # docker-compose.base.yml is in the sparse set for the schema-key step, which
+            # reads it at the merge base. Checking it out puts the blob on disk, so that
+            # `git show` resolves locally rather than through a lazy fetch that could fail
+            # quietly and leave the migration cache key wrong.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 1000
                   filter: blob:none
                   clean: false
+                  sparse-checkout: |
+                      .github/actions/paths-filter
+                      .github/clickhouse-versions.json
+                      docker-compose.base.yml
+                  sparse-checkout-cone-mode: false
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
@@ -345,6 +355,38 @@ jobs:
               with:
                   version: '0.11.28'
 
+            - name: Restore test durations from cache
+              # The selector's full-run cutoff and shard sizing read .test_durations,
+              # which is not in the repo. This job runs on a GitHub-hosted runner, so
+              # the Depot-side cache misses and the fallback below is the usual path.
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: .test_durations
+                  key: posthog-test-durations-${{ github.run_id }}
+                  restore-keys: |
+                      posthog-test-durations-
+
+            - name: Fall back to the last published durations
+              # .test_durations is not in the repo. The timing workflow refreshes the
+              # cache several times a day and publishes the same files as an artifact
+              # of its own runs. On a cache miss (retention lapsed, timing workflow
+              # down for two weeks) take the newest artifact; if that is gone too,
+              # pytest-split splits by count and turbo-discover sizes from file counts
+              # until the next timing run.
+              if: ${{ hashFiles('.test_durations') == '' }}
+              continue-on-error: true
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  run_id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci-backend-update-test-timing.yml \
+                      --branch master --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+                  if [ -z "$run_id" ]; then
+                      echo "::warning::No successful timing run to fall back to, sharding without durations"
+                      exit 0
+                  fi
+                  gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --name test-durations --dir . \
+                      || echo "::warning::Timing artifact of run $run_id unavailable, sharding without durations"
+
             # A broken selector must degrade to the full suite, never to a
             # silently wrong subset — prove it healthy before trusting it.
             - name: Guard the selector with its unit tests
@@ -590,9 +632,9 @@ jobs:
 
             - name: Restore test durations from cache
               # pytest-split distributes Dagster tests across shards using .test_durations.
-              # Restore the newest cache (refreshed daily by ci-backend-update-test-timing.yml,
-              # which merges all segments into one file) over the committed file; a miss leaves
-              # the committed fallback and pytest-split still runs.
+              # Restore the newest cache (refreshed by ci-backend-update-test-timing.yml,
+              # which merges all segments into one file); the fallback step below covers
+              # a miss.
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: .test_durations
@@ -600,6 +642,27 @@ jobs:
                   key: posthog-test-durations-${{ github.run_id }}
                   restore-keys: |
                       posthog-test-durations-
+
+            - name: Fall back to the last published durations
+              # .test_durations is not in the repo. The timing workflow refreshes the
+              # cache several times a day and publishes the same files as an artifact
+              # of its own runs. On a cache miss (retention lapsed, timing workflow
+              # down for two weeks) take the newest artifact; if that is gone too,
+              # pytest-split splits by count and turbo-discover sizes from file counts
+              # until the next timing run.
+              if: ${{ hashFiles('.test_durations') == '' }}
+              continue-on-error: true
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  run_id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci-backend-update-test-timing.yml \
+                      --branch master --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+                  if [ -z "$run_id" ]; then
+                      echo "::warning::No successful timing run to fall back to, sharding without durations"
+                      exit 0
+                  fi
+                  gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --name test-durations --dir . \
+                      || echo "::warning::Timing artifact of run $run_id unavailable, sharding without durations"
 
             - name: Run Dagster tests
               env:
@@ -624,6 +687,8 @@ jobs:
                   else
                       TEST_TARGETS=(posthog/dags products/*/dags)
                   fi
+                  # Call-only times so the timing-update workflow's migration-tax corrector
+                  # sees the same setup-free signal it gets from the backend segments.
                   pytest "${TEST_TARGETS[@]}" \
                       --reuse-db \
                       --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
@@ -632,6 +697,7 @@ jobs:
                       "${SPLIT_GRANULARITY[@]}" \
                       --reruns 2 --reruns-delay 1 \
                       -r fEsxX \
+                      -o junit_duration_report=call \
                       --junitxml=junit-dagster-${{ matrix.group }}.xml
 
             - name: Upload test results

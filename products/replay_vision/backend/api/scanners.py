@@ -33,17 +33,21 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.models.tag import tagify
 from posthog.models.tagged_item import TaggedItem
+from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.permissions import get_authenticator_scopes
+from posthog.ph_client import get_feature_flag_or_none
 from posthog.rate_limit import (
     AIBurstRateThrottle,
     AISustainedRateThrottle,
     ReplayVisionEstimateBurstRateThrottle,
     ReplayVisionEstimateSustainedRateThrottle,
 )
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
+)
 from products.replay_vision.backend.api.errors import ReplayVisionErrorSerializer
 from products.replay_vision.backend.api.filters import (
     MultiChoiceFilter,
@@ -104,7 +108,7 @@ from products.replay_vision.backend.scanner_config import (
     acting_user,
     scanner_config_error,
 )
-from products.replay_vision.backend.scanner_draft import DraftError, draft_scanner_from_goal
+from products.replay_vision.backend.scanner_draft import DraftError, draft_scanner_from_goal, draft_scanner_from_goal_v2
 from products.replay_vision.backend.scanning import MAX_SESSIONS_PER_SCAN, run_inline_scan, scan_existing_scanner
 from products.replay_vision.backend.session_limits import MAX_SESSION_ID_LENGTH
 from products.replay_vision.backend.tag_suggestions import SuggestionError, suggest_classifier_tags
@@ -114,6 +118,24 @@ from products.signals.backend.facade.api import get_outcomes_for_signal_source_s
 
 # Date is set by the schedule at trigger time, not by the user — strip on save.
 _QUERY_FIELDS_TO_STRIP = ("date_from", "date_to")
+
+# The goal-based creation flow's flag. Multivariate so it can graduate to an experiment without a
+# rename; server-side so a client/rollout skew cannot half-apply the new flow.
+GOAL_FLOW_FLAG = "vision-goal-based-creation-flow"
+
+
+def _goal_flow_enabled(user: User, team: Team) -> bool:
+    """Any variant except control gets the goal-based flow. Never gate this on feature_enabled():
+    it returns True for EVERY variant, control included, which would ship the new flow to the
+    experiment's control group."""
+    variant = get_feature_flag_or_none(
+        GOAL_FLOW_FLAG,
+        str(user.distinct_id),
+        groups={"organization": str(team.organization_id), "project": str(team.id)},
+        group_properties={"organization": {"id": str(team.organization_id)}},
+        send_feature_flag_events=False,
+    )
+    return isinstance(variant, str) and variant != "control"
 
 
 def _reject_direct_experiment_exposure(query: dict[str, Any]) -> None:
@@ -1256,6 +1278,16 @@ class DraftScannerRequestSerializer(serializers.Serializer):
         max_length=2000,
         help_text="What the user wants to accomplish, e.g. 'find out where users get stuck during onboarding'.",
     )
+    monthly_scan_budget = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=1_000_000,
+        help_text=(
+            "Goal-based flow only: how many replays a month the scanner may watch. The draft solves "
+            "`sampling_mode` and `sampling_rate` so the projection lands on this number. Omitted on the "
+            "legacy flow, and ignored while the goal-based flow's flag is off for the caller."
+        ),
+    )
 
 
 class DraftScannerResponseSerializer(serializers.Serializer):
@@ -1280,6 +1312,31 @@ class DraftScannerResponseSerializer(serializers.Serializer):
                 "`RecordingsQuery` narrowing which sessions get scanned; null when the draft targets every session."
             ),
         )
+    )
+    sampling_mode = serializers.ChoiceField(
+        choices=SamplingMode.choices,
+        allow_null=True,
+        help_text=(
+            "Goal-based flow only: the quality pre-filter the draft chose for the goal. Null on the "
+            "legacy flow, and null when the costing estimate failed — the wizard keeps its defaults."
+        ),
+    )
+    sampling_rate = serializers.FloatField(
+        allow_null=True,
+        help_text=(
+            "Goal-based flow only: the random sampling rate solved from `monthly_scan_budget`, 0..1. "
+            "1.0 when the budget covers every matching recording. Floored at the minimum rate, so a "
+            "budget below that floor keeps the minimum. Null whenever `sampling_mode` is."
+        ),
+    )
+    estimated_monthly_observations = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "Goal-based flow only: recordings a month the drafted scanner is projected to watch under "
+            "the solved dials. At or under `monthly_scan_budget`, except when the budget is below what "
+            "the minimum sampling rate can reach, where this is the floor and exceeds the budget. Null "
+            "whenever `sampling_mode` is."
+        ),
     )
 
 
@@ -2046,19 +2103,39 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         body.is_valid(raise_exception=True)
 
         goal = body.validated_data["goal"]
+        monthly_scan_budget = body.validated_data.get("monthly_scan_budget")
+        # A budget only means the goal-based flow when the flag says so: on a client/rollout skew
+        # the request degrades to a legacy draft instead of half-applying the new flow.
+        goal_flow = monthly_scan_budget is not None and _goal_flow_enabled(cast(User, request.user), self.team)
         # The goal is customer text, so only its length goes into telemetry.
-        draft_properties: dict[str, Any] = {"goal_length": len(goal), "team_id": self.team_id}
+        draft_properties: dict[str, Any] = {
+            "goal_length": len(goal),
+            "team_id": self.team_id,
+            "goal_flow": goal_flow,
+            "monthly_scan_budget": monthly_scan_budget,
+        }
+        # Core memory's own API is INTERNAL (session-only), so scoped tokens must not
+        # receive its content through the draft either.
+        include_business_context = get_authenticator_scopes(request.successful_authenticator) is None
 
         try:
-            drafted = draft_scanner_from_goal(
-                team=self.team,
-                user=cast(User, request.user),
-                goal=goal,
-                user_access_control=self.user_access_control,
-                # Core memory's own API is INTERNAL (session-only), so scoped tokens must not
-                # receive its content through the draft either.
-                include_business_context=get_authenticator_scopes(request.successful_authenticator) is None,
-            )
+            if goal_flow:
+                drafted = draft_scanner_from_goal_v2(
+                    team=self.team,
+                    user=cast(User, request.user),
+                    goal=goal,
+                    monthly_scan_budget=cast(int, monthly_scan_budget),
+                    user_access_control=self.user_access_control,
+                    include_business_context=include_business_context,
+                )
+            else:
+                drafted = draft_scanner_from_goal(
+                    team=self.team,
+                    user=cast(User, request.user),
+                    goal=goal,
+                    user_access_control=self.user_access_control,
+                    include_business_context=include_business_context,
+                )
         except DraftError:
             # Report failures too, so model errors don't read as user abandonment.
             report_user_action(
@@ -2080,8 +2157,11 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 **draft_properties,
                 "success": True,
                 "scanner_type": drafted.scanner_type,
-                # Whether the goal mapped to a real event filter or fell back to no targeting.
+                # Whether the goal mapped to a real filter or fell back to no targeting.
                 "has_query": bool(drafted.query),
+                "sampling_mode": drafted.sampling_mode,
+                "sampling_rate": drafted.sampling_rate,
+                "estimated_monthly_observations": drafted.estimated_monthly_observations,
             },
             team=self.team,
             request=request,
@@ -2096,6 +2176,9 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                     "scanner_config": drafted.scanner_config,
                     "rationale": drafted.rationale,
                     "query": drafted.query,
+                    "sampling_mode": drafted.sampling_mode,
+                    "sampling_rate": drafted.sampling_rate,
+                    "estimated_monthly_observations": drafted.estimated_monthly_observations,
                 }
             ).data
         )
