@@ -32,6 +32,7 @@ class TestRewriteObjectTagsForSlack(unittest.TestCase):
             ("person", UUID, f"/persons/{UUID}"),
             ("person", "a b", "/persons/a%20b"),
             ("session-replay", "sess", "/replay/sess"),
+            ("session_replay", "sess", "/replay/sess"),
             ("recording", "sess", "/replay/sess"),
             ("feature-flag", "42", "/feature_flags/42"),
             ("feature_flag", "42", "/feature_flags/42"),
@@ -72,6 +73,21 @@ class TestRewriteObjectTagsForSlack(unittest.TestCase):
                 "block_replay_links_into_player",
                 '<replay id="sess-1" display="block"/>',
                 f"[Session replay sess-1]({PROJECT}/replay/sess-1)",
+            ),
+            (
+                "title_attribute_wins_over_body_and_id",
+                '<insight id="abc" title="Checkout funnel" display="block"/>',
+                f"[Checkout funnel]({PROJECT}/insights/abc)",
+            ),
+            (
+                "escaped_sql_body_is_unescaped_before_linking",
+                '<hogql label="small">SELECT value &lt; 3</hogql>',
+                f"[small]({PROJECT}/sql?open_query=SELECT%20value%20%3C%203&unfurl=false)",
+            ),
+            (
+                "backtick_identifiers_in_sql_do_not_hide_the_tag",
+                '<hogql display="block" title="Events">SELECT `event` FROM events</hogql>',
+                f"**[Events]({PROJECT}/sql?open_query=SELECT%20%60event%60%20FROM%20events&unfurl=false)**\n```\nSELECT `event` FROM events\n```",
             ),
             (
                 "inline_hogql_links_to_sql_editor",
@@ -129,10 +145,16 @@ class TestRewriteObjectTagsForSlack(unittest.TestCase):
         assert rendered == f"**Wide**\n```\n{sql}\n```"
 
     def test_many_tags_in_one_message_all_rewrite(self) -> None:
-        text = " ".join(f'<insight id="i{i}">insight {i}</insight>' for i in range(30))
+        text = " ".join(f'<insight id="i{i}">insight {i}</insight>' for i in range(500))
         rendered = rewrite(text)
         assert "<insight" not in rendered
-        assert rendered.count("](") == 30
+        assert rendered.count("](") == 500
+
+    def test_unmatched_openers_do_not_stop_later_tags_rewriting(self) -> None:
+        text = ('<insight id="open"> ' * 300) + '<flag id="42">beta</flag>'
+        rendered = rewrite(text)
+        assert rendered.endswith(f"[beta]({PROJECT}/feature_flags/42?unfurl=false)")
+        assert rendered.count('<insight id="open">') == 300
 
     def test_rewritten_output_survives_mrkdwn_conversion(self) -> None:
         text = (

@@ -21,16 +21,13 @@ from posthog.dataclasses import frozen
 # this size, and a SQL editor deep link carries the whole query in the query string.
 _MAX_LINK_URL_LENGTH = 2000
 
-# Bound the work done per message: a message is at most a few tens of KB, and the desktop
-# renderer stops at a similar count.
-_MAX_TAGS_PER_MESSAGE = 200
-
 # Links we post ourselves carry this so PostHog's own unfurler leaves inline references alone;
 # a block-display reference keeps unfurling on because the unfurl card is the nearest thing
 # Slack has to the chart card the desktop renders.
 _UNFURL_OPT_OUT_QUERY = "unfurl=false"
 
 _RE_OPEN_TAG = re.compile(r"<([a-z][\w-]*)((?:\s+[a-z][\w-]*\s*=\s*\"[^\"]*\")*)\s*(/>|>)")
+_RE_CLOSE_TAG = re.compile(r"</([a-z][\w-]*)\s*>")
 _RE_ATTR = re.compile(r"([a-z][\w-]*)\s*=\s*\"([^\"]*)\"")
 _RE_CODE_SEGMENT = re.compile(r"(```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]*`)")
 _RE_UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f-]{27,}$", re.IGNORECASE)
@@ -86,6 +83,7 @@ _OBJECT_KINDS: dict[str, _ObjectKind] = {
 _OBJECT_KIND_ALIASES: dict[str, str] = {
     "session-replay": "replay",
     "recording": "replay",
+    "session_replay": "replay",
     "feature-flag": "flag",
     "feature_flag": "flag",
     "sql": "hogql",
@@ -109,33 +107,45 @@ def _parse_attrs(raw: str) -> dict[str, str]:
     return {match.group(1): html.unescape(match.group(2)) for match in _RE_ATTR.finditer(raw)}
 
 
-def _scan_tags(text: str) -> list[_Tag]:
+def _code_spans(text: str) -> list[tuple[int, int]]:
+    return [(match.start(), match.end()) for match in _RE_CODE_SEGMENT.finditer(text)]
+
+
+def _scan_tags(text: str, skip_spans: list[tuple[int, int]]) -> list[_Tag]:
     """Find complete tags in ``text`` in order, without overlaps.
 
-    A tag whose closer never arrives is not a tag: the text stays as it was, which matches the
-    desktop renderer leaving an unterminated tag alone.
+    Openers that start inside ``skip_spans`` (code) are not tags. A tag whose closer never
+    arrives is not a tag either: the text stays as it was, which matches the desktop renderer
+    leaving an unterminated tag alone. Closers are indexed up front so each opener costs one
+    cursor advance instead of a scan to the end of the message.
     """
+    closers: dict[str, list[re.Match[str]]] = {}
+    for close in _RE_CLOSE_TAG.finditer(text):
+        closers.setdefault(close.group(1), []).append(close)
+    cursors: dict[str, int] = {}
     tags: list[_Tag] = []
-    position = 0
-    while len(tags) < _MAX_TAGS_PER_MESSAGE:
-        match = _RE_OPEN_TAG.search(text, position)
-        if match is None:
-            break
+    next_allowed = 0
+    for match in _RE_OPEN_TAG.finditer(text):
+        start = match.start()
+        if start < next_allowed or any(span_start <= start < span_end for span_start, span_end in skip_spans):
+            continue
         name = match.group(1)
         attrs = _parse_attrs(match.group(2))
         open_end = match.end()
         if match.group(3) == "/>":
-            tags.append(_Tag(name=name, attrs=attrs, body="", start=match.start(), end=open_end))
-            position = open_end
+            tags.append(_Tag(name=name, attrs=attrs, body="", start=start, end=open_end))
+            next_allowed = open_end
             continue
-        close = re.compile(rf"</{re.escape(name)}\s*>").search(text, open_end)
-        if close is None:
-            position = open_end
+        candidates = closers.get(name, [])
+        cursor = cursors.get(name, 0)
+        while cursor < len(candidates) and candidates[cursor].start() < open_end:
+            cursor += 1
+        cursors[name] = cursor
+        if cursor >= len(candidates):
             continue
-        tags.append(
-            _Tag(name=name, attrs=attrs, body=text[open_end : close.start()], start=match.start(), end=close.end())
-        )
-        position = close.end()
+        close = candidates[cursor]
+        tags.append(_Tag(name=name, attrs=attrs, body=text[open_end : close.start()], start=start, end=close.end()))
+        next_allowed = close.end()
     return tags
 
 
@@ -162,7 +172,8 @@ def _object_url(project_url: str, kind: _ObjectKind, object_id: str, *, unfurl: 
 
 
 def _render_hogql(tag: _Tag, project_url: str) -> str | None:
-    sql = tag.body.strip()
+    # A body written by the desktop composer is XML-escaped, so ``&lt;`` is a ``<`` in the SQL.
+    sql = html.unescape(tag.body).strip()
     if not sql:
         return None
     url = _object_url(project_url, _HOGQL_KIND, sql, unfurl=False)
@@ -184,7 +195,7 @@ def _render_reference(tag: _Tag, kind: _ObjectKind, project_url: str) -> str | N
     if not object_id:
         return None
     is_block = tag.attrs.get("display") == "block"
-    label = _safe_label(tag.body) or f"{kind.label} {_safe_label(object_id)}"
+    label = _safe_label(tag.attrs.get("title") or tag.body) or f"{kind.label} {_safe_label(object_id)}"
     return _link(label, _object_url(project_url, kind, object_id, unfurl=is_block))
 
 
@@ -200,15 +211,23 @@ def _render_tag(tag: _Tag, project_url: str) -> str | None:
     return _render_reference(tag, kind, project_url)
 
 
-def _rewrite_segment(text: str, project_url: str) -> str:
-    tags = _scan_tags(text)
+def rewrite_object_tags_for_slack(text: str, *, project_url: str) -> str:
+    """Replace agent object tags in ``text`` with markdown Slack can render.
+
+    ``project_url`` is the absolute ``/project/<id>`` base every object link hangs off. Tags inside
+    fenced code blocks and inline code spans stay literal, as they do in the desktop renderer.
+    """
+    if "<" not in text:
+        return text
+    base = project_url.rstrip("/")
+    tags = _scan_tags(text, _code_spans(text))
     if not tags:
         return text
     output = ""
     position = 0
     needs_paragraph_break = False
     for tag in tags:
-        rendered = _render_tag(tag, project_url)
+        rendered = _render_tag(tag, base)
         if rendered is None:
             continue
         before = text[position : tag.start]
@@ -227,17 +246,3 @@ def _rewrite_segment(text: str, project_url: str) -> str:
     if needs_paragraph_break and rest.strip():
         rest = "\n\n" + rest.lstrip("\n")
     return output + rest
-
-
-def rewrite_object_tags_for_slack(text: str, *, project_url: str) -> str:
-    """Replace agent object tags in ``text`` with markdown Slack can render.
-
-    ``project_url`` is the absolute ``/project/<id>`` base every object link hangs off. Tags inside
-    fenced code blocks and inline code spans stay literal, as they do in the desktop renderer.
-    """
-    if "<" not in text:
-        return text
-    base = project_url.rstrip("/")
-    # ``split`` with one capture group alternates prose and code segments, starting with prose.
-    segments = _RE_CODE_SEGMENT.split(text)
-    return "".join(segment if index % 2 else _rewrite_segment(segment, base) for index, segment in enumerate(segments))
