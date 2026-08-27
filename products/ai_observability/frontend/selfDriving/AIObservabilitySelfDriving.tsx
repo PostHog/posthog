@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 import type { ReactNode } from 'react'
 
-import { IconCalendar, IconPlus, IconQuestion, IconUser, IconWarning } from '@posthog/icons'
+import { IconCalendar, IconDatabase, IconPlus, IconQuestion, IconUser, IconWarning } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -160,6 +160,7 @@ const TEMPLATE_ICONS: Record<AIObservabilityScoutTemplate['key'], JSX.Element> =
     'daily-digest': <IconCalendar />,
     'costly-users': <IconUser />,
     'error-patterns': <IconWarning />,
+    'cache-optimization': <IconDatabase />,
 }
 
 /**
