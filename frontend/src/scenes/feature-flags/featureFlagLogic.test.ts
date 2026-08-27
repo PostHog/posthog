@@ -2354,6 +2354,37 @@ describe('featureFlagLogic', () => {
                 resumeKeaLoadersErrors()
             }
         })
+
+        it('keeps the newest verdict when an earlier status request resolves last', async () => {
+            // Two overlapping requests to the same URL, with the older one resolving last. Without the
+            // loader's breakpoint, that late stale success would overwrite the newer verdict.
+            const resolvers: Array<(response: [number, Record<string, unknown>]) => void> = []
+            const waitForRequests = async (count: number): Promise<void> => {
+                for (let attempt = 0; attempt < 20 && resolvers.length < count; attempt++) {
+                    await Promise.resolve()
+                }
+                if (resolvers.length < count) {
+                    throw new Error(`Expected ${count} status requests, saw ${resolvers.length}`)
+                }
+            }
+            useMocks({ get: { [STATUS_URL]: async () => new Promise((resolve) => resolvers.push(resolve)) } })
+
+            logic.actions.loadFeatureFlagStatus() // older request
+            await waitForRequests(1)
+            logic.actions.loadFeatureFlagStatus() // newer request
+            await waitForRequests(2)
+
+            resolvers[1]([200, { ...MOCK_FEATURE_FLAG_STATUS, status: 'active', reason: 'Flag was called today' }])
+            await expectLogic(logic).toDispatchActions(['loadFeatureFlagStatusSuccess'])
+
+            resolvers[0]([
+                200,
+                { ...MOCK_FEATURE_FLAG_STATUS, status: 'stale', reason: 'Flag has not been called in 45 days' },
+            ])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.flagStatus?.status).toBe('active')
+        })
     })
 
     describe('updateFeatureFlagArchived archive telemetry', () => {

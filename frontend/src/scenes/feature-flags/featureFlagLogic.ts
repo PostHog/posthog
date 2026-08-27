@@ -1155,7 +1155,7 @@ export interface featureFlagLogicActions {
         error: string
         errorObject?: any
     }
-    loadFeatureFlagStatus: () => any
+    loadFeatureFlagStatus: (_: void) => void
     loadFeatureFlagStatusFailure: (
         error: string,
         errorObject?: any
@@ -1164,11 +1164,11 @@ export interface featureFlagLogicActions {
         errorObject?: any
     }
     loadFeatureFlagStatusSuccess: (
-        flagStatus: Promise<FeatureFlagStatusResponseApi> | null,
-        payload?: any
+        flagStatus: FeatureFlagStatusResponseApi | null,
+        payload?: void
     ) => {
-        flagStatus: Promise<FeatureFlagStatusResponseApi> | null
-        payload?: any
+        flagStatus: FeatureFlagStatusResponseApi | null
+        payload?: void
     }
     loadFeatureFlagSuccess: (
         featureFlag: FeatureFlagType,
@@ -3263,10 +3263,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         flagStatus: [
             null as FeatureFlagStatusResponseApi | null,
             {
-                loadFeatureFlagStatus: () => {
+                loadFeatureFlagStatus: async (_: void, breakpoint) => {
                     const { currentProjectId } = values
                     if (currentProjectId && props.id && props.id !== 'new' && props.id !== 'link') {
-                        return featureFlagsStatusRetrieve(String(currentProjectId), props.id)
+                        const status = await featureFlagsStatusRetrieve(String(currentProjectId), props.id)
+                        // A mutation can start a newer status request while this one is open. Discard
+                        // this response if so, or a slow earlier request would overwrite the newer verdict.
+                        breakpoint()
+                        return status
                     }
                     return null
                 },
