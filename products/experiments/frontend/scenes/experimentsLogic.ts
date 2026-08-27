@@ -7,6 +7,7 @@ import { LemonTagType, PaginationManual } from '@posthog/lemon-ui'
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { parseNumericArrayFilter, toParams } from 'lib/utils/url'
+import { getFlagVariants } from 'scenes/experiments/utils'
 import { FLAGS_PER_PAGE, type FeatureFlagsResult, featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -23,10 +24,8 @@ import {
     ExperimentsTabs,
     FeatureFlagType,
 } from '~/types'
-
-import type { AvailableFeature, UserType } from '../../types'
-import type { TeamPublicType, TeamType } from '../../types'
-import { getFlagVariants } from './utils'
+import type { AvailableFeature, UserType } from '~/types'
+import type { TeamPublicType, TeamType } from '~/types'
 
 export const EXPERIMENTS_PER_PAGE = 100
 
@@ -70,14 +69,6 @@ const DEFAULT_MODAL_FILTERS: FeatureFlagModalFilters = {
     page: 1,
     evaluation_runtime: undefined,
 }
-
-export {
-    getExperimentStatus,
-    hasEnded,
-    isExperimentExposureFrozen,
-    isExperimentPaused,
-    isLaunched,
-} from './experimentStatus'
 
 export function isSingleVariantShipped(experiment: Experiment): boolean {
     const filters = experiment.feature_flag?.filters
@@ -625,6 +616,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
             { results: [], count: 0, filters: DEFAULT_FILTERS, offset: 0 } as ExperimentsResult,
             {
                 loadExperiments: async (_: void, breakpoint) => {
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.get(
                         `api/projects/${values.currentProjectId}/experiments?${toParams(values.paramsFromFilters)}`
                     )
@@ -636,6 +628,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
                     }
                 },
                 archiveExperiment: async ({ id, disableFeatureFlag }: { id: number; disableFeatureFlag: boolean }) => {
+                    // nosemgrep: prefer-codegen-api
                     await api.create(`api/projects/${values.currentProjectId}/experiments/${id}/archive`, {
                         disable_feature_flag: disableFeatureFlag,
                     })
@@ -647,6 +640,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
                     }
                 },
                 unarchiveExperiment: async (id: number) => {
+                    // nosemgrep: prefer-codegen-api
                     await api.create(`api/projects/${values.currentProjectId}/experiments/${id}/unarchive`)
                     lemonToast.info('Experiment unarchived')
                     return {
@@ -663,6 +657,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
                     if (payload.name) {
                         data.name = payload.name
                     }
+                    // nosemgrep: prefer-codegen-api
                     const duplicatedExperiment = await api.create(
                         `api/projects/${values.currentProjectId}/experiments/${payload.id}/duplicate`,
                         data
@@ -692,6 +687,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
                     if (payload.name) {
                         data.name = payload.name
                     }
+                    // nosemgrep: prefer-codegen-api
                     const newExperiment = await api.create(
                         `api/projects/${values.currentProjectId}/experiments/${payload.id}/copy_to_project`,
                         data
@@ -730,6 +726,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
             { results: [], count: 0 } as { results: FeatureFlagType[]; count: number },
             {
                 loadFeatureFlagModalFeatureFlags: async (_: void, breakpoint) => {
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.get(
                         `api/projects/${values.currentProjectId}/feature_flags/?${toParams({
                             ...values.featureFlagModalParamsFromFilters,
@@ -752,6 +749,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
             } as ExperimentVelocityStats,
             {
                 loadExperimentsStats: async () => {
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.get(`api/projects/${values.currentProjectId}/experiments/stats/`)
                     return response
                 },

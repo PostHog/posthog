@@ -3814,8 +3814,12 @@ class TaskRunSessionLogsQuerySerializer(serializers.Serializer):
     )
 
 
+# One serializer for every read. The list used to carry a subset, and because the settings
+# page edits an environment straight off the list, each field missing there read as unset
+# rather than as unfetched: a saved variable set looked empty. Both also generated the same
+# OpenAPI component, so the narrower one is what downstream clients were typed against.
 class SandboxEnvironmentSerializer(DataclassSerializer):
-    """Detail/create/update response for a sandbox environment."""
+    """A sandbox environment, as returned by list, detail, create and update."""
 
     created_by = TaskUserBasicInfoSerializer(allow_null=True, required=False)
 
@@ -3829,6 +3833,7 @@ class SandboxEnvironmentSerializer(DataclassSerializer):
             "include_default_domains",
             "repositories",
             "has_environment_variables",
+            "environment_variable_keys",
             "private",
             "internal",
             "effective_domains",
@@ -3839,30 +3844,16 @@ class SandboxEnvironmentSerializer(DataclassSerializer):
             "custom_image_name",
             "custom_image_status",
         ]
-
-
-class SandboxEnvironmentListSerializer(DataclassSerializer):
-    """List response for sandbox environments (subset of fields)."""
-
-    created_by = TaskUserBasicInfoSerializer(allow_null=True, required=False)
-
-    class Meta:
-        dataclass = SandboxEnvironmentDTO
-        fields = [
-            "id",
-            "name",
-            "network_access_level",
-            "allowed_domains",
-            "repositories",
-            "private",
-            "internal",
-            "created_by",
-            "created_at",
-            "updated_at",
-            "custom_image_id",
-            "custom_image_name",
-            "custom_image_status",
-        ]
+        extra_kwargs = {
+            "has_environment_variables": {
+                "help_text": "Whether any environment variables are set on this environment."
+            },
+            "environment_variable_keys": {
+                "help_text": (
+                    "Names of the environment variables that are set, sorted. Values are write-only and never returned."
+                )
+            },
+        }
 
 
 class SandboxEnvironmentWriteSerializer(serializers.Serializer):
