@@ -12,7 +12,7 @@ import { withTimeout } from "@posthog/shared";
 import { toast } from "@posthog/ui/primitives/toast";
 import { logger } from "@posthog/ui/shell/logger";
 import { inject, injectable } from "inversify";
-import { useAuthStore } from "./store";
+import { syncSharedAuthState, useAuthStore } from "./store";
 
 const log = logger.scope("auth-contribution");
 // boot() starts contributions serially, so a stuck host query must not wedge it.
@@ -31,7 +31,7 @@ export class AuthContribution implements Contribution {
   async start(): Promise<void> {
     this.hostClient.auth.onStateChanged.subscribe(undefined, {
       onData: (state) => {
-        useAuthStore.getState().setAuthState(state);
+        syncSharedAuthState(state);
         this.syncCloudQueueForAuthState(state);
       },
     });

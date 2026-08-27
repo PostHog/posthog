@@ -5,7 +5,7 @@ import {
   type HostTrpcClient,
 } from "@posthog/host-router/client";
 import { createAuthenticatedClient as createClient } from "./authClient";
-import { type AuthState, fetchAuthState } from "./authQueries";
+import { type AuthState, getCachedAuthState } from "./authQueries";
 
 function hostClient(): HostTrpcClient {
   return resolveService<HostTrpcClient>(HOST_TRPC_CLIENT);
@@ -28,5 +28,5 @@ export function createAuthenticatedClient(
 }
 
 export async function getAuthenticatedClient(): Promise<PostHogAPIClient | null> {
-  return createAuthenticatedClient(await fetchAuthState());
+  return createAuthenticatedClient(getCachedAuthState());
 }

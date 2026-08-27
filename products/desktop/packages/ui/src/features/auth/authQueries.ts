@@ -8,7 +8,12 @@ import {
   IMPERATIVE_QUERY_CLIENT,
   type ImperativeQueryClient,
 } from "@posthog/ui/shell/queryClient";
-import { ANONYMOUS_AUTH_STATE, getAuthIdentity, useAuthStore } from "./store";
+import {
+  ANONYMOUS_AUTH_STATE,
+  getAuthIdentity,
+  syncSharedAuthState,
+  useAuthStore,
+} from "./store";
 
 export type { AuthState };
 export { ANONYMOUS_AUTH_STATE, getAuthIdentity };
@@ -38,7 +43,7 @@ export function getCachedAuthState(): AuthState {
 
 export async function refreshAuthStateQuery(): Promise<void> {
   const state = await fetchAuthState();
-  useAuthStore.getState().setAuthState(state);
+  syncSharedAuthState(state);
 }
 
 export function clearAuthScopedQueries(): void {
