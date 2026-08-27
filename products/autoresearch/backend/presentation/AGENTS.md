@@ -5,14 +5,14 @@ The HTTP surface — and, because of how PostHog's codegen works, considerably m
 These serializers are the source of truth for three downstream artifacts: the REST API itself, the generated frontend TypeScript types, and the 29 `autoresearch-*` MCP tools that the sandbox agent uses to drive its own training run.
 A vague `help_text` here becomes a vague tool description that a model has to guess at. Treat serializer annotations as agent-facing documentation, because they are.
 
-This package lands one endpoint group at a time. Pipeline CRUD, the pre-create helpers, the read-only model and run viewsets, and the training-run surface the agent records its work through are here; the lifecycle actions, the artifact and feature-materialization endpoints, and suggestions arrive in later pieces of the split tracked in [#88464](https://github.com/PostHog/posthog/pull/88464). The MCP tools arrive at the end of it.
+This package lands one endpoint group at a time. Pipeline CRUD, the pre-create helpers, the read-only model and run viewsets, and the whole training-run agent surface are here; the lifecycle actions and suggestions arrive in later pieces of the split tracked in [#88464](https://github.com/PostHog/posthog/pull/88464). The MCP tools arrive at the end of it.
 
 ## What lives here
 
 - `views/views.py`
   Four viewsets, registered in `../routes.py` under `project_autoresearch_*` basenames and nested pipeline-first.
   - `AutoresearchPipelineViewSet` — full CRUD plus the pre-create helpers `templates`, `resolve-template`, `validate`.
-  - `AutoresearchTrainingRunViewSet` — read plus create, and the agent's write surface so far: `iterations`, `complete`, plus `history`.
+  - `AutoresearchTrainingRunViewSet` — read plus create, and **the agent's entire write surface**: `iterations`, `materialize-features`, `complete`, `artifacts`, `artifacts/upload`, `artifacts/get`, `artifacts/delete`, plus `history`.
   - `AutoresearchModelViewSet`, `AutoresearchRunViewSet` — read-only.
 - `views/serializers.py`
   Request and response shapes, plus `resolve_target()`, which turns a pipeline's `target_event` or `target_definition` (an action reference) into the resolved target the rest of the product uses.
@@ -31,14 +31,17 @@ This is the part that makes this package unusual. During a training run the sand
 ```text
 agent                                    server
   │  POST training_runs/<id>/iterations   →  validated, stored as AutoresearchIteration
+  │  POST .../materialize-features        →  features + labels parquet into its sandbox
+  │  POST .../artifacts/upload            →  bundle files into object storage
   │  POST .../complete                    →  server-side champion selection
 ```
 
 Consequences worth internalizing:
 
-- **Everything the agent sends is untrusted.** SQL it submits gets executed. `iterations` runs it through `../training/recipe_validation.py`.
-- **The write surface closes when the run does.** `iterations` and `complete` require the run to be RUNNING (or PENDING for `complete`), so a finished run is frozen.
+- **Everything the agent sends is untrusted.** SQL it submits gets executed; paths it supplies become storage keys. `iterations` runs it through `../training/recipe_validation.py` and `artifacts/upload` through `normalize_artifact_path()` / `MAX_ARTIFACT_BYTES` in `../training/artifacts.py`.
+- **The write surface closes when the run does.** `iterations`, `materialize-features`, `complete`, `artifacts/upload`, and `artifacts/delete` all require the run to be RUNNING (or PENDING for `complete`), so a finished run's artifact bundle is frozen — scoring reads it, nothing rewrites it. Artifact reads stay open.
 - **`complete` does not accept a champion.** It triggers `complete_training_run()` in `../training/promotion.py`, which picks the champion server-side from the recorded iterations. The agent cannot promote itself.
+- **`materialize-features` is sandbox-scoped.** It verifies the sandbox belongs to this training run before writing anything into it.
 - If the agent cannot reach these tools, a run burns its full budget doing nothing and fails with `"Agent recorded no iterations before the run ended."` That symptom is almost always MCP connectivity, not the model.
 
 ## Where the rest of the system meets this package

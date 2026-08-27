@@ -629,6 +629,76 @@ export interface OpenTrainingRunApi {
 }
 
 /**
+ * The relative paths present in a training run's bundle.
+ */
+export interface ArtifactListApi {
+    /** Relative paths of every file stored under this training run's bundle prefix. */
+    paths: string[]
+    /** Number of files in the bundle. */
+    count: number
+}
+
+/**
+ * Input for fetching or deleting one bundle file by path.
+ */
+export interface ArtifactPathApi {
+    /**
+     * Relative path of the file within the bundle, e.g. 'train.py'.
+     * @maxLength 500
+     */
+    path: string
+}
+
+/**
+ * Whether a delete removed an existing file.
+ */
+export interface ArtifactDeleteResultApi {
+    /** Relative path targeted for deletion. */
+    path: string
+    /** True if a file existed and was removed; False if nothing was there. */
+    deleted: boolean
+}
+
+/**
+ * A single bundle file's content, base64-encoded.
+ */
+export interface ArtifactContentApi {
+    /** Relative path of the file within the bundle. */
+    path: string
+    /** File size in bytes. */
+    size_bytes: number
+    /** SHA-256 hex digest of the file content. */
+    sha256: string
+    /** File contents, base64-encoded. */
+    content_base64: string
+}
+
+/**
+ * Input for uploading one file of a training run's artifact bundle.
+ */
+export interface ArtifactUploadApi {
+    /**
+     * Relative path within the bundle, e.g. 'train.py', 'predict.py', 'features.sql', or 'eda/iter-3-gbm.ipynb'. Segments are limited to [A-Za-z0-9_.-]; absolute paths and '..' traversal are rejected.
+     * @maxLength 500
+     */
+    path: string
+    /** File contents, base64-encoded. Decoded server-side and written to object storage. Max 10 MB decoded. */
+    content_base64: string
+}
+
+/**
+ * Result of an upload: where the file landed and its content hash.
+ */
+export interface StoredArtifactApi {
+    /** Relative path the file was stored at. */
+    path: string
+    /** Decoded file size in bytes. */
+    size_bytes: number
+    /** SHA-256 hex digest of the decoded file content. */
+    sha256: string
+}
+
+/**
  * Global feature importance / directionality bundle for the champion model card.
  */
 export type CompleteTrainingRunApiModelExplanation = { [key: string]: unknown }
@@ -761,6 +831,36 @@ export interface AutoresearchIterationApi {
      */
     parent_suggestion?: string | null
     readonly created_at: string
+}
+
+/**
+ * Input for materializing the labeled training feature matrix into the run's sandbox.
+ */
+export interface MaterializeFeaturesRequestApi {
+    /** Your HogQL feature query, using the {anchors}/{lookback_days} contract. Must be a read-only SELECT keyed on person_id (aliased to distinct_id), one row per user. The backend runs it server-side against the labeled training population — no 500-row cap — and writes the resulting train/holdout feature and label parquet files into your sandbox. */
+    features_sql: string
+}
+
+/**
+ * The local sandbox paths and shape of the materialized training matrix.
+ */
+export interface MaterializeFeaturesResponseApi {
+    /** Sandbox path to the training feature matrix parquet (distinct_id + numeric feature columns). */
+    train_features_path: string
+    /** Sandbox path to the training labels parquet (distinct_id + __label). */
+    train_labels_path: string
+    /** Sandbox path to the holdout feature matrix parquet (same columns as train_features). */
+    holdout_features_path: string
+    /** Sandbox path to the holdout labels parquet (distinct_id + __label). */
+    holdout_labels_path: string
+    /** Number of rows in the training split. */
+    n_train: number
+    /** Number of rows in the holdout split. */
+    n_holdout: number
+    /** Number of numeric feature columns produced by features_sql. */
+    n_features: number
+    /** The numeric feature column names (excludes distinct_id, __label, __fold). */
+    feature_cols: string[]
 }
 
 /**

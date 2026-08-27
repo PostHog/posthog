@@ -123,6 +123,58 @@ export const AutoresearchTrainingRunsCreateBody = /* @__PURE__ */ zod
     .describe('Input for opening an agent-driven training run.')
 
 /**
+ * Remove one file from this training run's artifact bundle. Idempotent — deleting a missing file is a no-op. The bundle is frozen once the run completes or fails.
+ * @summary Delete an artifact bundle file
+ */
+export const autoresearchTrainingRunsArtifactsDeleteCreateBodyPathMax = 500
+
+export const AutoresearchTrainingRunsArtifactsDeleteCreateBody = /* @__PURE__ */ zod
+    .object({
+        path: zod
+            .string()
+            .max(autoresearchTrainingRunsArtifactsDeleteCreateBodyPathMax)
+            .describe("Relative path of the file within the bundle, e.g. 'train.py'."),
+    })
+    .describe('Input for fetching or deleting one bundle file by path.')
+
+/**
+ * Fetch one file from this training run's artifact bundle, base64-encoded.
+ * @summary Get an artifact bundle file
+ */
+export const autoresearchTrainingRunsArtifactsGetCreateBodyPathMax = 500
+
+export const AutoresearchTrainingRunsArtifactsGetCreateBody = /* @__PURE__ */ zod
+    .object({
+        path: zod
+            .string()
+            .max(autoresearchTrainingRunsArtifactsGetCreateBodyPathMax)
+            .describe("Relative path of the file within the bundle, e.g. 'train.py'."),
+    })
+    .describe('Input for fetching or deleting one bundle file by path.')
+
+/**
+ * Upload one file of this training run's artifact bundle. Send the file contents base64-encoded in content_base64. Re-uploading the same path overwrites it. Use this — not curl/set_output — to author train.py, predict.py, and features.sql. The bundle is frozen once the run completes or fails.
+ * @summary Upload an artifact bundle file
+ */
+export const autoresearchTrainingRunsArtifactsUploadCreateBodyPathMax = 500
+
+export const AutoresearchTrainingRunsArtifactsUploadCreateBody = /* @__PURE__ */ zod
+    .object({
+        path: zod
+            .string()
+            .max(autoresearchTrainingRunsArtifactsUploadCreateBodyPathMax)
+            .describe(
+                "Relative path within the bundle, e.g. 'train.py', 'predict.py', 'features.sql', or 'eda\/iter-3-gbm.ipynb'. Segments are limited to [A-Za-z0-9_.-]; absolute paths and '..' traversal are rejected."
+            ),
+        content_base64: zod
+            .string()
+            .describe(
+                'File contents, base64-encoded. Decoded server-side and written to object storage. Max 10 MB decoded.'
+            ),
+    })
+    .describe("Input for uploading one file of a training run's artifact bundle.")
+
+/**
  * Finalize a training run. The backend selects the best iteration (highest holdout score, or the one you name), decides champion vs challenger via the promotion ladder, and persists the model. Agents cannot set the champion directly — promotion is server-side.
  * @summary Complete a training run
  */
@@ -229,6 +281,20 @@ export const AutoresearchTrainingRunsIterationsCreateBody = /* @__PURE__ */ zod
             ),
     })
     .describe('Input for recording one training iteration. Validated against the recipe allowlist.')
+
+/**
+ * Run features_sql server-side against the labeled training population and write the resulting train/holdout feature and label parquet files directly into this run's sandbox. Returns the local sandbox paths, row counts, and feature columns. The rows never pass through the agent's context and there is no 500-row cap. Read the returned paths with pd.read_parquet and iterate in Python.
+ * @summary Materialize training features to the sandbox
+ */
+export const AutoresearchTrainingRunsMaterializeFeaturesCreateBody = /* @__PURE__ */ zod
+    .object({
+        features_sql: zod
+            .string()
+            .describe(
+                'Your HogQL feature query, using the {anchors}\/{lookback_days} contract. Must be a read-only SELECT keyed on person_id (aliased to distinct_id), one row per user. The backend runs it server-side against the labeled training population — no 500-row cap — and writes the resulting train\/holdout feature and label parquet files into your sandbox.'
+            ),
+    })
+    .describe("Input for materializing the labeled training feature matrix into the run's sandbox.")
 
 /**
  * Manage autoresearch prediction pipelines.
