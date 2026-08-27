@@ -90,7 +90,8 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
         onApiResponse: async ({ response, error }, breakpoint) => {
             if (error instanceof NetworkError && error.reason === 'timeout') {
                 // A long-running request dropped by the gateway is not a connectivity problem, so the
-                // "trouble connecting" banner would be wrong and unhelpful. Say what actually happened.
+                // "trouble connecting" banner would be wrong and unhelpful. This handler runs for every
+                // endpoint, so the message must stay true for uploads and exports, not only queries.
                 // Handled before the debounce breakpoint below, because any unrelated response within
                 // its window would cancel this run and swallow the toast. Repeat timeouts are already
                 // rate-limited by lastTimeoutToast.
@@ -98,7 +99,7 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
                 if (now - (cache.lastTimeoutToast ?? 0) > 10000) {
                     cache.lastTimeoutToast = now
                     lemonToast.error(
-                        'The request timed out. It may be querying too much data. Try a shorter date range or fewer filters.'
+                        'The request timed out. It may be handling too much data. Try again, or contact support if it keeps happening.'
                     )
                 }
             } else if (error || !response?.status) {
