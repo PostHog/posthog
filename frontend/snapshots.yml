@@ -8416,6 +8416,30 @@ snapshots:
         hash: v1.k794b7964.4985b07e9f0062954fa68380bc57ba975141f437e96ac938c8025540aae5d92b.Pae87mHyCuaDYoeU92NuOV9zJx0hqar1R0vunkOZUN0
     scenes-app-web-analytics-achievements--weekly-only-arm--light:
         hash: v1.k794b7964.eb042d165752cd9ff0145ee3b49f0769671244ca00e931c8ece93ec0d01a9a6f.YlQzVwE6qBKZs4cKyA1-lYowaxlhGEGt_K4jt076OSE
+    scenes-app-web-analytics-agent-analytics--agent-analytics-issue-detail--dark:
+        hash: v1.k794b7964.db05514590a9c1cb5c0e51f0d2f456cdd4cb846404a92c072ba2f4732fb37237.2gbpC1h70Xx2wmsbIPUIbCOBrMFhSuGAhyB9_E4uQpI
+    scenes-app-web-analytics-agent-analytics--agent-analytics-issue-detail--light:
+        hash: v1.k794b7964.32269b6b42d424c5474a6b177493c3f11047c45a3e235f767effde374ccb28a0.B2i2JuzGStYHeRNIZUpf5OcVEWs3RYNr3HyonMRspL8
+    scenes-app-web-analytics-agent-analytics--agent-analytics-issues--dark:
+        hash: v1.k794b7964.1bfde0afefcac295e73d7514c956f614a4f491f213a7721f8e234b0cf55629ca.xt_Xg1LAQ9Nz7aqK1gWhLiSVPpkjiRjt23q1cTW-49o
+    scenes-app-web-analytics-agent-analytics--agent-analytics-issues--light:
+        hash: v1.k794b7964.9644f789015f929cdfb726d1c0cd62f49733d05d8f0f165466b492f674073102.uEAbIDN2ujoi-RLrY6oprqOe-FgUJlKzgbfw2UbFjXk
+    scenes-app-web-analytics-agent-analytics--agent-analytics-journey-detail--dark:
+        hash: v1.k794b7964.a41af94b2f159564c15f466c86d0013477b5da1852171ce3517dc3a5b7945c3f.XJKSaN7lj3vUaFek_cyUycRbB7GMYDwwS1yl-ubyc5c
+    scenes-app-web-analytics-agent-analytics--agent-analytics-journey-detail--light:
+        hash: v1.k794b7964.7423c0f038b2414ad75227d6f51ac444598b6fbe292d6ccb96c77accb2065248.wDAKbneqR4cdPd-jUHIUkJ_KRR9Q6l-5eJvHnz5Xbow
+    scenes-app-web-analytics-agent-analytics--agent-analytics-journeys--dark:
+        hash: v1.k794b7964.5d435ad587a4f4192840b2651c64e267994b08e49083d9134127a1cc3851dc86.Bt5Byc4MIlv3lqOY00iXNzZmQyo0CUCb2p5QZfOVCAg
+    scenes-app-web-analytics-agent-analytics--agent-analytics-journeys--light:
+        hash: v1.k794b7964.3f3aca6b28942025bc67ce2f08639d9c19d310499029fbc7378fb627b4498031.d7oSuGU9H6WaDcRwhDWHMk4nIwBM0KFUKOYlvj1bANE
+    scenes-app-web-analytics-agent-analytics--agent-analytics-overview--dark:
+        hash: v1.k794b7964.b0b3586ff4f7f3d86097d97e944d4f7b768a7b91f0276b538ca562dee9d25696.cHhmwRrHysTx3VhAreWIs2xEQXw1K8yBuAoWcTWF6h8
+    scenes-app-web-analytics-agent-analytics--agent-analytics-overview--light:
+        hash: v1.k794b7964.580cc782dae93151a24cb8153e2f9f42c99e8bcc5f7fa66e51a33a87d611f99a.heo7GLCPFpJVm2ydxI-9Tdc3KA1bld8MWRkrlqtlQ8Q
+    scenes-app-web-analytics-agent-analytics--agent-analytics-readiness--dark:
+        hash: v1.k794b7964.cb09b07338a12112460c07ab1fcab00aee290078783f0abca3e9c8c3735af0bc.Iy7sIApgk4h6wWAHgMaXZdIVIMavLZqYqciU1CPyNyE
+    scenes-app-web-analytics-agent-analytics--agent-analytics-readiness--light:
+        hash: v1.k794b7964.013722ac9f9e514367b74214571d1640593aaa13749f46281ab12a9d076e9719.diwQCGsQ1KdebPGaogDBrVx0xISAm23do_CmBaJZG6U
     scenes-app-web-analytics-livemetricscharts--bot-events-per-minute--dark:
         hash: v1.k794b7964.933ca8aa37de16e55b07b9be45e8784e14b6a9aa8d7119882340e8858c5f9afd.FWPAiDTJNN-96zh7GPc5h6lH7TSlCDPeLmG0lk3YW1I
     scenes-app-web-analytics-livemetricscharts--bot-events-per-minute--light:
