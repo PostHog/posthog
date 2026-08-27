@@ -326,7 +326,13 @@ function EditSubscriptionForm({
 
     const _onDelete = (): void => {
         if (isEditing) {
-            deleteSubscription(id)
+            // In recovery mode the server only accepts the restricted allowlist, so the normal
+            // delete payload would 403; route through the recovery action that sends just {deleted}.
+            if (subscription?.context_recovery) {
+                recoverContextAccess('delete')
+            } else {
+                deleteSubscription(id)
+            }
             onDelete()
         }
     }
