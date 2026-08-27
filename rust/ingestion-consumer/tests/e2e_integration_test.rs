@@ -80,7 +80,7 @@ async fn produce(
     seq: usize,
 ) {
     let value = format!(r#"{{"seq":{seq}}}"#);
-    let key = format!("{token}:{distinct_id}:{seq}");
+    let key = format!("{token}:{distinct_id}");
     let headers = OwnedHeaders::new()
         .insert(Header {
             key: "token",
@@ -105,7 +105,7 @@ async fn produce(
 }
 
 /// Produce a record with full control over payload bytes and optional headers —
-/// for malformed-input scenarios (missing routing headers, non-UTF-8 bytes).
+/// for malformed-input scenarios (missing headers, non-UTF-8 bytes).
 async fn produce_raw(
     producer: &FutureProducer,
     topic: &str,
@@ -1074,7 +1074,7 @@ async fn message_larger_than_byte_bound_is_still_delivered() {
 }
 
 /// When a worker becomes unhealthy, its sticky pins are dropped and subsequent
-/// messages for the same distinct_id are rerouted to a healthy worker.
+/// messages for the same key are rerouted to a healthy worker.
 #[tokio::test]
 async fn failing_worker_triggers_rerouting() {
     let topic = format!("e2e-failover-{}", Uuid::new_v4());
@@ -1290,7 +1290,7 @@ fn worker_msg(distinct_id: &str, seq: usize) -> SerializedKafkaMessage {
         partition: 0,
         offset: seq as i64,
         timestamp: 0,
-        key: None,
+        key: Some(format!("tok:{distinct_id}")),
         value: Some(format!(r#"{{"seq":{seq}}}"#)),
         headers,
     }
