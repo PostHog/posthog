@@ -155,16 +155,16 @@ Below the consumer loop the tree has exactly two sides — the **domain side** (
 - **Accumulator factory** — the loop's supply of per-poll buffers, and the holder of the batcher's send side. `obtain()` hands the loop a buffer at the start of a poll tick; `release(acc)` sends a non-empty one to the batcher whole, by value — the hand-off's only coordination — and recycles an empty one; `revoked(p)` sends the in-band revoke marker down the same channel, behind every batch that preceded it (§4.5). The domain never sees the factory: it is lent the buffer, never the machinery.
 - **Worker batcher** — the transport side, whole, as one background task, and the home of all send ordering. It holds one **key state** per active routing key: a FIFO queue (the key's send order — §2.5's cascade rule, as a structure), an `outstanding` bit (**exactly one request may carry a key's work at a time** — asserted when the request settles, never assumed), and the sticky pin (pure locality, learned from ACKs, gone with the entry). Each received accumulator is *admitted* — every group joins its key's queue; keys with nothing outstanding become ready — and *dispatch* then runs the batcher's own algorithm (§4.3): place each ready key (router + pin), pack bins up to target (a key contributes a contiguous, in-order run of its queue — a hot key may fill a whole request from its backlog), and fire every idle stream touched. Each runner resolution *settles*: every carried key is asserted outstanding, then ACK ⇒ pin the key, forward the groups up the completion stream, re-ready its remaining queue; failure ⇒ groups back to their queue heads, unpin, re-dispatch — the domain never hears of it. A ready key the pool cannot take stays **parked** in its own queue, re-tried on every wake (§4.5) — nothing is ever handed back. On a revoke marker it begins the partition's drain: queued work drops at once, in-flight keys count down at settlement (their failures drop too), and `Drained` goes up the completion stream behind the partition's final completion (§4.5). The packer and the §2.10 size defense sit below it, as do the stream runners: one task per worker — connect, greet with the assignment epoch, transmit, await ACKs, depth 1 — and the transport classifier, §2.9 unchanged (backpressure vs fault vs non-retriable, backpressure excluded from passive health).
 - **Completion stream** — the transport's outlet, and nothing more than a channel: the ACKed groups of each resolved request, forwarded the moment the ACK arrives — offsets for the ledgers. Failures never cross it: they are the batcher's to retry. Its only other traffic is the in-band `Drained` marker that ends a partition's drain (§4.5).
-- **Commit manager** — the commit bookkeeping. On the housekeeping tick the loop harvests the advanced frontiers from the partition manager, refunds the budget for the retired work, and hands the batch here for one batched manual commit. The §2.3 verification rides unchanged: the commit sentinel as a cheap assert, the commit monitor because librdkafka still drops async commit results.
-- **Budget** — the `B` accounting (charged at poll, refunded at commit and at revoke teardown). The design has exactly two clocks: the loop's single housekeeping tick — driving the commit cadence and the stall checks, the two jobs that must run even when no events arrive — and the batcher's park-retry, armed only while an unroutable pool leaves ready keys parked (§4.5). Key states own no deadlines at all: retry pacing is transport-level, so unbounded key cardinality meets no per-key timer anywhere.
+- **Commit manager** — the whole commit policy behind four calls: `progress` (every frontier advance, straight from each completion), `tick` (its clock, from the loop's housekeeping tick), and `begin_revoke` / `finish_revoke` for a drain — the final offset issues immediately, since the rebalance is waiting. When and how to issue — delay, batching, thresholds — is this component's algorithm and appears nowhere else; budget refunds return from whichever call issues, keeping B = polled minus committed exact. The §2.3 verification rides inside unchanged: the commit sentinel as a cheap assert, the commit monitor because librdkafka still drops async commit results.
+- **Budget** — the `B` accounting (charged at poll, refunded at commit and at revoke teardown). The design has exactly two clocks: the loop's single housekeeping tick — the commit manager's clock and the stall checks, the two jobs that must run even when no events arrive — and the batcher's park-retry, armed only while an unroutable pool leaves ready keys parked (§4.5). Key states own no deadlines at all: retry pacing is transport-level, so unbounded key cardinality meets no per-key timer anywhere.
 
 ### 4.2 Two tasks, synchronous cascades
 
 State transitions split across two single-threaded tasks — the domain's on the consumer loop, the transport's on the worker batcher (sharding noted in §4.6) — each driven by three event sources, each finishing one cascade before taking the next event. The loop's:
 
 1. **Poll delivered** — the loop obtains an accumulator and lends it down with the poll: the partition drivers add the offsets to their ledgers and push the demuxed groups into the buffer. The cascade returns; the loop releases the accumulator to the batcher.
-2. **Completion received** — the loop drains one completion (an ACKed request's groups) and hands it to the partition manager: ledgers complete, frontiers advance. No accumulator here — completions produce no new work for the transport. A `Drained` marker on the same channel ends a partition's drain instead: final commit, teardown, unassign (§4.5).
-3. **Housekeeping tick** — the loop's one clock, at the commit cadence: harvest the advanced frontiers from the partition manager, refund the budget for the retired work, hand the batch to the commit manager for one batched commit, and check the partition drivers' stall deadlines. These jobs exist because they must run when *no* events arrive — commits must land at low traffic to keep the replay window small, and a stall watchdog by definition fires on the absence of progress.
+2. **Completion received** — the loop drains one completion (an ACKed request's groups) and hands it to the partition manager: ledgers complete, frontiers advance, and every advance goes straight to the commit manager (`progress`), which issues on its own algorithm. No accumulator here — completions produce no new work for the transport. A `Drained` marker on the same channel ends a partition's drain instead: `finish_revoke`, then unassign (§4.5).
+3. **Housekeeping tick** — the loop's one clock: give the commit manager its clock (`tick` — it issues if its own delay is up, refunding the retired work) and check the partition drivers' stall deadlines. These jobs exist because they must run when *no* events arrive — commits must land at low traffic to keep the replay window small, and a stall watchdog by definition fires on the absence of progress.
 
 And the batcher's:
 
@@ -206,7 +206,7 @@ Concurrency then self-clocks. Fast workers: ACKs return quickly, frontiers advan
 - **Draining/dead worker**: the registry is unchanged; the *consequence* becomes local. A key whose sticky worker is draining simply gets re-placed at its next dispatch — nothing of the key's is in flight at that moment, so re-routing cannot reorder. The cascade rule is the queue: newer groups are behind older ones by construction. No stash, no batch-sequence bookkeeping, no outstanding-count subtlety.
 - **Unroutable pool**: placement finds no healthy worker — the ready key stays **parked** in its own queue, and dispatch re-tries it on every wake: each arriving accumulator, each settlement, and a park-retry deadline armed only while parked keys exist (the backstop when both go quiet). Waiting for a routable pool is transport state, so both the waiting and its pacing live in the transport — the domain never arms a timer for it, and nothing is handed back. There is no separate parked buffer at all: an unplaceable key is just a queue that has not dispatched. The partition frontiers stall; the watchdog below bounds it.
 - **Stall watchdog**: per-partition — a frontier stuck for the timeout while work is pending fails the process, replaying that exposure (≤ B). Today's `deferred_flush_timeout` semantics, at the granularity where a wedge actually lives; the check runs on the loop's housekeeping tick — a watchdog cannot be event-driven, since what it detects is the absence of events. A wedged key stalls *its partition's* frontier while healthy partitions keep committing — today it stalls every partition on the pod.
-- **Rebalance**: revocation is a **bounded drain**, not a synchronous teardown. On revoke the loop keeps the partition driver — its ledger must still absorb the completions in flight — and sends the batcher an in-band **revoke marker** down the accumulator channel, ordered behind every batch that preceded it. The batcher drops the partition's *queued* key states at once (never sent, so the next owner simply re-reads them), stops re-queueing its failures, and counts its outstanding keys down as their requests settle; when the last one lands it emits **`Drained`** up the completion stream — in-band again, behind the partition's final completion. Only then does the loop final-commit the partition's frontier, refund the remaining budget, drop the driver, and hand the partition back to rdkafka (`incremental_unassign`). The drain needs no clock of its own: depth-1 streams plus the runner's ACK timeout bound every outstanding request's settlement, so `Drained` arrives within one request timeout — configure the rebalance timeout above it, and a completion that straggles past teardown still dies by epoch. The assignment-epoch stamp (from #85238) keeps worker-side sentinels re-baselined.
+- **Rebalance**: revocation is a **bounded drain**, not a synchronous teardown. On revoke the loop keeps the partition driver — its ledger must still absorb the completions in flight — tells the commit manager (`begin_revoke`), and sends the batcher an in-band **revoke marker** down the accumulator channel, ordered behind every batch that preceded it. The batcher drops the partition's *queued* key states at once (never sent, so the next owner simply re-reads them), stops re-queueing its failures, and counts its outstanding keys down as their requests settle; when the last one lands it emits **`Drained`** up the completion stream — in-band again, behind the partition's final completion. Only then does the loop hand the final harvest to the commit manager (`finish_revoke` — issued immediately, refunding every charge the partition still held), drop the driver, and hand the partition back to rdkafka (`incremental_unassign`). The drain needs no clock of its own: depth-1 streams plus the runner's ACK timeout bound every outstanding request's settlement, so `Drained` arrives within one request timeout — configure the rebalance timeout above it, and a completion that straggles past teardown still dies by epoch. The assignment-epoch stamp (from #85238) keeps worker-side sentinels re-baselined.
 
 ### 4.6 CPU concurrency
 
@@ -254,9 +254,10 @@ struct ConsumerLoop {
     partitions: PartitionManager,            // the domain side: assignments + ledgers
     accumulators: AccumulatorFactory,        // per-poll buffers + the batcher's send side
     completions: Rx<Completed>,              // the completion stream: ACKed groups
-    tick: Interval,                          // COMMIT_INTERVAL — one housekeeping cadence
+    tick: Interval,                          // housekeeping cadence: commits' clock + stalls
     budget: Budget,                          // uncommitted events+bytes — the B gate (§4.4)
-    commits: CommitManager,                  // commit bookkeeping: sentinel + issued record
+    commits: CommitManager,                  // the commit policy, whole: progress / tick /
+                                             //   begin_revoke / finish_revoke (§2.3 inside)
     kafka: KafkaConsumer,                    // rdkafka client: poll, commits, rebalance events
 }
 
@@ -265,23 +266,21 @@ loop {
         biased;                              //   completion — drain before taking new work
 
         up = completions.recv() => match up {
-            Completed(groups) => {           // one ACKed request's groups — a value, not
-                partitions.complete(groups)  //   a callback; ledgers advance, and nothing
-            }                                //   else: completions produce no new work
+            Completed(groups) => {           // one ACKed request's groups — ledgers
+                budget.refund(               //   advance, and every advance goes straight
+                    commits.progress(kafka, partitions.complete(groups)))
+            }                                // whether to issue now is commits' call alone
             Drained(p) => {                  // the drain's end (§4.5), riding behind p's
-                let batch = partitions.drained(p);   //   last completion: one final
-                budget.refund(batch.retired);        //   harvest, shaped exactly like
-                commits.commit(kafka, batch);        //   the tick's — refund, commit,
-                kafka.unassign(p)                    //   and only now hand the
-            }                                        //   partition back
+                budget.refund(               //   last completion: one final harvest,
+                    commits.finish_revoke(kafka, partitions.drained(p)));
+                kafka.unassign(p)            //   issued immediately — and only now is the
+            }                                //   partition handed back
         }
 
         _ = tick.next() => {                 // the loop's one clock — the jobs that must
-            let batch = partitions.committable();    //   run when no events arrive:
-            budget.refund(batch.retired);    //   harvest the advanced frontiers, commit
-            commits.commit(kafka, batch);    //   them, check the per-partition stall
-            partitions.check_stalls();       //   deadlines (§4.5)
-        }
+            budget.refund(commits.tick(kafka));      //   run when no events arrive: give
+            partitions.check_stalls();       //   commits its clock (it issues if its own
+        }                                    //   delay is up), check the stall deadlines
 
         msgs = kafka.recv(), if budget.used < B => {
             // the gate is rdkafka pause/resume, not an unpolled consumer: polling must
@@ -297,8 +296,9 @@ loop {
                 Assigned(p) => partitions.assign(p, epoch),
                 Revoked(p)  => {             // begin the drain (§4.5): the driver stays —
                     partitions.revoking(p);  //   its ledger must absorb the completions
-                    accumulators.revoked(p)  //   still in flight; the in-band marker
-                }                            //   drops the batcher's queued work for p
+                    commits.begin_revoke(p); //   still in flight; the in-band marker
+                    accumulators.revoked(p)  //   drops the batcher's queued work for p
+                }
             }
         }
     }
@@ -343,11 +343,14 @@ fn assign(p, epoch) { partitions.insert(p, PartitionDriver::new(epoch)) }
 fn revoking(p) { partitions[p].revoking = true }  // drain begun (§4.5): the ledger stays
                                                   //   to absorb in-flight completions
 
-fn drained(p) -> CommitBatch {               // the drain's end (§4.5): remove the driver
-    let d = partitions.remove(p);            //   and harvest it one last time — its
-    [(p, d.frontier + 1)]                    //   frontier to commit, and everything it
-}                                            //   still held charged as `retired`; what
-                                             //   never completed replays on the next owner
+fn drained(p) -> DrainHarvest {              // the drain's end (§4.5): remove the driver —
+    let d = partitions.remove(p);            //   its final frontier for the last commit,
+    DrainHarvest {                           //   and the never-completed charge, which
+        p,                                   //   replays on the partition's next owner
+        last: d.final_advance(),
+        dropped: d.pending_charge(),
+    }
+}
 
 fn accept(msgs, acc) {                       // one poll, demuxed to its partitions
     for (p, part) in msgs.by_partition() {
@@ -355,18 +358,11 @@ fn accept(msgs, acc) {                       // one poll, demuxed to its partiti
     }
 }
 
-fn complete(completed) {                     // one ACKed request's groups, distributed
-    for group in completed {
-        if group.epoch.dead() { continue }   // stragglers after a drain's teardown (§4.5)
-                                             //   die here; mid-drain completions land
-        partitions[group.partition].complete(group)
-    }
-}
-
-fn committable() -> CommitBatch {            // harvest for the housekeeping tick: every
-    partitions.filter(frontier advanced)     //   frontier advanced since the last harvest,
-        .map(|p| (p, p.frontier + 1))        //   with the retired events+bytes for the
-}                                            //   budget refund
+fn complete(completed) -> Vec<Advance> {     // one ACKed request's groups, distributed;
+    completed.groups                         //   Advance = (partition, frontier, retired)
+        .filter(|g| !g.epoch.dead())         // stragglers after a drain's teardown (§4.5)
+        .filter_map(|g| partitions[g.partition].complete(g))     //   die here; mid-drain
+}                                                                //   completions land
 
 fn check_stalls() {                          // driven by the loop's housekeeping tick;
     for p in partitions { p.check_stall() }  //   produces no releases, so no accumulator
@@ -390,11 +386,12 @@ fn accept(msgs, acc) {                       // one poll's messages for this par
     }                                        //   per-key order is the batcher's (§4.3)
 }
 
-fn complete(group) {                         // one ACKed group — the record of what landed
+fn complete(group) -> Option<Advance> {      // one ACKed group — the record of what landed
     ledger.complete(group.offsets);
-    if ledger.advance_frontier() {           // highest contiguous completed offset
-        stall_deadline = now + STALL_TIMEOUT;
-    }
+    ledger.advance_frontier().map(|advance| {        // highest contiguous completed offset;
+        stall_deadline = now + STALL_TIMEOUT;        //   `retired` = the newly contiguous
+        advance                                      //   span's events+bytes
+    })
 }
 
 fn check_stall() {
@@ -404,16 +401,47 @@ fn check_stall() {
 }
 ```
 
-**Commit manager — frontiers to one batched commit.** The §2.3 verification rides here unchanged.
+**Commit manager — the commit policy, whole.** Advances in on every progress event, commits out on its own algorithm; the drain's final offset through `begin_revoke`/`finish_revoke`. The §2.3 verification rides inside unchanged.
 
 ```rust
-// The consumer loop's `commits` field: what was issued and the §2.3 sentinel, behind
-// one synchronous call from the housekeeping tick. Everything else it needs — the
-// harvest, the kafka client — is handed in; it owns none of the loop's state.
-fn commit(kafka, batch) {
+// The consumer loop's `commits` field — the whole commit policy behind four calls.
+// It owns the pending frontiers, the delay algorithm, the §2.3 sentinel and issued
+// record; the kafka client is handed in, and it holds none of the loop's other state.
+struct CommitManager {
+    pending: Map<Partition, Advance>,        // latest unissued frontier + retired tally
+    last_issue: Instant,                     // the delay algorithm's state — today a plain
+    revoking: Set<Partition>,                //   COMMIT_INTERVAL; thresholds, eager modes,
+    commit_sentinel, issued,                 //   or per-partition policy change here only
+}
+
+fn progress(kafka, advances) -> Refund {     // called on every completion that moved a
+    for a in advances { pending.merge(a) }   //   frontier; whether to issue now is this
+    maybe_issue(kafka)                       //   component's decision, nobody else's
+}
+
+fn tick(kafka) -> Refund { maybe_issue(kafka) }      // the clock: issue if the delay is up
+
+fn begin_revoke(p) { revoking.insert(p) }    // drain begun (§4.5): p's next issue is its
+                                             //   final one, via finish_revoke below
+
+fn finish_revoke(kafka, harvest) -> Refund { // the drain's end: issue p's final frontier
+    let held = pending.remove(harvest.p);    //   NOW — the rebalance is waiting — and
+    issue(kafka, [harvest.last]);            //   settle every charge the partition still
+    revoking.remove(harvest.p);              //   holds: the tally held here, the final
+    held.retired + harvest.last.retired + harvest.dropped    //   advance, and the never-
+}                                            //   completed remainder that will replay
+
+fn maybe_issue(kafka) -> Refund {            // the algorithm — today: at most one batched
+    if last_issue.elapsed() < COMMIT_INTERVAL { return 0 }   //   issue per interval
+    issue(kafka, pending.drain())
+}
+
+fn issue(kafka, batch) -> Refund {
     kafka.commit(batch);                     // manual, async, fire-and-forget: never blocks
     commit_sentinel.assert(batch);           //   the loop; commit exactly the frontier —
     issued.record(batch);                    //   B = polled minus committed
+    last_issue = now;
+    batch.retired()
 }
 
 // Separate long-lived task: read-only against the broker, owns nothing of the loop's.
@@ -683,6 +711,7 @@ The consumer's vocabulary has to survive three audiences at once: this crate, th
 | `completion stream` | the transport's outlet: completions, drained by the loop | result stream |
 | `parked` | a ready key the pool cannot take; its groups simply stay queued (§4.5) | a separate buffer |
 | `drain` | revocation: drop queued work, settle in-flight, final-commit, unassign (§4.5) | the worker-drain sense — that stays "draining worker" |
+| `advance` | one frontier movement: partition, new frontier, retired events+bytes | — |
 
 ### 8.2 Why these words are reserved
 
