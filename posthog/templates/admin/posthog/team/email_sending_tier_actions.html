@@ -1,4 +1,11 @@
-<div style="margin: 10px 0;">
+{% comment %}
+Rendered as a readonly field inside the admin's team change form, so the controls sit in that
+outer form (no <form> of their own, which the browser would drop) and submit through formaction.
+Admin pages serve a CSP with no 'unsafe-inline'/'unsafe-hashes' on script-src, which silently
+drops inline onclick/onsubmit attributes, so the recompute confirmation lives in the nonce'd
+<script> block below. Include with request=request so {{ request.csp_nonce }} resolves.
+{% endcomment %}
+<div class="email-sending-tier-widget" style="margin: 10px 0;">
     <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
         <label for="email_sending_tier">Tier</label>
         <select id="email_sending_tier" name="tier">
@@ -15,8 +22,7 @@
         <button type="submit" class="default" formmethod="post" formaction="{{ set_tier_url }}" formnovalidate>Save tier</button>
     </div>
     <div style="margin-top: 8px;">
-        <button type="submit" class="button" formmethod="post" formaction="{{ recompute_url }}" formnovalidate
-            onclick="return confirm('Recompute the email sending tier for this team from its recent sending history?');">
+        <button type="submit" class="button recompute-tier-button" formmethod="post" formaction="{{ recompute_url }}" formnovalidate>
             Recompute now from sending history</button>
     </div>
     <p style="margin-top: 8px; color: #666; font-size: 12px;">
@@ -25,3 +31,13 @@
         Recomputing applies the same rules the daily sweep uses and moves the team at most one tier.
     </p>
 </div>
+<script nonce="{{ request.csp_nonce }}">
+(function () {
+    var widget = document.currentScript.previousElementSibling;
+    widget.querySelector(".recompute-tier-button").addEventListener("click", function (event) {
+        if (!confirm("Recompute the email sending tier for this team from its recent sending history?")) {
+            event.preventDefault();
+        }
+    });
+})();
+</script>

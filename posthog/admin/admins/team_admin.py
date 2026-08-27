@@ -988,6 +988,7 @@ class TeamAdmin(admin.ModelAdmin):
                     "set_tier_url": reverse("admin:posthog_team_set_email_sending_tier", args=[team.pk]),
                     "recompute_url": reverse("admin:posthog_team_recompute_email_sending_tier", args=[team.pk]),
                 },
+                request=getattr(self, "_current_request", None),
             )
         )
 

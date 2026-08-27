@@ -700,6 +700,22 @@ class TestTeamAdminEmailSendingSuspension(BaseTest):
         assert "Save tier" in html
         assert "Recompute now" in html
 
+    def test_tier_actions_use_a_nonce_script_not_inline_handlers(self) -> None:
+        # Admin pages serve a CSP with no unsafe-inline/unsafe-hashes on script-src, so inline
+        # onclick/onsubmit attributes are dropped. The recompute confirm must run from a nonce'd
+        # script, which needs the request in the render context.
+        request = self.factory.get(f"/admin/posthog/team/{self.team.pk}/change/")
+        request.user = self.user
+        request.csp_nonce = "test-nonce-value"  # type: ignore[attr-defined]  # ty: ignore[invalid-assignment]
+        _attach_messages(request)
+        self.admin._current_request = request
+
+        html = self.admin.email_sending_tier_actions(self.team)
+
+        assert "onclick=" not in html
+        assert "onsubmit=" not in html
+        assert 'nonce="test-nonce-value"' in html
+
     def test_suspend_is_idempotent(self) -> None:
         self.admin.suspend_email_sending_view(self._post({"reason": "first"}), str(self.team.pk))
         response = self.admin.suspend_email_sending_view(self._post({"reason": "second"}), str(self.team.pk))
