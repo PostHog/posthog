@@ -3,6 +3,7 @@ import { api } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import experimentJson from '~/mocks/fixtures/api/experiments/_experiment_launched_with_funnel_and_trends.json'
@@ -624,6 +625,32 @@ describe('experimentLogic', () => {
             expect(logic.values.experiment.description).toEqual('stale write')
         })
 
+        it.each([
+            ['start', 'start_date', (date: string): void => logic.actions.changeExperimentStartDate(date)],
+            ['end', 'end_date', (date: string): void => logic.actions.changeExperimentEndDate(date)],
+        ] as const)(
+            'drops a rejected %s date so every surface still shows what the server stored',
+            async (_type, field, dispatch) => {
+                const snapshot = { ...experiment, version: 1 } as Experiment
+                logic.actions.setUnmodifiedExperiment(snapshot)
+                logic.actions.setExperiment(snapshot)
+                api.update.mockRejectedValue({
+                    status: 409,
+                    data: { detail: 'The experiment was changed since you loaded it.', current_version: 5 },
+                })
+                const stored = '2026-08-17T09:33:00Z'
+                getSpy = jest.spyOn(api, 'get').mockResolvedValue({ ...experiment, version: 5, [field]: stored })
+
+                await expectLogic(logic, () => {
+                    dispatch('2026-08-12T09:33:00Z')
+                }).toFinishAllListeners()
+
+                // Keeping the rejected pick here is what makes this tab claim a date that the
+                // list and the metric results never saw.
+                expect(logic.values.experiment[field]).toEqual(stored)
+            }
+        )
+
         it('collapses identical concurrent dispatches into a single request', async () => {
             const snapshot = { ...experiment, version: 3 } as Experiment
             logic.actions.setUnmodifiedExperiment(snapshot)
@@ -717,6 +744,54 @@ describe('experimentLogic', () => {
             logic.actions.setUnmodifiedExperiment(snapshot)
             expect(logic.values.unmodifiedExperiment?.version).toEqual(8)
         })
+    })
+    describe('changing the experiment dates', () => {
+        let reportSpy: jest.SpyInstance | undefined
+
+        beforeEach(() => {
+            jest.spyOn(api, 'update')
+            api.update.mockClear()
+        })
+
+        afterEach(() => {
+            reportSpy?.mockRestore()
+            reportSpy = undefined
+        })
+
+        it.each([
+            [
+                'start',
+                'start_date',
+                'reportExperimentStartDateChange',
+                experimentJson.start_date,
+                (date: string): void => logic.actions.changeExperimentStartDate(date),
+            ],
+            [
+                'end',
+                'end_date',
+                'reportExperimentEndDateChange',
+                null,
+                (date: string): void => logic.actions.changeExperimentEndDate(date),
+            ],
+        ] as const)(
+            'reports the %s date the experiment had before the change',
+            async (_type, field, reportAction, previousDate, dispatch) => {
+                const newDate = '2026-08-12T09:33:00Z'
+                const snapshot = { ...experiment, version: 1 } as Experiment
+                logic.actions.setUnmodifiedExperiment(snapshot)
+                logic.actions.setExperiment(snapshot)
+                api.update.mockResolvedValue({ ...snapshot, [field]: newDate, version: 2 })
+                reportSpy = jest.spyOn(eventUsageLogic.actions, reportAction)
+
+                await expectLogic(logic, () => {
+                    dispatch(newDate)
+                }).toFinishAllListeners()
+
+                // Reporting after the update reads the response back and files the new date as
+                // both sides of the change, which erases the only record of what it used to be.
+                expect(reportSpy).toHaveBeenCalledWith(expect.objectContaining({ [field]: previousDate }), newDate)
+            }
+        )
     })
     describe('moveMetricsBetweenSections', () => {
         const primaryMetric = {

@@ -2626,15 +2626,31 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         changeExperimentStartDate: async ({ startDate }) => {
-            await asyncActions.updateExperiment({ start_date: startDate, update_feature_flag_params: false })
+            // Read before the update: the loader replaces `experiment` with the server response,
+            // so reading it afterwards reports the new date as the old one.
+            const experimentBeforeChange = values.experiment
+            try {
+                await asyncActions.updateExperiment({ start_date: startDate, update_feature_flag_params: false })
+            } catch {
+                // updateExperiment raises its own toast. The window did not move, so there is
+                // nothing to report and nothing to recalculate.
+                return
+            }
             // eslint-disable-next-line no-unused-expressions
-            values.experiment && eventUsageLogic.actions.reportExperimentStartDateChange(values.experiment, startDate)
+            experimentBeforeChange &&
+                eventUsageLogic.actions.reportExperimentStartDateChange(experimentBeforeChange, startDate)
             actions.refreshExperimentResults(true, 'config_change')
         },
         changeExperimentEndDate: async ({ endDate }) => {
-            await asyncActions.updateExperiment({ end_date: endDate, update_feature_flag_params: false })
+            const experimentBeforeChange = values.experiment
+            try {
+                await asyncActions.updateExperiment({ end_date: endDate, update_feature_flag_params: false })
+            } catch {
+                return
+            }
             // eslint-disable-next-line no-unused-expressions
-            values.experiment && eventUsageLogic.actions.reportExperimentEndDateChange(values.experiment, endDate)
+            experimentBeforeChange &&
+                eventUsageLogic.actions.reportExperimentEndDateChange(experimentBeforeChange, endDate)
             actions.refreshExperimentResults(true, 'config_change')
         },
         endExperiment: async ({ openCleanupPr, repository, setRepositoryAsTeamDefault }) => {
