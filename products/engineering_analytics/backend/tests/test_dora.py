@@ -299,7 +299,23 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
         assert result.deployment_count == 1
 
     def test_exact_environment_scope(self):
-        curated = self._seeded_curated(member_rows=None)
+        # A dedicated fixture, not _seeded_curated: that shared fixture's PR 5 (merged Jan 5) has
+        # no earlier production match once scoped to staging-only, so it would fall through and
+        # pair with staging's one deployment too, contaminating the median this test isolates.
+        curated = self._curated(
+            self.team,
+            deployment_rows=[
+                _deployment_row(1, "sha-a", "prod", "2026-01-12 09:30:00", production=True),
+                _deployment_row(4, "sha-d", "staging", "2026-01-12 08:30:00", production=False),
+            ],
+            status_rows=[
+                _status_row(11, 1, "success", "prod", "2026-01-12 10:00:00"),
+                _status_row(41, 4, "success", "staging", "2026-01-12 09:00:00"),
+            ],
+            pr_rows=[
+                _pr_row(1, "alice", "closed", 0, "2026-01-11 08:00:00", merged_at="2026-01-12 08:00:00"),
+            ],
+        )
         result = query_dora_overview(
             curated=curated,
             date_from=datetime(2026, 1, 10, tzinfo=UTC),
@@ -308,7 +324,7 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
         )
 
         assert result.environment_scope == "staging"
-        assert result.deployment_count == 1  # d4 only
+        assert result.deployment_count == 1  # d4 only; d1 (prod) excluded by the exact scope
         assert result.failed_deployment_count == 0
         # PR 1 (merged Jan 12 08:00) reaches staging's 09:00 success: a 1h lead time.
         assert result.median_merge_to_deploy_seconds == 3600.0
