@@ -11,13 +11,13 @@ from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, Resoluti
 
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
 
+from products.exports.backend.temporal.subscriptions.ai_subscription.anchor_context import EMPTY_ANCHOR_HASH
 from products.exports.backend.temporal.subscriptions.ai_subscription.charts import (
     ChartFailureReason,
     ChartRenderFailure,
     RenderedChart,
     ValidatedChart,
 )
-from products.exports.backend.temporal.subscriptions.ai_subscription.anchor_context import EMPTY_ANCHOR_HASH
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
     _MAX_CONCURRENT_STEPS,
     QUERY_FAILED_PREFIX,

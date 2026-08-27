@@ -318,9 +318,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
     insight_short_id = serializers.SerializerMethodField()
     resource_name = serializers.SerializerMethodField()
     contexts = serializers.SerializerMethodField(
-        help_text=(
-            "The dashboards and insights grounding an AI report, for display. Deleted context is omitted."
-        )
+        help_text=("The dashboards and insights grounding an AI report, for display. Deleted context is omitted.")
     )
     resource_type = serializers.ChoiceField(
         choices=Subscription.ResourceType.choices,
@@ -983,7 +981,9 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         dashboard_export_insight_ids = validated_data.pop("dashboard_export_insights", [])
         context_fields = ("context_dashboards", "context_insights")
         new_context_ids = {
-            field: {target.id for target in validated_data[field]} for field in context_fields if field in validated_data
+            field: {target.id for target in validated_data[field]}
+            for field in context_fields
+            if field in validated_data
         }
         analytics_props = get_request_analytics_properties(request)
 
