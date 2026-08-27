@@ -207,7 +207,7 @@ function RecentSectionHeader({
             onClick={onToggleSearch}
             className={cnHeaderButton(searchOpen)}
           >
-            <MagnifyingGlass size={12} />
+            <MagnifyingGlass size={14} />
           </Button>
           <ChannelFilterMenu
             filters={filters}
