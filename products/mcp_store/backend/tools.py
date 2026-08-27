@@ -19,6 +19,7 @@ from .models import MCPServerInstallation, MCPServerInstallationTool
 from .oauth import TokenRefreshError, is_token_expiring, refresh_installation_token
 from .policy import SYNC_DEFAULT_APPROVAL_STATE
 from .proxy import build_upstream_auth_headers, validated_same_origin_redirect_url
+from .url_policy import allow_internal_mcp_url, trust_environment_proxy
 
 logger = structlog.get_logger(__name__)
 
@@ -78,7 +79,7 @@ def fetch_upstream_tools(installation: MCPServerInstallation) -> list[dict[str, 
     Shares the proxy's SSRF guard + timeout + auth-header builder so behavior stays
     consistent between proxy traffic and sync traffic.
     """
-    allowed, reason = is_url_allowed(installation.url)
+    allowed, reason = allow_internal_mcp_url(installation.url, installation.team_id, *is_url_allowed(installation.url))
     if not allowed:
         raise ToolsFetchError(f"URL not allowed: {reason}")
 
@@ -92,7 +93,10 @@ def fetch_upstream_tools(installation: MCPServerInstallation) -> list[dict[str, 
     }
 
     try:
-        with httpx.Client(timeout=HANDSHAKE_TIMEOUT) as client:
+        with httpx.Client(
+            timeout=HANDSHAKE_TIMEOUT,
+            trust_env=trust_environment_proxy(installation.url, installation.team_id),
+        ) as client:
             session_id, upstream_url = _mcp_initialize(client, installation.url, base_headers)
             session_headers = dict(base_headers)
             if session_id:
@@ -127,7 +131,7 @@ def call_upstream_tool(
     the gateway's policy engine first (see ``enforce_tool_approval``), so this stays
     a transport concern.
     """
-    allowed, reason = is_url_allowed(installation.url)
+    allowed, reason = allow_internal_mcp_url(installation.url, installation.team_id, *is_url_allowed(installation.url))
     if not allowed:
         raise ToolCallError(f"URL not allowed: {reason}")
 
@@ -141,7 +145,10 @@ def call_upstream_tool(
     }
 
     try:
-        with httpx.Client(timeout=CALL_TIMEOUT) as client:
+        with httpx.Client(
+            timeout=CALL_TIMEOUT,
+            trust_env=trust_environment_proxy(installation.url, installation.team_id),
+        ) as client:
             session_id, upstream_url = _mcp_initialize(client, installation.url, base_headers)
             session_headers = dict(base_headers)
             if session_id:
