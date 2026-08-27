@@ -56,6 +56,19 @@ A factor of 2.5 in compute is too much for 3 minutes of wall time.
 
 _Also asked as:_ parallelize tests within a shard, `-n auto`, use the idle cores on the runner, why is each shard single-process
 
+### Change the `django_db_setup` fixture from package scope to session scope
+
+**Verdict: rejected** · Apr 2026 · [#57030](https://github.com/PostHog/posthog/pull/57030)
+
+Package scope builds the test database one time for each package directory. Session scope builds it one time for the whole run, which looks strictly faster.
+
+The PR did not merge. `posthog/conftest.py` still declares `@pytest.fixture(scope="package")`.
+Read [#57227](https://github.com/PostHog/posthog/pull/57227) with this one. It makes the cost of `django_db_setup` visible in the pytest output. Today that cost hides in the setup phase of the first test that pytest collects, and makes that test look slow for no reason.
+
+Measure the setup cost first. Then you know what a scope change can win.
+
+_Also asked as:_ session-scoped database fixture, build the test database once, why is the first test so slow
+
 ### Shard the Playwright E2E suite
 
 **Verdict: reverted** · Feb 2026 · [#46774](https://github.com/PostHog/posthog/pull/46774), reverted by [#46853](https://github.com/PostHog/posthog/pull/46853)
@@ -181,7 +194,14 @@ A backend change increased from 52.7 to 57.5 seconds. This is approximately 9% s
 The workload is the reason. A cache mount adds 5 to 7 seconds of overhead, even when the cache has the data. A cache mount gives a benefit only when the dependencies change.
 Approximately 95% of PRs change code and do not change dependencies. Thus the change made the frequent case slower to make the rare case faster.
 
-_Also asked as:_ `--mount=type=cache`, speed up Docker builds, follow Depot cache best practices
+A narrow version came later and stayed. [#42124](https://github.com/PostHog/posthog/pull/42124) added a uv cache mount, and the Dockerfile also has pnpm and npm mounts today.
+That narrow version then caused its own failure. The uv cache kept wheels that were compiled against a different `libxmlsec1` version, and the build failed with a version mismatch.
+[#43066](https://github.com/PostHog/posthog/pull/43066) proposed to remove the mount again. [#43091](https://github.com/PostHog/posthog/pull/43091) gave the better fix: it puts the `libxmlsec1` version in the cache ID, so a change of the system library invalidates the cache.
+Read the `id=uv-libxmlsec1...` mount in the Dockerfile.
+
+The rule: add a cache mount for one expensive step that you measured. Do not add cache mounts everywhere. Put the version of any system library that the cached artifacts compile against in the cache ID.
+
+_Also asked as:_ `--mount=type=cache`, speed up Docker builds, follow Depot cache best practices, xmlsec version mismatch in the image build
 
 ### Move the source COPY to the end of the Dockerfile
 
@@ -226,6 +246,32 @@ If you propose this again, equalize the caches first. Otherwise the next trial m
 
 _Also asked as:_ change CI provider, Blacksmith, cheaper runners, are the Depot runners slow
 
+### Use sparse-checkout on the large CI workflows
+
+**Verdict: rejected for those workflows** · Oct 2025 · [#39239](https://github.com/PostHog/posthog/pull/39239)
+
+The proposal added sparse-checkout to the backend, frontend, and Rust workflows. Each job would exclude the directories that it does not use.
+
+The PR did not merge. Sparse-checkout is still correct for small jobs, and `ci-storybook.yml`, `ci-security.yaml`, and `pr-resolve-outdated-bot-comments.yml` use it today.
+The large test workflows do not. A test job reads more of the tree than the exclusion list expects, and the migration jobs change refs.
+
+If you propose this again, name the jobs and prove that each one reads only the included paths.
+
+_Also asked as:_ sparse-checkout, partial clone, do not check out the whole repo, speed up the checkout step
+
+### Jest reports the Rust snapshots as obsolete
+
+**Verdict: superseded** · Jan 2026 · [#46008](https://github.com/PostHog/posthog/pull/46008)
+
+Jest found the `.snap` files under `rust/cymbal/tests/snapshots/` during the Storybook visual regression job. It marked them as obsolete, and all 19 jobs failed.
+
+The PR records the attempts that did not work. `modulePathIgnorePatterns` changes only the module resolution. It does not change which snapshot files Jest finds.
+The PR proposed `haste.blockList`. The repository does not use that option today, so a different change solved this.
+
+Keep the record: the snapshot scan and the module resolution use different configuration.
+
+_Also asked as:_ obsolete snapshots in CI, Jest finds rust snapshots, modulePathIgnorePatterns
+
 ### Skip Storybook and E2E for snapshot-only commits from the bot
 
 **Verdict: reverted** · Mar 2026 · [#49997](https://github.com/PostHog/posthog/pull/49997), reverted by [#51212](https://github.com/PostHog/posthog/pull/51212)
@@ -256,6 +302,33 @@ The agent that opens the PR already knows this person. Thus the instruction move
 _Also asked as:_ auto-assign bot PRs, find the human behind an agent PR, nudge for ownership
 
 ## Dev environment
+
+### Replace mprocs with Tilt for the local dev orchestration
+
+**Verdict: rejected** · Oct 2025 · [#40698](https://github.com/PostHog/posthog/pull/40698)
+
+The proposal is correct about the problem. mprocs starts every process in parallel and knows nothing about the dependencies, so services fail when their dependencies are not ready.
+
+The PR did not merge. `bin/mprocs.yaml` is still the process list today, and the repository has no Tilt configuration.
+
+The dependency problem got other answers. `bin/wait-for-docker` and the compose health checks do the waiting, and the intent system in hogli decides which processes start.
+
+_Also asked as:_ Tilt, replace mprocs, dev orchestrator, services start in the wrong order
+
+### Share the dev environment and the Docker containers across worktrees
+
+**Verdict: three attempts, none merged** · Oct 2025 to Apr 2026 · [#40634](https://github.com/PostHog/posthog/pull/40634), [#45984](https://github.com/PostHog/posthog/pull/45984), [#51100](https://github.com/PostHog/posthog/pull/51100)
+
+Each attempt used a different mechanism.
+[#40634](https://github.com/PostHog/posthog/pull/40634) changed the compose setup so a worktree uses the containers of the main checkout.
+[#45984](https://github.com/PostHog/posthog/pull/45984) set `COMPOSE_PROJECT_NAME` in the flox variables. Docker Compose uses the directory name when this variable is absent, so each worktree makes its own containers.
+[#51100](https://github.com/PostHog/posthog/pull/51100) shared the flox environment, the Python virtual environment, and `node_modules`. It reports approximately 5 GB of disk for each worktree.
+
+None of the three merged. `bin/wait-for-docker` gives the compose project the default name `posthog` today, which gives the shared containers that #45984 wanted.
+
+Read [#40634](https://github.com/PostHog/posthog/pull/40634) first if you propose this again. It asks the question that stopped all three: does any person need separate databases for each worktree?
+
+_Also asked as:_ worktrees start their own containers, share node_modules between worktrees, worktree disk usage, COMPOSE_PROJECT_NAME
 
 ### Run a dmypy daemon for fast local type checks
 
@@ -323,9 +396,11 @@ The PR added a squash planner, a policy for opaque operations, and 65 squashed m
 
 The problem is the value. The PR reports that the effect on the timing was small and noisy. The work to resolve each blocker is large, and the reviews are difficult.
 
-The migration replay in CI is a real cost. A different change must decrease it.
+[#60518](https://github.com/PostHog/posthog/pull/60518) tried a second angle three months later. It took the final project state at a cutoff date and rebuilt it as one set of `CreateModel` operations. The PR says that per-app squashing "only nibbles at it because the dep graph is cross-app". That PR also did not merge.
 
-_Also asked as:_ squash the migrations, compress the migration history, why are there so many migrations, speed up the migration replay
+The migration replay in CI is a real cost. Two different squash designs did not decrease it enough. A different change must decrease it.
+
+_Also asked as:_ squash the migrations, compress the migration history, why are there so many migrations, speed up the migration replay, nextgensquash
 
 ### Build the generated pydantic schema lazily with `defer_build`
 
@@ -352,7 +427,37 @@ Import a model from `posthog.schema` inside the method that uses it. Take the en
 
 _Also asked as:_ remove pydantic, use dataclasses for the schema, the schema import is slow, why is `posthog.schema` so big
 
+## API contracts
+
+### Validate the API responses against the generated OpenAPI schema
+
+**Verdict: six attempts, none merged** · Mar 2026 to Jun 2026
+
+The idea returns in two shapes.
+
+End-to-end traffic validation, through a Django middleware and the Playwright run: [#49895](https://github.com/PostHog/posthog/pull/49895), [#49898](https://github.com/PostHog/posthog/pull/49898), [#49932](https://github.com/PostHog/posthog/pull/49932), [#49940](https://github.com/PostHog/posthog/pull/49940).
+Response validation inside the pytest run, with a report as a CI artifact: [#56804](https://github.com/PostHog/posthog/pull/56804), [#56810](https://github.com/PostHog/posthog/pull/56810).
+
+Each PR made the validation optional and non-blocking, to avoid noise. None of them merged.
+Read this history before you start a seventh attempt. Six PRs that all stop before the merge is a signal about the design, not about the effort.
+
+The generated types have a different guard today. The serializers produce the OpenAPI schema, and `hogli build:openapi` generates the TypeScript from it. CI fails when the committed output does not match.
+
+_Also asked as:_ contract testing, validate responses against the schema, spectral, prism, schema drift in CI
+
 ## Product isolation
+
+### Move `ee/` into `products/enterprise/backend/`
+
+**Verdict: rejected** · Nov 2025 · [#41025](https://github.com/PostHog/posthog/pull/41025)
+
+The PR moved 613 files and kept the git history. It kept the app label `ee`, so the database did not change. Django validated, and no migration was necessary.
+
+The PR did not merge, and `ee/` is still a top-level directory.
+
+A mechanically correct move is not sufficient for a directory of this size. If you propose this again, say who reviews 613 moved files, and what breaks for each open PR that touches `ee/`.
+
+_Also asked as:_ move ee to products, get rid of the ee folder, enterprise product folder
 
 ### Use `logs` as the first product behind a facade
 
