@@ -5513,6 +5513,8 @@ export interface SubscriptionType {
     context_items?: SubscriptionContextItemApi[]
     /** Read-only context resources with display metadata. */
     contexts?: SubscriptionContextApi[]
+    /** Whether inaccessible report context limits this subscription to recovery actions. */
+    context_recovery?: boolean
     target_type: string
     target_value: string
     frequency: 'daily' | 'weekly' | 'monthly' | 'yearly'

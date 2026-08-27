@@ -10,6 +10,7 @@ from products.exports.backend.models.subscription import Subscription
 from products.exports.backend.temporal.subscriptions.ai_subscription.anchor_context import (
     ANCHOR_QUERY_JSON_MAX_CHARS,
     ANCHOR_TILES_LIMIT,
+    AnchorContextAccessDenied,
     AnchorContextUnavailable,
     build_anchor_context,
 )
@@ -108,7 +109,7 @@ class TestBuildAnchorContext(APIBaseTest):
 
         assert context is not None
         assert "ghost" not in context.blob
-        assert "2 more tiles not shown" in context.blob
+        assert "Additional tiles not shown" in context.blob
         # Provenance follows the bounded tile set supplied to the planner, rather than every
         # tile on the dashboard. This keeps historical access checks bounded too.
         assert len([ref for ref in context.resource_references if ref[0] == "dashboard_tile_insight"]) == 25
@@ -182,6 +183,12 @@ class TestBuildAnchorContext(APIBaseTest):
                     build_anchor_context(subscription)
         mock_capture.assert_called_once()
         assert mock_capture.call_args.args[0] is error
+
+    def test_access_denied_is_not_converted_to_unavailable(self) -> None:
+        subscription = self._subscription()
+        with patch(f"{_AC}._build_anchor_context", side_effect=AnchorContextAccessDenied):
+            with pytest.raises(AnchorContextAccessDenied):
+                build_anchor_context(subscription)
 
     def test_query_json_is_sanitized_against_prompt_markers(self) -> None:
         # Query JSON carries user-editable strings; a planted framing tag must not survive into

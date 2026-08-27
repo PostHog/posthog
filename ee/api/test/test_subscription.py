@@ -3469,6 +3469,7 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         assert retrieved.status_code == status.HTTP_200_OK, retrieved.json()
         assert retrieved.json()["contexts"] == []
         assert retrieved.json()["context_dashboards"] == []
+        assert retrieved.json()["context_recovery"] is True
 
         for forbidden_update in (
             {"prompt": "Send this report elsewhere"},
@@ -3496,6 +3497,7 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         )
         assert cleared.status_code == status.HTTP_200_OK, cleared.json()
         assert cleared.json()["context_dashboards"] == []
+        assert cleared.json()["context_recovery"] is False
 
         deliveries = self.client.get(f"/api/environments/{self.team.id}/subscriptions/{subscription.id}/deliveries/")
         assert deliveries.status_code == status.HTTP_200_OK

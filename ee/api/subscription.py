@@ -1669,7 +1669,8 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
     def update(self, request, *args, **kwargs):
         partial = kwargs.pop("partial", False)
         instance = self.get_object()
-        if self._can_recover_context_access(instance):
+        is_context_recovery = self._can_recover_context_access(instance)
+        if is_context_recovery:
             self._validate_context_recovery_update(instance, request.data)
 
         serializer = self.get_serializer(instance, data=request.data, partial=partial)
@@ -1678,6 +1679,12 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
 
         if getattr(instance, "_prefetched_objects_cache", None):
             instance._prefetched_objects_cache = {}
+
+        # `safely_get_object` marks this in-memory row so the recovery response can redact it.
+        # Once the update removes every inaccessible anchor, serialize the now-normal resource
+        # normally, otherwise the editor remains limited to recovery actions until a reload.
+        if is_context_recovery and not self._can_recover_context_access(instance):
+            delattr(instance, "_is_context_recovery")
 
         return Response(serializer.data)
 

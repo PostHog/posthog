@@ -115,29 +115,26 @@ def _dashboard_metadata_line(label: str, value: object) -> str | None:
 
 def _capped_dashboard_tiles(
     dashboard, viewable_insights: QuerySet[Insight], limit: int
-) -> tuple[list[DashboardTile], int]:
+) -> tuple[list[DashboardTile], bool]:
     """Return only the layout-first tiles needed for one bounded report anchor.
 
     Ordering in SQL prevents a large dashboard from being materialized in a worker just to keep
     the first few tiles. Dashboard layout values are numeric in the persisted schema; missing
     coordinates retain the UI's existing fallback of 100, with ID as a deterministic tie-break.
     """
-    tiles = dashboard.tiles.filter(insight_id__in=viewable_insights)
-    total = tiles.count()
     if not limit:
-        return [], total
+        return [], False
+    tiles = dashboard.tiles.filter(insight_id__in=viewable_insights)
     layout_sm = KeyTransform("sm", "layouts")
-    return (
-        list(
-            tiles.annotate(
-                layout_y=Coalesce(Cast(KeyTextTransform("y", layout_sm), IntegerField()), Value(100)),
-                layout_x=Coalesce(Cast(KeyTextTransform("x", layout_sm), IntegerField()), Value(100)),
-            )
-            .order_by("layout_y", "layout_x", "id")
-            .only("id", "insight_id", "filters_overrides")[:limit]
-        ),
-        total,
+    selected_tiles = list(
+        tiles.annotate(
+            layout_y=Coalesce(Cast(KeyTextTransform("y", layout_sm), IntegerField()), Value(100)),
+            layout_x=Coalesce(Cast(KeyTextTransform("x", layout_sm), IntegerField()), Value(100)),
+        )
+        .order_by("layout_y", "layout_x", "id")
+        .only("id", "insight_id", "filters_overrides")[: limit + 1]
     )
+    return selected_tiles[:limit], len(selected_tiles) > limit
 
 
 def build_anchor_context(subscription: Subscription) -> AnchorContext | None:
@@ -148,6 +145,11 @@ def build_anchor_context(subscription: Subscription) -> AnchorContext | None:
     """
     try:
         return _build_anchor_context(subscription)
+    except AnchorContextAccessDenied:
+        # This is a deliberate authorization signal, not a transient grounding failure. The
+        # delivery activity must catch it and disable the subscription rather than report on
+        # the whole project without the configured context.
+        raise
     except Exception as exc:
         # Grounding is an enhancement; losing it must not fail the delivery. But a build failure
         # must not read as "no anchor" either: that would invalidate a valid frozen plan and let
@@ -222,7 +224,7 @@ def _build_anchor_context(subscription: Subscription) -> AnchorContext | None:
             metadata_line = _dashboard_metadata_line(label, value)
             if metadata_line:
                 lines.append(metadata_line)
-        capped_tiles, tile_count = _capped_dashboard_tiles(dashboard, viewable_tile_insights, remaining_tiles)
+        capped_tiles, has_more_tiles = _capped_dashboard_tiles(dashboard, viewable_tile_insights, remaining_tiles)
         insights_by_id = {
             insight_row.id: insight_row
             for insight_row in Insight.objects.filter(id__in=[tile.insight_id for tile in capped_tiles]).only(
@@ -245,8 +247,8 @@ def _build_anchor_context(subscription: Subscription) -> AnchorContext | None:
                 if tile_filters:
                     lines.append(f"  {tile_filters}")
         remaining_tiles -= len(capped_tiles)
-        if tile_count > len(capped_tiles):
-            lines.append(f"  ({tile_count - len(capped_tiles)} more tiles not shown)")
+        if has_more_tiles:
+            lines.append("  (Additional tiles not shown)")
 
     for insight in insights:
         if not can_view(insight):
