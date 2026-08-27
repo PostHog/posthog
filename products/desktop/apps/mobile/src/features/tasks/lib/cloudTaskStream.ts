@@ -32,6 +32,8 @@ const mobileCloudTaskAnalytics = {
   setCurrentUserId: () => {},
   getCurrentUserId: () => null,
   getOrCreateSessionId: () => "mobile-cloud-task",
+  // No separate main process to decorate outbound links from.
+  setRendererSessionId: () => {},
   resetUser: () => {},
   captureException: () => {},
   flush: async () => {},
