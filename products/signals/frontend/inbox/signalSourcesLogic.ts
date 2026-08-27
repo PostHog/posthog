@@ -474,6 +474,7 @@ export interface signalSourcesLogicMeta {
         ciSignalsIsFullyEnabled: (ciSignalsConfig: CISignalsConfigApi | null) => boolean
         isCiSignalsToggling: (togglingSourceKeys: Set<string>) => boolean
         hasEmittingScanner: (visionScanners: ReplayScannerApi[] | null) => boolean | null
+        errorTrackingConfigs: (sourceConfigs: SignalSourceConfig[] | null) => SignalSourceConfig[]
         errorTrackingTypeStates: (sourceConfigs: SignalSourceConfig[] | null) => {
             enabled: boolean
             sourceType: SignalSourceType
