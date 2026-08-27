@@ -188,30 +188,38 @@ class Command(BaseCommand):
 
         source_id = str(source.id)
 
-        self.stdout.write("1/6 pausing extraction schedule")
+        self.stdout.write("1/7 pausing extraction schedule")
         pause_cdc_extraction_schedule(source_id)
 
         # Pausing the schedule stops future firings, not a workflow already running. A legacy run
         # with the shadow lane on keeps writing buffer files, and one landing after the purge would
         # be merged by the consumer even though the legacy lane already delivered those rows.
-        self.stdout.write("2/6 waiting for the in-flight extraction run to finish")
+        self.stdout.write("2/7 waiting for the in-flight extraction run to finish")
         self._wait_for_extraction_idle(source_id, drain_timeout)
 
-        self.stdout.write("3/6 draining sourcebatch")
+        # A scheduled sync that started before the mode change resolved its pipeline version while
+        # the source was still legacy. If it reads the source again after the change, it consumes
+        # the buffer on that stale version, which records no load position, so nothing it read is
+        # ever proven consumed. Quiesce the schedules so no run straddles the mode change.
+        self.stdout.write("3/7 pausing per-schema schedules")
+        self._pause_schema_schedules_strict(eligible)
+        self._wait_for_running_sync_jobs(source.team_id, [str(s.id) for s in eligible], drain_timeout)
+
+        self.stdout.write("4/7 draining sourcebatch")
         self._wait_for_sourcebatch_drain(source.team_id, [str(s.id) for s in eligible], drain_timeout)
 
         # Pre-flip files were already delivered by the legacy lane, and replaying them would
         # re-apply rows against a position the guard has no watermark for yet.
-        self.stdout.write("4/6 purging pre-flip buffer files")
+        self.stdout.write("5/7 purging pre-flip buffer files")
         for schema in eligible:
             purge_buffer_prefix(source.team_id, str(schema.id), logger)
         self._verify_prefixes_empty(source.team_id, eligible)
 
-        self.stdout.write("5/6 setting cdc_ingest_mode=buffered")
+        self.stdout.write("6/7 setting cdc_ingest_mode=buffered")
         source.job_inputs = {**(source.job_inputs or {}), "cdc_ingest_mode": "buffered"}
         source.save(update_fields=["job_inputs"])
 
-        self.stdout.write("6/6 unpausing schedules")
+        self.stdout.write("7/7 unpausing schedules")
         unpause_cdc_extraction_schedule(source_id)
         self._set_schema_schedules(eligible, paused=False)
 
@@ -330,8 +338,8 @@ class Command(BaseCommand):
                 pause_external_data_schedule(str(schema.id))
             except Exception as exc:
                 raise CommandError(
-                    f"Could not pause the schedule for {schema.name}; a sync starting mid-rollback "
-                    f"could overwrite newer legacy rows. Mode unchanged — fix and re-run. ({exc})"
+                    f"Could not pause the schedule for {schema.name}; a sync straddling the mode "
+                    f"change would consume with stale settings. Mode unchanged — fix and re-run. ({exc})"
                 )
 
     def _verify_prefixes_empty(self, team_id: int, eligible: list[ExternalDataSchema]) -> None:

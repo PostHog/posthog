@@ -10,6 +10,7 @@ from django.core.management.base import CommandError
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
@@ -330,6 +331,28 @@ class TestMigrateCDCSourceToBuffered(BaseTest):
         # lane has already started writing.
         assert "cdc_ingest_mode" not in source.job_inputs
         mocks["pause"].assert_called_once()
+        mocks["unpause"].assert_not_called()
+
+    def test_the_flip_waits_out_a_running_scheduled_sync(self):
+        # A sync that started legacy resolves its pipeline version before the mode changes; letting
+        # it straddle the change would consume the buffer on that stale version.
+        source = self._source()
+        schema = self._schema(source, "users")
+        ExternalDataJob.objects.create(
+            team_id=self.team.pk,
+            pipeline_id=source.id,
+            schema_id=schema.id,
+            status=ExternalDataJob.Status.RUNNING,
+            rows_synced=0,
+        )
+
+        with _mocked_side_effects() as mocks:
+            with pytest.raises(CommandError, match="still running"):
+                self._run(source, drain_timeout=0)
+
+        source.refresh_from_db()
+        assert "cdc_ingest_mode" not in source.job_inputs
+        mocks["pause_schema"].assert_called_once_with(str(schema.id))
         mocks["unpause"].assert_not_called()
 
     def test_the_flip_waits_out_an_in_flight_extraction_run(self):
