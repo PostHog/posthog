@@ -1933,6 +1933,24 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()[0]["owners"] == []
 
+    def test_list_hides_owners_from_a_scout_sandbox_token(self) -> None:
+        # The sandbox token carries `signal_scout:read`, so this is the one config path a scout run
+        # can reach. Owners are member PII that the skill API withholds from a sandbox caller unless
+        # the skill opted into the report channel, and a config list that ignored that would
+        # hand every custom scout's owners to any run.
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-checkout")
+        self._make_skill("signals-scout-checkout")
+        owner = User.objects.create_and_join(self.organization, "owner@example.com", None, first_name="Ada")
+        LLMSkillOwner.objects.for_team(self.team.id).create(
+            team=self.team, skill_name="signals-scout-checkout", user=owner
+        )
+        _authenticate_as_scout(self)
+
+        response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()[0]["owners"] == []
+
     def test_list_origin_defaults_to_custom_when_skill_absent(self) -> None:
         # A config with no live skill row isn't a canonical scout.
         SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-errors")

@@ -2292,11 +2292,12 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
     owners = serializers.SerializerMethodField(
         help_text=(
             "Who answers for this scout, seed-creator first. Ownership is recorded on the scout's "
-            "skill rather than on this config, so it survives edits to the skill body and carries "
-            "across every project running that skill. Reports the scout files suggest these people "
-            "as reviewers. Prefer this over `created_by`-style fields, which only say who last "
-            "flipped a switch. Empty when nobody owns the scout, or when the owners are no longer "
-            "members with access to the project."
+            "skill rather than on this config, so editing the skill or toggling the scout leaves it "
+            "unchanged. Reports the scout files suggest these people as reviewers. Prefer this over "
+            "`created_by`-style fields, which only say who last flipped a switch. Empty when nobody "
+            "owns the scout, when the owners are no longer members with access to the project, or "
+            "when the caller is a scout sandbox token: owners are member PII, and a scout reads "
+            "them through the skill API instead."
         ),
     )
     enabled = serializers.BooleanField(

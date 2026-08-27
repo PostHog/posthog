@@ -13,7 +13,8 @@ export function ScoutOwnersCell({ config }: { config: SignalScoutConfig }): JSX.
         return null
     }
 
-    const owners = config.owners
+    // Empty rather than undefined while an older API pod, mid-rollout, still omits the field.
+    const owners = config.owners ?? []
     if (owners.length === 0) {
         return <span className="text-xs text-muted">No owner</span>
     }

@@ -113,7 +113,7 @@ class ScannerScoutViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 # The config serializer reads the scout's skill for its description, origin, and
                 # owners; without this the response would describe the scout it just created as
                 # nameless, custom, and unowned.
-                context=scout_config_context(canonical_team, [result.config.skill_name]),
+                context=scout_config_context(canonical_team, [result.config.skill_name], request),
             ).data,
             status=status.HTTP_201_CREATED if result.created else status.HTTP_200_OK,
         )
