@@ -18,6 +18,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.scoping import team_scope
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
 from products.annotations.backend.models.annotation import Annotation
@@ -852,7 +853,20 @@ class TestCanvasViewEndpoint(CanvasAPIBaseTest):
         canvas_id = self._create_canvas(kind="grid")
         body = self._view(canvas_id).json()
         assert body["layout"]["placements"] == []
+        assert body["component_lifecycles"] == []
         assert body["source"] is None
+
+    def test_view_survives_storage_outage_without_caching_the_degraded_payload(self):
+        canvas_id = self._create_canvas()
+        self._publish(canvas_id, expected_current_version_id=None)
+        with patch.object(build_service, "current_source_project", side_effect=ObjectStorageError("down")):
+            response = self._view(canvas_id)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["source"] is None
+        # No validator on a degraded payload: a later revalidation must not
+        # 304-pin the missing source after storage recovers.
+        assert not response.headers.get("ETag")
+        assert response["Cache-Control"] == "private, no-store"
 
 
 class TestCanvasRevertAndBuilds(CanvasAPIBaseTest):

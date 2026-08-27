@@ -16542,6 +16542,8 @@ export namespace Schemas {
       source?: CanvasSourceProject | null;
       /** For grid canvases: the head layout document. Null for other kinds. */
       layout?: CanvasLayout | null;
+      /** For grid canvases: the renderable build of every component the layout's live placements reference, so the grid renders from this one call. Absent for other kinds. */
+      component_lifecycles?: CanvasComponentLifecycle[];
     }
 
     export interface CapabilityReadiness {

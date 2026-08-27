@@ -1431,6 +1431,8 @@ export interface CanvasViewResponseApi {
     source?: CanvasSourceProjectApi | null
     /** For grid canvases: the head layout document. Null for other kinds. */
     layout?: CanvasLayoutApi | null
+    /** For grid canvases: the renderable build of every component the layout's live placements reference, so the grid renders from this one call. Absent for other kinds. */
+    component_lifecycles?: CanvasComponentLifecycleApi[]
 }
 
 /**

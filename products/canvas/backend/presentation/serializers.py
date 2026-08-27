@@ -863,6 +863,29 @@ class CanvasBuildsResponseSerializer(serializers.Serializer):
     )
 
 
+class CanvasComponentLifecycleSerializer(serializers.Serializer):
+    """The renderable build of one component referenced by a grid layout, shaped
+    like the builds endpoint's response so clients reuse one lifecycle reader."""
+
+    canvas_id = serializers.CharField(help_text="Id of the component canvas.")
+    requested_version_id = serializers.CharField(
+        allow_null=True,
+        help_text="The source version the placement pins, or null when it follows the latest.",
+    )
+    published_build_id = serializers.CharField(
+        allow_null=True,
+        help_text="Id of the component's live build. Null until a build completes.",
+    )
+    current_version_id = serializers.CharField(
+        allow_null=True,
+        help_text="Id of the source version the component's head points at.",
+    )
+    builds = CanvasBuildSerializer(
+        many=True,
+        help_text="The build the placement renders (live, or the pinned version's retained build). Empty when none is renderable.",
+    )
+
+
 class CanvasViewResponseSerializer(serializers.Serializer):
     """Everything a client needs to open a canvas, in one round trip.
 
@@ -896,28 +919,13 @@ class CanvasViewResponseSerializer(serializers.Serializer):
         required=False,
         help_text="For grid canvases: the head layout document. Null for other kinds.",
     )
-
-
-class CanvasComponentLifecycleSerializer(serializers.Serializer):
-    """The renderable build of one component referenced by a grid layout, shaped
-    like the builds endpoint's response so clients reuse one lifecycle reader."""
-
-    canvas_id = serializers.CharField(help_text="Id of the component canvas.")
-    requested_version_id = serializers.CharField(
-        allow_null=True,
-        help_text="The source version the placement pins, or null when it follows the latest.",
-    )
-    published_build_id = serializers.CharField(
-        allow_null=True,
-        help_text="Id of the component's live build. Null until a build completes.",
-    )
-    current_version_id = serializers.CharField(
-        allow_null=True,
-        help_text="Id of the source version the component's head points at.",
-    )
-    builds = CanvasBuildSerializer(
+    component_lifecycles = CanvasComponentLifecycleSerializer(
         many=True,
-        help_text="The build the placement renders (live, or the pinned version's retained build). Empty when none is renderable.",
+        required=False,
+        help_text=(
+            "For grid canvases: the renderable build of every component the layout's live placements "
+            "reference, so the grid renders from this one call. Absent for other kinds."
+        ),
     )
 
 

@@ -7,7 +7,9 @@ from uuid import UUID
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import connection, transaction
 from django.db.models import Q, QuerySet
+from django.http import HttpResponseBase
 from django.utils import timezone
+from django.utils.cache import get_conditional_response
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
@@ -170,7 +172,7 @@ def _canvas_etag(*parts: Any) -> str:
     return '"' + hashlib.sha256(seed.encode()).hexdigest() + '"'
 
 
-def _with_revalidation_headers(response: Response, etag: str) -> Response:
+def _with_revalidation_headers(response: HttpResponseBase, etag: str) -> HttpResponseBase:
     # no-cache means "store, but revalidate every time": polling clients that
     # send If-None-Match pay a hash comparison instead of a full body.
     response["ETag"] = etag
@@ -178,12 +180,30 @@ def _with_revalidation_headers(response: Response, etag: str) -> Response:
     return response
 
 
-def _conditional_response(request: Request, payload: dict[str, Any]) -> Response:
-    """The payload with a content ETag, or 304 when the client already has it."""
+def _conditional_response(request: Request, payload: dict[str, Any]) -> HttpResponseBase:
+    """The payload with a content ETag, or 304 when the client already has it.
+
+    get_conditional_response (not a string compare) matches weak validators
+    too, so a proxy or middleware that weakens the ETag cannot silently break
+    the 304 path."""
     etag = _canvas_etag(json.dumps(payload, sort_keys=True, default=str))
-    if request.headers.get("If-None-Match") == etag:
-        return _with_revalidation_headers(Response(status=status.HTTP_304_NOT_MODIFIED), etag)
+    not_modified = get_conditional_response(request._request, etag=etag)
+    if not_modified is not None:
+        return _with_revalidation_headers(not_modified, etag)
     return _with_revalidation_headers(Response(payload), etag)
+
+
+def _renderable_build(build: CanvasBuild | None) -> CanvasBuild | None:
+    """The build if it can actually be served: ready, artifacts retained, and
+    manifest frozen (the serializer needs the manifest to mint the entry URL)."""
+    if (
+        build is not None
+        and build.status == CanvasBuild.STATUS_READY
+        and build.artifact_object_prefix
+        and isinstance(build.manifest, dict)
+    ):
+        return build
+    return None
 
 
 def _component_lifecycles(team_id: int, user_id: int | None, layout: dict[str, Any]) -> list[dict[str, Any]]:
@@ -230,7 +250,8 @@ def _component_lifecycles(team_id: int, user_id: int | None, layout: dict[str, A
         }
         pinned_builds: dict[str, CanvasBuild] = {}
         if pinned_version_ids:
-            # Ascending order so the newest ready build per version wins the map.
+            # One row per version (its newest ready build) instead of loading a
+            # retry-loop's whole build history with manifests.
             for build in (
                 CanvasBuild.objects.for_team(team_id)
                 .filter(
@@ -239,7 +260,8 @@ def _component_lifecycles(team_id: int, user_id: int | None, layout: dict[str, A
                     status=CanvasBuild.STATUS_READY,
                     artifact_object_prefix__isnull=False,
                 )
-                .order_by("created_at")
+                .order_by("source_version_id", "-created_at")
+                .distinct("source_version_id")
             ):
                 pinned_builds[str(build.source_version_id)] = build
 
@@ -249,17 +271,11 @@ def _component_lifecycles(team_id: int, user_id: int | None, layout: dict[str, A
         if component_canvas is None:
             continue
         if pinned_version_id:
-            pinned_build = pinned_builds.get(pinned_version_id)
+            pinned_build = _renderable_build(pinned_builds.get(pinned_version_id))
             builds = [pinned_build] if pinned_build is not None and str(pinned_build.canvas_id) == component_id else []
         else:
-            published = component_canvas.published_build
-            builds = (
-                [published]
-                if published is not None
-                and published.status == CanvasBuild.STATUS_READY
-                and published.artifact_object_prefix
-                else []
-            )
+            published = _renderable_build(component_canvas.published_build)
+            builds = [published] if published is not None else []
         entries.append(
             {
                 "canvas_id": component_id,
@@ -652,7 +668,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         request=None,
     )
     @action(methods=["GET"], detail=True)
-    def view(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+    def view(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponseBase:
         """Everything needed to open the canvas, in one round trip.
 
         Returns the record, the live build (with its signed artifact URL), and —
@@ -661,15 +677,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         ETag back as If-None-Match to revalidate without a body.
         """
         canvas = self.get_object()
-        published = canvas.published_build
-        live_build = (
-            published
-            if published is not None
-            and published.status == CanvasBuild.STATUS_READY
-            and published.artifact_object_prefix
-            and isinstance(published.manifest, dict)
-            else None
-        )
+        live_build = _renderable_build(canvas.published_build)
         newest_active = (
             canvas.builds.filter(status__in=CanvasBuild.ACTIVE_STATUSES)
             .order_by("-created_at")
@@ -687,11 +695,13 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             newest_active,
             bucket,
         )
-        if request.headers.get("If-None-Match") == etag:
-            return _with_revalidation_headers(Response(status=status.HTTP_304_NOT_MODIFIED), etag)
+        not_modified = get_conditional_response(request._request, etag=etag)
+        if not_modified is not None:
+            return _with_revalidation_headers(not_modified, etag)
 
         source: dict[str, Any] | None = None
         layout: dict[str, Any] | None = None
+        degraded = False
         # Object storage is read only when there is no artifact to render. A
         # storage hiccup degrades to the client's per-endpoint fallback instead
         # of failing the whole open.
@@ -701,20 +711,25 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             elif live_build is None:
                 source, _ = build_service.current_source_project(canvas)
         except ObjectStorageError:
-            pass
-        payload = CanvasViewResponseSerializer(
-            instance={
-                "canvas": canvas,
-                "published_build": live_build,
-                "current_version_id": (
-                    str(canvas.current_source_version_id) if canvas.current_source_version_id else None
-                ),
-                "has_active_build": newest_active is not None,
-                "source": source,
-                "layout": layout,
-            }
-        ).data
-        return _with_revalidation_headers(Response(payload), etag)
+            degraded = True
+        instance: dict[str, Any] = {
+            "canvas": canvas,
+            "published_build": live_build,
+            "current_version_id": (str(canvas.current_source_version_id) if canvas.current_source_version_id else None),
+            "has_active_build": newest_active is not None,
+            "source": source,
+            "layout": layout,
+        }
+        if layout is not None:
+            user = self._request_user()
+            instance["component_lifecycles"] = _component_lifecycles(self.team_id, user.id if user else None, layout)
+        response = Response(CanvasViewResponseSerializer(instance=instance).data)
+        if degraded:
+            # A payload missing its source/layout must not revalidate as
+            # current after storage recovers: no validator, no caching.
+            response["Cache-Control"] = "private, no-store"
+            return response
+        return _with_revalidation_headers(response, etag)
 
     @extend_schema(
         operation_id="canvases_versions_retrieve",
@@ -1171,7 +1186,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         ],
     )
     @action(methods=["GET"], detail=True)
-    def builds(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+    def builds(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponseBase:
         """Read the canvas's build lifecycle: live pointers plus recent builds.
 
         A publish queues a build; poll this until it is ready (the live pointer
@@ -1246,7 +1261,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         ],
     )
     @action(methods=["GET"], detail=True)
-    def layout(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+    def layout(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponseBase:
         """Read a grid canvas's layout document and its `current_version_id`.
 
         Always call this before editing: pass the returned version id as
