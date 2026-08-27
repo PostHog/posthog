@@ -1005,21 +1005,18 @@ jobs:
                       exit $exit_code
                   fi
 
-            # Stage product JUnit for Trunk, excluding warehouse sources. A glob can't express
-            # "all products except one", so copy the files into a flat dir and drop the largest
-            # product suite. Its spans are excluded from the upload, and so from quarantining,
-            # to cut the per-span cost. The gate below uploads this dir.
-            - name: Stage product JUnit for Trunk
+            # Excluded reports bypass Trunk quarantine, so this step owns their verdict.
+            - name: Prepare product JUnit for Trunk
+              id: prepare_product_junit
               if: always()
               shell: bash
+              env:
+                  PRODUCT_FILTERS: ${{ matrix.filters }}
               run: |
-                  mkdir -p trunk-junit
-                  for f in products/*/junit-product.xml; do
-                      [ -f "$f" ] || continue
-                      product=$(basename "$(dirname "$f")")
-                      [ "$product" = "warehouse_sources" ] && continue
-                      cp "$f" "trunk-junit/junit-product-${product}.xml"
-                  done
+                  .github/scripts/prepare-product-junit-for-trunk.sh \
+                      trunk-junit \
+                      "$PRODUCT_FILTERS" \
+                      products/warehouse_sources/junit-product.xml
 
             # Best-effort Trunk upload (continue-on-error); the "Fail on test failure" step below is
             # the verdict, so a Trunk outage can't red a passing shard. Internal PRs only (needs the
@@ -1038,29 +1035,11 @@ jobs:
                   previous-step-outcome: ${{ steps.run-product-tests.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
 
-            # Warehouse sources tests are excluded from the Trunk upload, and so from
-            # quarantining. Their failures can never be masked by the quarantine gate, so
-            # fail this step when the warehouse sources JUnit records one; the verdict
-            # below reds the job on it.
-            - name: Fail on warehouse sources failures
-              id: warehouse_sources_check
-              if: ${{ !cancelled() && contains(matrix.filters, '@posthog/products-warehouse-sources') }}
-              shell: bash
-              run: |
-                  if [ ! -f products/warehouse_sources/junit-product.xml ]; then
-                      echo "::error::Warehouse sources did not produce a JUnit report, so its result cannot be quarantined safely"
-                      exit 1
-                  fi
-                  if grep -qE '<(failure|error)\b' products/warehouse_sources/junit-product.xml; then
-                      echo "::error::Warehouse sources tests failed; they are excluded from Trunk quarantining"
-                      exit 1
-                  fi
-
             # Verdict: red a real failure the gate didn't clear as a quarantined flake. != 'success'
             # also covers the skipped gate on fork/Dependabot. Sits before the timing-data upload so
             # a real failure still skips it, as it did before the test step got continue-on-error.
             - name: Fail on test failure
-              if: ${{ !cancelled() && (steps.warehouse_sources_check.outcome == 'failure' || (steps.run-product-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate.outcome != 'success'))) }}
+              if: ${{ !cancelled() && (steps.prepare_product_junit.outcome == 'failure' || (steps.run-product-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate.outcome != 'success'))) }}
               shell: bash
               run: exit 1
 
