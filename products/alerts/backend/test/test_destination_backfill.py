@@ -188,6 +188,15 @@ class TestBackfillInsightAlertChartBlocks(BaseTest):
         assert self._stored_blocks(healthy)["value"][2] == INSIGHT_CHART_BLOCK
         assert self._stored_blocks(broken)["value"][1] == {"type": "divider"}
 
+    def test_limit_caps_how_many_destinations_the_sweep_touches(self) -> None:
+        self._destination()
+        self._destination()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            result = backfill_insight_alert_chart_blocks(limit=1, apply=True)
+
+        assert (result.scanned, result.repaired) == (1, 1)
+
     def test_team_ids_narrows_the_backfill(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="Other")
         mine = self._destination()
