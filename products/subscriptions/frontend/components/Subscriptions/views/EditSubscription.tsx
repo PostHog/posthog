@@ -277,8 +277,15 @@ function EditSubscriptionForm({
         testDeliveryLoading,
     } = useValues(logic)
     const { previewLoading, previewError, previewImageUrl } = useValues(logic)
-    const { addContext, applyDefaultSelectedInsights, generatePreview, removeContext, sendTestDelivery } =
-        useActions(logic)
+    const {
+        addContext,
+        addContextEvent,
+        applyDefaultSelectedInsights,
+        generatePreview,
+        removeContext,
+        removeContextEvent,
+        sendTestDelivery,
+    } = useActions(logic)
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { deleteSubscription } = useActions(subscriptionslogic)
@@ -456,13 +463,16 @@ function EditSubscriptionForm({
                                 <AiPromptSubscriptionIntroduction />
                                 <AiPromptFields
                                     contexts={subscription.contexts ?? []}
+                                    contextItems={subscription.context_items ?? []}
                                     prompt={subscription.prompt}
                                     windowMode={subscription.ai_prompt_config?.window?.mode}
                                     consentBanner={
                                         aiGate.showAiFormConsentBanner ? <AiConsentGateMessage /> : undefined
                                     }
                                     onAddContext={addContext}
+                                    onAddEvent={addContextEvent}
                                     onRemoveContext={removeContext}
+                                    onRemoveEvent={removeContextEvent}
                                     onSelectAnalysisWindow={logic.actions.selectAiAnalysisWindow}
                                     onSelectExample={logic.actions.selectAiExamplePrompt}
                                 />

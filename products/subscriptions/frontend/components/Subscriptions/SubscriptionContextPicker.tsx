@@ -3,10 +3,15 @@ import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import { IconEvent } from 'lib/lemon-ui/icons'
 
-import type { SubscriptionContextApi } from '../../generated/api.schemas'
+import type { SubscriptionContextApi, SubscriptionContextItemApi } from '../../generated/api.schemas'
 
-const CONTEXT_GROUP_TYPES = [TaxonomicFilterGroupType.Insights, TaxonomicFilterGroupType.Dashboards]
+const CONTEXT_GROUP_TYPES = [
+    TaxonomicFilterGroupType.Events,
+    TaxonomicFilterGroupType.Insights,
+    TaxonomicFilterGroupType.Dashboards,
+]
 const MAX_CONTEXTS = 25
 
 interface PickableContextItem {
@@ -18,16 +23,36 @@ interface PickableContextItem {
 
 interface SubscriptionContextPickerProps {
     contexts: SubscriptionContextApi[]
+    contextItems: SubscriptionContextItemApi[]
     onAdd: (context: SubscriptionContextApi) => void
+    onAddEvent: (eventName: string) => void
     onRemove: (context: SubscriptionContextApi) => void
+    onRemoveEvent: (eventName: string) => void
 }
 
-export function SubscriptionContextPicker({ contexts, onAdd, onRemove }: SubscriptionContextPickerProps): JSX.Element {
+export function SubscriptionContextPicker({
+    contexts,
+    contextItems,
+    onAdd,
+    onAddEvent,
+    onRemove,
+    onRemoveEvent,
+}: SubscriptionContextPickerProps): JSX.Element {
+    const eventNames = contextItems
+        .filter(
+            (item): item is SubscriptionContextItemApi & { kind: 'event'; event_name: string } => item.kind === 'event'
+        )
+        .map((item) => item.event_name)
+
     const handleChange = (
         value: string | number,
         groupType: TaxonomicFilterGroupType,
         item: PickableContextItem
     ): void => {
+        if (groupType === TaxonomicFilterGroupType.Events && typeof value === 'string' && value) {
+            onAddEvent(value)
+            return
+        }
         if (typeof item.id !== 'number') {
             return
         }
@@ -61,9 +86,30 @@ export function SubscriptionContextPicker({ contexts, onAdd, onRemove }: Subscri
                 width={450}
                 data-attr="ai-subscription-context-picker"
                 disabledReason={
-                    contexts.length >= MAX_CONTEXTS ? `You can add up to ${MAX_CONTEXTS} context items` : undefined
+                    contexts.length + contextItems.length >= MAX_CONTEXTS
+                        ? `You can add up to ${MAX_CONTEXTS} context items`
+                        : undefined
                 }
             />
+            {eventNames.map((eventName) => (
+                <Tooltip key={`event:${eventName}`} title={eventName}>
+                    <LemonTag
+                        icon={<IconEvent />}
+                        onClose={() => onRemoveEvent(eventName)}
+                        closable
+                        className="flex items-center text-secondary max-w-48"
+                        data-attr="ai-subscription-context"
+                    >
+                        <Link
+                            to={`/data-management/events/${encodeURIComponent(eventName)}`}
+                            target="_blank"
+                            className="truncate min-w-0 flex-1"
+                        >
+                            {eventName}
+                        </Link>
+                    </LemonTag>
+                </Tooltip>
+            ))}
             {contexts.map((context) => (
                 <Tooltip key={`${context.kind}:${context.id}`} title={context.name}>
                     <LemonTag

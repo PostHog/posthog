@@ -126,12 +126,20 @@ def build_anchor_context(subscription: Subscription) -> AnchorContext | None:
 
 
 def _build_anchor_context(subscription: Subscription) -> AnchorContext | None:
-    events: list[str] = []
+    events = [
+        item["event_name"]
+        for item in subscription.context_items
+        if isinstance(item, dict) and item.get("kind") == "event" and isinstance(item.get("event_name"), str)
+    ]
     lines: list[str] = []
     remaining_tiles = ANCHOR_TILES_LIMIT
 
     dashboards = subscription.context_dashboards.filter(deleted=False).order_by("id")
     insights = subscription.context_insights.filter(deleted=False).order_by("id")
+
+    for event_name in events:
+        name = sanitize_user_text(event_name, ANCHOR_NAME_MAX_LENGTH) or "(unnamed)"
+        lines.append(f"- Context event: {name}")
 
     for dashboard in dashboards:
         name = sanitize_user_text(dashboard.name or "", ANCHOR_NAME_MAX_LENGTH) or "(unnamed)"

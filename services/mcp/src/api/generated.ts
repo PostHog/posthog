@@ -55834,6 +55834,29 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `event` - event
+     */
+    export type SubscriptionContextItemKindEnum = typeof SubscriptionContextItemKindEnum[keyof typeof SubscriptionContextItemKindEnum];
+
+
+    export const SubscriptionContextItemKindEnum = {
+      Event: 'event',
+    } as const;
+
+    export interface SubscriptionContextItem {
+      /** The context item type.
+       *
+       * * `event` - event */
+      kind: SubscriptionContextItemKindEnum;
+      /**
+         * Event name, when kind is 'event'.
+         * @minLength 1
+         * @maxLength 400
+         */
+      event_name: string;
+    }
+
+    /**
      * * `dashboard` - dashboard
      * * `insight` - insight
      */
@@ -55931,6 +55954,8 @@ export namespace Schemas {
       context_dashboards?: number[];
       /** AI report subscriptions only: insight IDs that ground the generated report. Combined with context_dashboards, at most 25 context items are allowed. */
       context_insights?: number[];
+      /** AI report subscriptions only: typed context items that ground the generated report. Combined with dashboards and insights, at most 25 context items are allowed. */
+      context_items?: SubscriptionContextItem[];
       /** The dashboards and insights grounding an AI report, for display. Deleted context is omitted. */
       readonly contexts: readonly SubscriptionContext[];
       /** Delivery channel: email or slack.
@@ -64900,6 +64925,8 @@ export namespace Schemas {
       context_dashboards?: number[];
       /** AI report subscriptions only: insight IDs that ground the generated report. Combined with context_dashboards, at most 25 context items are allowed. */
       context_insights?: number[];
+      /** AI report subscriptions only: typed context items that ground the generated report. Combined with dashboards and insights, at most 25 context items are allowed. */
+      context_items?: SubscriptionContextItem[];
       /** The dashboards and insights grounding an AI report, for display. Deleted context is omitted. */
       readonly contexts?: readonly SubscriptionContext[];
       /** Delivery channel: email or slack.

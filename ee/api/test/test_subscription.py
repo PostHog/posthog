@@ -26,6 +26,7 @@ from posthog.slo.context import slo_operation
 from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.exports.backend.models.subscription import (
     SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER,
     Subscription,
@@ -2612,22 +2613,37 @@ class TestAISubscriptionAPI(APILicensedTest):
         growth = Dashboard.objects.create(team=self.team, name="Growth", created_by=self.user)
         product = Dashboard.objects.create(team=self.team, name="Product", created_by=self.user)
         insight = Insight.objects.create(team=self.team, name="Signups", created_by=self.user)
+        event = EventDefinition.objects.create(team=self.team, name="signed up")
 
         created = self.client.post(
             f"/api/projects/{self.team.id}/subscriptions",
             self._make_ai_payload(
                 context_dashboards=[growth.id, product.id],
                 context_insights=[insight.id],
+                context_items=[{"kind": "event", "event_name": event.name}],
             ),
         )
 
         assert created.status_code == status.HTTP_201_CREATED, created.json()
         assert set(created.json()["context_dashboards"]) == {growth.id, product.id}
         assert created.json()["context_insights"] == [insight.id]
+        assert created.json()["context_items"] == [{"kind": "event", "event_name": event.name}]
         assert {context["name"] for context in created.json()["contexts"]} == {"Growth", "Product", "Signups"}
         for query in (f"dashboard={growth.id}", f"dashboard={product.id}", f"insight={insight.id}"):
             listed = self.client.get(f"/api/projects/{self.team.id}/subscriptions?{query}")
             assert [sub["id"] for sub in listed.json()["results"]] == [created.json()["id"]]
+
+    def test_cannot_add_unknown_event_as_context(self, *mocks: MagicMock):
+        self._mock_temporal(mocks[-1])
+        self._enable_ai()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(context_items=[{"kind": "event", "event_name": "does not exist"}]),
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["context_items"] == ["Each event must belong to your project."]
 
     @parameterized.expand(
         [

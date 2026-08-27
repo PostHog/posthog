@@ -49,6 +49,7 @@ from posthog.utils import str_to_bool
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.exports.backend.models.subscription import (
     Subscription,
     SubscriptionDelivery,
@@ -269,6 +270,16 @@ class SubscriptionContextSerializer(serializers.Serializer):
     url = serializers.CharField(help_text="Link to the context resource.")
 
 
+class SubscriptionContextItemSerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(choices=["event"], help_text="The context item type.")
+    event_name = serializers.CharField(
+        max_length=400,
+        min_length=1,
+        trim_whitespace=False,
+        help_text="Event name, when kind is 'event'.",
+    )
+
+
 class SubscriptionSerializer(serializers.ModelSerializer):
     """Standard Subscription serializer."""
 
@@ -279,6 +290,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         "prompt",
         "insight_id",
         "dashboard_id",
+        "context_items",
     )
 
     created_by = UserBasicSerializer(read_only=True)
@@ -315,6 +327,14 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "when resource_type is 'ai_prompt'. Replaced wholesale on writes."
         ),
     )
+    context_items = serializers.ListField(
+        child=SubscriptionContextItemSerializer(),
+        required=False,
+        help_text=(
+            "AI report subscriptions only: typed context items that ground the generated report. "
+            "Combined with dashboards and insights, at most 25 context items are allowed."
+        ),
+    )
     insight_short_id = serializers.SerializerMethodField()
     resource_name = serializers.SerializerMethodField()
     contexts = serializers.SerializerMethodField(
@@ -345,6 +365,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "ai_prompt_config",
             "context_dashboards",
             "context_insights",
+            "context_items",
             "contexts",
             "target_type",
             "target_value",
@@ -540,7 +561,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             if target is not None and not (target.deleted and turning_off):
                 _require_viewer_access(user_access_control, target, field)
         context_fields = (("context_dashboards", "dashboard"), ("context_insights", "insight"))
-        if any(field in attrs for field, _ in context_fields):
+        if any(field in attrs for field, _ in context_fields) or "context_items" in attrs:
             context_count = 0
             for field, label in context_fields:
                 targets = attrs.get(field)
@@ -559,9 +580,31 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                     if target.deleted:
                         raise ValidationError({field: [f"This {label} has been deleted."]})
 
+            context_items = attrs.get("context_items")
+            if context_items is None:
+                context_count += len(existing.context_items) if existing else 0
+            else:
+                context_count += len(context_items)
+                event_names = [item["event_name"] for item in context_items if item["kind"] == "event"]
+                if len(set(event_names)) != len(event_names):
+                    raise ValidationError({"context_items": ["Select each event only once."]})
+                existing_events = (
+                    {item["event_name"] for item in existing.context_items if item.get("kind") == "event"}
+                    if existing
+                    else set()
+                )
+                new_events = set(event_names) - existing_events
+                known_events = set(
+                    EventDefinition.objects.filter(team_id=self.context["team_id"], name__in=new_events).values_list(
+                        "name", flat=True
+                    )
+                )
+                if new_events - known_events:
+                    raise ValidationError({"context_items": ["Each event must belong to your project."]})
+
             if context_count > MAX_AI_REPORT_CONTEXTS:
                 raise ValidationError(
-                    {"contexts": [f"Select no more than {MAX_AI_REPORT_CONTEXTS} dashboards and insights."]}
+                    {"contexts": [f"Select no more than {MAX_AI_REPORT_CONTEXTS} events, dashboards, and insights."]}
                 )
 
         if existing is None:
@@ -595,7 +638,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             raise ValidationError({"ai_prompt_config": ["AI report settings only apply to AI subscriptions."]})
         if resource_type != Subscription.ResourceType.AI_PROMPT:
             # Keyed on the field the request actually sent, so the error lands on the right input.
-            for context_field in ("context_dashboards", "context_insights"):
+            for context_field in ("context_dashboards", "context_insights", "context_items"):
                 if attrs.get(context_field):
                     raise ValidationError({context_field: ["Context only applies to AI subscriptions."]})
         validate_for_resource_type(attrs, existing)

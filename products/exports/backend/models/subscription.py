@@ -159,7 +159,7 @@ class Subscription(ModelActivityMixin, models.Model):
         blank=True,
         related_name="subscriptions_dashboard_export",
     )
-    # AI-prompt subs only: dashboards and insights injected into the planner as grounding.
+    # AI-prompt subs only: dashboards, insights, and typed context items injected into the planner as grounding.
     # They are not exported resources, so resource_type stays derived from the relations above.
     # Removing a resource deletes only the through-table row and degrades the report gracefully.
     context_dashboards = models.ManyToManyField(
@@ -172,6 +172,9 @@ class Subscription(ModelActivityMixin, models.Model):
         blank=True,
         related_name="contextual_ai_subscriptions",
     )
+    # Context items are a versionable extensibility boundary. Resource-backed contexts stay relational above
+    # for permissions and deletion semantics; event and future runtime context types live here.
+    context_items = models.JSONField(default=list, blank=True)
     integration = models.ForeignKey(
         "posthog.Integration",
         on_delete=models.SET_NULL,

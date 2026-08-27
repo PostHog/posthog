@@ -446,8 +446,15 @@ function SubscriptionContentStep({
     subscription: SubscriptionType
     aiSubscriptionBlocked: boolean
 }): JSX.Element {
-    const { addContext, applyDefaultSelectedInsights, removeContext, selectAiAnalysisWindow, selectAiExamplePrompt } =
-        useActions(subscriptionLogic(logicProps))
+    const {
+        addContext,
+        addContextEvent,
+        applyDefaultSelectedInsights,
+        removeContext,
+        removeContextEvent,
+        selectAiAnalysisWindow,
+        selectAiExamplePrompt,
+    } = useActions(subscriptionLogic(logicProps))
     const isAiPrompt = subscription.resource_type === SubscriptionResourceTypes.AiPrompt
 
     return (
@@ -474,10 +481,13 @@ function SubscriptionContentStep({
                 <AiPromptFields
                     compactAnalysisWindow
                     contexts={subscription.contexts ?? []}
+                    contextItems={subscription.context_items ?? []}
                     prompt={subscription.prompt}
                     windowMode={subscription.ai_prompt_config?.window?.mode}
                     onAddContext={addContext}
+                    onAddEvent={addContextEvent}
                     onRemoveContext={removeContext}
+                    onRemoveEvent={removeContextEvent}
                     onSelectAnalysisWindow={selectAiAnalysisWindow}
                     onSelectExample={selectAiExamplePrompt}
                 />

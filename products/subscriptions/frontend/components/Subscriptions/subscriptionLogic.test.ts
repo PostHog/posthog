@@ -765,6 +765,7 @@ describe('subscriptionLogic', () => {
             name: 'Signups',
             url: '/insights/signups',
         })
+        dashboardAiLogic.actions.addContextEvent('signed up')
         dashboardAiLogic.actions.setSubscriptionValues({
             resource_type: 'ai_prompt',
             prompt: 'Show me the biggest event gains last week',
@@ -776,6 +777,7 @@ describe('subscriptionLogic', () => {
         await expectLogic(dashboardAiLogic).toFinishListeners().toDispatchActions(['submitSubscriptionSuccess'])
         expect(capturedBody?.context_dashboards).toEqual([9])
         expect(capturedBody?.context_insights).toEqual([12])
+        expect(capturedBody?.context_items).toEqual([{ kind: 'event', event_name: 'signed up' }])
         expect(capturedBody?.contexts).toBeUndefined()
         expect(capturedBody?.dashboard).toBeUndefined()
         dashboardAiLogic.unmount()
@@ -792,6 +794,7 @@ describe('subscriptionLogic', () => {
                     prompt: 'Weekly gains',
                     context_dashboards: [9],
                     context_insights: [12],
+                    context_items: [{ kind: 'event', event_name: 'signed up' }],
                     contexts: [dashboardContext, insightContext],
                 }),
             },
@@ -807,10 +810,12 @@ describe('subscriptionLogic', () => {
         router.actions.push('/dashboard/9/subscriptions/1')
         await expectLogic(editLogic).toFinishListeners().toDispatchActions(['loadSubscriptionSuccess'])
         editLogic.actions.removeContext(dashboardContext)
+        editLogic.actions.removeContextEvent('signed up')
         editLogic.actions.submitSubscription()
         await expectLogic(editLogic).toFinishListeners().toDispatchActions(['submitSubscriptionSuccess'])
         expect(capturedBody?.context_dashboards).toEqual([])
         expect(capturedBody?.context_insights).toEqual([12])
+        expect(capturedBody?.context_items).toEqual([])
         editLogic.unmount()
     })
 

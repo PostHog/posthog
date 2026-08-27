@@ -65,6 +65,29 @@ export interface AIPromptConfigApi {
 }
 
 /**
+ * * `event` - event
+ */
+export type SubscriptionContextItemKindEnumApi =
+    (typeof SubscriptionContextItemKindEnumApi)[keyof typeof SubscriptionContextItemKindEnumApi]
+
+export const SubscriptionContextItemKindEnumApi = {
+    Event: 'event',
+} as const
+
+export interface SubscriptionContextItemApi {
+    /** The context item type.
+     *
+     * * `event` - event */
+    kind: SubscriptionContextItemKindEnumApi
+    /**
+     * Event name, when kind is 'event'.
+     * @minLength 1
+     * @maxLength 400
+     */
+    event_name: string
+}
+
+/**
  * * `dashboard` - dashboard
  * * `insight` - insight
  */
@@ -233,6 +256,8 @@ export interface SubscriptionApi {
     context_dashboards?: number[]
     /** AI report subscriptions only: insight IDs that ground the generated report. Combined with context_dashboards, at most 25 context items are allowed. */
     context_insights?: number[]
+    /** AI report subscriptions only: typed context items that ground the generated report. Combined with dashboards and insights, at most 25 context items are allowed. */
+    context_items?: SubscriptionContextItemApi[]
     /** The dashboards and insights grounding an AI report, for display. Deleted context is omitted. */
     readonly contexts: readonly SubscriptionContextApi[]
     /** Delivery channel: email or slack.
@@ -387,6 +412,8 @@ export interface PatchedSubscriptionApi {
     context_dashboards?: number[]
     /** AI report subscriptions only: insight IDs that ground the generated report. Combined with context_dashboards, at most 25 context items are allowed. */
     context_insights?: number[]
+    /** AI report subscriptions only: typed context items that ground the generated report. Combined with dashboards and insights, at most 25 context items are allowed. */
+    context_items?: SubscriptionContextItemApi[]
     /** The dashboards and insights grounding an AI report, for display. Deleted context is omitted. */
     readonly contexts?: readonly SubscriptionContextApi[]
     /** Delivery channel: email or slack.

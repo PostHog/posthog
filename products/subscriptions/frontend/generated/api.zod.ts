@@ -15,6 +15,8 @@ export const subscriptionsCreateBodyAiPromptConfigOneWindowOneStartDaysAgoMax = 
 export const subscriptionsCreateBodyAiPromptConfigOneWindowOneEndDaysAgoMin = 0
 export const subscriptionsCreateBodyAiPromptConfigOneWindowOneEndDaysAgoMax = 365
 
+export const subscriptionsCreateBodyContextItemsItemEventNameMax = 400
+
 export const subscriptionsCreateBodyIntervalMax = 2147483647
 
 export const subscriptionsCreateBodyBysetposMin = -2147483648
@@ -99,6 +101,24 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'AI report subscriptions only: insight IDs that ground the generated report. Combined with context_dashboards, at most 25 context items are allowed.'
+            ),
+        context_items: zod
+            .array(
+                zod.object({
+                    kind: zod
+                        .enum(['event'])
+                        .describe('\* `event` - event')
+                        .describe('The context item type.\n\n\* `event` - event'),
+                    event_name: zod
+                        .string()
+                        .min(1)
+                        .max(subscriptionsCreateBodyContextItemsItemEventNameMax)
+                        .describe("Event name, when kind is 'event'."),
+                })
+            )
+            .optional()
+            .describe(
+                'AI report subscriptions only: typed context items that ground the generated report. Combined with dashboards and insights, at most 25 context items are allowed.'
             ),
         target_type: zod
             .enum(['email', 'slack'])
@@ -197,6 +217,8 @@ export const subscriptionsUpdateBodyAiPromptConfigOneWindowOneStartDaysAgoMax = 
 export const subscriptionsUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMin = 0
 export const subscriptionsUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMax = 365
 
+export const subscriptionsUpdateBodyContextItemsItemEventNameMax = 400
+
 export const subscriptionsUpdateBodyIntervalMax = 2147483647
 
 export const subscriptionsUpdateBodyBysetposMin = -2147483648
@@ -281,6 +303,24 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'AI report subscriptions only: insight IDs that ground the generated report. Combined with context_dashboards, at most 25 context items are allowed.'
+            ),
+        context_items: zod
+            .array(
+                zod.object({
+                    kind: zod
+                        .enum(['event'])
+                        .describe('\* `event` - event')
+                        .describe('The context item type.\n\n\* `event` - event'),
+                    event_name: zod
+                        .string()
+                        .min(1)
+                        .max(subscriptionsUpdateBodyContextItemsItemEventNameMax)
+                        .describe("Event name, when kind is 'event'."),
+                })
+            )
+            .optional()
+            .describe(
+                'AI report subscriptions only: typed context items that ground the generated report. Combined with dashboards and insights, at most 25 context items are allowed.'
             ),
         target_type: zod
             .enum(['email', 'slack'])
@@ -379,6 +419,8 @@ export const subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneStartDaysAg
 export const subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMin = 0
 export const subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMax = 365
 
+export const subscriptionsPartialUpdateBodyContextItemsItemEventNameMax = 400
+
 export const subscriptionsPartialUpdateBodyIntervalMax = 2147483647
 
 export const subscriptionsPartialUpdateBodyBysetposMin = -2147483648
@@ -463,6 +505,24 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'AI report subscriptions only: insight IDs that ground the generated report. Combined with context_dashboards, at most 25 context items are allowed.'
+            ),
+        context_items: zod
+            .array(
+                zod.object({
+                    kind: zod
+                        .enum(['event'])
+                        .describe('\* `event` - event')
+                        .describe('The context item type.\n\n\* `event` - event'),
+                    event_name: zod
+                        .string()
+                        .min(1)
+                        .max(subscriptionsPartialUpdateBodyContextItemsItemEventNameMax)
+                        .describe("Event name, when kind is 'event'."),
+                })
+            )
+            .optional()
+            .describe(
+                'AI report subscriptions only: typed context items that ground the generated report. Combined with dashboards and insights, at most 25 context items are allowed.'
             ),
         target_type: zod
             .enum(['email', 'slack'])

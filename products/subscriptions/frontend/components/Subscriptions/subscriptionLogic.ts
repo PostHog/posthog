@@ -176,6 +176,7 @@ const NEW_SUBSCRIPTION: Partial<SubscriptionType> = {
     ai_prompt_config: { window: { mode: 'since_last_sent' } },
     context_dashboards: [],
     context_insights: [],
+    context_items: [],
     contexts: [],
     send_test_now: true,
 }
@@ -252,6 +253,9 @@ export interface subscriptionLogicActions {
     addContext: (context: SubscriptionContextApi) => {
         context: SubscriptionContextApi
     }
+    addContextEvent: (eventName: string) => {
+        eventName: string
+    }
     applyDefaultSelectedInsights: (selectedIds: number[]) => {
         selectedIds: number[]
     }
@@ -313,6 +317,9 @@ export interface subscriptionLogicActions {
     }
     removeContext: (context: SubscriptionContextApi) => {
         context: SubscriptionContextApi
+    }
+    removeContextEvent: (eventName: string) => {
+        eventName: string
     }
     resetSubscription: (values?: SubscriptionType) => {
         values?: SubscriptionType
@@ -414,7 +421,9 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         setPreviewImageUrl: (url: string | null) => ({ url }),
         applyDefaultSelectedInsights: (selectedIds: number[]) => ({ selectedIds }),
         addContext: (context: SubscriptionContextApi) => ({ context }),
+        addContextEvent: (eventName: string) => ({ eventName }),
         removeContext: (context: SubscriptionContextApi) => ({ context }),
+        removeContextEvent: (eventName: string) => ({ eventName }),
         selectAiExamplePrompt: (prompt: string, label: string) => ({
             prompt,
             label,
@@ -558,6 +567,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                     dashboard: isAi ? undefined : props.dashboardId,
                     context_dashboards: isAi ? (subscription.context_dashboards ?? []) : undefined,
                     context_insights: isAi ? (subscription.context_insights ?? []) : undefined,
+                    context_items: isAi ? (subscription.context_items ?? []) : undefined,
                     contexts: undefined,
                     // AI subscriptions have no dashboard, so a carried-over insight selection would
                     // trip the backend's "insights without a dashboard" guard. Clear it.
@@ -687,6 +697,13 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 context_insights: nextContexts.filter(({ kind }) => kind === 'insight').map(({ id }) => id),
             })
         },
+        addContextEvent: ({ eventName }) => {
+            const contextItems = values.subscription.context_items ?? []
+            if (contextItems.some((item) => item.kind === 'event' && item.event_name === eventName)) {
+                return
+            }
+            actions.setSubscriptionValue('context_items', [...contextItems, { kind: 'event', event_name: eventName }])
+        },
         removeContext: ({ context }) => {
             const nextContexts = (values.subscription.contexts ?? []).filter(
                 (current) => current.kind !== context.kind || current.id !== context.id
@@ -696,6 +713,14 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 context_dashboards: nextContexts.filter(({ kind }) => kind === 'dashboard').map(({ id }) => id),
                 context_insights: nextContexts.filter(({ kind }) => kind === 'insight').map(({ id }) => id),
             })
+        },
+        removeContextEvent: ({ eventName }) => {
+            actions.setSubscriptionValue(
+                'context_items',
+                (values.subscription.context_items ?? []).filter(
+                    (item) => item.kind !== 'event' || item.event_name !== eventName
+                )
+            )
         },
         loadSummaryQuotaSuccess: ({ summaryQuota }) => {
             // Nudge upsell, deferred until the quota answer exists: default the AI summary on for a

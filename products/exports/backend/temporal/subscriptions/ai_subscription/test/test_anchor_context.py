@@ -27,6 +27,7 @@ class TestBuildAnchorContext(APIBaseTest):
     def _subscription(self, **kwargs) -> Subscription:
         context_dashboards = kwargs.pop("context_dashboards", [])
         context_insights = kwargs.pop("context_insights", [])
+        context_items = kwargs.pop("context_items", [])
         subscription = Subscription.objects.create(
             team=self.team,
             prompt="how are exports doing?",
@@ -35,6 +36,7 @@ class TestBuildAnchorContext(APIBaseTest):
             frequency="weekly",
             interval=1,
             start_date=datetime(2026, 1, 1, tzinfo=UTC),
+            context_items=context_items,
             **kwargs,
         )
         subscription.context_dashboards.set(context_dashboards)
@@ -43,6 +45,15 @@ class TestBuildAnchorContext(APIBaseTest):
 
     def test_no_anchor_returns_none(self) -> None:
         assert build_anchor_context(self._subscription()) is None
+
+    def test_event_context_provides_primary_event_scope(self) -> None:
+        context = build_anchor_context(
+            self._subscription(context_items=[{"kind": "event", "event_name": "checkout completed"}])
+        )
+
+        assert context is not None
+        assert "Context event: checkout completed" in context.blob
+        assert context.event_names == ["checkout completed"]
 
     def test_dashboard_anchor_lists_tiles_in_layout_order_with_queries(self) -> None:
         dashboard = Dashboard.objects.create(
