@@ -383,6 +383,463 @@ export const VisionActionsPartialUpdateBody = /* @__PURE__ */ zod
     })
     .describe('A Replay Vision action: a scheduled \"and then…\" automation over a scanner\'s observations.')
 
+export const visionAlertsCreateBodyNameDefault = `Untitled alert`
+export const visionAlertsCreateBodyNameMax = 255
+
+export const visionAlertsCreateBodyEnabledDefault = true
+export const visionAlertsCreateBodySelectionOneVerdictItemMax = 100
+
+export const visionAlertsCreateBodySelectionOneVerdictMax = 10
+
+export const visionAlertsCreateBodySelectionOneTagsItemMax = 200
+
+export const visionAlertsCreateBodySelectionOneTagsMax = 20
+
+export const visionAlertsCreateBodyMetricDefault = `count`
+export const visionAlertsCreateBodyDirectionDefault = `above`
+export const visionAlertsCreateBodyWindowDaysDefault = 1
+export const visionAlertsCreateBodyCheckIntervalMinutesDefault = 60
+export const visionAlertsCreateBodyCheckIntervalMinutesMin = 15
+
+export const visionAlertsCreateBodyEvaluationPeriodsDefault = 1
+export const visionAlertsCreateBodyEvaluationPeriodsMax = 10
+
+export const visionAlertsCreateBodyDatapointsToAlarmDefault = 1
+export const visionAlertsCreateBodyDatapointsToAlarmMax = 10
+
+export const visionAlertsCreateBodyCooldownMinutesDefault = 0
+export const visionAlertsCreateBodyCooldownMinutesMin = 0
+
+export const VisionAlertsCreateBody = /* @__PURE__ */ zod.object({
+    scanner_id: zod.uuid().describe('Scanner whose observations this alert watches. Immutable after creation.'),
+    name: zod
+        .string()
+        .max(visionAlertsCreateBodyNameMax)
+        .default(visionAlertsCreateBodyNameDefault)
+        .describe("Human-readable name for this alert. Defaults to 'Untitled alert' on create when omitted."),
+    enabled: zod
+        .boolean()
+        .default(visionAlertsCreateBodyEnabledDefault)
+        .describe('Whether the alert is active. Disabling a metric alert resets its state to not_firing.'),
+    kind: zod
+        .enum(['metric', 'match'])
+        .describe('\* `metric` - Metric\n\* `match` - Match')
+        .describe(
+            "'metric' fires when a metric crosses a threshold over a rolling window; 'match' fires on every observation that matches the selection. Immutable after creation.\n\n\* `metric` - Metric\n\* `match` - Match"
+        ),
+    selection: zod
+        .object({
+            verdict: zod
+                .array(zod.string().max(visionAlertsCreateBodySelectionOneVerdictItemMax))
+                .max(visionAlertsCreateBodySelectionOneVerdictMax)
+                .optional()
+                .describe("Monitor verdicts to match, e.g. ['yes']."),
+            tags: zod
+                .array(zod.string().max(visionAlertsCreateBodySelectionOneTagsItemMax))
+                .max(visionAlertsCreateBodySelectionOneTagsMax)
+                .optional()
+                .describe('Classifier tags to match; an observation matches when it carries any of them.'),
+            min_score: zod.number().optional().describe('Minimum scorer score (inclusive).'),
+            max_score: zod.number().optional().describe('Maximum scorer score (inclusive).'),
+        })
+        .optional()
+        .describe('Which observations count. Empty matches every observation of the scanner.'),
+    metric: zod
+        .enum(['count', 'avg_score'])
+        .describe('\* `count` - Count matching observations\n\* `avg_score` - Average score')
+        .default(visionAlertsCreateBodyMetricDefault)
+        .describe(
+            "Metric alerts only: what to measure over the window. 'avg_score' requires a scorer scanner.\n\n\* `count` - Count matching observations\n\* `avg_score` - Average score"
+        ),
+    direction: zod
+        .enum(['above', 'below'])
+        .describe('\* `above` - At or above\n\* `below` - At or below')
+        .default(visionAlertsCreateBodyDirectionDefault)
+        .describe(
+            'Metric alerts only: whether the alert fires at or above, or at or below, the threshold.\n\n\* `above` - At or above\n\* `below` - At or below'
+        ),
+    threshold: zod
+        .number()
+        .nullish()
+        .describe(
+            'Metric alerts only: the threshold value. Required for metric alerts, must be omitted for match alerts.'
+        ),
+    window_days: zod
+        .number()
+        .default(visionAlertsCreateBodyWindowDaysDefault)
+        .describe('Metric alerts only: rolling window in days. Allowed values: [1, 3, 7, 14, 30].'),
+    check_interval_minutes: zod
+        .number()
+        .min(visionAlertsCreateBodyCheckIntervalMinutesMin)
+        .default(visionAlertsCreateBodyCheckIntervalMinutesDefault)
+        .describe('Metric alerts only: evaluation cadence in minutes, at least 15.'),
+    evaluation_periods: zod
+        .number()
+        .min(1)
+        .max(visionAlertsCreateBodyEvaluationPeriodsMax)
+        .default(visionAlertsCreateBodyEvaluationPeriodsDefault)
+        .describe('Metric alerts only: total check periods in the sliding evaluation window (M in N-of-M).'),
+    datapoints_to_alarm: zod
+        .number()
+        .min(1)
+        .max(visionAlertsCreateBodyDatapointsToAlarmMax)
+        .default(visionAlertsCreateBodyDatapointsToAlarmDefault)
+        .describe('Metric alerts only: how many periods must breach to fire (N in N-of-M).'),
+    cooldown_minutes: zod
+        .number()
+        .min(visionAlertsCreateBodyCooldownMinutesMin)
+        .default(visionAlertsCreateBodyCooldownMinutesDefault)
+        .describe('Metric alerts only: minimum minutes between repeated notifications. 0 means no cooldown.'),
+    schedule_restriction: zod
+        .union([
+            zod.object({
+                blocked_windows: zod
+                    .array(
+                        zod.object({
+                            start: zod
+                                .string()
+                                .describe(
+                                    'Start time HH:MM (24-hour, project timezone). Inclusive. Each window must span ≥ 30 minutes on the local daily timeline (half-open [start, end)).'
+                                ),
+                            end: zod
+                                .string()
+                                .describe(
+                                    'End time HH:MM (24-hour). Exclusive (half-open interval). Each window must span ≥ 30 minutes locally.'
+                                ),
+                        })
+                    )
+                    .describe(
+                        'Blocked local time windows when the alert must not run. Overlapping or identical windows are merged when saved. At most five windows before normalization; empty array clears quiet hours.'
+                    ),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Blocked local time windows when the alert must not notify. Times use the project timezone. Null disables quiet hours.'
+        ),
+    snooze_until: zod.iso
+        .datetime({ offset: true })
+        .nullish()
+        .describe('ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.'),
+})
+
+export const visionAlertsUpdateBodyNameDefault = `Untitled alert`
+export const visionAlertsUpdateBodyNameMax = 255
+
+export const visionAlertsUpdateBodyEnabledDefault = true
+export const visionAlertsUpdateBodySelectionOneVerdictItemMax = 100
+
+export const visionAlertsUpdateBodySelectionOneVerdictMax = 10
+
+export const visionAlertsUpdateBodySelectionOneTagsItemMax = 200
+
+export const visionAlertsUpdateBodySelectionOneTagsMax = 20
+
+export const visionAlertsUpdateBodyMetricDefault = `count`
+export const visionAlertsUpdateBodyDirectionDefault = `above`
+export const visionAlertsUpdateBodyWindowDaysDefault = 1
+export const visionAlertsUpdateBodyCheckIntervalMinutesDefault = 60
+export const visionAlertsUpdateBodyCheckIntervalMinutesMin = 15
+
+export const visionAlertsUpdateBodyEvaluationPeriodsDefault = 1
+export const visionAlertsUpdateBodyEvaluationPeriodsMax = 10
+
+export const visionAlertsUpdateBodyDatapointsToAlarmDefault = 1
+export const visionAlertsUpdateBodyDatapointsToAlarmMax = 10
+
+export const visionAlertsUpdateBodyCooldownMinutesDefault = 0
+export const visionAlertsUpdateBodyCooldownMinutesMin = 0
+
+export const VisionAlertsUpdateBody = /* @__PURE__ */ zod.object({
+    scanner_id: zod.uuid().describe('Scanner whose observations this alert watches. Immutable after creation.'),
+    name: zod
+        .string()
+        .max(visionAlertsUpdateBodyNameMax)
+        .default(visionAlertsUpdateBodyNameDefault)
+        .describe("Human-readable name for this alert. Defaults to 'Untitled alert' on create when omitted."),
+    enabled: zod
+        .boolean()
+        .default(visionAlertsUpdateBodyEnabledDefault)
+        .describe('Whether the alert is active. Disabling a metric alert resets its state to not_firing.'),
+    kind: zod
+        .enum(['metric', 'match'])
+        .describe('\* `metric` - Metric\n\* `match` - Match')
+        .describe(
+            "'metric' fires when a metric crosses a threshold over a rolling window; 'match' fires on every observation that matches the selection. Immutable after creation.\n\n\* `metric` - Metric\n\* `match` - Match"
+        ),
+    selection: zod
+        .object({
+            verdict: zod
+                .array(zod.string().max(visionAlertsUpdateBodySelectionOneVerdictItemMax))
+                .max(visionAlertsUpdateBodySelectionOneVerdictMax)
+                .optional()
+                .describe("Monitor verdicts to match, e.g. ['yes']."),
+            tags: zod
+                .array(zod.string().max(visionAlertsUpdateBodySelectionOneTagsItemMax))
+                .max(visionAlertsUpdateBodySelectionOneTagsMax)
+                .optional()
+                .describe('Classifier tags to match; an observation matches when it carries any of them.'),
+            min_score: zod.number().optional().describe('Minimum scorer score (inclusive).'),
+            max_score: zod.number().optional().describe('Maximum scorer score (inclusive).'),
+        })
+        .optional()
+        .describe('Which observations count. Empty matches every observation of the scanner.'),
+    metric: zod
+        .enum(['count', 'avg_score'])
+        .describe('\* `count` - Count matching observations\n\* `avg_score` - Average score')
+        .default(visionAlertsUpdateBodyMetricDefault)
+        .describe(
+            "Metric alerts only: what to measure over the window. 'avg_score' requires a scorer scanner.\n\n\* `count` - Count matching observations\n\* `avg_score` - Average score"
+        ),
+    direction: zod
+        .enum(['above', 'below'])
+        .describe('\* `above` - At or above\n\* `below` - At or below')
+        .default(visionAlertsUpdateBodyDirectionDefault)
+        .describe(
+            'Metric alerts only: whether the alert fires at or above, or at or below, the threshold.\n\n\* `above` - At or above\n\* `below` - At or below'
+        ),
+    threshold: zod
+        .number()
+        .nullish()
+        .describe(
+            'Metric alerts only: the threshold value. Required for metric alerts, must be omitted for match alerts.'
+        ),
+    window_days: zod
+        .number()
+        .default(visionAlertsUpdateBodyWindowDaysDefault)
+        .describe('Metric alerts only: rolling window in days. Allowed values: [1, 3, 7, 14, 30].'),
+    check_interval_minutes: zod
+        .number()
+        .min(visionAlertsUpdateBodyCheckIntervalMinutesMin)
+        .default(visionAlertsUpdateBodyCheckIntervalMinutesDefault)
+        .describe('Metric alerts only: evaluation cadence in minutes, at least 15.'),
+    evaluation_periods: zod
+        .number()
+        .min(1)
+        .max(visionAlertsUpdateBodyEvaluationPeriodsMax)
+        .default(visionAlertsUpdateBodyEvaluationPeriodsDefault)
+        .describe('Metric alerts only: total check periods in the sliding evaluation window (M in N-of-M).'),
+    datapoints_to_alarm: zod
+        .number()
+        .min(1)
+        .max(visionAlertsUpdateBodyDatapointsToAlarmMax)
+        .default(visionAlertsUpdateBodyDatapointsToAlarmDefault)
+        .describe('Metric alerts only: how many periods must breach to fire (N in N-of-M).'),
+    cooldown_minutes: zod
+        .number()
+        .min(visionAlertsUpdateBodyCooldownMinutesMin)
+        .default(visionAlertsUpdateBodyCooldownMinutesDefault)
+        .describe('Metric alerts only: minimum minutes between repeated notifications. 0 means no cooldown.'),
+    schedule_restriction: zod
+        .union([
+            zod.object({
+                blocked_windows: zod
+                    .array(
+                        zod.object({
+                            start: zod
+                                .string()
+                                .describe(
+                                    'Start time HH:MM (24-hour, project timezone). Inclusive. Each window must span ≥ 30 minutes on the local daily timeline (half-open [start, end)).'
+                                ),
+                            end: zod
+                                .string()
+                                .describe(
+                                    'End time HH:MM (24-hour). Exclusive (half-open interval). Each window must span ≥ 30 minutes locally.'
+                                ),
+                        })
+                    )
+                    .describe(
+                        'Blocked local time windows when the alert must not run. Overlapping or identical windows are merged when saved. At most five windows before normalization; empty array clears quiet hours.'
+                    ),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Blocked local time windows when the alert must not notify. Times use the project timezone. Null disables quiet hours.'
+        ),
+    snooze_until: zod.iso
+        .datetime({ offset: true })
+        .nullish()
+        .describe('ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.'),
+})
+
+export const visionAlertsPartialUpdateBodyNameDefault = `Untitled alert`
+export const visionAlertsPartialUpdateBodyNameMax = 255
+
+export const visionAlertsPartialUpdateBodyEnabledDefault = true
+export const visionAlertsPartialUpdateBodySelectionOneVerdictItemMax = 100
+
+export const visionAlertsPartialUpdateBodySelectionOneVerdictMax = 10
+
+export const visionAlertsPartialUpdateBodySelectionOneTagsItemMax = 200
+
+export const visionAlertsPartialUpdateBodySelectionOneTagsMax = 20
+
+export const visionAlertsPartialUpdateBodyMetricDefault = `count`
+export const visionAlertsPartialUpdateBodyDirectionDefault = `above`
+export const visionAlertsPartialUpdateBodyWindowDaysDefault = 1
+export const visionAlertsPartialUpdateBodyCheckIntervalMinutesDefault = 60
+export const visionAlertsPartialUpdateBodyCheckIntervalMinutesMin = 15
+
+export const visionAlertsPartialUpdateBodyEvaluationPeriodsDefault = 1
+export const visionAlertsPartialUpdateBodyEvaluationPeriodsMax = 10
+
+export const visionAlertsPartialUpdateBodyDatapointsToAlarmDefault = 1
+export const visionAlertsPartialUpdateBodyDatapointsToAlarmMax = 10
+
+export const visionAlertsPartialUpdateBodyCooldownMinutesDefault = 0
+export const visionAlertsPartialUpdateBodyCooldownMinutesMin = 0
+
+export const VisionAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    scanner_id: zod
+        .uuid()
+        .optional()
+        .describe('Scanner whose observations this alert watches. Immutable after creation.'),
+    name: zod
+        .string()
+        .max(visionAlertsPartialUpdateBodyNameMax)
+        .default(visionAlertsPartialUpdateBodyNameDefault)
+        .describe("Human-readable name for this alert. Defaults to 'Untitled alert' on create when omitted."),
+    enabled: zod
+        .boolean()
+        .default(visionAlertsPartialUpdateBodyEnabledDefault)
+        .describe('Whether the alert is active. Disabling a metric alert resets its state to not_firing.'),
+    kind: zod
+        .enum(['metric', 'match'])
+        .describe('\* `metric` - Metric\n\* `match` - Match')
+        .optional()
+        .describe(
+            "'metric' fires when a metric crosses a threshold over a rolling window; 'match' fires on every observation that matches the selection. Immutable after creation.\n\n\* `metric` - Metric\n\* `match` - Match"
+        ),
+    selection: zod
+        .object({
+            verdict: zod
+                .array(zod.string().max(visionAlertsPartialUpdateBodySelectionOneVerdictItemMax))
+                .max(visionAlertsPartialUpdateBodySelectionOneVerdictMax)
+                .optional()
+                .describe("Monitor verdicts to match, e.g. ['yes']."),
+            tags: zod
+                .array(zod.string().max(visionAlertsPartialUpdateBodySelectionOneTagsItemMax))
+                .max(visionAlertsPartialUpdateBodySelectionOneTagsMax)
+                .optional()
+                .describe('Classifier tags to match; an observation matches when it carries any of them.'),
+            min_score: zod.number().optional().describe('Minimum scorer score (inclusive).'),
+            max_score: zod.number().optional().describe('Maximum scorer score (inclusive).'),
+        })
+        .optional()
+        .describe('Which observations count. Empty matches every observation of the scanner.'),
+    metric: zod
+        .enum(['count', 'avg_score'])
+        .describe('\* `count` - Count matching observations\n\* `avg_score` - Average score')
+        .default(visionAlertsPartialUpdateBodyMetricDefault)
+        .describe(
+            "Metric alerts only: what to measure over the window. 'avg_score' requires a scorer scanner.\n\n\* `count` - Count matching observations\n\* `avg_score` - Average score"
+        ),
+    direction: zod
+        .enum(['above', 'below'])
+        .describe('\* `above` - At or above\n\* `below` - At or below')
+        .default(visionAlertsPartialUpdateBodyDirectionDefault)
+        .describe(
+            'Metric alerts only: whether the alert fires at or above, or at or below, the threshold.\n\n\* `above` - At or above\n\* `below` - At or below'
+        ),
+    threshold: zod
+        .number()
+        .nullish()
+        .describe(
+            'Metric alerts only: the threshold value. Required for metric alerts, must be omitted for match alerts.'
+        ),
+    window_days: zod
+        .number()
+        .default(visionAlertsPartialUpdateBodyWindowDaysDefault)
+        .describe('Metric alerts only: rolling window in days. Allowed values: [1, 3, 7, 14, 30].'),
+    check_interval_minutes: zod
+        .number()
+        .min(visionAlertsPartialUpdateBodyCheckIntervalMinutesMin)
+        .default(visionAlertsPartialUpdateBodyCheckIntervalMinutesDefault)
+        .describe('Metric alerts only: evaluation cadence in minutes, at least 15.'),
+    evaluation_periods: zod
+        .number()
+        .min(1)
+        .max(visionAlertsPartialUpdateBodyEvaluationPeriodsMax)
+        .default(visionAlertsPartialUpdateBodyEvaluationPeriodsDefault)
+        .describe('Metric alerts only: total check periods in the sliding evaluation window (M in N-of-M).'),
+    datapoints_to_alarm: zod
+        .number()
+        .min(1)
+        .max(visionAlertsPartialUpdateBodyDatapointsToAlarmMax)
+        .default(visionAlertsPartialUpdateBodyDatapointsToAlarmDefault)
+        .describe('Metric alerts only: how many periods must breach to fire (N in N-of-M).'),
+    cooldown_minutes: zod
+        .number()
+        .min(visionAlertsPartialUpdateBodyCooldownMinutesMin)
+        .default(visionAlertsPartialUpdateBodyCooldownMinutesDefault)
+        .describe('Metric alerts only: minimum minutes between repeated notifications. 0 means no cooldown.'),
+    schedule_restriction: zod
+        .union([
+            zod.object({
+                blocked_windows: zod
+                    .array(
+                        zod.object({
+                            start: zod
+                                .string()
+                                .describe(
+                                    'Start time HH:MM (24-hour, project timezone). Inclusive. Each window must span ≥ 30 minutes on the local daily timeline (half-open [start, end)).'
+                                ),
+                            end: zod
+                                .string()
+                                .describe(
+                                    'End time HH:MM (24-hour). Exclusive (half-open interval). Each window must span ≥ 30 minutes locally.'
+                                ),
+                        })
+                    )
+                    .describe(
+                        'Blocked local time windows when the alert must not run. Overlapping or identical windows are merged when saved. At most five windows before normalization; empty array clears quiet hours.'
+                    ),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Blocked local time windows when the alert must not notify. Times use the project timezone. Null disables quiet hours.'
+        ),
+    snooze_until: zod.iso
+        .datetime({ offset: true })
+        .nullish()
+        .describe('ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.'),
+})
+
+/**
+ * Create a notification destination for this alert. One HogFunction is created per alert event kind atomically.
+ */
+export const VisionAlertsDestinationsCreateBody = /* @__PURE__ */ zod.object({
+    type: zod
+        .enum(['slack', 'webhook'])
+        .describe('\* `slack` - slack\n\* `webhook` - webhook')
+        .describe('Notification destination type.\n\n\* `slack` - slack\n\* `webhook` - webhook'),
+    slack_workspace_id: zod
+        .number()
+        .optional()
+        .describe('Integration ID for the Slack workspace. Required when type=slack.'),
+    slack_channel_id: zod.string().optional().describe('Slack channel ID. Required when type=slack.'),
+    slack_channel_name: zod.string().optional().describe('Human-readable channel name for display.'),
+    webhook_url: zod.url().optional().describe('HTTPS endpoint to post to. Required when type=webhook.'),
+})
+
+/**
+ * Delete a notification destination by deleting its HogFunction group atomically.
+ */
+export const visionAlertsDestinationsDeleteCreateBodyHogFunctionIdsMax = 5
+
+export const VisionAlertsDestinationsDeleteCreateBody = /* @__PURE__ */ zod.object({
+    hog_function_ids: zod
+        .array(zod.uuid())
+        .min(1)
+        .max(visionAlertsDestinationsDeleteCreateBodyHogFunctionIdsMax)
+        .describe('HogFunction IDs to delete as one atomic destination group.'),
+})
+
 /**
  * Set or update the observation's shared label: whether the scanner scored the session correctly, plus optional feedback on what it got wrong. One label per observation, shared across the team; these labels feed prompt improvement. Requires editor access to the scanner.
  */
@@ -997,12 +1454,22 @@ export const VisionScannersScoutsCreateBody = /* @__PURE__ */ zod
  */
 export const visionScannersDraftCreateBodyGoalMax = 2000
 
+export const visionScannersDraftCreateBodyMonthlyScanBudgetMax = 1000000
+
 export const VisionScannersDraftCreateBody = /* @__PURE__ */ zod
     .object({
         goal: zod
             .string()
             .max(visionScannersDraftCreateBodyGoalMax)
             .describe("What the user wants to accomplish, e.g. 'find out where users get stuck during onboarding'."),
+        monthly_scan_budget: zod
+            .number()
+            .min(1)
+            .max(visionScannersDraftCreateBodyMonthlyScanBudgetMax)
+            .optional()
+            .describe(
+                "Goal-based flow only: how many replays a month the scanner may watch. The draft solves `sampling_mode` and `sampling_rate` so the projection lands on this number. Omitted on the legacy flow, and ignored while the goal-based flow's flag is off for the caller."
+            ),
     })
     .describe("Body of POST \/vision\/scanners\/draft\/ — the user's goal, stated in their own words.")
 

@@ -1286,6 +1286,23 @@ class TestSpecificObjectAccessControl(BaseUserAccessControlTest):
         assert self.notebook_3.id in notebook_ids  # Created by user
         assert self.notebook_2.id not in notebook_ids  # No access
 
+    def test_filter_queryset_with_none_resource_and_no_grants_shows_only_created(self):
+        from products.notebooks.backend.models import Notebook
+
+        self._create_access_control(resource="notebook", access_level="none")
+        self._clear_uac_caches()
+
+        notebook_ids = list(
+            self.user_access_control.filter_queryset_by_access_level(Notebook.objects.all()).values_list(
+                "id", flat=True
+            )
+        )
+
+        # Fail closed without object grants: only self-created notebooks, never the unfiltered
+        # queryset. Logic-layer and background callers reach this filter with no permission layer
+        # above it, so it cannot rely on the view to enforce the resource level.
+        assert notebook_ids == [self.notebook_3.id]
+
     def test_filter_queryset_by_access_level_with_resource_access(self):
         """Test queryset filtering when user has resource-level access"""
         from products.notebooks.backend.models import Notebook

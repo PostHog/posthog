@@ -2540,6 +2540,7 @@ class ExternalDataSourceType(StrEnum):
     SIDE_SHIFT = "SideShift"
     DUCK_LAKE = "DuckLake"
     STARBURST = "Starburst"
+    TRINO = "Trino"
     EASYBILL = "Easybill"
     BEXIO = "Bexio"
     UMAMI = "Umami"
