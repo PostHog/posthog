@@ -15,7 +15,8 @@ import {
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { urls } from 'scenes/urls'
 
-import { InsightShortId } from '~/types'
+import { objectRuleUrl } from '~/layout/navigation-3000/sidepanel/panels/access_control/ResourceAccessControlsV2/accessDetailLogic'
+import { APIScopeObject, AccessControlLevel } from '~/types'
 
 import { describeResolutionChange, humanLevel } from './describeResolutionChange'
 import { ResolutionChange, resolutionPreviewLogic } from './resolutionPreviewLogic'
@@ -54,16 +55,14 @@ function urlForChangeObject(change: ResolutionChange): string | null {
     if (change.object_id === null) {
         return null
     }
-    switch (change.resource) {
-        case 'dashboard':
-            return urls.dashboard(change.object_id)
-        case 'insight':
-            return change.object_short_id ? urls.insightView(change.object_short_id as InsightShortId) : null
-        case 'notebook':
-            return change.object_short_id ? urls.notebook(change.object_short_id) : null
-        default:
-            return null
-    }
+    // Same link rules as the object rules table on the access control settings page
+    return objectRuleUrl({
+        resource: change.resource as APIScopeObject,
+        resource_id: change.object_id,
+        name: change.object_name ?? change.object_id,
+        short_id: change.object_short_id,
+        access_level: change.proposed.level as AccessControlLevel,
+    })
 }
 
 function SubjectCell({ change }: { change: ResolutionChange }): JSX.Element {

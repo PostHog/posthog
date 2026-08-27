@@ -125,6 +125,12 @@ def _resolve_object_names(resource: str, resource_ids: list[str], team_id: int) 
                 str(pk): _ResolvedObjectName(name=f"Ticket: {number}")
                 for pk, number in rows.values_list("pk", "ticket_number")
             }
+        if _model_has_field(display.model, "short_id"):
+            # Notebooks and other short_id models link by short_id, like insights
+            return {
+                str(pk): _ResolvedObjectName(name=name, short_id=short_id)
+                for pk, name, short_id in rows.values_list("pk", display.name_field, "short_id")
+            }
         return {str(pk): _ResolvedObjectName(name=name) for pk, name in rows.values_list("pk", display.name_field)}
     except Exception as e:
         # A resource_id of the wrong shape for the model's pk, or a model that moved. The rules list
