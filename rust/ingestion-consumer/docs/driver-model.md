@@ -282,7 +282,7 @@ loop {
             partitions.check_stalls();       //   commits its clock (it issues if its own
         }                                    //   delay is up), check the stall deadlines
 
-        msgs = kafka.recv(), if budget.used < B => {
+        msgs = kafka.recv(), if budget.under_cap() => {
             // the gate is rdkafka pause/resume, not an unpolled consumer: polling must
             // continue for rebalance callbacks and max.poll.interval liveness at B
             let mut acc = accumulators.obtain();
@@ -428,12 +428,12 @@ fn complete(offsets) -> Option<(Offset, Charge)> {
     for o in offsets {                       // a group's offsets are any subset of the
         slots[o - base].done = true          //   ring, completing in ANY order across
     }                                        //   requests: index arithmetic, O(1) each
-    let mut charge = 0;                      // then pop the done prefix in the same call —
+    let mut charge = Charge::ZERO;           // then pop the done prefix in the same call —
     while slots.front().is_done() {          //   marking and advancing are never separate
         charge += slots.pop_front().charge;  //   steps; what the frontier walked over is
         base += 1;                           //   exactly the newly committable span
     }
-    (charge > 0).then(|| (base - 1, charge)) // None: the front is still in flight — this
+    (!charge.is_zero()).then(|| (base - 1, charge))  // None: the front is in flight — this
 }                                            //   completion sits done above the gap until
                                              //   the earlier work lands
 
@@ -445,6 +445,24 @@ fn pending_charge() -> Charge {              // the drain's dropped (§4.5): eve
     slots.map(|s| s.charge).sum()            //   frontier never walked over — including
 }                                            //   done work stranded above a gap, which was
                                              //   never refunded and replays like the rest
+```
+
+**Charge and budget — the accounting as arithmetic.** A charge is one value with two axes, because `B` caps both (§4.4, whichever binds). It forms a plain monoid — zero, add, sum, component-wise — and the budget only ever adds charges in and subtracts them back out; nothing but the poll gate ever looks inside.
+
+```rust
+struct Charge { events: u64, bytes: u64 }    // one value, two axes; +, +=, Σ are
+                                             //   component-wise — a monoid, nothing more
+
+struct Budget {
+    used: Charge,                            // Σ charged − Σ refunded, exactly (§8.2)
+    cap: Charge,                             // B: CONSUMER_UNCOMMITTED_BUDGET_EVENTS / _BYTES
+}
+
+fn charge(c: Charge) { used += c }           // the whole interface: add in, subtract out;
+fn refund(c: Charge) { used -= c }           //   only under_cap() reads the axes
+fn under_cap() -> bool {
+    used.events < cap.events && used.bytes < cap.bytes
+}
 ```
 
 **Commit manager — the commit policy, whole.** Advances in on every progress event, commits out on its own algorithm; the drain's final offset through `begin_revoke`/`finish_revoke`. The §2.3 verification rides inside unchanged.
