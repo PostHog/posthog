@@ -7684,10 +7684,12 @@ Note: The public smartreach.io/api_docs page only documents campaigns + prospect
 
 ## Smartsheet — **thin**
 
-Today (6): `contacts`, `reports`, `sheets`, `templates`, `users`, `workspaces`
+Today (8): `contacts`, `report_columns`, `report_scope`, `reports`, `sheets`, `templates`, `users`, `workspaces`
 
 Diffed against: <https://developers.smartsheet.com/sitemap.xml>
 
+- [x] `GET /reports/{reportId}/columns` — the columns of every report (title, type, index), fanned out across all reports (announced Jul-09-2026)
+- [x] `GET /reports/{reportId}/scope` — each report's source sheets and workspaces, fanned out across all reports (announced Jul-09-2026)
 - [ ] `GET /sheets/{sheetId} (rows + cells)` — the actual row/cell data inside every sheet - today only sheet metadata is synced, so no sheet content is queryable (high)
 - [ ] `GET /sheets/{sheetId}/columns` — lookup resolving the column ids that every cell references, including picklist options (high)
 - [ ] `GET /events (list-events, list-filtered-events)` — the org-wide activity event stream - who changed what and when (high)
