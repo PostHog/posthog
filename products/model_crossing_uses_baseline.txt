@@ -295,7 +295,7 @@ web_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_mater
 web_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_openapi_spec drives(TrendsQuery) 4
 web_analytics:backend/hogql_queries/ products.experiments.backend.test.test_presentation_api drives(TrendsQuery) 1
 web_analytics:backend/hogql_queries/ products.feature_flags.backend.api.test.test_feature_flag drives(TrendsQuery) 6
-web_analytics:backend/hogql_queries/ products.product_analytics.backend.tests.api.test_insight drives(TrendsQuery) 18
+web_analytics:backend/hogql_queries/ products.product_analytics.backend.tests.api.test_insight drives(TrendsQuery) 19
 web_analytics:backend/hogql_queries/ products.product_analytics.backend.tests.api.test_insight_metadata drives(TrendsQuery) 5
 web_analytics:backend/hogql_queries/ products.product_analytics.backend.tests.api.test_insight_query drives(TrendsQuery) 4
 web_analytics:backend/hogql_queries/ products.product_analytics.backend.tests.api.test_paths_v2 drives(TrendsQuery) 1

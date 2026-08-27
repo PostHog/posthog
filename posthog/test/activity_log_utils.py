@@ -12,7 +12,7 @@ from django.utils import timezone
 
 from rest_framework import status
 
-from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
+from posthog.test.insight_queries import query_from_filters
 
 from ee.api.test.base import APILicensedTest
 
@@ -127,9 +127,7 @@ class ActivityLogTestHelper(APILicensedTest):
         """Create an insight via API."""
         data = {
             "name": name,
-            "query": filter_to_query({"events": [{"id": "$pageview"}], "display": "ActionsLineGraph"}).model_dump(
-                exclude_none=True, mode="json"
-            ),
+            "query": query_from_filters({"events": [{"id": "$pageview"}], "display": "ActionsLineGraph"}),
             "description": "Test insight description",
             **kwargs,
         }

@@ -2,8 +2,8 @@ from typing import Any, Literal, Optional
 
 from rest_framework import status
 
-from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models.team import Team
+from posthog.test.insight_queries import query_from_filters
 
 from products.dashboards.backend.widget_registry import DashboardWidgetType
 
@@ -155,7 +155,7 @@ class DashboardAPI:
         # instead of through this helper.
         if "query" not in data:
             filters = data.pop("filters", None) or {"events": [{"id": "$pageview"}]}
-            data["query"] = filter_to_query(filters).model_dump(exclude_none=True, mode="json")
+            data["query"] = query_from_filters(filters)
 
         response = self.client.post(
             f"/api/projects/{team_id}/insights",

@@ -7,8 +7,8 @@ from posthog.test.base import APIBaseTest, FuzzyInt, QueryMatchingTest
 
 from rest_framework import status
 
-from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models import NotificationViewed, User
+from posthog.test.insight_queries import query_from_filters
 
 
 def _feature_flag_json_payload(key: str) -> dict:
@@ -64,7 +64,7 @@ class TestMyNotifications(APIBaseTest, QueryMatchingTest):
         # Legacy `filters` are no longer accepted on write, so send the query they convert to.
         if "query" not in data:
             filters = data.pop("filters", None) or {"events": [{"id": "$pageview"}]}
-            data["query"] = filter_to_query(filters).model_dump(exclude_none=True, mode="json")
+            data["query"] = query_from_filters(filters)
 
         response = self.client.post(f"/api/projects/{team_id}/insights", data=data)
         self.assertEqual(response.status_code, expected_status)

@@ -49,11 +49,11 @@ from posthog import settings
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.caching.insight_result import InsightResult
 from posthog.constants import AvailableFeature
-from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.hogql_queries.query_runner import SHARED_FORCE_BLOCKING_STALENESS_WINDOW, ExecutionMode
 from posthog.models import Filter, OrganizationMembership, SharingConfiguration, Team, User
 from posthog.models.project import Project
 from posthog.test.db_context_capturing import capture_db_queries
+from posthog.test.insight_queries import query_from_filters
 from posthog.test.persons import create_person
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -65,16 +65,9 @@ from products.dashboards.backend.models.dashboard_tile import DashboardTile, Tex
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
 from products.product_analytics.backend.models.insight import InsightViewed
 
-
-def _query_from(filters: dict[str, Any]) -> dict[str, Any]:
-    # Built through the converter so the payload names no query kind. A test module outside the
-    # kind's own product may not add mentions of it: see products/model_crossing_uses_baseline.txt.
-    return filter_to_query(filters).model_dump(exclude_none=True, mode="json")
-
-
-QUERY_PAGEVIEW_TRENDS = _query_from({"events": [{"id": "$pageview"}]})
-QUERY_RAGECLICK_TRENDS = _query_from({"events": [{"id": "$rageclick"}]})
-QUERY_PAGEVIEW_TRENDS_90D = _query_from(
+QUERY_PAGEVIEW_TRENDS = query_from_filters({"events": [{"id": "$pageview"}]})
+QUERY_RAGECLICK_TRENDS = query_from_filters({"events": [{"id": "$rageclick"}]})
+QUERY_PAGEVIEW_TRENDS_90D = query_from_filters(
     {
         "events": [{"id": "$pageview"}],
         "properties": [{"key": "$browser", "value": "Mac OS X"}],
@@ -267,6 +260,17 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "mcp_protocol_version": None,
                     "mcp_oauth_client_name": None,
                     "insight_id": response_1.json()["short_id"],
+                    # The insight now carries a query, so the event reports what it is.
+                    "query_kind": "InsightVizNode",
+                    "query_source_kind": "TrendsQuery",
+                    "series_length": 1,
+                    "event_entity_count": 1,
+                    "action_entity_count": 0,
+                    "data_warehouse_entity_count": 0,
+                    "has_properties": False,
+                    "filter_test_accounts": False,
+                    "breakdown_type": "event",
+                    "has_formula": False,
                     "$set_once": {"email": self.user.email},
                 },
                 groups=ANY,
