@@ -232,6 +232,7 @@ export const evaluationsCreateBodyNameMax = 400
 
 export const evaluationsCreateBodyEvaluationConfigThreeSourceDefault = `user_messages`
 export const evaluationsCreateBodyOutputConfigAllowsNaDefault = false
+export const evaluationsCreateBodyOutputConfigTrueIsPassDefault = true
 export const evaluationsCreateBodyConditionsItemIdMax = 100
 
 export const evaluationsCreateBodyConditionsItemRolloutPercentageDefault = 100
@@ -306,9 +307,17 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod
                     .boolean()
                     .default(evaluationsCreateBodyOutputConfigAllowsNaDefault)
                     .describe('Whether the evaluation can return N\/A for non-applicable generations.'),
+                true_is_pass: zod
+                    .boolean()
+                    .default(evaluationsCreateBodyOutputConfigTrueIsPassDefault)
+                    .describe(
+                        'How reports label a boolean result. True (the default) means a true result is a pass. Set it to false for detector-style evaluations, where a true result flags a problem and reports must count it as a fail.'
+                    ),
             })
             .optional()
-            .describe("Output config. For 'boolean' output_type: {allows_na} to permit N\/A results."),
+            .describe(
+                "Output config. For 'boolean' output_type: {allows_na} to permit N\/A results, and {true_is_pass} to declare whether reports label a true result as a pass (default) or a fail."
+            ),
         conditions: zod
             .array(
                 zod
@@ -429,6 +438,7 @@ export const evaluationsUpdateBodyNameMax = 400
 
 export const evaluationsUpdateBodyEvaluationConfigThreeSourceDefault = `user_messages`
 export const evaluationsUpdateBodyOutputConfigAllowsNaDefault = false
+export const evaluationsUpdateBodyOutputConfigTrueIsPassDefault = true
 export const evaluationsUpdateBodyConditionsItemIdMax = 100
 
 export const evaluationsUpdateBodyConditionsItemRolloutPercentageDefault = 100
@@ -503,9 +513,17 @@ export const EvaluationsUpdateBody = /* @__PURE__ */ zod
                     .boolean()
                     .default(evaluationsUpdateBodyOutputConfigAllowsNaDefault)
                     .describe('Whether the evaluation can return N\/A for non-applicable generations.'),
+                true_is_pass: zod
+                    .boolean()
+                    .default(evaluationsUpdateBodyOutputConfigTrueIsPassDefault)
+                    .describe(
+                        'How reports label a boolean result. True (the default) means a true result is a pass. Set it to false for detector-style evaluations, where a true result flags a problem and reports must count it as a fail.'
+                    ),
             })
             .optional()
-            .describe("Output config. For 'boolean' output_type: {allows_na} to permit N\/A results."),
+            .describe(
+                "Output config. For 'boolean' output_type: {allows_na} to permit N\/A results, and {true_is_pass} to declare whether reports label a true result as a pass (default) or a fail."
+            ),
         conditions: zod
             .array(
                 zod
@@ -626,6 +644,7 @@ export const evaluationsPartialUpdateBodyNameMax = 400
 
 export const evaluationsPartialUpdateBodyEvaluationConfigThreeSourceDefault = `user_messages`
 export const evaluationsPartialUpdateBodyOutputConfigAllowsNaDefault = false
+export const evaluationsPartialUpdateBodyOutputConfigTrueIsPassDefault = true
 export const evaluationsPartialUpdateBodyConditionsItemIdMax = 100
 
 export const evaluationsPartialUpdateBodyConditionsItemRolloutPercentageDefault = 100
@@ -702,9 +721,17 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod
                     .boolean()
                     .default(evaluationsPartialUpdateBodyOutputConfigAllowsNaDefault)
                     .describe('Whether the evaluation can return N\/A for non-applicable generations.'),
+                true_is_pass: zod
+                    .boolean()
+                    .default(evaluationsPartialUpdateBodyOutputConfigTrueIsPassDefault)
+                    .describe(
+                        'How reports label a boolean result. True (the default) means a true result is a pass. Set it to false for detector-style evaluations, where a true result flags a problem and reports must count it as a fail.'
+                    ),
             })
             .optional()
-            .describe("Output config. For 'boolean' output_type: {allows_na} to permit N\/A results."),
+            .describe(
+                "Output config. For 'boolean' output_type: {allows_na} to permit N\/A results, and {true_is_pass} to declare whether reports label a true result as a pass (default) or a fail."
+            ),
         conditions: zod
             .array(
                 zod

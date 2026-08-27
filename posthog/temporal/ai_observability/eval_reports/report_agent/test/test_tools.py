@@ -1,5 +1,6 @@
 """Tests for the v2 eval report agent output tools (set_title, add_section, add_citation)."""
 
+import re
 import json
 import datetime as dt
 from typing import NotRequired, TypedDict
@@ -210,6 +211,33 @@ class TestSummaryMetrics(SimpleTestCase):
 
         self.assertEqual(result["current_period"]["pass_rate"], 0.0)
         self.assertIsNone(result["previous_period"]["pass_rate"])
+
+    @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._execute_hogql")
+    def test_detector_polarity_counts_pass_from_false_results(self, mock_execute_hogql):
+        # 18 clean (false) and 80 flagged (true) results: a detector reports the 80 flagged as fails.
+        mock_execute_hogql.side_effect = [
+            [[18, 80, 2, 100]],
+            [[2, 7, 1, 10]],
+        ]
+        state = {
+            "team_id": 1,
+            "evaluation_id": "eval-id",
+            "output_type": "boolean",
+            "true_is_pass": False,
+            "period_start": "2026-04-08T14:00:00+00:00",
+            "period_end": "2026-04-08T15:00:00+00:00",
+            "previous_period_start": "2026-04-08T13:00:00+00:00",
+        }
+
+        result = json.loads(_get_summary_metrics_fn(state=state))
+
+        self.assertEqual(result["current_period"]["result_counts"], {"pass": 18, "fail": 80, "na": 2})
+        self.assertEqual(result["current_period"]["pass_rate"], 18.37)
+        # Pin the flip to the pass column itself, so the assertion survives a reordering of the
+        # generated count columns.
+        pass_column = re.search(r"countIf\((.*?)\) as pass_count", mock_execute_hogql.call_args_list[0].args[1], re.S)
+        assert pass_column is not None
+        self.assertIn("properties.$ai_evaluation_result = false", pass_column.group(1))
 
     @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._execute_hogql")
     def test_sentiment_uses_label_predicates_and_returns_distribution(self, mock_execute_hogql):

@@ -741,8 +741,8 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                     name="true_is_pass"
                                                     label={
                                                         <div className="flex items-center gap-1">
-                                                            <span>A true result is a pass</span>
-                                                            <Tooltip title="Leave on for pass/fail evaluations, where a true result means the criteria were satisfied. Turn off for detector-style evaluations, where a true result flags a problem (for example 'struggle detected') and should count as a fail in reports.">
+                                                            <span>Report a true result as a pass</span>
+                                                            <Tooltip title="Leave on for pass/fail evaluations, where a true result means the criteria were satisfied. Turn off for detector-style evaluations, where a true result flags a problem (for example 'struggle detected') and should count as a fail. This only changes how reports label results, not the results themselves.">
                                                                 <IconInfo className="text-muted text-base" />
                                                             </Tooltip>
                                                         </div>
@@ -755,8 +755,8 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                         />
                                                         <span className="text-muted text-sm">
                                                             {(evaluation.output_config.true_is_pass ?? true)
-                                                                ? 'A true result counts as a pass'
-                                                                : 'A true result counts as a fail (detector-style)'}
+                                                                ? 'Reports count a true result as a pass'
+                                                                : 'Reports count a true result as a fail (detector-style)'}
                                                         </span>
                                                     </div>
                                                 </Field>
