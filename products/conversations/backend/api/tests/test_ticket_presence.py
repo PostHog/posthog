@@ -2,7 +2,9 @@ from datetime import timedelta
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
+from django.test import override_settings
 from django.utils import timezone
 
 from rest_framework import status
@@ -11,9 +13,10 @@ from rest_framework.test import APIClient
 from posthog.models import User
 from posthog.redis import get_client
 
+from products.conversations.backend import presence
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import Channel, Status
-from products.conversations.backend.presence import PRESENCE_TTL_SECONDS
+from products.conversations.backend.presence import PRESENCE_TTL_SECONDS, _presence_redis
 
 from ee.models.rbac.access_control import AccessControl
 
@@ -64,3 +67,16 @@ class TestTicketPresenceAPI(APIBaseTest):
 
         assert self.client.get(self.presence_url).json()["viewers"] == {}
         assert self.client.post(self.heartbeat_url).status_code == status.HTTP_403_FORBIDDEN
+
+
+@override_settings(TEST=False, REDIS_URL="redis://cache.example.com:6379")
+def test_presence_redis_client_uses_short_timeout() -> None:
+    _presence_redis.cache_clear()
+    try:
+        with patch.object(presence.redis, "from_url") as from_url:
+            _presence_redis()
+        assert from_url.call_args.args == ("redis://cache.example.com:6379",)
+        assert from_url.call_args.kwargs["socket_timeout"] == 0.1
+        assert from_url.call_args.kwargs["socket_connect_timeout"] == 0.1
+    finally:
+        _presence_redis.cache_clear()
