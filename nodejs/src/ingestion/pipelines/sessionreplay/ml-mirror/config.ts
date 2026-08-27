@@ -47,12 +47,10 @@ export type MlMirrorConfig = {
     /**
      * Collect the URLs of remote images as well, so the fetch lane can download them later.
      *
-     * Enabling changes the mirrored JSONL shape a second time: a remote image keeps its grey
-     * placeholder and a `data-anon-image-ref-<attribute>` sibling carries its
-     * `imageurl:<hash>` ref. The prefix differs from the image lane's `image:` on
-     * purpose, because this hash names the URL rather than the bytes behind it. Nothing fetches
-     * those URLs yet, so every such ref is dangling. What this buys is the measurement of how many
-     * URLs and how many distinct hosts real traffic carries.
+     * Enabling changes the mirrored JSONL shape a second time. A direct remote image keeps its
+     * placeholder and a `data-anon-image-ref-<attribute>` sibling carries its `imageurl:<hash>`
+     * ref. CSS keeps numbered placeholders and a `data-anon-image-refs-<field>` sibling carries a
+     * JSON slot-to-ref map. The URL hash names the URL rather than the bytes behind it.
      */
     SESSION_RECORDING_ML_URL_COLLECTION_ENABLED: boolean
 
@@ -83,6 +81,8 @@ export type MlMirrorConfig = {
 
     /** While true, the fetch lane parses input but sends no request and writes no crawl history. */
     SESSION_RECORDING_ML_IMAGE_FETCH_DRY_RUN: boolean
+    /** Optional topic for rejected frontier records. Empty commits and drops rejected input without quarantine. */
+    SESSION_RECORDING_ML_IMAGE_FETCH_DLQ_TOPIC: string
     SESSION_RECORDING_ML_IMAGE_FETCH_GROUP_ID: string
     SESSION_RECORDING_ML_IMAGE_FETCH_BATCH_SIZE: number
     AI_RESEARCH_IMAGE_FETCH_DYNAMODB_TABLE: string
@@ -231,6 +231,7 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_URL_CRAWL_HISTORY_PRECHECK_TIMEOUT_MS: 500,
         WEB_BOT_AUTH_PRIVATE_KEYS: '',
         SESSION_RECORDING_ML_IMAGE_FETCH_DRY_RUN: true,
+        SESSION_RECORDING_ML_IMAGE_FETCH_DLQ_TOPIC: '',
         SESSION_RECORDING_ML_IMAGE_FETCH_GROUP_ID: 'session-replay-ml-image-fetch',
         SESSION_RECORDING_ML_IMAGE_FETCH_BATCH_SIZE: 500,
         AI_RESEARCH_IMAGE_FETCH_DYNAMODB_TABLE: '',

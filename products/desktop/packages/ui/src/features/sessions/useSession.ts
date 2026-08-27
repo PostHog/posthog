@@ -198,3 +198,10 @@ export const useSessionHandoffInProgress = (
     return s.sessions[taskRunId]?.handoffInProgress ?? false;
   });
 };
+
+export const useTaskSessionStarting = (taskId: string | undefined): boolean => {
+  return useSessionStore((s) => {
+    if (!taskId) return false;
+    return s.startingTaskIds[taskId] === true;
+  });
+};

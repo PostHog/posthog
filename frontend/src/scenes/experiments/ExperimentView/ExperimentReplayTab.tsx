@@ -20,6 +20,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { pluralize } from 'lib/utils/strings'
+import { isLaunched } from 'scenes/experiments/experimentStatus'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { urls } from 'scenes/urls'
@@ -29,8 +30,6 @@ import { Experiment } from '~/types'
 import { experimentScannerParams } from 'products/replay_vision/frontend/replay_scanners/experimentTargeting'
 import { scannerTypeLabel } from 'products/replay_vision/frontend/replay_scanners/types'
 
-import { SummarizeSessionReplaysButton } from '../components/SummarizeSessionReplaysButton'
-import { isLaunched } from '../experimentStatus'
 import { NOT_A_FUNNEL_REASON } from '../utils'
 import { ExperimentBehaviorComparison, ExperimentBehaviorComparisonToggle } from './ExperimentBehaviorComparison'
 import {
@@ -416,9 +415,6 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
                     </DropdownMenu>
                 )}
                 <ExperimentBehaviorComparisonToggle experiment={experiment} />
-                <div className="ml-auto">
-                    <SummarizeSessionReplaysButton experiment={experiment} />
-                </div>
             </div>
             {/* The default mode also uses the endpoint for a single multi-source metric, so the
                 caption follows the request, not the mode. */}

@@ -38,6 +38,7 @@ TASK_ANALYSIS_INSIGHTS_STATE_KEY = "task_analysis_insights"
 # Run-state key the telemetry flag decision is stamped under at dispatch (temporal/client.py).
 # Consumers read the stamp, so the decision stays stable for the run's whole lifetime.
 AGENT_OTEL_TELEMETRY_STATE_KEY = "agent_otel_telemetry_enabled"
+PR_LOOP_ENABLED_STATE_KEY = "pr_loop_enabled"
 
 # Models a caller may only select while the paired flag is enabled for them. The Desktop
 # pickers already hide these client-side (`products/desktop/packages/shared/src/flags.ts`),

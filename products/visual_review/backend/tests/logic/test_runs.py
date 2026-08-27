@@ -317,7 +317,7 @@ class TestRunOperations:
         assert completed.is_partial is False
 
     def test_complete_run_passes_commit_sha_to_baseline_resolution(self, repo, mocker):
-        """complete_run passes run.commit_sha so default-branch baselines are pinned."""
+        # Pins the baseline to the commit, and limits healing to what rendered.
         run, _ = runs.create_run(
             CreateRunInput(
                 repo_id=repo.id,
@@ -337,7 +337,13 @@ class TestRunOperations:
 
         runs.complete_run(run.id)
 
-        mock_resolve.assert_called_once_with(repo, RunType.STORYBOOK, "master", commit_sha="deadbeef123")
+        mock_resolve.assert_called_once_with(
+            repo,
+            RunType.STORYBOOK,
+            "master",
+            rendered_identifiers={"A"},
+            commit_sha="deadbeef123",
+        )
 
     def test_create_run_with_purpose(self, repo):
         run, _ = runs.create_run(

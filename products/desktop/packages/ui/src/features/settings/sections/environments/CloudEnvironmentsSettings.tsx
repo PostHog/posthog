@@ -102,7 +102,7 @@ export function CloudEnvironmentsSettings() {
     <div className="flex flex-col gap-6">
       <Section
         title="Environments"
-        description="A profile a cloud session runs under: the repositories it works on, the hosts it may reach, and the image it starts from."
+        description="A profile a cloud session runs under: the repositories it works on, the hosts it may reach, and the image it starts from"
         action={
           <Button
             variant="outline"
@@ -141,7 +141,7 @@ export function CloudEnvironmentsSettings() {
       {customImagesEnabled && (
         <Section
           title="Images"
-          description="A sandbox image built once with your tools and dependencies already installed. Any environment can start from it."
+          description="A sandbox image built once with your tools and dependencies already installed; any environment can start from it"
           action={
             <Button
               variant="outline"
@@ -212,7 +212,7 @@ function Section({
 
 function EmptyNote({ children }: { children: ReactNode }) {
   return (
-    <div className="rounded-(--radius-3) border border-(--gray-5) border-dashed px-3 py-3">
+    <div className="rounded-(--radius-3) border border-border border-dashed px-3 py-3">
       <Text className="text-(--gray-11) text-[11.5px] leading-snug">
         {children}
       </Text>

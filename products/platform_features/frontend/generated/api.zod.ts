@@ -36,6 +36,12 @@ export const CreateBody = /* @__PURE__ */ zod.object({
             'When False, members (below admin) only see themselves in the members list and only project members in access control.'
         ),
     allow_publicly_shared_resources: zod.boolean().optional(),
+    read_only_mcp_access: zod
+        .boolean()
+        .nullish()
+        .describe(
+            "When True, requests through the PostHog MCP server can read but not change this organization's data."
+        ),
     is_ai_data_processing_approved: zod.boolean().nullish(),
     is_ai_training_opted_in: zod
         .boolean()
@@ -88,6 +94,12 @@ export const UpdateBody = /* @__PURE__ */ zod.object({
             'When False, members (below admin) only see themselves in the members list and only project members in access control.'
         ),
     allow_publicly_shared_resources: zod.boolean().optional(),
+    read_only_mcp_access: zod
+        .boolean()
+        .nullish()
+        .describe(
+            "When True, requests through the PostHog MCP server can read but not change this organization's data."
+        ),
     is_ai_data_processing_approved: zod.boolean().nullish(),
     is_ai_training_opted_in: zod
         .boolean()
@@ -140,6 +152,12 @@ export const PartialUpdateBody = /* @__PURE__ */ zod.object({
             'When False, members (below admin) only see themselves in the members list and only project members in access control.'
         ),
     allow_publicly_shared_resources: zod.boolean().optional(),
+    read_only_mcp_access: zod
+        .boolean()
+        .nullish()
+        .describe(
+            "When True, requests through the PostHog MCP server can read but not change this organization's data."
+        ),
     is_ai_data_processing_approved: zod.boolean().nullish(),
     is_ai_training_opted_in: zod
         .boolean()
@@ -446,6 +464,32 @@ export const CommentsSendToSlackCreateBody = /* @__PURE__ */ zod.object({
         .max(commentsSendToSlackCreateBodyChannelIdMax)
         .describe(
             "Slack channel ID to create the mirrored thread in. The bot must be a member of the channel. The channel's display name is resolved server-side."
+        ),
+})
+
+/**
+ * Replace the authenticated user's custom facets for a product, within the current team. Pass `@me` as the UUID.
+ */
+export const UserFacetSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    custom_facets: zod
+        .array(
+            zod.object({
+                key: zod
+                    .string()
+                    .describe(
+                        'The log or span attribute key this facet is based on — for example `http.status_code` or `k8s.pod.name`.'
+                    ),
+                source_type: zod
+                    .enum(['attribute', 'resourceAttribute'])
+                    .describe('\* `attribute` - attribute\n\* `resourceAttribute` - resourceAttribute')
+                    .describe(
+                        'Where the key lives: `attribute` for a plain log\/span attribute, `resourceAttribute` for an OpenTelemetry resource attribute.\n\n\* `attribute` - attribute\n\* `resourceAttribute` - resourceAttribute'
+                    ),
+            })
+        )
+        .optional()
+        .describe(
+            'Ordered list of custom facets the user has pinned for this product, within the current team. Send the full list to replace the existing set.'
         ),
 })
 
