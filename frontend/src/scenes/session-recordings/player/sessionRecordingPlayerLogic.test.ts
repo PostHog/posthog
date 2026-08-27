@@ -335,6 +335,76 @@ describe('sessionRecordingPlayerLogic', () => {
                 consoleError.mockRestore()
             }
         )
+
+        it('does not error while a snapshot request is still in flight', async () => {
+            // A source fetch that never resolves keeps snapshotsLoading true, standing in for a slow
+            // but healthy load. The watchdog must re-arm rather than show a false terminal card.
+            overrideSessionRecordingMocks({
+                getMocks: {
+                    '/api/environments/:team_id/session_recordings/:id/snapshots': () => new Promise(() => {}),
+                },
+            })
+            const loadingLogic = sessionRecordingPlayerLogic({
+                sessionRecordingId: '2',
+                playerKey: 'loading',
+                blobV2PollingDisabled: true,
+            })
+            loadingLogic.mount()
+            await expectLogic(loadingLogic).toDispatchActions([
+                snapshotDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSources,
+            ])
+            expect(loadingLogic.values.isBuffering).toBe(true)
+            expect(loadingLogic.values.snapshotSourcesLoading).toBe(true)
+
+            loadingLogic.actions.stuckBufferTimeoutReached()
+
+            expect(loadingLogic.values.playerError).toBeNull()
+            loadingLogic.unmount()
+        })
+
+        it('does not error while snapshots are still being processed', async () => {
+            overrideSessionRecordingMocks({ snapshotSources: [] })
+            const processingLogic = sessionRecordingPlayerLogic({
+                sessionRecordingId: '2',
+                playerKey: 'processing',
+                blobV2PollingDisabled: true,
+            })
+            processingLogic.mount()
+            await expectLogic(processingLogic)
+                .toDispatchActions([snapshotDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSources])
+                .toFinishAllListeners()
+            // A processing pass publishes its snapshots only when it finishes, so no fetch is in flight
+            // and the loaded count stays flat. The watchdog must still re-arm rather than fail.
+            sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }).actions.processSnapshotsAsync()
+            expect(processingLogic.values.snapshotsProcessing).toBe(true)
+            expect(processingLogic.values.isBuffering).toBe(true)
+
+            processingLogic.actions.stuckBufferTimeoutReached()
+
+            expect(processingLogic.values.playerError).toBeNull()
+            processingLogic.unmount()
+        })
+
+        it('surfaces a retryable error when the snapshot source list resolves empty', async () => {
+            overrideSessionRecordingMocks({ snapshotSources: [] })
+            const emptyLogic = sessionRecordingPlayerLogic({
+                sessionRecordingId: '2',
+                playerKey: 'empty',
+                blobV2PollingDisabled: true,
+            })
+            emptyLogic.mount()
+            // The watchdog is armed at mount; wait for the empty source list to settle so nothing is loading.
+            await expectLogic(emptyLogic)
+                .toDispatchActions([snapshotDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSources])
+                .toFinishAllListeners()
+            expect(emptyLogic.values.isBuffering).toBe(true)
+            expect(emptyLogic.values.snapshotsLoading).toBe(false)
+
+            emptyLogic.actions.stuckBufferTimeoutReached()
+
+            expect(emptyLogic.values.playerError).toBe('bufferTimeout')
+            emptyLogic.unmount()
+        })
     })
 
     describe('currentPlayerTime clamping', () => {
@@ -884,6 +954,51 @@ describe('sessionRecordingPlayerLogic', () => {
                 logic.actions.syncPlayerState()
 
                 expect(logic.values.playerError).toBe('noPlayableFullSnapshot')
+            } finally {
+                graceSpy.mockRestore()
+            }
+        })
+
+        it('surfaces a retryable error when a buffer stays stuck with no new data', () => {
+            // A buffer that never resolves (data pending, sources not exhausted) used to spin "Buffering…"
+            // forever; the watchdog turns it into a terminal state the user can retry.
+            seedRecording(null, [inc(START + 61000), inc(START + 62000)])
+            logic.actions.seekToTimestamp(START + 61500)
+            expect(logic.values.isBuffering).toBe(true)
+            expect(logic.values.playerError).toBeNull()
+
+            logic.actions.stuckBufferTimeoutReached()
+
+            expect(logic.values.playerError).toBe('bufferTimeout')
+        })
+
+        it('re-arms the watchdog after a retry', () => {
+            seedRecording(null, [inc(START + 61000), inc(START + 62000)])
+            logic.actions.seekToTimestamp(START + 61500)
+            logic.actions.stuckBufferTimeoutReached()
+            expect(logic.values.playerError).toBe('bufferTimeout')
+            expect(logic.cache.stuckBufferWatchdogArmed).toBe(false)
+
+            // Retry clears the error and restarts loading. clearPlayerError has no listener, so without
+            // an explicit re-arm a retry that hangs again would drop the viewer back to the spinner.
+            logic.actions.retryLoadingSnapshots()
+
+            expect(logic.cache.stuckBufferWatchdogArmed).toBe(true)
+        })
+
+        it('does not error a still-ingesting recording when the buffer watchdog fires', () => {
+            const graceSpy = jest
+                .spyOn(sessionRecordingDataCoordinatorLogicModule, 'isWithinIngestionGracePeriod')
+                .mockReturnValue(true)
+            try {
+                seedRecording([inc(START), inc(START + 1000)], [inc(START + 61000), inc(START + 62000)])
+                logic.actions.setPause()
+                logic.actions.seekToTimestamp(START + 61500)
+                expect(logic.values.isWaitingForIngestion).toBe(true)
+
+                logic.actions.stuckBufferTimeoutReached()
+
+                expect(logic.values.playerError).toBeNull()
             } finally {
                 graceSpy.mockRestore()
             }

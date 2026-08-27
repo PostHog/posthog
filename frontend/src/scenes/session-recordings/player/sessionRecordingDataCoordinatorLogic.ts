@@ -118,6 +118,7 @@ export interface sessionRecordingDataCoordinatorLogicValues {
     isRecentAndInvalid: boolean
     processedSnapshots: RecordingSnapshot[]
     reportedLoaded: boolean
+    snapshotsProcessing: boolean
     segments: RecordingSegment[]
     sessionPlayerData: SessionPlayerData
     snapshots: RecordingSnapshot[]
@@ -515,6 +516,16 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
             [] as RecordingSnapshot[],
             {
                 setProcessedSnapshots: (_, { snapshots }) => snapshots,
+            },
+        ],
+        // A processing pass publishes its snapshots only when it finishes, so this is the only signal
+        // that the recording is still becoming playable while no fetch is in flight.
+        snapshotsProcessing: [
+            false,
+            {
+                processSnapshotsAsync: () => true,
+                setProcessedSnapshots: () => false,
+                snapshotProcessingFailed: () => false,
             },
         ],
     })),
