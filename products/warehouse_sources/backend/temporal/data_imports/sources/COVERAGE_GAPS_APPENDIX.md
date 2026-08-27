@@ -3182,6 +3182,16 @@ Diffed against: <https://formbricks.com/docs/api-reference/openapi.json>
 
 Note: The v1 management API spec (openapi.json, 23 paths) is fully covered - every GET-listable v1 resource is already synced. The remaining gaps come from the v2 organizations API, enumerated from https://formbricks.com/docs/llms.txt (api-v2-reference/organizations-api--\* and api-v2-reference/roles/get-roles). Displays and storage have no list endpoint.
 
+## Fourthwall — adequate
+
+Today (9): `collections`, `donations`, `mailing_list_entries`, `members`, `membership_tiers`, `orders`, `product_templates`, `products`, `promotions`
+
+Diffed against: <https://docs.fourthwall.com/api-reference/platform>
+
+- [x] `product-templates (GET /product-templates/page/{page})` — the catalog of base product templates a shop builds products from, added as a full-refresh table
+
+Note: The product-templates list pages by a 1-based path segment and returns only `{results, total}` (no `totalPages`), so it walks the path until a page is empty; rows are keyed by `productId` and carry no timestamps, so the table is full-refresh only.
+
 ## Freshcaller — gaps
 
 Today (4): `call_metrics`, `calls`, `teams`, `users`
