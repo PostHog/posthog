@@ -1,12 +1,14 @@
 import { buildContextWikiInstructions } from "../../../context-wiki";
 
-const BRANCH_NAMING = `
+function branchNamingInstructions(prefix: string): string {
+  return `
 # Branch Naming
 
 When working in a detached HEAD state, create a descriptive branch name based on the work being done before committing. Do this automatically without asking the user.
 
-When creating a new branch, prefix it with \`posthog/\` (e.g. \`posthog/fix-login-redirect\`).
+When creating a new branch, prefix it with \`${prefix}\` (e.g. \`${prefix}fix-login-redirect\`).
 `;
+}
 
 const PULL_REQUEST_LINKS = `
 # Pull Request Links
@@ -71,13 +73,16 @@ How to phrase the line:
 - Be theatrical: use expressive audio tags in [square brackets] — [laughs], [sighs], [groans], [excited], [whispers], [clears throat] — 1-3 per line, matched to the moment. The system-voice fallback strips tags automatically, so they never hurt.
 `;
 
-const BASE_INSTRUCTIONS =
-  BRANCH_NAMING +
-  PULL_REQUEST_LINKS +
-  PLAN_MODE +
-  MCP_TOOLS +
-  DATA_HANDLING +
-  SHELL_EFFICIENCY;
+function baseInstructions(branchPrefix: string): string {
+  return (
+    branchNamingInstructions(branchPrefix) +
+    PULL_REQUEST_LINKS +
+    PLAN_MODE +
+    MCP_TOOLS +
+    DATA_HANDLING +
+    SHELL_EFFICIENCY
+  );
+}
 
 /** Shell-word shaped, so nothing else in the variable reaches the prompt. */
 const TOOL_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._+-]*$/;
@@ -108,8 +113,11 @@ export function buildAppendedInstructions(opts: {
   contextWikiPath?: string;
   /** Tool metadata from a server-owned image manifest. */
   imageTools?: string;
+  /** Branch prefix for auto-generated branch names (default: "posthog/"). */
+  branchPrefix?: string;
 }): string {
-  let instructions = BASE_INSTRUCTIONS + imageToolsInstruction(opts.imageTools);
+  const prefix = opts.branchPrefix ?? "posthog/";
+  let instructions = baseInstructions(prefix) + imageToolsInstruction(opts.imageTools);
   if (opts.contextWikiPath) {
     instructions += buildContextWikiInstructions(opts.contextWikiPath);
   }

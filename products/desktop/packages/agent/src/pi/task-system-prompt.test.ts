@@ -37,4 +37,33 @@ describe("buildTaskSystemPrompt", () => {
     expect(prompt).not.toContain("Generated-By: PostHog Desktop");
     expect(prompt).toContain("Use the existing pull request.");
   });
+
+  it("uses custom branchPrefix when provided", () => {
+    const prompt = buildTaskSystemPrompt(
+      {
+        projectId: 42,
+        apiHost: "https://us.posthog.com",
+        taskId: "task-123",
+        cwd: "/tmp/workspace",
+        environment: "local",
+      },
+      { branchPrefix: "myorg/" },
+    );
+
+    expect(prompt).toContain("prefix them with `myorg/`");
+    expect(prompt).toContain("`myorg/fix-login-redirect`");
+    expect(prompt).not.toContain("posthog/fix-login-redirect");
+  });
+
+  it("defaults to posthog/ when branchPrefix is omitted", () => {
+    const prompt = buildTaskSystemPrompt({
+      projectId: 42,
+      apiHost: "https://us.posthog.com",
+      taskId: "task-123",
+      cwd: "/tmp/workspace",
+      environment: "local",
+    });
+
+    expect(prompt).toContain("prefix them with `posthog/`");
+  });
 });

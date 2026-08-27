@@ -2,7 +2,7 @@ import { ArrowSquareOut } from "@phosphor-icons/react";
 import { buildPostHogUrl } from "@posthog/core/settings/posthogUrl";
 import { useServiceOptional } from "@posthog/di/react";
 import { useHostTRPC } from "@posthog/host-router/react";
-import { Button, Switch } from "@posthog/quill";
+import { Button, Input, Switch } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
 import {
   EFFORT_LEVEL_DOCS_URLS,
@@ -145,6 +145,7 @@ export function GeneralSettings() {
     defaultReasoningEffort,
     diffOpenMode,
     sendMessagesWith,
+    branchPrefix,
     setAutoConvertLongText,
     setDefaultInitialTaskMode,
     setDefaultMessagingMode,
@@ -152,6 +153,7 @@ export function GeneralSettings() {
     setDefaultReasoningEffort,
     setDiffOpenMode,
     setSendMessagesWith,
+    setBranchPrefix,
   } = useSettingsStore();
 
   const handleThemeChange = useCallback(
@@ -248,6 +250,19 @@ export function GeneralSettings() {
       setSendMessagesWith(value);
     },
     [sendMessagesWith, setSendMessagesWith],
+  );
+
+  const handleBranchPrefixChange = useCallback(
+    (e: React.FocusEvent<HTMLInputElement>) => {
+      const value = e.target.value;
+      track(ANALYTICS_EVENTS.SETTING_CHANGED, {
+        setting_name: "branch_prefix",
+        new_value: value,
+        old_value: branchPrefix,
+      });
+      setBranchPrefix(value);
+    },
+    [branchPrefix, setBranchPrefix],
   );
 
   const accountUrl = buildPostHogUrl("/settings/user", cloudRegion);
@@ -412,6 +427,26 @@ export function GeneralSettings() {
                   handleAutoConvertLongTextChange(value as AutoConvertLongText);
               }}
               triggerClassName="w-[160px]"
+            />
+          </SettingsCardRow>
+        </SettingsCard>
+      </SettingsSection>
+
+      <SettingsSection label="Git">
+        <SettingsCard>
+          <SettingsCardRow
+            label="Branch prefix"
+            description="Prefix added to auto-generated branch names (e.g. posthog/, feat/)"
+          >
+            <Input
+              value={branchPrefix}
+              onBlur={handleBranchPrefixChange}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  (e.target as HTMLInputElement).blur();
+                }
+              }}
+              className="w-[160px]"
             />
           </SettingsCardRow>
         </SettingsCard>

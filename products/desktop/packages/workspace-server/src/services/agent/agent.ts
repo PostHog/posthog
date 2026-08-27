@@ -304,6 +304,8 @@ interface SessionConfig {
   spokenNarration?: boolean;
   /** Matched `bedrock-llm-gateway` variant at session start. */
   bedrockGatewayVariant?: BedrockGatewayVariant;
+  /** Branch prefix for auto-generated branch names (default: "posthog/"). */
+  branchPrefix?: string;
 }
 
 /** Pull the adapter's negotiated `agentCapabilities._meta.posthog` capabilities from initialize. */
@@ -685,6 +687,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     additionalDirectories?: string[],
     systemPromptOverride?: string,
     channelMode?: boolean,
+    branchPrefix?: string,
   ): {
     append: string;
   } {
@@ -711,6 +714,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
       {
         structuredInput: true,
         repositoryTools: true,
+        branchPrefix,
       },
     );
 
@@ -795,6 +799,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
       fastMode,
       model,
       jsonSchema,
+      branchPrefix,
     } = config;
 
     // Preview config doesn't need a real repo — use a temp directory
@@ -872,6 +877,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
         additionalDirectories,
         systemPromptOverride,
         channelMode,
+        branchPrefix,
       );
 
       const bundledSkillsDir = join(
@@ -2188,6 +2194,7 @@ For git operations while detached:
         "bedrockGatewayVariant" in params
           ? params.bedrockGatewayVariant
           : undefined,
+      branchPrefix: "branchPrefix" in params ? params.branchPrefix : undefined,
     };
   }
 

@@ -16,6 +16,7 @@ export interface TaskContext extends TaskContextInput {
 export interface TaskPromptCapabilities {
   structuredInput?: boolean;
   repositoryTools?: boolean;
+  branchPrefix?: string;
 }
 
 function escapeXml(value: string): string {
@@ -36,7 +37,10 @@ export function buildTaskContextPrompt(taskId: string): string {
 This is task ${taskId}. Keep material provided as task context, including customer conversations, support tickets, logs, and internal threads, out of code, tests, comments, commit messages, and pull request text. Rewriting or anonymizing that material does not make it safe to publish.`;
 }
 
-export function buildLocalAttributionPrompt(taskId: string): string {
+export function buildLocalAttributionPrompt(
+  taskId: string,
+  branchPrefix?: string,
+): string {
   return `## Attribution
 Do NOT use Claude Code's default attribution (no "Co-Authored-By" trailers, no "Generated with [Claude Code]" lines).
 
@@ -55,7 +59,7 @@ EOF
 )"
 \`\`\`
 
-When creating new branches, prefix them with \`posthog/\` (e.g. \`posthog/fix-login-redirect\`).
+When creating new branches, prefix them with \`${branchPrefix ?? "posthog/"}\` (e.g. \`${branchPrefix ?? "posthog/"}fix-login-redirect\`).
 
 When creating pull requests, add the following footer at the end of the PR description:
 \`\`\`
@@ -135,7 +139,7 @@ export function buildTaskSystemPrompt(
   ];
 
   if (context.environment === "local") {
-    sections.push(buildLocalAttributionPrompt(context.taskId));
+    sections.push(buildLocalAttributionPrompt(context.taskId, capabilities.branchPrefix));
   }
 
   sections.push(
