@@ -5,6 +5,7 @@ from collections.abc import Iterator
 import structlog
 from pydantic import BaseModel, Field
 
+from posthog.exceptions_capture import capture_exception
 from posthog.security.llm_prompt_sanitization import sanitize_user_text
 
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -91,12 +92,17 @@ def build_anchor_context(subscription: Subscription) -> AnchorContext | None:
     except Exception as exc:
         # Grounding is an enhancement; losing it must not fail the delivery. But a build failure
         # must not read as "no anchor" either: that would invalidate a valid frozen plan and let
-        # an ungrounded plan replace it. The caller degrades this one run instead.
+        # an ungrounded plan replace it. The caller degrades this one run instead. A build failure
+        # is a defect, not a normal user action, so it also reaches error tracking — the delivery
+        # keeps succeeding ungrounded, so the log line alone would go unnoticed.
         logger.warning(
             "ai_subscription.anchor_context_failed",
             subscription_id=subscription.id,
             team_id=subscription.team_id,
             exc_info=True,
+        )
+        capture_exception(
+            exc, {"subscription_id": subscription.id, "team_id": subscription.team_id, "feature": "ai_subscription"}
         )
         raise AnchorContextUnavailable from exc
 

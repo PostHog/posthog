@@ -92,12 +92,17 @@ class TestBuildAnchorContext(APIBaseTest):
 
     def test_build_failure_raises_unavailable_not_none(self) -> None:
         # None means "no anchor configured" and would invalidate a frozen plan through the hash
-        # mismatch; a resolution failure must stay distinguishable.
+        # mismatch; a resolution failure must stay distinguishable. A build failure is a defect, so
+        # it must also reach error tracking — the delivery keeps succeeding ungrounded otherwise.
         dashboard = Dashboard.objects.create(team=self.team, name="Growth")
         subscription = self._subscription(anchor_dashboard=dashboard)
-        with patch(f"{_AC}._build_anchor_context", side_effect=RuntimeError("db blip")):
-            with pytest.raises(AnchorContextUnavailable):
-                build_anchor_context(subscription)
+        error = RuntimeError("db blip")
+        with patch(f"{_AC}._build_anchor_context", side_effect=error):
+            with patch(f"{_AC}.capture_exception") as mock_capture:
+                with pytest.raises(AnchorContextUnavailable):
+                    build_anchor_context(subscription)
+        mock_capture.assert_called_once()
+        assert mock_capture.call_args.args[0] is error
 
     def test_query_json_is_sanitized_against_prompt_markers(self) -> None:
         # Query JSON carries user-editable strings; a planted framing tag must not survive into
