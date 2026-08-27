@@ -312,4 +312,35 @@ describe('llmSkillLogic', () => {
             )
         })
     })
+
+    describe('load failures', () => {
+        let logic: ReturnType<typeof llmSkillLogic.build>
+
+        beforeEach(() => {
+            jest.clearAllMocks()
+            initKeaTests()
+            mockFilesRetrieve.mockResolvedValue(MOCK_FILE)
+        })
+
+        afterEach(() => {
+            logic?.unmount()
+        })
+
+        // Only a 404 proves the skill isn't there. Treating every failure as "not found" tells a user
+        // who lacks access, or who hit a server error, that a skill they may well own does not exist.
+        it.each([
+            [404, true, null],
+            [403, false, 403],
+            [500, false, 500],
+        ])('reports a %i as missing=%s', async (status, missing, errorStatus) => {
+            mockResolve.mockRejectedValue(new ApiError('Request failed', status))
+
+            logic = llmSkillLogic({ skillName: 'my-test-skill' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadSkillFailure'])
+
+            expect(logic.values.isSkillMissing).toBe(missing)
+            expect(logic.values.skillLoadErrorStatus).toBe(errorStatus)
+        })
+    })
 })

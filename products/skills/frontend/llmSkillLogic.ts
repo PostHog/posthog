@@ -234,7 +234,10 @@ export interface llmSkillLogicValues {
     skillFormTouched: boolean
     skillFormTouches: Record<string, boolean>
     skillFormValidationErrors: DeepPartialMap<SkillFormValues, ValidationErrorType>
+    skillLoadErrorStatus: number | null
+    skillLoadStatus: number | null
     skillLoading: boolean
+    skillName: string
     skillOwners: readonly UserBasicApi[]
     versionDescription: string
     versions: LLMSkillVersionSummaryApi[]
@@ -387,10 +390,13 @@ export interface llmSkillLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         isNewSkill: (arg: any) => boolean
+        skillName: (arg: SkillLogicProps) => string
+        skillLoadErrorStatus: (skillLoadStatus: number | null) => number | null
         isSkillMissing: (
             skill: ResolvedLLMSkill | SkillFormValues | null,
             skillLoading: boolean,
-            skillFetched: boolean
+            skillFetched: boolean,
+            skillLoadErrorStatus: number | null
         ) => boolean
         shouldDisplaySkeleton: (
             skill: ResolvedLLMSkill | SkillFormValues | null,
@@ -401,6 +407,7 @@ export interface llmSkillLogicMeta {
         isHistoricalVersion: (skill: ResolvedLLMSkill | SkillFormValues | null) => boolean
         breadcrumbs: (
             skill: ResolvedLLMSkill | SkillFormValues | null,
+            skillName: any,
             searchParams: Record<string, any>
         ) => Breadcrumb[]
         isViewMode: (mode: SkillMode, arg: any) => boolean
@@ -478,6 +485,14 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
             {
                 loadSkillSuccess: () => true,
                 loadSkillFailure: () => true,
+            },
+        ],
+        skillLoadStatus: [
+            null as number | null,
+            {
+                loadSkill: () => null,
+                loadSkillSuccess: () => null,
+                loadSkillFailure: (_, { errorObject }) => errorObject?.status ?? null,
             },
         ],
         versionsLoading: [
@@ -747,10 +762,28 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
     selectors({
         isNewSkill: [() => [(_, props) => props], (props) => props.skillName === 'new'],
 
+        skillName: [
+            () => [(_: unknown, props: SkillLogicProps) => props],
+            (props: SkillLogicProps): string => props.skillName,
+        ],
+
+        // A 404 is the only failure that proves the skill isn't there. Every other status (no access,
+        // server error, network drop) leaves the question open, so it gets its own state rather than
+        // telling the user a skill they may well own does not exist.
+        skillLoadErrorStatus: [
+            (s) => [s.skillLoadStatus],
+            (skillLoadStatus: number | null): number | null =>
+                skillLoadStatus !== null && skillLoadStatus !== 404 ? skillLoadStatus : null,
+        ],
+
         isSkillMissing: [
-            (s) => [s.skill, s.skillLoading, s.skillFetched],
-            (skill: ResolvedLLMSkill | SkillFormValues | null, skillLoading: boolean, skillFetched: boolean) =>
-                skillFetched && !skillLoading && skill === null,
+            (s) => [s.skill, s.skillLoading, s.skillFetched, s.skillLoadErrorStatus],
+            (
+                skill: ResolvedLLMSkill | SkillFormValues | null,
+                skillLoading: boolean,
+                skillFetched: boolean,
+                skillLoadErrorStatus: number | null
+            ) => skillFetched && !skillLoading && skill === null && skillLoadErrorStatus === null,
         ],
 
         shouldDisplaySkeleton: [
@@ -769,8 +802,12 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
         ],
 
         breadcrumbs: [
-            (s) => [s.skill, router.selectors.searchParams],
-            (skill: LLMSkillApi | SkillFormValues | null, searchParams: Record<string, any>): Breadcrumb[] => [
+            (s) => [s.skill, s.skillName, router.selectors.searchParams],
+            (
+                skill: LLMSkillApi | SkillFormValues | null,
+                skillName: string,
+                searchParams: Record<string, any>
+            ): Breadcrumb[] => [
                 {
                     name: 'Skills',
                     path: combineUrl(urls.skills(), searchParams).url,
@@ -782,7 +819,9 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
                             ? isSkill(skill)
                                 ? `${skill.name} v${skill.version}`
                                 : skill.name || 'New skill'
-                            : 'New skill',
+                            : skillName === 'new'
+                              ? 'New skill'
+                              : skillName,
                     key: 'Skill',
                 },
             ],

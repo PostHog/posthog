@@ -81,6 +81,8 @@ export function LLMSkillScene(): JSX.Element {
         downloadingZip,
         isSkillFormDirty,
         nextVersion,
+        skillName,
+        skillLoadErrorStatus,
     } = useValues(llmSkillLogic)
     const { searchParams } = useValues(router)
 
@@ -93,11 +95,8 @@ export function LLMSkillScene(): JSX.Element {
         loadMoreVersions,
         downloadSkill,
         cancelEditing,
+        loadSkill,
     } = useActions(llmSkillLogic)
-
-    if (isSkillMissing) {
-        return <NotFound object="skill" />
-    }
 
     if (shouldDisplaySkeleton) {
         return (
@@ -106,6 +105,37 @@ export function LLMSkillScene(): JSX.Element {
                 <LemonSkeleton active className="h-4 w-full" />
                 <LemonSkeleton active className="h-4 w-3/5" />
             </div>
+        )
+    }
+
+    if (skillLoadErrorStatus !== null) {
+        return (
+            <LemonBanner type="error" action={{ children: 'Try again', onClick: loadSkill }}>
+                {skillLoadErrorStatus === 403
+                    ? "You don't have access to this skill. Ask an admin of your organization to give you access."
+                    : "Couldn't load this skill. Try again, and if it keeps happening contact support."}
+            </LemonBanner>
+        )
+    }
+
+    if (isSkillMissing) {
+        return (
+            <NotFound
+                object="skill"
+                caption={
+                    searchParams.version ? (
+                        <>
+                            This skill has no version {searchParams.version}.{' '}
+                            <Link to={urls.skill(skillName)}>View the latest version</Link>, or{' '}
+                            <Link to={urls.skills()}>browse all skills</Link>.
+                        </>
+                    ) : (
+                        <>
+                            Check the skill name in the URL, or <Link to={urls.skills()}>browse all skills</Link>.
+                        </>
+                    )
+                }
+            />
         )
     }
 
