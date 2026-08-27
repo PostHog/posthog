@@ -10,7 +10,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { doraLogic } from './doraLogic'
-import { EngineeringAnalyticsDora } from './EngineeringAnalyticsDora'
+import { EngineeringAnalyticsHealth } from './EngineeringAnalyticsHealth'
 import { engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
 import { EngineeringAnalyticsPullRequests } from './EngineeringAnalyticsPullRequests'
 import {
@@ -46,11 +46,11 @@ function RefreshButton({ extraLoading = false }: { extraLoading?: boolean }): JS
     )
 }
 
-// Rendered only while the DORA tab is active, where its content keeps doraLogic mounted —
+// Rendered only while the Health tab is active, where its content keeps doraLogic mounted —
 // subscribing here adds no eager DORA load on the other tabs. The DORA loading state can't
 // join anyLoading directly: doraLogic already connects from engineeringAnalyticsLogic, and a
 // reverse connect would make the two logics circular.
-function DoraRefreshButton(): JSX.Element {
+function HealthRefreshButton(): JSX.Element {
     const { doraLoading } = useValues(doraLogic)
     return <RefreshButton extraLoading={doraLoading} />
 }
@@ -97,11 +97,11 @@ export function EngineeringAnalyticsScene(): JSX.Element {
             'data-attr': 'engineering-analytics-test-health-tab',
         },
         {
-            key: 'dora',
-            label: 'DORA',
-            content: <EngineeringAnalyticsDora />,
-            link: combineUrl(urls.engineeringAnalyticsDora(), linkParams).url,
-            'data-attr': 'engineering-analytics-dora-tab',
+            key: 'health',
+            label: 'Health',
+            content: <EngineeringAnalyticsHealth />,
+            link: combineUrl(urls.engineeringAnalyticsHealth(), linkParams).url,
+            'data-attr': 'engineering-analytics-health-tab',
         },
     ]
 
@@ -112,7 +112,7 @@ export function EngineeringAnalyticsScene(): JSX.Element {
                     name="Engineering analytics"
                     description={VIEW_DESCRIPTIONS[activeView]}
                     resourceType={{ type: 'health' }}
-                    actions={activeView === 'dora' ? <DoraRefreshButton /> : <RefreshButton />}
+                    actions={activeView === 'health' ? <HealthRefreshButton /> : <RefreshButton />}
                 />
                 <LemonBanner type="info" dismissKey="engineering-analytics-alpha">
                     Engineering analytics is in alpha. Metrics are limited to CI events, and details may change.

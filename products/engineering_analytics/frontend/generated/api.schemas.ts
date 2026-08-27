@@ -312,6 +312,18 @@ export interface DoraOverviewApi {
      * @nullable
      */
     median_failed_deploy_to_next_success_seconds_prev: number | null
+    /** PRs merged in the window (bots and drafts excluded; narrowed by github_team when given) — the denominator behind unattributed_merged_pr_share. */
+    merged_pr_count: number
+    /**
+     * Share of merged_pr_count no successful in-scope deployment attributed: recent merges still waiting for their deploy, plus merges whose deploy the scope or scan bounds miss. Null when nothing merged in the window.
+     * @nullable
+     */
+    unattributed_merged_pr_share: number | null
+    /**
+     * The newest deployment status row synced, any environment — how fresh the deploy data is. Windows ending after this instant undercount. Null when the deploy tables are empty.
+     * @nullable
+     */
+    latest_deploy_status_at: string | null
     /** Bucket width of both series, chosen to fit the window: 'hour', 'day', or 'week'. */
     series_granularity: string
 }

@@ -68,7 +68,7 @@ export interface doraLogicMeta {
         frequencyCounts: (dora: DoraOverviewApi | null) => number[]
         frequencyIsoLabels: (dora: DoraOverviewApi | null) => string[]
         environmentScopeLabel: (dora: DoraOverviewApi | null) => string
-        environmentOptions: (dora: DoraOverviewApi | null) => DoraScopeOption[]
+        environmentOptions: (dora: DoraOverviewApi | null, environment: string | null) => DoraScopeOption[]
         githubTeamOptions: (dora: DoraOverviewApi | null) => DoraScopeOption[]
     }
 }
@@ -180,11 +180,20 @@ export const doraLogic = kea<doraLogicType>([
                       : dora.environment_scope,
         ],
         environmentOptions: [
-            (s) => [s.dora],
-            (dora: DoraOverviewApi | null): DoraScopeOption[] => [
+            (s) => [s.dora, s.environment],
+            (dora: DoraOverviewApi | null, environment: string | null): DoraScopeOption[] => [
                 {
                     value: null,
-                    label: dora?.environment_scope === 'persistent' ? 'All persistent environments' : 'Production',
+                    // With an explicit environment selected, environment_scope echoes that pick, so
+                    // it can no longer describe what the default would resolve to.
+                    label:
+                        environment !== null || !dora
+                            ? 'Default environment'
+                            : dora.environment_scope === 'production'
+                              ? 'Production'
+                              : dora.environment_scope === 'persistent'
+                                ? 'All persistent environments'
+                                : `${dora.environment_scope} (default)`,
                 },
                 ...(dora?.environments ?? []).map((name) => ({ value: name as string | null, label: name })),
             ],

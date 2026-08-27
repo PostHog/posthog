@@ -48,6 +48,9 @@ const DORA: DoraOverviewApi = {
     failed_deployment_share_prev: 0.071,
     median_failed_deploy_to_next_success_seconds: 2280,
     median_failed_deploy_to_next_success_seconds_prev: 3540,
+    merged_pr_count: 112,
+    unattributed_merged_pr_share: 0.045,
+    latest_deploy_status_at: '2026-07-14T22:00:00Z',
     deployment_frequency_series: BUCKET_DAYS.map((day, i) => ({
         bucket_start: `2026-07-${day}T00:00:00Z`,
         deployment_count: FREQUENCY_COUNTS[i],
@@ -89,13 +92,16 @@ const EMPTY_DORA: DoraOverviewApi = {
     failed_deployment_share_prev: null,
     median_failed_deploy_to_next_success_seconds: null,
     median_failed_deploy_to_next_success_seconds_prev: null,
+    merged_pr_count: 0,
+    unattributed_merged_pr_share: null,
+    latest_deploy_status_at: null,
     deployment_frequency_series: [],
     merge_to_deploy_series: [],
 }
 
 const meta: Meta = {
     component: App,
-    title: 'Scenes-App/Engineering Analytics/DORA',
+    title: 'Scenes-App/Engineering Analytics/Health',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
@@ -142,17 +148,17 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-export const Dora: Story = {
+export const Health: Story = {
     render: () => <App />,
-    parameters: { pageUrl: urls.engineeringAnalyticsDora() },
+    parameters: { pageUrl: urls.engineeringAnalyticsHealth() },
 }
 
 // The not-yet-synced state: the deploy endpoints aren't enabled on the GitHub source, so the tab
 // explains what to enable instead of showing zeros.
-export const DoraWithoutDeployData: Story = {
+export const HealthWithoutDeployData: Story = {
     render: () => <App />,
     parameters: {
-        pageUrl: urls.engineeringAnalyticsDora(),
+        pageUrl: urls.engineeringAnalyticsHealth(),
         testOptions: {
             waitForSelector: '[data-attr="engineering-analytics-dora-no-deploy-data"]',
         },

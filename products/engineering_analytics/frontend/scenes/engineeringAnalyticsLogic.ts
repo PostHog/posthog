@@ -1631,7 +1631,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 [urls.engineeringAnalyticsPullRequestList()]: (_, s) => applyScope(s.source, s.repo),
                 [urls.engineeringAnalyticsWorkflows()]: (_, s) => applyScope(s.source, s.repo),
                 [urls.engineeringAnalyticsTestHealth()]: (_, s) => applyScope(s.source, s.repo),
-                [urls.engineeringAnalyticsDora()]: (_, s) => applyScope(s.source, s.repo),
+                [urls.engineeringAnalyticsHealth()]: (_, s) => applyScope(s.source, s.repo),
             }
         }),
 

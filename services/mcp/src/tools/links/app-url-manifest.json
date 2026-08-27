@@ -574,8 +574,8 @@
         "params": ["handle"],
         "scope": "project"
     },
-    "engineeringAnalyticsDora": {
-        "template": "/engineering-analytics/dora",
+    "engineeringAnalyticsHealth": {
+        "template": "/engineering-analytics/health",
         "params": [],
         "scope": "project"
     },

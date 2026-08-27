@@ -4,6 +4,8 @@ import { useMemo } from 'react'
 import { LemonBanner, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
 import { TimeSeriesBarChart, useChartTheme, type TimeInterval } from '@posthog/quill-charts'
 
+import { dayjs } from 'lib/dayjs'
+
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
 import { MergeToDeployBoxPlot } from '../components/MergeToDeployBoxPlot'
@@ -13,7 +15,7 @@ import { Section } from '../components/Section'
 import { compactAgeLabel } from '../lib/format'
 import { doraLogic } from './doraLogic'
 
-export function EngineeringAnalyticsDora(): JSX.Element {
+export function EngineeringAnalyticsHealth(): JSX.Element {
     const {
         notConnected,
         dora,
@@ -78,6 +80,14 @@ export function EngineeringAnalyticsDora(): JSX.Element {
                             The team filter narrows the merge to deploy figures. Deploy counts stay repo-wide.
                         </span>
                     )}
+                    {dora?.latest_deploy_status_at && (
+                        <span
+                            className="ml-auto text-xs text-tertiary"
+                            data-attr="engineering-analytics-dora-freshness"
+                        >
+                            Latest deploy status synced {dayjs(dora.latest_deploy_status_at).fromNow()}.
+                        </span>
+                    )}
                 </div>
             )}
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -95,7 +105,7 @@ export function EngineeringAnalyticsDora(): JSX.Element {
                 />
                 <MetricTile
                     label="Merge to deploy"
-                    tooltip={`Median wait from a PR's merge to the first successful deployment after it, over ${dora?.deployed_pr_count ?? 0} deployed PRs (bots and drafts excluded). Not full commit-to-deploy lead time: pre-merge time is on the Overview tab.`}
+                    tooltip={`Median wait from a PR's merge to the first successful deployment containing it, over ${dora?.deployed_pr_count ?? 0} deployed PRs (bots and drafts excluded). Not full commit-to-deploy lead time: pre-merge time is on the Overview tab.`}
                     value={
                         dora?.median_merge_to_deploy_seconds != null
                             ? compactAgeLabel(dora.median_merge_to_deploy_seconds)
@@ -173,9 +183,21 @@ export function EngineeringAnalyticsDora(): JSX.Element {
                             : 'No deploy data for this window.'}
                     </div>
                 ) : (
-                    <div data-attr="engineering-analytics-dora-box-plot">
-                        <MergeToDeployBoxPlot buckets={boxPlotBuckets} formatSeconds={compactAgeLabel} />
-                    </div>
+                    <>
+                        <div data-attr="engineering-analytics-dora-box-plot">
+                            <MergeToDeployBoxPlot buckets={boxPlotBuckets} formatSeconds={compactAgeLabel} />
+                        </div>
+                        {dora?.unattributed_merged_pr_share != null && dora.unattributed_merged_pr_share > 0 && (
+                            <div
+                                className="mt-2 text-xs text-tertiary"
+                                data-attr="engineering-analytics-dora-unattributed"
+                            >
+                                {(dora.unattributed_merged_pr_share * 100).toFixed(1)}% of the {dora.merged_pr_count}{' '}
+                                PRs merged in this window have no deploy attributed yet, usually because their deploy
+                                hasn't happened or synced.
+                            </div>
+                        )}
+                    </>
                 )}
             </Section>
             <Section
