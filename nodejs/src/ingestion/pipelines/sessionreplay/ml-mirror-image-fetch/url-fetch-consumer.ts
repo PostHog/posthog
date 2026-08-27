@@ -1,4 +1,5 @@
 import { Message } from 'node-rdkafka'
+import pLimit from 'p-limit'
 
 import { logger } from '~/common/utils/logger'
 
@@ -13,11 +14,19 @@ import {
     HOPS_EXHAUSTED,
     isTransientOutcome,
 } from './fetch-runner'
+import { FrontierDeadLetterReason, FrontierDeadLetterSink } from './frontier-dead-letter-sink'
 import { FrontierPublisher, RepublishBatch } from './frontier-publisher'
 import { ImageFetchConsumerMetrics, ImageFetchRequestMetrics } from './metrics'
 
 const ONE_HOUR_MS = 60 * 60 * 1000
 const REPUBLISH_DEADLINE_FROM_BATCH_START_MS = 200_000
+const DEAD_LETTER_BATCH_BUDGET_MS = 50_000
+const DEAD_LETTER_PUBLISH_CONCURRENCY = 8
+
+type RejectedFrontierRecord = {
+    message: Message
+    reasons: UrlDropReason[]
+}
 
 export interface UrlFetchConsumerOptions {
     seenTtlSeconds: number
@@ -29,7 +38,8 @@ export class UrlFetchConsumer {
         private readonly crawlHistory: CrawlHistoryStore,
         private readonly publisher: FrontierPublisher,
         private readonly options: UrlFetchConsumerOptions,
-        private readonly runner?: FetchPass
+        private readonly runner?: FetchPass,
+        private readonly deadLetters: FrontierDeadLetterSink | null = null
     ) {
         if (!Number.isInteger(options.seenTtlSeconds) || options.seenTtlSeconds < 60 * 60) {
             throw new Error('AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS must be at least 3600')
@@ -44,24 +54,28 @@ export class UrlFetchConsumer {
         const startedAt = process.hrtime.bigint()
         const republishDeadlineAtMonotonicMs = performance.now() + REPUBLISH_DEADLINE_FROM_BATCH_START_MS
         const drops = new Map<UrlDropReason, number>()
+        const rejectedRecords: RejectedFrontierRecord[] = []
         const candidatesByRef = new Map<string, FetchCandidate>()
         let dedupedInBatch = 0
         let originCount = 0
         let registrableDomainCount = 0
         let originCandidateCounts: number[] = []
         let registrableDomainCandidateCounts: number[] = []
-        ImageFetchConsumerMetrics.startBatch()
+        const activeBatchId = ImageFetchConsumerMetrics.startBatch()
 
         try {
             for (const message of messages) {
                 const parsed = this.parse(message)
                 if (!parsed.ok) {
-                    drops.set(parsed.reason, (drops.get(parsed.reason) ?? 0) + 1)
+                    rejectedRecords.push({ message, reasons: [parsed.reason] })
                     continue
                 }
                 ImageFetchConsumerMetrics.observeRecord(parsed.urlCount)
-                for (const rejected of parsed.rejected) {
-                    drops.set(rejected.reason, (drops.get(rejected.reason) ?? 0) + 1)
+                if (parsed.rejected.length > 0) {
+                    rejectedRecords.push({
+                        message,
+                        reasons: parsed.rejected.map((rejected) => rejected.reason),
+                    })
                 }
                 for (const candidate of parsed.candidates) {
                     const existing = candidatesByRef.get(candidate.originalRef)
@@ -91,6 +105,7 @@ export class UrlFetchConsumer {
             registrableDomainCandidateCounts = [...registrableDomains.values()]
 
             if (this.options.dryRun || candidates.length === 0) {
+                await this.parkRejectedRecords(rejectedRecords, drops)
                 return
             }
 
@@ -146,8 +161,9 @@ export class UrlFetchConsumer {
                     ImageFetchRequestMetrics.incRetryCause(attempt.outcome)
                 }
             }
+            await this.parkRejectedRecords(rejectedRecords, drops)
         } finally {
-            ImageFetchConsumerMetrics.finishBatch()
+            ImageFetchConsumerMetrics.finishBatch(activeBatchId)
             this.recordMetrics(
                 drops,
                 dedupedInBatch,
@@ -169,6 +185,87 @@ export class UrlFetchConsumer {
             })
             return { ok: false, reason: 'malformed' }
         }
+    }
+
+    private async parkRejectedRecords(
+        records: RejectedFrontierRecord[],
+        drops: Map<UrlDropReason, number>
+    ): Promise<void> {
+        const deadlineAtMonotonicMs = performance.now() + DEAD_LETTER_BATCH_BUDGET_MS
+        const limit = pLimit(DEAD_LETTER_PUBLISH_CONCURRENCY)
+        let firstFailure: unknown
+        const outcomes = await Promise.allSettled(
+            records.map(({ message, reasons }) =>
+                limit(async () => {
+                    if (firstFailure) {
+                        throw firstFailure
+                    }
+                    try {
+                        await this.parkRejectedRecord(message, reasons, deadlineAtMonotonicMs)
+                    } catch (error) {
+                        firstFailure = error
+                        throw error
+                    }
+                })
+            )
+        )
+        for (const outcome of outcomes) {
+            if (outcome.status === 'rejected') {
+                throw outcome.reason
+            }
+        }
+        for (const { reasons } of records) {
+            for (const reason of reasons) {
+                drops.set(reason, (drops.get(reason) ?? 0) + 1)
+            }
+        }
+    }
+
+    private async parkRejectedRecord(
+        message: Message,
+        reasons: UrlDropReason[],
+        deadlineAtMonotonicMs: number
+    ): Promise<void> {
+        if (!this.deadLetters) {
+            return
+        }
+        const reason = this.deadLetterReason(reasons)
+        const remainingMs = deadlineAtMonotonicMs - performance.now()
+        if (remainingMs <= 0) {
+            const error = new Error('image-fetch dead-letter batch exceeded its publish budget')
+            ImageFetchConsumerMetrics.incDeadLetterFailed(reason)
+            logger.error('🌐', 'ml_image_fetch_dead_letter_publish_failed', { reason, error: error.name })
+            throw error
+        }
+        let timeout: NodeJS.Timeout | undefined
+        try {
+            await Promise.race([
+                this.deadLetters.park(message, reason),
+                new Promise<never>((_, reject) => {
+                    timeout = setTimeout(
+                        () => reject(new Error('image-fetch dead-letter batch exceeded its publish budget')),
+                        remainingMs
+                    )
+                }),
+            ])
+        } catch (error) {
+            ImageFetchConsumerMetrics.incDeadLetterFailed(reason)
+            logger.error('🌐', 'ml_image_fetch_dead_letter_publish_failed', {
+                reason,
+                error: error instanceof Error ? error.name : 'unknown',
+            })
+            throw error
+        } finally {
+            if (timeout) {
+                clearTimeout(timeout)
+            }
+        }
+        ImageFetchConsumerMetrics.incDeadLettered(reason)
+    }
+
+    private deadLetterReason(reasons: UrlDropReason[]): FrontierDeadLetterReason {
+        const distinctReasons = new Set(reasons)
+        return distinctReasons.size === 1 ? reasons[0] : 'multiple'
     }
 
     private async runCrawlHistoryOperation<T>(

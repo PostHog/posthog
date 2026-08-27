@@ -16,9 +16,15 @@ import posthoganalytics
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_openai import ChatOpenAI
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
+from temporalio.exceptions import ApplicationError
 
 from posthog.cloud_utils import is_cloud
 from posthog.llm.gateway_client import ai_gateway_headers, resolve_ai_gateway_config
+
+# On a non-cloud, non-DEBUG deployment there is no AI gateway, so this guard fails identically
+# every run. The interceptor in posthog/temporal/common/posthog_client.py keeps this error type
+# out of error tracking. Raised non-retryably so a stray execution stops on the first attempt.
+AI_FEATURES_CLOUD_ONLY_ERROR_TYPE = "AIFeaturesCloudOnly"
 
 
 def build_langchain_chat_client(
@@ -39,7 +45,11 @@ def build_langchain_chat_client(
     model call in one agent invocation.
     """
     if not settings.DEBUG and not is_cloud():
-        raise Exception("AI features are only available in PostHog Cloud")
+        raise ApplicationError(
+            "AI features are only available in PostHog Cloud",
+            type=AI_FEATURES_CLOUD_ONLY_ERROR_TYPE,
+            non_retryable=True,
+        )
 
     gateway = resolve_ai_gateway_config()
     if gateway:

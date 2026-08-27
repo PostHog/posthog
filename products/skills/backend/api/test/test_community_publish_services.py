@@ -306,6 +306,7 @@ class TestCommunitySkillsPublisher:
         [
             ("the app is not installed here", 404, False),
             ("github refuses the app credentials", 401, False),
+            ("the installation does not grant the permissions a publish needs", 422, False),
             ("github fails the mint", 500, True),
         ]
     )
