@@ -109,7 +109,10 @@ jobs:
                       exit 0
                   fi
 
-                  if ! changed="$(git diff --name-only "$merge_base" HEAD)"; then
+                  # --no-renames lists a renamed file as its old path and its new
+                  # one. The old path is what the target script reads as deleted,
+                  # and it widens on that: the tach map has no importer edge for it.
+                  if ! changed="$(git diff --name-only --no-renames "$merge_base" HEAD)"; then
                       echo "::warning::Could not diff against the merge base; reporting ALL."
                       echo 'resolved=false' >> "$GITHUB_OUTPUT"
                       exit 0
