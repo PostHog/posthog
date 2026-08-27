@@ -832,6 +832,7 @@ rules:
                               |LegalDocument
                               |ManagedWarehouseSourceLifecycle
                               |OrganizationMembership
+                              |OrganizationMemberNotificationLock
                               |OrganizationDomain
                               |OrganizationIntegration
                               |OrganizationInvite
@@ -906,6 +907,7 @@ rules:
                         |LegalDocument
                         |ManagedWarehouseSourceLifecycle
                         |OrganizationMembership
+                        |OrganizationMemberNotificationLock
                         |OrganizationDomain
                         |OrganizationIntegration
                         |OrganizationInvite
