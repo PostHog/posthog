@@ -67,6 +67,13 @@ from products.warehouse_sources.backend.facade.temporal import AccountPropertyRo
 LOGGER = get_logger(__name__)
 
 MB_100_IN_BYTES = 100 * 1000 * 1000
+
+# The cluster profile sets distributed_product_mode=global, which makes ClickHouse build every
+# IN/JOIN subquery as a GLOBAL temporary table while it plans the query. DESCRIBE plans the query
+# too, so it scans the source tables for those subqueries just to return the column types. "allow"
+# leaves the subqueries in place, so the DESCRIBE reads nothing. The materialization query itself
+# keeps the profile mode, because "allow" would run each subquery once per shard at execution.
+DESCRIBE_QUERY_SETTINGS = {"distributed_product_mode": "allow"}
 CLICKHOUSE_MAX_BLOCK_SIZE_ROWS = 50 * 1000
 DELTA_TABLE_RETENTION_HOURS = 24
 
@@ -540,7 +547,10 @@ async def hogql_table(
     query_typings: list[tuple[str, str, tuple[str, tuple[ast.Constant, ...]] | None]] = []
     async with _clickhouse_query_semaphore, get_clickhouse_client() as client:
         async with client.apost_query(
-            query=table_describe_query, query_parameters=context.values, query_id=str(uuid.uuid4())
+            query=table_describe_query,
+            query_parameters=context.values,
+            query_id=str(uuid.uuid4()),
+            settings=DESCRIBE_QUERY_SETTINGS,
         ) as ch_response:
             table_describe_response = await ch_response.content.read()
             for line in table_describe_response.decode("utf-8").splitlines():

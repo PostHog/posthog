@@ -1643,6 +1643,7 @@ class _EmptyArrowClient:
         self.schema = schema
         self.arrow_query_calls = 0
         self.schema_query_calls = 0
+        self.describe_settings: dict[str, str] | None = None
 
     async def astream_query_as_arrow(self, query, *data, query_parameters=None, query_id=None, on_schema=None):
         self.arrow_query_calls += 1
@@ -1652,8 +1653,9 @@ class _EmptyArrowClient:
         yield  # type: ignore[unreachable]  # makes this an async generator that yields no batches
 
     @contextlib.asynccontextmanager
-    async def apost_query(self, query, *data, query_parameters=None, query_id=None):
+    async def apost_query(self, query, *data, query_parameters=None, query_id=None, settings=None):
         if query.startswith("DESCRIBE TABLE"):
+            self.describe_settings = settings
             body = self.describe_body
         else:
             self.schema_query_calls += 1
@@ -1692,6 +1694,22 @@ class TestHogqlTableEmptyResults:
         assert client.schema_query_calls == 0
 
 
+class TestHogqlTableDescribeSettings:
+    async def test_describe_disables_the_global_subquery_rewrite(self, ateam):
+        client = _EmptyArrowClient(pa.schema([pa.field("id", pa.int64())]))
+
+        @contextlib.asynccontextmanager
+        async def fake_get_client(**kwargs):
+            yield client
+
+        with unittest.mock.patch(
+            "posthog.temporal.data_modeling.activities.materialize_view.get_clickhouse_client", fake_get_client
+        ):
+            _ = [batch async for batch in hogql_table("SELECT 1", ateam, LOGGER.bind())]
+
+        assert client.describe_settings == {"distributed_product_mode": "allow"}
+
+
 class _SlowDescribeClient(_EmptyArrowClient):
     describe_body = b"ts\tDateTime\n"
 
@@ -1700,9 +1718,11 @@ class _SlowDescribeClient(_EmptyArrowClient):
         self.describe_seconds = describe_seconds
 
     @contextlib.asynccontextmanager
-    async def apost_query(self, query, *data, query_parameters=None, query_id=None):
+    async def apost_query(self, query, *data, query_parameters=None, query_id=None, settings=None):
         await asyncio.sleep(self.describe_seconds)
-        async with super().apost_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
+        async with super().apost_query(
+            query, *data, query_parameters=query_parameters, query_id=query_id, settings=settings
+        ) as response:
             yield response
 
 
