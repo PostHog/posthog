@@ -254,6 +254,22 @@ class TestDockerSandboxUnit:
         # Surfaced before `docker run` is ever attempted, so no doomed pull happens.
         assert not any("run" in call.args[0] for call in mock_run.call_args_list)
 
+    @parameterized.expand([("base_changed", "sha256:old", True), ("base_unchanged", "sha256:new", False)])
+    @patch.object(DockerSandbox, "_build_image_if_needed")
+    @patch.object(DockerSandbox, "_run")
+    def test_derived_image_rebuilds_only_when_the_base_image_changed(
+        self, _name, built_on, expect_force, mock_run, mock_build
+    ):
+        mock_run.side_effect = [
+            MagicMock(stdout="sha256:new\n", returncode=0),  # current base image id
+            MagicMock(stdout=f"{built_on}\n", returncode=0),  # label on the derived image
+        ]
+
+        DockerSandbox._build_derived_image_if_needed("posthog-sandbox-autoresearch", "/Dockerfile")
+
+        assert mock_build.call_args.kwargs["force"] is expect_force
+        assert mock_build.call_args.kwargs["labels"] == {"com.posthog.sandbox.base-image-id": "sha256:new"}
+
     @patch("products.tasks.backend.logic.services.docker_sandbox.subprocess.run")
     def test_get_status_running(self, mock_run):
         mock_run.return_value = MagicMock(stdout="true", returncode=0)

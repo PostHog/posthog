@@ -245,6 +245,7 @@ class Task(DeletedMetaFields, models.Model):
         # Unlike the others (which indicate direct creation from that product, e.g. a "fix this error" button),
         # signal report tasks originate indirectly via signals from other products.
         SIGNAL_REPORT = "signal_report", "Signal Report"
+        AUTORESEARCH = "autoresearch", "Autoresearch"
         # Headless Signals scout — proactively explores a project and emits signals.
         SIGNALS_SCOUT = "signals_scout", "Signals Scout"
         # Conversations support reply pipeline — autonomous grounded draft replies.
@@ -598,12 +599,18 @@ class Task(DeletedMetaFields, models.Model):
             if extra_state:
                 state.update({k: v for k, v in extra_state.items() if k != "mode"})
             state.setdefault("repositories", task.repositories or ([task.repository] if task.repository else []))
+            carry_config_snapshot = (
+                task.origin_product == Task.OriginProduct.WORKFLOW and "config_snapshot" not in state
+            )
+            carry_sandbox_template = "sandbox_template" not in state
+            previous = task.latest_run if carry_config_snapshot or carry_sandbox_template else None
+            previous_state: dict = (previous.state or {}) if previous else {}
             # A workflow task's later runs must keep the connector allowlist selected by the workflow.
-            if task.origin_product == Task.OriginProduct.WORKFLOW and "config_snapshot" not in state:
-                previous = task.latest_run
-                previous_snapshot = previous.state.get("config_snapshot") if previous else None
-                if previous_snapshot:
-                    state["config_snapshot"] = previous_snapshot
+            if carry_config_snapshot and previous_state.get("config_snapshot"):
+                state["config_snapshot"] = previous_state["config_snapshot"]
+            # Later runs keep the image the task was first provisioned with.
+            if carry_sandbox_template and previous_state.get("sandbox_template"):
+                state["sandbox_template"] = previous_state["sandbox_template"]
             if task.ownership_version is not None:
                 state[TASK_OWNERSHIP_VERSION_STATE_KEY] = task.ownership_version
 
@@ -760,6 +767,7 @@ class Task(DeletedMetaFields, models.Model):
         model: str | None = None,
         reasoning_effort: str | None = None,
         initial_permission_mode: str | None = None,
+        sandbox_template: str | None = None,
         sandbox_resources: "SandboxResources | None" = None,
         sandbox_timeout_seconds: int | None = None,
         inactivity_timeout_seconds: int | None = None,
@@ -782,7 +790,13 @@ class Task(DeletedMetaFields, models.Model):
         """
         created_by = User.objects.get(id=user_id)
 
-        from products.tasks.backend.logic.services.sandbox import is_public_sandbox_repo
+        from products.tasks.backend.logic.services.sandbox import (
+            is_public_sandbox_repo,
+            parse_requested_sandbox_template,
+        )
+
+        # Validated before the Task row exists, so a bad template leaves nothing behind.
+        requested_template = parse_requested_sandbox_template(sandbox_template) if sandbox_template else None
         from products.tasks.backend.temporal.process_task.utils import (
             PrAuthorshipMode,
             RunSource,
@@ -939,6 +953,9 @@ class Task(DeletedMetaFields, models.Model):
         if initial_permission_mode:
             extra_state["initial_permission_mode"] = initial_permission_mode
 
+        if requested_template is not None:
+            extra_state["sandbox_template"] = requested_template.value
+
         # Optional per-task sandbox compute/timeout overrides. Read back into
         # SandboxConfig at provision time (see TaskProcessingContext); unset
         # fields keep the SandboxConfig defaults.
@@ -1082,6 +1099,7 @@ class Task(DeletedMetaFields, models.Model):
         model: str | None = None,
         reasoning_effort: str | None = None,
         initial_permission_mode: str | None = None,
+        sandbox_template: str | None = None,
         sandbox_resources: "SandboxResources | None" = None,
         sandbox_timeout_seconds: int | None = None,
         inactivity_timeout_seconds: int | None = None,
@@ -1129,6 +1147,7 @@ class Task(DeletedMetaFields, models.Model):
             model=model,
             reasoning_effort=reasoning_effort,
             initial_permission_mode=initial_permission_mode,
+            sandbox_template=sandbox_template,
             sandbox_resources=sandbox_resources,
             sandbox_timeout_seconds=sandbox_timeout_seconds,
             inactivity_timeout_seconds=inactivity_timeout_seconds,

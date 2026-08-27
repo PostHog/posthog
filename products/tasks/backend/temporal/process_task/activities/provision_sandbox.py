@@ -58,6 +58,7 @@ from products.tasks.backend.logic.services.sandbox import (
     SandboxTemplate,
     get_sandbox_class_for_run_backend,
     get_sandbox_class_for_sandbox_id,
+    parse_requested_sandbox_template,
     sandbox_repo_path,
     workload_for_origin_product,
 )
@@ -119,7 +120,7 @@ class PrepareSandboxForRepositoryInput:
     context: TaskProcessingContext
 
 
-@dataclass
+@frozen
 class PrepareSandboxForRepositoryOutput:
     sandbox_name: str
     repository: str | None
@@ -133,6 +134,7 @@ class PrepareSandboxForRepositoryOutput:
     shallow_clone: bool
     image_source: str
     image_source_label: str
+    sandbox_template: str = SandboxTemplate.DEFAULT_BASE.value
     snapshot_kind: str = SNAPSHOT_KIND_FILESYSTEM
     snapshot_mount_path: str | None = None
     snapshot_source: str = "none"
@@ -589,6 +591,35 @@ def _build_sandbox_tags(
     return {key: str(value) for key, value in tags.items() if value is not None}
 
 
+def _requested_sandbox_template(value: str | None) -> SandboxTemplate:
+    """The template the run's state asks for. Unknown values and ``VM_BASE`` are fatal."""
+    try:
+        return parse_requested_sandbox_template(value)
+    except ValueError as e:
+        raise TaskInvalidStateError(
+            f"Invalid sandbox template {value!r}",
+            {"sandbox_template": value},
+            cause=e,
+        )
+
+
+def _effective_sandbox_template(*, use_vm_sandbox: bool, requested: SandboxTemplate) -> SandboxTemplate:
+    """VM routing forces ``VM_BASE``, which carries none of a custom template's tooling.
+
+    Silently dropping the requested template would provision an agent without the
+    libraries its task depends on, so the combination fails instead.
+    """
+    if not use_vm_sandbox:
+        return requested
+    if requested != SandboxTemplate.DEFAULT_BASE:
+        raise TaskInvalidStateError(
+            f"Sandbox template {requested.value!r} cannot run on the VM runtime",
+            {"sandbox_template": requested.value},
+            cause=ValueError("custom sandbox template on a VM-routed run"),
+        )
+    return SandboxTemplate.VM_BASE
+
+
 @activity.defn
 @asyncify
 def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> PrepareSandboxForRepositoryOutput:
@@ -600,6 +631,8 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
     ):
         has_repo = bool(ctx.repositories)
         repository = ctx.repository
+        run_state = parse_run_state(ctx.state)
+        sandbox_template = _requested_sandbox_template(run_state.sandbox_template)
 
         snapshot = None
         used_snapshot = False
@@ -607,8 +640,10 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         snapshot_kind = SNAPSHOT_KIND_FILESYSTEM
         snapshot_mount_path: str | None = None
         # Repo-setup snapshots come from default-base sandboxes; restoring one would silently
-        # drop the custom base image. Resume snapshots were taken from this task's own sandbox.
-        if has_repo and ctx.github_integration_id is not None and not ctx.custom_image_name:
+        # drop a custom base image or a non-default template. Resume snapshots were taken from
+        # this task's own sandbox.
+        uses_default_image = not ctx.custom_image_name and sandbox_template == SandboxTemplate.DEFAULT_BASE
+        if has_repo and ctx.github_integration_id is not None and uses_default_image:
             with StepTimer(
                 "snapshot_lookup",
                 origin_product=ctx.origin_product,
@@ -649,7 +684,6 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
 
         environment_variables = _build_environment_variables(ctx, task, github_token, access_token)
 
-        run_state = parse_run_state(ctx.state)
         # VM and gVisor both resume from snapshots. A run's stored snapshot kind
         # determines the restore mechanism; the rollout flag only chooses the
         # kind of new snapshot created after this run.
@@ -727,6 +761,7 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
             shallow_clone=shallow_clone,
             image_source=image_source,
             image_source_label=image_source_label,
+            sandbox_template=sandbox_template.value,
             snapshot_kind=snapshot_kind,
             snapshot_mount_path=snapshot_mount_path,
             snapshot_source=snapshot_source,
@@ -761,9 +796,13 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
         # The VM template bakes in Docker (and forces the VM runtime), so the agent
         # can run nested containers; the default template has neither.
         use_vm_sandbox = ctx.use_modal_vm_sandbox
+        template = _effective_sandbox_template(
+            use_vm_sandbox=use_vm_sandbox,
+            requested=_requested_sandbox_template(prepared.sandbox_template),
+        )
         config = SandboxConfig(
             name=prepared.sandbox_name,
-            template=SandboxTemplate.VM_BASE if use_vm_sandbox else SandboxTemplate.DEFAULT_BASE,
+            template=template,
             workload=workload_for_origin_product(ctx.origin_product),
             custom_image_name=ctx.custom_image_name if use_vm_sandbox else None,
             environment_variables=prepared.environment_variables,
