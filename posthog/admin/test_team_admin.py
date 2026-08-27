@@ -716,6 +716,18 @@ class TestTeamAdminEmailSendingSuspension(BaseTest):
         assert "onsubmit=" not in html
         assert 'nonce="test-nonce-value"' in html
 
+    def test_recompute_creates_a_missing_workflows_config(self) -> None:
+        # A team that only sent through the API can have no config row, and the sweep skips a rowless
+        # team, so the recompute action must create the row before it runs.
+        assert self._config() is None
+        with patch(
+            "posthog.admin.admins.team_admin.recompute_email_sending_tier_for_team", return_value=None
+        ) as mock_recompute:
+            response = self.admin.recompute_email_sending_tier_view(self._post(), str(self.team.pk))
+        assert response.status_code == 302
+        mock_recompute.assert_called_once_with(self.team.id)
+        assert self._config() is not None
+
     def test_suspend_is_idempotent(self) -> None:
         self.admin.suspend_email_sending_view(self._post({"reason": "first"}), str(self.team.pk))
         response = self.admin.suspend_email_sending_view(self._post({"reason": "second"}), str(self.team.pk))
