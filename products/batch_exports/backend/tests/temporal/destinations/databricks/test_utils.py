@@ -31,7 +31,7 @@ def test_get_long_running_query_timeout(data_interval_start, data_interval_end, 
 
 
 def _staged_events_schema(column_names: list[str]) -> pa.Schema:
-    # The events branch keys off column names only, so the types here are arbitrary.
+    # Only the column names are asserted on below, so the types here are arbitrary.
     return pa.schema([pa.field(name, pa.string()) for name in column_names])
 
 
@@ -54,19 +54,24 @@ def test_events_table_fields_match_the_exported_fields():
     assert sorted(name for name, _ in _events_table_fields("VARIANT")) == exported
 
 
-@pytest.mark.parametrize(
-    "schema, keeps_created_at",
-    [
-        # A run that staged its data before `created_at` was added has no such column to copy, so
-        # dropping it keeps the copy working instead of wedging the run on a retry loop.
-        (None, False),
-        # A custom schema never matched the hardcoded columns, so the mismatch has to stay visible
-        # rather than turn into a partial export.
-        ({"fields": [{"expression": "event", "alias": "event"}], "values": {}}, True),
-    ],
-    ids=["default-schema-drops-it", "custom-schema-keeps-it"],
-)
-def test_events_table_fields_drop_columns_missing_from_staged_data(schema, keeps_created_at):
+def test_events_table_fields_drop_columns_missing_from_staged_data():
+    # A run that staged its data before `created_at` was added has no such column to copy, so
+    # dropping it keeps the copy working instead of wedging the run on a retry loop.
     staged = [field["alias"] for field in databricks_default_fields() if field["alias"] != "created_at"]
 
-    assert ("created_at" in _events_table_field_names(staged, schema=schema)) is keeps_created_at
+    assert "created_at" not in _events_table_field_names(staged, schema=None)
+
+
+def test_events_table_fields_follow_a_custom_schema():
+    # A custom schema stages only the columns it selects, so the table has to follow the staged
+    # data. Starting from the default events columns instead loses every column outside them, such
+    # as `browser` here, and names columns the staged files have no value for.
+    schema: BatchExportSchema = {
+        "fields": [
+            {"expression": "event", "alias": "event"},
+            {"expression": "nullIf(JSONExtractString(properties, %(hogql_val_0)s), '')", "alias": "browser"},
+        ],
+        "values": {"hogql_val_0": "$browser"},
+    }
+
+    assert _events_table_field_names(["event", "browser"], schema=schema) == ["event", "browser"]

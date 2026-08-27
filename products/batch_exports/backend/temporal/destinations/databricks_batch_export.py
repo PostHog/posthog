@@ -938,8 +938,8 @@ def databricks_default_fields() -> list[BatchExportField]:
     concerned about supporting legacy fields for backwards compatibility.
     """
     batch_export_fields = events_model_default_fields()
-    # `timestamp` comes from the client, so a wrong device clock can put it years off.
-    # `created_at` is set server-side at ingestion, so users get an event time they can rely on.
+    # `timestamp` comes from the client, whereas `created_at` is set server-side at ingestion, so
+    # users get an event time they can rely on.
     batch_export_fields.append({"expression": "created_at", "alias": "created_at"})
     # add a metadata field for the ingested timestamp to aid with debugging
     # (this is not strictly the time the data is ingested into Databricks but rather the time we query it from ClickHouse)
@@ -1009,7 +1009,7 @@ def _get_databricks_fields_from_record_schema(
 
 
 def _events_table_fields(json_type: str) -> list[DatabricksField]:
-    """Return the Databricks columns for the events model.
+    """Return the Databricks columns for the events model with the default schema.
 
     Must stay in sync with the fields `databricks_default_fields` queries, minus `_inserted_at`,
     which only tracks progress and is never exported.
@@ -1057,22 +1057,22 @@ def _get_databricks_table_settings(
         json_type = "STRING"
         known_variant_columns = []
 
-    if model is None or (isinstance(model, BatchExportModel) and model.name == "events"):
+    if model is None or (isinstance(model, BatchExportModel) and model.name == "events" and model.schema is None):
         table_fields = _events_table_fields(json_type)
 
-        # Staging and copying are two activities, so a deploy between them can leave the staged
-        # files a version behind this list. COPY INTO resolves columns by name from those files,
-        # and the destination activity retries forever, so a name the files lack wedges the run
-        # rather than failing it. Outside that window the two lists always match, because the
-        # staging query is built from the same `databricks_default_fields`.
-        # A custom schema keeps the full list, because its columns never matched this one and
-        # filtering would hide a real mismatch.
-        if model is None or model.schema is None:
-            staged_columns = set(record_batch_schema.names)
-            missing_columns = [name for name, _ in table_fields if name not in staged_columns]
-            if missing_columns:
-                LOGGER.warning("Skipping columns absent from the staged data: %s", missing_columns)
-                table_fields = [field for field in table_fields if field[0] in staged_columns]
+        # Staging and copying are two activities, so a deploy of a schema change between them could
+        # leave the staged files a version behind this list. Outside that window the two lists
+        # always match, because the staging query is built from the same
+        # `databricks_default_fields`.
+        staged_columns = set(record_batch_schema.names)
+        missing_columns = [name for name, _ in table_fields if name not in staged_columns]
+        if missing_columns:
+            LOGGER.warning("Skipping columns absent from the staged data: %s", missing_columns)
+            staged_fields = [field for field in table_fields if field[0] in staged_columns]
+            # Keeping the full list is better than a `CREATE TABLE` with no columns, which cannot
+            # run at all. Sharing no column with the staged data means something else is wrong.
+            if staged_fields:
+                table_fields = staged_fields
     else:
         table_fields = _get_databricks_fields_from_record_schema(
             record_batch_schema,
