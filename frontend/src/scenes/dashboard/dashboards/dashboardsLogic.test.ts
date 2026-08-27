@@ -75,6 +75,7 @@ describe('dashboardsLogic', () => {
 
     beforeEach(async () => {
         jest.clearAllMocks()
+        localStorage.clear()
         window.POSTHOG_APP_CONTEXT = { current_user: MOCK_DEFAULT_USER } as unknown as AppContext
 
         useMocks({
@@ -96,6 +97,41 @@ describe('dashboardsLogic', () => {
 
         logic = dashboardsLogic({ tabId: '1' })
         logic.mount()
+    })
+
+    it('restores list filters after navigating away and returning', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.setFilters({ createdBy: [OTHER_USER.id], pinned: true, shared: true, tags: ['finance'] })
+        }).toFinishAllListeners()
+
+        logic.unmount()
+        router.actions.push('/settings')
+        router.actions.push('/dashboard')
+
+        logic = dashboardsLogic({ tabId: '1' })
+        logic.mount()
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.filters).toEqual(
+            expect.objectContaining({ createdBy: [OTHER_USER.id], pinned: true, shared: true, tags: ['finance'] })
+        )
+        expect(router.values.searchParams).toEqual(
+            expect.objectContaining({ created_by: [OTHER_USER.id], pinned: true, shared: true, tags: ['finance'] })
+        )
+    })
+
+    it('clears the created by filter when switching to my dashboards', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.setFilters({ createdBy: [OTHER_USER.id] })
+        }).toFinishAllListeners()
+
+        await expectLogic(logic, () => {
+            logic.actions.setCurrentTab(DashboardsTab.Yours)
+        }).toFinishAllListeners()
+
+        expect(logic.values.filters.createdBy).toBe('All users')
+        expect(router.values.searchParams.created_by).toBeUndefined()
     })
 
     describe('reflecting a completed move', () => {
