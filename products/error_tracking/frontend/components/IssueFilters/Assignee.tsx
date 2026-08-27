@@ -11,7 +11,13 @@ export function AssigneeFilter(): JSX.Element {
     const { setAssignee } = useActions(issueQueryOptionsLogic)
 
     return (
-        <QuillAssigneeSelect assignee={assignee ?? null} onChange={setAssignee}>
+        <QuillAssigneeSelect
+            ariaLabel="Assignee filter"
+            assignee={assignee ?? null}
+            clearActionLabel="Clear assignee filter"
+            currentUserActionLabel="Assigned to me"
+            onChange={setAssignee}
+        >
             {(displayAssignee) => (
                 <Button variant="outline" size="default">
                     <AssigneeIconDisplay assignee={displayAssignee} size="xsmall" />
