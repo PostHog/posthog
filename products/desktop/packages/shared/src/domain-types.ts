@@ -290,11 +290,33 @@ const optionalField = <T extends z.ZodType>(
   field: T,
 ): z.ZodCatch<z.ZodOptional<T>> => field.optional().catch(undefined);
 
+const pendingFollowupMessageSchema = z.object({
+  id: z.string(),
+  content: z.string(),
+  ts: z.string().optional(),
+});
+
+export type PendingFollowupMessage = z.infer<
+  typeof pendingFollowupMessageSchema
+>;
+
+export function readPendingFollowupMessages(
+  state: Record<string, unknown> | undefined,
+): PendingFollowupMessage[] {
+  const parsed = z
+    .array(pendingFollowupMessageSchema)
+    .safeParse(state?.pending_followup_messages);
+  return parsed.success ? parsed.data : [];
+}
+
 const taskRunStateFields = {
   ai_stage: optionalField(z.string()),
   auto_publish: optionalField(z.boolean()),
   initial_permission_mode: optionalField(executionModeSchema),
   initial_prompt_override: optionalField(z.string()),
+  pending_followup_messages: optionalField(
+    z.array(pendingFollowupMessageSchema),
+  ),
   pending_user_artifact_ids: optionalField(z.array(z.string())),
   pending_user_message: optionalField(z.string()),
   pending_user_message_id: optionalField(z.string()),
