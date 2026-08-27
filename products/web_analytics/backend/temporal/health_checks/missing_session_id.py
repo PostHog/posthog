@@ -52,7 +52,8 @@ class MissingSessionIdCheck(HealthCheck):
             Open the Web analytics health page. Web analytics excludes any $pageview whose $session_id is
             empty or not a UUID, so those events undercount your visitor and session counts. This usually
             comes from events sent server-side or through a third-party pipeline that omits $session_id.
-            Attach a valid session id (a UUIDv7 if you can) to those events. See
+            Attach a UUIDv7 session id to those events. Web analytics builds sessions only from UUIDv7 ids,
+            so a plain UUIDv4 clears this warning without restoring the counts. See
             https://posthog.com/docs/data/sessions#custom-session-ids.
         """,
         agent="""
@@ -60,8 +61,10 @@ class MissingSessionIdCheck(HealthCheck):
             '$session_id')) IS NULL) AS missing, count() AS total FROM events WHERE event = '$pageview' AND
             timestamp > now() - INTERVAL 7 DAY`). Then fix it in the user's codebase: find where $pageview
             events are produced outside posthog-js — server-side SDK calls or a third-party pipeline — and set
-            a valid `$session_id` (a UUID, ideally UUIDv7) on each event. Use `docs-search` for the custom
-            session id docs. Once the events carry a valid session id, the issue resolves on the next check run.
+            a UUIDv7 `$session_id` on each event. A plain UUIDv4 (what `crypto.randomUUID()` and `uuid.uuid4()`
+            produce) is not enough: web analytics builds sessions only from UUIDv7 ids, so it clears the warning
+            without restoring the counts. Use `docs-search` for the custom session id docs. Once the events carry
+            a UUIDv7 session id, the issue resolves on the next check run.
         """,
     )
 
@@ -84,7 +87,8 @@ class MissingSessionIdCheck(HealthCheck):
                 "`$session_id` is empty or not a UUID, so visitor and session counts come in under the real "
                 "numbers while the raw events stay queryable in product analytics. This usually means events are "
                 "sent server-side or through a third-party pipeline that omits `$session_id`. Recommend attaching "
-                "a valid session id (a UUID) to those events."
+                "a UUIDv7 session id to those events, since web analytics builds sessions only from UUIDv7 ids "
+                "and a plain UUIDv4 will not restore the counts."
             ),
             weight=_SEVERITY_WEIGHT[issue.severity],
             extra=build_signal_extra(issue, title=title, summary=summary, link="/web/health"),
