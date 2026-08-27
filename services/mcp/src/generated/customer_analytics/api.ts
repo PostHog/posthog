@@ -783,7 +783,7 @@ export const CustomPropertySourcesCreateBody = /* @__PURE__ */ zod
             .unknown()
             .optional()
             .describe(
-                "Person and group sources only: {warehouse_column: description} giving each mapped column a human-facing description, seeded from the warehouse column's information_schema description. Optional per column. Create-only."
+                "Person and group sources only: {warehouse_column: description} giving each mapped column a human-facing description, seeded from the warehouse column's information_schema description. Optional per column."
             ),
         key_column: zod
             .string()
@@ -836,13 +836,25 @@ export const CustomPropertySourcesPartialUpdateBody = /* @__PURE__ */ zod
             .max(customPropertySourcesPartialUpdateBodyKeyColumnMax)
             .optional()
             .describe("Column in the view whose value matches an account's external_id."),
+        column_property_map: zod
+            .unknown()
+            .optional()
+            .describe(
+                'Person and group sources only: {warehouse_column: property_name} mapping the columns this source writes onto the person or group.'
+            ),
+        column_descriptions: zod
+            .unknown()
+            .optional()
+            .describe(
+                'Person and group sources only: {warehouse_column: description} for mapped columns. Optional per column.'
+            ),
         is_enabled: zod
             .boolean()
             .optional()
             .describe('Whether the source syncs; re-enabling it resets the failure count.'),
     })
     .describe(
-        "Writable fields for updating a source. ``definition`` and ``saved_query`` are create-only, so\nthey are intentionally absent — only these reach the facade's update."
+        "Writable fields for updating a source. Binding and definition fields are create-only, so they\nare intentionally absent — only these reach the facade's update."
     )
 
 export const CustomPropertySourcesDestroyParams = /* @__PURE__ */ zod.object({
@@ -856,8 +868,8 @@ export const CustomPropertySourcesDestroyParams = /* @__PURE__ */ zod.object({
 
 /**
  * Person and group sources only: start a backfill that reads the whole warehouse table and
- * populates person or group properties for historical rows. Coalesces if one is already running
- * for the table.
+ * populates person or group properties for historical rows. If one is already running for the
+ * table, queue a follow-up that observes the latest mapping.
  */
 export const CustomPropertySourcesBackfillParams = /* @__PURE__ */ zod.object({
     id: zod.string(),

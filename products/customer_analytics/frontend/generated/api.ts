@@ -1225,8 +1225,8 @@ export const getCustomPropertySourcesBackfillUrl = (projectId: string, id: strin
 
 /**
  * Person and group sources only: start a backfill that reads the whole warehouse table and
- * populates person or group properties for historical rows. Coalesces if one is already running
- * for the table.
+ * populates person or group properties for historical rows. If one is already running for the
+ * table, queue a follow-up that observes the latest mapping.
  */
 export const customPropertySourcesBackfill = async (
     projectId: string,

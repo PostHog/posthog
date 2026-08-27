@@ -1244,7 +1244,7 @@ export interface CustomPropertySourceApi {
     source_column?: string | null
     /** Person and group sources only: {warehouse_column: property_name} mapping the columns this source writes onto the person or group. */
     column_property_map?: unknown
-    /** Person and group sources only: {warehouse_column: description} giving each mapped column a human-facing description, seeded from the warehouse column's information_schema description. Optional per column. Create-only. */
+    /** Person and group sources only: {warehouse_column: description} giving each mapped column a human-facing description, seeded from the warehouse column's information_schema description. Optional per column. */
     column_descriptions?: unknown
     /**
      * Column whose value identifies the target: an account's external_id for account sources, the person's distinct_id for person sources, or the group key for group sources.
@@ -1477,8 +1477,8 @@ export interface PaginatedCustomPropertySourceListApi {
 }
 
 /**
- * Writable fields for updating a source. ``definition`` and ``saved_query`` are create-only, so
- * they are intentionally absent — only these reach the facade's update.
+ * Writable fields for updating a source. Binding and definition fields are create-only, so they
+ * are intentionally absent — only these reach the facade's update.
  */
 export interface CustomPropertySourceUpdateApi {
     /**
@@ -1491,13 +1491,17 @@ export interface CustomPropertySourceUpdateApi {
      * @maxLength 400
      */
     key_column?: string
+    /** Person and group sources only: {warehouse_column: property_name} mapping the columns this source writes onto the person or group. */
+    column_property_map?: unknown
+    /** Person and group sources only: {warehouse_column: description} for mapped columns. Optional per column. */
+    column_descriptions?: unknown
     /** Whether the source syncs; re-enabling it resets the failure count. */
     is_enabled?: boolean
 }
 
 /**
- * Writable fields for updating a source. ``definition`` and ``saved_query`` are create-only, so
- * they are intentionally absent — only these reach the facade's update.
+ * Writable fields for updating a source. Binding and definition fields are create-only, so they
+ * are intentionally absent — only these reach the facade's update.
  */
 export interface PatchedCustomPropertySourceUpdateApi {
     /**
@@ -1510,6 +1514,10 @@ export interface PatchedCustomPropertySourceUpdateApi {
      * @maxLength 400
      */
     key_column?: string
+    /** Person and group sources only: {warehouse_column: property_name} mapping the columns this source writes onto the person or group. */
+    column_property_map?: unknown
+    /** Person and group sources only: {warehouse_column: description} for mapped columns. Optional per column. */
+    column_descriptions?: unknown
     /** Whether the source syncs; re-enabling it resets the failure count. */
     is_enabled?: boolean
 }
@@ -1532,13 +1540,13 @@ export const CustomPropertySyncTriggerResponseStatusEnumApi = {
  * Response of the person/group-property sync/backfill trigger actions.
  */
 export interface CustomPropertySyncTriggerResponseApi {
-    /** 'triggered' (sync now started the warehouse sync), 'started' (a new backfill began), or 'already_running' (a backfill for this table was already in flight, so this was a no-op).
+    /** 'triggered' (sync now started the warehouse sync), 'started' (a new backfill began), or 'already_running' (a backfill was in flight and a latest-state follow-up was queued).
      *
      * * `triggered` - triggered
      * * `started` - started
      * * `already_running` - already_running */
     status: CustomPropertySyncTriggerResponseStatusEnumApi
-    /** Backfill only: true when a backfill for this table was already running and this call coalesced. */
+    /** Backfill only: true when a run was already in flight and this call queued its follow-up. */
     already_running?: boolean
 }
 
