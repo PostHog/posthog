@@ -26,21 +26,21 @@ Read with `argMax(quantity, timestamp)` grouped by the sort key. HogQL rejects `
 The collapse happens on merge, so a plain `sum(quantity)` counts every un-merged duplicate.
 Measured locally: two identical batches landing in separate parts read as 6 rows summing 18 without `FINAL`, and 3 rows summing 9 with it.
 
-| producer_id         | usage_key                                               | unit           | record_id                                                                                       | deployment               |
-| ------------------- | ------------------------------------------------------- | -------------- | ----------------------------------------------------------------------------------------------- | ------------------------ |
-| `ingestion`         | `events`, `ai_events`                                   | events         | `{day}:{sha256 of event, distinct_id, uuid}`                                                    | ingestion consumers      |
-| `ai-ingestion`      | `ai_events`                                             | events         | `{day}:{sha256 of event, distinct_id, uuid}`                                                    | AI ingestion consumer    |
-| `error-tracking`    | `exceptions`                                            | events         | `{day}:{sha256 of event, distinct_id, uuid}`                                                    | error tracking server    |
-| `cdp`               | `cdp_billable_invocations`                              | invocations    | `event:{eventUuid}` / `flow:{invocationId}:{actionStepCount}:{kind}` / `webhook:{invocationId}` | CDP consumers            |
-| `feature-flags`     | `feature_flag_requests`                                 | requests       | fresh UUIDv7 per flush                                                                          | feature flags service    |
-| `ingestion`         | `survey_responses`                                      | events         | `{day}:{sha256 of event, distinct_id, uuid}`                                                    | ingestion consumers      |
-| `warehouse-sources` | `warehouse_rows_synced`                                 | rows           | the ExternalDataJob ID                                                                          | warehouse sources worker |
-| `batch-exports`     | `batch_export_rows`                                     | rows           | the BatchExportRun ID                                                                           | batch exports worker     |
-| `replay-vision`     | `replay_vision_credits`                                 | credits        | the observation ID                                                                              | replay vision worker     |
-| `logs`              | `logs_bytes`, `logs_records`                            | bytes, records | fresh UUIDv7 per flush                                                                          | logs ingestion server    |
-| `apm`               | `apm_bytes`, `apm_spans`                                | bytes, records | fresh UUIDv7 per flush                                                                          | traces ingestion server  |
-| `session-replay`    | `session_replay_recordings`, `mobile_replay_recordings` | recordings     | the session ID                                                                                  | session replay consumer  |
-| `ingestion`         | `enhanced_person_events`                                | events         | `{day}:{sha256 of event, distinct_id, uuid}`                                                    | ingestion consumers      |
+| producer_id         | usage_key                                                         | unit           | record_id                                                                                       | deployment               |
+| ------------------- | ----------------------------------------------------------------- | -------------- | ----------------------------------------------------------------------------------------------- | ------------------------ |
+| `ingestion`         | `events`, `ai_events`                                             | events         | `{day}:{sha256 of event, distinct_id, uuid}`                                                    | ingestion consumers      |
+| `ai-ingestion`      | `ai_events`                                                       | events         | `{day}:{sha256 of event, distinct_id, uuid}`                                                    | AI ingestion consumer    |
+| `error-tracking`    | `exceptions`                                                      | events         | `{day}:{sha256 of event, distinct_id, uuid}`                                                    | error tracking server    |
+| `cdp`               | `cdp_billable_invocations`                                        | invocations    | `event:{eventUuid}` / `flow:{invocationId}:{actionStepCount}:{kind}` / `webhook:{invocationId}` | CDP consumers            |
+| `feature-flags`     | `feature_flag_requests`, `feature_flag_local_evaluation_requests` | requests       | fresh UUIDv7 per flush                                                                          | feature flags service    |
+| `ingestion`         | `survey_responses`                                                | events         | `{day}:{sha256 of event, distinct_id, uuid}`                                                    | ingestion consumers      |
+| `warehouse-sources` | `warehouse_rows_synced`                                           | rows           | the ExternalDataJob ID                                                                          | warehouse sources worker |
+| `batch-exports`     | `batch_export_rows`                                               | rows           | the BatchExportRun ID                                                                           | batch exports worker     |
+| `replay-vision`     | `replay_vision_credits`                                           | credits        | the observation ID                                                                              | replay vision worker     |
+| `logs`              | `logs_bytes`, `logs_records`                                      | bytes, records | fresh UUIDv7 per flush                                                                          | logs ingestion server    |
+| `apm`               | `apm_bytes`, `apm_spans`                                          | bytes, records | fresh UUIDv7 per flush                                                                          | traces ingestion server  |
+| `session-replay`    | `session_replay_recordings`, `mobile_replay_recordings`           | recordings     | the session ID                                                                                  | session replay consumer  |
+| `ingestion`         | `enhanced_person_events`                                          | events         | `{day}:{sha256 of event, distinct_id, uuid}`                                                    | ingestion consumers      |
 
 Every producer reads the same four env vars, and each one is its own deployment, so one name still rolls out per producer from that service's own config.
 
@@ -195,6 +195,10 @@ ID reuse is therefore scoped to the retry the gRPC client performs on one reques
 Sends go through a bounded queue drained by one owned task, and `shutdown` closes the queue and awaits it within the aggregator's flush timeout, so a deploy does not lose records Redis just credited.
 A full queue drops and counts the drop rather than growing; Redis still holds the authoritative count.
 
+The two billable request types get their own usage keys, because the report prices them apart: `billable_feature_flag_requests_count_in_period` is `decide + local_evaluation * 10`.
+The producer reports what happened and leaves the weighting downstream, so a decide request lands under `feature_flag_requests` and a local evaluation under `feature_flag_local_evaluation_requests`, both at their raw counts.
+Remote config requests are telemetry and bill on neither side.
+
 ## Trying it locally
 
 The service's compose entry sits behind the `ingestion` profile and builds from source, so run it from cargo instead:
@@ -228,16 +232,15 @@ All current collectors mirror usage into usage-ingestion. Existing billing still
 
 Each row is a case where the two systems would bill the same team differently, so they have to be closed before billing reads these records.
 
-| usage_key               | the report counts                                                                                                     | the collector counts         | effect                                          |
-| ----------------------- | --------------------------------------------------------------------------------------------------------------------- | ---------------------------- | ----------------------------------------------- |
-| `survey_responses`      | one response per `$survey_submission_id` per survey, and nothing for a survey attached to a product tour              | every `survey sent` event    | over-bills repeat submissions and product tours |
-| `warehouse_rows_synced` | nothing for a source created within seven days of the period end, and nothing at all during the warehouse free period | every completed billable job | over-bills a source's first week                |
-| `feature_flag_requests` | `decide` and local evaluation as two fields                                                                           | both, under one usage key    | the two cannot be priced apart from a record    |
+| usage_key                                | the report counts                                                                                                     | the collector counts                   | effect                                          |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | -------------------------------------- | ----------------------------------------------- |
+| `survey_responses`                       | one response per `$survey_submission_id` per survey, and nothing for a survey attached to a product tour              | every `survey sent` event              | over-bills repeat submissions and product tours |
+| `warehouse_rows_synced`                  | nothing for a source created within seven days of the period end, and nothing at all during the warehouse free period | every completed billable job           | over-bills a source's first week                |
+| `feature_flag_local_evaluation_requests` | every local evaluation request                                                                                        | only the ones the Rust service answers | Django's own endpoint writes no record          |
 
-The flags rows need one clarification.
-The Rust service records both billable request types into the same aggregator — `Decide` from the decide handler and `FlagDefinitions` from the local-evaluation handler — so local evaluation does reach a record; `build_records` just labels every one of them `feature_flag_requests`.
-Remote config is telemetry only and bills on neither side.
-Django still serves `/api/feature_flag/local_evaluation` as well, and that path increments the report's counter without writing a usage record, so anything Contour routes there is uncollected.
+The flags row is about routing, not counting.
+The Rust service records both billable request types - `Decide` from the decide handler, `FlagDefinitions` from the local-evaluation handler - and each has its own usage key.
+Django still serves `/api/feature_flag/local_evaluation` too, and that path increments the report's counter without writing a usage record, so whatever Contour routes there is uncollected.
 
 Session replay is the closest of the ones that were closed: the collector bills a new session under `session_replay_recordings` only when it is not mobile, and under `mobile_replay_recordings` only for the four SDKs the report bills.
 It still bills a recording the report would later drop for `is_deleted`, because deletion happens after the session is counted.
