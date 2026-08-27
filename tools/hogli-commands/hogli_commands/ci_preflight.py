@@ -148,6 +148,16 @@ DIFF_CHECKS: list[DiffCheck] = [
         advice="a type error costs a full CI re-run — consider `uv run mypy --cache-fine-grained .` (what CI runs)",
     ),
     DiffCheck(
+        key="review",
+        label="review findings arriving after the PR opens (Greptile)",
+        triggers=["*.py", "*.ts", "*.tsx", "*.rs", "*.go"],
+        # A nudge, not a run: a Greptile review is a paid API call, too much to tax
+        # every push with. The reviewing-before-pr skill runs it once at PR-open time.
+        verify=None,
+        advice="before opening the PR (or marking it ready), consider one `hogli review` — "
+        "a finding caught locally avoids a bot comment round-trip and a CI re-run",
+    ),
+    DiffCheck(
         key="markdown-format",
         label="markdown formatting (oxfmt)",
         triggers=["*.md", "*.mdx"],
@@ -206,14 +216,14 @@ DIFF_CHECKS: list[DiffCheck] = [
 
 @dataclass(frozen=True, kw_only=True, slots=True)
 class CompanionCheck:
-    """Two files a CI gate requires to move together. The diff is the evidence, so
-    unlike a ``DiffCheck`` there is nothing to run."""
+    """Paths a CI gate requires to move together."""
 
     key: str
     label: str
     source: str
     companion: str
     escape_hatch: str  # what to do when the change is deliberately one-sided
+    exact_mirror: bool = False
 
 
 # Duplicated from .github/workflows/ci-backend-shadow-drift.yml so the failure lands
@@ -225,6 +235,14 @@ COMPANION_CHECKS: list[CompanionCheck] = [
         source=".github/workflows/ci-backend.yml",
         companion=".depot/workflows/ci-backend.yml",
         escape_hatch="document it as an intentional delta in that file's header",
+    ),
+    CompanionCheck(
+        key="paths-filter-shadow-drift",
+        label="depot paths-filter drift (.depot mirror of the canonical action)",
+        source=".github/actions/paths-filter/**",
+        companion=".depot/actions/paths-filter/**",
+        escape_hatch="mirror the canonical action change",
+        exact_mirror=True,
     ),
 ]
 
@@ -357,7 +375,21 @@ def _run_diff_check(chk: DiffCheck, do_fix: bool) -> tuple[Status, str]:
 
 
 def _run_companion_check(chk: CompanionCheck, files: list[str]) -> tuple[Status, str]:
-    if chk.companion in files:
+    if any(matches_globs(path, [chk.companion]) for path in files):
+        if chk.exact_mirror:
+            source_root = REPO_ROOT / chk.source.removesuffix("/**")
+            companion_root = REPO_ROOT / chk.companion.removesuffix("/**")
+            source_files = {path.relative_to(source_root): path for path in source_root.rglob("*") if path.is_file()}
+            companion_files = {
+                path.relative_to(companion_root): path for path in companion_root.rglob("*") if path.is_file()
+            }
+            if source_files.keys() != companion_files.keys():
+                return "fail", "mirror file sets differ"
+            differing = [
+                path for path in source_files if source_files[path].read_bytes() != companion_files[path].read_bytes()
+            ]
+            if differing:
+                return "fail", f"mirrors differ: {', '.join(str(path) for path in differing[:3])}"
         return "pass", "both files updated"
     return "fail", f"mirror the change into {chk.companion}, or {chk.escape_hatch}"
 
@@ -587,7 +619,15 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
         chk.matched = [f for f in files if matches_globs(f, chk.triggers)]
         if chk.matched:
             triggered.append(chk)
-    triggered_companions = [c for c in COMPANION_CHECKS if c.source in files]
+    triggered_companions = [
+        companion
+        for companion in COMPANION_CHECKS
+        if any(
+            matches_globs(path, [companion.source])
+            or (companion.exact_mirror and matches_globs(path, [companion.companion]))
+            for path in files
+        )
+    ]
 
     results: list[dict[str, Any]] = []
     failures = 0

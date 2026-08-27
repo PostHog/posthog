@@ -48,6 +48,14 @@ SANDBOX_PROVIDER: str | None = get_from_env(
     "SANDBOX_PROVIDER", None, optional=True
 )  # When not set: defaults to "docker" in DEBUG mode, "modal" in production
 SANDBOX_API_URL: str | None = get_from_env("SANDBOX_API_URL", None, optional=True)
+# Hogland (Firecracker microVM sandbox service) control plane. Deliberately not
+# SANDBOX_*-prefixed: agentsh folds SANDBOX_* URL settings into the in-box egress
+# allowlist, and the box never needs to reach the hogland control plane.
+HOGLAND_API_URL: str | None = get_from_env("HOGLAND_API_URL", None, optional=True)
+HOGLAND_API_TOKEN: str | None = get_from_env("HOGLAND_API_TOKEN", None, optional=True)
+# Projected ServiceAccount token file (rotating JWT). When set and readable it wins
+# over the static HOGLAND_API_TOKEN, which stays as a local-dev/bake-only fallback.
+HOGLAND_API_TOKEN_FILE: str | None = get_from_env("HOGLAND_API_TOKEN_FILE", None, optional=True)
 SANDBOX_LLM_GATEWAY_URL: str | None = get_from_env("SANDBOX_LLM_GATEWAY_URL", None, optional=True)
 # The Go ai-gateway runs on its own host (ai-gateway.*, vs the Python gateway.*), so the
 # base URL is what selects it: no product slug on the path, attribution as one
@@ -62,9 +70,11 @@ SANDBOX_AI_GATEWAY_PRODUCTS: str | None = get_from_env("SANDBOX_AI_GATEWAY_PRODU
 SANDBOX_AI_GATEWAY_MINT_KEY: str | None = get_from_env("SANDBOX_AI_GATEWAY_MINT_KEY", None, optional=True)
 # Per-run spend cap and token lifetime for minted scoped tokens. The cap bounds one
 # runaway run; the daily bound per team is cap x the scheduler's runs-per-day limit.
+# The cap must fit a run's real spend plus its in-flight admission holds: a cap near
+# typical spend ends runs after the work is written and before it is committed.
 # TTL 0 (the default) derives TASKS_MAX_RUN_DURATION_SECONDS + 1h so a capped run
 # never outlives its token; a positive value overrides.
-SANDBOX_AI_GATEWAY_TOKEN_CAP_USD: str = get_from_env("SANDBOX_AI_GATEWAY_TOKEN_CAP_USD", "5")
+SANDBOX_AI_GATEWAY_TOKEN_CAP_USD: str = get_from_env("SANDBOX_AI_GATEWAY_TOKEN_CAP_USD", "10")
 # Per-team per-run cap overrides as a JSON object of team id to dollars, e.g. {"2": "10"}.
 SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES: str = get_from_env("SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES", "")
 SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS: int = get_from_env("SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS", 0, type_cast=int)

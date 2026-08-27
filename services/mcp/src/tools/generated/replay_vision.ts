@@ -18,6 +18,7 @@ import {
     VisionObservationsListQueryParams,
     VisionObservationsRetrieveParams,
     VisionObservationsRetrieveQueryParams,
+    VisionObservationsSearchRetrieveQueryParams,
     VisionScannersAffectedCohortCreateBody,
     VisionScannersAffectedCohortCreateParams,
     VisionScannersCreateBody,
@@ -362,6 +363,33 @@ const visionObservationsRetrieve = (): ToolBase<
     },
 })
 
+const VisionObservationsSearchSchema = VisionObservationsSearchRetrieveQueryParams
+
+const visionObservationsSearch = (): ToolBase<
+    typeof VisionObservationsSearchSchema,
+    Schemas.ObservationSearchResponse
+> => ({
+    name: 'vision-observations-search',
+    schema: VisionObservationsSearchSchema,
+    handler: async (context: Context, params: z.infer<typeof VisionObservationsSearchSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ObservationSearchResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/observations/search/`,
+            query: {
+                limit: params.limit,
+                max_score: params.max_score,
+                min_score: params.min_score,
+                q: params.q,
+                scanner_id: params.scanner_id,
+                tags: params.tags,
+                verdict: params.verdict,
+            },
+        })
+        return result
+    },
+})
+
 const VisionQuotaRetrieveSchema = z.object({})
 
 const visionQuotaRetrieve = (): ToolBase<typeof VisionQuotaRetrieveSchema, Schemas.VisionQuota> => ({
@@ -511,6 +539,9 @@ const visionScannersEstimateCreate = (): ToolBase<
         }
         if (params.model !== undefined) {
             body['model'] = params.model
+        }
+        if (params.experiment_targeting !== undefined) {
+            body['experiment_targeting'] = params.experiment_targeting
         }
         const result = await context.api.request<Schemas.EstimateResponse>({
             method: 'POST',
@@ -933,6 +964,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'vision-observations-label-destroy': visionObservationsLabelDestroy,
     'vision-observations-list': visionObservationsList,
     'vision-observations-retrieve': visionObservationsRetrieve,
+    'vision-observations-search': visionObservationsSearch,
     'vision-quota-retrieve': visionQuotaRetrieve,
     'vision-scanners-affected-cohort-create': visionScannersAffectedCohortCreate,
     'vision-scanners-create': visionScannersCreate,

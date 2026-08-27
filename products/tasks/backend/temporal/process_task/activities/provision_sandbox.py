@@ -3,6 +3,7 @@ import asyncio
 import logging
 import threading
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Any
 
 from django.conf import settings
@@ -12,11 +13,14 @@ import posthoganalytics
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from posthog.dataclasses import frozen
 from posthog.models.user_integration import ReauthorizationRequired
 from posthog.temporal.common.utils import asyncify
 
+from products.context_layer.backend.facade import api as context_layer_facade
 from products.tasks.backend.constants import (
     DEV_STACK_IMAGE_NAME,
+    SNAPSHOT_KIND_DIRECTORY,
     SNAPSHOT_KIND_FILESYSTEM,
     TASK_SIGNALS_CLONING_BLOBLESS_FEATURE_FLAG,
     filter_user_sandbox_env_vars,
@@ -28,6 +32,7 @@ from products.tasks.backend.exceptions import (
     OAuthTokenError,
     RepositoryCloneError,
     SandboxNetworkPolicyError,
+    TaskInvalidStateError,
     TaskNotFoundError,
 )
 from products.tasks.backend.logic.services.agentsh import (
@@ -48,11 +53,11 @@ from products.tasks.backend.logic.services.network_policy import (
 )
 from products.tasks.backend.logic.services.sandbox import (
     ExecutionResult,
-    Sandbox,
     SandboxBase,
     SandboxConfig,
     SandboxTemplate,
-    get_sandbox_class,
+    get_sandbox_class_for_run_backend,
+    get_sandbox_class_for_sandbox_id,
     sandbox_repo_path,
     workload_for_origin_product,
 )
@@ -61,14 +66,16 @@ from products.tasks.backend.logic.services.sandbox_usage import (
     measure_sandbox_cpu_usage,
     open_sandbox_session,
 )
-from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
+from products.tasks.backend.models import TASK_OWNERSHIP_VERSION_STATE_KEY, SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.temporal.metrics import (
     StepTimer,
+    increment_resume_mode,
     increment_snapshot_restore,
     increment_snapshot_usage,
     modal_sandbox_backend_label,
     record_network_enforcement,
     record_sandbox_created,
+    resume_mode_label,
     sandbox_runtime_label,
 )
 from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run, create_wizard_oauth_access_token
@@ -139,13 +146,15 @@ class CreateSandboxForRepositoryInput:
     prepared: PrepareSandboxForRepositoryOutput
 
 
-@dataclass
+@frozen
 class CreateSandboxForRepositoryOutput:
     sandbox_id: str
     sandbox_url: str
     connect_token: str | None
     used_snapshot: bool | None = None
     create_ms: int | None = None
+    jwt_kid: str | None = None
+    ttl_expires_at: str | None = None
 
 
 @dataclass
@@ -215,6 +224,15 @@ class InjectFreshTokensOnResumeInput:
     repository: str | None
 
 
+@frozen
+class RestoreSandboxConnectionStateInput:
+    run_id: str
+    sandbox_id: str
+    sandbox_url: str
+    connect_token: str | None
+    jwt_kid: str | None = None
+
+
 @dataclass
 class InvalidateResumeSnapshotInput:
     run_id: str
@@ -268,6 +286,29 @@ def _apply_modal_network_policy(
         return
     config.outbound_domain_allowlist = list(ctx.modal_domain_allowlist)
     config.network_policy_fingerprint = ctx.network_policy_fingerprint
+
+
+def _prewarmed_resume_needs_fresh_agent(
+    ctx: TaskProcessingContext,
+    prepared: PrepareSandboxForRepositoryOutput,
+    sandbox: SandboxBase,
+    *,
+    used_snapshot: bool,
+) -> bool:
+    """Whether a full resume snapshot bundled an agent that cannot idle before the resumed prompt."""
+    if (
+        not used_snapshot
+        or prepared.snapshot_external_id is None
+        or prepared.snapshot_kind == SNAPSHOT_KIND_DIRECTORY
+        or not (ctx.state or {}).get("prewarmed")
+        or not (ctx.state or {}).get("resume_from_run_id")
+    ):
+        return False
+    try:
+        return not sandbox.agent_server_supports_prewarmed_resume_idle()
+    except Exception:
+        logger.warning("prewarmed_resume_agent_capability_probe_failed", extra={"run_id": ctx.run_id})
+        return True
 
 
 def _is_blobless_signals_clone_enabled(ctx: TaskProcessingContext) -> bool:
@@ -362,11 +403,19 @@ def _resolve_sandbox_github_token(
 
 def _load_task(ctx: TaskProcessingContext) -> Task:
     try:
-        return Task.objects.select_related(
+        task = Task.objects.select_related(
             "created_by", "github_integration", "github_user_integration", "team", "loop"
         ).get(id=ctx.task_id)
     except Task.DoesNotExist as e:
         raise TaskNotFoundError(f"Task {ctx.task_id} not found", {"task_id": ctx.task_id}, cause=e)
+    context_ownership_version = (ctx.state or {}).get(TASK_OWNERSHIP_VERSION_STATE_KEY)
+    if context_ownership_version != task.ownership_version:
+        raise TaskInvalidStateError(
+            f"TaskRun {ctx.run_id} belongs to a previous task owner",
+            {"task_id": ctx.task_id, "run_id": ctx.run_id},
+            cause=RuntimeError(f"TaskRun {ctx.run_id} ownership version is stale"),
+        )
+    return task
 
 
 def _get_image_source_label(
@@ -486,12 +535,21 @@ def _build_environment_variables(
         environment_variables["POSTHOG_RESUME_RUN_ID"] = run_state.resume_from_run_id
     elif run_state.handoff_resumed:
         environment_variables["POSTHOG_RESUME_RUN_ID"] = str(ctx.run_id)
+        if run_state.handoff_resume_idle:
+            environment_variables["POSTHOG_RESUME_IDLE"] = "1"
 
     # Cloud wizard runs get a SEPARATE token, minted under the wizard's own OAuth app with the
     # wizard's scopes, so the wizard's access stays independent of the agent's sandbox token above.
     # The run_wizard activity reads it from POSTHOG_WIZARD_API_KEY in the sandbox env.
     if ctx.wizard_config is not None:
         environment_variables["POSTHOG_WIZARD_API_KEY"] = create_wizard_oauth_access_token(task)
+
+    # The flag was evaluated once in get_task_processing_context; presence of
+    # the mount-path env var is what gates the materialize activity in the workflow.
+    if ctx.context_layer_enabled:
+        environment_variables.update(
+            context_layer_facade.sandbox_environment_variables(ctx.organization_id, ctx.team_id)
+        )
 
     return environment_variables
 
@@ -610,29 +668,41 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
                 snapshot_kind = run_state.resume_snapshot_kind()
                 snapshot_mount_path = run_state.resume_snapshot_mount_path()
 
-        activity.logger.info(
+        is_resume = bool(run_state.handoff_resumed or run_state.resume_from_run_id)
+        resume_mode = resume_mode_label(
+            handoff_resumed=run_state.handoff_resumed,
+            using_modal_snapshot=resume_snapshot_external_id is not None,
+        )
+        resume_decision_log = (
+            activity.logger.warning if is_resume and resume_mode == "neither" else activity.logger.info
+        )
+        resume_decision_log(
             "resume_decision",
             extra={
                 "run_id": ctx.run_id,
+                "resume_mode": resume_mode,
                 "state_snapshot_external_id": run_state.snapshot_external_id,
                 "state_snapshot_kind": run_state.snapshot_kind,
                 "effective_snapshot_external_id": resume_snapshot_external_id,
                 "effective_snapshot_kind": snapshot_kind,
                 "effective_snapshot_mount_path": snapshot_mount_path,
                 "handoff_resumed": run_state.handoff_resumed,
+                "handoff_resume_idle": run_state.handoff_resume_idle,
                 "resume_from_run_id": run_state.resume_from_run_id,
                 "posthog_resume_run_id_set": "POSTHOG_RESUME_RUN_ID" in environment_variables,
                 "used_snapshot": used_snapshot,
             },
         )
-        if run_state.handoff_resumed or run_state.resume_from_run_id:
+        if is_resume:
             emit_agent_log(
                 ctx.run_id,
                 "debug",
                 f"Resume mode: handoff_resumed={run_state.handoff_resumed}, "
+                f"resume_idle={run_state.handoff_resume_idle}, "
                 f"resume_from_run_id={run_state.resume_from_run_id}, "
                 f"using_modal_snapshot={resume_snapshot_external_id is not None}",
             )
+            increment_resume_mode(resume_mode, origin_product=ctx.origin_product)
 
         provider = getattr(settings, "SANDBOX_PROVIDER", None)
         image_source, image_source_label = _get_image_source_label(
@@ -643,7 +713,7 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
             custom_image_name=ctx.custom_image_name if ctx.use_modal_vm_sandbox else None,
         )
 
-        sandbox_class = get_sandbox_class()
+        sandbox_class = get_sandbox_class_for_run_backend(ctx.sandbox_backend)
         return PrepareSandboxForRepositoryOutput(
             sandbox_name=get_sandbox_name_for_task(ctx.task_id),
             repository=repository,
@@ -711,7 +781,9 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
         # default, but the per-run state can opt out to pin a fixed-size box (request == limit).
         # The decision is captured once in the context at workflow start, so it's stable across
         # activity retries.
-        if ctx.burstable_sandbox_resources_enabled:
+        # Hogland reserves request == limit (no bursting); recording the burstable
+        # floor would misprice its reserved capacity 8-16x in the usage ledger.
+        if ctx.burstable_sandbox_resources_enabled and ctx.sandbox_backend != "hogland":
             config.burstable_resources = True
             emit_agent_log(
                 ctx.run_id,
@@ -722,7 +794,7 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
             )
 
         runtime = sandbox_runtime_label(use_vm_sandbox)
-        sandbox_backend = modal_sandbox_backend_label()
+        sandbox_backend = ctx.sandbox_backend if ctx.sandbox_backend != "modal" else modal_sandbox_backend_label()
         _apply_modal_network_policy(config, ctx, use_vm_sandbox=use_vm_sandbox)
         if config.outbound_domain_allowlist is not None:
             emit_agent_log(
@@ -731,6 +803,7 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
                 f"Requesting Modal network enforcement for {len(config.outbound_domain_allowlist)} domains",
             )
 
+        sandbox_class = get_sandbox_class_for_run_backend(ctx.sandbox_backend)
         try:
             with StepTimer(
                 "sandbox_creation",
@@ -739,13 +812,35 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
                 runtime=runtime,
                 sandbox_backend=sandbox_backend,
             ) as sandbox_creation_timer:
-                sandbox = Sandbox.create(config)
+                sandbox = sandbox_class.create(config)
                 # The provider's TTL clock starts here — the usage ledger anchors its
                 # kill deadline on this boundary, not on when the row is opened below.
                 sandbox_created_at = timezone.now()
                 actual_used_snapshot = bool(
                     (prepared.snapshot_external_id or prepared.snapshot_id) and sandbox.config.snapshot_restored
                 )
+                if _prewarmed_resume_needs_fresh_agent(
+                    ctx,
+                    prepared,
+                    sandbox,
+                    used_snapshot=actual_used_snapshot,
+                ):
+                    emit_agent_log(
+                        ctx.run_id,
+                        "debug",
+                        "Resume snapshot uses an older agent; provisioning a fresh sandbox before prewarming",
+                    )
+                    sandbox.destroy()
+                    config.snapshot_id = None
+                    config.snapshot_external_id = None
+                    config.snapshot_kind = SNAPSHOT_KIND_FILESYSTEM
+                    config.snapshot_mount_path = None
+                    config.snapshot_source = "none"
+                    config.snapshot_restored = False
+                    config.image_fallback = None
+                    sandbox = sandbox_class.create(config)
+                    sandbox_created_at = timezone.now()
+                    actual_used_snapshot = False
                 sandbox_creation_timer.set_used_snapshot(actual_used_snapshot)
         except Exception:
             if config.outbound_domain_allowlist is not None:
@@ -793,11 +888,14 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
         credentials = sandbox.get_connect_credentials()
 
         try:
+            jwt_kid = get_primary_sandbox_jwt_kid()
             sandbox_state = {
                 "sandbox_id": sandbox.id,
                 "sandbox_url": credentials.url,
-                SANDBOX_JWT_STATE_KID_KEY: get_primary_sandbox_jwt_kid(),
+                SANDBOX_JWT_STATE_KID_KEY: jwt_kid,
             }
+            if ctx.sandbox_backend != "modal":
+                sandbox_state["sandbox_backend"] = ctx.sandbox_backend
             if credentials.token:
                 sandbox_state["sandbox_connect_token"] = credentials.token
             TaskRun.update_state_atomic(ctx.run_id, updates=sandbox_state)
@@ -829,12 +927,14 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
             connect_token=credentials.token,
             used_snapshot=actual_used_snapshot,
             create_ms=create_ms,
+            ttl_expires_at=(sandbox_created_at + timedelta(seconds=sandbox.config.ttl_seconds)).isoformat(),
+            jwt_kid=jwt_kid,
         )
 
 
 @activity.defn
 async def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> CreateSandboxForRepositoryOutput:
-    sandbox_class = get_sandbox_class()
+    sandbox_class = get_sandbox_class_for_run_backend(input.context.sandbox_backend)
     if not sandbox_class.supports_creation_cancellation:
         return await _create_sandbox_for_repository(input)
 
@@ -874,7 +974,10 @@ async def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) 
                 )
 
     if creation_after_cancellation is not None:
-        sandbox = await asyncio.to_thread(Sandbox.get_by_id, creation_after_cancellation.sandbox_id)
+        sandbox = await asyncio.to_thread(
+            get_sandbox_class_for_sandbox_id(creation_after_cancellation.sandbox_id).get_by_id,
+            creation_after_cancellation.sandbox_id,
+        )
         try:
             await asyncio.to_thread(sandbox.destroy)
         finally:
@@ -901,7 +1004,7 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
         **ctx.to_log_context(),
     ):
         emit_agent_log(ctx.run_id, "debug", f"Cloning {input.repository} into sandbox")
-        sandbox = Sandbox.get_by_id(input.sandbox_id)
+        sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
 
         state = ctx.state or {}
         is_resume = bool(state.get("resume_from_run_id") or state.get("handoff_resumed"))
@@ -983,7 +1086,7 @@ def checkout_branch_in_sandbox(input: CheckoutBranchInSandboxInput) -> CheckoutB
         **ctx.to_log_context(),
     ):
         emit_agent_log(ctx.run_id, "debug", f"Checking out branch {input.branch}")
-        sandbox = Sandbox.get_by_id(input.sandbox_id)
+        sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
 
         org, repo = input.repository.lower().split("/")
         repo_path = f"/tmp/workspace/repos/{org}/{repo}"
@@ -1044,6 +1147,36 @@ def checkout_branch_in_sandbox(input: CheckoutBranchInSandboxInput) -> CheckoutB
         _prepare_posthog_desktop_cloud_task(ctx, sandbox, input.repository)
 
         return CheckoutBranchInSandboxOutput(checkout_ms=checkout_timer.elapsed_ms)
+
+
+@activity.defn
+@asyncify
+def restore_sandbox_connection_state(input: RestoreSandboxConnectionStateInput) -> None:
+    """Point the run's persisted connection state back at a sandbox it already had.
+
+    Creating a replacement sandbox publishes its connection details immediately, so an
+    abandoned replacement would otherwise leave every later follow-up addressing a sandbox
+    that no longer exists while the original is still serving the run.
+    """
+    updates: dict[str, Any] = {
+        "sandbox_id": input.sandbox_id,
+        "sandbox_url": input.sandbox_url,
+    }
+    remove_keys = [] if input.connect_token else ["sandbox_connect_token"]
+    if input.connect_token:
+        updates["sandbox_connect_token"] = input.connect_token
+    # The signing key id belongs to the same set as the handle it authenticates —
+    # clear_sandbox_connection_state_atomic drops all four together. Leaving the
+    # replacement's behind would sign tokens the restored sandbox does not trust.
+    if input.jwt_kid:
+        updates[SANDBOX_JWT_STATE_KID_KEY] = input.jwt_kid
+    else:
+        remove_keys.append(SANDBOX_JWT_STATE_KID_KEY)
+    TaskRun.update_state_atomic(input.run_id, updates=updates, remove_keys=remove_keys)
+    activity.logger.info(
+        "restored sandbox connection state",
+        extra={"run_id": input.run_id, "sandbox_id": input.sandbox_id},
+    )
 
 
 @activity.defn
@@ -1118,7 +1251,7 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
                 cause=e,
             )
 
-        sandbox = Sandbox.get_by_id(input.sandbox_id)
+        sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
 
         if input.repository:
             set_git_remote_token(sandbox, input.repository, github_token or None)

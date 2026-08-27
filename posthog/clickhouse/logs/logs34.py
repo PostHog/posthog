@@ -48,6 +48,8 @@ CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NA
     `_bytes_uncompressed` UInt64,
     `_bytes_compressed` UInt64,
     `_record_count` UInt64,
+    `pattern` String,
+    `pattern_version` UInt8,
     INDEX idx_severity_text_set severity_text TYPE set(10) GRANULARITY 1,
     INDEX idx_attributes_str_keys mapKeys(attributes_map_str) TYPE bloom_filter(0.01) GRANULARITY 1,
     INDEX idx_attributes_str_values mapValues(attributes_map_str) TYPE bloom_filter(0.001) GRANULARITY 1,
@@ -101,6 +103,54 @@ CREATE OR REPLACE TABLE {database}.logs_distributed AS {database}.{table_name} E
         database=settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE,
         table_name=TABLE_NAME,
     )
+
+
+def WRITABLE_LOGS34_TABLE_SQL():
+    # The write path for the Kafka MV, hosted on the ingestion-events nodes: a Distributed table over
+    # the logs cluster's `logs34`. The columns are spelled out (rather than `AS logs34`) because
+    # `logs34` is not local on the events nodes — only this Distributed front is. Keep the column list
+    # byte-identical to `LOGS34_TABLE_SQL` (indexes/projection are storage-only and omitted here).
+    # `CLICKHOUSE_LOGS_WRITE_CLUSTER`, not `CLICKHOUSE_LOGS_CLUSTER`: the events node reaches the logs
+    # cluster under its own name, and the latter's default resolves to the data node from there.
+    db = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
+    return f"""
+CREATE TABLE IF NOT EXISTS {db}.writable_logs34
+(
+    `time_bucket` DateTime MATERIALIZED toStartOfDay(timestamp),
+    `original_expiry_timestamp` DateTime64(6),
+    `uuid` String,
+    `team_id` Int32,
+    `trace_id` String,
+    `span_id` String,
+    `trace_flags` Int32,
+    `timestamp` DateTime64(6) CODEC(DoubleDelta),
+    `observed_timestamp` DateTime64(6),
+    `created_at` DateTime64(6) MATERIALIZED now(),
+    `body` String,
+    `severity_text` LowCardinality(String),
+    `severity_number` Int32,
+    `service_name` LowCardinality(String),
+    `resource_attributes` Map(LowCardinality(String), String),
+    `resource_fingerprint` UInt64 MATERIALIZED cityHash64(resource_attributes),
+    `instrumentation_scope` String,
+    `event_name` String,
+    `attributes_map_str` Map(LowCardinality(String), String),
+    `level` String ALIAS severity_text,
+    `mat_body_ipv4_matches` Array(String) ALIAS extractAll(body, '(\\d\\.((25[0-5]|(2[0-4]|1{0, 1}[0-9]){0, 1}[0-9])\\.){2, 2}([0-9]))'),
+    `time_minute` DateTime ALIAS toStartOfMinute(timestamp),
+    `attributes` Map(LowCardinality(String), String) ALIAS mapApply((k, v) -> (left(k, -5), v), attributes_map_str),
+    `attributes_map_float` Map(LowCardinality(String), Float64) MATERIALIZED mapFilter((k, v) -> (v IS NOT NULL), mapApply((k, v) -> (concat(left(k, -5), '__float'), toFloat64OrNull(v)), attributes_map_str)),
+    `attributes_map_datetime` Map(LowCardinality(String), DateTime64(6)) MATERIALIZED mapFilter((k, v) -> (v IS NOT NULL), mapApply((k, v) -> (concat(left(k, -5), '__datetime'), parseDateTimeBestEffortOrNull(v, 6)), attributes_map_str)),
+    `_partition` UInt32,
+    `_topic` String,
+    `_offset` UInt64,
+    `_bytes_uncompressed` UInt64,
+    `_bytes_compressed` UInt64,
+    `_record_count` UInt64
+)
+ENGINE = {Distributed(data_table=TABLE_NAME, cluster=settings.CLICKHOUSE_LOGS_WRITE_CLUSTER)}
+SETTINGS background_insert_batch = 1
+"""
 
 
 def LOGS34_TO_LOG_ATTRIBUTES_MV():
@@ -326,7 +376,8 @@ CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{KAFKA_TA
     `resource_attributes` Map(LowCardinality(String), String),
     `instrumentation_scope` String,
     `event_name` String,
-    `attributes` Map(LowCardinality(String), String)
+    `attributes` Map(LowCardinality(String), String),
+    `retention_days` Nullable(Int32)
 )
 ENGINE = {kafka_engine(topic=KAFKA_TOPIC, group=KAFKA_GROUP, serialization="Avro", named_collection=KAFKA_NAMED_COLLECTION)}
 SETTINGS
@@ -334,7 +385,8 @@ SETTINGS
     kafka_num_consumers = 8,
     kafka_poll_timeout_ms = 3000,
     kafka_poll_max_batch_size = 1000,
-    kafka_thread_per_consumer = 1
+    kafka_thread_per_consumer = 1,
+    input_format_avro_allow_missing_fields = 1
 """
 
 
@@ -356,7 +408,7 @@ def KAFKA_LOGS34_AVRO_MV_SELECT():
     mapSort(mapApply((k, v) -> (concat(k, '__str'), JSONExtractString(v)), attributes)) AS attributes_map_str,
     mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)) AS resource_attributes,
     toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
-    observed_timestamp + toIntervalDay(toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32(15))) AS original_expiry_timestamp,
+    observed_timestamp + toIntervalDay(if((retention_days IS NOT NULL) AND (retention_days > 0), retention_days, toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32(15)))) AS original_expiry_timestamp,
     _partition,
     _topic,
     _offset,
@@ -366,10 +418,14 @@ def KAFKA_LOGS34_AVRO_MV_SELECT():
 FROM {db}.{KAFKA_TABLE_NAME}"""
 
 
-def KAFKA_LOGS34_AVRO_MV():
+def KAFKA_LOGS34_AVRO_MV(to_table: str = TABLE_NAME):
     db = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
+    # `to_table` defaults to `logs34` so the historical migration 0280 (which creates this MV on the
+    # logs nodes, where `logs34` is local) keeps working when replayed. Migration 0305 passes
+    # `writable_logs34` — the Distributed(logs, posthog, logs34) table on the ingestion-events nodes —
+    # because `logs34` itself is not local there.
     return f"""
-CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.kafka_logs34_avro_mv TO {db}.{TABLE_NAME}
+CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.kafka_logs34_avro_mv TO {db}.{to_table}
 (
     `uuid` String,
     `trace_id` String,
@@ -395,6 +451,60 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.kafka_logs34_avro_mv TO {db}.{TABLE_
     `_bytes_compressed` Nullable(Int64)
 )
 AS {KAFKA_LOGS34_AVRO_MV_SELECT()}
+"""
+
+
+def LOGS34_TO_VOLUME_BUCKETS_MV():
+    db = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
+    # Groups rows exactly like _rollup_sql in
+    # products/logs/backend/temporal/volume_tick/aggregation.py, which carries
+    # the reasoning for the environment fallback and severity lowercasing. The
+    # 300s grid literal is frozen into the DDL at migration time; BUCKET_SECONDS
+    # there must stay equal to it or the detector reads buckets this MV never
+    # writes.
+    return f"""
+CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.logs34_to_volume_buckets TO {db}.logs_volume_buckets
+(
+    `team_id` Int32,
+    `time_bucket` DateTime('UTC'),
+    `service_name` LowCardinality(String),
+    `namespace` LowCardinality(String),
+    `environment` LowCardinality(String),
+    `severity_text` LowCardinality(String),
+    `log_count` SimpleAggregateFunction(sum, UInt64)
+)
+AS SELECT
+    team_id,
+    time_bucket,
+    service_name,
+    namespace,
+    environment,
+    severity_text,
+    sumSimpleState(1) AS log_count
+FROM
+(
+    SELECT
+        team_id,
+        toStartOfInterval(timestamp, toIntervalSecond(300), 'UTC') AS time_bucket,
+        service_name,
+        if(
+            resource_attributes['k8s.namespace.name'] != '',
+            resource_attributes['k8s.namespace.name'],
+            resource_attributes['service.namespace']
+        ) AS namespace,
+        if(
+            resource_attributes['deployment.environment.name'] != '',
+            resource_attributes['deployment.environment.name'],
+            if(
+                resource_attributes['deployment.environment'] != '',
+                resource_attributes['deployment.environment'],
+                resource_attributes['env']
+            )
+        ) AS environment,
+        lower(severity_text) AS severity_text
+    FROM {db}.{TABLE_NAME}
+)
+GROUP BY team_id, time_bucket, service_name, namespace, environment, severity_text
 """
 
 

@@ -98,7 +98,7 @@ POSTHOG_AI_OAUTH_APP_CLIENT_IDS = frozenset(
     }
 )
 
-McpScopePreset = Literal["read_only", "full", "signals_scout", "signals_scout_reports", "report_canvas"]
+McpScopePreset = Literal["read_only", "full", "signals_scout", "signals_scout_reports"]
 SandboxOAuthApplication = Literal["array", "posthog_ai", "signals"]
 
 # Granted only to sandbox runs a person started by hand (see `interactive_run` in
@@ -115,11 +115,6 @@ INTERNAL_SCOPES: list[str] = [
     # gateway requires it on the internal products that share the PostHog Desktop OAuth app
     # (background_agents, signals, slack_app, conversations) so a user's own OAuth token
     # can't route around the posthog_code free-tier model gate through those.
-    "internal_run:read",
-]
-
-REPORT_CANVAS_INTERNAL_SCOPES: list[str] = [
-    "llm_gateway:read",
     "internal_run:read",
 ]
 
@@ -141,6 +136,8 @@ SCOUT_INTERNAL_SCOPES: list[str] = [
 SCOUT_REPORT_SCOPES: list[str] = [
     "signal_scout_report:write",
 ]
+
+LOOP_CONTEXT_INTERNAL_SCOPE = "loop_context_internal:write"
 
 
 # A deliberately narrow set of user-facing WRITE scopes granted to the Signals scout
@@ -185,7 +182,7 @@ TOKEN_EXPIRATION_SECONDS = 60 * 60 * 6  # 6 hours
 
 PosthogMcpScopes = McpScopePreset | list[str]
 
-MCP_SCOPE_PRESETS = ("read_only", "full", "signals_scout", "signals_scout_reports", "report_canvas")
+MCP_SCOPE_PRESETS = ("read_only", "full", "signals_scout", "signals_scout_reports")
 
 
 def resolve_scopes(
@@ -197,9 +194,6 @@ def resolve_scopes(
     if isinstance(scopes, str):
         if scopes == "full":
             resolved = [*MCP_READ_SCOPES, *MCP_WRITE_SCOPES, *internal]
-        elif scopes == "report_canvas":
-            report_canvas_internal = list(REPORT_CANVAS_INTERNAL_SCOPES) if include_internal_scopes else []
-            resolved = [*MCP_READ_SCOPES, "canvas:write", *report_canvas_internal]
         elif scopes in ("signals_scout", "signals_scout_reports"):
             # The scout sandbox: reads, the scout's own internal write scope, and a narrow
             # allowlist of user-facing writes (`SCOUT_USER_WRITE_SCOPES`) for the durable
@@ -232,7 +226,7 @@ def has_write_scopes(scopes: PosthogMcpScopes) -> bool:
         # (remember/forget/emit_finding + the narrow `SCOUT_USER_WRITE_SCOPES`). Read-only mode
         # is a tool-annotation filter, not a scope filter, and would strip those tools
         # categorically without this opt-out.
-        return scopes in ("full", "signals_scout", "signals_scout_reports", "report_canvas")
+        return scopes in ("full", "signals_scout", "signals_scout_reports")
     return any(s in MCP_WRITE_SCOPES for s in scopes)
 
 
@@ -304,8 +298,10 @@ def get_sandbox_oauth_app(application: SandboxOAuthApplication = "array") -> OAu
         signals_app = get_signals_app()
         if signals_app is not None:
             return signals_app
-        # Array still authorizes the `signals` gateway product, so the run works; it just
-        # isn't isolated yet. Loud enough to notice, since the isolation is the point.
+        # The gateway no longer accepts Array tokens for the `signals` product, so this run's
+        # inference calls will be rejected there. Minting still succeeds so the failure surfaces
+        # in the run (with this log to explain it) rather than as an opaque kickoff error; the
+        # real fix is provisioning the region's Signals application row.
         logger.warning("signals_oauth_app_missing_falling_back_to_array", region=get_instance_region())
     return get_array_app()
 

@@ -138,7 +138,13 @@ class PipelineV3(Generic[ResumableData]):
         self._table = models.table
         # xmin reads deltas and upserts on the primary key, so it writes incrementally too — never
         # as a full_refresh overwrite, which would wipe earlier data on the second (delta-only) sync.
-        self._is_incremental = models.schema.is_incremental or models.schema.is_webhook or models.schema.is_xmin
+        # Same for a change stream, which only ever carries the rows that changed.
+        self._is_incremental = (
+            models.schema.is_incremental
+            or models.schema.is_webhook
+            or models.schema.is_xmin
+            or source_response.cdc_write_mode is not None
+        )
 
         self._delta_table_ref = DeltaTableRef(self._resource_name, self._job, self._logger)
 
@@ -151,7 +157,9 @@ class PipelineV3(Generic[ResumableData]):
         self._attempt = attempt
 
         sync_type: SyncTypeLiteral = "full_refresh"
-        if self._schema.is_incremental or self._schema.is_webhook or self._schema.is_xmin:
+        if source_response.cdc_write_mode is not None:
+            sync_type = "cdc"
+        elif self._schema.is_incremental or self._schema.is_webhook or self._schema.is_xmin:
             sync_type = "incremental"
         elif self._schema.is_append:
             sync_type = "append"
@@ -198,6 +206,7 @@ class PipelineV3(Generic[ResumableData]):
             run_uuid=self._s3_batch_writer.get_run_uuid(),
             logger=self._logger,
             primary_keys=self._resource.primary_keys,
+            cdc_write_mode=self._resource.cdc_write_mode,
             is_resume=is_resume,
             partition_count=partition_count,
             partition_size=partition_size,
@@ -225,6 +234,7 @@ class PipelineV3(Generic[ResumableData]):
             team_id=self._job.team_id,
             schema_name=self._schema.name,
             coalesce_tables=resumable_source_manager is None and not self._schema.is_webhook,
+            primary_keys=self._resource.primary_keys,
         )
         self._internal_schema = HogQLSchema()
         self._sinks = build_pipeline_sinks(

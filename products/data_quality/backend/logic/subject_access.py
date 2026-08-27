@@ -12,13 +12,17 @@ from typing import TYPE_CHECKING, Any, Optional
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.schema.information_schema import _references_denied_table
 
+from posthog.dataclasses import frozen
+from posthog.exceptions_capture import capture_exception
+
 from .registry import all_specs, get_spec
 from .spec import CheckTypeSpec
-from .subjects import resolve_subject
+from .subjects import resolve_subject, resolve_subject_by_name
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
-    from posthog.rbac.user_access_control import UserAccessControl
+
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 
 def denied_subject_names(
@@ -75,7 +79,19 @@ def check_reads_denied_subject(team_id: int, check_type: str, config: dict[str, 
     return any(is_subject_denied(name, denied) for name in referenced_subject_names(team_id, check_type, config))
 
 
-def referenced_subject_names(team_id: int, check_type: str, config: dict[str, Any]) -> list[str]:
+@frozen
+class ReferencedSubjects:
+    """What a check reads besides its declared subject, and whether that could be established.
+
+    ``unresolved_reference`` is the part a name list cannot carry: a ``relationships`` target that no
+    longer resolves leaves no name behind, so a caller matching names alone would read "references
+    nothing" from a subject that was deleted out from under the denial set."""
+
+    names: tuple[str, ...]
+    unresolved_reference: bool
+
+
+def referenced_subjects(team_id: int, check_type: str, config: dict[str, Any]) -> ReferencedSubjects:
     """Every warehouse name a check reads *besides* its declared subject.
 
     A ``relationships`` check names a second subject and a ``custom_sql`` query selects from arbitrary
@@ -85,8 +101,97 @@ def referenced_subject_names(team_id: int, check_type: str, config: dict[str, An
     spec = get_spec(check_type)
     parsed = spec.parse_config(config)
     names = list(spec.referenced_table_names(parsed))
+    unresolved = False
     if related := spec.related_subject_ref(parsed):
         ref = resolve_subject(team_id, related[0], related[1])
         if ref.exists:
             names.append(ref.name)
-    return names
+        else:
+            unresolved = True
+    return ReferencedSubjects(names=tuple(names), unresolved_reference=unresolved)
+
+
+def referenced_subject_names(team_id: int, check_type: str, config: dict[str, Any]) -> list[str]:
+    """The names from :func:`referenced_subjects`, for callers that only report or match on them."""
+    return list(referenced_subjects(team_id, check_type, config).names)
+
+
+@frozen
+class PinnedSubject:
+    """One subject a run read besides its own, as the identity recorded alongside the run."""
+
+    subject_type: str
+    subject_uuid: str
+
+
+_SUBJECT_TYPE_KEY = "subject_type"
+_SUBJECT_UUID_KEY = "subject_uuid"
+
+
+def pin_referenced_subjects(team_id: int, check_type: str, config: dict[str, Any]) -> list[dict[str, str]] | None:
+    """The identities of the subjects this run reads besides its own, to record alongside the run.
+
+    Names cannot carry this. Deleting a warehouse object frees its name, so a recorded name starts
+    naming whatever a member creates in its place, and history read back by name hands them what the
+    run read over an object they were denied. An identity survives that: the reused name resolves to
+    a different id, and the recorded id stops resolving.
+
+    ``None`` when the references cannot be established at all, so a reader falls back to judging the
+    run by its type rather than reading an empty list as "read nothing".
+    """
+    try:
+        spec = get_spec(check_type)
+        parsed = spec.parse_config(config)
+        pinned = [
+            subject for name in spec.referenced_table_names(parsed) if (subject := _pin_name(team_id, name)) is not None
+        ]
+        if related := spec.related_subject_ref(parsed):
+            pinned.append(PinnedSubject(subject_type=str(related[0]), subject_uuid=str(related[1])))
+    except Exception as err:
+        capture_exception(err)
+        return None
+    return [{_SUBJECT_TYPE_KEY: subject.subject_type, _SUBJECT_UUID_KEY: subject.subject_uuid} for subject in pinned]
+
+
+def pinned_subjects(recorded: Any) -> list[PinnedSubject] | None:
+    """The identities a run recorded, or None when it recorded nothing judgeable.
+
+    A malformed entry reads as nothing recorded rather than as an empty list, so a run whose
+    recording cannot be trusted falls back to the same type-based rule as one predating it."""
+    if not isinstance(recorded, list):
+        return None
+    subjects = []
+    for entry in recorded:
+        if not isinstance(entry, dict):
+            return None
+        subject_type, subject_uuid = entry.get(_SUBJECT_TYPE_KEY), entry.get(_SUBJECT_UUID_KEY)
+        if not isinstance(subject_type, str) or not isinstance(subject_uuid, str):
+            return None
+        subjects.append(PinnedSubject(subject_type=subject_type, subject_uuid=subject_uuid))
+    return subjects
+
+
+def _pin_name(team_id: int, name: str) -> PinnedSubject | None:
+    ref = resolve_subject_by_name(team_id, name)
+    if ref is None:
+        return None
+    return PinnedSubject(subject_type=str(ref.subject_type), subject_uuid=ref.subject_uuid)
+
+
+def unconfirmable_subject_names(
+    team: "Team",
+    user: "User",
+    names: tuple[str, ...],
+    user_access_control: Optional["UserAccessControl"] = None,
+) -> set[str]:
+    """The referenced names this caller can neither resolve nor be shown to have been denied.
+
+    Deleting a warehouse object takes its denial with it: the name leaves the database the caller
+    can resolve *and* the denial set that is rebuilt from the objects that still exist, so a run
+    that once read a denied table starts reading as harmless. Neither state proves access, so both
+    are reported and the caller fails them closed -- the same stance ``_require_parent_subject_access``
+    already takes for the subject a check hangs off."""
+    if not names:
+        return set()
+    database = Database.create_for(team=team, user=user, user_access_control=user_access_control)
+    return {name for name in names if not database.has_table(name) and not database.is_table_access_denied(name)}

@@ -7,14 +7,13 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, uuid7
 
 from products.stamphog.backend.facade import contracts
-from products.stamphog.backend.facade.enums import ReviewMode, ReviewRunStatus
-from products.stamphog.backend.models import DigestChannel, PullRequest, ReviewRun, StamphogRepoConfig
+from products.stamphog.backend.facade.enums import ChannelResolutionSource, DigestRunStatus, ReviewMode, ReviewRunStatus
+from products.stamphog.backend.models import DigestRun, PullRequest, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.presentation.serializers import StamphogRepoConfigWriteSerializer
 from products.stamphog.backend.presentation.views import _INSTALL_STATE_SALT
 from products.stamphog.backend.tests.conftest import PRODUCT_DATABASES, StamphogTeamScopedTestMixin
@@ -575,65 +574,29 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert not StamphogRepoConfig.objects.unscoped().filter(team_id=self.team.id).exists()
 
 
-class TestDigestChannelAPI(StamphogTeamScopedTestMixin, APIBaseTest):
+class TestDigestRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
     databases = PRODUCT_DATABASES
 
-    def test_delete_soft_disables_as_tombstone(self) -> None:
-        # Deleting a channel keeps the row as a disabled tombstone so the daily beat's auto-provisioning
-        # can't recreate and re-post it. A hard delete would resurrect a channel someone opted out of.
-        channel = DigestChannel.objects.unscoped().create(
-            team_id=self.team.id,
-            audience_key="team-x",
-            slack_integration_id=1,
-            slack_channel_id="C1",
-            enabled=True,
-        )
-        url = f"/api/projects/{self.team.id}/stamphog/digest_channels/{channel.id}/"
-        response = self.client.delete(url)
-        assert response.status_code == status.HTTP_204_NO_CONTENT, response.content
-        channel.refresh_from_db()
-        assert channel.enabled is False
-        assert DigestChannel.objects.unscoped().filter(id=channel.id).exists()
+    def test_a_run_reports_where_its_digest_went(self) -> None:
+        # The run is the only record of a digest's destination now that routing is derived per run
+        # rather than stored on a channel row. Losing these fields leaves "why did my digest go
+        # there" unanswerable from anywhere but a worker log.
+        for channel_id, audience in (("C1", "team-x"), ("C2", "team-y")):
+            DigestRun.objects.unscoped().create(
+                team_id=self.team.id,
+                audience_key=audience,
+                slack_channel_id=channel_id,
+                # Stored bare, the way _match records it. The "#" belongs to display only.
+                slack_channel_name=audience,
+                resolution_source=ChannelResolutionSource.OWNERS_CONTACT,
+                status=DigestRunStatus.COMPLETED,
+            )
 
-    def test_update_cannot_change_audience_key(self) -> None:
-        # audience_key anchors the digest bucket and its opt-out tombstone. A PATCH that re-pointed it
-        # would re-open an audience someone opted out of, so it's create-only — ignored on update while
-        # other fields (here slack_channel_name) still change.
-        integration = Integration.objects.create(
-            team_id=self.team.id, kind="slack", config={}, sensitive_config={"access_token": "x"}
-        )
-        created = self.client.post(
-            f"/api/projects/{self.team.id}/stamphog/digest_channels/",
-            {"audience_key": "team-x", "slack_integration_id": integration.id, "slack_channel_id": "C1"},
-            format="json",
-        ).json()
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/stamphog/digest_channels/{created['id']}/",
-            {"audience_key": "team-evil", "slack_channel_name": "renamed"},
-            format="json",
-        )
-        assert response.status_code == status.HTTP_200_OK, response.content
-        body = response.json()
-        assert body["audience_key"] == "team-x"
-        assert body["slack_channel_name"] == "renamed"
+        url = f"/api/projects/{self.team.id}/stamphog/digest_runs/"
+        body = self.client.get(url).json()
+        assert {r["slack_channel_id"] for r in body["results"]} == {"C1", "C2"}
+        assert {r["audience_key"] for r in body["results"]} == {"team-x", "team-y"}
+        assert {r["resolution_source"] for r in body["results"]} == {"owners_contact"}
 
-    def test_duplicate_audience_is_a_400_not_a_500(self) -> None:
-        # team_id is injected in perform_create, so DRF can't pre-validate the unique
-        # (team, audience_key) constraint — the IntegrityError must surface as a validation error.
-        integration = Integration.objects.create(
-            team_id=self.team.id, kind="slack", config={}, sensitive_config={"access_token": "x"}
-        )
-        DigestChannel.objects.unscoped().create(
-            team_id=self.team.id,
-            audience_key="team-x",
-            slack_integration_id=integration.id,
-            slack_channel_id="C1",
-            enabled=True,
-        )
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/stamphog/digest_channels/",
-            {"audience_key": "team-x", "slack_integration_id": integration.id, "slack_channel_id": "C2"},
-            format="json",
-        )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
-        assert "already exists" in response.json()["detail"]
+        filtered = self.client.get(f"{url}?slack_channel_id=C1").json()
+        assert [r["audience_key"] for r in filtered["results"]] == ["team-x"]

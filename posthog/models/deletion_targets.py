@@ -11,7 +11,7 @@ The reasoning behind each registration, exclusion and known gap is in
 docs/internal/clickhouse-deletion-coverage.md.
 """
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from enum import Enum
 from functools import partial
@@ -19,6 +19,7 @@ from functools import partial
 from django.conf import settings
 
 from clickhouse_driver import Client
+from clickhouse_driver.errors import ServerException
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import NodeRole
@@ -35,9 +36,26 @@ from posthog.models.flag_evaluations.sql import (
     FLAG_EVALUATIONS_TABLE,
 )
 
+COVERAGE_DOC = "docs/internal/clickhouse-deletion-coverage.md"
 
-class UnsweepableRowsError(Exception):
+# ClickHouse's CLUSTER_DOESNT_EXIST, which clickhouse_driver does not name.
+_CLUSTER_DOESNT_EXIST = 701
+
+
+class DeletionCoverageError(Exception):
+    """A deletion would report success while rows it named survive somewhere."""
+
+
+class UnsweepableRowsError(DeletionCoverageError):
     """A deletion would report success while rows it cannot reach survive on another table."""
+
+
+class UnreachableTargetError(DeletionCoverageError):
+    """A registered target's storage table is on a cluster this handle cannot address."""
+
+
+class UnsweptRowsError(DeletionCoverageError):
+    """A sweep ran to completion and rows it was supposed to remove are still readable."""
 
 
 class HogQLSchema(Enum):
@@ -60,6 +78,13 @@ class DeletionTarget:
 
     data_table: str
     read_table: str
+    # Name of the Django setting holding the cluster its storage table is on. A target naming a
+    # cluster the job's handle does not address is swept through a sibling handle for that cluster.
+    # Reachability is still decided by probing the hosts, not by comparing this against the handle's
+    # cluster: two cluster names can cover the same nodes, which is what the dev stack and CI do.
+    # Anything that may live elsewhere must also be ``optional``, since that is what makes the
+    # storage table's presence a question rather than an assumption.
+    cluster_setting: str = "CLICKHOUSE_CLUSTER"
     # Guarded on system.tables: the table sits behind a migration that may not have run everywhere.
     optional: bool = False
     # The schema a HogQL predicate compiles against here, None where no HogQL table definition
@@ -78,6 +103,10 @@ class DeletionTarget:
     # The event names this table can hold, None meaning unconstrained. Lets a request naming other
     # events skip this table without querying it.
     stored_events: frozenset[str] | None = None
+
+    @property
+    def cluster_name(self) -> str:
+        return getattr(settings, self.cluster_setting)
 
     @property
     def accepts_hogql_predicate(self) -> bool:
@@ -99,6 +128,19 @@ class DeletionTarget:
         return not self.stored_events.isdisjoint(events)
 
 
+@dataclass(frozen=True, kw_only=True)
+class TargetPlacement:
+    """A target and the cluster handle whose shards carry its storage table.
+
+    Sweeps dispatch per shard, and a handle enumerates the shards of exactly one cluster, so the
+    two travel together: reading the target off one handle and dispatching it on another is the
+    mistake this pairing exists to prevent.
+    """
+
+    target: DeletionTarget
+    cluster: ClickhouseCluster
+
+
 EVENTS = DeletionTarget(
     data_table=EVENTS_DATA_TABLE(),
     read_table="events",
@@ -110,6 +152,7 @@ EVENTS_JSON = DeletionTarget(
     data_table=EVENTS_JSON_DATA_TABLE,
     read_table=DISTRIBUTED_EVENTS_JSON_TABLE,
     optional=True,
+    cluster_setting="CLICKHOUSE_EVENTS_CLUSTER",
     hogql_schema=HogQLSchema.NATIVE_JSON,
     accepts_property_rewrite=True,
     # Dual-written from the same events, so its uuids are the legacy table's.
@@ -157,28 +200,142 @@ def _table_exists_via_sync_execute(table: str) -> bool:
     return bool(result and result[0][0])
 
 
-def is_present(cluster: ClickhouseCluster, target: DeletionTarget) -> bool:
-    """Whether any data node carries this target's storage table.
+def _has_any_rows(client: Client, table: str) -> bool:
+    # LIMIT 1 rather than count(): this only has to answer "is there anything here", and on a
+    # multi-terabyte events table a count would read every part.
+    # nosemgrep: clickhouse-fstring-param-audit (table is an internal constant, not user input)
+    return bool(client.execute(f"SELECT 1 FROM {settings.CLICKHOUSE_DATABASE}.{table} LIMIT 1"))
+
+
+def _assert_no_rows_behind_the_proxy(cluster: ClickhouseCluster, target: DeletionTarget) -> None:
+    """Fail when a storage table no host here carries still has rows behind its Distributed proxy.
+
+    A ``ClickhouseCluster`` addresses exactly one cluster: hosts come from ``system.clusters`` for
+    that one name, and only hosts whose ``hostClusterRole`` macro is ``data`` carry a shard number,
+    which is what every sharded mutation dispatches over. A Distributed table has no such limit and
+    routes to whichever cluster its engine names, so it still reads rows this handle cannot touch.
+    Skipping the target would complete the request while those rows survive.
+
+    Silence when the proxy is missing or empty, which is the ordinary state of a table whose
+    rollout has not reached this deployment.
+    """
+
+    def probe(client: Client) -> bool:
+        if not _table_exists(client, target.read_table):
+            return False
+        return _has_any_rows(client, target.read_table)
+
+    if not cluster.any_host_by_role(probe, NodeRole.DATA).result():
+        return
+
+    raise UnreachableTargetError(
+        f"{target.data_table} is registered for deletion with its storage on cluster "
+        f"{target.cluster_name!r}, and no data node of {cluster.data_cluster_name!r} carries it, "
+        f"while its Distributed proxy {target.read_table} still returns rows. Sweeping without it "
+        f"would report an erasure that did not happen. See {COVERAGE_DOC}."
+    )
+
+
+def _any_data_node_has(cluster: ClickhouseCluster, table: str) -> bool:
+    """Whether any data node of ``cluster`` carries ``table``.
 
     ``any`` rather than ``all``: on a partially-migrated cluster the mutation fails loudly on the
     hosts missing the table, which is preferable to silently skipping a deletion.
     """
-    if not target.optional:
-        return True
-    results = cluster.map_hosts_by_role(partial(_table_exists, table=target.data_table), NodeRole.DATA).result()
+    results = cluster.map_hosts_by_role(partial(_table_exists, table=table), NodeRole.DATA).result()
     return any(results.values())
 
 
-def resolve_targets(
+def _sibling_holding(cluster: ClickhouseCluster, target: DeletionTarget) -> ClickhouseCluster | None:
+    """A handle for the target's own cluster, when that cluster is defined here and carries it."""
+    if target.cluster_name == cluster.data_cluster_name:
+        return None
+    try:
+        sibling = cluster.sibling(target.cluster_name)
+    except ServerException as exc:
+        if exc.code != _CLUSTER_DOESNT_EXIST:
+            raise
+        # No such cluster here, which is every deployment the split that moves this table has not
+        # reached: local, CI, self-hosted. Leave the verdict to the proxy check.
+        return None
+    return sibling if _any_data_node_has(sibling, target.data_table) else None
+
+
+def placement_for(cluster: ClickhouseCluster, target: DeletionTarget) -> TargetPlacement | None:
+    """Where ``target`` can be swept from, refusing rather than skipping when nowhere can.
+
+    Reachability is settled by probing hosts, never by comparing cluster names: two names can
+    cover the same nodes, which is what the dev stack and CI do. So the handle in hand is tried
+    first, and a sibling is built only for a table it does not carry.
+    """
+    if not target.optional or _any_data_node_has(cluster, target.data_table):
+        return TargetPlacement(target=target, cluster=cluster)
+
+    sibling = _sibling_holding(cluster, target)
+    if sibling is not None:
+        return TargetPlacement(target=target, cluster=sibling)
+
+    _assert_no_rows_behind_the_proxy(cluster, target)
+    return None
+
+
+def dispatchable_here(cluster: ClickhouseCluster, target: DeletionTarget) -> bool:
+    """Whether ``cluster``'s own shards carry ``target``, for sweeps bound to a single handle.
+
+    Refuses instead of answering False when another cluster's shards carry it. A caller fanning
+    out over ``cluster.shards`` cannot reach those rows, and skipping them would report work it
+    never did.
+    """
+    placement = placement_for(cluster, target)
+    if placement is None:
+        return False
+    if placement.cluster is cluster:
+        return True
+    raise UnreachableTargetError(
+        f"{target.data_table} is stored on cluster {target.cluster_name!r}, which this sweep has no "
+        f"way to reach: it dispatches per shard of {cluster.data_cluster_name!r}. Running without "
+        f"it would report an erasure that did not happen. See {COVERAGE_DOC}."
+    )
+
+
+def resolve_placements(
+    cluster: ClickhouseCluster, targets: Sequence[DeletionTarget] = PERSONAL_DATA_TARGETS
+) -> list[TargetPlacement]:
+    """Every target that can be swept, each paired with the handle that reaches it.
+
+    Raises rather than narrowing when one that cannot be reached still holds rows; see
+    ``placement_for``.
+    """
+    placements = (placement_for(cluster, target) for target in targets)
+    return [placement for placement in placements if placement is not None]
+
+
+def sweep_clusters(
+    cluster: ClickhouseCluster, targets: Sequence[DeletionTarget] = PERSONAL_DATA_TARGETS
+) -> list[ClickhouseCluster]:
+    """Every distinct cluster a sweep over ``targets`` dispatches to, the handle in hand first.
+
+    A mutation predicate that joins a dictionary needs that dictionary present on every cluster the
+    mutation runs on, which is what this enumerates. The handle in hand is always included: sweeps
+    over the replicated, non-sharded tables run there whatever the targets resolve to.
+    """
+    clusters = [cluster]
+    for placement in resolve_placements(cluster, targets):
+        if not any(placement.cluster is known for known in clusters):
+            clusters.append(placement.cluster)
+    return clusters
+
+
+def resolve_targets_here(
     cluster: ClickhouseCluster, targets: Sequence[DeletionTarget] = PERSONAL_DATA_TARGETS
 ) -> list[DeletionTarget]:
-    """The subset of ``targets`` that actually exists on this cluster."""
-    return [target for target in targets if is_present(cluster, target)]
+    """The subset of ``targets`` ``cluster``'s own shards carry; see ``dispatchable_here``."""
+    return [target for target in targets if dispatchable_here(cluster, target)]
 
 
 def personal_data_tables(cluster: ClickhouseCluster) -> list[str]:
     """Every physical table a person, team, or queued-uuid deletion must sweep."""
-    return [target.data_table for target in resolve_targets(cluster)]
+    return [target.data_table for target in resolve_targets_here(cluster)]
 
 
 def resolve_data_targets_via_sync_execute(targets: Sequence[DeletionTarget]) -> list[DeletionTarget]:
@@ -201,6 +358,18 @@ def surviving_rows_sql(read_table: str, predicate: str) -> str:
     """
     # nosemgrep: clickhouse-fstring-param-audit (predicate built from internal helpers, not user input)
     return f"SELECT count() FROM {read_table} WHERE {predicate} AND _row_exists = 1"
+
+
+def count_surviving_rows(cluster: ClickhouseCluster, target: DeletionTarget, predicate: str, params: dict) -> int:
+    """Rows still matching ``predicate`` on ``target``, read through its Distributed proxy.
+
+    Read on a data node, which is the only role these tables exist on. Bounded like the job's other
+    scans: no target indexes ``event``, so this reads the team's rows across the request's
+    partitions once the table is no longer empty.
+    """
+    query = Query(surviving_rows_sql(target.read_table, predicate), params, settings={"max_execution_time": "1800"})
+    rows = cluster.any_host_by_role(query, NodeRole.DATA).result()
+    return int(rows[0][0]) if rows else 0
 
 
 def assert_no_unsweepable_rows(
@@ -228,13 +397,39 @@ def assert_no_unsweepable_rows(
         if not target.may_hold_any_of(events):
             continue
 
-        # Read through the Distributed proxy on a data node — these tables exist on no other role.
-        # Bounded like the job's other scans: no target indexes `event`, so this reads the team's
-        # rows across the request's partitions once the table is no longer empty.
-        query = Query(surviving_rows_sql(target.read_table, predicate), params, settings={"max_execution_time": "1800"})
-        rows = cluster.any_host_by_role(query, NodeRole.DATA).result()
-        count = int(rows[0][0]) if rows else 0
+        count = count_surviving_rows(cluster, target, predicate, params)
         if count:
             raise UnsweepableRowsError(
                 f"{count} row(s) in {target.read_table} match this request but cannot be deleted: {reason}"
+            )
+
+
+def assert_sweep_complete(
+    cluster: ClickhouseCluster,
+    targets: Sequence[DeletionTarget],
+    predicate_for: Callable[[DeletionTarget], tuple[str, dict]],
+    *,
+    events: Sequence[str],
+) -> None:
+    """Fail when rows a finished sweep was supposed to have removed are still readable.
+
+    Counts through the Distributed proxy rather than the storage tables the sweep mutated, so it
+    also covers the rows those mutations never reached: a shard the handle does not enumerate, or a
+    storage table on another cluster. Call it only once every mutation has been waited on, or it
+    reports work still in flight.
+
+    ``predicate_for`` returns the criteria to count per target, because a HogQL fragment compiles
+    to different physical columns on the legacy and native-JSON schemas.
+    """
+    for target in targets:
+        if not target.may_hold_any_of(events):
+            continue
+
+        predicate, params = predicate_for(target)
+        count = count_surviving_rows(cluster, target, predicate, params)
+        if count:
+            raise UnsweptRowsError(
+                f"the sweep finished but {count} row(s) it should have removed are still readable in "
+                f"{target.read_table}. Completing now would report an erasure that did not happen. "
+                f"See {COVERAGE_DOC}."
             )

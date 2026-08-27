@@ -4,8 +4,14 @@ import { UniversalFiltersGroup } from '~/types'
 export interface LogsViewerFilters {
     dateRange: DateRange
     searchTerm: LogsQuery['searchTerm']
-    severityLevels: LogsQuery['severityLevels']
-    serviceNames: LogsQuery['serviceNames']
+    /**
+     * Level and service selections reach the viewer through these fields (URL params, saved views,
+     * alerts, embedding scenes), but it doesn't keep them: logsViewerFiltersLogic folds them into
+     * `filterGroup` as `exact` log filters, which is where the facet rail and the chips bar both read
+     * the selection from. Anything reading a viewer selection back out reads the filterGroup.
+     */
+    severityLevels?: LogsQuery['severityLevels']
+    serviceNames?: LogsQuery['serviceNames']
     filterGroup: UniversalFiltersGroup
 }
 

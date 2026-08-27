@@ -442,7 +442,7 @@ class TestProvisioningResources(ProvisioningTestBase):
         from posthog.models.organization import OrganizationMembership
         from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
@@ -533,7 +533,7 @@ class TestProvisioningResources(ProvisioningTestBase):
         from posthog.models.organization import OrganizationMembership
         from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},

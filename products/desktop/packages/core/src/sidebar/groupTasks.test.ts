@@ -32,6 +32,15 @@ function task(
 }
 
 describe("getRepositoryInfo", () => {
+  it.each([
+    ["/Users/ada/code", "code"],
+    ["C:\\Users\\ada\\code", "code"],
+  ])("names a checkout at %s after its folder", (folderPath, expected) => {
+    expect(
+      getRepositoryInfo(makeTask({ repository: null }), folderPath)?.name,
+    ).toBe(expected);
+  });
+
   it("returns lowercased owner/repo fullPath for a structured repository", () => {
     const info = getRepositoryInfo(makeTask({ repository: "PostHog/code" }));
     expect(info).toEqual({

@@ -8,7 +8,6 @@ import { LayoutItem } from 'react-grid-layout'
 import { LemonTableColumns } from '@posthog/lemon-ui'
 
 import { PaginatedResponse } from 'lib/api'
-import { ChartDataset, ChartType, InteractionItem } from 'lib/Chart'
 import { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import { HedgehogActorOptions } from 'lib/components/HedgehogMode/types'
 import { SessionRecordingTriggerGroupsConfig, UrlTriggerConfig } from 'lib/components/IngestionControls/types'
@@ -72,6 +71,7 @@ import type {
     QuickFilterType,
     RecordingOrder,
     RecordingsQuery,
+    ResolvedDateRangeResponse,
     RevenueAnalyticsConfig,
     SharingConfigurationSettings,
     TileFilters,
@@ -86,6 +86,7 @@ import type {
     SyncFrequencyBoundsApi,
 } from 'products/data_warehouse/frontend/generated/api.schemas'
 import type { ExperimentFeatureFlagInputApi } from 'products/experiments/frontend/generated/api.schemas'
+import type { IntegrationConfigApi } from 'products/integrations/frontend/generated/api.schemas'
 import type { CommentSlackThreadRefApi } from 'products/platform_features/frontend/generated/api.schemas'
 import type { InsightFilterOverrideContextApi } from 'products/product_analytics/frontend/generated/api.schemas'
 import type { AIPromptConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
@@ -294,6 +295,7 @@ export enum AccessControlResourceType {
     Dashboard = 'dashboard',
     DashboardTemplate = 'dashboard_template',
     LlmAnalytics = 'llm_analytics',
+    Evaluation = 'evaluation',
     Tagger = 'tagger',
     LlmSkill = 'llm_skill',
     LlmPlayground = 'llm_playground',
@@ -607,12 +609,7 @@ export interface OrganizationDomainType {
     verification_challenge: string
     jit_provisioning_enabled: boolean
     sso_enforcement: SSOProvider | ''
-    has_saml: boolean
-    has_scim?: boolean
     scim_base_url?: string
-    has_id_jag?: boolean
-    /** Linked IdP config (SAML/SCIM/XAA) — the sole read/write interface for those settings. */
-    identity_provider_config?: string | null
 }
 
 export interface SCIMRequestLogType {
@@ -1168,6 +1165,8 @@ export enum PropertyFilterType {
     Feature = 'feature',
     Session = 'session',
     Cohort = 'cohort',
+    /** Person performed (or didn't perform) an event in a time window. ClickHouse-only — not evaluable by flags or CDP */
+    Behavioral = 'behavioral',
     Recording = 'recording',
     LogEntry = 'log_entry',
     Group = 'group',
@@ -1176,6 +1175,7 @@ export enum PropertyFilterType {
     DataWarehousePersonProperty = 'data_warehouse_person_property',
     ErrorTrackingIssue = 'error_tracking_issue',
     RevenueAnalytics = 'revenue_analytics',
+    Account = 'account',
     /** Customer analytics account custom property — the key is the property definition id */
     AccountCustomProperty = 'account_custom_property',
     /** Feature flag dependency */
@@ -1277,6 +1277,47 @@ export interface GroupPropertyFilter extends BasePropertyFilter {
     group_key_names?: Record<string, string>
 }
 
+/** The subset of cohort behavioral criteria supported by the inline `BehavioralPropertyFilter` */
+export type InlineBehavioralType = BehavioralEventType.PerformEvent | BehavioralEventType.PerformMultipleEvents
+
+/** Whether a behavioral filter's `key` refers to an event name or an action id */
+export type BehavioralEventSource = 'events' | 'actions'
+
+/** Filters persons on whether they performed an event in a time window, without a saved cohort. Event scope only. */
+export interface BehavioralPropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.Behavioral
+    value: InlineBehavioralType
+    /** Event name, or action id when event_type is 'actions' */
+    key: string
+    event_type: BehavioralEventSource
+    /** Match persons who did NOT satisfy the criterion. Not the same as a low count — zero-occurrence persons never match count operators */
+    negation?: boolean
+    /** Count comparison for performed_event_multiple, defaults to exact */
+    operator?: PropertyOperator
+    /**
+     * Count threshold for performed_event_multiple
+     * @asType integer
+     */
+    operator_value?: number
+    /**
+     * Relative time window size, paired with time_interval
+     * @asType integer
+     */
+    time_value?: number
+    time_interval?: TimeUnitType
+    /** Absolute or relative (e.g. -30d) lower date bound — alternative to time_value/time_interval */
+    explicit_datetime?: string
+    explicit_datetime_to?: string
+    /** Extra property filters the matching events must satisfy. Deliberately excludes nested behavioral/cohort filters and groups */
+    event_filters?: (
+        | EventPropertyFilter
+        | PersonPropertyFilter
+        | ElementPropertyFilter
+        | FeaturePropertyFilter
+        | HogQLPropertyFilter
+    )[]
+}
+
 export type LogPropertyFilterType =
     | PropertyFilterType.Log
     | PropertyFilterType.LogAttribute
@@ -1358,6 +1399,7 @@ export type AnyPropertyFilter =
     | RevenueAnalyticsPropertyFilter
     | AccountCustomPropertyFilter
     | WorkflowVariablePropertyFilter
+    | BehavioralPropertyFilter
 
 /** Any filter type supported by `property_to_expr(scope="person", ...)`. */
 export type AnyPersonScopeFilter =
@@ -1692,6 +1734,8 @@ export interface PersonListParams {
     distinct_id?: string
     include_total?: boolean // PostHog 3000-only
     limit?: number
+    /** Names the ClickHouse query so `api.cancelQuery` can stop it. Up to 128 characters. */
+    client_query_id?: string
 }
 
 export type SearchableEntity =
@@ -1853,6 +1897,10 @@ export interface CohortType {
     errors_calculating?: number
     last_calculation?: string
     last_error_message?: string | null
+    /** Number of IDs supplied by the most recent static cohort import. */
+    last_import_total_count?: number | null
+    /** How many of those IDs matched no person, and so were left out of the cohort. */
+    last_import_unmatched_count?: number | null
     is_static?: boolean
     name?: string
     csv?: File
@@ -2594,6 +2642,7 @@ export interface InsightModel extends Cacheable, WithAccessControl {
     query_status?: QueryStatus
     is_cached?: boolean
     filter_override_context?: InsightFilterOverrideContextApi | null
+    resolved_date_range?: ResolvedDateRangeResponse | null
     /** Only used when creating objects */
     _create_in_folder?: string | null
 }
@@ -2705,6 +2754,7 @@ export interface DashboardType<T = InsightModel> extends DashboardBasicType {
     quick_filter_ids?: string[] | null
     customization?: {
         tile_spacing?: DashboardTileSpacing
+        layout_compaction?: 'vertical' | 'horizontal' | 'stable'
     }
 }
 
@@ -4565,6 +4615,22 @@ export type ScheduledChangePayload =
           }
       }
 
+// Keep in sync with products/approvals/backend/models.py ChangeRequestState
+export enum ScheduledChangeRequestState {
+    Pending = 'pending',
+    Approved = 'approved',
+    Applied = 'applied',
+    Rejected = 'rejected',
+    Expired = 'expired',
+    Failed = 'failed',
+}
+
+/** Summary of the approval change request gating a scheduled change. */
+export interface ScheduledChangeRequestSummary {
+    id: string
+    state: ScheduledChangeRequestState
+}
+
 export interface ScheduledChangeType {
     id: number
     team_id: number
@@ -4581,6 +4647,8 @@ export interface ScheduledChangeType {
     cron_expression: string | null
     last_executed_at: string | null
     end_date: string | null
+    /** Null when the change is not gated on approval. */
+    change_request: ScheduledChangeRequestSummary | null
 }
 
 export interface PrevalidatedInvite {
@@ -4784,6 +4852,7 @@ export enum PropertyDefinitionType {
     Event = 'event',
     EventMetadata = 'event_metadata',
     RevenueAnalytics = 'revenue_analytics',
+    Account = 'account',
     AccountCustomProperty = 'account_custom_property',
     Person = 'person',
     PersonMetadata = 'person_metadata',
@@ -5223,65 +5292,45 @@ export interface ProjectTreeBreadcrumb extends BreadcrumbBase {
 }
 export type Breadcrumb = LinkBreadcrumb | RenamableBreadcrumb | SymbolBreadcrumb | ProjectTreeBreadcrumb
 
-export type GraphDataset = ChartDataset<ChartType> &
-    Partial<
-        Pick<
-            TrendResult,
-            | 'count'
-            | 'label'
-            | 'days'
-            | 'labels'
-            | 'data'
-            | 'compare'
-            | 'compare_label'
-            | 'status'
-            | 'action'
-            | 'actions'
-            | 'breakdown_value'
-            | 'persons_urls'
-            | 'persons'
-            | 'filter'
-        >
-    > & {
-        /** Used in filtering out visibility of datasets. Set internally by chart.js */
-        id: number
-        /** Toggled on to draw incompleteness lines in LineGraph.tsx */
-        dotted?: boolean
-        /** Array of breakdown values used only in ActionsHorizontalBar/ActionsPie.tsx data */
-        breakdownValues?: (string | number | string[] | undefined)[]
-        /** Array of breakdown labels used only in ActionsHorizontalBar/ActionsPie.tsx data */
-        breakdownLabels?: (string | number | undefined)[]
-        /** Array of compare labels used only in ActionsHorizontalBar/ActionsPie.tsx data */
-        compareLabels?: (CompareLabelType | undefined | null)[]
-        /** Array of persons used only in (ActionsHorizontalBar|ActionsPie).tsx */
-        personsValues?: (Person | undefined | null)[]
-        index?: number
-        /** Value (count) for specific data point; only valid in the context of an xy intercept */
-        pointValue?: number
-        /** Value (count) for specific data point; only valid in the context of an xy intercept */
-        personUrl?: string
-        /** Action/event filter defition */
-        action?: ActionFilter | null
-        yAxisID?: string
-    }
-
-export type GraphPoint = InteractionItem & { dataset: GraphDataset }
-
-interface PointsPayload {
-    pointsIntersectingLine: GraphPoint[]
-    pointsIntersectingClick: GraphPoint[]
-    clickedPointNotLine: boolean
-    referencePoint: GraphPoint
-}
-
-export interface GraphPointPayload {
-    points: PointsPayload
-    index: number
-    value?: number
-    /** Contains the dataset for all the points in the same x-axis point; allows switching between matching points in the x-axis */
-    crossDataset?: GraphDataset[]
-    /** ID for the currently selected series */
-    seriesId?: number
+export type GraphDataset = Partial<
+    Pick<
+        TrendResult,
+        | 'count'
+        | 'label'
+        | 'days'
+        | 'labels'
+        | 'data'
+        | 'compare'
+        | 'compare_label'
+        | 'status'
+        | 'action'
+        | 'actions'
+        | 'breakdown_value'
+        | 'persons_urls'
+        | 'persons'
+        | 'filter'
+    >
+> & {
+    /** Used in filtering out visibility of datasets. Set internally by chart.js */
+    id: number
+    /** Toggled on to draw incompleteness lines in LineGraph.tsx */
+    dotted?: boolean
+    /** Array of breakdown values used only in ActionsHorizontalBar/ActionsPie.tsx data */
+    breakdownValues?: (string | number | string[] | undefined)[]
+    /** Array of breakdown labels used only in ActionsHorizontalBar/ActionsPie.tsx data */
+    breakdownLabels?: (string | number | undefined)[]
+    /** Array of compare labels used only in ActionsHorizontalBar/ActionsPie.tsx data */
+    compareLabels?: (CompareLabelType | undefined | null)[]
+    /** Array of persons used only in (ActionsHorizontalBar|ActionsPie).tsx */
+    personsValues?: (Person | undefined | null)[]
+    index?: number
+    /** Value (count) for specific data point; only valid in the context of an xy intercept */
+    pointValue?: number
+    /** Value (count) for specific data point; only valid in the context of an xy intercept */
+    personUrl?: string
+    /** Action/event filter defition */
+    action?: ActionFilter | null
+    yAxisID?: string
 }
 
 export enum CompareLabelType {
@@ -5588,6 +5637,10 @@ export interface IntegrationType {
     created_by?: UserBasicType | null
     created_at: string
     errors?: string
+    /** GitHub only. When false, disconnecting also uninstalls the App from GitHub. */
+    installation_shared?: IntegrationConfigApi['installation_shared']
+    /** GitHub only. `unavailable` once the App was removed or suspended on GitHub. */
+    installation_status?: IntegrationConfigApi['installation_status']
 }
 
 export interface EmailIntegrationDomainGroupedType {
@@ -5866,6 +5919,7 @@ export const API_SCOPE_OBJECTS = [
     'user',
     'user_interview',
     'vision_action',
+    'vision_alert',
     'visual_review',
     'warehouse_objects',
     'warehouse_table',
@@ -6113,6 +6167,7 @@ export enum ActivityScope {
     TICKET = 'Ticket',
     INSTANCE_SETTING = 'InstanceSetting',
     SIGNAL_SCOUT_CONFIG = 'SignalScoutConfig',
+    SIGNAL_TEAM_CONFIG = 'SignalTeamConfig',
 }
 
 export type CommentType = {
@@ -6244,6 +6299,9 @@ export interface DataWarehouseSavedQuery {
     latest_error: string | null
     latest_history_id?: string
     is_materialized?: boolean
+    /** Whether the view is set up to update incrementally. A run can still rebuild the whole table,
+     * for example on its first run or after the query changes. */
+    is_incremental?: boolean
     /** Engine → suspension details. Only included when fetching a single saved query, not in list responses */
     suspended?: DataWarehouseSavedQueryApiSuspended
     upstream_dependency_count?: number
@@ -6582,6 +6640,8 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
      */
     enabled_columns?: string[] | null
     available_columns?: { name: string; data_type?: string; is_nullable?: boolean }[]
+    /** Exact source identifiers are available for sources that project columns upstream. */
+    source_column_metadata_available?: boolean
     /**
      * Predicates ANDed onto the source query so only matching rows sync.
      * `null` means "sync all rows". Applied on the next sync — not retroactive.
@@ -6602,6 +6662,7 @@ export interface ExternalDataSchemaSourceSummary {
     access_method?: ExternalDataSource['access_method']
     supports_column_selection?: boolean
     supports_row_filters?: boolean
+    requires_exact_column_metadata?: boolean
     user_access_level: AccessControlLevel | null
     /** The source's effective vendor API version — what schemas without an override sync on */
     api_version?: string | null
@@ -6661,34 +6722,14 @@ export interface SimpleDataWarehouseTable {
     row_count: number
 }
 
-export type BatchExportServiceS3 = {
-    type: 'S3'
-    config: {
-        bucket_name: string
-        region: string
-        prefix: string
-        aws_access_key_id: string
-        aws_secret_access_key: string
-        exclude_events: string[]
-        include_events: string[]
-        compression: string | null
-        encryption: string | null
-        kms_key_id: string | null
-        endpoint_url: string | null
-        file_format: string
-        max_file_size_mb: number | null
-        use_virtual_style_addressing: boolean
-    }
-}
-
+// Credentials live on the linked `aws-s3` integration, not in the config.
 export type BatchExportServiceAwsS3 = {
     type: 'AwsS3'
+    integration: number
     config: {
         bucket_name: string
         region: string
         prefix: string
-        aws_access_key_id: string
-        aws_secret_access_key: string
         exclude_events: string[]
         include_events: string[]
         compression: string | null
@@ -6699,18 +6740,17 @@ export type BatchExportServiceAwsS3 = {
     }
 }
 
+// Credentials and the provider endpoint URL live on the linked `s3-compatible` integration.
 export type BatchExportServiceS3Compatible = {
     type: 'S3Compatible'
+    integration: number
     config: {
         bucket_name: string
         region: string
         prefix: string
-        aws_access_key_id: string
-        aws_secret_access_key: string
         exclude_events: string[]
         include_events: string[]
         compression: string | null
-        endpoint_url: string
         use_virtual_style_addressing: boolean
         file_format: string
         max_file_size_mb: number | null
@@ -6840,9 +6880,6 @@ export type BatchExportServiceAzureBlob = {
 // frontend/public/services/
 // and update RenderBatchExportIcon
 export const BATCH_EXPORT_SERVICE_NAMES: BatchExportService['type'][] = [
-    // 'S3' is the legacy alias kept for reading existing rows and the BatchExportScene validity
-    // guard — it is filtered out of the destination picker in favour of AwsS3 + S3Compatible.
-    'S3',
     'AwsS3',
     'S3Compatible',
     'Snowflake',
@@ -6854,7 +6891,6 @@ export const BATCH_EXPORT_SERVICE_NAMES: BatchExportService['type'][] = [
     'AzureBlob',
 ]
 export type BatchExportService =
-    | BatchExportServiceS3
     | BatchExportServiceAwsS3
     | BatchExportServiceS3Compatible
     | BatchExportServiceSnowflake
@@ -6925,6 +6961,7 @@ export type RawBatchExportRun = {
         | 'ContinuedAsNew'
         | 'Failed'
         | 'FailedRetryable'
+        | 'FailedBilling'
         | 'Terminated'
         | 'TimedOut'
         | 'Running'
@@ -6947,6 +6984,7 @@ export type BatchExportRun = {
         | 'ContinuedAsNew'
         | 'Failed'
         | 'FailedRetryable'
+        | 'FailedBilling'
         | 'Terminated'
         | 'TimedOut'
         | 'Running'
@@ -7242,6 +7280,9 @@ export type CyclotronJobInputSchemaType = {
         | 'non_failure_status_codes'
         | 'customer_analytics_account_properties'
         | 'customer_analytics_account_relationships'
+        | 'task_model'
+        | 'task_repository'
+        | 'task_mcp_installations'
     key: string
     label: string
     choices?: { value: string; label: string }[]
@@ -7302,7 +7343,7 @@ export type CyclotronJobFilterPropertyFilter =
     | FlagPropertyFilter
 
 export interface CyclotronJobFiltersType {
-    source?: 'events' | 'person-updates' | 'data-warehouse-table'
+    source?: 'events' | 'person-updates' | 'data-warehouse-table' | 'data-warehouse-view'
     events?: CyclotronJobFilterEvents[]
     data_warehouse?: CyclotronJobFilterDataWarehouse[]
     actions?: CyclotronJobFilterActions[]
@@ -7883,6 +7924,7 @@ export interface DataWarehouseActivityRecord {
 
 export type HeatmapType = 'screenshot' | 'iframe' | 'recording'
 export type HeatmapStatus = 'processing' | 'completed' | 'failed'
+export type HeatmapSource = 'server' | 'toolbar'
 
 export interface HeatmapScreenshotType {
     id: number
