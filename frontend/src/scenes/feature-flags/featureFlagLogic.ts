@@ -1344,6 +1344,9 @@ export interface featureFlagLogicActions {
             version: number | null
         }
     }
+    resetScheduleFormExpanded: () => {
+        value: true
+    }
     restoreFeatureFlag: (featureFlag: Partial<FeatureFlagType>) => {
         featureFlag: Partial<FeatureFlagType>
     }
@@ -1556,9 +1559,6 @@ export interface featureFlagLogicActions {
     }
     setScheduleFormExpanded: (expanded: boolean) => {
         expanded: boolean
-    }
-    resetScheduleFormExpanded: () => {
-        value: true
     }
     setSchedulePayload: (
         filters: FeatureFlagType['filters'] | null,
