@@ -14,8 +14,8 @@ export function AssigneeFilter(): JSX.Element {
         <QuillAssigneeSelect assignee={assignee ?? null} onChange={setAssignee}>
             {(displayAssignee) => (
                 <Button variant="outline" size="default">
-                    <AssigneeIconDisplay assignee={displayAssignee} size="small" />
-                    <AssigneeLabelDisplay assignee={displayAssignee} size="small" placeholder="Any assignee" />
+                    <AssigneeIconDisplay assignee={displayAssignee} size="xsmall" />
+                    <AssigneeLabelDisplay assignee={displayAssignee} size="xsmall" placeholder="Any assignee" />
                     <SelectTriggerIcon />
                 </Button>
             )}

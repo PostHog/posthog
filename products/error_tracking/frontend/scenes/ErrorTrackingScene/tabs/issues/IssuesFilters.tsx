@@ -13,7 +13,7 @@ export function IssuesFilters(): JSX.Element {
     return (
         <ErrorFilters.Root>
             <div className="flex flex-col gap-2">
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-start gap-2">
                     <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
                         <ReloadIssuesButton />
                         <ErrorFilters.DateRange />
@@ -22,7 +22,7 @@ export function IssuesFilters(): JSX.Element {
                         <ErrorFilters.Assignee />
                         <ErrorFilters.InternalAccounts />
                     </div>
-                    <div className="ml-auto shrink-0">
+                    <div className="ml-auto flex shrink-0 items-center gap-2">
                         <ErrorTrackingQuickFilters />
                     </div>
                 </div>
