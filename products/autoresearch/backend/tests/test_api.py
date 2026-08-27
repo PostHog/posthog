@@ -1,7 +1,8 @@
 from typing import Any
 
+import pytest
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
@@ -11,12 +12,38 @@ from rest_framework import status
 from posthog.models import Organization, Team
 
 from products.actions.backend.models.action import Action
+from products.autoresearch.backend.dataset.validation import ValidationResult, ValidationWarning
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline
 from products.autoresearch.backend.presentation.views.serializers import (
     AutoresearchPipelineCreateSerializer,
     PopulationDefinitionField,
 )
 from products.autoresearch.backend.testing import TeamScopedTestMixin
+
+MOCK_VALIDATION_OK = ValidationResult(
+    can_proceed=True,
+    requires_acknowledgement=False,
+    estimated_training_rows=500,
+    positive_count=100,
+    negative_count=400,
+    base_rate=0.2,
+    inference_population_size=500,
+    warnings=[],
+)
+
+MOCK_VALIDATION_ERROR = ValidationResult(
+    can_proceed=False,
+    requires_acknowledgement=False,
+    estimated_training_rows=5,
+    positive_count=5,
+    negative_count=0,
+    base_rate=1.0,
+    inference_population_size=5,
+    warnings=[
+        ValidationWarning(code="low_volume", message="Only 5 users found.", severity="error"),
+        ValidationWarning(code="low_positives", message="Only 5 positive examples.", severity="error"),
+    ],
+)
 
 
 class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
@@ -133,6 +160,42 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
     # ──────────────────────────────────────── lifecycle actions ────────────────────────────────────
 
     # ─────────────────────────────────────── validate action ──────────────────────────────────────
+
+    @patch(
+        "products.autoresearch.backend.facade.api._validate_pipeline_definition",
+        return_value=MOCK_VALIDATION_OK,
+    )
+    def test_validate_pipeline_success(self, _mock: MagicMock):
+        resp = self.client.post(
+            f"{self.base_url}/validate/",
+            {"target_event": "$signup", "horizon_days": 7},
+            format="json",
+        )
+        assert resp.status_code == status.HTTP_200_OK
+        data = resp.json()
+        assert data["can_proceed"] is True
+        assert data["base_rate"] == pytest.approx(0.2)
+        assert data["warnings"] == []
+
+    @patch(
+        "products.autoresearch.backend.facade.api._validate_pipeline_definition",
+        return_value=MOCK_VALIDATION_ERROR,
+    )
+    def test_validate_pipeline_with_errors(self, _mock: MagicMock):
+        resp = self.client.post(
+            f"{self.base_url}/validate/",
+            {"target_event": "$rare_event", "horizon_days": 7},
+            format="json",
+        )
+        assert resp.status_code == status.HTTP_200_OK
+        data = resp.json()
+        assert data["can_proceed"] is False
+        assert len(data["warnings"]) == 2
+        assert data["warnings"][0]["severity"] == "error"
+
+    def test_validate_missing_target_event_returns_400(self):
+        resp = self.client.post(f"{self.base_url}/validate/", {}, format="json")
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
 
     # ──────────────────────────────────────── train action ────────────────────────────────────────
 

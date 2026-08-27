@@ -296,3 +296,85 @@ export const AutoresearchPartialUpdateBody = /* @__PURE__ */ zod.object({
             "Person property name for the prediction score, e.g. 'predicted_p_pageview'. Auto-derived from target_event if omitted. Letters, digits, and _ $ . - only; must be unique among this project's non-archived pipelines."
         ),
 })
+
+/**
+ * Resolve a template key and optional overrides into a concrete pipeline config. For activity-based templates ('likely_active_soon', 'at_risk_of_inactivity', 'return_after_first_use'), the target event is auto-resolved from your event schema — check resolved_activity_event and activity_event_alternatives, then override if needed. For 'feature_adoption' and 'repeat_key_behavior', supply target_event. After resolving, call autoresearch-validate-create to check volume and warnings, then autoresearch-create to create the pipeline.
+ * @summary Resolve a template
+ */
+export const autoresearchResolveTemplateCreateBodyHorizonDaysMax = 365
+
+export const AutoresearchResolveTemplateCreateBody = /* @__PURE__ */ zod.object({
+    template_key: zod
+        .enum([
+            'likely_active_soon',
+            'at_risk_of_inactivity',
+            'return_after_first_use',
+            'feature_adoption',
+            'repeat_key_behavior',
+        ])
+        .describe(
+            '\* `likely_active_soon` - likely_active_soon\n\* `at_risk_of_inactivity` - at_risk_of_inactivity\n\* `return_after_first_use` - return_after_first_use\n\* `feature_adoption` - feature_adoption\n\* `repeat_key_behavior` - repeat_key_behavior'
+        )
+        .describe(
+            'Template to resolve. Use autoresearch-templates-list to see all available templates with descriptions. Required.\n\n\* `likely_active_soon` - likely_active_soon\n\* `at_risk_of_inactivity` - at_risk_of_inactivity\n\* `return_after_first_use` - return_after_first_use\n\* `feature_adoption` - feature_adoption\n\* `repeat_key_behavior` - repeat_key_behavior'
+        ),
+    target_event: zod
+        .string()
+        .optional()
+        .describe(
+            "Event or action name to use as the prediction target. Required for 'feature_adoption' and 'repeat_key_behavior'. Optional override for activity-based templates ('likely_active_soon', 'at_risk_of_inactivity', 'return_after_first_use') — omit to use the auto-resolved event."
+        ),
+    horizon_days: zod
+        .number()
+        .min(1)
+        .max(autoresearchResolveTemplateCreateBodyHorizonDaysMax)
+        .optional()
+        .describe("Override the template's default prediction horizon in days."),
+})
+
+/**
+ * Validate a proposed pipeline's target event and population before creating it. Returns volume estimates, base rate, and any warnings. Warnings with severity='error' must be resolved before creation can proceed. Call this before autoresearch-create.
+ * @summary Validate a pipeline definition
+ */
+export const autoresearchValidateCreateBodyTargetEventDefault = ``
+export const autoresearchValidateCreateBodyHorizonDaysDefault = 7
+export const autoresearchValidateCreateBodyHorizonDaysMax = 365
+
+export const autoresearchValidateCreateBodyTrainingLookbackDaysDefault = 180
+export const autoresearchValidateCreateBodyTrainingLookbackDaysMin = 7
+export const autoresearchValidateCreateBodyTrainingLookbackDaysMax = 730
+
+export const AutoresearchValidateCreateBody = /* @__PURE__ */ zod.object({
+    target_event: zod
+        .string()
+        .default(autoresearchValidateCreateBodyTargetEventDefault)
+        .describe(
+            "Event name to predict, e.g. '$pageview'. Must exist in the team's event schema. Omit when predicting an action target (pass target_definition instead)."
+        ),
+    target_definition: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Optional target definition. Pass {\"type\": \"action\", \"action_id\": N} to predict a PostHog action (multi-step \/ property \/ autocapture matcher) instead of a single event.'
+        ),
+    horizon_days: zod
+        .number()
+        .min(1)
+        .max(autoresearchValidateCreateBodyHorizonDaysMax)
+        .default(autoresearchValidateCreateBodyHorizonDaysDefault)
+        .describe('Predict whether the target event occurs within this many days.'),
+    training_lookback_days: zod
+        .number()
+        .min(autoresearchValidateCreateBodyTrainingLookbackDaysMin)
+        .max(autoresearchValidateCreateBodyTrainingLookbackDaysMax)
+        .default(autoresearchValidateCreateBodyTrainingLookbackDaysDefault)
+        .describe('How far back to look for training examples. Default: 180.'),
+    training_population: zod
+        .looseObject({})
+        .optional()
+        .describe('Population filter for training examples. Use {} for all identified users.'),
+    inference_population: zod
+        .looseObject({})
+        .optional()
+        .describe('Population filter for daily scoring. Defaults to training_population if not provided.'),
+})
