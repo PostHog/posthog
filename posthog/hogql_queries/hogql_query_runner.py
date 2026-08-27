@@ -1,5 +1,6 @@
 from collections.abc import Callable
 from datetime import datetime
+from functools import cached_property
 from typing import Any, Optional, cast
 
 from posthog.schema import (
@@ -15,6 +16,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.database.schema.activity_log_visibility import ACTIVITY_LOG_VISIBILITY_POLICY_VERSION
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.filters import replace_filters
@@ -37,6 +39,7 @@ from products.managed_warehouse.backend.facade import query_labels as managed_wa
 from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLMode
 
 _INFORMATION_SCHEMA_PREFIX = "system.information_schema."
+_ACTIVITY_LOGS_TABLE = "system.activity_logs"
 
 
 class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
@@ -121,13 +124,41 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         # acceptance, source certification). A cached row keeps reporting the pre-change status after a
         # catalog write, so recompute these queries rather than trust the query cache. Cheap to detect:
         # the schema metadata itself is fast to compute. External-connection queries never touch it.
+        #
+        # system.activity_logs is floored to the organization's retention window, which moves with the
+        # clock, so a stored row outlives the entitlement that let it be read. Recompute rather than
+        # serve one back.
+        table_names = self._queried_table_names
+        return any(name.lower().startswith(_INFORMATION_SCHEMA_PREFIX) for name in table_names) or (
+            _ACTIVITY_LOGS_TABLE in table_names
+        )
+
+    def get_cache_payload(self) -> dict:
+        payload = super().get_cache_payload()
+
+        # The activity-log visibility rules are printed guards, so a cache hit returns before they run and
+        # nothing else in the key tracks them. Varying on the rule set means a result stored under the
+        # previous rules stops being served once the version bumps. `requires_fresh_calculation` above
+        # skips the cache for these queries in every mode that may calculate; this also covers
+        # CACHE_ONLY_NEVER_CALCULATE, which returns a stored result without asking.
+        if _ACTIVITY_LOGS_TABLE in self._queried_table_names:
+            payload["activity_log_visibility_policy"] = ACTIVITY_LOG_VISIBILITY_POLICY_VERSION
+
+        return payload
+
+    @cached_property
+    def _queried_table_names(self) -> set[str]:
+        """Tables this query names, or empty when it is unparseable or reads an external connection.
+
+        Cached because the freshness check and the cache key both need it, and neither rewrites the query
+        text (dashboard filters and variables are applied at `to_query` time).
+        """
         if self.query.connectionId:
-            return False
+            return set()
         try:
-            table_names = get_table_names(parse_select(self.query.query))
+            return set(get_table_names(parse_select(self.query.query)))
         except Exception:
-            return False
-        return any(name.lower().startswith(_INFORMATION_SCHEMA_PREFIX) for name in table_names)
+            return set()
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         values: Optional[dict[str, ast.Expr]] = (

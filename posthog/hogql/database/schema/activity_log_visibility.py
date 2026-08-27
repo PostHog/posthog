@@ -21,6 +21,12 @@ _CANVAS_ROWS_LIMITED_TO_READABLE_CANVASES = (
     f"NOT (scope = 'Canvas' AND item_id NOT IN (SELECT id FROM {CANVASES_TABLE}))"
 )
 
+# Bump whenever the rules below change, including the shared rule list they compile. Nothing else in the
+# query cache key tracks them, and a cache hit returns before they print, so a result stored under the
+# previous rules would keep serving the rows the current ones hide. `HogQLQueryRunner.get_cache_payload`
+# folds this into the key of every query reading the table, so bumping it retires those results.
+ACTIVITY_LOG_VISIBILITY_POLICY_VERSION = 1
+
 
 @lru_cache(maxsize=2)
 def activity_visibility_predicates(canvases_readable: bool) -> tuple[Expr, ...]:

@@ -225,3 +225,19 @@ class TestActivityLogsCacheKey(BaseTest):
         runner = get_query_runner(HogQLQuery(query="SELECT 1"), team=self.team, user=self.user)
 
         self.assertNotIn("activity_log_retention_window_days", runner.get_cache_payload())
+
+    @parameterized.expand(
+        [
+            ("reads the table", "SELECT id FROM system.activity_logs", True),
+            ("reads another table", "SELECT id FROM system.insights", False),
+        ]
+    )
+    def test_cache_key_carries_the_visibility_policy_version(self, _name: str, query: str, expected: bool):
+        # The visibility rules are printed guards, so nothing else in the key tracks them: without this, a
+        # result stored under the previous rules keeps serving the rows the current ones hide. Bumping the
+        # version retires those results, so it has to reach the key of every query reading the table.
+        runner = get_query_runner(HogQLQuery(query=query), team=self.team, user=self.user)
+
+        payload = runner.get_cache_payload()
+
+        self.assertEqual("activity_log_visibility_policy" in payload, expected)
