@@ -442,6 +442,24 @@ fn pending_key(team_id: TeamId) -> String {
     format!("posthog:1:feature_flags/shadow_mismatch/{team_id}")
 }
 
+/// Cap on one tracker Redis call. `common_hypercache` puts the same bound around
+/// its own Redis access, and the tracker needs it for the same reason: a shadow
+/// team that waits on Redis delays the real invalidations in the batches behind
+/// it. The client's own response timeout cannot carry this, because it is
+/// configurable and `FLAGS_REDIS_RESPONSE_TIMEOUT_MS=0` disables it entirely.
+const STORE_TIMEOUT: Duration = Duration::from_millis(500);
+
+/// Bound one tracker call and report an elapsed timer as the client's own timeout
+/// error, so callers have a single error type to handle.
+async fn with_timeout<T>(
+    call: impl std::future::Future<Output = Result<T, CustomRedisError>>,
+) -> Result<T, CustomRedisError> {
+    match tokio::time::timeout(STORE_TIMEOUT, call).await {
+        Ok(result) => result,
+        Err(_elapsed) => Err(CustomRedisError::Timeout),
+    }
+}
+
 /// Repeat-offender suppression: a mismatch counts only when the same fingerprint
 /// shows up on two consecutive shadow builds of the team within `ttl`. A shadow
 /// build races Python's own rebuild of the same team, so a single-shot mismatch
@@ -530,7 +548,7 @@ impl MismatchTracker {
     /// an error. A value that does not parse is an error, because a stored shape
     /// this build cannot read is worth seeing on the failure counter.
     async fn read_pending(&self, key: String) -> Result<HashSet<u64>, CustomRedisError> {
-        match self.redis.get(key).await {
+        match with_timeout(self.redis.get(key)).await {
             Ok(raw) => {
                 serde_json::from_str(&raw).map_err(|e| CustomRedisError::ParseError(e.to_string()))
             }
@@ -547,7 +565,7 @@ impl MismatchTracker {
         let fingerprints: Vec<u64> = diffs.iter().map(|d| d.fingerprint).collect();
         let payload = serde_json::to_string(&fingerprints)
             .map_err(|e| CustomRedisError::ParseError(e.to_string()))?;
-        self.redis.setex(key, payload, self.ttl.as_secs()).await
+        with_timeout(self.redis.setex(key, payload, self.ttl.as_secs())).await
     }
 
     /// Drop the team's pending state, so the next mismatch starts over as a first
@@ -558,7 +576,7 @@ impl MismatchTracker {
     /// hashes the content, so that is a real recurrence rather than the rebuild
     /// race the suppression exists to filter.
     async fn clear_pending(&self, team_id: TeamId, key: String) -> Vec<TrackerStoreOp> {
-        match self.redis.del(key).await {
+        match with_timeout(self.redis.del(key)).await {
             // Redis reports no error for a DEL of a key that is not there, and
             // an absent key is the state this call wants anyway.
             Ok(()) | Err(CustomRedisError::NotFound) => Vec::new(),
