@@ -31,6 +31,8 @@ from posthog.models.activity_logging.activity_log import activity_visibility_res
 from posthog.models.activity_logging.retention import get_activity_log_lookback_restriction
 from posthog.models.organization import OrganizationMembership
 
+from products.access_control.backend.models.access_control import AccessControl
+
 # The SQL surface must hide what the REST viewsets hide: rows past the plan's retention window, and
 # rows the visibility rules restrict. Both are printed guards, so the printed SQL is the assertion.
 
@@ -143,8 +145,6 @@ class TestActivityLogsSqlRestrictions(BaseTest):
         # Denying the canvas resource removes system.canvases from the schema, so a rule referencing it
         # would raise TableAccessDeniedError and take the whole audit trail down with it. Such a caller
         # may read no canvas at all, so the rows go instead.
-        from ee.models.rbac.access_control import AccessControl
-
         self.organization.available_product_features = [
             {"key": "audit_logs", "name": "Audit logs", "limit": 30, "unit": "days"},
             {"key": AvailableFeature.ACCESS_CONTROL, "name": "Access control"},
