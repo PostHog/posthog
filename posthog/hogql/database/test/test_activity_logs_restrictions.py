@@ -22,9 +22,11 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
 
+from posthog.constants import AvailableFeature
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models.activity_logging.activity_log import activity_visibility_restrictions
 from posthog.models.activity_logging.retention import get_activity_log_lookback_restriction
+from posthog.models.organization import OrganizationMembership
 
 # The SQL surface must hide what the REST viewsets hide: rows past the plan's retention window, and
 # rows the visibility rules restrict. Both are printed guards, so the printed SQL is the assertion.
@@ -133,6 +135,27 @@ class TestActivityLogsSqlRestrictions(BaseTest):
         self.assertIn("NOT(and(equals(scope, 'Canvas'), notIn(item_id, (SELECT id FROM canvases", hogql)
         # The canvases subquery keeps that table's own guards, so its access control carries over.
         self.assertIn("_task_public_channels", hogql)
+
+    def test_canvas_rows_are_dropped_when_the_canvases_table_is_denied(self):
+        # Denying the canvas resource removes system.canvases from the schema, so a rule referencing it
+        # would raise TableAccessDeniedError and take the whole audit trail down with it. Such a caller
+        # may read no canvas at all, so the rows go instead.
+        from ee.models.rbac.access_control import AccessControl
+
+        self.organization.available_product_features = [
+            {"key": "audit_logs", "name": "Audit logs", "limit": 30, "unit": "days"},
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": "Access control"},
+        ]
+        self.organization.save()
+        # Object and resource access control only applies to non-admins.
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        AccessControl.objects.create(team=self.team, resource="canvas", access_level="none")
+
+        hogql, _ = self._print(dialect="hogql")
+
+        self.assertIn("NOT(equals(scope, 'Canvas'))", hogql)
+        self.assertNotIn("canvases", hogql)
 
     def test_printing_a_query_without_activity_logs_costs_no_extra_query(self):
         # The organization load is lazy: an ordinary HogQL query must not pay a Postgres round trip.

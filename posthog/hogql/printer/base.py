@@ -510,7 +510,7 @@ class BasePrinter(Visitor[str]):
         node_type: ast.TableOrSelectType | None,
     ) -> list[ast.Expr]:
         """Return predicate expressions from the table definition, resolved against the table's type."""
-        predicates = table_type.table.get_predicates()
+        predicates = table_type.table.get_predicates(self.context)
         if not predicates or node_type is None:
             return []
 

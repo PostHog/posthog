@@ -1036,7 +1036,7 @@ class ClickHousePrinter(BasePrinter):
             # filter that has to reach Postgres: it is indexed there, and the rows it prunes are
             # the ones the organization is not entitled to read at all. Its other predicates stay
             # in the enclosing select and run in ClickHouse over the already-bounded row set.
-            and (table.retention_field is not None or not table.get_predicates())
+            and (table.retention_field is not None or not table.get_predicates(self.context))
             and self.context.team_id is not None
         ):
             # The HogQL `team_id` field may map to a differently named DB column (e.g.

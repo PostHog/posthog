@@ -118,7 +118,7 @@ class PostgresTable(FunctionCallTable):
     retention_field: Optional[str] = None
     predicates: list[Expr] = []
 
-    def get_predicates(self) -> list[Expr]:
+    def get_predicates(self, context: Optional[HogQLContext] = None) -> list[Expr]:
         return self.predicates
 
     def retention_start(self, team: Optional["Team"], team_id: Optional[int]) -> Optional[datetime]:

@@ -11,13 +11,19 @@ from posthog.hogql.parser import parse_expr
 # every Loop row rather than guess. `restrict_canvas_activity` has the same shape, but
 # `system.canvases` already exposes exactly the canvases a caller may read, so Canvas rows defer to
 # it. That table is stricter than the viewset — public channels only, and no soft-deleted rows — so
-# SQL hides a superset of what REST hides, never less.
+# SQL hides a superset of what REST hides, never less. Deferring to it makes activity-log rows depend
+# on the caller's canvas grants, so a read of this table also partitions the query cache on `canvas`
+# (see `_TRANSITIVE_SYSTEM_TABLE_SCOPES`) — a cache hit returns before these predicates ever print.
+CANVASES_TABLE = "system.canvases"
 _LOOP_ROWS_HIDDEN = "NOT (scope = 'Loop')"
-_CANVAS_ROWS_LIMITED_TO_READABLE_CANVASES = "NOT (scope = 'Canvas' AND item_id NOT IN (SELECT id FROM system.canvases))"
+_CANVAS_ROWS_HIDDEN = "NOT (scope = 'Canvas')"
+_CANVAS_ROWS_LIMITED_TO_READABLE_CANVASES = (
+    f"NOT (scope = 'Canvas' AND item_id NOT IN (SELECT id FROM {CANVASES_TABLE}))"
+)
 
 
-@lru_cache(maxsize=1)
-def activity_visibility_predicates() -> tuple[Expr, ...]:
+@lru_cache(maxsize=2)
+def activity_visibility_predicates(canvases_readable: bool) -> tuple[Expr, ...]:
     """HogQL form of the activity-log visibility rules, for the federated `system.activity_logs` read.
 
     A second compiler over the same rule list that `ActivityLogVisibilityManager.build_exclusion_query`
@@ -32,6 +38,11 @@ def activity_visibility_predicates() -> tuple[Expr, ...]:
       rule exists to hide. Over-excluding costs nothing: login rows carry `team_id=None` (see
       `log_login_activity`), so the mandatory team guard already puts them out of reach.
     - Loop rows are dropped outright, and Canvas rows follow `system.canvases`, per the note above.
+
+    `canvases_readable` says whether `system.canvases` is in the caller's schema. When the canvas
+    resource is denied outright the table is removed (see `_apply_system_table_access`), and a
+    predicate referencing it would raise rather than filter — so Canvas rows are dropped instead,
+    which is what a caller who may read no canvas would see anyway.
     """
     # Deferred to keep the ORM off this module's import path, as elsewhere in the schema layer.
     from posthog.models.activity_logging.activity_log import activity_visibility_restrictions  # noqa: PLC0415
@@ -47,5 +58,5 @@ def activity_visibility_predicates() -> tuple[Expr, ...]:
         for rule in activity_visibility_restrictions
     ]
     compiled.append(parse_expr(_LOOP_ROWS_HIDDEN))
-    compiled.append(parse_expr(_CANVAS_ROWS_LIMITED_TO_READABLE_CANVASES))
+    compiled.append(parse_expr(_CANVAS_ROWS_LIMITED_TO_READABLE_CANVASES if canvases_readable else _CANVAS_ROWS_HIDDEN))
     return tuple(compiled)

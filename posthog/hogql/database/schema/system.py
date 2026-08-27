@@ -27,7 +27,7 @@ from posthog.hogql.database.models import (
     UUIDDatabaseField,
 )
 from posthog.hogql.database.postgres_table import PostgresTable
-from posthog.hogql.database.schema.activity_log_visibility import activity_visibility_predicates
+from posthog.hogql.database.schema.activity_log_visibility import CANVASES_TABLE, activity_visibility_predicates
 from posthog.hogql.database.schema.information_schema import information_schema_node
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.parser import parse_expr, parse_select
@@ -1329,8 +1329,13 @@ class _ActivityLogsTable(PostgresTable):
     """Compiles its visibility rules on first use rather than at import: the rule list lives under
     `posthog.models`, and this module keeps the ORM off its import path."""
 
-    def get_predicates(self) -> list[Expr]:
-        return list(activity_visibility_predicates())
+    def get_predicates(self, context: Optional[HogQLContext] = None) -> list[Expr]:
+        # The Canvas rule reads `system.canvases`, which access control removes from the schema for a
+        # caller denied the canvas resource; without the table it drops Canvas rows instead.
+        canvases_readable = (
+            context is not None and context.database is not None and context.database.has_table(CANVASES_TABLE)
+        )
+        return list(activity_visibility_predicates(canvases_readable))
 
     def retention_start(self, team: Optional["Team"], team_id: Optional[int]) -> Optional[datetime]:
         from posthog.models.activity_logging.retention import activity_log_retention_start_for_team  # noqa: PLC0415
