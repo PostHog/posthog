@@ -250,8 +250,9 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
             if ('assignee' in params && !equal(params.assignee, values.assignee)) {
                 actions.setAssignee(params.assignee)
             }
-            if ('severity' in params && !equal(params.severity, values.severity)) {
-                actions.setSeverity(isValidSeverity(params.severity) ? params.severity : DEFAULT_SEVERITY)
+            const severity = isValidSeverity(params.severity) ? params.severity : DEFAULT_SEVERITY
+            if (!equal(severity, values.severity)) {
+                actions.setSeverity(severity)
             }
             if (params.orderDirection && !equal(params.orderDirection, values.orderDirection)) {
                 actions.setOrderDirection(params.orderDirection)

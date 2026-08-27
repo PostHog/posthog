@@ -8,6 +8,7 @@ const LOGIC_KEY = 'test'
 const PERSISTED_KEY_PREFIX = `products.error_tracking.components.IssueQueryOptions.issueQueryOptionsLogic.${LOGIC_KEY}`
 const PERSISTED_STATUS_KEY = `${PERSISTED_KEY_PREFIX}.status`
 const PERSISTED_ASSIGNEE_KEY = `${PERSISTED_KEY_PREFIX}.assignee`
+const PERSISTED_SEVERITY_KEY = `${PERSISTED_KEY_PREFIX}.severity`
 
 describe('issueQueryOptionsLogic', () => {
     beforeEach(() => {
@@ -71,6 +72,15 @@ describe('issueQueryOptionsLogic', () => {
         expect(logic.values.severity).toBe('critical')
 
         router.actions.push('/error_tracking', { severity: 'unknown' })
+        expect(logic.values.severity).toBeNull()
+    })
+
+    it('clears a persisted severity when the URL omits the filter', () => {
+        localStorage.setItem(PERSISTED_SEVERITY_KEY, JSON.stringify('critical'))
+        const logic = mountLogic()
+
+        router.actions.push('/error_tracking')
+
         expect(logic.values.severity).toBeNull()
     })
 
