@@ -1305,16 +1305,12 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     });
   }
 
-  /**
-   * A token refresh for the same account and project keeps the access result
-   * already on screen while the recheck runs. Dropping back to "checking"
-   * would unmount the whole app for every refresh.
-   */
+  // Resetting to "checking" on every refresh would unmount the whole app.
   private carryDesktopAccessInto(session: InMemorySession): DesktopAccess {
     const previous = this.state.desktopAccess;
     const sameIdentity =
-      this.session !== null &&
-      this.session.accountKey === session.accountKey &&
+      session.accountKey !== null &&
+      this.session?.accountKey === session.accountKey &&
       previous.projectId === session.currentProjectId;
     if (
       sameIdentity &&

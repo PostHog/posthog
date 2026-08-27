@@ -35,11 +35,7 @@ export function requestErrorStatus(error: unknown): number | undefined {
   return error instanceof ApiRequestError ? error.status : undefined;
 }
 
-/**
- * Whether a response means the access token itself was rejected. A 403 only
- * counts when the body says so: the same status is a plain permission denial
- * (a disabled feature, a private org) that a fresh token cannot fix.
- */
+// A 403 without an auth-error body is a permission denial a new token cannot fix.
 export async function isAuthFailureResponse(
   response: Response,
 ): Promise<boolean> {

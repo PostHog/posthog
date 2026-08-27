@@ -2334,30 +2334,37 @@ describe("AuthService", () => {
       });
     });
 
-    it("keeps the current access result on screen while a token refresh rechecks it", async () => {
-      let checks = 0;
+    it.each([
+      {
+        name: "keeps the current result on screen while a refresh for the same account rechecks it",
+        refreshedAccountKey: "user-1",
+        statusDuringRecheck: "allowed",
+      },
+      {
+        name: "shows checking while a refresh that lands on another account rechecks",
+        refreshedAccountKey: "user-2",
+        statusDuringRecheck: "checking",
+      },
+    ])("$name", async ({ refreshedAccountKey, statusDuringRecheck }) => {
       let release!: () => void;
       const pending = new Promise<Response>((resolve) => {
         release = () => resolve(okBody({ allowed: true, reason: null }));
       });
-      stubAuthFetch({
-        desktopAccessResponse: () => {
-          checks += 1;
-          if (checks === 1) return okBody({ allowed: true, reason: null });
-          return pending as unknown as Response;
-        },
-      });
-
+      stubAuthFetch();
       await service.initialize();
       expect(service.getState().desktopAccess.status).toBe("allowed");
 
-      const refresh = service.refreshAccessToken();
-      await vi.waitFor(() => expect(checks).toBe(2));
-      expect(service.getState().desktopAccess).toEqual({
-        projectId: 42,
-        status: "allowed",
-        reason: null,
+      let checks = 0;
+      stubAuthFetch({
+        accountKey: refreshedAccountKey,
+        desktopAccessResponse: () => {
+          checks += 1;
+          return pending as unknown as Response;
+        },
       });
+      const refresh = service.refreshAccessToken();
+      await vi.waitFor(() => expect(checks).toBe(1));
+      expect(service.getState().desktopAccess.status).toBe(statusDuringRecheck);
 
       release();
       await refresh;
