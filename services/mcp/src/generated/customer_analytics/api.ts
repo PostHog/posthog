@@ -1235,7 +1235,7 @@ export const FeatureRequestsListQueryParams = /* @__PURE__ */ zod.object({
         .min(1)
         .default(featureRequestsListQueryRequestOrderingDefault)
         .describe(
-            'Stable ordering for the result list.\n\n\* `-updated_at` - Last updated: newest\n\* `updated_at` - Last updated: oldest\n\* `-created_at` - Date created: newest\n\* `created_at` - Date created: oldest\n\* `-priority` - Priority: high to low\n\* `priority` - Priority: low to high\n\* `title` - Title: A to Z\n\* `-title` - Title: Z to A'
+            'Stable ordering for the result list.\n\n\* `-updated_at` - Last updated: newest\n\* `updated_at` - Last updated: oldest\n\* `-created_at` - Date created: newest\n\* `created_at` - Date created: oldest\n\* `-priority` - Priority: high to low\n\* `priority` - Priority: low to high\n\* `title` - Title: A to Z\n\* `-title` - Title: Z to A\n\* `account` - Accounts: A to Z\n\* `-account` - Accounts: Z to A\n\* `product_area` - Product areas: A to Z\n\* `-product_area` - Product areas: Z to A\n\* `status` - Status: A to Z\n\* `-status` - Status: Z to A\n\* `created_by` - Created by: A to Z\n\* `-created_by` - Created by: Z to A\n\* `evidence_count` - Evidence: low to high\n\* `-evidence_count` - Evidence: high to low'
         ),
     search: zod.string().optional().describe('Case-insensitive text to find in request titles and descriptions.'),
     statuses: zod

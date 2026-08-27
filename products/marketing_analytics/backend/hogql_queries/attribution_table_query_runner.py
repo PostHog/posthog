@@ -29,7 +29,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
+from posthog.hogql.constants import MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY, HogQLGlobalSettings, LimitContext
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -476,6 +476,9 @@ class MarketingAnalyticsAttributionQueryRunner(AttributionQueryRunnerBase[Market
             modifiers=self.modifiers,
             limit_context=self.limit_context or LimitContext.QUERY,
             context=self._shared_hogql_context,
+            # The per-person touchpoint arrays are unbounded, so let the GROUP BY spill to disk
+            # rather than hit the memory limit. Same guard funnels, retention and paths use.
+            settings=HogQLGlobalSettings(max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY),
         )
 
         # Mapped by column name, not tuple position, so adding a column can't shift every later one.

@@ -549,7 +549,7 @@ layer = "modules"
 
 [[modules]]
 path = "products.metrics"
-depends_on = ["posthog", "products.access_control"]
+depends_on = ["posthog", "products.access_control", "products.error_tracking"]
 layer = "modules"
 
 [[interfaces]]
