@@ -20,6 +20,8 @@ DEEPSEEK_MODEL = "deepseek-ai/deepseek-v4-flash-0731"
 BASETEN_DEEPSEEK_LITELLM_MODEL = "openai/deepseek-ai/DeepSeek-V4-Flash-0731"
 GLM53_MODEL = "zai-org/glm-5.3"
 BASETEN_GLM53_LITELLM_MODEL = "openai/zai-org/GLM-5.3"
+GLM53_FLASH_MODEL = "zai-org/glm-5.3-flash"
+BASETEN_GLM53_FLASH_LITELLM_MODEL = "openai/zai-org/GLM-5.3-Flash"
 
 
 @pytest.mark.parametrize(
@@ -28,6 +30,7 @@ BASETEN_GLM53_LITELLM_MODEL = "openai/zai-org/GLM-5.3"
         (GLM_MODEL, BASETEN_MODEL, "baseten/zai-org/glm-5.2", 1.4e-06, 4.4e-06, 1.4e-07),
         (DEEPSEEK_MODEL, BASETEN_DEEPSEEK_LITELLM_MODEL, f"baseten/{DEEPSEEK_MODEL}", 1.3e-07, 2.6e-07, 2.8e-08),
         (GLM53_MODEL, BASETEN_GLM53_LITELLM_MODEL, f"baseten/{GLM53_MODEL}", 1.4e-06, 4.4e-06, 1.4e-07),
+        (GLM53_FLASH_MODEL, BASETEN_GLM53_FLASH_LITELLM_MODEL, f"baseten/{GLM53_FLASH_MODEL}", 1.5e-07, 5e-07, 3e-08),
     ],
 )
 def test_inject_baseten_params_maps_model_and_pins_api_key(
