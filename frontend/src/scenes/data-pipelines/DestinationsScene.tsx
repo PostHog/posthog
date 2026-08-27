@@ -15,6 +15,8 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope } from '~/types'
 
+import { DestinationsIncidentReplayBanner } from 'products/cdp/frontend/DestinationsIncidentReplayBanner'
+
 import { DataPipelinesHogFunctions } from './DataPipelinesHogFunctions'
 import { destinationsSceneLogic } from './destinationsSceneLogic'
 
@@ -78,6 +80,7 @@ export function DestinationsScene(): JSX.Element {
                 }}
                 actions={action}
             />
+            <DestinationsIncidentReplayBanner />
             <LemonTabs
                 activeKey={activeTab}
                 onChange={(key) => setActiveTab(key as 'all' | 'history')}

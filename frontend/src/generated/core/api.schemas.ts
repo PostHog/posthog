@@ -163,19 +163,8 @@ export interface OrganizationDomainApi {
     jit_provisioning_enabled?: boolean
     /** @maxLength 28 */
     sso_enforcement?: string
-    /** Returns whether SAML is configured for the instance. Does not validate the user has the required license (that check is performed in other places). */
-    readonly has_saml: boolean
-    /** Returns whether SCIM is configured and enabled for this domain. */
-    readonly has_scim: boolean
     /** @nullable */
     readonly scim_base_url: string | null
-    /** Returns whether ID-JAG (XAA) is configured for this domain. */
-    readonly has_id_jag: boolean
-    /**
-     * Linked IdP configuration (SAML/SCIM/XAA) that backs this domain. Must belong to the same organization.
-     * @nullable
-     */
-    identity_provider_config?: string | null
 }
 
 export interface PaginatedOrganizationDomainListApi {
@@ -199,20 +188,33 @@ export interface PatchedOrganizationDomainApi {
     jit_provisioning_enabled?: boolean
     /** @maxLength 28 */
     sso_enforcement?: string
-    /** Returns whether SAML is configured for the instance. Does not validate the user has the required license (that check is performed in other places). */
-    readonly has_saml?: boolean
-    /** Returns whether SCIM is configured and enabled for this domain. */
-    readonly has_scim?: boolean
     /** @nullable */
     readonly scim_base_url?: string | null
-    /** Returns whether ID-JAG (XAA) is configured for this domain. */
-    readonly has_id_jag?: boolean
-    /**
-     * Linked IdP configuration (SAML/SCIM/XAA) that backs this domain. Must belong to the same organization.
-     * @nullable
-     */
-    identity_provider_config?: string | null
 }
+
+/**
+ * * `all` - All
+ * * `selected` - Selected
+ */
+export type DomainScopeEnumApi = (typeof DomainScopeEnumApi)[keyof typeof DomainScopeEnumApi]
+
+export const DomainScopeEnumApi = {
+    All: 'all',
+    Selected: 'selected',
+} as const
+
+/**
+ * * `saml` - Saml
+ * * `scim` - Scim
+ * * `xaa` - Xaa
+ */
+export type ConfigScopeEnumApi = (typeof ConfigScopeEnumApi)[keyof typeof ConfigScopeEnumApi]
+
+export const ConfigScopeEnumApi = {
+    Saml: 'saml',
+    Scim: 'scim',
+    Xaa: 'xaa',
+} as const
 
 export interface IdentityProviderConfigApi {
     readonly id: string
@@ -221,6 +223,19 @@ export interface IdentityProviderConfigApi {
      * @maxLength 255
      */
     name?: string
+    /** Domains this configuration applies to. An unset value behaves like selected domains.
+     *
+     * * `all` - All
+     * * `selected` - Selected */
+    domain_scope?: DomainScopeEnumApi | BlankEnumApi | null
+    /** Feature configured by this identity provider configuration.
+     *
+     * * `saml` - Saml
+     * * `scim` - Scim
+     * * `xaa` - Xaa */
+    config_scope?: ConfigScopeEnumApi | BlankEnumApi | null
+    /** Organization domain IDs that this identity provider configuration applies to. */
+    organization_domain_ids?: string[]
     readonly created_at: string
     readonly updated_at: string
     /** Whether SAML is fully configured on this config. */
@@ -290,6 +305,19 @@ export interface PatchedIdentityProviderConfigApi {
      * @maxLength 255
      */
     name?: string
+    /** Domains this configuration applies to. An unset value behaves like selected domains.
+     *
+     * * `all` - All
+     * * `selected` - Selected */
+    domain_scope?: DomainScopeEnumApi | BlankEnumApi | null
+    /** Feature configured by this identity provider configuration.
+     *
+     * * `saml` - Saml
+     * * `scim` - Scim
+     * * `xaa` - Xaa */
+    config_scope?: ConfigScopeEnumApi | BlankEnumApi | null
+    /** Organization domain IDs that this identity provider configuration applies to. */
+    organization_domain_ids?: string[]
     readonly created_at?: string
     readonly updated_at?: string
     /** Whether SAML is fully configured on this config. */
@@ -3999,6 +4027,11 @@ export interface OrganizationApi {
     /** When False, members (below admin) only see themselves in the members list and only project members in access control. */
     members_can_see_org_members?: boolean
     allow_publicly_shared_resources?: boolean
+    /**
+     * When True, requests through the PostHog MCP server can read but not change this organization's data.
+     * @nullable
+     */
+    read_only_mcp_access?: boolean | null
     readonly member_count: number
     /** @nullable */
     is_ai_data_processing_approved?: boolean | null
@@ -4717,6 +4750,18 @@ export interface UserPushTokenUnregisterRequestApi {
      * @maxLength 512
      */
     token: string
+}
+
+/**
+ * Request body for POST /api/users/verify_email/. Exactly one of token or code is required.
+ */
+export interface VerifyEmailRequestApi {
+    /** UUID of the user whose email is being verified. */
+    uuid: string
+    /** Verification token from the emailed link. Required unless a code is provided. */
+    token?: string
+    /** The 6-digit verification code emailed at signup. Whitespace, invisible characters, and grouping hyphens are removed and compatibility digits are folded to ASCII before checking. */
+    code?: string
 }
 
 export type CimdVerificationTokensListParams = {

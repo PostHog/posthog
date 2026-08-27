@@ -13,6 +13,7 @@ from rest_framework.exceptions import ValidationError as DRFValidationError
 from posthog.models import Team
 from posthog.models.integration import GitLabIntegrationError, Integration
 
+from products.access_control.backend.models.role import Role
 from products.error_tracking.backend.facade import api, contracts
 from products.error_tracking.backend.models import (
     ErrorTrackingExternalReference,
@@ -21,8 +22,6 @@ from products.error_tracking.backend.models import (
     ErrorTrackingIssueFingerprintV2,
     ErrorTrackingSymbolSet,
 )
-
-from ee.models.rbac.role import Role
 
 
 class TestErrorTrackingFacadeAPI(BaseTest):

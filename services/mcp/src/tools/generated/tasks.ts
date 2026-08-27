@@ -514,6 +514,7 @@ const TasksCreateSchema = TasksCreateBody.omit({
     runtime_adapter: true,
     model: true,
     reasoning_effort: true,
+    initial_permission_mode: true,
     pending_user_message: true,
     pending_user_artifact_ids: true,
     auto_publish: true,

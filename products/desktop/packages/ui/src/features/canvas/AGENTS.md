@@ -45,12 +45,11 @@ changing breadcrumbs, canvas naming, or the canvas generation harness. The root
   Only Spaces and Activity own the column beside the rail; the rest are
   whole-screen, so no route under them may draw a second nav.
 - **A rail pick returns you to where that destination was**, not to its index.
-  `RailHistorySync` records the settled route per destination in
-  `railHistoryStore` (session-scoped; `startupLocation` already owns relaunch),
-  and `pickRailDestination` replays it. Only Spaces carries sidebar state on top
-  of its href, so `RailVisit.spaces` is the one pane-shaped field. Clicking the
-  destination you are already on never restores — it runs `onReclick`, which for
-  Spaces means the list.
+  `BrowserTabStrip` records the settled route per destination in the active
+  tab's `viewState.lastByPane`, and `pickRailDestination` replays it. Only Spaces
+  carries sidebar state on top of its href. Clicking the destination you are
+  already on never restores — it runs `onReclick`, which for Spaces means the
+  list.
   Anything a destination does besides navigating must live in its route
   component, not its `onPick`: the restore path navigates by href and never
   reaches the navigation bridge.
@@ -75,7 +74,10 @@ changing breadcrumbs, canvas naming, or the canvas generation harness. The root
   stay mounted — the offscreen one is `inert` — so the slide has something to
   slide and returning to the list doesn't rebuild every row. A two-finger
   horizontal swipe moves between them (`useChannelPaneSwipe`, wheel `deltaX`
-  accumulated per gesture and locked until the wheel goes quiet).
+  accumulated per gesture and locked until the wheel goes quiet). The track
+  animates only for a space-row click or the back row; tab restoration, route
+  sync, hotkeys, rail restoration, and swipes snap directly to their pane so
+  unrelated navigation never moves the sidebar across the reader.
 - In the list, "Starred"/"Spaces" are headings above lightly indented rows. The
   private "personal" row leads the Starred section and takes the same inset as the
   spaces beside it. It is the one row that carries a glyph: the lock is the only
@@ -202,12 +204,16 @@ changing breadcrumbs, canvas naming, or the canvas generation harness. The root
   tree scrolls rows under a stationary cursor, so prefetching straight from
   `pointerenter` fired a request for every row the list passed and made each
   keypress take a second.
-- **Keyboard contract of the list.** The search box holds focus and drives
-  everything: ↑/↓ walk every visible row, → opens the highlighted space (and
+- **Keyboard contract of the list.** `SidebarSearchHeader` gives Spaces and
+  Activity the same title and search treatment. Its shared focus request means
+  ⌘⇧S opens the sidebar and focuses whichever search is visible. Both lists
+  are permanently open inline Autocompletes: the search box keeps focus while
+  ↑/↓ walk every visible row and Enter opens it. In Spaces, the input also
+  drives the tree: → opens the highlighted space (and
   again steps into it), ← closes the space you're in and puts the highlight back
   on it. Both arrows defer to the text caret first, so they still edit the
-  query. ⌘⇧S from anywhere opens the sidebar, slides back to the list and takes
-  the keyboard; it is advertised on the search box (until a query replaces it
+  query. From elsewhere, ⌘⇧S slides Spaces back to the list and takes the
+  keyboard; it is advertised on the search box (until a query replaces it
   with the clear button) and on the space's back row, which is what it does from
   inside a space. Autocomplete has no API for setting the highlight, so moving it
   means synthesizing the arrow keys it listens for — and moving *before*
@@ -217,6 +223,18 @@ changing breadcrumbs, canvas naming, or the canvas generation harness. The root
   instead. Off the layout it keeps its original two-item menu.
   Archived moves out of the sidebar and into the account menu
   (`ProjectSwitcher`), beside Settings.
+- **Activity mixes task updates with a bounded Self-driving preview.** Both
+  `ActivityFeedList` and `ActivityView` merge their task activity with up to
+  three reports matching Activity's persisted Inbox filters, then sort and group
+  the combined rows by activity time. The Activity actions menu has an Include
+  section: Mentions are on by default and Self-driving is off. Enabling
+  Self-driving reveals its P1/For you defaults plus scope, source, PR state,
+  sort, and priority filters without changing the Inbox page's filters. Inbox
+  reports do not have the task activity read model, so the unreads-only view
+  hides them. If more than three match, the overflow row copies Activity's Inbox
+  filters into `/inbox/reports` before opening it.
+  Picking a preview report stays on `/activity` and renders that already-loaded
+  report beside the feed while its detail query refreshes in the background.
 - **Which pane shows is view state, not a route.** `channelPaneStore` holds it,
   separately from the scoped channel (`currentChannelStore`): "back to channels"
   browses the list while the route, the main pane and the scoped channel stay

@@ -633,13 +633,16 @@ const webBrowserTabsClient: BrowserTabsClient = {
   getSnapshot: () => Promise.resolve(webBrowserTabsStore.getSnapshot()),
   getPrimaryWindowId: () =>
     Promise.resolve(webBrowserTabsStore.getPrimaryWindowId()),
-  openOrFocus: (input) =>
-    Promise.resolve(webBrowserTabsStore.openOrFocus(input)),
-  newBlankTab: (input) =>
-    Promise.resolve(webBrowserTabsStore.newBlankTab(input)),
+  reset: () => Promise.resolve(webBrowserTabsStore.reset()),
+  openTab: (input) => Promise.resolve(webBrowserTabsStore.openTab(input)),
   setTabTarget: (input) =>
     Promise.resolve(webBrowserTabsStore.setTabTarget(input)),
   close: (tabId) => Promise.resolve(webBrowserTabsStore.close(tabId)),
+  closeMany: (input) =>
+    Promise.resolve(
+      webBrowserTabsStore.closeMany(input.tabIds, input.focusTabId),
+    ),
+  setOrder: (input) => Promise.resolve(webBrowserTabsStore.setOrder(input)),
   setActiveTab: (input) =>
     Promise.resolve(webBrowserTabsStore.setActiveTab(input)),
   onSnapshotChange: (sub) => {

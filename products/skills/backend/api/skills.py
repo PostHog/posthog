@@ -8,13 +8,17 @@ from django.http import HttpResponse
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import NotFound
 from rest_framework.parsers import FormParser, MultiPartParser
+from rest_framework.permissions import BasePermission
+from rest_framework.renderers import BaseRenderer
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
+from rest_framework.views import APIView
 
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -26,13 +30,14 @@ from posthog.auth import (
 )
 from posthog.event_usage import report_user_action
 from posthog.models import User
-from posthog.permissions import AccessControlPermission, get_authenticator_scopes
+from posthog.permissions import AccessControlPermission, get_authenticator_scopes, posthog_feature_flag_value
 from posthog.rate_limit import BurstRateThrottle, PersonalApiKeyOrUserRateThrottle, SustainedRateThrottle
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.renderers import SafeJSONRenderer
 
+from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.ai_observability.backend.api.metrics import llma_track_latency
 
-from ..marketplace.adapters import MARKETPLACE_NAME, PLUGIN_NAME, load_skill_export
+from ..marketplace.adapters import MARKETPLACE_NAME, PLUGIN_NAME, build_skill_bundle, load_skill_export
 from ..marketplace.credentials import (
     build_codex_install_command,
     build_install_command,
@@ -57,6 +62,7 @@ from .skill_serializers import (
     PUBLISH_CONTENT_FIELDS,
     CommunitySkillPublishResultSerializer,
     LLMSkillBodyFetchQuerySerializer,
+    LLMSkillBundleQuerySerializer,
     LLMSkillCreateSerializer,
     LLMSkillDuplicateSerializer,
     LLMSkillFetchQuerySerializer,
@@ -101,9 +107,11 @@ from .skill_services import (
     publish_skill_version,
     rename_skill_file,
     resolve_owner_users,
+    resolve_skill_owners,
     resolve_skill_owners_for_names,
     resolve_versions_page,
     set_skill_owners,
+    skill_names_owned_by,
 )
 
 logger = structlog.get_logger(__name__)
@@ -111,6 +119,9 @@ logger = structlog.get_logger(__name__)
 # Generous ceiling for an uploaded skill zip — per-skill content (body, 200 files × 1 MB) is
 # already bounded by create_skill, this just caps the upload before we read it into memory.
 MAX_IMPORT_ZIP_BYTES = 10_000_000
+
+
+SANDBOX_SKILLS_FEATURE_FLAG = "skills-store-in-sandbox"
 
 
 def _file_extension(path: str) -> str:
@@ -183,6 +194,54 @@ class CommunityPublishFeatureFlagPermission(CommunitySkillFeatureFlagPermission)
         return super().has_permission(request, view)
 
 
+class CommunityPublishOwnerPermission(BasePermission):
+    """Restricts publishing to the community to the skill's own owners, and gates nothing else here.
+
+    Publishing writes the skill into a public repository, so it asks for a stronger claim on the skill
+    than editing it does. The claim must also be per skill. `AccessControlPermission.has_permission`
+    passes a member who holds an object-level grant on any one skill, and the `name/<slug>` actions
+    then load whichever skill the URL names, so edit access alone reaches every skill in the project.
+
+    A skill with no current owners is publishable by nobody. Owners leave the set when a member loses
+    project access, and a skill can be created with an explicit empty owner list, so the alternative is
+    a fallback to edit access for exactly the skills that have nobody to answer for them. Adding an
+    owner is the remedy, and the message says so.
+    """
+
+    NO_OWNERS_MESSAGE = "This skill has no owners. Add an owner to publish it."
+    NOT_OWNER_MESSAGE = (
+        "Only an owner can publish this skill to the community. Ask an owner to publish it, or to add you as one."
+    )
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        if getattr(view, "action", None) != "publish_to_community":
+            return True
+
+        user = request.user
+        if not user or not user.is_authenticated:
+            return False
+
+        skill_view = cast("LLMSkillViewSet", view)
+        try:
+            team = skill_view.team
+        except (ValueError, KeyError, AttributeError):
+            return False
+
+        skill_name = skill_view.kwargs.get("skill_name") or ""
+        owners = resolve_skill_owners(team, skill_name)
+        if any(owner.pk == user.pk for owner in owners):
+            return True
+
+        # A slug that names no skill answers 404, the way every other `name/<slug>` action answers it,
+        # because a skill that does not exist has no owners either. Raising here rather than passing
+        # keeps the action from loading a skill another request creates in between.
+        if get_skill_by_name_from_db(team, skill_name) is None:
+            raise NotFound(f"Skill with name '{skill_name}' not found.")
+
+        self.message = self.NO_OWNERS_MESSAGE if not owners else self.NOT_OWNER_MESSAGE
+        return False
+
+
 class _CommunityPublishThrottle(PersonalApiKeyOrUserRateThrottle):
     # Publishing opens a pull request in a public repo, so the ceiling is "a handful, by hand", not
     # the API-shaped hundreds-per-minute of BurstRateThrottle. That one also extends
@@ -207,6 +266,62 @@ class CommunityPublishSustainedThrottle(_CommunityPublishThrottle):
     rate = "20/day"
 
 
+class _SkillBundleThrottle(PersonalApiKeyOrUserRateThrottle):
+    """Throttle for the skill bundle, which a sandbox fetches over OAuth.
+
+    The general BurstRateThrottle/SustainedRateThrottle only count personal-API-key traffic, so an
+    OAuth or session caller would reach the zip build (candidate queries, a file query per skill,
+    DEFLATE of up to MAX_BUNDLE_BYTES) unthrottled. PersonalApiKeyOrUserRateThrottle counts
+    every auth method, but its inherited key idents session and OAuth callers by project, so one
+    user's burst would 429 every other sandbox in the project. Those callers get a per-user bucket
+    instead; a personal API key keeps its own.
+    """
+
+    def get_cache_key(self, request: Request, view: APIView) -> str:
+        if not request.user.is_authenticated or isinstance(
+            request.successful_authenticator, PersonalAPIKeyAuthentication
+        ):
+            return super().get_cache_key(request, view)
+        return self.cache_format % {"scope": self.scope, "ident": f"user:{request.user.pk}"}
+
+
+class SkillBundleBurstThrottle(_SkillBundleThrottle):
+    # A sandbox fetches the bundle once at session start, so 30/minute clears a burst of concurrent
+    # starts for one user while still catching a scripted loop hammering the zip build.
+    scope = "skills_bundle_burst"
+    rate = "30/minute"
+
+
+class SkillBundleSustainedThrottle(_SkillBundleThrottle):
+    # A few hundred session starts an hour per user is well beyond normal use and short of what
+    # sustained abuse of the 5 MB zip build could cost unthrottled.
+    scope = "skills_bundle_sustained"
+    rate = "300/hour"
+
+
+class ZipRenderer(BaseRenderer):
+    """Lets ``Accept: application/zip`` through content negotiation on the zip actions.
+
+    DRF negotiates before the action runs, so with the JSON-only default a client that asks for the
+    zip it was promised gets 406. The zip itself is a raw HttpResponse and never reaches a renderer;
+    only the actions' error Responses do, and those stay JSON so the client can read them.
+    """
+
+    media_type = "application/zip"
+    format = "zip"
+
+    def render(self, data: Any, accepted_media_type: str | None = None, renderer_context: Any = None) -> bytes:
+        if renderer_context is not None:
+            renderer_context["response"]["Content-Type"] = "application/json"
+        return SafeJSONRenderer().render(data, "application/json", renderer_context)
+
+
+_ZIP_ACTIONS = ("bundle", "export")
+# With two renderers on an action, drf-spectacular advertises DRF's ``?format=`` override as a query
+# parameter. Clients select the zip with ``Accept``; keep the generated types free of it.
+_FORMAT_QUERY_PARAM_EXCLUDED = OpenApiParameter(name="format", location=OpenApiParameter.QUERY, exclude=True)
+
+
 class LLMSkillViewSet(
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
@@ -217,14 +332,26 @@ class LLMSkillViewSet(
     scope_object = "llm_skill"
     queryset = LLMSkill.objects.all()
     serializer_class = LLMSkillSerializer
-    permission_classes = [AccessControlPermission, CommunityPublishFeatureFlagPermission]
+    permission_classes = [
+        AccessControlPermission,
+        CommunityPublishFeatureFlagPermission,
+        CommunityPublishOwnerPermission,
+    ]
 
     def safely_get_queryset(self, queryset: QuerySet[LLMSkill]) -> QuerySet[LLMSkill]:
         return get_active_skill_queryset(self.team)
 
+    def get_renderers(self) -> list[BaseRenderer]:
+        renderers = super().get_renderers()
+        if self.action in _ZIP_ACTIONS:
+            return [*renderers, ZipRenderer()]
+        return renderers
+
     def get_throttles(self):
         if self.action == "publish_to_community":
             return [CommunityPublishBurstThrottle(), CommunityPublishSustainedThrottle()]
+        if self.action == "bundle":
+            return [SkillBundleBurstThrottle(), SkillBundleSustainedThrottle()]
         if self.action in ["update_by_name", "get_by_name", "resolve_by_name"]:
             return [BurstRateThrottle(), SustainedRateThrottle()]
         return super().get_throttles()
@@ -361,6 +488,12 @@ class LLMSkillViewSet(
         created_by_id = params.get("created_by_id")
         if created_by_id:
             queryset = queryset.filter(created_by_id=created_by_id)
+
+        # Owners are keyed on the logical skill name, not on a version row, so the filter matches by
+        # name across every version the queryset could surface.
+        owner_id = params.get("owner_id")
+        if owner_id:
+            queryset = queryset.filter(name__in=skill_names_owned_by(self.team, owner_id))
 
         # Presence of the param — even as an empty string — is a filter: `?category=` returns only
         # uncategorized skills, `?category=scout` only scouts. Omitting it returns every category.
@@ -636,7 +769,7 @@ class LLMSkillViewSet(
         )
 
     @extend_schema(
-        parameters=[LLMSkillFetchQuerySerializer],
+        parameters=[LLMSkillFetchQuerySerializer, _FORMAT_QUERY_PARAM_EXCLUDED],
         responses={(200, "application/zip"): OpenApiTypes.BINARY},
     )
     @action(methods=["GET"], detail=False, url_path=r"name/(?P<skill_name>[^/]+)/export")
@@ -660,6 +793,55 @@ class LLMSkillViewSet(
         zip_bytes = build_skill_zip(export)
         response = HttpResponse(zip_bytes, content_type="application/zip")
         response["Content-Disposition"] = f'attachment; filename="{skill.name}.zip"'
+        return response
+
+    @extend_schema(
+        parameters=[LLMSkillBundleQuerySerializer, _FORMAT_QUERY_PARAM_EXCLUDED],
+        responses={(200, "application/zip"): OpenApiTypes.BINARY},
+    )
+    @action(methods=["GET"], detail=False, url_path="bundle", required_scopes=["llm_skill:read"])
+    @llma_track_latency("llma_skills_bundle")
+    @monitor(feature=None, endpoint="llma_skills_bundle", method="GET")
+    def bundle(self, request: Request, **kwargs) -> Response | HttpResponse:
+        """One zip of the requesting user's store skills, for unpacking into a skills directory."""
+        query = LLMSkillBundleQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        user = cast(User, request.user)
+        flag_value = posthog_feature_flag_value(
+            SANDBOX_SKILLS_FEATURE_FLAG,
+            user.distinct_id or str(user.uuid),
+            organization_id=self.organization.id,
+            team_id=self.team.id,
+        )
+        # None means the flag service did not answer. A sandbox treats 404 as "not enabled", so
+        # do not hand it that on an outage; 503 lets the caller tell the two apart.
+        if flag_value is None:
+            return Response(
+                {"detail": "Feature flag evaluation is unavailable."}, status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
+        # A plain 404 Response, not NotFound: @monitor counts raised exceptions as endpoint errors,
+        # and every sandbox in a non-flagged project hits this path once per run.
+        if not flag_value:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        # Same object-level filter the list endpoint applies, so the bundle never carries a skill the
+        # list would hide from this user.
+        readable_skills = self.user_access_control.filter_queryset_by_access_level(
+            LLMSkill.objects.filter(team=self.team), resource="llm_skill"
+        )
+        bundle = build_skill_bundle(
+            self.team,
+            user,
+            readable_skills,
+            content=query.validated_data["content"],
+            limit=query.validated_data["limit"],
+        )
+        response = HttpResponse(bundle.zip_bytes, content_type="application/zip")
+        response["Content-Disposition"] = 'attachment; filename="skills-bundle.zip"'
+        # Counts only: names are unbounded and would blow past proxy header limits for heavy users.
+        response["X-Skills-Included"] = str(len(bundle.included))
+        response["X-Skills-Dropped"] = str(bundle.dropped_count)
+        response["X-Skills-Skipped"] = str(bundle.skipped_count)
         return response
 
     @extend_schema(request=LLMSkillImportSerializer, responses={201: LLMSkillSerializer})
@@ -1006,6 +1188,14 @@ class LLMSkillViewSet(
                 author_handle=payload.validated_data.get("author_handle", ""),
             )
         except CommunitySkillPublishNotConfiguredError:
+            # The fail-safe is otherwise silent, so an instance that meant to have publishing on
+            # looks like one that never configured it until somebody reports the toast.
+            logger.warning(
+                "llma_skill_publish_to_community_not_configured",
+                team_id=self.team.id,
+                user_id=cast(User, request.user).id,
+                skill_name=skill.name,
+            )
             return Response(
                 {"detail": "Publishing to the community is not available on this instance."},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,

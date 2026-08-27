@@ -364,6 +364,9 @@ SESSION_RISK_ENABLED = get_from_env("SESSION_RISK_ENABLED", not TEST, type_cast=
 # region stays enrichment-free only by leaving this unset there. Fire-and-forget from signup, so
 # this only gates whether the workflow is dispatched at all.
 GROWTH_SIGNUP_ENRICHMENT_ENABLED = get_from_env("GROWTH_SIGNUP_ENRICHMENT_ENABLED", False, type_cast=str_to_bool)
+# Max orgs the daily ICP re-enrichment sweep re-fetches per run — the Harmonic spend/rate
+# bound for products/growth/backend/temporal/signup_enrichment/reenrichment.py.
+GROWTH_ICP_REENRICH_DAILY_CAP = get_from_env("GROWTH_ICP_REENRICH_DAILY_CAP", 500, type_cast=int)
 # The internal analytics project the enrichment pipeline reads/writes bridge and mirror data
 # against (products/growth/backend/enrichment). Region-defaulted to the deployment's own internal
 # project (the same team split the usage report uses), so enrichment lookups never touch another
@@ -442,21 +445,21 @@ if DEBUG:
     # a second source for 1300+ identical assets would make collectstatic warn about
     # duplicate destinations for no gain.
     STATICFILES_DIRS.append(os.path.join(BASE_DIR, "frontend/public"))
+
+# WhiteNoise serves precompressed files when present, so this only controls collectstatic output.
+if TEST:
+    _staticfiles_storage_backend = "django.contrib.staticfiles.storage.StaticFilesStorage"
+elif get_from_env("STATIC_PRECOMPRESS", True, type_cast=str_to_bool):
+    _staticfiles_storage_backend = "whitenoise.storage.CompressedManifestStaticFilesStorage"
+else:
+    _staticfiles_storage_backend = "whitenoise.storage.ManifestStaticFilesStorage"
+
 STORAGES = {
     "default": {
         "BACKEND": "django.core.files.storage.FileSystemStorage",
     },
     "staticfiles": {
-        # CompressedManifest: collectstatic pre-generates .br and .gz (brotli is
-        # already a dependency) so WhiteNoise serves compressed bytes from disk and
-        # the envoy edge — which otherwise gzips static per request (Contour's
-        # default compression filter) — skips recompression since Content-Encoding
-        # is already set. Same Manifest base class: hashed names unchanged.
-        "BACKEND": (
-            "django.contrib.staticfiles.storage.StaticFilesStorage"
-            if TEST
-            else "whitenoise.storage.CompressedManifestStaticFilesStorage"
-        ),
+        "BACKEND": _staticfiles_storage_backend,
     },
 }
 # Never emit .map.gz/.map.br: the production image deletes *.map after the
@@ -594,6 +597,11 @@ SPECTACULAR_SETTINGS = {
         "ExperimentMetricKindEnum": "products.ai_observability.backend.models.score_definitions.ScoreDefinition.Kind",
         "EvaluationTargetEnum": "products.ai_observability.backend.models.evaluations.EvaluationTarget",
         "IntegrationKindEnum": "posthog.models.integration.Integration.IntegrationKind",
+        # Shared by TaskCreate.origin_product and TaskWrite.origin_product. Needs naming because
+        # WarmTaskRequest.origin_product offers only the warmable subset, so "origin_product" alone
+        # no longer identifies one choice set. Keyed to the name the generator already produced
+        # (`OriginProductEnumApi`) so naming it doesn't rename the type its consumers import.
+        "OriginProductEnum": "products.tasks.backend.models.Task.OriginProduct",
         "TicketStatusEnum": "products.conversations.backend.models.constants.Status",
         "EmailChannelKindEnum": "products.conversations.backend.models.team_conversations_email_config.EmailChannelKind",
         "EmailThreadMessageDirectionEnum": "products.conversations.backend.models.email_thread.EmailThreadMessageDirection",
@@ -619,6 +627,8 @@ SPECTACULAR_SETTINGS = {
         "IngestionWarningSeverityEnum": "posthog.api.ingestion_warnings_v2.INGESTION_WARNING_SEVERITIES",
         "BillingAlertMetricEnum": "products.billing_alerts.backend.models.BillingAlertConfiguration.Metric",
         "BillingAlertStateEnum": "products.billing_alerts.backend.models.BillingAlertConfiguration.State",
+        # Shared by ChangeRequest.state and ChangeRequestSummary.state (same choice set).
+        "ChangeRequestStateEnum": "products.approvals.backend.models.ChangeRequestState",
         # Disambiguates from the same-valued inline enum on the signals LogsAlertStateChangeSignalExtra contract.
         "LogsAlertThresholdOperatorEnum": "products.logs.backend.models.LogsAlertConfiguration.ThresholdOperator",
         # Shared by _LogsGroupByBody.groupBySource and _LogsGroupByDimension.source (labels == values).
@@ -689,7 +699,11 @@ SPECTACULAR_SETTINGS = {
         # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
         "TileSpacingEnum": ["tight", "condensed", "standard", "relaxed", "wide"],
         "LayoutCompactionEnum": ["vertical", "horizontal", "stable"],
+        "DesktopAccessReasonEnum": "products.tasks.backend.facade.contracts.DESKTOP_ACCESS_REASON_SCHEMA_VALUES",
         "PropertyGroupOperator": ["AND", "OR"],
+        # `severity` is shared by a data quality check, its overview projection, and the severity a
+        # past run was judged at.
+        "DataQualityCheckSeverityEnum": ["error", "warn"],
         # `scope`/`state` are generic field names; one shared name for the canvas state scope set.
         "CanvasStateScopeEnum": ["user", "shared"],
         # `kind` is a generic field name; one shared name for the canvas kind set.
@@ -764,6 +778,11 @@ SPECTACULAR_SETTINGS = {
         # choice set (top-level column vs span attribute vs resource attribute).
         "SpanPropertyTypeEnum": ["span", "span_attribute", "span_resource_attribute"],
         "LogsViewColumnTypeEnum": ["timestamp", "level", "source", "trace_id", "span_id", "message", "custom"],
+        # The AI observability instrumentation checklist exposes the same key set twice: as `key` on a
+        # graded check and as `check` on the dismiss/restore body. Mirrors CheckKey in
+        # products/ai_observability/backend/instrumentation_checklist/grading.py; a member added there
+        # changes the hash, so this warning comes back rather than drifting silently.
+        "AIObservabilityInstrumentationCheckEnum": ["sessions", "tool_calls", "user_identity", "trace_structure"],
         # LoopTriggerWrite.type and LoopPreviewRequest.trigger_type share the same
         # schedule/github/api choice set — pin them to a single named enum.
         "LoopTriggerTypeEnum": ["schedule", "github", "api"],
@@ -911,6 +930,16 @@ SPECTACULAR_SETTINGS = {
         "TaskExecutionModeEnum": ["interactive", "background"],
         # Shared by ClaudeTaskRunCreateSchema and SandboxOpen (the conversations `open` body).
         "InitialPermissionModeEnum": ["default", "acceptEdits", "plan", "bypassPermissions", "auto"],
+        "TaskRunBootstrapCreateRequestInitialPermissionModeEnum": [
+            "default",
+            "acceptEdits",
+            "plan",
+            "bypassPermissions",
+            "auto",
+            "read-only",
+            "full-access",
+            None,
+        ],
         "HogFunctionTemplatingEnum": ["hog", "liquid"],
         "HogFlowEdgeTypeEnum": ["continue", "branch"],
         "SourceMatchEnum": ["none", "auto", "mapped"],
@@ -1144,6 +1173,12 @@ API_ENVIRONMENTS_SUNSET_DATE = get_from_env("API_ENVIRONMENTS_SUNSET_DATE", "202
 # var without redeploy. 1.0 = emit every operation, 0.01 = 1% sample.
 # Defaults to 1.0 under TEST so assertions on emitted SLO events are deterministic.
 QUERY_SERVICE_SLO_SAMPLE_RATE = get_from_env("QUERY_SERVICE_SLO_SAMPLE_RATE", 1.0 if TEST else 0.01, type_cast=float)
+
+# Persons list SLO sampling rate. That endpoint runs its ActorsQuery through `calculate()`,
+# not `run()`, so it emits no query-service SLO events at all. It is lower volume than the
+# query service and its slow tail is the point of the measurement, so it samples ten times
+# higher. Same weighting rule: divide counts by `properties.sample_rate`.
+PERSONS_LIST_SLO_SAMPLE_RATE = get_from_env("PERSONS_LIST_SLO_SAMPLE_RATE", 1.0 if TEST else 0.1, type_cast=float)
 
 ####
 # Livestream
