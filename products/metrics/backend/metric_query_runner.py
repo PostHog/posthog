@@ -297,9 +297,10 @@ def _align_to_interval(timestamp: dt.datetime, interval: str, *, tzinfo: ZoneInf
         return (midnight - dt.timedelta(days=midnight.weekday())).astimezone(dt.UTC)
     if interval == "day":
         return midnight.astimezone(dt.UTC)
-    # Elapsed time from the midnight instant rather than wall-clock arithmetic,
-    # which is what ClickHouse measures, so a day shortened or lengthened by a
-    # DST transition keeps the two grids on the same boundaries.
+    # ClickHouse counts elapsed seconds from the midnight instant, so this adds
+    # a real duration rather than doing wall-clock arithmetic. A day shortened
+    # or lengthened by a DST transition then keeps both grids on the same
+    # boundaries.
     step = _interval_step(interval)
     return midnight.astimezone(dt.UTC) + (local - midnight) // step * step
 
