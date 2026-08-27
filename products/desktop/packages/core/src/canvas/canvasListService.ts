@@ -48,6 +48,7 @@ export interface CanvasListViewModel {
   settings: CanvasListSettings;
   personalSpaceSelected: boolean;
   creatorOptions: CanvasCreatorOption[];
+  /** Every canvas the list shows, in the order the sections render them. */
   canvases: DashboardRecord[];
   sections: CanvasListSection[];
 }
@@ -223,7 +224,33 @@ function sortCanvasList(
   });
 }
 
+/**
+ * A pin holds a canvas at the top of the group it already belongs to, instead
+ * of lifting it into a pinned group of its own, so a space or date header still
+ * says what every row beneath it is. The partition is stable, so pinned
+ * canvases keep the chosen sort order among themselves, and a list with no
+ * grouping gets its pins first.
+ */
+function pinnedFirst(canvases: readonly DashboardRecord[]): DashboardRecord[] {
+  const pinned = canvases.filter((canvas) => canvas.pinnedAt != null);
+  if (pinned.length === 0 || pinned.length === canvases.length) {
+    return [...canvases];
+  }
+  return [...pinned, ...canvases.filter((canvas) => canvas.pinnedAt == null)];
+}
+
 function groupCanvasList(
+  canvases: readonly DashboardRecord[],
+  grouping: CanvasListGrouping,
+  spaceNames: ReadonlyMap<string, string>,
+  now: Date,
+): CanvasListSection[] {
+  return buildCanvasSections(canvases, grouping, spaceNames, now).map(
+    (section) => ({ ...section, canvases: pinnedFirst(section.canvases) }),
+  );
+}
+
+function buildCanvasSections(
   canvases: readonly DashboardRecord[],
   grouping: CanvasListGrouping,
   spaceNames: ReadonlyMap<string, string>,
@@ -292,6 +319,13 @@ export class CanvasListService {
       ]),
     );
 
+    const sections = groupCanvasList(
+      canvases,
+      settings.grouping,
+      spaceNames,
+      input.now ?? new Date(),
+    );
+
     return {
       settings,
       personalSpaceSelected: Boolean(
@@ -302,13 +336,10 @@ export class CanvasListService {
         input.currentUser,
         settings.spaceIds,
       ),
-      canvases,
-      sections: groupCanvasList(
-        canvases,
-        settings.grouping,
-        spaceNames,
-        input.now ?? new Date(),
-      ),
+      // Flattened from the sections rather than the sort, so the keyboard walks
+      // the rows in the order a reader sees them.
+      canvases: sections.flatMap((section) => section.canvases),
+      sections,
     };
   }
 

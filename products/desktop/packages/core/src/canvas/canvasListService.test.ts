@@ -120,11 +120,11 @@ describe("CanvasListService", () => {
   });
 
   it.each([
-    { grouping: "none" as const, expected: [[null, "a", "b"]] },
+    { grouping: "none" as const, expected: [[null, "pinned", "a", "b"]] },
     {
       grouping: "space" as const,
       expected: [
-        ["alpha", "a"],
+        ["alpha", "pinned", "a"],
         ["beta", "b"],
       ],
     },
@@ -132,28 +132,57 @@ describe("CanvasListService", () => {
       grouping: "date" as const,
       expected: [
         ["Today", "b"],
-        ["Yesterday", "a"],
+        ["Yesterday", "pinned", "a"],
       ],
     },
-  ])("groups canvases by $grouping", ({ grouping, expected }) => {
-    const canvases = [
-      canvas("a", {
-        channelId: "space-a",
-        createdAt: new Date(2026, 7, 19, 8).getTime(),
-      }),
-      canvas("b", {
-        channelId: "space-b",
-        createdAt: new Date(2026, 7, 20, 8).getTime(),
-      }),
-    ];
+  ])(
+    "groups canvases by $grouping, pinned ones leading their group",
+    ({ grouping, expected }) => {
+      const canvases = [
+        canvas("a", {
+          channelId: "space-a",
+          createdAt: new Date(2026, 7, 19, 8).getTime(),
+          updatedAt: 3,
+        }),
+        canvas("b", {
+          channelId: "space-b",
+          createdAt: new Date(2026, 7, 20, 8).getTime(),
+          updatedAt: 2,
+        }),
+        // Last by the sort and grouped with "a", so only the pin can lift it.
+        canvas("pinned", {
+          channelId: "space-a",
+          createdAt: new Date(2026, 7, 19, 7).getTime(),
+          updatedAt: 1,
+          pinnedAt: 5,
+        }),
+      ];
 
-    const viewModel = buildViewModel(canvases, settings({ grouping }));
-    expect(
-      viewModel.sections.map((section) => [
-        section.label,
-        ...section.canvases.map(({ id }) => id),
-      ]),
-    ).toEqual(expected);
+      const viewModel = buildViewModel(canvases, settings({ grouping }));
+      expect(
+        viewModel.sections.map((section) => [
+          section.label,
+          ...section.canvases.map(({ id }) => id),
+        ]),
+      ).toEqual(expected);
+    },
+  );
+
+  it("keeps the chosen sort order among pinned canvases", () => {
+    const viewModel = buildViewModel(
+      [
+        canvas("zulu", { createdBy: "Zoe", pinnedAt: 9 }),
+        canvas("ada", { createdBy: "Ada", pinnedAt: 1 }),
+        canvas("unpinned", { createdBy: "Bea" }),
+      ],
+      settings({ sort: "created_by", grouping: "none" }),
+    );
+
+    expect(viewModel.canvases.map(({ id }) => id)).toEqual([
+      "ada",
+      "zulu",
+      "unpinned",
+    ]);
   });
 
   it("limits creator options to creators in the selected spaces", () => {

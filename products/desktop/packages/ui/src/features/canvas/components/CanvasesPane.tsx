@@ -1,4 +1,4 @@
-import { BlueprintIcon } from "@phosphor-icons/react";
+import { BlueprintIcon, PushPinIcon } from "@phosphor-icons/react";
 import {
   type CanvasListService,
   type CanvasListSettings,
@@ -209,9 +209,22 @@ export function CanvasesPane({
                         onClick={() => open(canvas)}
                       >
                         {iconForTemplate(canvas.templateId, { size: 14 })}
-                        <span className="min-w-0">
-                          <span className="block truncate text-[13px]">
-                            {canvas.name}
+                        <span className="min-w-0 flex-1">
+                          <span className="flex items-center gap-1">
+                            <span className="min-w-0 flex-1 truncate text-[13px]">
+                              {canvas.name}
+                            </span>
+                            {/* Says why a row leads its group, the way a pinned
+                                session's badge does in the channel feed. */}
+                            {canvas.pinnedAt != null ? (
+                              <PushPinIcon
+                                size={11}
+                                weight="fill"
+                                role="img"
+                                aria-label="Pinned"
+                                className="shrink-0 text-muted-foreground"
+                              />
+                            ) : null}
                           </span>
                           <span
                             className="block truncate text-muted-foreground text-xxs"

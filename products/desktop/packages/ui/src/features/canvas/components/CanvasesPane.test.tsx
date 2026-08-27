@@ -108,6 +108,17 @@ describe("CanvasesPane", () => {
     expect(screen.getByText("Yesterday")).toBeInTheDocument();
   });
 
+  it("marks only the pinned canvas", () => {
+    mocks.dashboards = [
+      canvas("canvas-first", "First canvas", 2),
+      { ...canvas("canvas-pinned", "Pinned canvas", 1), pinnedAt: 5 },
+    ];
+
+    render(<CanvasesPane />);
+
+    expect(screen.getAllByLabelText("Pinned")).toHaveLength(1);
+  });
+
   it("moves through canvases from the search input and opens the highlighted row", async () => {
     const user = userEvent.setup();
     render(<CanvasesPane />);
