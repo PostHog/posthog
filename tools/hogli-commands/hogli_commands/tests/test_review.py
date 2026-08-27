@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import subprocess
 from collections.abc import Callable, Iterator
+from pathlib import Path
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -61,6 +62,34 @@ class TestReview:
         result = runner.invoke(cli, ["review"])
         assert result.exit_code == 1
         assert "brew install greptileai/tap/greptile" in result.output
+
+    @pytest.mark.parametrize(
+        "platform,which_path,expected_exit",
+        [
+            ("darwin", str(Path.home() / ".config/posthog/tools/greptile/3.4.1/node_modules/.bin/greptile"), 0),
+            ("darwin", "/usr/local/bin/greptile", 0),
+            ("darwin", "/Users/dev/posthog/.flox/cache/venv/bin/greptile", 1),
+            ("linux", "/home/dev/.npm-global/bin/greptile", 0),
+        ],
+    )
+    @patch("hogli_commands.review.subprocess.run")
+    def test_darwin_runs_greptile_only_from_write_denied_locations(
+        self,
+        mock_run: MagicMock,
+        greptile_on_path: MagicMock,
+        platform: str,
+        which_path: str,
+        expected_exit: int,
+    ) -> None:
+        greptile_on_path.return_value = which_path
+        mock_run.side_effect = _fake_greptile(status=0)
+        with patch("hogli_commands.review.sys.platform", platform):
+            result = runner.invoke(cli, ["review"])
+        assert result.exit_code == expected_exit
+        if expected_exit == 1:
+            # A planted binary must never execute, not even as an auth probe.
+            assert mock_run.call_args_list == []
+            assert "flox" in result.output
 
     @patch("hogli_commands.review.subprocess.run")
     def test_signed_out_exits_ex_config_without_starting_a_review(self, mock_run: MagicMock) -> None:

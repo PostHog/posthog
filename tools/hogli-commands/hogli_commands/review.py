@@ -30,8 +30,10 @@ reviewing-before-pr skill covers where this sits in the PR-opening flow.
 
 from __future__ import annotations
 
+import sys
 import shutil
 import subprocess
+from pathlib import Path
 
 import click
 from hogli.manifest import REPO_ROOT
@@ -44,6 +46,39 @@ _INSTALL_HINT = (
     "Re-enter the flox environment (activation installs it), "
     "or install it with `brew install greptileai/tap/greptile` or `npm install -g greptile`, then re-run."
 )
+
+# PATH in an activated shell starts with the venv bin, which the dev sandbox
+# can write to (the sandboxed `uv sync` populates it), so a compromised
+# dependency could plant a `greptile` there that would run unsandboxed with
+# the developer's account. Only execute a binary that resolves into a location
+# bin/dev-sandbox.sb write-denies: the PostHog tool store, the Homebrew
+# prefixes, or the immutable Nix store. Keep this list in sync with the
+# `deny file-write*` block in bin/dev-sandbox.sb.
+_TRUSTED_INSTALL_ROOTS: tuple[Path, ...] = (
+    Path.home() / ".config" / "posthog" / "tools",
+    Path("/opt/homebrew/bin"),
+    Path("/opt/homebrew/sbin"),
+    Path("/opt/homebrew/Cellar"),
+    Path("/opt/homebrew/lib"),
+    Path("/usr/local/bin"),
+    Path("/usr/local/sbin"),
+    Path("/usr/local/Cellar"),
+    Path("/usr/local/lib"),
+    Path("/nix/store"),
+)
+
+
+def _untrusted_location(binary: str) -> Path | None:
+    # The sandbox only exists on macOS; elsewhere the check would just break
+    # legitimate installs (an npm prefix under $HOME) for no protection.
+    if sys.platform != "darwin":
+        return None
+    resolved = Path(binary).resolve()
+    if any(resolved.is_relative_to(root) for root in _TRUSTED_INSTALL_ROOTS):
+        return None
+    return resolved
+
+
 _SIGNIN_HINT = (
     "Run `greptile login`, or set GREPTILE_API_KEY in .env.local (see .env.local.example). "
     "No access? The reviewing-before-pr skill has a harness-review fallback."
@@ -111,6 +146,16 @@ def run(branch: str | None, instructions: str | None, force: bool, do_check: boo
     binary = shutil.which("greptile")
     if binary is None:
         click.secho(f"Greptile CLI not found. {_INSTALL_HINT}", fg="red", err=True)
+        return 1
+    untrusted = _untrusted_location(binary)
+    if untrusted is not None:
+        click.secho(
+            f"Not running greptile from {untrusted}: only write-protected install locations are trusted "
+            "(the PostHog tool store, Homebrew, or the Nix store). "
+            "Re-enter the flox environment to reinstall it, or use `brew install greptileai/tap/greptile`, then re-run.",
+            fg="red",
+            err=True,
+        )
         return 1
     if not _signed_in(binary):
         click.secho(f"Not signed in to Greptile. {_SIGNIN_HINT}", fg="yellow", err=True)

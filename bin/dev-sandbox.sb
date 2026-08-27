@@ -192,7 +192,12 @@
     ;; The machine-shared tool store. The unsandboxed flox activation installs the
     ;; greptile CLI here (npm --ignore-scripts, so no package code runs), links it
     ;; into the venv bin, and `hogli review` executes it in the developer's shell —
-    ;; the same execute-later route as cargo bin above.
+    ;; the same execute-later route as cargo bin above. The venv bin symlink itself
+    ;; cannot be denied here: sandboxed `uv sync` creates and populates the venv, so
+    ;; a sandboxed dependency can replace that link. `hogli review` therefore refuses
+    ;; a greptile that resolves outside the write-denied locations (see
+    ;; _TRUSTED_INSTALL_ROOTS in tools/hogli-commands/hogli_commands/review.py);
+    ;; this deny is what makes the store binary it does run trustworthy.
     (subpath (string-append (param "HOME") "/.config/posthog/tools"))
     ;; …and the ancestor nodes, so a rename cannot swap in a symlinked ~/.config or
     ;; ~/.config/posthog and move the store out from under the subpath deny — the
