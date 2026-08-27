@@ -1,8 +1,7 @@
-import { useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconEllipsis } from '@posthog/icons'
-import { LemonButton, LemonMenu, LemonTabs, Tooltip, lemonToast } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu, Tooltip, lemonToast } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
@@ -18,8 +17,6 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { GeneratedWidgetsTable } from 'products/notebooks/frontend/GeneratedWidgets/GeneratedWidgetsTable'
-
 import { NotebooksTable } from './NotebooksTable/NotebooksTable'
 
 export const scene: SceneExport = {
@@ -29,9 +26,6 @@ export const scene: SceneExport = {
 }
 
 export function NotebooksScene(): JSX.Element {
-    const { location, searchParams } = useValues(router)
-    const activeTab = searchParams.tab === 'widgets' ? 'widgets' : 'notebooks'
-
     return (
         <SceneContent>
             <SceneTitleSection
@@ -109,22 +103,7 @@ export function NotebooksScene(): JSX.Element {
                 }
             />
 
-            <LemonTabs
-                activeKey={activeTab}
-                onChange={(tab) => {
-                    const nextSearchParams = { ...searchParams }
-                    if (tab === 'widgets') {
-                        nextSearchParams.tab = 'widgets'
-                    } else {
-                        delete nextSearchParams.tab
-                    }
-                    router.actions.push(location.pathname, nextSearchParams)
-                }}
-                tabs={[
-                    { key: 'notebooks', label: 'Notebooks', content: <NotebooksTable /> },
-                    { key: 'widgets', label: 'Widgets', content: <GeneratedWidgetsTable /> },
-                ]}
-            />
+            <NotebooksTable />
         </SceneContent>
     )
 }

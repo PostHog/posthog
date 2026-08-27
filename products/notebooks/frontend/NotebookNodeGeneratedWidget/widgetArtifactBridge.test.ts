@@ -4,6 +4,7 @@ import { NOTEBOOK_FRAME_KEY_PREFIX, createWidgetHostMessageRouter, readWidgetFra
 
 const frame: WidgetFrameApi = {
     name: 'pandas_df',
+    runId: '00000000-0000-0000-0000-000000000001',
     columns: [{ name: 'lat', type: 'float64' }],
     rows: [[51.5]],
     totalRowCount: 1,
@@ -91,6 +92,44 @@ describe('widgetArtifactBridge', () => {
         await routing
 
         expect(responses[0]).toMatchObject({ id: '1', ok: false, error: 'Widget data request timed out' })
+        jest.useRealTimers()
+    })
+
+    it('releases request capacity when an aborted callback never settles', async () => {
+        jest.useFakeTimers()
+        const responses: Record<string, unknown>[] = []
+        let requestCount = 0
+        const route = createWidgetHostMessageRouter(
+            (message) => responses.push(message),
+            () => ({
+                onDataRequest: () => {
+                    requestCount += 1
+                    return requestCount <= 8 ? new Promise(() => undefined) : Promise.resolve(frame)
+                },
+            })
+        )
+        const stalled = Array.from({ length: 8 }, (_, index) =>
+            route({
+                channel: 'posthog-canvas',
+                type: 'data-request',
+                id: `stalled-${index}`,
+                method: 'stateGet',
+                payload: { key: `${NOTEBOOK_FRAME_KEY_PREFIX}pandas_df:0:100` },
+            })
+        )
+
+        await jest.advanceTimersByTimeAsync(30_000)
+        await Promise.all(stalled)
+        await route({
+            channel: 'posthog-canvas',
+            type: 'data-request',
+            id: 'next',
+            method: 'stateGet',
+            payload: {},
+        })
+
+        expect(responses).toHaveLength(9)
+        expect(responses.at(-1)).toEqual(expect.objectContaining({ id: 'next', ok: true, result: frame }))
         jest.useRealTimers()
     })
 })

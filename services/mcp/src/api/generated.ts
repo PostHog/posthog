@@ -40015,6 +40015,20 @@ export namespace Schemas {
       trace_id: string;
     }
 
+    /**
+     * * `initial` - initial
+     * * `regenerate` - regenerate
+     * * `improve` - improve
+     */
+    export type GenerationOperationEnum = typeof GenerationOperationEnum[keyof typeof GenerationOperationEnum];
+
+
+    export const GenerationOperationEnum = {
+      Initial: 'initial',
+      Regenerate: 'regenerate',
+      Improve: 'improve',
+    } as const;
+
     export interface GitHubAvailableInstallation {
       /** GitHub installation ID to pass to github/link_existing when linking this installation. */
       installation_id: string;
@@ -58333,57 +58347,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: WebExperimentsAPI[];
-    }
-
-    /**
-     * * `private` - private
-     * * `team` - team
-     */
-    export type WidgetCatalogVisibilityEnum = typeof WidgetCatalogVisibilityEnum[keyof typeof WidgetCatalogVisibilityEnum];
-
-
-    export const WidgetCatalogVisibilityEnum = {
-      Private: 'private',
-      Team: 'team',
-    } as const;
-
-    export interface WidgetCatalog {
-      readonly id: string;
-      readonly name: string;
-      /** Concise generated title for the current widget version. */
-      readonly title: string;
-      /** Truncated prompt shown when a generated title is unavailable. */
-      readonly prompt_preview: string;
-      readonly description: string;
-      readonly visibility: WidgetCatalogVisibilityEnum;
-      /**
-         * Most recently updated notebook containing this widget.
-         * @nullable
-         */
-      readonly notebook_short_id: string | null;
-      /**
-         * Widget node in the most recently updated notebook placement.
-         * @nullable
-         */
-      readonly notebook_node_id: string | null;
-      /** @nullable */
-      readonly current_version_id: string | null;
-      /** Immutable versions retained for this widget. */
-      readonly version_count: number;
-      /** Notebook instances linked to this widget. */
-      readonly usage_count: number;
-      readonly created_by: UserBasic | null;
-      readonly created_at: string;
-      readonly updated_at: string;
-    }
-
-    export interface PaginatedWidgetCatalogList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: WidgetCatalog[];
     }
 
     /**
@@ -85200,25 +85163,43 @@ export namespace Schemas {
     }
 
     export interface WidgetFrameColumn {
+      /** Column name. */
       name: string;
+      /** Column type reported by the completed notebook run. */
       type: string;
     }
 
     export interface WidgetFrame {
+      /** Logical dataframe name. */
       name: string;
+      /** Completed notebook run used for every page in this iframe load. */
+      runId: string;
+      /** Dataframe columns in display order. */
       columns: WidgetFrameColumn[];
+      /** Requested page of dataframe rows. */
       rows: unknown[][];
-      /** @minimum 0 */
+      /**
+         * Rows available in the completed run.
+         * @minimum 0
+         */
       totalRowCount: number;
-      /** @minimum 0 */
+      /**
+         * Rows returned in this response.
+         * @minimum 0
+         */
       includedRowCount: number;
-      /** @minimum 0 */
+      /**
+         * Zero-based offset of this page.
+         * @minimum 0
+         */
       offset: number;
       /**
+         * Offset for the next page, if any.
          * @minimum 0
          * @nullable
          */
       nextOffset: number | null;
+      /** Whether more rows exist after this page. */
       truncated: boolean;
     }
 
@@ -85236,20 +85217,6 @@ export namespace Schemas {
       ClaudeSonnet46: 'claude-sonnet-4-6',
       ClaudeSonnet5: 'claude-sonnet-5',
       ClaudeOpus5: 'claude-opus-5',
-    } as const;
-
-    /**
-     * * `initial` - initial
-     * * `regenerate` - regenerate
-     * * `improve` - improve
-     */
-    export type WidgetGenerateRequestOperationEnum = typeof WidgetGenerateRequestOperationEnum[keyof typeof WidgetGenerateRequestOperationEnum];
-
-
-    export const WidgetGenerateRequestOperationEnum = {
-      Initial: 'initial',
-      Regenerate: 'regenerate',
-      Improve: 'improve',
     } as const;
 
     export interface WidgetGenerateRequest {
@@ -85272,7 +85239,7 @@ export namespace Schemas {
        * * `initial` - initial
        * * `regenerate` - regenerate
        * * `improve` - improve */
-      operation?: WidgetGenerateRequestOperationEnum;
+      generation_operation?: GenerationOperationEnum;
     }
 
     /**
@@ -85315,29 +85282,6 @@ export namespace Schemas {
       /** Earlier version to restore as a new version. */
       version_id: string;
       /** Current version used for optimistic concurrency. */
-      expected_current_version_id: string;
-    }
-
-    export interface WidgetSourceResponse {
-      /** Version returned by this response. */
-      version_id: string;
-      /** Current version used for optimistic concurrency. */
-      current_version_id: string;
-      /** Complete editable src/canvas.tsx source. */
-      source: string;
-      /** Instructions materialized from this version's lineage. */
-      effective_prompt: string;
-    }
-
-    export interface WidgetSourceSaveRequest {
-      /** Complete replacement source. */
-      source: string;
-      /**
-         * Description of the change.
-         * @maxLength 20000
-         */
-      prompt: string;
-      /** Version the edit is based on. */
       expected_current_version_id: string;
     }
 
@@ -85388,7 +85332,6 @@ export namespace Schemas {
      * * `initial` - initial
      * * `regenerate` - regenerate
      * * `improve` - improve
-     * * `source_edit` - source_edit
      * * `revert` - revert
      */
     export type WidgetVersionOperationEnum = typeof WidgetVersionOperationEnum[keyof typeof WidgetVersionOperationEnum];
@@ -85398,7 +85341,6 @@ export namespace Schemas {
       Initial: 'initial',
       Regenerate: 'regenerate',
       Improve: 'improve',
-      SourceEdit: 'source_edit',
       Revert: 'revert',
     } as const;
 
@@ -85420,13 +85362,14 @@ export namespace Schemas {
        * * `initial` - initial
        * * `regenerate` - regenerate
        * * `improve` - improve
-       * * `source_edit` - source_edit
        * * `revert` - revert */
       operation: WidgetVersionOperationEnum;
       /** Instructions added by this version. */
       prompt_delta: string;
+      /** Complete instructions represented by this version. */
+      effective_prompt: string;
       /**
-         * AI model, or null for manual changes.
+         * AI model, or null when this version did not run a model.
          * @nullable
          */
       model: string | null;
@@ -95429,21 +95372,6 @@ export namespace Schemas {
     value?: string;
     };
 
-    export type NotebookWidgetsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Filter widgets by name or description.
-     */
-    search?: string;
-    };
-
     export type NotebooksListParams = {
     /**
      * Filter for notebooks that match a provided filter.
@@ -95480,13 +95408,7 @@ export namespace Schemas {
     export type NotebooksWidgetFrameParams = {
     limit?: number;
     offset?: number;
-    version_id?: string;
-    };
-
-    export type NotebooksWidgetSourceParams = {
-    /**
-     * Historical source version to return instead of the current version.
-     */
+    run_id?: string;
     version_id?: string;
     };
 

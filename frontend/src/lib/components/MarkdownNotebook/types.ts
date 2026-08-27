@@ -179,7 +179,6 @@ export type NotebookComponentDefinition = {
      * panel is closed — for a control a reader needs with no editor on screen, like Run. */
     ToolbarComponent?: (props: NotebookComponentToolbarProps) => JSX.Element | null
     exclusiveEditPanel?: boolean
-    fullscreenable?: boolean
     hideModeActions?: boolean
     /** Show the filters toggle in view mode too, when the host opts in via `allowViewModeFilters`
      * (read-only canvases like customer profiles, where filters are the only way to configure a node). */

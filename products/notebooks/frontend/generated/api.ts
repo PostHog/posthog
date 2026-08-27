@@ -21,20 +21,15 @@ import type {
     NotebookSQLV2RunResponseApi,
     NotebookSQLV2RunStatusResponseApi,
     NotebookSQLV2StateResponseApi,
-    NotebookWidgetsListParams,
     NotebooksListParams,
     NotebooksWidgetFrameParams,
-    NotebooksWidgetSourceParams,
     NotebooksWidgetVersionsParams,
     PaginatedNotebookMinimalListApi,
-    PaginatedWidgetCatalogListApi,
     PatchedNotebookApi,
     WidgetCancelRequestApi,
     WidgetFrameApi,
     WidgetGenerateRequestApi,
     WidgetRevertRequestApi,
-    WidgetSourceResponseApi,
-    WidgetSourceSaveRequestApi,
     WidgetStatusApi,
     WidgetVersionPageApi,
 } from './api.schemas'
@@ -55,33 +50,6 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
-
-export const getNotebookWidgetsListUrl = (projectId: string, params?: NotebookWidgetsListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/notebook_widgets/?${stringifiedParams}`
-        : `/api/projects/${projectId}/notebook_widgets/`
-}
-
-export const notebookWidgetsList = async (
-    projectId: string,
-    params?: NotebookWidgetsListParams,
-    options?: RequestInit
-): Promise<PaginatedWidgetCatalogListApi> => {
-    return apiMutator<PaginatedWidgetCatalogListApi>(getNotebookWidgetsListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
 
 export const getNotebooksListUrl = (projectId: string, params?: NotebooksListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -671,65 +639,6 @@ export const notebooksWidgetRevert = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(widgetRevertRequestApi),
-    })
-}
-
-export const getNotebooksWidgetSaveSourceUrl = (projectId: string, shortId: string, nodeId: string) => {
-    return `/api/projects/${projectId}/notebooks/${shortId}/widgets/${nodeId}/save-source/`
-}
-
-/**
- * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
- */
-export const notebooksWidgetSaveSource = async (
-    projectId: string,
-    shortId: string,
-    nodeId: string,
-    widgetSourceSaveRequestApi: WidgetSourceSaveRequestApi,
-    options?: RequestInit
-): Promise<WidgetStatusApi> => {
-    return apiMutator<WidgetStatusApi>(getNotebooksWidgetSaveSourceUrl(projectId, shortId, nodeId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(widgetSourceSaveRequestApi),
-    })
-}
-
-export const getNotebooksWidgetSourceUrl = (
-    projectId: string,
-    shortId: string,
-    nodeId: string,
-    params?: NotebooksWidgetSourceParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/notebooks/${shortId}/widgets/${nodeId}/source/?${stringifiedParams}`
-        : `/api/projects/${projectId}/notebooks/${shortId}/widgets/${nodeId}/source/`
-}
-
-/**
- * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
- */
-export const notebooksWidgetSource = async (
-    projectId: string,
-    shortId: string,
-    nodeId: string,
-    params?: NotebooksWidgetSourceParams,
-    options?: RequestInit
-): Promise<WidgetSourceResponseApi> => {
-    return apiMutator<WidgetSourceResponseApi>(getNotebooksWidgetSourceUrl(projectId, shortId, nodeId, params), {
-        ...options,
-        method: 'GET',
     })
 }
 

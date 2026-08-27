@@ -9,8 +9,15 @@ import { createWidgetHostMessageRouter, readWidgetFrame } from './widgetArtifact
 
 export type WidgetArtifactFrameProps = {
     artifactUrl: string
+    title?: string
     allowedFrames: string[]
-    onReadFrame: (name: string, offset: number, limit: number, signal: AbortSignal) => Promise<WidgetFrameApi>
+    onReadFrame: (
+        name: string,
+        offset: number,
+        limit: number,
+        runId: string | undefined,
+        signal: AbortSignal
+    ) => Promise<WidgetFrameApi>
     onArtifactUnavailable?: () => void
     onError?: () => void
     onRendered?: () => void
@@ -18,6 +25,7 @@ export type WidgetArtifactFrameProps = {
 
 export function WidgetArtifactFrame({
     artifactUrl,
+    title,
     allowedFrames,
     onReadFrame,
     onArtifactUnavailable,
@@ -52,11 +60,27 @@ export function WidgetArtifactFrame({
             window.clearTimeout(renderTimeoutRef.current)
         }
         artifactPortRef.current = port
+        const runIds = new Map<string, string>()
         const route = createWidgetHostMessageRouter(
             (message) => port.postMessage(message),
             () => ({
-                onDataRequest: (_method, payload, signal) =>
-                    readWidgetFrame(latest.current.allowedFrames, latest.current.onReadFrame, payload, signal),
+                onDataRequest: async (_method, payload, signal) =>
+                    await readWidgetFrame(
+                        latest.current.allowedFrames,
+                        async (name, offset, limit, requestSignal) => {
+                            const frame = await latest.current.onReadFrame(
+                                name,
+                                offset,
+                                limit,
+                                runIds.get(name),
+                                requestSignal
+                            )
+                            runIds.set(name, frame.runId)
+                            return frame
+                        },
+                        payload,
+                        signal
+                    ),
                 onError: () => latest.current.onError?.(),
                 onRendered: () => {
                     if (renderTimeoutRef.current !== null) {
@@ -113,7 +137,7 @@ export function WidgetArtifactFrame({
     return (
         <iframe
             ref={iframeRef}
-            title="Widget"
+            title={title || 'Widget'}
             sandbox="allow-scripts"
             referrerPolicy="no-referrer"
             className={`w-full h-full border-0 bg-primary ${

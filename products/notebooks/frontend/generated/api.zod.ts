@@ -742,7 +742,7 @@ export const NotebooksWidgetCancelBody = /* @__PURE__ */ zod.object({
 export const notebooksWidgetGenerateBodyPromptMax = 20000
 
 export const notebooksWidgetGenerateBodyModelDefault = `claude-sonnet-4-6`
-export const notebooksWidgetGenerateBodyOperationDefault = `regenerate`
+export const notebooksWidgetGenerateBodyGenerationOperationDefault = `regenerate`
 
 export const NotebooksWidgetGenerateBody = /* @__PURE__ */ zod.object({
     prompt: zod.string().max(notebooksWidgetGenerateBodyPromptMax).describe('Instructions for the generated widget.'),
@@ -756,10 +756,10 @@ export const NotebooksWidgetGenerateBody = /* @__PURE__ */ zod.object({
         .describe(
             'AI model used to generate the widget.\n\n\* `claude-haiku-4-5` - claude-haiku-4-5\n\* `claude-sonnet-4-6` - claude-sonnet-4-6\n\* `claude-sonnet-5` - claude-sonnet-5\n\* `claude-opus-5` - claude-opus-5'
         ),
-    operation: zod
+    generation_operation: zod
         .enum(['initial', 'regenerate', 'improve'])
         .describe('\* `initial` - initial\n\* `regenerate` - regenerate\n\* `improve` - improve')
-        .default(notebooksWidgetGenerateBodyOperationDefault)
+        .default(notebooksWidgetGenerateBodyGenerationOperationDefault)
         .describe(
             'Whether to generate from scratch or improve the current source.\n\n\* `initial` - initial\n\* `regenerate` - regenerate\n\* `improve` - improve'
         ),
@@ -771,15 +771,4 @@ export const NotebooksWidgetGenerateBody = /* @__PURE__ */ zod.object({
 export const NotebooksWidgetRevertBody = /* @__PURE__ */ zod.object({
     version_id: zod.uuid().describe('Earlier version to restore as a new version.'),
     expected_current_version_id: zod.uuid().describe('Current version used for optimistic concurrency.'),
-})
-
-/**
- * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
- */
-export const notebooksWidgetSaveSourceBodyPromptMax = 20000
-
-export const NotebooksWidgetSaveSourceBody = /* @__PURE__ */ zod.object({
-    source: zod.string().describe('Complete replacement source.'),
-    prompt: zod.string().max(notebooksWidgetSaveSourceBodyPromptMax).describe('Description of the change.'),
-    expected_current_version_id: zod.uuid().describe('Version the edit is based on.'),
 })

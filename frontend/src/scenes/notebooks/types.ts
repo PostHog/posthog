@@ -143,7 +143,6 @@ export type NodeWrapperProps<T extends CustomNotebookNodeAttributes> = Omit<Note
         // View only props
         href?: string | ((attributes: NotebookNodeAttributes<T>) => string | undefined)
         expandable?: boolean
-        fullscreenable?: boolean
         selected?: boolean
         heightEstimate?: number | string
         minHeight?: number | string

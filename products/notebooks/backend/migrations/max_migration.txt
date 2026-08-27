@@ -1,1 +1,1 @@
-0018_hide_notebook_widget_canvases
+0015_generated_widgets

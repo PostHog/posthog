@@ -57,7 +57,7 @@ class BuildServiceBaseTest(APIBaseTest):
             self.canvas = Canvas.objects.create(team=self.team, channel=self.channel, name="C")
 
     def _publish(self) -> CanvasBuild:
-        result = build_service.publish_source_project(
+        _, _, build, _ = build_service.publish_source_project(
             self.canvas,
             project=synthetic_source_project("export default function C() { return null }"),
             prompt=None,
@@ -68,7 +68,7 @@ class BuildServiceBaseTest(APIBaseTest):
             created_by=None,
         )
         self.canvas.refresh_from_db()
-        return result.build
+        return build
 
 
 class TestRunCanvasBuild(BuildServiceBaseTest):
@@ -408,7 +408,7 @@ class TestLegacySourcePreservation(BuildServiceBaseTest):
         Canvas.objects.unscoped().filter(id=self.canvas.id).update(legacy_code=legacy)
         self.canvas.refresh_from_db()
 
-        result = build_service.publish_source_project(
+        canvas, version, _build, first_publish = build_service.publish_source_project(
             self.canvas,
             project=synthetic_source_project("export default function Rewrite() { return null }"),
             prompt="rewrite",
@@ -419,13 +419,13 @@ class TestLegacySourcePreservation(BuildServiceBaseTest):
             created_by=None,
         )
 
-        head = CanvasSourceVersion.objects.unscoped().get(pk=result.version.id)
+        head = CanvasSourceVersion.objects.unscoped().get(pk=version.id)
         assert head.parent_version_id is not None
         legacy_version = CanvasSourceVersion.objects.unscoped().get(pk=head.parent_version_id)
         assert build_service.read_source_project(legacy_version) == synthetic_source_project(legacy)
-        assert result.canvas.current_source_version_id == head.id
-        assert result.canvas.legacy_code is None
-        assert not result.first_publish
+        assert canvas.current_source_version_id == head.id
+        assert canvas.legacy_code is None
+        assert not first_publish
 
     def test_publish_on_fresh_canvas_creates_single_root_version(self):
         self._publish()

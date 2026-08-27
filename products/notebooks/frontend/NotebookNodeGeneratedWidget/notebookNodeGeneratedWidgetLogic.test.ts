@@ -2,21 +2,15 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
-import api from 'lib/api'
 import { ApiError } from 'lib/api-error'
-import type { JSONContent } from 'lib/components/RichContentEditor/types'
-import { notebookNodeSQLV2Logic } from 'scenes/notebooks/Nodes/notebookNodeSQLV2Logic'
-import { NotebookNodeType } from 'scenes/notebooks/types'
 
 import { initKeaTests } from '~/test/init'
 
 import {
     notebooksWidgetCancel,
     notebooksWidgetGenerate,
-    notebooksWidgetSource,
     notebooksWidgetStatus,
     notebooksWidgetVersions,
-    notebooksSqlV2StateRetrieve,
 } from 'products/notebooks/frontend/generated/api'
 import type {
     WidgetStatusApi,
@@ -31,11 +25,8 @@ jest.mock('products/notebooks/frontend/generated/api', () => ({
     notebooksWidgetFrame: jest.fn(),
     notebooksWidgetGenerate: jest.fn(),
     notebooksWidgetRevert: jest.fn(),
-    notebooksWidgetSaveSource: jest.fn(),
-    notebooksWidgetSource: jest.fn(),
     notebooksWidgetStatus: jest.fn(),
     notebooksWidgetVersions: jest.fn(),
-    notebooksSqlV2StateRetrieve: jest.fn(),
 }))
 
 function status(overrides: Partial<WidgetStatusApi> = {}): WidgetStatusApi {
@@ -57,6 +48,7 @@ const emptyVersions: WidgetVersionPageApi = { results: [], count: 0, next_offset
 
 describe('notebookNodeGeneratedWidgetLogic', () => {
     const props = {
+        projectId: MOCK_TEAM_ID,
         notebookShortId: 'notebook-1',
         nodeId: 'globe',
         prompt: 'Render a globe',
@@ -65,23 +57,18 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         persistNotebook: jest.fn(async () => undefined),
     }
     let logic: ReturnType<typeof notebookNodeGeneratedWidgetLogic.build>
-    let cellLogics: ReturnType<typeof notebookNodeSQLV2Logic.build>[]
 
     beforeEach(() => {
         initKeaTests()
         jest.mocked(notebooksWidgetCancel).mockReset()
         jest.mocked(notebooksWidgetGenerate).mockReset()
-        jest.mocked(notebooksWidgetSource).mockReset()
         jest.mocked(notebooksWidgetStatus).mockReset()
         jest.mocked(notebooksWidgetVersions).mockReset().mockResolvedValue(emptyVersions)
-        jest.mocked(notebooksSqlV2StateRetrieve).mockReset()
         props.persistNotebook.mockClear()
-        cellLogics = []
     })
 
     afterEach(() => {
         logic?.unmount()
-        cellLogics.forEach((cellLogic) => cellLogic.unmount())
         jest.restoreAllMocks()
         jest.useRealTimers()
     })
@@ -103,6 +90,7 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
             version: 1,
             operation: 'initial',
             prompt_delta: 'Render a globe',
+            effective_prompt: 'Render a globe',
             model: 'claude-sonnet-4-6',
             created_at: '2026-08-26T12:00:00Z',
             build_status: 'ready',
@@ -143,6 +131,7 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
             version: 1,
             operation: 'initial',
             prompt_delta: 'Render a globe',
+            effective_prompt: 'Render a globe',
             model: 'claude-sonnet-4-6',
             created_at: '2026-08-26T12:00:00Z',
             build_status: 'ready',
@@ -204,6 +193,55 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         expect(logic.values.frameRevision).toBe(1)
     })
 
+    it('keeps the last ready version selected while a replacement builds', async () => {
+        const previousVersion: WidgetVersionApi = {
+            id: '00000000-0000-0000-0000-000000000002',
+            parent_version_id: null,
+            version: 1,
+            operation: 'initial',
+            prompt_delta: 'Render a globe',
+            effective_prompt: 'Render a globe',
+            model: 'claude-sonnet-4-6',
+            created_at: '2026-08-26T12:00:00Z',
+            build_status: 'ready',
+            artifact_url: 'https://example.com/widget-v1.html',
+            frame_names: [],
+            is_current: true,
+        }
+        const nextVersionId = '00000000-0000-0000-0000-000000000003'
+        jest.mocked(notebooksWidgetStatus).mockResolvedValue(
+            status({
+                lifecycle_status: 'ready',
+                artifact_url: previousVersion.artifact_url,
+                current_version_id: previousVersion.id,
+                has_versions: true,
+            })
+        )
+        jest.mocked(notebooksWidgetVersions).mockResolvedValue({
+            results: [previousVersion],
+            count: 1,
+            next_offset: null,
+        })
+        logic = notebookNodeGeneratedWidgetLogic(props)
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.statusReceived(
+            status({ lifecycle_status: 'building', current_version_id: nextVersionId, has_versions: true })
+        )
+        expect(logic.values.selectedVersionId).toBe(previousVersion.id)
+
+        logic.actions.statusReceived(
+            status({
+                lifecycle_status: 'ready',
+                artifact_url: 'https://example.com/widget-v2.html',
+                current_version_id: nextVersionId,
+                has_versions: true,
+            })
+        )
+        expect(logic.values.selectedVersionId).toBe(nextVersionId)
+    })
+
     it('keeps status errors separate from paid generation', async () => {
         jest.mocked(notebooksWidgetStatus).mockRejectedValue(new Error('offline'))
         logic = notebookNodeGeneratedWidgetLogic(props)
@@ -245,7 +283,7 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
                 prompt: 'Render a globe',
                 generation_id: expect.any(String),
                 model: 'claude-sonnet-4-6',
-                operation: 'initial',
+                generation_operation: 'initial',
             })
         )
         expect(logic.values.status?.active_job?.status).toBe('queued')
@@ -287,32 +325,6 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
             jest.mocked(notebooksWidgetGenerate).mock.calls[0][3].generation_id
         )
         expect(logic.values.status?.active_job?.status).toBe('queued')
-    })
-
-    it('uses the notebook tag prompt when migrated source is unavailable', async () => {
-        const versionId = '00000000-0000-0000-0000-000000000002'
-        jest.mocked(notebooksWidgetStatus).mockResolvedValue(
-            status({
-                lifecycle_status: 'ready',
-                current_version_id: versionId,
-                has_versions: true,
-            })
-        )
-        jest.mocked(notebooksWidgetSource).mockRejectedValue(
-            new ApiError('Unavailable', 404, undefined, {
-                code: 'source_unavailable',
-                detail: 'The widget source is unavailable. Try again.',
-            })
-        )
-        logic = notebookNodeGeneratedWidgetLogic(props)
-        logic.mount()
-        await expectLogic(logic).toFinishAllListeners()
-
-        logic.actions.openGenerationModal('regenerate')
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(logic.values.generationDraftPrompt).toBe(props.prompt)
-        expect(logic.values.generationError).toBeNull()
     })
 
     it('cancels the shared durable job from its status identifier', async () => {
@@ -363,114 +375,6 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(notebooksWidgetCancel).not.toHaveBeenCalled()
-    })
-
-    it('runs stale prerequisites and the current frame producer before reloading the widget', async () => {
-        const versionId = '00000000-0000-0000-0000-000000000002'
-        const content: JSONContent = {
-            type: 'doc',
-            content: [
-                {
-                    type: NotebookNodeType.SQLV2,
-                    attrs: { nodeId: 'source', returnVariable: 'source_df', code: 'select 1' },
-                },
-                {
-                    type: NotebookNodeType.PythonV2,
-                    attrs: {
-                        nodeId: 'transform',
-                        returnVariable: 'transformed_df',
-                        code: 'transformed_df = source_df.head()',
-                    },
-                },
-                {
-                    type: NotebookNodeType.PythonV2,
-                    attrs: {
-                        nodeId: 'event-types',
-                        returnVariable: 'event_types_df',
-                        code: 'event_types_df = transformed_df.head()',
-                    },
-                },
-            ],
-        }
-        jest.mocked(notebooksWidgetStatus).mockResolvedValue(
-            status({
-                lifecycle_status: 'ready',
-                artifact_url: 'https://example.com/widget.html',
-                frame_names: ['event_types_df'],
-                current_version_id: versionId,
-                has_versions: true,
-            })
-        )
-        jest.mocked(notebooksSqlV2StateRetrieve).mockResolvedValue({
-            notebook_id: 'notebook-1',
-            title: 'Widget notebook',
-            version: 1,
-            markdown: '',
-            kernel: { status: 'stopped' },
-            cells: [
-                {
-                    node_id: 'source',
-                    cell_type: 'sql',
-                    dataframe_name: 'source_df',
-                    code: 'select 1',
-                    status: 'stale',
-                    depends_on: [],
-                    dependents: ['transform'],
-                },
-                {
-                    node_id: 'transform',
-                    cell_type: 'python',
-                    dataframe_name: 'transformed_df',
-                    code: 'transformed_df = source_df.head()',
-                    status: 'done',
-                    depends_on: ['source'],
-                    dependents: ['event-types'],
-                },
-                {
-                    node_id: 'event-types',
-                    cell_type: 'python',
-                    dataframe_name: 'event_types_df',
-                    code: 'event_types_df = transformed_df.head()',
-                    status: 'done',
-                    depends_on: ['transform'],
-                    dependents: [],
-                },
-            ],
-        })
-        for (const nodeId of ['source', 'transform', 'event-types']) {
-            const cellLogic = notebookNodeSQLV2Logic({
-                nodeId,
-                notebookShortId: 'notebook-1',
-                updateAttributes: jest.fn(),
-                getContent: () => content,
-            })
-            cellLogic.mount()
-            cellLogics.push(cellLogic)
-        }
-        const runSpy = jest.spyOn(api.notebooks, 'sqlV2Run').mockImplementation(async (_shortId, request) => ({
-            run_id: `run-${request.node_id}`,
-        }))
-        jest.spyOn(api.notebooks, 'sqlV2RunResult').mockResolvedValue({
-            status: 'done',
-            result: { columns: [], first_page: [], row_count: 0 },
-            error: null,
-        })
-        logic = notebookNodeGeneratedWidgetLogic(props)
-        logic.mount()
-        await expectLogic(logic).toFinishAllListeners()
-
-        logic.actions.runWidget()
-        await expectLogic(logic).toFinishAllListeners()
-        await expectLogic(cellLogics[0]).toFinishAllListeners()
-        await expectLogic(cellLogics[1]).toFinishAllListeners()
-        await expectLogic(cellLogics[2]).toFinishAllListeners()
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(props.persistNotebook).toHaveBeenCalledTimes(1)
-        expect(notebooksSqlV2StateRetrieve).toHaveBeenCalledWith(String(MOCK_TEAM_ID), 'notebook-1')
-        expect(runSpy.mock.calls.map((call) => call[1].node_id)).toEqual(['source', 'transform', 'event-types'])
-        expect(logic.values.dataRunInFlight).toBe(false)
-        expect(logic.values.frameRevision).toBe(1)
     })
 
     it('formats elapsed generation time', () => {

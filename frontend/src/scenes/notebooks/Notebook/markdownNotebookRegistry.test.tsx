@@ -89,9 +89,6 @@ describe('markdownNotebookRegistry', () => {
             expect(getInsertCommandsByLabel({ [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]: true }, 'Widget')).toEqual([
                 { key: 'component-GeneratedWidget', category: 'Common' },
             ])
-            expect(NOTEBOOK_MARKDOWN_REGISTRY.components.GeneratedWidget.fullscreenable).toBe(true)
-            expect(NOTEBOOK_MARKDOWN_REGISTRY.components.GenUI.fullscreenable).toBe(true)
-            expect(NOTEBOOK_MARKDOWN_REGISTRY.components.GenUI.insertCommand).toBeUndefined()
         })
 
         // The panel visibility resolver is the notebook shell's public behavior. Testing through it

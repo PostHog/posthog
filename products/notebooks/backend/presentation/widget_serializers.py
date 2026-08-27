@@ -1,10 +1,6 @@
-from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
-from posthog.api.shared import UserBasicSerializer
-
-from products.notebooks.backend.facade.widgets import DEFAULT_WIDGET_MODEL, WIDGET_MODEL_CHOICES, GeneratedWidget
+from products.notebooks.backend.facade.widgets import DEFAULT_WIDGET_MODEL, WIDGET_MODEL_CHOICES
 
 
 class WidgetGenerateRequestSerializer(serializers.Serializer):
@@ -19,7 +15,7 @@ class WidgetGenerateRequestSerializer(serializers.Serializer):
         default=DEFAULT_WIDGET_MODEL,
         help_text="AI model used to generate the widget.",
     )
-    operation = serializers.ChoiceField(
+    generation_operation = serializers.ChoiceField(
         choices=["initial", "regenerate", "improve"],
         default="regenerate",
         help_text="Whether to generate from scratch or improve the current source.",
@@ -69,11 +65,12 @@ class WidgetVersionSerializer(serializers.Serializer):
     parent_version_id = serializers.UUIDField(allow_null=True, help_text="Version this one was based on.")
     version = serializers.IntegerField(min_value=1, help_text="One-based version number.")
     operation = serializers.ChoiceField(
-        choices=["initial", "regenerate", "improve", "source_edit", "revert"],
+        choices=["initial", "regenerate", "improve", "revert"],
         help_text="Action that created this version.",
     )
     prompt_delta = serializers.CharField(help_text="Instructions added by this version.")
-    model = serializers.CharField(allow_null=True, help_text="AI model, or null for manual changes.")
+    effective_prompt = serializers.CharField(help_text="Complete instructions represented by this version.")
+    model = serializers.CharField(allow_null=True, help_text="AI model, or null when this version did not run a model.")
     created_at = serializers.DateTimeField(help_text="When this version was created.")
     build_status = serializers.ChoiceField(
         choices=["queued", "building", "ready", "failed"],
@@ -94,25 +91,8 @@ class WidgetVersionPageSerializer(serializers.Serializer):
 
 
 class WidgetVersionQuerySerializer(serializers.Serializer):
-    offset = serializers.IntegerField(default=0, min_value=0)
-    limit = serializers.IntegerField(default=25, min_value=1, max_value=100)
-
-
-class WidgetSourceResponseSerializer(serializers.Serializer):
-    version_id = serializers.UUIDField(help_text="Version returned by this response.")
-    current_version_id = serializers.UUIDField(help_text="Current version used for optimistic concurrency.")
-    source = serializers.CharField(help_text="Complete editable src/canvas.tsx source.")  # type: ignore[assignment]
-    effective_prompt = serializers.CharField(help_text="Instructions materialized from this version's lineage.")
-
-
-class WidgetSourceQuerySerializer(serializers.Serializer):
-    version_id = serializers.UUIDField(required=False, help_text="Historical version to return.")
-
-
-class WidgetSourceSaveRequestSerializer(serializers.Serializer):
-    source = serializers.CharField(trim_whitespace=False, help_text="Complete replacement source.")  # type: ignore[assignment]
-    prompt = serializers.CharField(max_length=20_000, trim_whitespace=False, help_text="Description of the change.")
-    expected_current_version_id = serializers.UUIDField(help_text="Version the edit is based on.")
+    offset = serializers.IntegerField(default=0, min_value=0, help_text="Zero-based version offset.")
+    limit = serializers.IntegerField(default=25, min_value=1, max_value=100, help_text="Maximum versions to return.")
 
 
 class WidgetRevertRequestSerializer(serializers.Serializer):
@@ -122,83 +102,30 @@ class WidgetRevertRequestSerializer(serializers.Serializer):
 
 class WidgetFrameQuerySerializer(serializers.Serializer):
     version_id = serializers.UUIDField(required=False, help_text="Version requesting the data.")
+    run_id = serializers.UUIDField(required=False, help_text="Completed run selected by the first page request.")
     offset = serializers.IntegerField(default=0, min_value=0, help_text="Zero-based row offset.")
     limit = serializers.IntegerField(default=100, min_value=1, max_value=500, help_text="Maximum rows in this page.")
 
 
 class WidgetFrameColumnSerializer(serializers.Serializer):
-    name = serializers.CharField()
-    type = serializers.CharField()
+    name = serializers.CharField(help_text="Column name.")
+    type = serializers.CharField(help_text="Column type reported by the completed notebook run.")
 
 
 class WidgetFrameSerializer(serializers.Serializer):
-    name = serializers.CharField()
-    columns = WidgetFrameColumnSerializer(many=True)
-    rows = serializers.ListField(child=serializers.ListField(child=serializers.JSONField()))
-    totalRowCount = serializers.IntegerField(min_value=0)
-    includedRowCount = serializers.IntegerField(min_value=0)
-    offset = serializers.IntegerField(min_value=0)
-    nextOffset = serializers.IntegerField(min_value=0, allow_null=True)
-    truncated = serializers.BooleanField()
+    name = serializers.CharField(help_text="Logical dataframe name.")
+    runId = serializers.UUIDField(help_text="Completed notebook run used for every page in this iframe load.")
+    columns = WidgetFrameColumnSerializer(many=True, help_text="Dataframe columns in display order.")
+    rows = serializers.ListField(
+        child=serializers.ListField(child=serializers.JSONField()), help_text="Requested page of dataframe rows."
+    )
+    totalRowCount = serializers.IntegerField(min_value=0, help_text="Rows available in the completed run.")
+    includedRowCount = serializers.IntegerField(min_value=0, help_text="Rows returned in this response.")
+    offset = serializers.IntegerField(min_value=0, help_text="Zero-based offset of this page.")
+    nextOffset = serializers.IntegerField(min_value=0, allow_null=True, help_text="Offset for the next page, if any.")
+    truncated = serializers.BooleanField(help_text="Whether more rows exist after this page.")
 
 
 class WidgetErrorSerializer(serializers.Serializer):
     code = serializers.CharField(help_text="Stable machine-readable error code.")
     detail = serializers.CharField(help_text="Actionable error detail.")
-
-
-class WidgetCatalogSerializer(serializers.ModelSerializer):
-    created_by = UserBasicSerializer(read_only=True, allow_null=True)
-    current_version_id = serializers.UUIDField(allow_null=True, read_only=True)
-    title = serializers.SerializerMethodField(help_text="Concise generated title for the current widget version.")
-    prompt_preview = serializers.SerializerMethodField(
-        help_text="Truncated prompt shown when a generated title is unavailable."
-    )
-    notebook_short_id = serializers.CharField(
-        allow_null=True, read_only=True, help_text="Most recently updated notebook containing this widget."
-    )
-    notebook_node_id = serializers.CharField(
-        allow_null=True, read_only=True, help_text="Widget node in the most recently updated notebook placement."
-    )
-    usage_count = serializers.SerializerMethodField(help_text="Notebook instances linked to this widget.")
-    version_count = serializers.SerializerMethodField(help_text="Immutable versions retained for this widget.")
-
-    class Meta:
-        model = GeneratedWidget
-        fields = [
-            "id",
-            "name",
-            "title",
-            "prompt_preview",
-            "description",
-            "visibility",
-            "notebook_short_id",
-            "notebook_node_id",
-            "current_version_id",
-            "version_count",
-            "usage_count",
-            "created_by",
-            "created_at",
-            "updated_at",
-        ]
-        read_only_fields = fields
-
-    @extend_schema_field(OpenApiTypes.STR)
-    def get_title(self, obj: GeneratedWidget) -> str:
-        return obj.current_version.title if obj.current_version is not None else ""
-
-    @extend_schema_field(OpenApiTypes.STR)
-    def get_prompt_preview(self, obj: GeneratedWidget) -> str:
-        prompt = obj.current_version.prompt_delta if obj.current_version is not None else obj.name
-        normalized = " ".join(prompt.split())
-        return normalized if len(normalized) <= 180 else f"{normalized[:179].rstrip()}…"
-
-    @extend_schema_field(OpenApiTypes.INT)
-    def get_usage_count(self, obj: GeneratedWidget) -> int:
-        annotated = getattr(obj, "usage_count", None)
-        return int(annotated) if annotated is not None else obj.notebook_instances.count()
-
-    @extend_schema_field(OpenApiTypes.INT)
-    def get_version_count(self, obj: GeneratedWidget) -> int:
-        annotated = getattr(obj, "version_count", None)
-        return int(annotated) if annotated is not None else obj.versions.count()

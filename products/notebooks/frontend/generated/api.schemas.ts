@@ -8,18 +8,6 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
- * * `private` - private
- * * `team` - team
- */
-export type WidgetCatalogVisibilityEnumApi =
-    (typeof WidgetCatalogVisibilityEnumApi)[keyof typeof WidgetCatalogVisibilityEnumApi]
-
-export const WidgetCatalogVisibilityEnumApi = {
-    Private: 'private',
-    Team: 'team',
-} as const
-
-/**
  * * `engineering` - Engineering
  * * `data` - Data
  * * `product` - Product Management
@@ -74,45 +62,6 @@ export interface UserBasicApi {
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
-}
-
-export interface WidgetCatalogApi {
-    readonly id: string
-    readonly name: string
-    /** Concise generated title for the current widget version. */
-    readonly title: string
-    /** Truncated prompt shown when a generated title is unavailable. */
-    readonly prompt_preview: string
-    readonly description: string
-    readonly visibility: WidgetCatalogVisibilityEnumApi
-    /**
-     * Most recently updated notebook containing this widget.
-     * @nullable
-     */
-    readonly notebook_short_id: string | null
-    /**
-     * Widget node in the most recently updated notebook placement.
-     * @nullable
-     */
-    readonly notebook_node_id: string | null
-    /** @nullable */
-    readonly current_version_id: string | null
-    /** Immutable versions retained for this widget. */
-    readonly version_count: number
-    /** Notebook instances linked to this widget. */
-    readonly usage_count: number
-    readonly created_by: UserBasicApi | null
-    readonly created_at: string
-    readonly updated_at: string
-}
-
-export interface PaginatedWidgetCatalogListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: WidgetCatalogApi[]
 }
 
 export interface NotebookMinimalApi {
@@ -683,25 +632,43 @@ export interface WidgetErrorApi {
 }
 
 export interface WidgetFrameColumnApi {
+    /** Column name. */
     name: string
+    /** Column type reported by the completed notebook run. */
     type: string
 }
 
 export interface WidgetFrameApi {
+    /** Logical dataframe name. */
     name: string
+    /** Completed notebook run used for every page in this iframe load. */
+    runId: string
+    /** Dataframe columns in display order. */
     columns: WidgetFrameColumnApi[]
+    /** Requested page of dataframe rows. */
     rows: unknown[][]
-    /** @minimum 0 */
+    /**
+     * Rows available in the completed run.
+     * @minimum 0
+     */
     totalRowCount: number
-    /** @minimum 0 */
+    /**
+     * Rows returned in this response.
+     * @minimum 0
+     */
     includedRowCount: number
-    /** @minimum 0 */
+    /**
+     * Zero-based offset of this page.
+     * @minimum 0
+     */
     offset: number
     /**
+     * Offset for the next page, if any.
      * @minimum 0
      * @nullable
      */
     nextOffset: number | null
+    /** Whether more rows exist after this page. */
     truncated: boolean
 }
 
@@ -726,10 +693,9 @@ export const WidgetGenerateRequestModelEnumApi = {
  * * `regenerate` - regenerate
  * * `improve` - improve
  */
-export type WidgetGenerateRequestOperationEnumApi =
-    (typeof WidgetGenerateRequestOperationEnumApi)[keyof typeof WidgetGenerateRequestOperationEnumApi]
+export type GenerationOperationEnumApi = (typeof GenerationOperationEnumApi)[keyof typeof GenerationOperationEnumApi]
 
-export const WidgetGenerateRequestOperationEnumApi = {
+export const GenerationOperationEnumApi = {
     Initial: 'initial',
     Regenerate: 'regenerate',
     Improve: 'improve',
@@ -755,7 +721,7 @@ export interface WidgetGenerateRequestApi {
      * * `initial` - initial
      * * `regenerate` - regenerate
      * * `improve` - improve */
-    operation?: WidgetGenerateRequestOperationEnumApi
+    generation_operation?: GenerationOperationEnumApi
 }
 
 /**
@@ -862,34 +828,10 @@ export interface WidgetRevertRequestApi {
     expected_current_version_id: string
 }
 
-export interface WidgetSourceSaveRequestApi {
-    /** Complete replacement source. */
-    source: string
-    /**
-     * Description of the change.
-     * @maxLength 20000
-     */
-    prompt: string
-    /** Version the edit is based on. */
-    expected_current_version_id: string
-}
-
-export interface WidgetSourceResponseApi {
-    /** Version returned by this response. */
-    version_id: string
-    /** Current version used for optimistic concurrency. */
-    current_version_id: string
-    /** Complete editable src/canvas.tsx source. */
-    source: string
-    /** Instructions materialized from this version's lineage. */
-    effective_prompt: string
-}
-
 /**
  * * `initial` - initial
  * * `regenerate` - regenerate
  * * `improve` - improve
- * * `source_edit` - source_edit
  * * `revert` - revert
  */
 export type WidgetVersionOperationEnumApi =
@@ -899,7 +841,6 @@ export const WidgetVersionOperationEnumApi = {
     Initial: 'initial',
     Regenerate: 'regenerate',
     Improve: 'improve',
-    SourceEdit: 'source_edit',
     Revert: 'revert',
 } as const
 
@@ -936,13 +877,14 @@ export interface WidgetVersionApi {
      * * `initial` - initial
      * * `regenerate` - regenerate
      * * `improve` - improve
-     * * `source_edit` - source_edit
      * * `revert` - revert */
     operation: WidgetVersionOperationEnumApi
     /** Instructions added by this version. */
     prompt_delta: string
+    /** Complete instructions represented by this version. */
+    effective_prompt: string
     /**
-     * AI model, or null for manual changes.
+     * AI model, or null when this version did not run a model.
      * @nullable
      */
     model: string | null
@@ -981,21 +923,6 @@ export interface WidgetVersionPageApi {
     next_offset: number | null
 }
 
-export type NotebookWidgetsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    /**
-     * Filter widgets by name or description.
-     */
-    search?: string
-}
-
 export type NotebooksListParams = {
     /**
      * Filter for notebooks that match a provided filter.
@@ -1032,13 +959,7 @@ export type NotebooksListParams = {
 export type NotebooksWidgetFrameParams = {
     limit?: number
     offset?: number
-    version_id?: string
-}
-
-export type NotebooksWidgetSourceParams = {
-    /**
-     * Historical source version to return instead of the current version.
-     */
+    run_id?: string
     version_id?: string
 }
 

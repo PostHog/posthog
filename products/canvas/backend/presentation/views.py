@@ -726,7 +726,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         user = self._request_user()
         task_id = self._sandbox_task_id(request)
         try:
-            result = build_service.publish_source_project(
+            canvas, version, _build, first_publish = build_service.publish_source_project(
                 canvas,
                 project=project,
                 prompt=prompt,
@@ -747,9 +747,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
-        canvas = result.canvas
-        version = result.version
-        if result.first_publish:
+        if first_publish:
             self._announce_canvas_created(task_id, user, canvas)
 
         posthog_capabilities = (version.capabilities or {}).get("posthog") or {}
@@ -757,7 +755,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "canvas published",
             canvas,
             version_id=str(version.id),
-            first_publish=result.first_publish,
+            first_publish=first_publish,
             file_count=len(project.get("files") or {}),
             source_size_bytes=version.source_size,
             insight_capability_count=len(posthog_capabilities.get("insights") or []),

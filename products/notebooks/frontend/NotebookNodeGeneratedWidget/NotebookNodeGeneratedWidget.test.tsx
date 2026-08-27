@@ -23,11 +23,8 @@ jest.mock('products/notebooks/frontend/generated/api', () => ({
     notebooksWidgetFrame: jest.fn(),
     notebooksWidgetGenerate: jest.fn(),
     notebooksWidgetRevert: jest.fn(),
-    notebooksWidgetSaveSource: jest.fn(),
-    notebooksWidgetSource: jest.fn(),
     notebooksWidgetStatus: jest.fn(),
     notebooksWidgetVersions: jest.fn(),
-    notebooksSqlV2StateRetrieve: jest.fn(),
 }))
 
 const SHORT_ID = 'generated-widget-progress'

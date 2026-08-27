@@ -127,8 +127,8 @@ export function createWidgetHostMessageRouter(
             if (timeoutId !== undefined) {
                 clearTimeout(timeoutId)
             }
-            await request.catch(() => undefined)
             activeRequests -= 1
+            void request.catch(() => undefined)
         }
     }
 }

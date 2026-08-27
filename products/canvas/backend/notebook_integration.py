@@ -1,5 +1,4 @@
 import re
-from datetime import datetime
 from typing import Any
 from uuid import UUID
 
@@ -16,11 +15,23 @@ NOTEBOOK_FRAME_KEY_PREFIX = "__posthog_notebook_frame__:"
 
 _READ_FRAME_RE = re.compile(r"\bph\s*\.\s*readFrame\s*\(\s*(?:[\"']([^\"']+)[\"'])?")
 _NETWORK_DIAGNOSTICS = {"network_fetch", "network_xhr"}
-_BROWSER_GLOBAL_RE = re.compile(
-    r"\b(?:window|document|globalThis|location|navigation|history|parent|top|self|frames|ownerDocument|defaultView|open)\b|<\s*a\b",
+_NAVIGATION_RE = re.compile(
+    r"(?:\b(?:window\s*\.\s*)?location(?:\s*\.\s*(?:href|assign|replace))?\s*(?:=|\()"
+    r"|\b(?:window|globalThis)\s*\.\s*open\s*\(|\bnavigation\s*\.\s*navigate\s*\("
+    r"|\bhistory\s*\.\s*(?:back|forward|go|pushState|replaceState)\s*\(|<\s*a\b)",
     re.IGNORECASE,
 )
+_FRAME_BRIDGE_START = "/* __POSTHOG_NOTEBOOK_BRIDGE_START__ */"
+_FRAME_BRIDGE_END = "/* __POSTHOG_NOTEBOOK_BRIDGE_END__ */"
 _FRAME_BRIDGE = f"""
+const notebookChannel = "posthog-canvas"
+const notebookBridge = new MessageChannel()
+dispatchEvent(new MessageEvent("message", {{
+    data: {{ channel: notebookChannel, type: "connect" }},
+    source: parent,
+    ports: [notebookBridge.port1],
+}}))
+parent.postMessage({{ channel: notebookChannel, type: "notebook-connect" }}, "*", [notebookBridge.port2])
 const blockNavigation = (event) => event.preventDefault()
 globalThis.navigation?.addEventListener("navigate", blockNavigation)
 document.addEventListener("click", (event) => {{
@@ -35,12 +46,12 @@ Object.assign(ph, {{
     ),
 }})
 """.strip()
+_FRAME_BRIDGE_PREFIX = f"{_FRAME_BRIDGE_START}\n{_FRAME_BRIDGE}\n{_FRAME_BRIDGE_END}\n\n"
 
 
 @frozen
 class CanvasGenerationState:
     current_source_version_id: UUID | None
-    published_source_version_id: UUID | None
     artifact_url: str | None
     build_status: str | None
     build_error: str | None
@@ -49,17 +60,8 @@ class CanvasGenerationState:
 @frozen
 class NotebookCanvasVersion:
     id: UUID
-    parent_version_id: UUID | None
-    prompt: str | None
-    created_at: datetime
     build_status: str | None
     artifact_url: str | None
-
-
-@frozen
-class NotebookCanvasSource:
-    version_id: UUID
-    source: str
 
 
 @frozen
@@ -69,12 +71,6 @@ class PreparedNotebookCanvasSource:
     prompt: str
     name: str
     prepared: build_service.PreparedSourceProjectPublish
-
-
-@frozen
-class NotebookCanvasPublication:
-    source_version_id: UUID
-    build_id: UUID
 
 
 class NotebookCanvasError(Exception):
@@ -107,22 +103,19 @@ def create_notebook_canvas(*, team_id: int, user_id: int, channel_id: UUID, name
             context=context,
             created_by_id=user_id,
             source_policy=Canvas.SOURCE_POLICY_NOTEBOOK_WIDGET,
-            deleted=True,
         )
         .id
     )
 
 
-def update_notebook_canvas(*, team_id: int, canvas_id: UUID, context: str) -> bool:
-    return bool(
-        Canvas.objects.for_team(team_id)
-        .filter(id=canvas_id, deleted=True, source_policy=Canvas.SOURCE_POLICY_NOTEBOOK_WIDGET)
-        .update(context=context, generation_task_id=None)
-    )
-
-
 def _source_project(source: str) -> dict[str, Any]:
-    project = synthetic_source_project(f"{_FRAME_BRIDGE}\n\n{source}")
+    project = synthetic_source_project(f"{_FRAME_BRIDGE_PREFIX}{source}")
+    files = project["files"]
+    if isinstance(files, dict) and isinstance(index_html := files.get("index.html"), str):
+        files["index.html"] = index_html.replace(
+            "</head>",
+            "<style>html,body,#root{width:100%;height:100%;margin:0}</style></head>",
+        )
     project["capabilities"] = {
         "posthog": {
             "insights": [],
@@ -143,7 +136,7 @@ def validate_notebook_canvas_source(source: str, input_names: list[str]) -> list
         {**diagnostic, "severity": "error"} if diagnostic.get("code") in _NETWORK_DIAGNOSTICS else diagnostic
         for diagnostic in diagnostics
     ]
-    if _BROWSER_GLOBAL_RE.search(source):
+    if _NAVIGATION_RE.search(source):
         diagnostics.append(
             {
                 "severity": "error",
@@ -185,7 +178,7 @@ def prepare_notebook_canvas_source(
 ) -> PreparedNotebookCanvasSource:
     canvas = (
         Canvas.objects.for_team(team_id)
-        .filter(id=canvas_id, deleted=True, source_policy=Canvas.SOURCE_POLICY_NOTEBOOK_WIDGET)
+        .filter(id=canvas_id, deleted=False, source_policy=Canvas.SOURCE_POLICY_NOTEBOOK_WIDGET)
         .first()
     )
     if canvas is None or not User.objects.filter(id=user_id).exists():
@@ -219,10 +212,10 @@ def prepare_notebook_canvas_source(
 
 def publish_prepared_notebook_canvas_source(
     *, team_id: int, user_id: int, prepared: PreparedNotebookCanvasSource
-) -> NotebookCanvasPublication:
+) -> UUID:
     canvas = (
         Canvas.objects.for_team(team_id)
-        .filter(id=prepared.canvas_id, deleted=True, source_policy=Canvas.SOURCE_POLICY_NOTEBOOK_WIDGET)
+        .filter(id=prepared.canvas_id, deleted=False, source_policy=Canvas.SOURCE_POLICY_NOTEBOOK_WIDGET)
         .first()
     )
     user = User.objects.filter(id=user_id).first()
@@ -247,31 +240,7 @@ def publish_prepared_notebook_canvas_source(
         raise NotebookCanvasBuildCapacityError from error
     except ObjectStorageError as error:
         raise NotebookCanvasError from error
-    return NotebookCanvasPublication(source_version_id=result.version.id, build_id=result.build.id)
-
-
-def publish_notebook_canvas_source(
-    *,
-    team_id: int,
-    canvas_id: UUID,
-    user_id: int,
-    source: str,
-    input_names: list[str],
-    prompt: str,
-    name: str,
-    expected_current_version_id: UUID | None,
-) -> NotebookCanvasPublication:
-    prepared = prepare_notebook_canvas_source(
-        team_id=team_id,
-        canvas_id=canvas_id,
-        user_id=user_id,
-        source=source,
-        input_names=input_names,
-        prompt=prompt,
-        name=name,
-        expected_current_version_id=expected_current_version_id,
-    )
-    return publish_prepared_notebook_canvas_source(team_id=team_id, user_id=user_id, prepared=prepared)
+    return result.version.id
 
 
 def list_notebook_canvas_versions(
@@ -279,7 +248,7 @@ def list_notebook_canvas_versions(
 ) -> list[NotebookCanvasVersion]:
     canvas = (
         Canvas.objects.for_team(team_id)
-        .filter(id=canvas_id, deleted=True, source_policy=Canvas.SOURCE_POLICY_NOTEBOOK_WIDGET)
+        .filter(id=canvas_id, deleted=False, source_policy=Canvas.SOURCE_POLICY_NOTEBOOK_WIDGET)
         .first()
     )
     if canvas is None:
@@ -313,9 +282,6 @@ def list_notebook_canvas_versions(
         result.append(
             NotebookCanvasVersion(
                 id=version.id,
-                parent_version_id=version.parent_version_id,
-                prompt=version.prompt,
-                created_at=version.created_at,
                 build_status=current_build.status if current_build is not None else None,
                 artifact_url=artifact_url,
             )
@@ -323,12 +289,10 @@ def list_notebook_canvas_versions(
     return result
 
 
-def get_notebook_canvas_source(
-    *, team_id: int, canvas_id: UUID, version_id: UUID | None = None
-) -> NotebookCanvasSource:
+def get_notebook_canvas_source(*, team_id: int, canvas_id: UUID, version_id: UUID | None = None) -> str:
     canvas = (
         Canvas.objects.for_team(team_id)
-        .filter(id=canvas_id, deleted=True, source_policy=Canvas.SOURCE_POLICY_NOTEBOOK_WIDGET)
+        .filter(id=canvas_id, deleted=False, source_policy=Canvas.SOURCE_POLICY_NOTEBOOK_WIDGET)
         .first()
     )
     if canvas is None:
@@ -351,45 +315,18 @@ def get_notebook_canvas_source(
     source = files.get("src/canvas.tsx") if isinstance(files, dict) else None
     if not isinstance(source, str):
         raise NotebookCanvasSourceInvalidError
-    bridge_prefix = f"{_FRAME_BRIDGE}\n\n"
-    return NotebookCanvasSource(
-        version_id=version.id,
-        source=source.removeprefix(bridge_prefix),
-    )
-
-
-def revert_notebook_canvas(
-    *, team_id: int, canvas_id: UUID, version_id: UUID, expected_current_version_id: UUID | None, user_id: int
-) -> UUID:
-    canvas = (
-        Canvas.objects.for_team(team_id)
-        .filter(id=canvas_id, deleted=True, source_policy=Canvas.SOURCE_POLICY_NOTEBOOK_WIDGET)
-        .first()
-    )
-    user = User.objects.filter(id=user_id).first()
-    if canvas is None or user is None:
-        raise NotebookCanvasNotFoundError
-    try:
-        _, build = build_service.revert_to_version(
-            canvas,
-            version_id,
-            expected_current_version_id,
-            user=user,
-        )
-    except CanvasSourceVersion.DoesNotExist as error:
-        raise NotebookCanvasNotFoundError from error
-    except build_service.CanvasVersionConflict as error:
-        raise NotebookCanvasVersionConflictError from error
-    except build_service.CanvasBuildCapacityExceeded as error:
-        raise NotebookCanvasBuildCapacityError from error
-    return build.id
+    if source.startswith(_FRAME_BRIDGE_START):
+        _, separator, user_source = source.partition(_FRAME_BRIDGE_END)
+        if separator:
+            return user_source.removeprefix("\n\n")
+    return source
 
 
 def get_canvas_generation_state(*, team_id: int, canvas_id: UUID) -> CanvasGenerationState | None:
     canvas = (
         Canvas.objects.for_team(team_id)
         .select_related("published_build", "published_build__source_version")
-        .filter(id=canvas_id, deleted=True, source_policy=Canvas.SOURCE_POLICY_NOTEBOOK_WIDGET)
+        .filter(id=canvas_id, deleted=False, source_policy=Canvas.SOURCE_POLICY_NOTEBOOK_WIDGET)
         .first()
     )
     if canvas is None:
@@ -423,7 +360,6 @@ def get_canvas_generation_state(*, team_id: int, canvas_id: UUID) -> CanvasGener
 
     return CanvasGenerationState(
         current_source_version_id=canvas.current_source_version_id,
-        published_source_version_id=published_build.source_version_id if published_build else None,
         artifact_url=artifact_url,
         build_status=current_build.status if current_build else None,
         build_error=build_error,

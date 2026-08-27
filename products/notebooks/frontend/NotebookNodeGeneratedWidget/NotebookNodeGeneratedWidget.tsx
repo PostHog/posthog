@@ -8,7 +8,8 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { notebookNodeLogic } from 'scenes/notebooks/Nodes/notebookNodeLogic'
-import { NotebookNodeProps, NotebookNodeType } from 'scenes/notebooks/types'
+import { NotebookNodeAttributes, NotebookNodeProps, NotebookNodeType } from 'scenes/notebooks/types'
+import { teamLogic } from 'scenes/teamLogic'
 
 import {
     formatWidgetElapsed,
@@ -35,10 +36,23 @@ function EmptyState({ children }: { children: ReactNode }): JSX.Element {
 
 function Component({ attributes }: NotebookNodeProps<NotebookNodeGeneratedWidgetAttributes>): JSX.Element | null {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
+    const { expanded } = useValues(nodeLogic)
+
+    return expanded ? <ExpandedWidget attributes={attributes} /> : null
+}
+
+function ExpandedWidget({
+    attributes,
+}: {
+    attributes: NotebookNodeAttributes<NotebookNodeGeneratedWidgetAttributes>
+}): JSX.Element | null {
+    const nodeLogic = useMountedLogic(notebookNodeLogic)
     const componentPanelState = useComponentPanelState()
-    const { expanded, isEditable, notebookLogic } = useValues(nodeLogic)
+    const { isEditable, notebookLogic } = useValues(nodeLogic)
+    const { currentTeamId } = useValues(teamLogic)
     const notebookShortId = notebookLogic.props.shortId
     const logic = notebookNodeGeneratedWidgetLogic({
+        projectId: currentTeamId,
         notebookShortId,
         nodeId: attributes.nodeId,
         prompt: attributes.prompt ?? '',
@@ -55,7 +69,6 @@ function Component({ attributes }: NotebookNodeProps<NotebookNodeGeneratedWidget
         artifactUnavailable,
         activeFrameNames,
         cancellationInFlight,
-        currentTeamId,
         elapsedSeconds,
         frameRevision,
         generationError,
@@ -83,9 +96,6 @@ function Component({ attributes }: NotebookNodeProps<NotebookNodeGeneratedWidget
         setRuntimeError,
     } = useActions(logic)
 
-    if (!expanded) {
-        return null
-    }
     if (statusLoading && !status) {
         return (
             <div className="flex h-full flex-col gap-3 p-3">
@@ -161,8 +171,9 @@ function Component({ attributes }: NotebookNodeProps<NotebookNodeGeneratedWidget
                     <WidgetArtifactFrame
                         key={`${selectedArtifactUrl}-${frameRevision}`}
                         artifactUrl={selectedArtifactUrl}
+                        title={getWidgetName(attributes.prompt ?? '')}
                         allowedFrames={activeFrameNames}
-                        onReadFrame={(name, offset, limit, signal) =>
+                        onReadFrame={(name, offset, limit, runId, signal) =>
                             loadWidgetFrame(
                                 String(currentTeamId),
                                 notebookShortId,
@@ -171,6 +182,7 @@ function Component({ attributes }: NotebookNodeProps<NotebookNodeGeneratedWidget
                                 name,
                                 offset,
                                 limit,
+                                runId,
                                 signal
                             )
                         }
@@ -317,7 +329,6 @@ export const NotebookNodeGeneratedWidget = createPostHogWidgetNode<NotebookNodeG
     heightEstimate: 420,
     minHeight: 180,
     resizeable: true,
-    fullscreenable: true,
     expandable: false,
     attributes: {
         prompt: { default: '' },

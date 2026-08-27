@@ -3,7 +3,6 @@ import {
     MakeLogicType,
     actions,
     afterMount,
-    connect,
     kea,
     key,
     listeners,
@@ -16,25 +15,17 @@ import posthog from 'posthog-js'
 import { v4 as uuidv4 } from 'uuid'
 
 import { ApiError } from 'lib/api'
-import { notebookNodeStalenessLogic } from 'scenes/notebooks/Notebook/notebookNodeStalenessLogic'
-import { notebookOperationsLogic } from 'scenes/notebooks/Notebook/notebookOperationsLogic'
-import { teamLogic } from 'scenes/teamLogic'
 
 import {
     notebooksWidgetCancel,
     notebooksWidgetFrame,
     notebooksWidgetGenerate,
     notebooksWidgetRevert,
-    notebooksWidgetSaveSource,
-    notebooksWidgetSource,
     notebooksWidgetStatus,
     notebooksWidgetVersions,
-    notebooksSqlV2StateRetrieve,
 } from 'products/notebooks/frontend/generated/api'
 import type {
-    NotebookCellStateApi,
     WidgetFrameApi,
-    WidgetSourceResponseApi,
     WidgetStatusApi,
     WidgetVersionApi,
 } from 'products/notebooks/frontend/generated/api.schemas'
@@ -44,7 +35,6 @@ import { DEFAULT_WIDGET_MODEL, WIDGET_MODEL_INFO, isWidgetModel, type WidgetMode
 const STATUS_POLL_INTERVAL_MS = 2_000
 const STATUS_POLL_MAX_INTERVAL_MS = 30_000
 const VERSION_PAGE_SIZE = 25
-const DATAFRAME_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
 
 export type WidgetGenerationOperation = 'initial' | 'regenerate' | 'improve'
 export type WidgetGenerationModalOperation = Exclude<WidgetGenerationOperation, 'initial'> | null
@@ -57,6 +47,7 @@ export type WidgetWorkingStatus = {
 }
 
 export type NotebookNodeGeneratedWidgetLogicProps = {
+    projectId: number | null
     notebookShortId: string
     nodeId: string
     prompt: string
@@ -65,108 +56,23 @@ export type NotebookNodeGeneratedWidgetLogicProps = {
     persistNotebook: () => Promise<void>
 }
 
-type WidgetDataRunPlan = {
-    missingFrameName: string | null
-    nodeIds: string[]
-}
-
-function buildWidgetDataRunPlan(cells: NotebookCellStateApi[], frameNames: string[]): WidgetDataRunPlan {
-    const ownerByFrame = new Map<string, string>()
-    for (const cellType of ['sql', 'python']) {
-        for (const cell of cells) {
-            if (
-                cell.cell_type === cellType &&
-                DATAFRAME_NAME.test(cell.dataframe_name) &&
-                !ownerByFrame.has(cell.dataframe_name)
-            ) {
-                ownerByFrame.set(cell.dataframe_name, cell.node_id)
-            }
-        }
-    }
-
-    const sourceNodeIds = new Set<string>()
-    for (const frameName of frameNames) {
-        const ownerNodeId = ownerByFrame.get(frameName)
-        if (!ownerNodeId) {
-            return { missingFrameName: frameName, nodeIds: [] }
-        }
-        sourceNodeIds.add(ownerNodeId)
-    }
-
-    const cellsByNodeId = new Map(cells.map((cell) => [cell.node_id, cell]))
-    const requiredNodeIds = new Set<string>()
-    const addUpstreamNodes = (nodeId: string): void => {
-        if (requiredNodeIds.has(nodeId)) {
-            return
-        }
-        requiredNodeIds.add(nodeId)
-        cellsByNodeId.get(nodeId)?.depends_on.forEach(addUpstreamNodes)
-    }
-    sourceNodeIds.forEach(addUpstreamNodes)
-
-    const nodeIdsToRun = new Set(sourceNodeIds)
-    for (const cell of cells) {
-        if (requiredNodeIds.has(cell.node_id) && cell.status !== 'done') {
-            nodeIdsToRun.add(cell.node_id)
-        }
-    }
-    let addedDependent = true
-    while (addedDependent) {
-        addedDependent = false
-        for (const cell of cells) {
-            if (
-                requiredNodeIds.has(cell.node_id) &&
-                !nodeIdsToRun.has(cell.node_id) &&
-                cell.depends_on.some((nodeId) => nodeIdsToRun.has(nodeId))
-            ) {
-                nodeIdsToRun.add(cell.node_id)
-                addedDependent = true
-            }
-        }
-    }
-
-    return {
-        missingFrameName: null,
-        nodeIds: cells
-            .filter(
-                (cell) =>
-                    nodeIdsToRun.has(cell.node_id) &&
-                    (cell.cell_type === 'sql' || cell.cell_type === 'python') &&
-                    requiredNodeIds.has(cell.node_id)
-            )
-            .map((cell) => cell.node_id),
-    }
-}
-
 export interface notebookNodeGeneratedWidgetLogicValues {
-    activeDataRunRequestId: string | null
     activeGenerationModel: WidgetModel
     activeFrameNames: string[]
     artifactUnavailable: boolean
     cancellationInFlight: boolean
-    currentTeamId: number | null
     elapsedSeconds: number
     frameRevision: number
-    dataRunInFlight: boolean
-    generationDraftLoading: boolean
     generationDraftModel: WidgetModel
     generationDraftPrompt: string
     generationError: string | null
     generationModalOperation: WidgetGenerationModalOperation
     generationRequestLoading: boolean
     isWorking: boolean
-    isCellChainRunning: boolean
-    isNotebookBusy: boolean
     restoreInFlight: boolean
     runtimeError: string | null
     selectedVersion: WidgetVersionApi | null
     selectedVersionId: string | null
-    sourceDraft: string
-    sourceError: string | null
-    sourceLoading: boolean
-    sourceModalOpen: boolean
-    sourceNote: string
-    sourceSaving: boolean
     status: WidgetStatusApi | null
     statusLoadError: string | null
     statusLoading: boolean
@@ -185,15 +91,7 @@ export interface notebookNodeGeneratedWidgetLogicActions {
     cancelGeneration: () => { value: true }
     cancellationFailed: (error: string) => { error: string }
     cancellationStarted: () => { value: true }
-    cellChainFinished: (
-        requestId: string,
-        success: boolean
-    ) => {
-        requestId: string
-        success: boolean
-    }
     closeGenerationModal: () => { value: true }
-    closeSourceEditor: () => { value: true }
     generateWidget: (
         prompt: string,
         model: WidgetModel,
@@ -203,34 +101,20 @@ export interface notebookNodeGeneratedWidgetLogicActions {
     generationFailed: (error: string) => { error: string }
     generationRequestFinished: () => { value: true }
     generationRequestStarted: () => { value: true }
-    dataRunFinished: (success: boolean, error: string | null) => { success: boolean; error: string | null }
-    dataRunStarted: (requestId: string) => { requestId: string }
     loadMoreVersions: () => { value: true }
     loadStatus: () => { value: true }
     loadVersions: (reset: boolean) => { reset: boolean }
     openGenerationModal: (operation: Exclude<WidgetGenerationOperation, 'initial'>) => {
         operation: 'regenerate' | 'improve'
     }
-    openSourceEditor: () => { value: true }
     refreshData: () => { value: true }
-    runCellChain: (nodeIds: string[], requestId: string) => { nodeIds: string[]; requestId: string }
-    runWidget: () => { value: true }
     restoreFailed: (error: string) => { error: string }
     restoreSelectedVersion: () => { value: true }
     restoreStarted: () => { value: true }
-    saveSource: () => { value: true }
     selectVersion: (versionId: string) => { versionId: string }
-    setGenerationDraftLoading: (loading: boolean) => { loading: boolean }
     setGenerationDraftModel: (model: WidgetModel) => { model: WidgetModel }
     setGenerationDraftPrompt: (prompt: string) => { prompt: string }
     setRuntimeError: (error: string | null) => { error: string | null }
-    setSourceDraft: (source: string) => { source: string }
-    setSourceNote: (note: string) => { note: string }
-    sourceFailed: (error: string) => { error: string }
-    sourceLoadStarted: () => { value: true }
-    sourceReceived: (source: WidgetSourceResponseApi) => { source: WidgetSourceResponseApi }
-    sourceSaveStarted: () => { value: true }
-    sourceSaved: () => { value: true }
     statusFailed: (error: string) => { error: string }
     statusReceived: (status: WidgetStatusApi) => { status: WidgetStatusApi }
     tickElapsed: (elapsedSeconds: number) => { elapsedSeconds: number }
@@ -336,6 +220,7 @@ export async function loadWidgetFrame(
     frameName: string,
     offset: number,
     limit: number,
+    runId: string | undefined,
     signal: AbortSignal
 ): Promise<WidgetFrameApi> {
     return await notebooksWidgetFrame(
@@ -345,6 +230,7 @@ export async function loadWidgetFrame(
         frameName,
         {
             version_id: versionId,
+            run_id: runId,
             offset,
             limit,
         },
@@ -355,22 +241,8 @@ export async function loadWidgetFrame(
 export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGeneratedWidgetLogicType> =
     kea<notebookNodeGeneratedWidgetLogicType>([
         props({} as NotebookNodeGeneratedWidgetLogicProps),
-        key((props) => `${props.notebookShortId}-${props.nodeId}`),
+        key((props) => `${props.projectId}-${props.notebookShortId}-${props.nodeId}`),
         path((key) => ['products', 'notebooks', 'notebookNodeGeneratedWidgetLogic', key]),
-        connect((props: NotebookNodeGeneratedWidgetLogicProps) => ({
-            values: [
-                teamLogic,
-                ['currentTeamId'],
-                notebookNodeStalenessLogic({ shortId: props.notebookShortId }),
-                ['isChainRunning as isCellChainRunning'],
-                notebookOperationsLogic({ shortId: props.notebookShortId }),
-                ['isBusy as isNotebookBusy'],
-            ],
-            actions: [
-                notebookNodeStalenessLogic({ shortId: props.notebookShortId }),
-                ['cellChainFinished', 'runCellChain'],
-            ],
-        })),
         actions({
             artifactAvailable: true,
             artifactRefreshReady: true,
@@ -378,10 +250,7 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
             cancelGeneration: true,
             cancellationFailed: (error: string) => ({ error }),
             cancellationStarted: true,
-            dataRunFinished: (success: boolean, error: string | null) => ({ success, error }),
-            dataRunStarted: (requestId: string) => ({ requestId }),
             closeGenerationModal: true,
-            closeSourceEditor: true,
             generateWidget: (prompt: string, model: WidgetModel, operation: WidgetGenerationOperation) => ({
                 prompt,
                 model,
@@ -395,25 +264,14 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
             loadStatus: true,
             loadVersions: (reset: boolean) => ({ reset }),
             openGenerationModal: (operation: Exclude<WidgetGenerationOperation, 'initial'>) => ({ operation }),
-            openSourceEditor: true,
             refreshData: true,
-            runWidget: true,
             restoreFailed: (error: string) => ({ error }),
             restoreSelectedVersion: true,
             restoreStarted: true,
-            saveSource: true,
             selectVersion: (versionId: string) => ({ versionId }),
-            setGenerationDraftLoading: (loading: boolean) => ({ loading }),
             setGenerationDraftModel: (model: WidgetModel) => ({ model }),
             setGenerationDraftPrompt: (prompt: string) => ({ prompt }),
             setRuntimeError: (error: string | null) => ({ error }),
-            setSourceDraft: (source: string) => ({ source }),
-            setSourceNote: (note: string) => ({ note }),
-            sourceFailed: (error: string) => ({ error }),
-            sourceLoadStarted: true,
-            sourceReceived: (source: WidgetSourceResponseApi) => ({ source }),
-            sourceSaveStarted: true,
-            sourceSaved: true,
             statusFailed: (error: string) => ({ error }),
             statusReceived: (status: WidgetStatusApi) => ({ status }),
             tickElapsed: (elapsedSeconds: number) => ({ elapsedSeconds }),
@@ -426,13 +284,6 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
             ) => ({ versions, count, nextOffset, reset }),
         }),
         reducers(({ props }) => ({
-            activeDataRunRequestId: [
-                null as string | null,
-                {
-                    dataRunStarted: (_, { requestId }) => requestId,
-                    dataRunFinished: () => null,
-                },
-            ],
             activeGenerationModel: [
                 props.model,
                 {
@@ -460,23 +311,11 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                 },
             ],
             elapsedSeconds: [0, { tickElapsed: (_, { elapsedSeconds }) => elapsedSeconds }],
-            dataRunInFlight: [
-                false,
-                {
-                    dataRunStarted: () => true,
-                    dataRunFinished: () => false,
-                },
-            ],
             frameRevision: [
                 0,
                 {
                     artifactRefreshReady: (revision) => revision + 1,
-                    sourceSaved: (revision) => revision + 1,
                 },
-            ],
-            generationDraftLoading: [
-                false,
-                { setGenerationDraftLoading: (_, { loading }) => loading, closeGenerationModal: () => false },
             ],
             generationDraftModel: [DEFAULT_WIDGET_MODEL, { setGenerationDraftModel: (_, { model }) => model }],
             generationDraftPrompt: ['', { setGenerationDraftPrompt: (_, { prompt }) => prompt }],
@@ -517,7 +356,6 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                 null as string | null,
                 {
                     setRuntimeError: (_, { error }) => error,
-                    dataRunStarted: () => null,
                     artifactRefreshReady: () => null,
                     selectVersion: () => null,
                 },
@@ -531,48 +369,6 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                         reset && selectedVersionId && !versions.some(({ id }) => id === selectedVersionId)
                             ? (versions.find(({ is_current }) => is_current)?.id ?? selectedVersionId)
                             : selectedVersionId,
-                },
-            ],
-            sourceDraft: [
-                '',
-                {
-                    setSourceDraft: (_, { source }) => source,
-                    sourceLoadStarted: () => '',
-                    sourceReceived: (_, { source }) => source.source,
-                },
-            ],
-            sourceError: [
-                null as string | null,
-                {
-                    sourceLoadStarted: () => null,
-                    sourceSaveStarted: () => null,
-                    sourceFailed: (_, { error }) => error,
-                    sourceReceived: () => null,
-                },
-            ],
-            sourceLoading: [
-                false,
-                {
-                    sourceLoadStarted: () => true,
-                    sourceFailed: () => false,
-                    sourceReceived: () => false,
-                },
-            ],
-            sourceModalOpen: [false, { openSourceEditor: () => true, closeSourceEditor: () => false }],
-            sourceNote: [
-                '',
-                {
-                    closeSourceEditor: () => '',
-                    setSourceNote: (_, { note }) => note,
-                    sourceReceived: () => '',
-                },
-            ],
-            sourceSaving: [
-                false,
-                {
-                    sourceSaveStarted: () => true,
-                    sourceFailed: () => false,
-                    sourceSaved: () => false,
                 },
             ],
             status: [null as WidgetStatusApi | null, { statusReceived: (_, { status }) => status }],
@@ -646,8 +442,8 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                 if (document.hidden) {
                     return
                 }
-                const failureCount = Number(cache.statusPollFailures ?? 0)
-                const delay = Math.min(STATUS_POLL_INTERVAL_MS * 2 ** failureCount, STATUS_POLL_MAX_INTERVAL_MS)
+                const attempt = Number(cache.statusPollAttempts ?? 0)
+                const delay = Math.min(STATUS_POLL_INTERVAL_MS * 2 ** attempt, STATUS_POLL_MAX_INTERVAL_MS)
                 cache.disposables.add(() => {
                     const timeoutId = window.setTimeout(() => actions.loadStatus(), delay)
                     return () => window.clearTimeout(timeoutId)
@@ -668,25 +464,14 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
             }
 
             return {
-                cellChainFinished: ({ requestId, success }) => {
-                    if (requestId !== values.activeDataRunRequestId) {
-                        return
-                    }
-                    actions.dataRunFinished(
-                        success,
-                        success
-                            ? null
-                            : 'Widget data could not be refreshed because a cell did not finish successfully.'
-                    )
-                },
                 cancelGeneration: async () => {
                     const generationId = values.status?.active_job?.id
-                    if (!props.isEditable || !generationId || !values.currentTeamId || values.cancellationInFlight) {
+                    if (!props.isEditable || !generationId || !props.projectId || values.cancellationInFlight) {
                         return
                     }
                     actions.cancellationStarted()
                     try {
-                        await notebooksWidgetCancel(String(values.currentTeamId), props.notebookShortId, props.nodeId, {
+                        await notebooksWidgetCancel(String(props.projectId), props.notebookShortId, props.nodeId, {
                             generation_id: generationId,
                         })
                         actions.generationCanceled()
@@ -703,7 +488,7 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                     if (!props.isEditable || values.generationRequestLoading || values.isWorking) {
                         return
                     }
-                    if (!values.currentTeamId) {
+                    if (!props.projectId) {
                         actions.generationFailed('The current project is unavailable. Refresh and try again.')
                         return
                     }
@@ -720,10 +505,10 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                     try {
                         const requestGeneration = async (): Promise<WidgetStatusApi> =>
                             await notebooksWidgetGenerate(
-                                String(values.currentTeamId),
+                                String(props.projectId),
                                 props.notebookShortId,
                                 props.nodeId,
-                                { prompt, generation_id: generationId, model, operation }
+                                { prompt, generation_id: generationId, model, generation_operation: operation }
                             )
                         let queuedStatus: WidgetStatusApi
                         try {
@@ -753,17 +538,13 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                     }
                 },
                 refreshData: async () => {
-                    if (!values.currentTeamId) {
+                    if (!props.projectId) {
                         actions.statusFailed('The current project is unavailable. Refresh and try again.')
                         return
                     }
                     try {
                         actions.statusReceived(
-                            await notebooksWidgetStatus(
-                                String(values.currentTeamId),
-                                props.notebookShortId,
-                                props.nodeId
-                            )
+                            await notebooksWidgetStatus(String(props.projectId), props.notebookShortId, props.nodeId)
                         )
                         actions.artifactRefreshReady()
                     } catch (error) {
@@ -771,23 +552,19 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                     }
                 },
                 loadStatus: async () => {
-                    if (!values.currentTeamId) {
+                    if (!props.projectId) {
                         return
                     }
                     try {
                         actions.statusReceived(
-                            await notebooksWidgetStatus(
-                                String(values.currentTeamId),
-                                props.notebookShortId,
-                                props.nodeId
-                            )
+                            await notebooksWidgetStatus(String(props.projectId), props.notebookShortId, props.nodeId)
                         )
                     } catch (error) {
                         actions.statusFailed(errorMessage(error))
                     }
                 },
                 loadVersions: async ({ reset }) => {
-                    if (!values.currentTeamId) {
+                    if (!props.projectId) {
                         actions.versionsFailed('The current project is unavailable.')
                         return
                     }
@@ -801,7 +578,7 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                     const offset = reset ? 0 : (values.versionsNextOffset ?? values.versions.length)
                     try {
                         const page = await notebooksWidgetVersions(
-                            String(values.currentTeamId),
+                            String(props.projectId),
                             props.notebookShortId,
                             props.nodeId,
                             { offset, limit: VERSION_PAGE_SIZE }
@@ -817,104 +594,18 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                         }
                     }
                 },
-                openGenerationModal: async ({ operation }) => {
-                    const fallbackPrompt = operation === 'regenerate' ? props.prompt : ''
-                    actions.setGenerationDraftPrompt(fallbackPrompt)
+                openGenerationModal: ({ operation }) => {
+                    actions.setGenerationDraftPrompt(
+                        operation === 'regenerate' ? values.selectedVersion?.effective_prompt || props.prompt : ''
+                    )
                     actions.setGenerationDraftModel(
                         isWidgetModel(values.selectedVersion?.model) ? values.selectedVersion.model : props.model
                     )
-                    if (operation !== 'regenerate' || !values.currentTeamId || !values.selectedVersionId) {
-                        return
-                    }
-                    actions.setGenerationDraftLoading(true)
-                    try {
-                        const source = await notebooksWidgetSource(
-                            String(values.currentTeamId),
-                            props.notebookShortId,
-                            props.nodeId,
-                            { version_id: values.selectedVersionId }
-                        )
-                        if (source.effective_prompt.trim()) {
-                            actions.setGenerationDraftPrompt(source.effective_prompt)
-                        }
-                    } catch (error) {
-                        if (!fallbackPrompt.trim()) {
-                            actions.generationFailed(errorMessage(error))
-                        }
-                    } finally {
-                        actions.setGenerationDraftLoading(false)
-                    }
-                },
-                openSourceEditor: async () => {
-                    if (!values.currentTeamId || !values.selectedVersionId) {
-                        return
-                    }
-                    actions.sourceLoadStarted()
-                    try {
-                        actions.sourceReceived(
-                            await notebooksWidgetSource(
-                                String(values.currentTeamId),
-                                props.notebookShortId,
-                                props.nodeId,
-                                {
-                                    version_id: values.selectedVersionId,
-                                }
-                            )
-                        )
-                    } catch (error) {
-                        actions.sourceFailed(errorMessage(error))
-                    }
-                },
-                dataRunFinished: ({ success, error }) => {
-                    if (success) {
-                        actions.refreshData()
-                    } else if (error) {
-                        actions.setRuntimeError(error)
-                    }
-                },
-                runWidget: async () => {
-                    if (
-                        !props.isEditable ||
-                        values.dataRunInFlight ||
-                        values.isCellChainRunning ||
-                        values.isNotebookBusy
-                    ) {
-                        return
-                    }
-                    if (!values.activeFrameNames.length) {
-                        actions.refreshData()
-                        return
-                    }
-                    if (!values.currentTeamId) {
-                        actions.setRuntimeError('The current project is unavailable. Refresh and try again.')
-                        return
-                    }
-
-                    const requestId = uuidv4()
-                    actions.dataRunStarted(requestId)
-                    try {
-                        await props.persistNotebook()
-                        const state = await notebooksSqlV2StateRetrieve(
-                            String(values.currentTeamId),
-                            props.notebookShortId
-                        )
-                        const plan = buildWidgetDataRunPlan(state.cells, values.activeFrameNames)
-                        if (plan.missingFrameName) {
-                            actions.dataRunFinished(
-                                false,
-                                `Dataframe "${plan.missingFrameName}" is no longer in this notebook.`
-                            )
-                            return
-                        }
-                        actions.runCellChain(plan.nodeIds, requestId)
-                    } catch (error) {
-                        actions.dataRunFinished(false, errorMessage(error))
-                    }
                 },
                 restoreSelectedVersion: async () => {
                     if (
                         !props.isEditable ||
-                        !values.currentTeamId ||
+                        !props.projectId ||
                         !values.selectedVersionId ||
                         !values.status?.current_version_id ||
                         values.selectedVersionId === values.status.current_version_id ||
@@ -925,7 +616,7 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                     actions.restoreStarted()
                     try {
                         const restoredStatus = await notebooksWidgetRevert(
-                            String(values.currentTeamId),
+                            String(props.projectId),
                             props.notebookShortId,
                             props.nodeId,
                             {
@@ -943,43 +634,7 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                         actions.restoreFailed(errorMessage(error))
                     }
                 },
-                saveSource: async () => {
-                    if (
-                        !props.isEditable ||
-                        !values.currentTeamId ||
-                        !values.status?.current_version_id ||
-                        values.selectedVersionId !== values.status.current_version_id ||
-                        !values.sourceDraft.trim() ||
-                        !values.sourceNote.trim() ||
-                        values.sourceSaving
-                    ) {
-                        return
-                    }
-                    actions.sourceSaveStarted()
-                    try {
-                        const savedStatus = await notebooksWidgetSaveSource(
-                            String(values.currentTeamId),
-                            props.notebookShortId,
-                            props.nodeId,
-                            {
-                                source: values.sourceDraft,
-                                prompt: values.sourceNote,
-                                expected_current_version_id: values.status.current_version_id,
-                            }
-                        )
-                        actions.statusReceived(savedStatus)
-                        if (savedStatus.current_version_id) {
-                            actions.selectVersion(savedStatus.current_version_id)
-                        }
-                        actions.sourceSaved()
-                        actions.closeSourceEditor()
-                        actions.loadVersions(true)
-                    } catch (error) {
-                        actions.sourceFailed(errorMessage(error))
-                    }
-                },
                 statusReceived: ({ status }) => {
-                    cache.statusPollFailures = 0
                     cache.disposables.dispose('statusPoll')
                     if (status.has_versions && (!values.versions.length || !values.selectedVersionId)) {
                         actions.loadVersions(true)
@@ -987,13 +642,17 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                     if (
                         status.current_version_id &&
                         cache.currentVersionId &&
-                        cache.currentVersionId !== status.current_version_id
+                        cache.currentVersionId !== status.current_version_id &&
+                        status.artifact_url
                     ) {
                         actions.selectVersion(status.current_version_id)
                         actions.loadVersions(true)
                     }
-                    cache.currentVersionId = status.current_version_id
+                    if (!cache.currentVersionId || status.artifact_url) {
+                        cache.currentVersionId = status.current_version_id
+                    }
                     if (shouldPoll(status)) {
+                        cache.statusPollAttempts = Number(cache.statusPollAttempts ?? 0) + 1
                         scheduleStatusPoll()
                         const startedAtRaw = status.active_job?.started_at ?? status.active_job?.created_at
                         const startedAt = startedAtRaw
@@ -1003,30 +662,35 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                             startElapsedClock(startedAt)
                         }
                     } else {
+                        cache.statusPollAttempts = 0
                         cache.disposables.dispose('elapsedClock')
                         cache.generationStartedAt = null
                     }
                 },
                 statusFailed: () => {
                     if (shouldPoll(values.status)) {
-                        cache.statusPollFailures = Number(cache.statusPollFailures ?? 0) + 1
+                        cache.statusPollAttempts = Number(cache.statusPollAttempts ?? 0) + 1
                         scheduleStatusPoll()
                     }
                 },
             }
         }),
         afterMount(({ actions, cache }) => {
-            cache.disposables.add(() => {
-                const handleVisibilityChange = (): void => {
-                    if (document.hidden) {
-                        cache.disposables.dispose('statusPoll')
-                    } else {
-                        actions.loadStatus()
+            cache.disposables.add(
+                () => {
+                    const handleVisibilityChange = (): void => {
+                        if (document.hidden) {
+                            cache.disposables.dispose('statusPoll')
+                        } else {
+                            actions.loadStatus()
+                        }
                     }
-                }
-                document.addEventListener('visibilitychange', handleVisibilityChange)
-                return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
-            }, 'visibilityChange')
+                    document.addEventListener('visibilitychange', handleVisibilityChange)
+                    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
+                },
+                'visibilityChange',
+                { pauseOnPageHidden: false }
+            )
             actions.loadStatus()
         }),
     ])

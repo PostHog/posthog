@@ -68,15 +68,12 @@ from products.notebooks.backend.facade.widgets import (
     WidgetError,
     WidgetRateLimitError,
     cancel_widget_generation,
-    get_widget_source,
     get_widget_status,
     infer_widget_inputs,
     inspect_widget_inputs,
     list_widget_versions,
     read_widget_frame,
-    reconcile_widget_instances,
     revert_widget_version,
-    save_widget_source,
     start_widget_generation,
 )
 from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
@@ -88,9 +85,6 @@ from products.notebooks.backend.presentation.widget_serializers import (
     WidgetFrameSerializer,
     WidgetGenerateRequestSerializer,
     WidgetRevertRequestSerializer,
-    WidgetSourceQuerySerializer,
-    WidgetSourceResponseSerializer,
-    WidgetSourceSaveRequestSerializer,
     WidgetStatusSerializer,
     WidgetVersionPageSerializer,
     WidgetVersionQuerySerializer,
@@ -419,7 +413,6 @@ class NotebookSerializer(NotebookMinimalSerializer):
 
                 updated_notebook = super().update(locked_instance, validated_data)
                 if should_publish_update:
-                    reconcile_widget_instances(updated_notebook)
                     notify_team_id = updated_notebook.team_id
                     notify_notebook_id = str(updated_notebook.short_id)
                     notify_version = updated_notebook.version
@@ -766,6 +759,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             response_status = 409
         elif error.code == "frame_not_allowed":
             response_status = 403
+        elif error.code == "ai_data_processing_not_approved":
+            response_status = 403
         elif error.code == "node_not_found":
             response_status = 404
         else:
@@ -783,6 +778,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         responses={
             202: WidgetStatusSerializer,
             400: WidgetErrorSerializer,
+            403: WidgetErrorSerializer,
             404: WidgetErrorSerializer,
             409: WidgetErrorSerializer,
             429: WidgetErrorSerializer,
@@ -819,7 +815,6 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 input_candidates,
                 self._authorize_widget_run,
                 node_id=node_id,
-                require_all=False,
             )
             result = start_widget_generation(
                 notebook=notebook,
@@ -829,7 +824,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 inspection=inspection,
                 model=serializer.validated_data["model"],
                 generation_id=serializer.validated_data["generation_id"],
-                operation=serializer.validated_data["operation"],
+                operation=serializer.validated_data["generation_operation"],
             )
         except WidgetError as error:
             return self._widget_error_response(error)
@@ -931,94 +926,6 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         return Response(WidgetVersionPageSerializer(result).data)
 
     @extend_schema(
-        operation_id="notebooks_widget_source",
-        responses={200: WidgetSourceResponseSerializer, 400: WidgetErrorSerializer, 404: WidgetErrorSerializer},
-        parameters=[
-            OpenApiParameter(
-                "node_id",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.PATH,
-                description="Stable identifier of the generated widget node.",
-            ),
-            OpenApiParameter(
-                "version_id",
-                type=OpenApiTypes.UUID,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description="Historical source version to return instead of the current version.",
-            ),
-        ],
-    )
-    @action(
-        methods=["GET"],
-        url_path="widgets/(?P<node_id>[^/.]+)/source",
-        detail=True,
-        required_scopes=["notebook:read"],
-    )
-    def widget_source(self, request: Request, node_id: str | None = None, **kwargs) -> Response:
-        if node_id is None:
-            raise Http404()
-        query = WidgetSourceQuerySerializer(data=request.query_params)
-        query.is_valid(raise_exception=True)
-        try:
-            result = get_widget_source(
-                notebook=self.get_object(),
-                node_id=node_id,
-                version_id=query.validated_data.get("version_id"),
-            )
-        except WidgetError as error:
-            return self._widget_error_response(error)
-        return Response(WidgetSourceResponseSerializer(result).data)
-
-    @extend_schema(
-        operation_id="notebooks_widget_save_source",
-        request=WidgetSourceSaveRequestSerializer,
-        responses={
-            200: WidgetStatusSerializer,
-            400: WidgetErrorSerializer,
-            404: WidgetErrorSerializer,
-            409: WidgetErrorSerializer,
-            429: WidgetErrorSerializer,
-        },
-        parameters=[
-            OpenApiParameter(
-                "node_id",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.PATH,
-                description="Stable identifier of the generated widget node.",
-            )
-        ],
-    )
-    @action(
-        methods=["POST"],
-        url_path="widgets/(?P<node_id>[^/.]+)/save-source",
-        detail=True,
-        required_scopes=["notebook:write", "query:read"],
-    )
-    def widget_save_source(self, request: Request, node_id: str | None = None, **kwargs) -> Response:
-        if node_id is None:
-            raise Http404()
-        user = self._current_user()
-        if user is None:
-            raise PermissionDenied("A user is required to edit widget source.")
-        serializer = WidgetSourceSaveRequestSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        notebook = self.get_object()
-        self._require_query_access()
-        try:
-            result = save_widget_source(
-                notebook=notebook,
-                node_id=node_id,
-                source=serializer.validated_data["source"],
-                prompt=serializer.validated_data["prompt"],
-                expected_current_version_id=serializer.validated_data["expected_current_version_id"],
-                user_id=user.id,
-            )
-        except WidgetError as error:
-            return self._widget_error_response(error)
-        return Response(WidgetStatusSerializer(result).data)
-
-    @extend_schema(
         operation_id="notebooks_widget_revert",
         request=WidgetRevertRequestSerializer,
         responses={
@@ -1085,6 +992,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 description="Allowed dataframe slot requested by the widget.",
             ),
             OpenApiParameter("version_id", OpenApiTypes.UUID, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter("run_id", OpenApiTypes.UUID, OpenApiParameter.QUERY, required=False),
             OpenApiParameter("offset", OpenApiTypes.INT, OpenApiParameter.QUERY, required=False),
             OpenApiParameter("limit", OpenApiTypes.INT, OpenApiParameter.QUERY, required=False),
         ],
@@ -1115,6 +1023,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 authorize_run=self._authorize_widget_run,
                 user=self._current_user(),
                 version_id=query.validated_data.get("version_id"),
+                run_id=query.validated_data.get("run_id"),
                 offset=query.validated_data["offset"],
                 limit=query.validated_data["limit"],
             )
@@ -2035,7 +1944,6 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 last_modified_by=request.user,
             )
             notebook.refresh_from_db()
-            reconcile_widget_instances(notebook)
 
             # Snapshot diffs into the activity logs for history
             changes = changes_between("Notebook", previous=notebook_before, current=notebook)
@@ -2167,7 +2075,6 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                             "last_modified_by",
                         ]
                     )
-                    reconcile_widget_instances(locked_notebook)
 
         if result.status == "accepted":
             changes = changes_between("Notebook", previous=notebook_before, current=locked_notebook)

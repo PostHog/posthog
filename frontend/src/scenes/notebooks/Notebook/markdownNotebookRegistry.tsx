@@ -76,7 +76,6 @@ import { uuid } from 'lib/utils/dom'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import 'products/notebooks/frontend/NotebookNodeGeneratedWidget/NotebookNodeGeneratedWidget'
-import { NotebookGeneratedWidgetRunButton } from 'products/notebooks/frontend/NotebookNodeGeneratedWidget/NotebookGeneratedWidgetRunButton'
 
 import { NODE_ICONS } from '../nodeIcons'
 import { NotebookCodeCellRunButton } from '../Nodes/components/NotebookCodeCellRunButton'
@@ -173,7 +172,6 @@ export const MARKDOWN_TAG_TO_NOTEBOOK_NODE_TYPE: Partial<Record<string, Notebook
     DuckSQL: NotebookNodeType.DuckSQL,
     HogQLSQL: NotebookNodeType.HogQLSQL,
     SQLV2: NotebookNodeType.SQLV2,
-    GenUI: NotebookNodeType.GeneratedWidget,
     GeneratedWidget: NotebookNodeType.GeneratedWidget,
     Recording: NotebookNodeType.Recording,
     RecordingPlaylist: NotebookNodeType.RecordingPlaylist,
@@ -301,22 +299,15 @@ export const MARKDOWN_NODE_DEFINITIONS: {
         tagName: 'GeneratedWidget',
         category: 'Code',
         label: 'Widget',
-        ToolbarComponent: NotebookGeneratedWidgetRunButton,
         insertCommand: {
             category: COMMON_INSERT_COMMAND_CATEGORY,
-            aliases: ['genui', 'visualization', 'widget', '3d'],
+            aliases: ['visualization', 'widget', '3d'],
             defaultProps: () => ({
                 ...getDefaultPropsForNodeType(NotebookNodeType.GeneratedWidget),
                 ...INPUT_PANEL_OPEN_PROPS,
                 nodeId: uuid(),
             }),
         },
-    },
-    {
-        tagName: 'GenUI',
-        category: 'Code',
-        label: 'Widget',
-        ToolbarComponent: NotebookGeneratedWidgetRunButton,
     },
     { tagName: 'RecordingPlaylist', category: 'Data', label: 'Session recordings' },
     { tagName: 'Experiment', category: 'Experiment' },
@@ -369,7 +360,6 @@ export const NOTEBOOK_MARKDOWN_REGISTRY: NotebookComponentRegistry = createMarkd
             ToolbarComponent: definition.ToolbarComponent,
             exclusiveEditPanel: definition.exclusiveEditPanel,
             editableTitle: options?.editableTitle,
-            fullscreenable: options?.fullscreenable,
             // Nodes with a Settings panel keep their filters toggle on read-only canvases
             // (customer profiles), where the panel is the only way to configure them.
             viewModeFilters: !!options?.Settings,

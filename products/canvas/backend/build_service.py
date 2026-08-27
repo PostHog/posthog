@@ -565,7 +565,7 @@ def publish_source_project(
     task_id: UUID | None,
     created_by: User | None,
     was_impersonated: bool = False,
-) -> SourceProjectPublishResult:
+) -> tuple[Canvas, CanvasSourceVersion, CanvasBuild, bool]:
     """Upload and publish a validated project as the canvas's new head version."""
     prepared = prepare_source_project_publish(
         canvas,
@@ -573,7 +573,7 @@ def publish_source_project(
         has_expected_version=has_expected_version,
         expected_version_id=expected_version_id,
     )
-    return commit_source_project_publish(
+    result = commit_source_project_publish(
         canvas,
         prepared=prepared,
         prompt=prompt,
@@ -584,6 +584,7 @@ def publish_source_project(
         created_by=created_by,
         was_impersonated=was_impersonated,
     )
+    return result.canvas, result.version, result.build, result.first_publish
 
 
 def publish_grid_layout(

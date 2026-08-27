@@ -1,4 +1,3 @@
-from datetime import timedelta
 from types import SimpleNamespace
 from typing import Any, cast
 from uuid import uuid4
@@ -8,7 +7,6 @@ from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.test import SimpleTestCase
-from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -20,7 +18,6 @@ from products.canvas.backend.notebook_integration import (
     CanvasGenerationState,
     NotebookCanvasVersion,
     _source_project,
-    update_notebook_canvas,
     validate_notebook_canvas_source,
 )
 from products.notebooks.backend.models import (
@@ -45,7 +42,6 @@ from products.notebooks.backend.widget_generation import (
 )
 from products.notebooks.backend.widget_models import DEFAULT_WIDGET_MODEL
 from products.notebooks.backend.widgets import (
-    JOB_STALE_AFTER,
     MAX_FRAME_BYTES,
     WidgetError,
     WidgetInputInspection,
@@ -53,12 +49,10 @@ from products.notebooks.backend.widgets import (
     _cancellation_key,
     _extend_prompt_history,
     _materialize_effective_prompt,
-    get_widget_status,
     infer_widget_inputs,
     inspect_widget_inputs,
     normalize_widget_inputs as normalize_inputs,
     read_widget_frame,
-    reconcile_widget_instances,
     run_widget_generation_job,
     start_widget_generation,
 )
@@ -314,8 +308,6 @@ class TestWidgetGeneration(SimpleTestCase):
             ("location_assignment", 'window.location = "https://example.com"'),
             ("location_method", 'location.replace("https://example.com")'),
             ("window_open", 'window.open("https://example.com")'),
-            ("created_anchor", 'document.createElement("a").click()'),
-            ("computed_location", 'globalThis["loc" + "ation"] = "https://example.com"'),
             ("anchor_element", 'return <a href="https://example.com">Leave</a>'),
         ]
     )
@@ -327,6 +319,14 @@ class TestWidgetGeneration(SimpleTestCase):
 
         error_codes = {item.get("code") for item in diagnostics if item.get("severity") == "error"}
         assert "notebook_navigation_not_allowed" in error_codes
+
+    def test_canvas_validation_allows_browser_terms_without_navigation(self) -> None:
+        diagnostics = validate_notebook_canvas_source(
+            "export default function Canvas() { return <div>Open document history</div> }",
+            [],
+        )
+
+        assert not [item for item in diagnostics if item.get("severity") == "error"]
 
     def test_canvas_runtime_blocks_navigation_before_generated_source(self) -> None:
         project = _source_project("export default function Canvas() { return <div /> }")
@@ -562,14 +562,47 @@ class TestWidgetData(APIBaseTest):
         assert result.frame["rows"] == [[52.5, "next"]]
         assert result.frame["nextOffset"] == 101
 
-    def test_removed_node_cannot_read_its_old_mapping(self) -> None:
+    def test_frame_pages_stay_on_the_run_selected_by_the_first_request(self) -> None:
+        first_run = self._run(value=1)
+        self._run(value=2)
+        self._mapping()
+
+        result = read_widget_frame(
+            notebook=self.notebook,
+            node_id=self.NODE_ID,
+            frame_name=self.INPUT_NAME,
+            authorize_run=lambda _run: None,
+            user=self.user,
+            run_id=first_run.id,
+        )
+
+        assert result.frame["runId"] == first_run.id
+        rows = result.frame["rows"]
+        assert isinstance(rows, list)
+        assert rows[0][0] == 1
+
+    def test_frame_rejects_pages_beyond_the_total_row_budget(self) -> None:
+        self._run()
+        self._mapping()
+
+        with self.assertRaises(WidgetError) as error:
+            read_widget_frame(
+                notebook=self.notebook,
+                node_id=self.NODE_ID,
+                frame_name=self.INPUT_NAME,
+                authorize_run=lambda _run: None,
+                user=self.user,
+                offset=5_000,
+            )
+
+        assert error.exception.code == "frame_row_limit"
+
+    def test_removed_node_keeps_its_mapping_but_cannot_read_data(self) -> None:
         self._run()
         self._mapping()
         self.notebook.content = markdown_content('<PythonV2 nodeId="source" returnVariable="locations_df" />')
         self.notebook.save(update_fields=["content"])
-        reconcile_widget_instances(self.notebook)
-
-        assert not NotebookWidgetInstance.objects.for_team(self.team.id).filter(notebook=self.notebook).exists()
+        assert NotebookWidgetInstance.objects.for_team(self.team.id).filter(notebook=self.notebook).exists()
 
         with self.assertRaises(WidgetError) as error:
             read_widget_frame(
@@ -609,24 +642,6 @@ class TestWidgetData(APIBaseTest):
         assert response.json()["lifecycle_status"] == "awaiting_generation"
         generate.assert_not_called()
 
-    def test_widget_catalog_uses_the_generated_title_and_links_to_a_notebook(self) -> None:
-        instance = self._mapping()
-        current_version = self._pinned_version(instance)
-        current_version.title = "Interactive location globe"
-        current_version.save(update_fields=["title"])
-
-        response = self.client.get(f"/api/projects/{self.team.id}/notebook_widgets/")
-
-        assert response.status_code == 200
-        widget = response.json()["results"][0]
-        assert widget["title"] == "Interactive location globe"
-        assert widget["notebook_short_id"] == self.notebook.short_id
-        assert widget["notebook_node_id"] == self.NODE_ID
-
-        search_response = self.client.get(f"/api/projects/{self.team.id}/notebook_widgets/", {"search": "location"})
-        assert search_response.status_code == 200
-        assert [result["id"] for result in search_response.json()["results"]] == [widget["id"]]
-
     def test_status_is_compact_and_history_is_paginated_separately(self) -> None:
         source_version_id = uuid4()
         instance = self._mapping()
@@ -651,7 +666,6 @@ class TestWidgetData(APIBaseTest):
         different_canvas_head = uuid4()
         state = CanvasGenerationState(
             current_source_version_id=different_canvas_head,
-            published_source_version_id=different_canvas_head,
             artifact_url="https://example.com/newer-widget.html",
             build_status="ready",
             build_error=None,
@@ -659,9 +673,6 @@ class TestWidgetData(APIBaseTest):
         history = [
             NotebookCanvasVersion(
                 id=source_version_id,
-                parent_version_id=None,
-                prompt="Make it lighter",
-                created_at=timezone.now(),
                 build_status="ready",
                 artifact_url="https://example.com/globe.html",
             )
@@ -764,32 +775,6 @@ class TestWidgetData(APIBaseTest):
         assert job.operation == GeneratedWidgetVersion.Operation.INITIAL
         start_workflow.assert_called_once_with(str(generation_id))
 
-    def test_new_widget_canvas_is_hidden_from_legacy_canvas_queries(self) -> None:
-        generation_id = uuid4()
-
-        with (
-            patch("products.notebooks.backend.widgets._is_ai_usage_limited", return_value=False),
-            patch("products.notebooks.backend.widgets.start_widget_generation_workflow"),
-            self.captureOnCommitCallbacks(execute=True),
-        ):
-            start_widget_generation(
-                notebook=self.notebook,
-                node_id=self.NODE_ID,
-                prompt="Render a globe",
-                user_id=self.user.id,
-                inspection=WidgetInputInspection(resolved_inputs=[]),
-                model="claude-sonnet-4-6",
-                generation_id=generation_id,
-                operation=GeneratedWidgetVersion.Operation.INITIAL,
-            )
-
-        widget = GeneratedWidget.objects.for_team(self.team.id).get(generation_jobs__id=generation_id)
-        assert update_notebook_canvas(
-            team_id=self.team.id,
-            canvas_id=widget.canvas_id,
-            context="Updated through the notebook-only Canvas boundary",
-        )
-
     def test_dispatch_failure_marks_the_job_failed(self) -> None:
         generation_id = uuid4()
 
@@ -816,6 +801,25 @@ class TestWidgetData(APIBaseTest):
         assert job.status == GeneratedWidgetGenerationJob.Status.FAILED
         assert job.error_code == "generation_dispatch_failed"
 
+    def test_generation_requires_ai_data_processing_approval(self) -> None:
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+
+        with self.assertRaises(WidgetError) as error:
+            start_widget_generation(
+                notebook=self.notebook,
+                node_id=self.NODE_ID,
+                prompt="Render a globe",
+                user_id=self.user.id,
+                inspection=WidgetInputInspection(resolved_inputs=[]),
+                model="claude-sonnet-4-6",
+                generation_id=uuid4(),
+                operation=GeneratedWidgetVersion.Operation.INITIAL,
+            )
+
+        assert error.exception.code == "ai_data_processing_not_approved"
+        assert not GeneratedWidgetGenerationJob.objects.for_team(self.team.id).exists()
+
     def test_generation_identifier_is_idempotent_and_payload_bound(self) -> None:
         generation_id = uuid4()
         instance = self._mapping()
@@ -835,7 +839,6 @@ class TestWidgetData(APIBaseTest):
         )
         state = CanvasGenerationState(
             current_source_version_id=current_version.canvas_source_version_id,
-            published_source_version_id=current_version.canvas_source_version_id,
             artifact_url="https://example.com/widget.html",
             build_status="ready",
             build_error=None,
@@ -912,23 +915,23 @@ class TestWidgetData(APIBaseTest):
             generator_version="4",
             created_by=self.user,
         )
-        source_edit = GeneratedWidgetVersion.objects.for_team(self.team.id).create(
+        latest_change = GeneratedWidgetVersion.objects.for_team(self.team.id).create(
             team_id=self.team.id,
             widget=instance.widget,
             canvas_source_version_id=uuid4(),
             parent_version=restored,
-            operation=GeneratedWidgetVersion.Operation.SOURCE_EDIT,
-            prompt_delta="Keep the hand-edited legend placement",
+            operation=GeneratedWidgetVersion.Operation.IMPROVE,
+            prompt_delta="Keep the legend placement",
             generator_version="4",
             created_by=self.user,
         )
 
         with self.assertNumQueries(2):
-            effective_prompt = _materialize_effective_prompt(source_edit)
+            effective_prompt = _materialize_effective_prompt(latest_change)
 
         assert "Render a globe" in effective_prompt
         assert "Make the globe lighter" in effective_prompt
-        assert "Keep the hand-edited legend placement" in effective_prompt
+        assert "Keep the legend placement" in effective_prompt
         assert "Replace the globe with a table" not in effective_prompt
         assert "Restored an earlier version" not in effective_prompt
 
@@ -939,42 +942,6 @@ class TestWidgetData(APIBaseTest):
         history = _extend_prompt_history([base, "o" * 20_000], newest)
 
         assert history == [base, newest]
-
-    def test_status_reconciles_an_abandoned_job(self) -> None:
-        instance = self._mapping()
-        current_version = self._pinned_version(instance)
-        job = GeneratedWidgetGenerationJob.objects.for_team(self.team.id).create(
-            team_id=self.team.id,
-            widget=instance.widget,
-            instance=instance,
-            requested_by=self.user,
-            operation=GeneratedWidgetVersion.Operation.IMPROVE,
-            prompt="Make it lighter",
-            model="claude-sonnet-4-6",
-            base_version=current_version,
-            input_contract=current_version.input_contract,
-            schema_hash="",
-        )
-        stale_at = timezone.now() - JOB_STALE_AFTER - timedelta(seconds=1)
-        GeneratedWidgetGenerationJob.objects.for_team(self.team.id).filter(id=job.id).update(created_at=stale_at)
-        state = CanvasGenerationState(
-            current_source_version_id=current_version.canvas_source_version_id,
-            published_source_version_id=current_version.canvas_source_version_id,
-            artifact_url="https://example.com/widget.html",
-            build_status="ready",
-            build_error=None,
-        )
-
-        with patch(
-            "products.canvas.backend.notebook_integration.get_canvas_generation_state",
-            return_value=state,
-        ):
-            result = get_widget_status(notebook=self.notebook, node_id=self.NODE_ID)
-
-        job.refresh_from_db()
-        assert result.active_job is None
-        assert job.status == GeneratedWidgetGenerationJob.Status.FAILED
-        assert job.error_code == "generation_abandoned"
 
     def test_generation_worker_locks_only_the_job_row(self) -> None:
         instance = self._mapping()
@@ -1001,6 +968,31 @@ class TestWidgetData(APIBaseTest):
         assert job.started_at is not None
         assert job.status == GeneratedWidgetGenerationJob.Status.FAILED
         assert job.error_code == "generation_failed"
+
+    def test_generation_worker_rechecks_ai_data_processing_approval(self) -> None:
+        instance = self._mapping()
+        job = GeneratedWidgetGenerationJob.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            widget=instance.widget,
+            instance=instance,
+            requested_by=self.user,
+            operation=GeneratedWidgetVersion.Operation.IMPROVE,
+            prompt="Make it lighter",
+            model="claude-sonnet-4-6",
+            base_version=instance.pinned_version,
+            input_contract=[],
+            schema_hash="",
+        )
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+
+        with patch("products.notebooks.backend.widget_generation.generate_widget_source") as generate:
+            run_widget_generation_job(job.id)
+
+        job.refresh_from_db()
+        generate.assert_not_called()
+        assert job.status == GeneratedWidgetGenerationJob.Status.FAILED
+        assert job.error_code == "ai_data_processing_not_approved"
 
     def test_cancel_endpoint_records_the_request(self) -> None:
         generation_id = uuid4()

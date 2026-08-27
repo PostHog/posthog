@@ -263,31 +263,19 @@ class NotebookNodeRun(TeamScopedRootMixin, UUIDModel):
 
 
 class GeneratedWidget(TeamScopedRootMixin, UUIDModel):
-    class Visibility(models.TextChoices):
-        PRIVATE = "private", "private"
-        TEAM = "team", "team"
-
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
     name = models.CharField(max_length=400)
-    description = models.TextField(blank=True, default="")
-    visibility = models.CharField(choices=Visibility, default=Visibility.PRIVATE, max_length=16)
     canvas_id = models.UUIDField(unique=True)
     current_version = models.ForeignKey(
         "notebooks.GeneratedWidgetVersion", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
     )
-    forked_from_version_id = models.UUIDField(null=True, blank=True)
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False
     )
     created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         db_table = "posthog_generated_widget"
-        indexes = [
-            models.Index(fields=["team", "-updated_at"], name="generated_widget_team_recent"),
-            models.Index(fields=["team", "created_by", "-updated_at"], name="generated_widget_owner_recent"),
-        ]
 
 
 class GeneratedWidgetVersion(TeamScopedRootMixin, UUIDModel):
@@ -295,7 +283,6 @@ class GeneratedWidgetVersion(TeamScopedRootMixin, UUIDModel):
         INITIAL = "initial", "initial"
         REGENERATE = "regenerate", "regenerate"
         IMPROVE = "improve", "improve"
-        SOURCE_EDIT = "source_edit", "source_edit"
         REVERT = "revert", "revert"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
@@ -332,15 +319,10 @@ class GeneratedWidgetVersion(TeamScopedRootMixin, UUIDModel):
 
 
 class NotebookWidgetInstance(TeamScopedRootMixin, UUIDModel):
-    class VersionPolicy(models.TextChoices):
-        PINNED = "pinned", "pinned"
-        FOLLOW_LATEST = "follow_latest", "follow_latest"
-
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
     notebook = models.ForeignKey("notebooks.Notebook", on_delete=models.CASCADE, related_name="widget_instances")
     node_id = models.CharField(max_length=128)
     widget = models.ForeignKey("notebooks.GeneratedWidget", on_delete=models.CASCADE, related_name="notebook_instances")
-    version_policy = models.CharField(choices=VersionPolicy, default=VersionPolicy.PINNED, max_length=16)
     pinned_version = models.ForeignKey(
         "notebooks.GeneratedWidgetVersion",
         on_delete=models.SET_NULL,
@@ -348,13 +330,10 @@ class NotebookWidgetInstance(TeamScopedRootMixin, UUIDModel):
         blank=True,
         related_name="pinned_instances",
     )
-    bindings: JSONField = JSONField(default=dict)
-    settings: JSONField = JSONField(default=dict)
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False
     )
     created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         db_table = "posthog_notebook_widget_instance"
@@ -362,9 +341,6 @@ class NotebookWidgetInstance(TeamScopedRootMixin, UUIDModel):
             models.UniqueConstraint(
                 fields=["team", "notebook", "node_id"], name="notebook_widget_instance_node_unique"
             ),
-        ]
-        indexes = [
-            models.Index(fields=["team", "widget", "-updated_at"], name="nb_widget_instance_recent"),
         ]
 
 
@@ -399,7 +375,6 @@ class GeneratedWidgetGenerationJob(TeamScopedRootMixin, UUIDModel):
     status = models.CharField(choices=Status, default=Status.QUEUED, max_length=16)
     phase = models.CharField(max_length=32, blank=True, default="queued")
     input_contract: JSONField = JSONField(default=list)
-    context_manifest: JSONField = JSONField(default=dict)
     schema_hash = models.CharField(max_length=64)
     error_code = models.CharField(max_length=64, null=True, blank=True)
     error_detail = models.TextField(null=True, blank=True)

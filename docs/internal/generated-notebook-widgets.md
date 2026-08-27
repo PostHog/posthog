@@ -3,12 +3,11 @@
 Notebooks can generate interactive widgets from instructions and the notebook's SQL and Python dataframe context.
 
 - Generation runs as a durable background job. The notebook shows its phase, elapsed time, cancellation, and terminal errors. Queued jobs stop immediately when canceled.
-- Successful source, concise generated titles, prompts, models, and dataframe contracts are stored as immutable versions.
-- People can inspect history, restore an earlier state as a new version, improve the current widget, regenerate it, or save a manual source edit.
-- Running a widget recalculates stale or incomplete upstream cells, reruns its direct dataframe producers, and reloads the preview after those runs finish.
-- The Notebooks **Widgets** tab lists reusable widget resources, version counts, and usage separately from their notebook placements. Titles and prompt fallbacks are searchable, and each widget links to its most recently updated notebook placement.
-- Notebook-managed Canvas artifacts use a restricted source policy and a legacy-hidden marker. They remain available through scoped artifact URLs but cannot be edited through the ordinary Canvas API.
+- Successful source, generated titles, prompts, models, and dataframe contracts are stored as immutable versions.
+- People can inspect history, restore an earlier version, improve the current widget, or regenerate it.
+- Every dataframe must have a completed run before generation. Each preview load pins permission-checked pages to one run and reads at most 5,000 rows without sending values to the model.
+- Notebook-managed Canvas artifacts use a restricted source policy. Signed artifact URLs can render them, but the ordinary Canvas API cannot list or edit them.
+- Organizations must approve AI data processing before a job is queued and when its worker starts.
+- Local artifact URLs use `CANVAS_ARTIFACT_SIGNING_KEYS` from `.env.development`.
 
 “Widget” is the umbrella term. Data visualizations are one possible widget type.
-
-Future reuse should offer **Add a copy** by default and **Link to shared widget** explicitly. Copies have independent history. Linked placements should pin a version by default and bind logical input slots to compatible frames in the destination notebook.

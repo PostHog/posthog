@@ -10,8 +10,7 @@ from uuid import UUID
 
 from django.core.cache import cache
 from django.db import transaction
-from django.db.models import Count, IntegerField, OuterRef, Q, QuerySet, Subquery, Value
-from django.db.models.functions import Coalesce
+from django.db.models import Q
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
@@ -46,11 +45,11 @@ MAX_COLUMNS = 100
 MAX_CELL_STRING_LENGTH = 4_096
 MAX_FRAME_BYTES = 512 * 1_024
 MAX_FRAME_PAGE_ROWS = 500
+MAX_FRAME_TOTAL_ROWS = 5_000
 MAX_GENERATIONS_PER_USER_PER_MINUTE = 5
 MAX_ACTIVE_GENERATIONS_PER_TEAM = 3
 JOB_STALE_AFTER = timedelta(minutes=10)
 GENERATION_CANCELLATION_TTL_SECONDS = 60 * 15
-MAX_NOTEBOOK_CONTEXT_LENGTH = 12_000
 MAX_SCHEMA_CONTEXT_BYTES = 64 * 1_024
 
 _INPUT_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -121,6 +120,7 @@ class WidgetVersionSummary:
     version: int
     operation: str
     prompt_delta: str
+    effective_prompt: str
     model: str | None
     created_at: datetime
     build_status: str | None
@@ -134,14 +134,6 @@ class WidgetVersionPage:
     results: list[WidgetVersionSummary]
     count: int
     next_offset: int | None
-
-
-@frozen
-class WidgetSource:
-    version_id: UUID
-    current_version_id: UUID
-    source: str
-    effective_prompt: str
 
 
 @frozen
@@ -183,7 +175,7 @@ def _widget_node_ids(content: object) -> set[str]:
     if markdown is not None:
         occurrences: dict[str, int] = {}
         for tag_name, raw, _next_line_index in _iter_markdown_component_blocks(markdown):
-            if tag_name not in {"GeneratedWidget", "GenUI"}:
+            if tag_name != "GeneratedWidget":
                 continue
             props = _parse_markdown_component_props(raw)
             fingerprint = _get_markdown_component_fingerprint(tag_name, props)
@@ -203,14 +195,6 @@ def assert_widget_node_exists(notebook: Notebook, node_id: str) -> None:
     if node_id in _widget_node_ids(notebook.content):
         return
     raise WidgetError("This generated widget is no longer in the notebook.", "node_not_found")
-
-
-def reconcile_widget_instances(notebook: Notebook) -> None:
-    node_ids = _widget_node_ids(notebook.content)
-    queryset = NotebookWidgetInstance.objects.for_team(notebook.team_id).filter(notebook=notebook)
-    if node_ids:
-        queryset = queryset.exclude(node_id__in=node_ids)
-    queryset.delete()
 
 
 def _dataframe_owners(notebook: Notebook) -> dict[str, str]:
@@ -255,7 +239,6 @@ def inspect_widget_inputs(
     inputs: list[str],
     authorize_run: Callable[[NotebookNodeRun], None],
     node_id: str | None = None,
-    require_all: bool = True,
 ) -> WidgetInputInspection:
     normalized_inputs = normalize_widget_inputs(inputs)
     if node_id is not None:
@@ -274,7 +257,7 @@ def inspect_widget_inputs(
     )
     runs = {run.node_id: run for run in run_queryset.defer("envelope")}
     unresolved = [name for name in normalized_inputs if owners[name] not in runs]
-    if unresolved and require_all:
+    if unresolved:
         raise WidgetConflictError(
             f'Run the cell that creates "{unresolved[0]}" before generating this widget.',
             "input_not_ready",
@@ -334,15 +317,6 @@ def _bounded_schema_context(contract: list[dict[str, object]]) -> list[dict[str,
             result.append(candidate)
             used_bytes += size
     return result
-
-
-def _context_manifest(notebook: Notebook, inspection: WidgetInputInspection) -> dict[str, object]:
-    markdown = _get_markdown_notebook_markdown(notebook.content) or ""
-    return {
-        "notebookContext": markdown[:MAX_NOTEBOOK_CONTEXT_LENGTH],
-        "frames": _bounded_schema_context(inspection.contract),
-        "frameNames": [item.name for item in inspection.resolved_inputs],
-    }
 
 
 def _check_generation_rate(team_id: int, user_id: int) -> None:
@@ -492,6 +466,11 @@ def start_widget_generation(
 ) -> WidgetStatus:
     assert_widget_node_exists(notebook, node_id)
     normalized_prompt = normalize_widget_prompt(prompt)
+    if not Team.objects.filter(id=notebook.team_id, organization__is_ai_data_processing_approved=True).exists():
+        raise WidgetError(
+            "Approve AI data processing in organization settings before generating widgets.",
+            "ai_data_processing_not_approved",
+        )
     existing_job = _get_existing_generation_job(generation_id)
     if existing_job is not None:
         _validate_generation_retry(
@@ -572,7 +551,6 @@ def start_widget_generation(
             model=model,
             base_version=base_version,
             input_contract=inspection.contract,
-            context_manifest=_context_manifest(notebook, inspection),
             schema_hash=inspection.schema_hash,
         )
         transaction.on_commit(lambda: _dispatch_widget_generation(job.id, notebook.team_id))
@@ -714,6 +692,7 @@ def run_widget_generation_job(job_id: UUID) -> None:
             .select_for_update(of=("self",))
             .select_related(
                 "team",
+                "team__organization",
                 "widget",
                 "instance",
                 "instance__notebook",
@@ -741,6 +720,21 @@ def run_widget_generation_job(job_id: UUID) -> None:
         _mark_job_failed(
             job.id, job.team_id, WidgetError("The user who started this job no longer exists.", "user_missing")
         )
+        return
+    if not job.team.organization.is_ai_data_processing_approved:
+        _mark_job_failed(
+            job.id,
+            job.team_id,
+            WidgetError(
+                "AI data processing approval was removed before generation started.",
+                "ai_data_processing_not_approved",
+            ),
+        )
+        return
+    try:
+        assert_widget_node_exists(job.instance.notebook, job.instance.node_id)
+    except WidgetError as error:
+        _mark_job_failed(job.id, job.team_id, error)
         return
     checked_at = 0.0
     durable_checked_at = 0.0
@@ -778,23 +772,21 @@ def run_widget_generation_job(job_id: UUID) -> None:
                 team_id=job.team_id,
                 canvas_id=job.widget.canvas_id,
                 version_id=job.base_version.canvas_source_version_id,
-            ).source
+            )
             change_prompt = job.prompt
             effective_prompt = _materialize_effective_prompt(job.base_version)
-        frames = job.context_manifest.get("frames") if isinstance(job.context_manifest, dict) else []
-        frame_names = job.context_manifest.get("frameNames") if isinstance(job.context_manifest, dict) else []
-        notebook_context = job.context_manifest.get("notebookContext") if isinstance(job.context_manifest, dict) else ""
+        frames = _bounded_schema_context(job.input_contract)
+        frame_names = [str(item.get("slot")) for item in job.input_contract if item.get("slot")]
         generated = generate_widget_source(
             team_id=job.team_id,
             trace_id=f"notebook-widget-{job.id}",
             prompt=effective_prompt,
-            schemas=frames if isinstance(frames, list) else [],
-            input_names=[str(name) for name in frame_names] if isinstance(frame_names, list) else [],
+            schemas=frames,
+            input_names=frame_names,
             model=job.model,
             is_cancelled=is_cancelled,
             base_source=base_source,
             change_prompt=change_prompt,
-            notebook_context=str(notebook_context),
         )
         source = generated.source
         title = generated.title or _display_name(effective_prompt)
@@ -846,7 +838,7 @@ def run_widget_generation_job(job_id: UUID) -> None:
             version = GeneratedWidgetVersion.objects.for_team(job.team_id).create(
                 team_id=job.team_id,
                 widget=widget,
-                canvas_source_version_id=publication.source_version_id,
+                canvas_source_version_id=publication,
                 parent_version=job.base_version,
                 title=title,
                 operation=job.operation,
@@ -860,9 +852,9 @@ def run_widget_generation_job(job_id: UUID) -> None:
             )
             widget.current_version = version
             widget.name = title
-            widget.save(update_fields=["current_version", "name", "updated_at"])
+            widget.save(update_fields=["current_version", "name"])
             instance.pinned_version = version
-            instance.save(update_fields=["pinned_version", "updated_at"])
+            instance.save(update_fields=["pinned_version"])
             locked_job.status = GeneratedWidgetGenerationJob.Status.COMPLETED
             locked_job.phase = "completed"
             locked_job.result_version = version
@@ -905,7 +897,6 @@ def run_widget_generation_job(job_id: UUID) -> None:
 
 
 def _latest_job(instance: NotebookWidgetInstance) -> GeneratedWidgetGenerationJob | None:
-    _fail_stale_generation_jobs(instance.team_id)
     job = (
         GeneratedWidgetGenerationJob.objects.for_team(instance.team_id)
         .filter(instance=instance)
@@ -952,11 +943,7 @@ def get_widget_status(*, notebook: Notebook, node_id: str) -> WidgetStatus:
         if job is not None and job.status in GeneratedWidgetGenerationJob.ACTIVE_STATUSES
         else None
     )
-    current_version = (
-        instance.widget.current_version
-        if instance.version_policy == NotebookWidgetInstance.VersionPolicy.FOLLOW_LATEST
-        else instance.pinned_version or instance.widget.current_version
-    )
+    current_version = instance.pinned_version or instance.widget.current_version
     if current_version is None:
         lifecycle = (
             "generating" if active_job is not None else "failed" if job and job.error_detail else "awaiting_generation"
@@ -1052,11 +1039,7 @@ def list_widget_versions(*, notebook: Notebook, node_id: str, offset: int = 0, l
         version_ids=[version.canvas_source_version_id for version in versions],
     )
     canvas_by_id = {version.id: version for version in canvas_versions}
-    current_id = (
-        instance.widget.current_version_id
-        if instance.version_policy == NotebookWidgetInstance.VersionPolicy.FOLLOW_LATEST
-        else instance.pinned_version_id or instance.widget.current_version_id
-    )
+    current_id = instance.pinned_version_id or instance.widget.current_version_id
     results: list[WidgetVersionSummary] = []
     for index, version in enumerate(versions):
         canvas_version = canvas_by_id.get(version.canvas_source_version_id)
@@ -1067,6 +1050,7 @@ def list_widget_versions(*, notebook: Notebook, node_id: str, offset: int = 0, l
                 version=count - (offset + index),
                 operation=version.operation,
                 prompt_delta=version.prompt_delta,
+                effective_prompt=_materialize_effective_prompt(version),
                 model=version.model or None,
                 created_at=version.created_at,
                 build_status=canvas_version.build_status if canvas_version is not None else None,
@@ -1108,113 +1092,6 @@ def _get_instance_and_version(
     return instance, version
 
 
-def get_widget_source(*, notebook: Notebook, node_id: str, version_id: UUID | None = None) -> WidgetSource:
-    from products.canvas.backend import (  # noqa: PLC0415 — keeps Canvas storage imports off notebook startup
-        notebook_integration as canvas_facade,
-    )
-
-    instance, version = _get_instance_and_version(notebook, node_id, version_id)
-    try:
-        result = canvas_facade.get_notebook_canvas_source(
-            team_id=notebook.team_id,
-            canvas_id=instance.widget.canvas_id,
-            version_id=version.canvas_source_version_id,
-        )
-    except canvas_facade.NotebookCanvasError as error:
-        raise WidgetError("The widget source is unavailable. Try again.", "source_unavailable") from error
-    current_version = instance.pinned_version or instance.widget.current_version
-    if current_version is None:
-        raise WidgetError("The widget version is unavailable.", "version_missing")
-    return WidgetSource(
-        version_id=version.id,
-        current_version_id=current_version.id,
-        source=result.source,
-        effective_prompt=_materialize_effective_prompt(version),
-    )
-
-
-def save_widget_source(
-    *,
-    notebook: Notebook,
-    node_id: str,
-    source: str,
-    prompt: str,
-    expected_current_version_id: UUID,
-    user_id: int,
-) -> WidgetStatus:
-    from products.canvas.backend import (  # noqa: PLC0415 — keeps Canvas storage imports off notebook startup
-        notebook_integration as canvas_facade,
-    )
-
-    note = normalize_widget_prompt(prompt)
-    instance, current_version = _get_instance_and_version(notebook, node_id, None)
-    if current_version.id != expected_current_version_id:
-        raise WidgetConflictError("This widget changed while you were editing it.", "source_conflict")
-    try:
-        prepared_source = canvas_facade.prepare_notebook_canvas_source(
-            team_id=notebook.team_id,
-            canvas_id=instance.widget.canvas_id,
-            user_id=user_id,
-            source=source,
-            input_names=[str(item.get("slot")) for item in current_version.input_contract if isinstance(item, dict)],
-            prompt=note,
-            name=instance.widget.name,
-            expected_current_version_id=current_version.canvas_source_version_id,
-        )
-    except canvas_facade.NotebookCanvasVersionConflictError as error:
-        raise WidgetConflictError("This widget changed while you were editing it.", "source_conflict") from error
-    except canvas_facade.NotebookCanvasSourceInvalidError as error:
-        raise WidgetError("The source uses an unsupported import, API, or dataframe.", "source_invalid") from error
-    except canvas_facade.NotebookCanvasBuildCapacityError as error:
-        raise WidgetRateLimitError("Widget build capacity is full. Try again shortly.", "build_capacity") from error
-    except canvas_facade.NotebookCanvasNotFoundError as error:
-        raise WidgetError("This widget is no longer available.", "widget_missing") from error
-    except canvas_facade.NotebookCanvasError as error:
-        raise WidgetError("The widget preview could not be updated. Try again.", "build_failed") from error
-    with transaction.atomic():
-        widget = GeneratedWidget.objects.for_team(notebook.team_id).select_for_update().get(id=instance.widget_id)
-        locked_instance = (
-            NotebookWidgetInstance.objects.for_team(notebook.team_id).select_for_update().get(id=instance.id)
-        )
-        if widget.current_version_id != current_version.id:
-            raise WidgetConflictError("This widget changed while you were editing it.", "source_conflict")
-        try:
-            publication = canvas_facade.publish_prepared_notebook_canvas_source(
-                team_id=notebook.team_id,
-                user_id=user_id,
-                prepared=prepared_source,
-            )
-        except canvas_facade.NotebookCanvasVersionConflictError as error:
-            raise WidgetConflictError("This widget changed while you were editing it.", "source_conflict") from error
-        except canvas_facade.NotebookCanvasSourceInvalidError as error:
-            raise WidgetError("The source uses an unsupported import, API, or dataframe.", "source_invalid") from error
-        except canvas_facade.NotebookCanvasBuildCapacityError as error:
-            raise WidgetRateLimitError("Widget build capacity is full. Try again shortly.", "build_capacity") from error
-        except canvas_facade.NotebookCanvasNotFoundError as error:
-            raise WidgetError("This widget is no longer available.", "widget_missing") from error
-        except canvas_facade.NotebookCanvasError as error:
-            raise WidgetError("The widget preview could not be updated. Try again.", "build_failed") from error
-        version = GeneratedWidgetVersion.objects.for_team(notebook.team_id).create(
-            team_id=notebook.team_id,
-            widget=widget,
-            canvas_source_version_id=publication.source_version_id,
-            parent_version=current_version,
-            title=current_version.title or widget.name,
-            operation=GeneratedWidgetVersion.Operation.SOURCE_EDIT,
-            prompt_delta=note,
-            prompt_history=_extend_prompt_history(_prompt_history(current_version), note),
-            generator_version=GENERATOR_VERSION,
-            input_contract=current_version.input_contract,
-            schema_hash=current_version.schema_hash,
-            created_by_id=user_id,
-        )
-        widget.current_version = version
-        widget.save(update_fields=["current_version", "updated_at"])
-        locked_instance.pinned_version = version
-        locked_instance.save(update_fields=["pinned_version", "updated_at"])
-    return get_widget_status(notebook=notebook, node_id=node_id)
-
-
 def revert_widget_version(
     *,
     notebook: Notebook,
@@ -1236,7 +1113,7 @@ def revert_widget_version(
             team_id=notebook.team_id,
             canvas_id=instance.widget.canvas_id,
             version_id=target.canvas_source_version_id,
-        ).source
+        )
         title = target.title or instance.widget.name
         prepared_source = canvas_facade.prepare_notebook_canvas_source(
             team_id=notebook.team_id,
@@ -1284,7 +1161,7 @@ def revert_widget_version(
         version = GeneratedWidgetVersion.objects.for_team(notebook.team_id).create(
             team_id=notebook.team_id,
             widget=widget,
-            canvas_source_version_id=publication.source_version_id,
+            canvas_source_version_id=publication,
             parent_version=current,
             reverted_from_version=target,
             title=title,
@@ -1298,9 +1175,9 @@ def revert_widget_version(
         )
         widget.current_version = version
         widget.name = title
-        widget.save(update_fields=["current_version", "name", "updated_at"])
+        widget.save(update_fields=["current_version", "name"])
         locked_instance.pinned_version = version
-        locked_instance.save(update_fields=["pinned_version", "updated_at"])
+        locked_instance.save(update_fields=["pinned_version"])
     return get_widget_status(notebook=notebook, node_id=node_id)
 
 
@@ -1313,11 +1190,29 @@ def _safe_cell(value: object) -> object:
         return value if math.isfinite(value) else None
     if isinstance(value, str):
         return value[:MAX_CELL_STRING_LENGTH]
-    return json.dumps(value, default=str, separators=(",", ":"))[:MAX_CELL_STRING_LENGTH]
+    return json.dumps(_bounded_json_value(value, [200]), default=str, separators=(",", ":"))[:MAX_CELL_STRING_LENGTH]
+
+
+def _bounded_json_value(value: object, budget: list[int], depth: int = 0) -> object:
+    if budget[0] <= 0 or depth >= 6:
+        return "…"
+    budget[0] -= 1
+    if value is None or isinstance(value, bool | int | float | str):
+        return _safe_cell(value)
+    if isinstance(value, list | tuple):
+        return [_bounded_json_value(item, budget, depth + 1) for item in value if budget[0] > 0]
+    if isinstance(value, dict):
+        result: dict[str, object] = {}
+        for key, item in value.items():
+            if budget[0] <= 0:
+                break
+            result[str(key)[:128]] = _bounded_json_value(item, budget, depth + 1)
+        return result
+    return str(value)[:MAX_CELL_STRING_LENGTH]
 
 
 def _bounded_rows(
-    *, name: str, columns: list[dict[str, str]], candidates: object, total_row_count: int, offset: int
+    *, name: str, run_id: UUID, columns: list[dict[str, str]], candidates: object, total_row_count: int, offset: int
 ) -> dict[str, object]:
     rows: list[list[object]] = []
     raw_rows = candidates if isinstance(candidates, list) else []
@@ -1336,16 +1231,18 @@ def _bounded_rows(
             break
         rows.append(row)
         used_bytes += row_size
-    next_offset = offset + len(rows) if offset + len(rows) < total_row_count and rows else None
+    end_offset = offset + len(rows)
+    next_offset = end_offset if end_offset < min(total_row_count, MAX_FRAME_TOTAL_ROWS) and rows else None
     return {
         "name": name,
+        "runId": run_id,
         "columns": columns,
         "rows": rows,
         "totalRowCount": total_row_count,
         "includedRowCount": len(rows),
         "offset": offset,
         "nextOffset": next_offset,
-        "truncated": next_offset is not None,
+        "truncated": end_offset < total_row_count,
     }
 
 
@@ -1357,6 +1254,7 @@ def read_widget_frame(
     authorize_run: Callable[[NotebookNodeRun], None],
     user: User | None,
     version_id: UUID | None = None,
+    run_id: UUID | None = None,
     offset: int = 0,
     limit: int = 100,
 ) -> WidgetFrameRead:
@@ -1372,16 +1270,12 @@ def read_widget_frame(
     node_id_for_frame = owners.get(source_name)
     if node_id_for_frame is None:
         raise WidgetConflictError(f'Dataframe "{source_name}" is no longer in this notebook.', "frame_missing")
-    run = (
-        NotebookNodeRun.objects.for_team(notebook.team_id)
-        .filter(
-            notebook=notebook,
-            node_id=node_id_for_frame,
-            status=NotebookNodeRun.Status.DONE,
-        )
-        .order_by("-created_at")
-        .first()
+    run_queryset = NotebookNodeRun.objects.for_team(notebook.team_id).filter(
+        notebook=notebook,
+        node_id=node_id_for_frame,
+        status=NotebookNodeRun.Status.DONE,
     )
+    run = run_queryset.filter(id=run_id).first() if run_id is not None else run_queryset.order_by("-created_at").first()
     if run is None:
         raise WidgetConflictError(f'Run the cell that creates "{source_name}" first.', "frame_not_ready")
     authorize_run(run)
@@ -1394,7 +1288,12 @@ def read_widget_frame(
             "frame_schema_changed",
         )
     total_row_count = _row_count_from_metadata(envelope.get("row_count"), envelope.get("first_page"))
-    page_limit = min(max(limit, 1), MAX_FRAME_PAGE_ROWS)
+    if offset >= MAX_FRAME_TOTAL_ROWS:
+        raise WidgetError(
+            f"Widget data is limited to {MAX_FRAME_TOTAL_ROWS:,} rows per dataframe.",
+            "frame_row_limit",
+        )
+    page_limit = min(max(limit, 1), MAX_FRAME_PAGE_ROWS, MAX_FRAME_TOTAL_ROWS - offset)
     first_page = envelope.get("first_page")
     candidates: object
     requested_end = min(offset + page_limit, total_row_count)
@@ -1414,49 +1313,10 @@ def read_widget_frame(
     return WidgetFrameRead(
         frame=_bounded_rows(
             name=frame_name,
+            run_id=run.id,
             columns=columns,
             candidates=candidates,
             total_row_count=total_row_count,
             offset=offset,
         )
     )
-
-
-def list_widgets(*, team_id: int, user_id: int, search: str = "") -> QuerySet[GeneratedWidget]:
-    recent_placement = (
-        NotebookWidgetInstance.objects.for_team(team_id).filter(widget_id=OuterRef("pk")).order_by("-updated_at")
-    )
-    placement_counts = (
-        NotebookWidgetInstance.objects.for_team(team_id)
-        .filter(widget_id=OuterRef("pk"))
-        .values("widget_id")
-        .annotate(total=Count("id"))
-        .values("total")
-    )
-    version_counts = (
-        GeneratedWidgetVersion.objects.for_team(team_id)
-        .filter(widget_id=OuterRef("pk"))
-        .values("widget_id")
-        .annotate(total=Count("id"))
-        .values("total")
-    )
-    queryset = (
-        GeneratedWidget.objects.for_team(team_id)
-        .filter(Q(visibility=GeneratedWidget.Visibility.TEAM) | Q(created_by_id=user_id), current_version__isnull=False)
-        .select_related("created_by", "current_version")
-        .annotate(
-            usage_count=Coalesce(Subquery(placement_counts, output_field=IntegerField()), Value(0)),
-            version_count=Coalesce(Subquery(version_counts, output_field=IntegerField()), Value(0)),
-            notebook_short_id=Subquery(recent_placement.values("notebook__short_id")[:1]),
-            notebook_node_id=Subquery(recent_placement.values("node_id")[:1]),
-        )
-        .order_by("-updated_at")
-    )
-    if search:
-        queryset = queryset.filter(
-            Q(name__icontains=search)
-            | Q(description__icontains=search)
-            | Q(current_version__title__icontains=search)
-            | Q(current_version__prompt_delta__icontains=search)
-        )
-    return queryset
