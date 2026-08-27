@@ -112,6 +112,7 @@ describe('dropUnactionableNetworkExceptions', () => {
         ['device is offline', NETWORK_ERROR_MESSAGES.offline, true],
         ['page was closing', NETWORK_ERROR_MESSAGES.navigating, true],
         ['an unexplained connection failure', NETWORK_ERROR_MESSAGES.network, false],
+        ['a request that ran long and then dropped', NETWORK_ERROR_MESSAGES.timeout, false],
     ])('given %s, drops the event: %s', (_desc, value, dropped) => {
         const event = exceptionWith(value)
         expect(dropUnactionableNetworkExceptions(event)).toBe(dropped ? null : event)

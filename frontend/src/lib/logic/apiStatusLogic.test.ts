@@ -144,4 +144,35 @@ describe('apiStatusLogic', () => {
             errorSpy.mockRestore()
         })
     })
+
+    describe('connectivity banner', () => {
+        // api.ts hands this listener a NetworkError whose message is no longer 'Failed to fetch', so the
+        // banner now depends on the reason alone. A wrong reason list would silently stop the banner.
+        it.each([
+            ['network', true],
+            ['offline', true],
+            ['navigating', false],
+            ['timeout', false],
+        ] as const)('given a %s failure, raises the banner: %s', async (reason, raised) => {
+            initKeaTests()
+            logic = apiStatusLogic()
+            logic.mount()
+
+            const errorSpy = jest.spyOn(lemonToast, 'error').mockReturnValue('toast-id')
+
+            // The banner sits behind a 50ms debounce breakpoint, and any response landing inside that
+            // window cancels the run. Wait out the preflight request that mounting fires, so the run
+            // under test is the only one in flight.
+            await expectLogic(logic).toDispatchActions(['onApiResponse'])
+
+            await expectLogic(logic, () => {
+                logic.actions.onApiResponse(undefined, new NetworkError(reason))
+            })
+                .delay(100)
+                .toFinishAllListeners()
+
+            expect(logic.values.internetConnectionIssue).toBe(raised)
+            errorSpy.mockRestore()
+        })
+    })
 })

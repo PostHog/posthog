@@ -394,6 +394,7 @@ describe('API helper', () => {
 
                 expect(error).toBeInstanceOf(NetworkError)
                 expect(error.reason).toBe('timeout')
+                expect(error.message).toBe('Network request failed: request timed out')
             } finally {
                 jest.useRealTimers()
             }

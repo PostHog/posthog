@@ -7517,23 +7517,24 @@ async function handleFetch(
     // before anything reacts, so the connectivity banner and telemetry see the same reason: this frame
     // still knows how long the request ran, which separates a real gateway/query timeout from a lost
     // connection. Anything else thrown by the fetcher stays an unclassified `ApiError`.
-    const isAbortError = !!error && (error as any).name === 'AbortError'
+    // One reading of the duration classifies the failure and reports it, so `failure_reason` and
+    // `duration` cannot straddle the threshold and disagree about whether the request timed out.
+    const durationMs = new Date().getTime() - startTime
+    const aborted = isAbortError(error)
     const networkError =
-        !isAbortError && error instanceof TypeError
-            ? new NetworkError(classifyNetworkFailure(new Date().getTime() - startTime), error)
-            : undefined
+        !aborted && error instanceof TypeError ? new NetworkError(classifyNetworkFailure(durationMs), error) : undefined
 
     apiStatusLogic.findMounted()?.actions.onApiResponse(response?.clone(), networkError ?? error)
 
     if (error || !response) {
-        if (isAbortError) {
+        if (aborted) {
             throw error
         }
         if (networkError) {
             captureClientRequestFailure({
                 pathname: requestPathname(url),
                 method,
-                duration: new Date().getTime() - startTime,
+                duration: durationMs,
                 status: 0,
                 is_shared_view: isSharedView(),
                 failure_reason: networkError.reason,
