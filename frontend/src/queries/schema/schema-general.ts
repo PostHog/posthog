@@ -9108,6 +9108,7 @@ export const externalDataSources = [
     'SideShift',
     'DuckLake',
     'Starburst',
+    'Trino',
     'Easybill',
     'Bexio',
     'Umami',

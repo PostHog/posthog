@@ -1330,6 +1330,7 @@ class ExternalDataSourceType(models.TextChoices):
     SIDESHIFT = "SideShift", "SideShift"
     DUCKLAKE = "DuckLake", "DuckLake"
     STARBURST = "Starburst", "Starburst"
+    TRINO = "Trino", "Trino"
     EASYBILL = "Easybill", "Easybill"
     BEXIO = "Bexio", "Bexio"
     UMAMI = "Umami", "Umami"
@@ -1411,6 +1412,7 @@ DIRECT_ENGINE_BY_SOURCE_TYPE: dict[str, str] = {
     ExternalDataSourceType.CLICKHOUSE: "clickhouse",
     ExternalDataSourceType.CLICKHOUSECLOUD: "clickhouse",
     ExternalDataSourceType.MOTHERDUCK: "motherduck",
+    ExternalDataSourceType.TRINO: "trino",
 }
 
 

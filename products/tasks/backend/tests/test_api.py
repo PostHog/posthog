@@ -11993,8 +11993,10 @@ class TestSandboxEnvironmentAPI(BaseTaskAPITest):
             self.base_url,
             {
                 "name": "Secret Env",
-                "network_access_level": "full",
-                "environment_variables": {"SECRET_KEY": "supersecret"},
+                "network_access_level": "custom",
+                "allowed_domains": ["example.com"],
+                "include_default_domains": True,
+                "environment_variables": {"SECRET_KEY": "supersecret", "API_TOKEN": "tok"},
             },
             format="json",
         )
@@ -12002,14 +12004,20 @@ class TestSandboxEnvironmentAPI(BaseTaskAPITest):
         data = response.json()
         self.assertNotIn("environment_variables", data)
         self.assertTrue(data["has_environment_variables"])
+        self.assertEqual(data["environment_variable_keys"], ["API_TOKEN", "SECRET_KEY"])
 
         detail = self.client.get(self.detail_url(data["id"])).json()
         self.assertNotIn("environment_variables", detail)
         self.assertTrue(detail["has_environment_variables"])
+        self.assertEqual(detail["environment_variable_keys"], ["API_TOKEN", "SECRET_KEY"])
 
-        list_data = self.client.get(self.base_url).json()
-        for env in list_data["results"]:
-            self.assertNotIn("environment_variables", env)
+        # The settings page edits an environment straight off the list, so a list row that
+        # omits these reads as an environment with nothing set however much was saved.
+        listed = next(env for env in self.client.get(self.base_url).json()["results"] if env["id"] == data["id"])
+        self.assertNotIn("environment_variables", listed)
+        self.assertTrue(listed["has_environment_variables"])
+        self.assertEqual(listed["environment_variable_keys"], ["API_TOKEN", "SECRET_KEY"])
+        self.assertTrue(listed["include_default_domains"])
 
     def test_has_environment_variables_false_when_empty(self):
         response = self.client.post(
@@ -12019,6 +12027,7 @@ class TestSandboxEnvironmentAPI(BaseTaskAPITest):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertFalse(response.json()["has_environment_variables"])
+        self.assertEqual(response.json()["environment_variable_keys"], [])
 
     def test_custom_with_defaults_merges_without_duplicates(self):
         response = self.client.post(

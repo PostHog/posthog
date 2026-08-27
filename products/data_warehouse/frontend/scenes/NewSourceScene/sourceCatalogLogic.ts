@@ -1341,6 +1341,7 @@ export interface sourceCatalogLogicMeta {
                       | 'Trello'
                       | 'Tremendous'
                       | 'TriggerDev'
+                      | 'Trino'
                       | 'TripleWhale'
                       | 'TrunkIo'
                       | 'TrustPilot'

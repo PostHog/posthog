@@ -1005,6 +1005,19 @@ jobs:
                       exit $exit_code
                   fi
 
+            # Excluded reports bypass Trunk quarantine, so this step owns their verdict.
+            - name: Prepare product JUnit for Trunk
+              id: prepare_product_junit
+              if: always()
+              shell: bash
+              env:
+                  PRODUCT_FILTERS: ${{ matrix.filters }}
+              run: |
+                  bash .github/scripts/prepare-product-junit-for-trunk.sh \
+                      trunk-junit \
+                      "$PRODUCT_FILTERS" \
+                      products/warehouse_sources/junit-product.xml
+
             # Best-effort Trunk upload (continue-on-error); the "Fail on test failure" step below is
             # the verdict, so a Trunk outage can't red a passing shard. Internal PRs only (needs the
             # secret).
@@ -1018,7 +1031,7 @@ jobs:
               if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
               uses: ./.github/actions/trunk-quarantine-gate
               with:
-                  junit-paths: products/*/junit-product.xml
+                  junit-paths: trunk-junit/junit-product-*.xml
                   previous-step-outcome: ${{ steps.run-product-tests.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
 
@@ -1026,7 +1039,7 @@ jobs:
             # also covers the skipped gate on fork/Dependabot. Sits before the timing-data upload so
             # a real failure still skips it, as it did before the test step got continue-on-error.
             - name: Fail on test failure
-              if: ${{ !cancelled() && steps.run-product-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate.outcome != 'success') }}
+              if: ${{ !cancelled() && (steps.prepare_product_junit.outcome == 'failure' || (steps.run-product-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate.outcome != 'success'))) }}
               shell: bash
               run: exit 1
 
