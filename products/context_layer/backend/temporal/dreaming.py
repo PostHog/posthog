@@ -232,7 +232,11 @@ def _build_dream_prompt(since: dt.datetime | None) -> str:
     """The activity window this dream should review, then the canonical skills:
     synthesis first, then the bounded consolidation pass on the same branch."""
     if since is None:
-        preamble = "This is the first dream: review the last 7 days of organizational activity."
+        preamble = (
+            "This is the first dream: review the last 7 days of organizational activity. "
+            "Treat this as a seed run: prioritize public Space pages that still have no substantive content, "
+            "and fill them only when their channels have qualifying activity in the seed window."
+        )
     else:
         since_utc = since.astimezone(dt.UTC)
         recovery_cutoff = since_utc - COMPLETED_TASK_RECOVERY_WINDOW

@@ -18,7 +18,14 @@ from products.context_layer.backend.temporal import dreaming
 class TestDreamPrompt(SimpleTestCase):
     @parameterized.expand(
         [
-            (None, "This is the first dream: review the last 7 days of organizational activity."),
+            (
+                None,
+                (
+                    "This is the first dream: review the last 7 days of organizational activity. "
+                    "Treat this as a seed run: prioritize public Space pages that still have no substantive content, "
+                    "and fill them only when their channels have qualifying activity in the seed window."
+                ),
+            ),
             (
                 datetime(2026, 8, 20, 3, 0, tzinfo=UTC),
                 (
@@ -31,6 +38,20 @@ class TestDreamPrompt(SimpleTestCase):
     )
     def test_activity_window(self, last_dream_started_at, expected_preamble) -> None:
         assert dreaming._build_dream_prompt(last_dream_started_at).startswith(expected_preamble)
+
+    def test_dream_prompt_carries_both_skills_without_frontmatter(self) -> None:
+        prompt = dreaming._build_dream_prompt(None)
+        assert "# Context layer dreaming" in prompt
+        assert "# Context layer consolidation" in prompt
+        assert "channel-list" in prompt
+        assert "channel-instructions-retrieve" not in prompt
+        assert "A queued, running, test, demo, fixture, or abandoned task is not evidence" in prompt
+        assert "never edit, delete, move, or replace them" in prompt
+        assert "The server scaffolds every public Space and regenerates its indexes" in prompt
+        assert "Do not impose a fixed item cap" in prompt
+        assert "next_cursor" in prompt
+        assert "offset" in prompt
+        assert "name: context-layer-dreaming" not in prompt
 
 
 class TestDreamingLane(BaseTest):
@@ -103,17 +124,6 @@ class TestDreamingLane(BaseTest):
         assert prepared.team_id == self.team.id
         assert prepared.user_id == self.user.id
 
-    def test_dream_prompt_carries_both_skills_without_frontmatter(self) -> None:
-        prompt = dreaming._build_dream_prompt(None)
-        assert "# Context layer dreaming" in prompt
-        assert "# Context layer consolidation" in prompt
-        assert "channel-list" in prompt
-        assert "channel-instructions-retrieve" not in prompt
-        assert "A queued, running, test, demo, fixture, or abandoned task is not evidence" in prompt
-        assert "never edit, delete, move, or replace them" in prompt
-        assert "The server scaffolds every public Space and regenerates its indexes" in prompt
-        assert "name: context-layer-dreaming" not in prompt
-
     def test_dispatch_prompt_carries_the_activity_window(self) -> None:
         config = self._config()
         target = dreaming._DreamDispatchTarget(config=config, team_id=self.team.id, user_id=self.user.id)
@@ -136,7 +146,9 @@ class TestDreamingLane(BaseTest):
         assert context.reasoning_effort == "high"
         assert context.initial_permission_mode == "bypassPermissions"
         prompt = trigger_mock.call_args.args[0]
-        assert prompt.startswith("This is the first dream: review the last 7 days of organizational activity.")
+        assert prompt.startswith(
+            "This is the first dream: review the last 7 days of organizational activity. Treat this as a seed run:"
+        )
         assert "# Context layer dreaming" in prompt
 
     def test_admin_unpause_action_leaves_the_streak_alone(self) -> None:
