@@ -400,7 +400,7 @@ fn check_stall() {
 }
 ```
 
-**Offset ledger — contiguity as a structure.** Today the committable point is emergent — oldest-first completion plus the all-accepted check, verified after the fact by the commit sentinel (§2.2–§2.3). Here it is constructed: polls deliver a partition's offsets in order, so the ledger is a dense ring over one contiguous offset range, and every operation is O(1) amortized per message. Its length is the partition's share of uncommitted work, bounded by the `B` gate.
+**Offset ledger — contiguity as a structure.** Today the committable point is emergent — oldest-first completion plus the all-accepted check, verified after the fact by the commit sentinel (§2.2–§2.3). Here it is constructed: polls deliver a partition's offsets in order, so the ledger is a dense ring over one contiguous offset range, and every operation is O(1) amortized per message. Completion, by contrast, arrives in **any order** — keys interleave in the partition and resolve independently, so a later request's offsets (say 4, 5, 6) may settle before an earlier one's (1, 2, 3): the late slots go done above the gap and nothing advances; when the earlier work lands, one advance walks over all of it. Only the frontier is ordered; completion never is. The ring's length is the partition's share of uncommitted work, bounded by the `B` gate.
 
 ```rust
 // Owned by its partition driver; knows offsets and charges, nothing else.
@@ -416,22 +416,26 @@ struct Slot {
 
 fn add_pending(msgs) -> Charge {             // in offset order, so appending keeps the
     for m in msgs {                          //   ring dense — no map, no search
-        slots.push_back(Slot { done: false, charge: m.charge })
-    }
+        while base + slots.len() < m.offset {        // an offset gap (transaction control
+            slots.push_back(Slot { done: true, charge: 0 })      //   records) gets pre-done
+        }                                    //   zero-charge filler: the frontier walks
+        slots.push_back(Slot { done: false, charge: m.charge })  //   over it like anything
+    }                                        //   else, and the index math stays honest
     msgs.charge()                            // the debit for B — measured by the same
 }                                            //   slots that later refund it (§8.2)
 
 fn complete(offsets) -> Option<(Offset, Charge)> {
     for o in offsets {                       // a group's offsets are any subset of the
-        slots[o - base].done = true          //   ring (keys interleave in the partition):
-    }                                        //   index arithmetic, O(1) per offset
+        slots[o - base].done = true          //   ring, completing in ANY order across
+    }                                        //   requests: index arithmetic, O(1) each
     let mut charge = 0;                      // then pop the done prefix in the same call —
     while slots.front().is_done() {          //   marking and advancing are never separate
         charge += slots.pop_front().charge;  //   steps; what the frontier walked over is
         base += 1;                           //   exactly the newly committable span
     }
-    (charge > 0).then(|| (base - 1, charge))
-}
+    (charge > 0).then(|| (base - 1, charge)) // None: the front is still in flight — this
+}                                            //   completion sits done above the gap until
+                                             //   the earlier work lands
 
 fn frontier() -> Offset { base - 1 }         // highest contiguous completed offset (§8)
 
