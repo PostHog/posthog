@@ -125,14 +125,14 @@ export function SpendLimitsSettingsView({
       title="Spend limits"
       description={
         stopAvailable
-          ? "A warning line notifies you. A stop line pauses new agent messages until you raise or clear it, and a turn already running always plays out. Lines count model spend, not sandbox compute."
-          : "A warning line notifies you when spend passes it, and a turn already running always plays out. Lines count model spend, not sandbox compute."
+          ? "A warning line notifies you; a stop line pauses new agent messages until you raise or clear it, and a turn already running always plays out; lines count model spend, not sandbox compute"
+          : "A warning line notifies you when spend passes it, and a turn already running always plays out; lines count model spend, not sandbox compute"
       }
     >
       <SpendLimitCard
         scope="day"
         title="Per day"
-        description="Counts every task you run in a day, and resets at midnight UTC."
+        description="Counts every task you run in a day, and resets at midnight UTC"
         spentUsd={totals?.todayUsd ?? null}
         soFarLabel="today"
         markerUsd={avgUsd}
@@ -153,8 +153,8 @@ export function SpendLimitsSettingsView({
         title="Per month"
         description={
           stopAvailable
-            ? "Counts 30 days of model spend, and restarts once the window runs out."
-            : "Counts the whole calendar month, and resets on the first."
+            ? "Counts 30 days of model spend, and restarts once the window runs out"
+            : "Counts the whole calendar month, and resets on the first"
         }
         spentUsd={totals?.monthUsd ?? null}
         soFarLabel="this month"
