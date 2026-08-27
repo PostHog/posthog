@@ -6,19 +6,19 @@
             "type": "string"
         },
         "dashboard": {
-            "description": "Filter by dashboard ID. Includes AI report subscriptions anchored to the dashboard.",
+            "description": "Filter by dashboard ID. Includes AI reports using the dashboard as context.",
             "type": "number"
         },
         "dashboard_tiles": {
-            "description": "Filter to subscriptions on insights that are tiles of the given dashboard ID. Includes AI report subscriptions anchored to one of those insights.",
+            "description": "Filter to subscriptions on insights that are tiles of the given dashboard ID. Includes AI report subscriptions using one of those insights as context.",
             "type": "number"
         },
         "insight": {
-            "description": "Filter by insight ID. Includes AI report subscriptions anchored to the insight.",
+            "description": "Filter by insight ID. Includes AI report subscriptions using the insight as context.",
             "type": "number"
         },
         "insights": {
-            "description": "Filter by a comma-separated list of insight IDs. Includes AI report subscriptions anchored to one of them.",
+            "description": "Filter by a comma-separated list of insight IDs. Includes AI reports using one as context.",
             "type": "string"
         },
         "limit": {

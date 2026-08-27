@@ -45,28 +45,6 @@
             },
             "type": "object"
         },
-        "anchor_dashboard": {
-            "anyOf": [
-                {
-                    "type": "number"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "AI report subscriptions only: dashboard whose insights ground the generated report (usually the dashboard the subscription was created from). The report may still draw on the whole project. Mutually exclusive with anchor_insight."
-        },
-        "anchor_insight": {
-            "anyOf": [
-                {
-                    "type": "number"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "AI report subscriptions only: insight that grounds the generated report. The report may still draw on the whole project. Mutually exclusive with anchor_dashboard."
-        },
         "bysetpos": {
             "anyOf": [
                 {
@@ -95,6 +73,20 @@
                 }
             ],
             "description": "Days of week for daily or weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday."
+        },
+        "context_dashboards": {
+            "description": "AI report subscriptions only: dashboard IDs whose insights ground the generated report. Combined with context_insights, at most 25 context items are allowed.",
+            "items": {
+                "type": "number"
+            },
+            "type": "array"
+        },
+        "context_insights": {
+            "description": "AI report subscriptions only: insight IDs that ground the generated report. Combined with context_dashboards, at most 25 context items are allowed.",
+            "items": {
+                "type": "number"
+            },
+            "type": "array"
         },
         "count": {
             "anyOf": [
