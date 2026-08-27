@@ -38,6 +38,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.api.cohort import CohortSerializer, get_active_flags_using_cohort
 from posthog.api.utils import ServiceRequest
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.errors import CHQueryErrorTableIsReadOnly
 from posthog.event_usage import EventSource, report_user_action
 from posthog.exceptions import (
     ClickHouseEstimatedQueryExecutionTimeTooLong,
@@ -170,6 +171,12 @@ FREEZE_EXPOSURE_RESOLVE_CONCURRENCY = 4
 # Shared by snapshot creation and cleanup: cleanup only touches cohorts carrying this prefix, so a
 # cohort id stamped into the (user-editable) flag filters can't point it at an arbitrary cohort.
 FREEZE_EXPOSURE_SNAPSHOT_NAME_PREFIX = "Exposure snapshot for experiment "
+# A replica went read-only (dropped its Keeper session); it self-heals in minutes. Both freeze
+# ClickHouse steps map it to this retryable message, kept distinct from the "too much data" wording,
+# which would wrongly tell the user a transient fault is a permanent product limit.
+FREEZE_EXPOSURE_READONLY_MESSAGE = (
+    "The analytics database is temporarily unavailable. Please try freezing again in a few minutes."
+)
 
 # Auto-saved sample-size estimate, not a user edit: skip the "experiment updated" event.
 RUNNING_TIME_ONLY_CHANGED_FIELDS = ["running_time_calculation"]
@@ -2516,6 +2523,8 @@ class ExperimentService:
                     # clamp so our explicit LIMIT (cap + 1) is what actually runs.
                     limit_context=LimitContext.COHORT_CALCULATION,
                 )
+        except CHQueryErrorTableIsReadOnly:
+            raise ValidationError(FREEZE_EXPOSURE_READONLY_MESSAGE)
         except (
             ClickHouseQueryTimeOut,
             ClickHouseQueryMemoryLimitExceeded,
@@ -2601,10 +2610,12 @@ class ExperimentService:
             cohort.insert_users_list_by_id_uuid_pairs_skip_validation(
                 id_uuid_pairs, team_id=self.team.id, raise_on_error=True
             )
-        except Exception:
+        except Exception as e:
             # The cohort row exists but isn't referenced by anything yet — drop it so a failed
             # population doesn't leave an empty static cohort behind.
             cohort.delete()
+            if isinstance(e, CHQueryErrorTableIsReadOnly):
+                raise ValidationError(FREEZE_EXPOSURE_READONLY_MESSAGE)
             raise
         return cohort
 
