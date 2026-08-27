@@ -573,7 +573,7 @@
          "posthog_taggeditem"."ticket_id",
          "posthog_taggeditem"."account_id",
          "posthog_taggeditem"."endpoint_id",
-         "posthog_taggeditem"."replay_scanner_id",,
+         "posthog_taggeditem"."replay_scanner_id",
          "posthog_taggeditem"."experiment_id",
          "posthog_tag"."id",
          "posthog_tag"."name",
