@@ -705,7 +705,7 @@ async function expectLocatorToMatchStorySnapshot(
     theme: SnapshotTheme,
     options?: LocatorScreenshotOptions
 ): Promise<void> {
-    const image = await locator.screenshot({ ...options })
+    const image = await takeSnapshotImage(locator, context, options)
     let customSnapshotIdentifier = `${context.id}--${theme}`
     if (browser !== 'chromium') {
         customSnapshotIdentifier += `--${browser}`
@@ -721,6 +721,31 @@ async function expectLocatorToMatchStorySnapshot(
         failureThreshold: 0.01,
         failureThresholdType: 'percent',
     })
+}
+
+/**
+ * Screenshot the snapshot target, naming the one cause Playwright reports opaquely: a story that
+ * renders nothing. `#storybook-root` is `display: inline-block` here, so an empty render collapses it
+ * to zero size, and all Playwright says - after a full 10s wait, three times over - is "element is not
+ * visible".
+ */
+async function takeSnapshotImage(
+    locator: Locator | Page,
+    context: TestContext,
+    options?: LocatorScreenshotOptions
+): Promise<Buffer> {
+    try {
+        return await locator.screenshot({ ...options })
+    } catch (error) {
+        const box = 'boundingBox' in locator ? await locator.boundingBox().catch(() => null) : null
+        if (box && !box.width && !box.height) {
+            throw new Error(
+                `Story "${context.id}" rendered nothing, so there is no screenshot to take. ` +
+                    `Wrap it in a decorator that gives the snapshot a sized box, or tag it 'test-skip'.`
+            )
+        }
+        throw error
+    }
 }
 
 /**

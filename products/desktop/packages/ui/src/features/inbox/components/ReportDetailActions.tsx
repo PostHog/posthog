@@ -1,6 +1,5 @@
 import {
   ArrowSquareOutIcon,
-  ChatCircleIcon,
   ClockIcon,
   CopyIcon,
   DotsThreeIcon,
@@ -27,6 +26,7 @@ import type { SignalReport } from "@posthog/shared/types";
 import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
 import { RefundReportDialog } from "@posthog/ui/features/inbox/components/RefundReportDialog";
+import { ReportChatToggle } from "@posthog/ui/features/inbox/components/ReportChatToggle";
 import { useCreateCanvasReport } from "@posthog/ui/features/inbox/hooks/useCreateCanvasReport";
 import { useInboxBulkActions } from "@posthog/ui/features/inbox/hooks/useInboxBulkActions";
 import { useRefundReport } from "@posthog/ui/features/inbox/hooks/useRefundReport";
@@ -63,7 +63,6 @@ export function ReportDetailActions({
 
   const fireAction = useReportActionTracker(report);
   const setChatOpen = useReportChatPanelStore((s) => s.setOpen);
-  const chatOpen = useReportChatPanelStore((s) => s.open);
 
   // Canvases started from a report file into the report's space, or #general
   // when the report has none — a task without a channel shows in no space's
@@ -196,18 +195,7 @@ export function ReportDetailActions({
     return (
       <>
         {githubButton}
-        {!chatOpen && (
-          <Button
-            type="button"
-            variant="primary"
-            size="xs"
-            className={HEADER_ACTION_CLASS}
-            onClick={() => setChatOpen(true)}
-          >
-            <ChatCircleIcon size={14} />
-            Chat with this report
-          </Button>
-        )}
+        <ReportChatToggle report={report} />
         {canDefer && (
           <Tooltip>
             <TooltipTrigger

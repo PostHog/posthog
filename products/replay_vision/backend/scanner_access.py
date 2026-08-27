@@ -13,8 +13,8 @@ from django.db.models import Q
 from rest_framework.exceptions import NotFound, PermissionDenied
 
 from posthog.models.team import Team
-from posthog.rbac.user_access_control import UserAccessControl
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.experiments.backend.models.experiment import Experiment
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 

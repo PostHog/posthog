@@ -5,20 +5,32 @@ import pytest
 
 import numpy as np
 import pandas as pd
+import dagster
 import xgboost as xgb
+from botocore.exceptions import ClientError
+
+from posthog import settings
 
 from products.signals.backend.ranking.features import FEATURE_NAMES, feature_frame, feature_vector
 from products.signals.backend.ranking.model_store import champion_object_key, model_object_key
-from products.signals.dags.inbox_ranking.training.dag import snapshot_dates
+from products.signals.dags.inbox_ranking.dataset.dag import LABELS_TABLE, STATE_TABLE
+from products.signals.dags.inbox_ranking.training.dag import (
+    _delete_other_objects,
+    inbox_ranking_training_examples,
+    load_snapshots,
+    snapshot_dates,
+)
 from products.signals.dags.inbox_ranking.training.examples import (
     EXAMPLE_COLUMNS,
+    STATE_LAG_LIMIT,
     Snapshot,
+    assemble_snapshot,
     build_examples,
     holdout_mask,
 )
-from products.signals.dags.inbox_ranking.training.heads import HEADS_BY_NAME
+from products.signals.dags.inbox_ranking.training.heads import HEADS_BY_NAME, dismissed_as_wrong
 from products.signals.dags.inbox_ranking.training.promotion import AUC_TOLERANCE, decide_promotion
-from products.signals.dags.inbox_ranking.training.train import _head_readable, train_head
+from products.signals.dags.inbox_ranking.training.train import _head_readable, booster_holdout_auc, train_head
 
 D0 = datetime.date(2026, 8, 10)
 NOW = datetime.datetime(2026, 8, 20, tzinfo=datetime.UTC)
@@ -96,9 +108,14 @@ def test_build_examples_is_a_scoring_moment_with_a_future_label():
     later = D0 + datetime.timedelta(days=open_head.horizon_days)
     ids = ["a", "b", "c", "d"]
     snapshots = {
-        # a: not opened at D0, opened by D0+3 -> positive; b: already opened at D0 -> excluded;
-        # c: never opened -> negative; d: never impressed -> outside the cohort.
-        D0: Snapshot(date=D0, state=_state(ids), labels=_labels(ids, open_count=[0, 1, 0, 0])),
+        # a: not yet impressed or opened at D0, impressed and opened by D0+3 -> positive;
+        # b: already opened at D0 -> excluded; c: never opened -> negative;
+        # d: never impressed -> outside the cohort.
+        D0: Snapshot(
+            date=D0,
+            state=_state(ids),
+            labels=_labels(ids, open_count=[0, 1, 0, 0], impression_unit_count=[0, 1, 1, 0]),
+        ),
         later: Snapshot(
             date=later,
             state=_state(ids),
@@ -112,6 +129,73 @@ def test_build_examples_is_a_scoring_moment_with_a_future_label():
     assert examples.set_index("report_id")["label"].to_dict() == {"a": 1, "c": 0}
     assert (examples["snapshot_date"] == D0).all()
     assert (examples["age_hours"] == 12.0).all()
+
+
+def test_assemble_snapshot_makes_never_labeled_reports_negatives_and_drops_untrusted_status_rows():
+    head = HEADS_BY_NAME["pr_created"]
+    later = D0 + datetime.timedelta(days=head.horizon_days)
+    ids = ["a", "b", "c", "gone"]
+    # a: status telemetry names another tenant -> provenance fails; b: no label row at all;
+    # c: trusted, dismissed as wrong by the horizon; gone: hard-deleted before the horizon, so the
+    # later snapshot has its label row but no state row.
+    state = _state(
+        ids,
+        report_team_id=[1, 1, 1, 1],
+        status=["ready"] * 4,
+        pg_updated_at=[pd.Timestamp("2026-08-09T12:00:00Z")] * 4,
+    )
+    labels_now = _labels(["a", "c"], latest_status_event=["suppressed", None], status_event_team_id=[99, None])
+    labels_later = _labels(
+        ["a", "c", "gone"],
+        latest_status_event=["suppressed", "suppressed", None],
+        status_event_team_id=[99, 1, None],
+        wrong_dismissal_count=[1, 1, 0],
+        pr_created_count=[0, 1, 1],
+    )
+    state_later = state.drop("gone").assign(status=["ready", "ready", "suppressed"])
+    snapshots = {
+        D0: assemble_snapshot(D0, state, labels_now),
+        later: assemble_snapshot(later, state_later, labels_later),
+    }
+
+    assert snapshots[D0].labels.loc["b", "impression_unit_count"] == 0
+    assert snapshots[D0].labels["label_provenance_ok"].to_dict() == {"a": False, "b": True, "c": True, "gone": True}
+    assert snapshots[later].labels["label_provenance_ok"].to_dict() == {"a": False, "b": True, "c": True, "gone": False}
+    # pr_created reads the tasks webhook, so a's untrusted status telemetry does not exclude it there.
+    pr = build_examples(snapshots, head).set_index("report_id")["label"].to_dict()
+    assert pr == {"a": 0, "b": 0, "c": 1, "gone": 1}
+    # dismiss_wrong reads the status stream: a is dropped, b was never impressed, c is a positive.
+    wrong = build_examples(snapshots, HEADS_BY_NAME["dismiss_wrong"]).set_index("report_id")["label"].to_dict()
+    assert wrong == {"c": 1}
+
+
+def test_build_examples_drops_state_rows_read_long_after_their_snapshot():
+    head = HEADS_BY_NAME["pr_created"]
+    later = D0 + datetime.timedelta(days=head.horizon_days)
+    forward_run = pd.Timestamp(D0 + datetime.timedelta(days=1), tz="UTC") + pd.Timedelta(hours=3)
+    backfill = pd.Timestamp(D0 + datetime.timedelta(days=1), tz="UTC") + STATE_LAG_LIMIT + pd.Timedelta(hours=1)
+    state = _state(["a", "b"], features_observed_at=[forward_run, backfill])
+    snapshots = {
+        D0: Snapshot(date=D0, state=state, labels=_labels(["a", "b"])),
+        later: Snapshot(date=later, state=state, labels=_labels(["a", "b"])),
+    }
+    assert build_examples(snapshots, head)["report_id"].tolist() == ["a"]
+
+
+@pytest.mark.parametrize(
+    "frame,expected",
+    [
+        # The cumulative count wins: a wrong dismissal later overwritten by already_fixed stays positive.
+        (
+            pd.DataFrame({"wrong_dismissal_count": [1, 0], "dismissal_reason": ["already_fixed", "analysis_wrong"]}),
+            [True, False],
+        ),
+        # Partitions written before the count existed fall back to the latest-wins reason.
+        (pd.DataFrame({"dismissal_reason": ["already_fixed", "analysis_wrong"]}), [False, True]),
+    ],
+)
+def test_dismissed_as_wrong_prefers_the_cumulative_count(frame, expected):
+    assert dismissed_as_wrong(frame).tolist() == expected
 
 
 def test_build_examples_skips_label_only_rows():
@@ -168,6 +252,16 @@ def test_train_head_learns_a_separable_signal_and_names_its_features():
     booster = xgb.Booster()
     booster.load_model(bytearray(trained.booster_ubj))
     assert booster.feature_names == list(FEATURE_NAMES)
+    # The saved holdout fit graded on the same rows must reproduce the stored metric: this is the
+    # path the champion gate uses to compare two models on one holdout.
+    assert trained.holdout_booster_ubj is not None
+    paired = booster_holdout_auc(trained.holdout_booster_ubj, examples, head, holdout_days=7)
+    assert paired == pytest.approx(trained.metrics.holdout_auc, abs=1e-6)
+    # A booster from another feature schema is not scorable on these examples: the gate must fall
+    # back to the stored AUC instead of failing the champion asset every day.
+    other_schema = xgb.XGBClassifier(n_estimators=2).fit(pd.DataFrame({"not_a_feature": [0, 1, 0, 1]}), [0, 1, 0, 1])
+    other_ubj = bytes(other_schema.get_booster().save_raw("ubj"))
+    assert booster_holdout_auc(other_ubj, examples, head, holdout_days=7) is None
 
 
 def test_train_head_returns_none_without_both_classes():
@@ -253,6 +347,60 @@ def test_decide_promotion(candidate, champion, expected_promote, reason_fragment
     decision = decide_promotion(candidate, champion, now=NOW, min_days_between=3)
     assert decision.promote is expected_promote
     assert reason_fragment in decision.reason
+
+
+def test_decide_promotion_grades_the_champion_on_the_candidate_holdout():
+    candidate = _metadata("d2", open=0.66)
+    champion = {**_metadata("d1", open=0.60), "promoted_at": "2026-08-10T00:00:00+00:00"}
+    assert decide_promotion(candidate, champion, now=NOW, min_days_between=3).promote
+    # Paired on this holdout the champion is stronger than its stored number said.
+    paired = decide_promotion(candidate, champion, now=NOW, min_days_between=3, champion_aucs={"open": 0.75})
+    assert not paired.promote and "regressed" in paired.reason
+
+
+class _FakeS3:
+    def __init__(self, keys: list[str]):
+        self.keys = set(keys)
+        self.deleted: list[str] = []
+
+    def get_paginator(self, _name):
+        return self
+
+    def paginate(self, *, Bucket, Prefix):
+        yield {"Contents": [{"Key": key} for key in sorted(self.keys) if key.startswith(Prefix)]}
+
+    def delete_objects(self, *, Bucket, Delete):
+        self.deleted = [obj["Key"] for obj in Delete["Objects"]]
+        self.keys -= set(self.deleted)
+
+
+def test_rerun_removes_stale_head_files_but_keeps_what_it_just_wrote():
+    folder = model_object_key("inbox_ranking", "2026-08-19", "")
+    written = {folder + "open.ubj", folder + "open.holdout.ubj", folder + "metadata.json"}
+    client = _FakeS3([*written, folder + "action.ubj", "inbox_ranking/inbox_ranking_models/v1/champion.json"])
+    assert _delete_other_objects(client, "bucket", folder, written) == [folder + "action.ubj"]
+    assert client.keys == written | {"inbox_ranking/inbox_ranking_models/v1/champion.json"}
+
+
+class _EmptyS3:
+    def get_object(self, *, Bucket, Key):
+        raise ClientError({"Error": {"Code": "NoSuchKey"}}, "GetObject")
+
+
+def test_load_snapshots_fails_without_the_requested_partition():
+    dates = snapshot_dates("2026-08-19", 2)
+    assert load_snapshots(_EmptyS3(), "bucket", "inbox_ranking", dates) == {}
+    with pytest.raises(dagster.Failure, match="2026-08-19"):
+        load_snapshots(_EmptyS3(), "bucket", "inbox_ranking", dates, required=dates[-1])
+
+
+def test_examples_depend_on_the_whole_lookback_window():
+    # An asset backfill must not run examples(D) before the older state and labels days exist.
+    for upstream in (STATE_TABLE, LABELS_TABLE):
+        mapping = inbox_ranking_training_examples.get_partition_mapping(dagster.AssetKey(upstream))
+        assert isinstance(mapping, dagster.TimeWindowPartitionMapping)
+        assert mapping.start_offset == -settings.INBOX_RANKING_TRAINING_LOOKBACK_DAYS
+        assert mapping.end_offset == 0
 
 
 def test_model_key_layout_is_stable():

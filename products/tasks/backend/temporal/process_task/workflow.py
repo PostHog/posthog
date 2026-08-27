@@ -17,7 +17,7 @@ from posthog.dataclasses import frozen
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.oauth import PosthogMcpScopes
 
-from products.tasks.backend.constants import DEV_STACK_IMAGE_NAME, SNAPSHOT_KIND_FILESYSTEM
+from products.tasks.backend.constants import DEV_STACK_IMAGE_NAME, SNAPSHOT_KIND_FILESYSTEM, is_same_run_resume_state
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.logic.services.sandbox import is_public_sandbox_repo
 from products.tasks.backend.temporal.babysit_pr.prompts import (
@@ -128,6 +128,12 @@ from .activities.start_agent_server import (
     mark_repo_ready,
     start_agent_server,
 )
+from .activities.start_dev_stack_preview import (
+    StartDevStackPreviewInput,
+    WaitDevStackPreviewInput,
+    start_dev_stack_preview,
+    wait_dev_stack_preview,
+)
 from .activities.track_workflow_event import SANDBOX_DEADLINE_EVENT, TrackWorkflowEventInput, track_workflow_event
 from .activities.update_task_run_status import (
     SANDBOX_GONE_STATE_KEY,
@@ -188,6 +194,7 @@ class ResumedSandboxState:
     last_active_time: Optional[str]  # ISO8601, or None if never active
     # Defaulted so continue_as_new payloads from pre-rollout runs deserialize.
     pr_unresolved_threads: int = 0
+    dev_stack_preview_enabled: bool = False
     babysit_journal: BabysitJournal = field(default_factory=BabysitJournal)
     ci_resume_snapshot_created: bool = False
     accepted_message_ids: list[str] = field(default_factory=list)
@@ -353,6 +360,8 @@ _PATCH_ID_AGENT_READY_AFTER_PRIMARY_CLONE = "tasks-agent-ready-after-primary-clo
 # that non-idempotent work one attempt with a budget larger than its inner 10-minute cap.
 _DESKTOP_BOOTSTRAP_ACTIVITY_TIMEOUT = timedelta(minutes=20)
 
+_DEV_STACK_PREVIEW_WAIT_TIMEOUT = timedelta(minutes=15)
+
 # #60923 dropped the redundant slack post that ran immediately after sandbox
 # provisioning — between `_get_sandbox_for_repository` and the agent-start
 # progress emit. Pre-rollout histories scheduled a `post_slack_update` activity
@@ -400,6 +409,8 @@ _PATCH_ID_SNAPSHOT_BEFORE_CI_FOLLOW_UP = "tasks-snapshot-before-ci-follow-up"
 # terminalization poll_for_turn callers rely on. Same cleanup lifecycle as above.
 _PATCH_ID_FOLLOWUP_FAILURE_KEEPS_RUN = "tasks-followup-failure-keeps-run"
 
+_PATCH_ID_DEV_STACK_PREVIEW = "tasks-dev-stack-preview"
+
 # `Task.OriginProduct.ONBOARDING`, mirrored as a literal so workflow code stays free of
 # Django model imports.
 _ONBOARDING_ORIGIN_PRODUCT = "onboarding"
@@ -427,6 +438,10 @@ def _run_lifecycle_bounds_enabled() -> bool:
     return workflow.patched(_PATCH_ID_RUN_LIFECYCLE_BOUNDS)
 
 
+def _dev_stack_preview_enabled() -> bool:
+    return workflow.in_workflow() and workflow.patched(_PATCH_ID_DEV_STACK_PREVIEW)
+
+
 @temporalio.workflow.defn(name="process-task")
 class ProcessTaskWorkflow(PostHogWorkflow):
     def __init__(self) -> None:
@@ -439,6 +454,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._sandbox_connect_token: Optional[str] = None
         self._sandbox_jwt_kid: Optional[str] = None
         self._resume_snapshot_invalidated = False
+        self._preview_progress_open: bool = False
         self._task_completed: bool = False
         self._completion_status: str = "completed"
         self._completion_error: Optional[str] = None
@@ -486,6 +502,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._sandbox_ttl_snapshot_taken: bool = False
         # Decided once at workflow start; gates the placeholder skip + relay spawn.
         self._is_agent_design_enabled: bool = False
+        self._dev_stack_preview_enabled: bool = False
         # Deadline-based so heartbeats waking the event loop don't keep resetting the timer.
         self._self_driving_quota_next_check_at: Optional[datetime] = None
         self._self_driving_quota_checks_active: bool = True
@@ -964,6 +981,55 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         await self._emit_progress("pr", "completed", "Opened pull request", "setup", detail=pr_url)
         await self._emit_progress("ci", "in_progress", "Keeping CI green", "setup")
 
+    def _start_dev_stack_preview(self, sandbox_id: str) -> "asyncio.Task[None] | None":
+        repository = self.context.repository
+        if not repository:
+            return None
+        return asyncio.ensure_future(self._run_dev_stack_preview(sandbox_id, repository))
+
+    async def _run_dev_stack_preview(self, sandbox_id: str, repository: str) -> None:
+        try:
+            output = await workflow.execute_activity(
+                start_dev_stack_preview,
+                StartDevStackPreviewInput(
+                    context=self.context,
+                    sandbox_id=sandbox_id,
+                    repository=repository,
+                ),
+                start_to_close_timeout=timedelta(minutes=3),
+                retry_policy=RetryPolicy(maximum_attempts=2),
+            )
+        except Exception:
+            workflow.logger.warning(
+                "Could not start the dev stack preview",
+                extra={"run_id": self.context.run_id, "sandbox_id": sandbox_id},
+            )
+            await self._emit_progress("preview", "failed", "Preview didn't start", "setup")
+            return
+        if not output.started:
+            return
+        self._preview_progress_open = True
+        try:
+            await workflow.execute_activity(
+                wait_dev_stack_preview,
+                WaitDevStackPreviewInput(context=self.context, sandbox_id=sandbox_id),
+                start_to_close_timeout=_DEV_STACK_PREVIEW_WAIT_TIMEOUT,
+                heartbeat_timeout=timedelta(minutes=2),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+        except Exception:
+            workflow.logger.warning(
+                "Gave up waiting for the dev stack preview",
+                extra={"run_id": self.context.run_id, "sandbox_id": sandbox_id},
+            )
+        self._preview_progress_open = False
+
+    async def _close_dev_stack_preview_progress(self) -> None:
+        if not self._preview_progress_open:
+            return
+        self._preview_progress_open = False
+        await self._emit_progress("preview", "failed", "Preview didn't start", "setup")
+
     async def _should_run_babysit_follow_up(self) -> CIFollowUpDecision:
         self._pending_babysit = None
         snapshot = await workflow.execute_activity(
@@ -1054,6 +1120,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._prewarmed = input.prewarmed
         credential_refresh_task: asyncio.Task[None] | None = None
         permission_response_task: asyncio.Task[None] | None = None
+        preview_task: asyncio.Task[None] | None = None
         try:
             self._context = await self._get_task_processing_context(input)
             self._posthog_mcp_scopes = input.posthog_mcp_scopes
@@ -1073,6 +1140,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     error="Run environment is 'local' (desktop-driven); refusing to execute it as a cloud workflow",
                 )
             if input.resumed_sandbox is None:
+                self._dev_stack_preview_enabled = self.context.dev_stack_preview_enabled
                 sandbox_id, sandbox_url, sandbox_connect_token = await self._provision_and_start_agent(input, run_id)
             else:
                 # continue_as_new continuation — re-attach to the running sandbox, skip setup.
@@ -1104,6 +1172,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     self._run_credential_refresh_until_sandbox_gone(sandbox_id)
                 )
 
+            if self._dev_stack_preview_enabled and _dev_stack_preview_enabled():
+                preview_task = self._start_dev_stack_preview(sandbox_id)
+
             # A continuation already delivered the first user message in a prior execution.
             if input.resumed_sandbox is None and input.initial_message is not None:
                 self._pending_followups.append(input.initial_message)
@@ -1127,7 +1198,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                         },
                     )
                     # Stop the background loops but leave the sandbox for the next execution.
-                    for task in (relay_task, credential_refresh_task, permission_response_task):
+                    for task in (
+                        relay_task,
+                        credential_refresh_task,
+                        permission_response_task,
+                        preview_task,
+                    ):
                         if task is not None:
                             await self._cancel_relay(task)
                     workflow.continue_as_new(self._build_resumed_input(input, sandbox_id))
@@ -1211,6 +1287,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                             rotation_reason = rotation.reason
                         if rotated_sandbox_id:
                             sandbox_id = rotated_sandbox_id
+                            if self._dev_stack_preview_enabled and _dev_stack_preview_enabled():
+                                if preview_task is not None:
+                                    await self._cancel_relay(preview_task)
+                                preview_task = self._start_dev_stack_preview(sandbox_id)
                             await self._emit_progress(
                                 step="sandbox_deadline",
                                 status="completed",
@@ -1515,6 +1595,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     await self._cancel_relay(credential_refresh_task)
                 if permission_response_task is not None:
                     await self._cancel_relay(permission_response_task)
+                if preview_task is not None:
+                    await self._cancel_relay(preview_task)
+                await self._close_dev_stack_preview_progress()
 
                 cleanup_sandbox_id = sandbox_id or self._sandbox_id_for_cleanup
                 if cleanup_sandbox_id:
@@ -1625,6 +1708,17 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 "agent_launch_ms": sandbox_output.launch_ms,
                 "agent_ready_wait_ms": agent_server_output.ready_wait_ms,
                 "agent_session_init_ms": agent_server_output.session_init_ms,
+                "agent_context_fetch_ms": agent_server_output.boot_phases_ms.get("context_fetch"),
+                "agent_acp_initialize_ms": agent_server_output.boot_phases_ms.get("acp_initialize"),
+                "agent_repository_ready_ms": agent_server_output.boot_phases_ms.get("repository_ready"),
+                "agent_session_dependencies_ms": agent_server_output.boot_phases_ms.get("session_dependencies"),
+                "agent_session_create_ms": agent_server_output.boot_phases_ms.get("session_create"),
+                "agent_shadow_launched": agent_server_output.shadow_observation.get("launched"),
+                "agent_shadow_outcome": agent_server_output.shadow_observation.get("outcome"),
+                "agent_shadow_observed_ready_ms": agent_server_output.shadow_observation.get("observed_ready_ms"),
+                "agent_shadow_production_ready_ms": agent_server_output.shadow_observation.get("production_ready_ms"),
+                "agent_shadow_failure_class": agent_server_output.shadow_observation.get("failure_class"),
+                "agent_shadow_read_timed_out": agent_server_output.shadow_observation.get("timed_out"),
                 "loop_id": self.context.loop_id,
                 "loop_trigger_id": self.context.loop_trigger_id,
             },
@@ -1673,6 +1767,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 ci_resume_snapshot_created=self._ci_resume_snapshot_created,
                 first_user_message_received=self._first_user_message_received,
                 is_agent_design_enabled=self._is_agent_design_enabled,
+                dev_stack_preview_enabled=self._dev_stack_preview_enabled,
                 last_active_time=self._last_active_time.isoformat() if self._last_active_time else None,
                 accepted_message_ids=self._accepted_message_ids,
                 chain_started_at=self._chain_start_time().isoformat(),
@@ -1700,6 +1795,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
     def _restore_resumed_state(self, resumed: ResumedSandboxState) -> None:
         self._chain_started_at = datetime.fromisoformat(resumed.chain_started_at) if resumed.chain_started_at else None
         self._is_agent_design_enabled = resumed.is_agent_design_enabled
+        self._dev_stack_preview_enabled = resumed.dev_stack_preview_enabled
         self._ci_repetitions = resumed.ci_repetitions
         self._pr_fingerprint = resumed.pr_fingerprint
         self._pr_unresolved_threads = resumed.pr_unresolved_threads
@@ -1740,6 +1836,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         created = await self._run_sandbox_creation_activity(prepared)
         self._sandbox_id_for_cleanup = created.sandbox_id
         self._sandbox_jwt_kid = created.jwt_kid
+        self._dev_stack_preview_enabled = self._dev_stack_preview_enabled and created.dev_stack_preview_sized
         self._record_sandbox_deadline(created)
         if (
             self._task_completed
@@ -1830,6 +1927,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 created = await self._run_sandbox_creation_activity(prepared)
                 self._sandbox_id_for_cleanup = created.sandbox_id
                 self._sandbox_jwt_kid = created.jwt_kid
+                self._dev_stack_preview_enabled = self._dev_stack_preview_enabled and created.dev_stack_preview_sized
                 self._record_sandbox_deadline(created)
                 if (
                     self._task_completed
@@ -1955,7 +2053,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 await self._emit_progress("clone", "completed", clone_label, "setup")
 
         state = self.context.state or {}
-        is_resume = bool(state.get("resume_from_run_id") or state.get("handoff_resumed"))
+        is_resume = bool(state.get("resume_from_run_id") or is_same_run_resume_state(state))
         checkout_ms: int | None = None
         if will_checkout and checkout_repository not in failed_repositories and not is_resume:
             assert checkout_repository is not None
@@ -2012,6 +2110,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             clone_ms=clone_ms,
             checkout_ms=checkout_ms,
             launch_ms=launch_ms,
+            dev_stack_preview_sized=created.dev_stack_preview_sized,
         )
 
     async def _run_sandbox_creation_activity(
@@ -2331,7 +2430,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             return False
 
         state = self.context.state or {}
-        is_resume = bool(state.get("resume_from_run_id") or state.get("handoff_resumed"))
+        is_resume = bool(state.get("resume_from_run_id") or is_same_run_resume_state(state))
         return self.context.mode != "interactive" and not is_resume
 
     async def _track_workflow_event(self, event_name: str, properties: dict, capture_analytics: bool = True) -> None:
@@ -2541,8 +2640,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             "snapshot_external_id": snapshot.external_id,
             "snapshot_kind": snapshot.snapshot_kind,
             "snapshot_mount_path": snapshot.snapshot_mount_path,
-            "handoff_resumed": True,
-            "handoff_resume_idle": True,
+            "same_run_resume": True,
+            "same_run_resume_idle": True,
         }
         live_sandbox = PreRotationSandbox(
             sandbox_id=old_sandbox_id,

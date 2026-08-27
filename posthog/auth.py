@@ -55,10 +55,11 @@ from posthog.models.utils import (
 )
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.passkey import verify_passkey_authentication_response
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.scoped_service_jwt import ScopedServiceJwtPurpose
 from posthog.shared_link_user import SharedLinkUser
 from posthog.synthetic_user import SyntheticUser
+
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 
 class WebAuthnAuthenticationResponse(TypedDict):
@@ -1474,3 +1475,27 @@ class WebhookSignatureAuthentication(authentication.BaseAuthentication):
 
     def authenticate_header(self, request: Request) -> str:
         return "WebhookSignature"
+
+
+# services/mcp sends this user agent on its API calls (USER_AGENT in its
+# oauth-constants.ts). The two runtimes cannot share one constant, so this value
+# mirrors that one. If they diverge, this check stops matching MCP traffic and the
+# read-only policy stops applying. A client controls its own user agent. The match applies MCP
+# policy to the normal MCP pathway only. It does not stop a hostile key holder.
+# The same credential keeps its full scopes under a different user agent. A future
+# change can reduce the credential's scopes when the token is created.
+MCP_USER_AGENT_MARKER = "posthog/mcp-server"
+
+
+def is_mcp_request(request: Union[HttpRequest, Request]) -> bool:
+    """Returns True when a token-authenticated request comes through the MCP server."""
+    authenticator = getattr(request, "successful_authenticator", None)
+    # Every user-delegated scoped-token type the MCP server can authenticate with. ID-JAG
+    # (XAA) tokens are served from the same OAuth token endpoint and carry scopes, so a
+    # write on that pathway must be classified as MCP like a personal key or OAuth token.
+    if isinstance(
+        authenticator,
+        PersonalAPIKeyAuthentication | OAuthAccessTokenAuthentication | IDJagAccessTokenAuthentication,
+    ):
+        return MCP_USER_AGENT_MARKER in (request.headers.get("User-Agent") or "")
+    return False

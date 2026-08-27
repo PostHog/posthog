@@ -16,7 +16,7 @@ import pandas as pd
 
 from posthog.dataclasses import frozen
 
-WRONG_DISMISSAL_REASONS = ("analysis_wrong", "report_unclear", "wontfix_intentional")
+from products.signals.dags.inbox_ranking.common import WRONG_DISMISSAL_REASONS
 
 
 def _count(frame: pd.DataFrame, column: str) -> pd.Series:
@@ -40,6 +40,10 @@ def acted(frame: pd.DataFrame) -> pd.Series:
 
 
 def dismissed_as_wrong(frame: pd.DataFrame) -> pd.Series:
+    if "wrong_dismissal_count" in frame:
+        return _count(frame, "wrong_dismissal_count") > 0
+    # Partitions written before the cumulative count existed carry only the latest-wins reason,
+    # which a later restore or re-dismissal can overwrite.
     if "dismissal_reason" not in frame:
         return pd.Series(False, index=frame.index)
     return frame["dismissal_reason"].isin(WRONG_DISMISSAL_REASONS)
@@ -57,6 +61,9 @@ class Head:
     horizon_days: int
     # Below this many positives in the holdout the head's AUC is noise; the promotion gate ignores it.
     min_holdout_positives: int
+    # The label comes from the status-change stream, whose tenant provenance the dataset dag
+    # cross-checks; rows that fail that check are unusable for this head.
+    status_labels: bool = False
 
 
 HEADS: tuple[Head, ...] = (
@@ -66,7 +73,14 @@ HEADS: tuple[Head, ...] = (
     Head(name="action", cohort=impressed, label=acted, horizon_days=7, min_holdout_positives=30),
     # Of the reports users saw, which were dismissed as wrong / unclear / intentional - the
     # precision-failure negative. already_fixed and wontfix_irrelevant are deliberately not here.
-    Head(name="dismiss_wrong", cohort=impressed, label=dismissed_as_wrong, horizon_days=7, min_holdout_positives=30),
+    Head(
+        name="dismiss_wrong",
+        cohort=impressed,
+        label=dismissed_as_wrong,
+        horizon_days=7,
+        min_holdout_positives=30,
+        status_labels=True,
+    ),
     # Which reports get a PR at all? Cohort is every report the sweep would score.
     Head(name="pr_created", cohort=everyone, label=pr_created, horizon_days=7, min_holdout_positives=30),
 )

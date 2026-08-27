@@ -1,6 +1,7 @@
 import json
 import hashlib
-from typing import Literal, get_args
+from collections.abc import Mapping
+from typing import Any, Literal, get_args
 
 import posthoganalytics
 
@@ -19,6 +20,8 @@ MODAL_VM_SANDBOX_FEATURE_FLAG = "tasks-modal-vm-sandbox"
 # Gates the nightly prebaked dev-stack image bake (see logic/services/dev_stack_image.py).
 DEV_STACK_IMAGE_BAKE_FEATURE_FLAG = "tasks-dev-stack-image-bake"
 MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG = "tasks-modal-network-allowlist"
+# Routes a plain default-template run onto the hogland (Firecracker) sandbox backend.
+HOGLAND_SANDBOX_FEATURE_FLAG = "tasks-hogland-sandbox"
 AGENT_RUN_OTEL_TELEMETRY_FEATURE_FLAG = "tasks-agent-run-otel-telemetry"
 PI_CLOUD_RUNTIME_FEATURE_FLAG = "pi-harness"
 # Gates agent-to-agent peer messaging between cloud runs. v1 additionally requires the Pi
@@ -36,6 +39,38 @@ TASK_ANALYSIS_INSIGHTS_STATE_KEY = "task_analysis_insights"
 # Run-state key the telemetry flag decision is stamped under at dispatch (temporal/client.py).
 # Consumers read the stamp, so the decision stays stable for the run's whole lifetime.
 AGENT_OTEL_TELEMETRY_STATE_KEY = "agent_otel_telemetry_enabled"
+PR_LOOP_ENABLED_STATE_KEY = "pr_loop_enabled"
+SAME_RUN_RESUME_STATE_KEY = "same_run_resume"
+SAME_RUN_RESUME_IDLE_STATE_KEY = "same_run_resume_idle"
+_LEGACY_SAME_RUN_RESUME_STATE_KEY = "handoff_resumed"
+_LEGACY_SAME_RUN_RESUME_IDLE_STATE_KEY = "handoff_resume_idle"
+SERVER_OWNED_RESUME_STATE_KEYS = frozenset(
+    {
+        SAME_RUN_RESUME_STATE_KEY,
+        SAME_RUN_RESUME_IDLE_STATE_KEY,
+        _LEGACY_SAME_RUN_RESUME_STATE_KEY,
+        _LEGACY_SAME_RUN_RESUME_IDLE_STATE_KEY,
+    }
+)
+
+
+def is_same_run_resume_state(state: Mapping[str, Any] | None) -> bool:
+    if not state:
+        return False
+    return state.get(SAME_RUN_RESUME_STATE_KEY) is True or state.get(_LEGACY_SAME_RUN_RESUME_STATE_KEY) is True
+
+
+def is_same_run_resume_idle_state(state: Mapping[str, Any] | None) -> bool:
+    if not state:
+        return False
+    return (
+        state.get(SAME_RUN_RESUME_IDLE_STATE_KEY) is True or state.get(_LEGACY_SAME_RUN_RESUME_IDLE_STATE_KEY) is True
+    )
+
+
+DEV_STACK_PREVIEW_STATE_KEY = "dev_stack_preview"
+DEV_STACK_PREVIEW_FEATURE_FLAG = "tasks-dev-stack-preview"
+DEV_STACK_PREVIEW_PORT = 8020
 
 # Models a caller may only select while the paired flag is enabled for them. The Desktop
 # pickers already hide these client-side (`products/desktop/packages/shared/src/flags.ts`),

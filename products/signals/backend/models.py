@@ -23,6 +23,7 @@ from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import (
     ArtefactContent,
     ArtefactContentValidationError,
+    ChannelAssignment,
     Dismissal,
     LogArtefactContent,
     RelatedTo,
@@ -50,8 +51,9 @@ class SignalSourceConfig(UUIDModel):
     SourceProduct = SignalSourceProduct
 
     # Source-type choices are intentionally a *subset* of the full SignalSourceType taxonomy: only the
-    # types that carry a per-team config row live here (e.g. session_problem / evaluation_report gate via
-    # other configs and are deliberately absent).
+    # types that carry a per-team config row live here. session_problem gates through another config.
+    # evaluation is retired, and stays in the taxonomy only so old signals still resolve to a label.
+    # Every source_type the emission registry emits must appear here, or enabling that source 400s.
     class SourceType(models.TextChoices):
         SESSION_ANALYSIS_CLUSTER = "session_analysis_cluster", "Session analysis cluster"
         EVALUATION_REPORT = "evaluation_report", "Evaluation report"
@@ -67,9 +69,12 @@ class SignalSourceConfig(UUIDModel):
         ENDPOINT_BREAKDOWN_LIMIT_EXCEEDED = "endpoint_breakdown_limit_exceeded", "Endpoint breakdown limit exceeded"
         SCANNER_FINDING = "scanner_finding", "Scanner finding"
         ANOMALY_INVESTIGATION = "anomaly_investigation", "Anomaly investigation"
+        FEEDBACK = "feedback", "Feedback"
+        REVIEW = "review", "Review"
         CI_FLAKY_CHECK = "ci_flaky_check", "CI flaky check"
         CI_BROKEN_DEFAULT_BRANCH = "ci_broken_default_branch", "CI broken default branch"
         CI_DURATION_REGRESSION = "ci_duration_regression", "CI duration regression"
+        SEARCH_OPPORTUNITY = "search_opportunity", "Search opportunity"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="signal_source_configs")
     source_product = models.CharField(max_length=100, choices=signal_source_product_choices)
@@ -363,8 +368,8 @@ class SignalReport(UUIDModel):
                 self.error = error
                 updated_fields.update(["title", "summary", "error"])
 
-            # Reset to potential (from in_progress via actionability judge, from suppressed, or by user snooze on a ready report)
-            case (S.IN_PROGRESS | S.SUPPRESSED | S.READY | S.RESOLVED, S.POTENTIAL):
+            # Reset to potential (from in_progress via actionability judge, from suppressed, or by user snooze)
+            case (S.IN_PROGRESS | S.PENDING_INPUT | S.SUPPRESSED | S.READY | S.RESOLVED | S.FAILED, S.POTENTIAL):
                 self.promoted_at = None
                 updated_fields.add("promoted_at")
                 if self.status == S.SUPPRESSED:
@@ -769,6 +774,7 @@ class SignalReportArtefact(UUIDModel):
         SIGNAL_FINDING = "signal_finding"
         REPO_SELECTION = "repo_selection"
         SUGGESTED_REVIEWERS = "suggested_reviewers"
+        CHANNEL_ASSIGNMENT = "channel_assignment"
         DISMISSAL = "dismissal"
         CODE_REFERENCE = "code_reference"
         COMMIT = "commit"
@@ -782,7 +788,7 @@ class SignalReportArtefact(UUIDModel):
     # Every artefact is an append-only, point-in-time log entry — nothing is mutated in place by
     # the producers. The two sets below classify *what an entry means*, not how it is written:
     #   - status artefacts describe the report's current state (judgments, repo selection,
-    #     suggested reviewers). They are appended on each (re)assessment via `append_status`; the
+    #     suggested reviewers, channel assignments). They are appended on each change; the
     #     report's *current* status is the latest row of that type by `created_at` (the serializer
     #     derives priority/actionability/reviewers with `order_by("-created_at")[:1]` subqueries).
     #   - log artefacts record discrete work done on a report (code references, commits,
@@ -797,6 +803,7 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.PRIORITY_JUDGMENT,
             ArtefactType.REPO_SELECTION,
             ArtefactType.SUGGESTED_REVIEWERS,
+            ArtefactType.CHANNEL_ASSIGNMENT,
         }
     )
     LOG_ARTEFACT_TYPES: frozenset[str] = frozenset(
@@ -827,6 +834,15 @@ class SignalReportArtefact(UUIDModel):
     # destroying the report's work log.
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     task = models.ForeignKey("tasks.Task", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    channel = models.ForeignKey(
+        "tasks.Channel",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        db_constraint=False,
+        db_index=False,
+        related_name="+",
+    )
 
     class Meta:
         indexes = [
@@ -836,6 +852,7 @@ class SignalReportArtefact(UUIDModel):
             # Latest-wins lookups: artefacts are append-only, so deriving the current status / log
             # tail is `WHERE report=? AND type=? ORDER BY created_at DESC` — this makes it a seek.
             models.Index(fields=["report", "type", "-created_at"], name="signals_sig_rpt_type_ct_idx"),
+            models.Index(fields=["channel"], name="signals_sig_channel_idx"),
         ]
 
     @classmethod
@@ -863,6 +880,7 @@ class SignalReportArtefact(UUIDModel):
             content=content.model_dump_json(),
             created_by_id=attribution.user_id,
             task_id=attribution.task_id,
+            channel_id=content.channel_id if isinstance(content, ChannelAssignment) else None,
         )
 
     @classmethod
@@ -1027,7 +1045,11 @@ class SignalReportArtefact(UUIDModel):
                     "task_run content.product and content.type record what ran and cannot be changed by editing"
                 )
         self.content = parsed.model_dump_json()
-        self.save(update_fields=["content", "updated_at"])
+        update_fields = ["content", "updated_at"]
+        if isinstance(parsed, ChannelAssignment):
+            self.channel_id = parsed.channel_id
+            update_fields.append("channel_id")
+        self.save(update_fields=update_fields)
         if self.type == SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS:
             self._schedule_autostart_reevaluation(team_id=self.team_id, report_id=str(self.report_id))
 
@@ -1923,6 +1945,13 @@ class SignalScratchpad(TeamScopedRootMixin, UUIDModel):
     embedded snippets, neither of which fits the scout's per-key cross-agent
     read pattern. Kept narrow to the scouts feature on purpose; not a shared
     primitive.
+
+    Most entries are durable, so `expires_at` is nullable and unset by default. It
+    exists for the memories that are true only for a while — a cooldown, a window to
+    watch — which a scout would otherwise have to come back and `forget` by hand.
+    Expiry hides a row from `search_scratchpad`, it does not delete it: the key stays
+    taken (so the upsert keeps working) and a human auditing the fleet's memory can
+    still read it back with `include_expired`.
     """
 
     # See SignalScoutConfig.all_teams for rationale.
@@ -1946,6 +1975,9 @@ class SignalScratchpad(TeamScopedRootMixin, UUIDModel):
         blank=True,
         related_name="scratchpads_created",
     )
+    # Null = durable (the default). Set to drop the entry out of scout searches once
+    # its shelf life is up. Mirrors `SignalScoutNote.expires_at`.
+    expires_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

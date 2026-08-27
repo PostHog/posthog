@@ -31,10 +31,12 @@ from posthog.event_usage import report_user_action
 from posthog.models import Team
 from posthog.models.event.event import Selector
 from posthog.models.property.util import build_selector_regex
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.resource_limits import LimitKey, check_count_limit
 
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
+)
 from products.actions.backend.models.action import ACTION_STEP_MATCHING_OPTIONS, Action
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cohorts.backend.models.cohort import Cohort

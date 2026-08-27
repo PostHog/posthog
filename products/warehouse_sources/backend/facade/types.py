@@ -17,11 +17,22 @@ from django.utils.functional import Promise
 __all__ = [
     "DIRECT_ENGINE_BY_SOURCE_TYPE",
     "DataWarehouseManagedViewSetKind",
+    "DataWarehouseTableCreatedVia",
+    "DataWarehouseTableFormat",
+    "ExternalDataJobPipelineVersion",
+    "ExternalDataJobStatus",
+    "ExternalDataSchemaStatus",
+    "ExternalDataSchemaSyncFrequency",
+    "ExternalDataSchemaSyncType",
+    "ExternalDataSourceAccessMethod",
+    "ExternalDataSourceCreatedVia",
+    "ExternalDataSourceStatus",
     "ExternalDataSourceType",
     "IncrementalField",
     "IncrementalFieldType",
     "ManagedWarehouseSQLMode",
     "PartitionSettings",
+    "WarehouseColumnAnnotationDescriptionSource",
 ]
 
 
@@ -238,6 +249,7 @@ class ExternalDataSourceType(models.TextChoices):
     EBAY = "Ebay", "Ebay"
     COMMERCETOOLS = "Commercetools", "Commercetools"
     LIGHTSPEEDRETAIL = "LightspeedRetail", "LightspeedRetail"
+    SHIPMAIL = "Shipmail", "Shipmail"
     SHIPSTATION = "ShipStation", "ShipStation"
     CONSTANTCONTACT = "ConstantContact", "ConstantContact"
     MAILGUN = "Mailgun", "Mailgun"
@@ -1318,6 +1330,7 @@ class ExternalDataSourceType(models.TextChoices):
     SIDESHIFT = "SideShift", "SideShift"
     DUCKLAKE = "DuckLake", "DuckLake"
     STARBURST = "Starburst", "Starburst"
+    TRINO = "Trino", "Trino"
     EASYBILL = "Easybill", "Easybill"
     BEXIO = "Bexio", "Bexio"
     UMAMI = "Umami", "Umami"
@@ -1374,6 +1387,13 @@ class ExternalDataSourceType(models.TextChoices):
     DATOCMS = "DatoCMS", "DatoCMS"
     WPSOFFICE = "WPSOffice", "WPSOffice"
     TERABOX = "TeraBox", "TeraBox"
+    SIMONDATA = "SimonData", "SimonData"
+    COMMISSIONJUNCTION = "CommissionJunction", "CommissionJunction"
+    LIVEBLOCKS = "Liveblocks", "Liveblocks"
+    NATIONBUILDER = "NationBuilder", "NationBuilder"
+    TANA = "Tana", "Tana"
+    ZENCHEF = "Zenchef", "Zenchef"
+    LOVABLE = "Lovable", "Lovable"
 
 
 def external_data_source_type_choices() -> list[tuple[str, str | Promise]]:
@@ -1392,6 +1412,7 @@ DIRECT_ENGINE_BY_SOURCE_TYPE: dict[str, str] = {
     ExternalDataSourceType.CLICKHOUSE: "clickhouse",
     ExternalDataSourceType.CLICKHOUSECLOUD: "clickhouse",
     ExternalDataSourceType.MOTHERDUCK: "motherduck",
+    ExternalDataSourceType.TRINO: "trino",
 }
 
 
@@ -1404,3 +1425,93 @@ class ManagedWarehouseSQLMode(StrEnum):
 class DataWarehouseManagedViewSetKind(models.TextChoices):
     REVENUE_ANALYTICS = "revenue_analytics", "Revenue Analytics"
     ENGINEERING_ANALYTICS = "engineering_analytics", "Engineering Analytics"
+
+
+class DataWarehouseTableFormat(models.TextChoices):
+    CSV = "CSV", "CSV"
+    CSVWithNames = "CSVWithNames", "CSVWithNames"
+    Parquet = "Parquet", "Parquet"
+    JSON = "JSONEachRow", "JSON"
+    Delta = "Delta", "Delta"
+    DeltaS3Wrapper = "DeltaS3Wrapper", "DeltaS3Wrapper"
+
+
+class DataWarehouseTableCreatedVia(models.TextChoices):
+    # The first five mirror `ExternalDataSource.CreatedVia` value-for-value, so table and source
+    # attribution can be counted together. The last three have no source equivalent — they cover
+    # the tables PostHog creates itself, which a request surface would otherwise misattribute to
+    # whoever happened to trigger the run.
+    WEB = "web", "web"
+    API = "api", "api"
+    MCP = "mcp", "mcp"
+    WIZARD = "wizard", "wizard"
+    SELF_DRIVING = "self_driving", "self_driving"
+    SOURCE = "source", "source"
+    MATERIALIZED_VIEW = "materialized_view", "materialized_view"
+    DEMO = "demo", "demo"
+
+
+class ExternalDataJobStatus(models.TextChoices):
+    RUNNING = "Running", "Running"
+    FAILED = "Failed", "Failed"
+    COMPLETED = "Completed", "Completed"
+    BILLING_LIMIT_REACHED = "BillingLimitReached", "BillingLimitReached"
+    BILLING_LIMIT_TOO_LOW = "BillingLimitTooLow", "BillingLimitTooLow"
+
+
+class ExternalDataJobPipelineVersion(models.TextChoices):
+    V1 = "v1-dlt-sync", "v1-dlt-sync"
+    V2 = "v2-non-dlt", "v2-non-dlt"
+    V3 = "v3-kafka-s3", "v3-kafka-s3"
+
+
+class ExternalDataSourceAccessMethod(models.TextChoices):
+    WAREHOUSE = "warehouse", "warehouse"
+    DIRECT = "direct", "direct"
+
+
+class ExternalDataSourceCreatedVia(models.TextChoices):
+    WEB = "web", "web"
+    API = "api", "api"
+    MCP = "mcp", "mcp"
+    WIZARD = "wizard", "wizard"
+    SELF_DRIVING = "self_driving", "self_driving"
+
+
+class ExternalDataSourceStatus(models.TextChoices):
+    RUNNING = "Running", "Running"
+    PAUSED = "Paused", "Paused"
+    ERROR = "Error", "Error"
+    COMPLETED = "Completed", "Completed"
+    CANCELLED = "Cancelled", "Cancelled"
+
+
+class ExternalDataSchemaStatus(models.TextChoices):
+    RUNNING = "Running", "Running"
+    PAUSED = "Paused", "Paused"
+    FAILED = "Failed", "Failed"
+    COMPLETED = "Completed", "Completed"
+    BILLING_LIMIT_REACHED = "BillingLimitReached", "BillingLimitReached"
+    BILLING_LIMIT_TOO_LOW = "BillingLimitTooLow", "BillingLimitTooLow"
+
+
+class ExternalDataSchemaSyncType(models.TextChoices):
+    FULL_REFRESH = "full_refresh", "full_refresh"
+    INCREMENTAL = "incremental", "incremental"
+    APPEND = "append", "append"
+    WEBHOOK = "webhook", "webhook"
+    CDC = "cdc", "cdc"
+    XMIN = "xmin", "xmin"
+
+
+class ExternalDataSchemaSyncFrequency(models.TextChoices):
+    DAILY = "day", "Daily"
+    WEEKLY = "week", "Weekly"
+    MONTHLY = "month", "Monthly"
+    # TODO provide flexible schedule definition
+
+
+class WarehouseColumnAnnotationDescriptionSource(models.TextChoices):
+    CANONICAL = "canonical", "Canonical"
+    AI_GENERATED = "ai_generated", "AI generated"
+    USER_EDITED = "user_edited", "User edited"

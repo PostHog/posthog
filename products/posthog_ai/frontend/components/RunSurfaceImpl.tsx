@@ -1,5 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { createContext, type ReactNode, useCallback, useContext, useEffect } from 'react'
+import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo } from 'react'
 
 import { LemonBanner, LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
@@ -8,6 +8,7 @@ import { taskLogic } from '../logics/taskLogic'
 import { isPiTaskRuntime, OriginProduct } from '../types/taskTypes'
 import { type TurnTrailer } from '../utils/turnTrailers'
 import { ContextUsageBar } from './ContextUsageBar'
+import { FeedbackPromptTrailer } from './FeedbackPromptTrailer'
 import { PermissionInput } from './PermissionInput'
 import { QuestionInput } from './QuestionInput'
 import { ResourcesBar } from './ResourcesBar'
@@ -197,10 +198,23 @@ function RunSurfaceThread({
     listClassName,
     rowClassName,
 }: { className?: string; listClassName?: string; rowClassName?: string } = {}): JSX.Element {
-    const { interaction, isScout, taskId, conversationId } = useRunSurfaceContext()
+    const { interaction, isScout, taskId, conversationId, runId } = useRunSurfaceContext()
     const { bootstrapLoading, threadItems } = useValues(runStreamLogic)
     // Feedback identity: the conversation where one exists (Max chats), else the task.
     const feedbackSessionId = conversationId ?? taskId
+    const collectsFeedback = interaction === 'live' && !isScout && !!feedbackSessionId
+    // Memoized so the footer keeps a stable element identity across streamed frames.
+    const feedbackPrompt = useMemo(
+        () =>
+            collectsFeedback ? (
+                <FeedbackPromptTrailer
+                    sessionId={feedbackSessionId}
+                    sessionKind={conversationId ? 'conversation' : 'task'}
+                    streamKey={runId}
+                />
+            ) : undefined,
+        [collectsFeedback, feedbackSessionId, conversationId, runId]
+    )
     const renderTurnTrailer = useCallback(
         (trailer: TurnTrailer): JSX.Element | null =>
             feedbackSessionId ? (
@@ -226,7 +240,8 @@ function RunSurfaceThread({
             listClassName={listClassName}
             rowClassName={rowClassName}
             showContextUsage={interaction === 'live' && !isScout}
-            renderTurnTrailer={interaction === 'live' && !isScout && feedbackSessionId ? renderTurnTrailer : undefined}
+            renderTurnTrailer={collectsFeedback ? renderTurnTrailer : undefined}
+            footerExtra={feedbackPrompt}
         />
     )
 }

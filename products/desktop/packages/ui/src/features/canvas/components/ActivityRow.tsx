@@ -1,14 +1,16 @@
 import {
   ChatCircleIcon,
   CheckIcon,
+  ChecksIcon,
   LinkIcon,
   QuestionIcon,
 } from "@phosphor-icons/react";
 import type { TaskActivityItem } from "@posthog/core/canvas/taskActivity";
-import { Avatar, AvatarFallback, Badge, Button } from "@posthog/quill";
+import { Avatar, AvatarFallback, Badge, Button, cn } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { UserBasic } from "@posthog/shared/domain-types";
 import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
+import { ActivityRowSurface } from "@posthog/ui/features/canvas/components/ActivityRowSurface";
 import {
   type AgentActivityIconKind,
   activityPresentation,
@@ -28,7 +30,7 @@ function AgentActivityIcon({
 }): ReactElement {
   switch (kind) {
     case "check":
-      return <CheckIcon size={13} weight="bold" className={className} />;
+      return <ChecksIcon size={13} weight="bold" className={className} />;
     case "question":
       return <QuestionIcon size={12} weight="bold" className={className} />;
     case "chat":
@@ -49,6 +51,8 @@ interface ActivityRowProps {
   onActivate: (item: TaskActivityItem) => void;
   isSelected?: boolean;
   compact?: boolean;
+  asOption?: boolean;
+  optionValue?: string;
 }
 
 export function ActivityRow({
@@ -60,6 +64,8 @@ export function ActivityRow({
   onActivate,
   isSelected = false,
   compact = false,
+  asOption = false,
+  optionValue,
 }: ActivityRowProps): ReactElement {
   const presentation = activityPresentation(item, currentUser?.email);
   const channelId = item.channelId;
@@ -90,15 +96,25 @@ export function ActivityRow({
 
   return (
     <div className="group relative">
-      <Button
+      <ActivityRowSurface
         type="button"
+        asOption={asOption}
+        optionValue={optionValue}
         onClick={openTask}
+        aria-label={`${item.taskTitle} ${presentation.metadata}${presentation.spaceLabel ? ` ${presentation.spaceLabel}` : ""}`}
         left
-        className={`h-auto w-full items-start text-left ${compact ? "py-1.5 pr-10" : "py-2"} ${isSelected ? "bg-fill-selected" : ""}`}
+        className={cn(
+          compact ? "py-1.5" : "py-2",
+          compact && item.isUnread && "pr-8",
+          isSelected && "bg-fill-selected",
+        )}
       >
         <span className="mt-0.5 shrink-0">
           {presentation.agentIcon ? (
-            <Avatar size="xs" className={agentIconWrapperClassName}>
+            <Avatar
+              size="xs"
+              className={cn(agentIconWrapperClassName, compact && "size-4")}
+            >
               <AvatarFallback>
                 <AgentActivityIcon
                   kind={presentation.agentIcon}
@@ -108,7 +124,11 @@ export function ActivityRow({
             </Avatar>
           ) : (
             <span className="mt-1 flex shrink-0">
-              <UserAvatar user={item.author ?? currentUser} size="xs" />
+              <UserAvatar
+                user={item.author ?? currentUser}
+                size="xs"
+                className={compact ? "size-4" : undefined}
+              />
             </span>
           )}
         </span>
@@ -121,8 +141,17 @@ export function ActivityRow({
             </span>
             {item.isUnread && !compact && <Badge variant="info">New</Badge>}
           </span>
-          <span className="block truncate text-muted-foreground text-xxs">
-            {presentation.metadata}
+          <span className="flex min-w-0 items-center gap-1 text-muted-foreground text-xxs">
+            <span className="truncate">{presentation.metadata}</span>
+            {presentation.spaceLabel && (
+              <Badge
+                variant="default"
+                className="min-w-0 shrink rounded-xs bg-muted/70 p-0"
+                title={presentation.spaceLabel}
+              >
+                <span className="truncate">{presentation.spaceLabel}</span>
+              </Badge>
+            )}
           </span>
           {item.snippet && !compact && (
             <MentionText
@@ -132,7 +161,7 @@ export function ActivityRow({
             />
           )}
         </span>
-      </Button>
+      </ActivityRowSurface>
       {item.isUnread && (
         <Button
           variant="default"

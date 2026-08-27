@@ -3,7 +3,6 @@ import json
 import time
 import random
 import datetime
-import unicodedata
 from typing import Any, TypedDict, cast
 from urllib.parse import urlencode
 from uuid import uuid4
@@ -64,11 +63,12 @@ from posthog.helpers.two_factor_session import (
     clear_two_factor_session_flags,
     code_based_verifier,
     has_passkeys,
+    normalize_verification_code,
     set_two_factor_verified_in_session,
 )
 from posthog.helpers.user_devices import has_valid_known_device_cookie
 from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, resolve_login_organization
-from posthog.models import OrganizationDomain, User
+from posthog.models import IdentityProviderConfig, OrganizationDomain, User
 from posthog.models.activity_logging import signal_handlers  # imported for its signal receivers too
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.passkey import generate_passkey_authentication_options, verify_passkey_authentication_response
@@ -185,6 +185,19 @@ class CodeBasedVerificationRequired(APIException):
     def __init__(self, email: str | None = None):
         detail = email if email else self.default_detail
         super().__init__(detail=detail, code=self.default_code)
+
+
+class EmailVerificationPending(APIException):
+    """Login blocked because the signup email is unverified and a fresh code was just sent.
+    Like CodeBasedVerificationRequired, `detail` carries data (the user uuid) so the frontend
+    can route to the code entry page at /verify_email/<uuid>."""
+
+    status_code = 401
+    default_detail = "Email verification is required."
+    default_code = "verify_email_pending"
+
+    def __init__(self, user_uuid: str):
+        super().__init__(detail=user_uuid, code=self.default_code)
 
 
 def is_email_verified_for_login(user: User, next_url: str | None = None) -> bool:
@@ -326,6 +339,10 @@ class LoginSerializer(serializers.Serializer):
             raise serializers.ValidationError("Invalid email or password.", code="invalid_credentials")
 
         if not is_email_verified_for_login(user, next_url):
+            if EmailVerifier.use_verification_code(user):
+                # A fresh code was just emailed; hand the frontend the uuid so it can route to
+                # the code entry page. The legacy link flow keeps the plain error below.
+                raise EmailVerificationPending(str(user.uuid))
             raise serializers.ValidationError(
                 "Your account is awaiting verification. Please check your email for a verification link.",
                 code="not_verified",
@@ -420,7 +437,7 @@ class LoginPrecheckSerializer(serializers.Serializer):
             for cred in credentials
         ]
 
-        saml_available = OrganizationDomain.objects.get_is_saml_available_for_email(email)
+        saml_available = IdentityProviderConfig.objects.get_is_saml_available_for_email(email)
 
         return {
             "sso_enforcement": OrganizationDomain.objects.get_sso_enforcement_for_email_address(email),
@@ -976,12 +993,6 @@ class TwoFactorPasskeyViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
         return Response(json.loads(options_to_json(options)))
 
 
-# Characters an email client or manual entry can inject around/within the code without the
-# user seeing them: whitespace, the zero-width family, word joiner, BOM, soft hyphen, and the
-# hyphen someone types when grouping the code as "123-456".
-_CODE_NOISE_RE = re.compile(r"[\s\u200b-\u200d\u2060\ufeff\u00ad-]")
-
-
 class CodeBasedVerificationSerializer(serializers.Serializer):
     code = serializers.CharField(
         help_text="The 6-digit verification code emailed to the user. Whitespace, invisible characters, "
@@ -994,10 +1005,9 @@ class CodeBasedVerificationSerializer(serializers.Serializer):
     )
 
     def validate_code(self, value: str) -> str:
-        # Fold compatibility forms (fullwidth digits become ASCII) then drop the noise an email client
-        # or manual grouping injects. Require exactly 6 digits so malformed input is rejected outright
+        # Require exactly 6 digits after normalization so malformed input is rejected outright
         # rather than mining digits out of arbitrary text.
-        cleaned = _CODE_NOISE_RE.sub("", unicodedata.normalize("NFKC", value or ""))
+        cleaned = normalize_verification_code(value)
         if not re.fullmatch(r"\d{6}", cleaned):
             raise serializers.ValidationError("Enter the 6-digit code from your email.")
         return cleaned
