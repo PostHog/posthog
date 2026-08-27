@@ -37,6 +37,7 @@ pub const SOURCE_ADOPTED_STYLESHEET: u8 = 15;
 
 pub const NETWORK_PLUGIN: &str = "rrweb/network@1";
 pub const CONSOLE_PLUGIN: &str = "rrweb/console@1";
+pub(crate) const JSON_LD_EVENT_TAG: &str = "$json_ld";
 
 /// Panic backstop for the anyhow-based entry points (see [`crate::unwind`]).
 fn contain_panics<T>(f: impl FnOnce() -> Result<T>) -> Result<T> {
@@ -240,6 +241,7 @@ pub fn route_data(
             }
         }
         Some(TYPE_CUSTOM) => match as_object_mut(data) {
+            Some(data) if data.get("tag").and_then(as_str) == Some(JSON_LD_EVENT_TAG) => Ok(false),
             Some(data) => Ok(scrub_generic_field(ctx, data, "payload")),
             None => Ok(false),
         },

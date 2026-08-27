@@ -87,6 +87,11 @@ export class SessionRecordingIngesterMetrics {
         labelNames: ['impl'],
     })
 
+    private static readonly mlJsonLdEvents = new Counter({
+        name: 'recording_blob_ingestion_v2_ml_json_ld_events',
+        help: 'JSON-LD custom replay events preserved in ML training data',
+    })
+
     private static readonly mlImagesCollected = new Counter({
         name: 'recording_blob_ingestion_v2_ml_images_collected',
         help: 'Images through the out-of-band scrub lane, by stage: collected (returned by the addon), deduped (suppressed by the cross-message cache), queued (handed to the producer), produced (delivery acked), produce_failed (delivery failed; refs un-marked for natural retry)',
@@ -189,6 +194,12 @@ export class SessionRecordingIngesterMetrics {
 
     public static incrementMlAnonymizeFailed(impl: MlAnonymizeImpl): void {
         this.mlAnonymizeFailed.labels(impl).inc()
+    }
+
+    public static incrementMlJsonLdEvents(count: number): void {
+        if (count > 0) {
+            this.mlJsonLdEvents.inc(count)
+        }
     }
 
     public static incrementMlImagesCollected(outcome: MlImageLaneStage, count: number): void {
