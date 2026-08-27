@@ -27,6 +27,8 @@ from typing import TYPE_CHECKING, Optional
 
 from posthog.hogql import ast
 
+from posthog.dataclasses import frozen
+
 from products.web_analytics.backend.hogql_queries.bot_definitions import BOT_DEFINITIONS
 from products.web_analytics.backend.hogql_queries.bot_ip_definitions import (
     BOT_IP_DEFINITIONS,
@@ -86,8 +88,15 @@ def _property_expr(key: str, args: list[ast.Expr]) -> Optional[ast.Expr]:
     return None
 
 
-def _custom_group_branch(group: CustomBotGroup, args: list[ast.Expr], attr: str) -> Optional[tuple[ast.Expr, ast.Expr]]:
-    """The (did it match, which label) pair for one group of a project's rules."""
+@frozen
+class CustomRuleBranch:
+    """One group of a project's rules, compiled: whether it matched and which label it reports."""
+
+    matched: ast.Expr
+    label: ast.Expr
+
+
+def _custom_group_branch(group: CustomBotGroup, args: list[ast.Expr], attr: str) -> Optional[CustomRuleBranch]:
     property_expr = _property_expr(group.key, args)
     if property_expr is None:
         return None
@@ -105,7 +114,10 @@ def _custom_group_branch(group: CustomBotGroup, args: list[ast.Expr], attr: str)
         index_call = ast.Call(name="multiMatchAnyIndex", args=[safe_property, _string_array(group.patterns)])
 
     labels = _string_array([getattr(definition, attr) for definition in group.definitions])
-    return _matched(index_call), ast.ArrayAccess(array=labels, property=index_call, nullish=False)
+    return CustomRuleBranch(
+        matched=_matched(index_call),
+        label=ast.ArrayAccess(array=labels, property=index_call, nullish=False),
+    )
 
 
 def _safe_ip_expr(ip_expr: ast.Expr) -> ast.Expr:
@@ -230,7 +242,7 @@ def _build_bot_array_lookup(
     for group in groups:
         branch = _custom_group_branch(group, args, attr)
         if branch is not None:
-            branches.extend(branch)
+            branches.extend([branch.matched, branch.label])
     builtin_index = ast.Call(
         name="multiMatchAnyIndex", args=[safe_user_agent, _string_array(list(BOT_DEFINITIONS.keys()))]
     )
@@ -327,7 +339,7 @@ def is_bot(node: ast.Call, args: list[ast.Expr], modifiers: Optional["HogQLQuery
     for group in _custom_groups(modifiers):
         branch = _custom_group_branch(group, args, "name")
         if branch is not None:
-            conditions.append(branch[0])
+            conditions.append(branch.matched)
     ip_expr = _optional_ip_arg(args)
     if ip_expr is not None:
         conditions.append(_build_ip_match_expr(ip_expr))

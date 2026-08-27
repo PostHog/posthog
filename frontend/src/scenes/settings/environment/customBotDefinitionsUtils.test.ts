@@ -1,6 +1,6 @@
 import { CustomBotDefinition, CustomBotField, CustomBotMatcher } from '~/queries/schema/schema-general'
 
-import { matchesValue, validateCustomBotDefinition } from './customBotDefinitions'
+import { matchesValue, validateCustomBotDefinition } from './customBotDefinitionsUtils'
 
 const definition = (overrides: Partial<CustomBotDefinition> = {}): CustomBotDefinition => ({
     id: '1',
@@ -14,7 +14,7 @@ const definition = (overrides: Partial<CustomBotDefinition> = {}): CustomBotDefi
 const ipRule = (pattern: string): CustomBotDefinition =>
     definition({ key: CustomBotField.IP, matcher: CustomBotMatcher.Cidr, pattern })
 
-describe('customBotDefinitions', () => {
+describe('customBotDefinitionsUtils', () => {
     // These rules mirror the ones the API enforces. When they drift, saving returns a 400 with no
     // indication of which row caused it.
     describe('validateCustomBotDefinition', () => {

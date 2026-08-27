@@ -182,6 +182,7 @@ class TestCompileDefinitions:
         )
 
         assert len(groups) == 1
+        assert isinstance(groups[0], PatternGroup)
         assert groups[0].patterns == ["(?i)One", "(?i)Two"]
 
     def test_groups_come_back_in_the_order_their_first_rule_appears(self):

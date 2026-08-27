@@ -31,7 +31,7 @@ import {
     patternPlaceholderFor,
     sanitizeCustomBotDefinitions,
     validateCustomBotDefinition,
-} from './customBotDefinitions'
+} from './customBotDefinitionsUtils'
 
 function newDefinition(): CustomBotDefinition {
     return {

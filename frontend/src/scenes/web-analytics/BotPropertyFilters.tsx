@@ -10,7 +10,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { IconWithCount } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { CUSTOM_BOT_CATEGORY } from 'scenes/settings/environment/customBotDefinitions'
+import { CUSTOM_BOT_CATEGORY } from 'scenes/settings/environment/customBotDefinitionsUtils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { WebAnalyticsPropertyFilters } from '~/queries/schema/schema-general'
