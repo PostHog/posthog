@@ -22,10 +22,10 @@ export interface VisualReviewFlakinessSceneLogicProps {
     repoId: string
 }
 
-// "Most variants" ranks by severity, "most recent" by urgency. A snapshot with
-// forty variants last seen three weeks ago and one with eight seen today are
-// both worth attention, and neither order answers for the other.
-export type FlakinessSort = 'variants' | 'recent'
+// "Most failures" ranks by how much a snapshot costs, "most recent" by urgency.
+// A snapshot that failed forty runs three weeks ago and one that failed twice
+// today are both worth attention, and neither order answers for the other.
+export type FlakinessSort = 'failures' | 'recent'
 
 export type Filters = {
     preset: FlakinessPreset
@@ -35,14 +35,16 @@ export type Filters = {
     sort: FlakinessSort
 }
 
-// Unstable is the landing slice: it is the only one that means something is
-// wrong right now.
+// A decision waiting on a human is the landing slice: it is the only one that
+// nothing else on the page can resolve. It is also the one most often empty, so
+// `landOnSomethingUseful` moves off it when this repo has nothing there. See
+// that listener for why the default cannot simply be a busier preset.
 const EMPTY_FILTERS: Filters = {
-    preset: 'unstable',
+    preset: 'needs_decision',
     typeKeys: [],
     areas: [],
     search: '',
-    sort: 'variants',
+    sort: 'failures',
 }
 
 // Collapses run_type + browser into one facet key, matching how the snapshots
@@ -68,10 +70,13 @@ function typeLabelOf(key: string): string {
 
 function matchesPreset(entry: DecoratedEntry, preset: FlakinessPreset): boolean {
     switch (preset) {
+        case 'broken':
         case 'unstable':
-            return entry.flakiness_state === 'unstable'
-        case 'settled':
-            return entry.flakiness_state === 'settled'
+        case 'at_risk':
+            return entry.flakiness_state === preset
+        // The catch-all. See `FlakinessStatRow` for why these two share a tile.
+        case 'quiet':
+            return entry.flakiness_state === 'noisy' || entry.flakiness_state === 'clean'
         case 'quarantined':
             return entry.is_quarantined
         case 'needs_decision':
@@ -124,12 +129,24 @@ function applyFilters(
     })
 }
 
+const PRESETS: readonly FlakinessPreset[] = ['needs_decision', 'broken', 'unstable', 'at_risk', 'quiet', 'quarantined']
+
+// `settled` was this page's name for "has variants, none recently" before it
+// scored on failure rate. Links carrying it predate that, and `quiet` is where
+// those rows live now.
+function presetFromHash(value: string | undefined): FlakinessPreset {
+    if (value === 'settled' || value === 'noisy') {
+        return 'quiet'
+    }
+    return PRESETS.includes(value as FlakinessPreset) ? (value as FlakinessPreset) : EMPTY_FILTERS.preset
+}
+
 function recencyOf(entry: DecoratedEntry): number {
     return entry.last_flaked_at ? new Date(entry.last_flaked_at).getTime() : 0
 }
 
-function variantCountOf(entry: DecoratedEntry): number {
-    return entry.variant_count
+function hardCountOf(entry: DecoratedEntry): number {
+    return entry.hard_count
 }
 
 // The multi-select filters only expose a toggle, so restoring one from the URL
@@ -150,8 +167,8 @@ function syncToggles(next: string[], current: string[], toggle: (value: string) 
 // Both orders fall back to the other measure, then to the name, so the list is
 // stable and a tie never reshuffles between renders.
 function sortEntries(entries: DecoratedEntry[], sort: FlakinessSort): DecoratedEntry[] {
-    const primary = sort === 'recent' ? recencyOf : variantCountOf
-    const secondary = sort === 'recent' ? variantCountOf : recencyOf
+    const primary = sort === 'recent' ? recencyOf : hardCountOf
+    const secondary = sort === 'recent' ? hardCountOf : recencyOf
     return [...entries].sort(
         (a, b) => primary(b) - primary(a) || secondary(b) - secondary(a) || a.identifier.localeCompare(b.identifier)
     )
@@ -172,6 +189,7 @@ export interface visualReviewFlakinessSceneLogicValues {
     overview: FlakinessOverviewApi | null
     overviewLoading: boolean
     pendingQuarantineKeys: string[]
+    presetChosen: boolean
     repoId: string
     statCounts: Record<FlakinessPreset, number>
     thumbnailBasePath: string | null
@@ -181,6 +199,9 @@ export interface visualReviewFlakinessSceneLogicValues {
 export interface visualReviewFlakinessSceneLogicActions {
     clearAllFilters: () => {
         value: true
+    }
+    landOnPreset: (preset: FlakinessPreset) => {
+        preset: FlakinessPreset
     }
     loadOverview: () => any
     loadOverviewFailure: (
@@ -273,6 +294,7 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
     })),
     actions({
         setPreset: (preset: FlakinessPreset) => ({ preset }),
+        landOnPreset: (preset: FlakinessPreset) => ({ preset }),
         toggleType: (value: string) => ({ value }),
         toggleArea: (value: string) => ({ value }),
         setSearch: (search: string) => ({ search }),
@@ -306,6 +328,15 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
                 loadOverviewFailure: (_state: string | null, { error }: { error: string }) => error || 'Unknown error',
             },
         ],
+        // True once the preset came from somebody rather than the default, either
+        // by clicking a tile or by arriving on a link that names one. Landing
+        // must not move a preset that was asked for.
+        presetChosen: [
+            false,
+            {
+                setPreset: () => true,
+            },
+        ],
         pendingQuarantineKeys: [
             [] as string[],
             {
@@ -323,6 +354,7 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
             EMPTY_FILTERS,
             {
                 setPreset: (state, { preset }) => ({ ...state, preset }),
+                landOnPreset: (state, { preset }) => ({ ...state, preset }),
                 toggleType: (state, { value }) => ({
                     ...state,
                     typeKeys: state.typeKeys.includes(value)
@@ -337,7 +369,7 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
                 }),
                 setSearch: (state, { search }) => ({ ...state, search }),
                 setSort: (state, { sort }) => ({ ...state, sort }),
-                clearAllFilters: () => EMPTY_FILTERS,
+                clearAllFilters: (state) => ({ ...EMPTY_FILTERS, preset: state.preset }),
             },
         ],
     }),
@@ -375,10 +407,12 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
         statCounts: [
             (s) => [s.overview],
             (overview: FlakinessOverviewApi | null): Record<FlakinessPreset, number> => ({
-                unstable: overview?.totals.unstable ?? 0,
-                settled: overview?.totals.settled ?? 0,
-                quarantined: overview?.totals.quarantined ?? 0,
                 needs_decision: overview?.totals.needs_decision ?? 0,
+                broken: overview?.totals.broken ?? 0,
+                unstable: overview?.totals.unstable ?? 0,
+                at_risk: overview?.totals.at_risk ?? 0,
+                quiet: (overview?.totals.noisy ?? 0) + (overview?.totals.clean ?? 0),
+                quarantined: overview?.totals.quarantined ?? 0,
             }),
         ],
         facetGroups: [
@@ -417,6 +451,30 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
         ],
     }),
     listeners(({ actions, values, props }) => ({
+        // A fixed default lands on an empty list whenever this repo happens to
+        // have nothing in that bucket, and every candidate is empty on some
+        // repo: a suite with no quarantines has no decisions, and one whose
+        // snapshots all render cleanly has nothing unstable. So the default
+        // holds only until the counts arrive, then the page moves to the most
+        // urgent preset that has anything in it.
+        loadOverviewSuccess: () => {
+            if (values.presetChosen) {
+                return
+            }
+            // Counted over the entries, not over `statCounts`. The totals cover
+            // the whole population while the entry list stops at the cap, so a
+            // tile can read 12 with none of those twelve actually listed, and
+            // landing on it would show a filled tile above an empty table.
+            const rows = values.decoratedEntries
+            const has = (preset: FlakinessPreset): boolean => rows.some((entry) => matchesPreset(entry, preset))
+            if (has(values.filters.preset)) {
+                return
+            }
+            const populated = PRESETS.find(has)
+            if (populated) {
+                actions.landOnPreset(populated)
+            }
+        },
         quarantineIdentifier: async ({ identifier, runType, reason, expiresAt, sourceRunId }) => {
             try {
                 await visualReviewReposQuarantineCreate(String(values.currentProjectId), props.repoId, runType, {
@@ -484,7 +542,10 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
             toggleArea: toUrl,
             setSearch: toUrl,
             setSort: toUrl,
-            clearAllFilters: () => [path, {}, {}],
+            // Not an empty hash: the preset survives a clear, and dropping it from
+            // the URL would round-trip through urlToAction as "no preset asked for"
+            // and reset the tile the reader was moved to.
+            clearAllFilters: toUrl,
         }
     }),
     urlToAction(({ actions, values, props }) => ({
@@ -494,13 +555,17 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
             }
             const current: Filters = values.filters
             const next: Filters = {
-                preset: (hash.preset as FlakinessPreset) ?? EMPTY_FILTERS.preset,
+                preset: presetFromHash(hash.preset),
                 typeKeys: hash.types ? hash.types.split(',') : [],
                 areas: hash.areas ? hash.areas.split(',') : [],
                 search: hash.q ?? '',
-                sort: hash.sort === 'recent' ? 'recent' : 'variants',
+                sort: hash.sort === 'recent' ? 'recent' : 'failures',
             }
-            if (next.preset !== current.preset) {
+            // Dispatch whenever the hash names a preset, even one that already
+            // matches state: `setPreset` is what marks the choice as somebody's,
+            // and a link to the default would otherwise be treated as no choice
+            // and moved off by `landOnSomethingUseful`.
+            if (hash.preset !== undefined || next.preset !== current.preset) {
                 actions.setPreset(next.preset)
             }
             if (next.search !== current.search) {

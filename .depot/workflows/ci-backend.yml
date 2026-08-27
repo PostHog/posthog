@@ -60,6 +60,11 @@
 #   shards fall back to the union .test_durations
 # - actions/cache reads/writes route to Depot Cache, not GitHub Actions Cache,
 #   so shared keys with canonical (schema, uv, pnpm) do not collide
+# - hypothesis constants cache: the restore and save steps mirror canonical verbatim, but the
+#   save only fires on master test-matrix runs and the shadow skips those, so the Depot Cache
+#   entry only exists after a master workflow_dispatch. Sampled PR shards run cold (they rebuild
+#   the pool, as canonical did before this cache existed) until then: bounded, documented, and
+#   harmless because the shadow never gates merges.
 # - GITHUB_TOKEN / OTEL_SERVICE_NAME neutralized (ambient on Depot, not on GHA)
 # - Three data-modeling tests deselected (Depot-only MinIO 403 quarantine)
 # - COMPOSE_PROJECT_NAME pinned to posthog because bin/wait-for-docker filters by that
@@ -135,6 +140,10 @@ env:
     # and HEAD (push) key computations below can't drift.
     # ci-e2e-playwright.yml, ci-dagster.yml, ci-mcp.yml and ci-rust-flags-integration.yml restore by the same key; keep their copies in sync when bumping.
     SCHEMA_CACHE_EPOCH: v2
+    # Hypothesis constants cache epoch. Bump to abandon every shared entry at once
+    # (key is posthog-hypothesis-constants-<version>-<epoch>-<isoyear>-<isoweek>); used by
+    # the Django test shards below.
+    HYPOTHESIS_CONSTANTS_EPOCH: v1
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     COMPOSE_PROJECT_NAME: posthog
     DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
@@ -257,6 +266,8 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
+                  sparse-checkout: .depot/actions/paths-filter
+                  sparse-checkout-cone-mode: false
             - name: Clean up data directories with container permissions
               run: |
                   # Use docker to clean up files created by containers
@@ -334,9 +345,13 @@ jobs:
                         - 'tools/hogli-commands/hogli_commands/hints.py'
                         - 'tools/hogli-commands/hogli_commands/product/**'
                         - 'tools/hogli-commands/hogli_commands/product_structure.yaml'
-                        # product:lint --all checks this generated file against the tree,
-                        # so a baseline-only edit must run it too
+                        # product:lint --all checks these generated files against the tree,
+                        # so a baseline-only edit must run it too. The crossings baseline is
+                        # also what product:lint reads to let a wiring location leave a
+                        # product's turbo.json inputs, so both edits must run the checks.
                         - products/isolation_baseline.txt
+                        - products/model_crossing_uses_baseline.txt
+                        - 'products/*/turbo.json'
                         # Make sure we run if someone is explicitly changing the workflow
                         - .depot/workflows/ci-backend.yml
                         - .github/clickhouse-versions.json
@@ -1999,6 +2014,37 @@ jobs:
                   key: posthog-segment-durations-${{ github.run_id }}
                   restore-keys: |
                       posthog-segment-durations-
+            - name: Compute hypothesis constants cache key
+              # hypothesis builds its constants pool of property-test inputs by
+              # AST-parsing every local module in sys.modules. It caches the result
+              # in .hypothesis/constants under a hash of each source file, so the
+              # pool is content-addressed: restoring a stale copy is safe, because a
+              # changed file reads as a miss and rebuilds. CI otherwise pays the full
+              # parse on every shard's pytest collection (about 10 s per shard).
+              id: hyp-constants-key
+              shell: bash
+              run: |
+                  # The key includes the installed hypothesis version because the
+                  # entry format is an implementation detail, and rotates weekly so
+                  # entries for deleted or rewritten files expire. The restore prefix
+                  # covers the gap until the first master run of a new week saves.
+                  hyp_version=$(python -c "import hypothesis; print(hypothesis.__version__)")
+                  prefix="posthog-hypothesis-constants-${hyp_version}-${HYPOTHESIS_CONSTANTS_EPOCH}-"
+                  {
+                      echo "key=${prefix}$(date -u +%G-%V)"
+                      echo "restore_prefix=${prefix}"
+                  } >> "$GITHUB_OUTPUT"
+            - name: Restore hypothesis constants cache
+              id: hyp-constants
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  # Constants only. Do NOT add .hypothesis/examples: the example
+                  # database decides which inputs property tests replay, so reusing
+                  # one across runs changes what the tests check.
+                  path: .hypothesis/constants
+                  key: ${{ steps.hyp-constants-key.outputs.key }}
+                  restore-keys: |
+                      ${{ steps.hyp-constants-key.outputs.restore_prefix }}
             # Tests
             - name: Set snapshot update flags
               if: ${{ needs.changes.outputs.backend == 'true' && (needs.detect-snapshot-mode.outputs.mode == 'update' || matrix.person-on-events) }}
@@ -2255,6 +2301,27 @@ jobs:
                   else
                       exit $exit_code
                   fi
+            - name: Save hypothesis constants cache
+              # One Core shard per master run writes the weekly entry: a save from
+              # every shard would race on the same key and churn the shared cache
+              # budget. cache-hit != 'true' skips the save once this week's entry
+              # exists, which keeps later master runs cheap.
+              # continue-on-error: overlapping master runs at week rollover fail its
+              # reservation check when an earlier run has saved the same key, and a
+              # cache miss must never red a green run.
+              continue-on-error: true
+              if: |
+                  github.ref == 'refs/heads/master' &&
+                  matrix.segment == 'Core' &&
+                  matrix.group == 1 &&
+                  !matrix.person-on-events &&
+                  !matrix.new-events-schema &&
+                  !matrix.compat &&
+                  steps.hyp-constants.outputs.cache-hit != 'true'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: .hypothesis/constants
+                  key: ${{ steps.hyp-constants-key.outputs.key }}
             # Post tests
             - name: Show docker compose logs on failure
               if: failure() && (needs.changes.outputs.backend == 'true' && steps.run-core-tests.outcome != 'failure' && steps.run-temporal-tests.outcome != 'failure')
