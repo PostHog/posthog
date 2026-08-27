@@ -11,21 +11,8 @@ import { logger } from '~/common/utils/logger'
 import { HealthCheckResult } from '../../types'
 import { CdpConsumerBase, CdpConsumerBaseConfig, CdpConsumerBaseDeps } from './cdp-base.consumer'
 
-// The processor stamps `origin` and `run_id` on backfill changes and omits both on live
-// transitions. `z.object` drops unknown keys, so any field the consumer must read has to be
-// declared here.
-//
-// `origin` is a tolerant string, not a strict enum, because the consumer upserts the same way for
-// every origin and never branches on the value. A strict enum would reject an origin it does not
-// know, and rejection throws the whole batch: `_parseAndValidateBatch` re-throws to the consumer
-// loop, the service shuts down, and because offsets store only after a successful batch the
-// message redelivers on restart into a crash loop. The Rust `ChangeOrigin` enum is additive (new
-// origins land with their producers), so a processor deploy can emit an origin this consumer has
-// not seen. Known values today: `seed` (initial backfill snapshot), `reconcile` (backfill drift
-// replay), absent (live transition).
-//
-// `run_id` identifies the backfill run and is carried for the mark-and-sweep deletion work, which
-// uses it to delete rows a completed run did not re-assert.
+// `origin` is a loose string, not an enum: nothing branches on it, and rejecting a value the
+// processor added later would throw the whole batch and crash-loop on redelivery.
 const CohortMembershipChangeSchema = z.object({
     person_id: z.guid(),
     cohort_id: z.number(),

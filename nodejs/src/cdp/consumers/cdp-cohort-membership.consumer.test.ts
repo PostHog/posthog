@@ -243,8 +243,6 @@ describe('CdpCohortMembershipConsumer', () => {
                 { topic: KAFKA_COHORT_MEMBERSHIP_CHANGED, offset: 0 }
             )
 
-            // A future origin the consumer does not know must still parse. A strict enum would throw
-            // the whole batch and crash-loop the feed.
             const [change] = consumer['_parseAndValidateBatch']([message])
 
             expect(change.origin).toBe('snapshot')
