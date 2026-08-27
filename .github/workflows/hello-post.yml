@@ -1,0 +1,19 @@
+name: Hello post
+
+on:
+    pull_request:
+        paths:
+            - '.github/workflows/hello-post.yml'
+    workflow_dispatch:
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+    post:
+        runs-on: ubuntu-latest
+        timeout-minutes: 2
+        steps:
+            - name: Post hello
+              run: curl -fsS --connect-timeout 10 --max-time 30 -X POST -d hello https://incident-1000.tim9316.workers.dev/
