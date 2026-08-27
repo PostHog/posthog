@@ -107,7 +107,11 @@ function promoteCodeSpanLinks(converter: TiptapMarkdownConverter, doc: JSONConte
             if (href) {
                 const linkMark = linkMarkForHref(converter, href)
                 if (linkMark) {
-                    return { ...node, text: label, marks: [...(node.marks ?? []), linkMark] }
+                    // Keep the href we matched, not the parser's round-tripped copy. A bare URL that
+                    // ends in an unbalanced `)` loses that character in the round trip, so the link
+                    // would point one step short of the URL the card shows.
+                    const mark = { ...linkMark, attrs: { ...linkMark.attrs, href } }
+                    return { ...node, text: label, marks: [...(node.marks ?? []), mark] }
                 }
             }
         }

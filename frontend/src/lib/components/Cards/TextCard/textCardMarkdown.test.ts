@@ -212,6 +212,16 @@ describe('textCardMarkdown', () => {
         expect(textNode?.marks?.find((m) => m.type === 'link')?.attrs?.href).toBe('https://us.posthog.com/x')
     })
 
+    it('keeps a trailing parenthesis on a bare URL inside a code span', () => {
+        // The href used to be round-tripped through markdown, so an unbalanced trailing `)` was
+        // dropped and the link pointed one character short of the URL the card shows.
+        const doc = textCardConverter.markdownToDoc('`https://example.com/a)`')
+        const textNode = doc.content?.[0]?.content?.[0]
+
+        expect(textNode).toMatchObject({ type: 'text', text: 'https://example.com/a)' })
+        expect(textNode?.marks?.find((m) => m.type === 'link')?.attrs?.href).toBe('https://example.com/a)')
+    })
+
     it('round-trips a link written inside a code span to canonical markdown', () => {
         const doc = textCardConverter.markdownToDoc('`[table_name](https://us.posthog.com/x)`')
         const markdown = textCardConverter.docToMarkdown(doc)
