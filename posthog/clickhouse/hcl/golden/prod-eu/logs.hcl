@@ -806,6 +806,7 @@ SQL
   }
 
   table "logs_pattern_buckets" {
+    primary_key  = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text"]
     order_by     = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text", "pattern"]
     partition_by = "toDate(time_bucket)"
     ttl          = "time_bucket + toIntervalDay(42)"

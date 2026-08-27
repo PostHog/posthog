@@ -16,6 +16,11 @@ from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, 
 # comment gives, and appends `pattern` last. Reading one shape's history is then
 # a range scan inside one series.
 #
+# PRIMARY KEY stops before `pattern`. The sparse index keeps one mark per
+# granule, so an unbounded String there stores a full copy per mark for a column
+# too distinct to prune granules on. The grain does not change: ORDER BY still
+# carries `pattern`, so merges still collapse on it.
+#
 # `pattern` is a plain String. Its cardinality is unbounded by construction, so
 # a LowCardinality dictionary costs more than it saves. It carries no explicit
 # codec either: the server compresses every column with ZSTD, and a column last
@@ -48,6 +53,7 @@ CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NA
 ENGINE = {AggregatingMergeTree(TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED)}
 PARTITION BY toDate(time_bucket)
 ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text, pattern)
+PRIMARY KEY (team_id, time_bucket, service_name, namespace, environment, severity_text)
 TTL time_bucket + INTERVAL 42 DAY
 SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1
 """

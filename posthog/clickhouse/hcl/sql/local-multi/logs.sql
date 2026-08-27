@@ -280,7 +280,7 @@ CREATE TABLE posthog.logs_pattern_buckets (
   severity_text LowCardinality(String),
   pattern String,
   log_count SimpleAggregateFunction(sum, UInt64)
-) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.logs_pattern_buckets', '{replica}-{shard}') ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text, pattern) PARTITION BY toDate(time_bucket) TTL time_bucket + toIntervalDay(42) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.logs_pattern_buckets', '{replica}-{shard}') PRIMARY KEY (team_id, time_bucket, service_name, namespace, environment, severity_text) ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text, pattern) PARTITION BY toDate(time_bucket) TTL time_bucket + toIntervalDay(42) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.logs_pattern_buckets_distributed (
   team_id Int32,
   time_bucket DateTime('UTC') CODEC(DoubleDelta, ZSTD(1)),
