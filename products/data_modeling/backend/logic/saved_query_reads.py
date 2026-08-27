@@ -10,6 +10,32 @@ from ..models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from ..models.node import Node
 
 
+def _clickhouse_type(entry: object) -> str | None:
+    """The stored ClickHouse type, reading a current dict entry keyed ``clickhouse`` or a legacy
+    bare type string. None for anything else, so a column with no readable type is dropped."""
+    if isinstance(entry, dict):
+        entry = entry.get("clickhouse")
+    return entry if isinstance(entry, str) else None
+
+
+def get_saved_query_columns(team_id: int, saved_query_id: UUID | str) -> dict[str, str]:
+    """Each column's ClickHouse type, including any ``Nullable()`` wrapper.
+
+    Empty for a view that has not run yet, since the columns are only recorded once a run has
+    established them. A caller must treat that as unknown rather than as having no columns.
+
+    The ``columns`` map stores each value as a bare type string (legacy rows) or a dict keyed
+    ``clickhouse`` (current rows); both are unwrapped here so a consumer reads a plain type string.
+    """
+    stored = (
+        DataWarehouseSavedQuery.objects.filter(team_id=team_id, id=saved_query_id)
+        .exclude(deleted=True)
+        .values_list("columns", flat=True)
+        .first()
+    )
+    return {name: type_ for name, entry in (stored or {}).items() if (type_ := _clickhouse_type(entry)) is not None}
+
+
 def get_saved_query_summary(team_id: int, saved_query_id: UUID | str) -> SavedQuerySummary | None:
     """The saved query only if it still resolves, else None.
 

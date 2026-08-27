@@ -2290,20 +2290,28 @@ class TestResolveHostaddrWithTimeout:
             assert _resolve_hostaddr_with_timeout(host, 5432, 15) is None
         getaddrinfo_mock.assert_not_called()
 
-    def test_resolved_hostname_returns_every_address_in_order(self):
+    @pytest.mark.parametrize(
+        "ipv6_routes,expected",
+        [
+            (True, ["2001:db8::5", "10.0.0.5"]),
+            (False, ["10.0.0.5"]),
+        ],
+    )
+    def test_resolved_hostname_returns_the_addresses_this_host_can_reach(self, ipv6_routes, expected):
         # A dual-stack host resolving to more than one address must return all of them, in order —
-        # collapsing to just the first would defeat psycopg's own per-address failover and turn an
-        # unreachable address family (e.g. no IPv6 egress) into a hard connection failure instead of
-        # falling back to the other address.
+        # collapsing to just the first would defeat psycopg's own per-address failover. An address
+        # family with no route is worse than useless though: psycopg reports only the last attempt's
+        # error, so a trailing unreachable address overwrites the real one from an address that did
+        # reach the server, and callers that read that message decide on the wrong error.
         addrinfo = [
             (socket.AF_INET6, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("2001:db8::5", 5432)),
             (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("10.0.0.5", 5432)),
         ]
-        with patch(
-            "posthog.psycopg_helpers.socket.getaddrinfo",
-            return_value=addrinfo,
+        with (
+            patch("posthog.psycopg_helpers.socket.getaddrinfo", return_value=addrinfo),
+            patch("posthog.psycopg_helpers.has_ipv6_route", return_value=ipv6_routes),
         ):
-            assert _resolve_hostaddr_with_timeout("db.example.com", 5432, 15) == ["2001:db8::5", "10.0.0.5"]
+            assert _resolve_hostaddr_with_timeout("db.example.com", 5432, 15) == expected
 
     def test_resolved_hostname_dedupes_repeated_addresses(self):
         # getaddrinfo can repeat an address across otherwise-distinct tuples (e.g. differing canonical
@@ -2405,6 +2413,7 @@ class TestConnectToPostgresMultiAddressFailover:
                 "posthog.psycopg_helpers.socket.getaddrinfo",
                 return_value=addrinfo,
             ),
+            patch("posthog.psycopg_helpers.has_ipv6_route", return_value=True),
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.psycopg.connect"
             ) as connect_mock,

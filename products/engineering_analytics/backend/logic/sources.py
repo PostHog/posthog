@@ -25,11 +25,10 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, NamedTuple
 from uuid import UUID
 
-from django.db.models import Q, QuerySet
+from django.db.models import QuerySet
 
 from posthog.models.team import Team
 
-from products.access_control.backend.facade.user_access_control import NO_ACCESS_LEVEL
 from products.engineering_analytics.backend.facade.contracts import GitHubSource, GitHubSourceNotConnectedError
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.sources import github_schema_repo_endpoint
@@ -321,16 +320,6 @@ def _accessible_sources(
     )
     if user_access_control is not None:
         sources = user_access_control.filter_queryset_by_access_level(sources)
-        if not user_access_control.has_resource_access("external_data_source"):
-            # "none" resource-level access: the platform filter drops nothing when the user holds no
-            # object grants, so fail closed here to self-created or explicitly granted sources.
-            granted_ids = [
-                source.id
-                for source in sources
-                if (level := user_access_control.access_level_for_object(source, explicit=True))
-                and level != NO_ACCESS_LEVEL
-            ]
-            sources = sources.filter(Q(created_by=user_access_control.user) | Q(id__in=granted_ids))
     return sources
 
 

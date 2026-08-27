@@ -3176,6 +3176,7 @@ export interface CredentialApi {
  * * `SideShift` - SideShift
  * * `DuckLake` - DuckLake
  * * `Starburst` - Starburst
+ * * `Trino` - Trino
  * * `Easybill` - Easybill
  * * `Bexio` - Bexio
  * * `Umami` - Umami
@@ -3237,6 +3238,8 @@ export interface CredentialApi {
  * * `Liveblocks` - Liveblocks
  * * `NationBuilder` - NationBuilder
  * * `Tana` - Tana
+ * * `Zenchef` - Zenchef
+ * * `Lovable` - Lovable
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -4498,6 +4501,7 @@ export const ExternalDataSourceTypeEnumApi = {
     SideShift: 'SideShift',
     DuckLake: 'DuckLake',
     Starburst: 'Starburst',
+    Trino: 'Trino',
     Easybill: 'Easybill',
     Bexio: 'Bexio',
     Umami: 'Umami',
@@ -4559,6 +4563,8 @@ export const ExternalDataSourceTypeEnumApi = {
     Liveblocks: 'Liveblocks',
     NationBuilder: 'NationBuilder',
     Tana: 'Tana',
+    Zenchef: 'Zenchef',
+    Lovable: 'Lovable',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

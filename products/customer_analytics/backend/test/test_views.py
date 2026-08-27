@@ -4,7 +4,7 @@ from uuid import uuid4
 import pytest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.apps import apps
 from django.utils import timezone
@@ -52,6 +52,7 @@ from products.notebooks.backend.models import Notebook, ResourceNotebook
 from products.product_analytics.backend.facade.models import Insight
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
 class TestCustomerProfileConfigViewSet(APIBaseTest):
@@ -3146,6 +3147,55 @@ class TestAccountMeetingViewSet(APIBaseTest):
                 }
             ],
         )
+
+    @patch("products.customer_analytics.backend.logic.gong.execute_hogql_query")
+    def test_list_includes_the_gong_url_for_a_matching_calendar_event(
+        self, mock_execute_hogql_query: MagicMock
+    ) -> None:
+        account = Account.objects.unscoped().create(team=self.team, name="Acme Corp", external_id="acme-gong")
+        meeting = Meeting.objects.unscoped().create(
+            team=self.team,
+            account=account,
+            ical_uid="calendar-event@google.com",
+            recurrence_instance_id="2026-08-03T15:00:00Z",
+            start_time="2026-08-03T15:00:00Z",
+            title="Review",
+        )
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="gong-source",
+            connection_id="gong-connection",
+            status="Completed",
+            source_type="Gong",
+        )
+        table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="gong_calls",
+            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            url_pattern="https://example.com/gong_calls/*",
+            external_data_source=source,
+            columns={"calendar_event_id": {}, "url": {}},
+        )
+        ExternalDataSchema.objects.create(
+            team=self.team,
+            source=source,
+            table=table,
+            name="calls",
+            should_sync=True,
+            status="Completed",
+        )
+        mock_execute_hogql_query.return_value.results = [
+            [
+                "calendar-event@google.com_2026-08-03T15:00:00Z",
+                "https://app.gong.io/call?id=123",
+            ]
+        ]
+
+        response = self.client.get(f"/api/environments/{self.team.id}/accounts/{account.id}/meetings/")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        self.assertEqual(response.json()["results"][0]["id"], str(meeting.id))
+        self.assertEqual(response.json()["results"][0]["gong_url"], "https://app.gong.io/call?id=123")
 
     def test_search_filters_by_title_or_attendee(self):
         account = Account.objects.unscoped().create(team=self.team, name="Acme Corp", external_id="acme-2")
