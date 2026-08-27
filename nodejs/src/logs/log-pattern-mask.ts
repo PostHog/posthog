@@ -31,10 +31,19 @@ export const MASK_RULES: readonly MaskRule[] = [
     //
     // The letter also guards the match. Without it, `\d{4} \d{2}:\d{2}:\d{2}` would claim any count
     // followed by a time of day.
-    { name: 'klogtime', pattern: '\\bI\\d{4} \\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?', replacement: 'I<KLOGTIME>' },
-    { name: 'klogtime', pattern: '\\bW\\d{4} \\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?', replacement: 'W<KLOGTIME>' },
-    { name: 'klogtime', pattern: '\\bE\\d{4} \\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?', replacement: 'E<KLOGTIME>' },
-    { name: 'klogtime', pattern: '\\bF\\d{4} \\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?', replacement: 'F<KLOGTIME>' },
+    //
+    // The date is spelled out as a real MMDD rather than `\d{4}`, because the letter alone is a weak
+    // guard: the rule reaches text that `\b\d+` cannot (there is no boundary between the letter and
+    // the digits), so a bare `\d{4}` masks any letter-prefixed 4-digit token that happens to precede
+    // a time — collapsing `E2024 10:20:30` and `E2025 10:20:30`, which are distinct today. A month of
+    // 01-12 and a day of 01-31 rejects those while accepting every date klog can print. The match
+    // cannot be anchored to the line start instead: Kubernetes CRI lines carry a container prefix
+    // ("<time> stderr F I0827 ..."), so the header is mid-string in the most common real source.
+    ...(['I', 'W', 'E', 'F'] as const).map((letter) => ({
+        name: 'klogtime' as const,
+        pattern: `\\b${letter}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\\d|3[01]) \\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?`,
+        replacement: `${letter}<KLOGTIME>`,
+    })),
     {
         name: 'uuid',
         pattern: '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}',

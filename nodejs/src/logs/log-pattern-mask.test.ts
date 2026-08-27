@@ -21,6 +21,8 @@ describe('log-pattern-mask', () => {
                 'E0827 11:39:40 1 sync.go:12] failed',
                 'E<KLOGTIME> <N> sync.go:<N>] failed',
             ],
+            ['klogtime warning severity', 'W0101 00:00:00 rotating', 'W<KLOGTIME> rotating'],
+            ['klogtime at the MMDD upper bound', 'F1231 23:59:59 shutdown', 'F<KLOGTIME> shutdown'],
             ['uuid', 'request 0f2d6faf-07e3-4cff-bf47-7efa1024aee2 failed', 'request <UUID> failed'],
             ['email', 'user alice@example.com rejected', 'user <EMAIL> rejected'],
             ['hex0x', 'fault at 0xdeadBEEF handler', 'fault at <HEX> handler'],
@@ -55,6 +57,27 @@ describe('log-pattern-mask', () => {
                 'processed <N> <N>:<N>:<N> rows',
             ],
         ])('ordering: %s', (_name, input, expected) => {
+            expect(maskString(input).masked).toEqual(expected)
+        })
+
+        // The klog rule reaches text `\b\d+` cannot, so each guard is asserted from the negative
+        // side too: a near-miss must fall through to `num` and keep its digits, which is what stops
+        // two unrelated messages from collapsing onto one pattern.
+        it.each([
+            ['month 00', 'E0027 10:20:30 x', 'E0027 <N>:<N>:<N> x'],
+            ['month 13', 'E1327 10:20:30 x', 'E1327 <N>:<N>:<N> x'],
+            ['day 00', 'E0800 10:20:30 x', 'E0800 <N>:<N>:<N> x'],
+            ['day 32', 'E0832 10:20:30 x', 'E0832 <N>:<N>:<N> x'],
+            ['a year, not an MMDD', 'E2024 10:20:30 x', 'E2024 <N>:<N>:<N> x'],
+            ['lowercase severity letter', 'e0827 11:39:40 x', 'e0827 <N>:<N>:<N> x'],
+            ['severity letter outside IWEF', 'D0827 11:39:40 x', 'D0827 <N>:<N>:<N> x'],
+            ['no word boundary before the letter', 'foobarI0827 11:39:40 x', 'foobarI0827 <N>:<N>:<N> x'],
+            ['three date digits', 'I082 11:39:40 x', 'I082 <N>:<N>:<N> x'],
+            ['five date digits', 'I08277 11:39:40 x', 'I08277 <N>:<N>:<N> x'],
+            ['time without seconds', 'I0827 11:39 x', 'I0827 <N>:<N> x'],
+            ['two spaces between date and time', 'I0827  11:39:40 x', 'I0827  <N>:<N>:<N> x'],
+            ['no time at all', 'I0827 sync failed', 'I0827 sync failed'],
+        ])('klogtime does not claim %s', (_name, input, expected) => {
             expect(maskString(input).masked).toEqual(expected)
         })
 
@@ -187,7 +210,7 @@ describe('log-pattern-mask', () => {
                 .update(MASK_RULES.map((rule) => `${rule.name}\0${rule.pattern}\0${rule.replacement}`).join('\x01'))
                 .digest('hex')
                 .slice(0, 16)
-            expect({ version: PATTERN_VERSION, digest }).toEqual({ version: 3, digest: 'e902e3a7060f935f' })
+            expect({ version: PATTERN_VERSION, digest }).toEqual({ version: 3, digest: '599889a916d04e14' })
         })
     })
 
