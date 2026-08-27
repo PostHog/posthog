@@ -6,9 +6,10 @@ import sys
 import json
 from collections import defaultdict
 from pathlib import Path
+from typing import Any
 
 EXP = Path(__file__).resolve().parent.parent
-rows = []
+rows: list[dict[str, Any]] = []
 for arg in sys.argv[1:]:
     S, label = arg.split(":")
     fs = json.load(open(EXP / "findings" / f"{S}.json"))

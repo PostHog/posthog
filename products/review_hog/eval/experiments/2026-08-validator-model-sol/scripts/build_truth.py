@@ -50,8 +50,8 @@ json.dump(truth, open(out, "w"), indent=1)
 print(f"{S}: {len(truth)} from unanimous clusters -> {out.name}; {len(todo)} to verify:")
 for fid, c, why, title in todo:
     print(f"  {fid:<5} cluster={c} {why:<12} {title}")
-    for p in prec.get(c, []):
-        print(f"        precedent {p[0]} real={p[1]} sev={p[2]} ({p[3]}): {p[4]}")
+    for pv in prec.get(c, []):
+        print(f"        precedent {pv[0]} real={pv[1]} sev={pv[2]} ({pv[3]}): {pv[4]}")
 print("\nunanimous assignments:")
 for fid, v in truth.items():
     print(
