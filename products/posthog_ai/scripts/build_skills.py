@@ -269,7 +269,7 @@ def _assert_text_file(file_path: Path) -> None:
 _MARKDOWN_LINK_RE = re.compile(r"\]\(([^)\s]+)\)")
 
 
-def _check_reference_links(skill_dir: Path, repo_root: Path) -> list[str]:
+def _check_reference_links(entry: Path, repo_root: Path) -> list[str]:
     """Find markdown links to references/ or scripts/ files that will not exist in the built bundle.
 
     A skill ships its SKILL.md, references/, and scripts/ files, and the build strips the .j2 suffix
@@ -277,12 +277,8 @@ def _check_reference_links(skill_dir: Path, repo_root: Path) -> list[str]:
     `references/x.md` or `references/x.md.j2`, but a link to `references/x.md.j2` never resolves,
     because the bundle only has the stripped `references/x.md`.
     """
-    bundle: set[str] = {"SKILL.md"}
-    entry = skill_dir / "SKILL.md.j2"
-    if not entry.exists():
-        entry = skill_dir / "SKILL.md"
-    if not entry.exists():
-        return []
+    skill_dir = entry.parent
+    bundle: set[str] = set()
     for subdir_name in sorted(_ALLOWED_SUBDIRS):
         subdir = skill_dir / subdir_name
         if not subdir.is_dir():
@@ -315,9 +311,13 @@ def _check_reference_links(skill_dir: Path, repo_root: Path) -> list[str]:
             continue  # A directory ships through its files.
         if str(rel_to_skill) not in bundle:
             line, _col = _line_col(text, match.start(1))
+            hint = (
+                "Link to the built '.md' path, not the '.md.j2' template."
+                if target.endswith(".j2")
+                else "No file of that name ships in the skill."
+            )
             errors.append(
-                f"Broken reference link in {source_label}:{line}: '{target}' does not resolve to a "
-                f"bundled file. Link to the built '.md' path, not the '.md.j2' template."
+                f"Broken reference link in {source_label}:{line}: '{target}' does not resolve to a bundled file. {hint}"
             )
     return errors
 
@@ -669,7 +669,7 @@ class SkillBuilder:
             lint_files = self._collect_lint_files(skill)
 
             if skill.depth == 1:
-                errors.extend(_check_reference_links(skill.source_file.parent, self.repo_root))
+                errors.extend(_check_reference_links(skill.source_file, self.repo_root))
 
             for file_path in lint_files:
                 source_label = str(file_path.relative_to(self.repo_root))
