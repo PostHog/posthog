@@ -73,6 +73,8 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
         self._current_task_title: Optional[str] = None
         self._current_task_details: Optional[str] = None
         self._last_dispatched_at: float = 0.0
+        # Length of a narrative held back whole (an unfinished tag); a flush waits for it to grow.
+        self._held_length: int = 0
         self._turn_complete: bool = False
 
     @workflow.signal
@@ -190,12 +192,10 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
                         # recorded before this branch cleared the narrative here and then waited.
                         split = split_incomplete_tag_suffix(self._current_narrative)
                         if not split.sendable:
-                            held_length = len(self._current_narrative)
+                            self._held_length = len(self._current_narrative)
                             try:
                                 await workflow.wait_condition(
-                                    lambda held_length=held_length: (
-                                        len(self._current_narrative) != held_length or self._turn_complete
-                                    ),
+                                    lambda: len(self._current_narrative) != self._held_length or self._turn_complete,
                                     timeout=timedelta(minutes=TURN_IDLE_TIMEOUT_MINUTES),
                                 )
                             except TimeoutError:
