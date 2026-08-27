@@ -145,3 +145,26 @@ async def test_export_asset_activity_timeout_errors_are_retryable(
         await activity_environment.run(export_asset_activity, ExportAssetActivityInputs(exported_asset_id=asset.id))
 
     assert exc_info.value.non_retryable is expected_non_retryable
+
+
+@patch("posthog.temporal.exports.activities.exporter")
+async def test_export_asset_activity_refresh_failure_preserves_export_error(
+    mock_exporter: MagicMock, activity_environment, team
+):
+    asset = await sync_to_async(ExportedAsset.objects.create)(
+        team=team,
+        export_format=ExportedAsset.ExportFormat.PNG,
+    )
+
+    def fake_export(asset_obj, **kwargs):
+        raise ValueError("render failed")
+
+    mock_exporter.export_asset_direct = fake_export
+
+    # A failing refresh inside the except handler must not replace the export error
+    # or drop its classification metadata.
+    with patch.object(ExportedAsset, "refresh_from_db", side_effect=RuntimeError("db gone")):
+        with pytest.raises(ApplicationError) as exc_info:
+            await activity_environment.run(export_asset_activity, ExportAssetActivityInputs(exported_asset_id=asset.id))
+
+    assert exc_info.value.type == "ValueError"

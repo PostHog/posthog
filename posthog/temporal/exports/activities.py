@@ -48,7 +48,16 @@ async def export_asset_activity(inputs: ExportAssetActivityInputs) -> ExportAsse
                 source=EventSource(inputs.source) if inputs.source else None,
             )
         except Exception as e:
-            await database_sync_to_async(asset.refresh_from_db, thread_sensitive=False)()
+            try:
+                await database_sync_to_async(asset.refresh_from_db, thread_sensitive=False)()
+            except Exception:
+                # A refresh failure here must not mask the export error or drop its SLO
+                # classification metadata; keep the original exception for the failure event.
+                logger.warning(
+                    "export_asset_activity.refresh_after_failure_failed",
+                    exported_asset_id=asset.id,
+                    team_id=asset.team_id,
+                )
             exception_class = type(e).__name__
             error_trace = "\n".join(traceback.format_exception(e)[:5])
             logger.warning(
