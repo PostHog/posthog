@@ -85,6 +85,16 @@ class TestRewriteObjectTagsForSlack(unittest.TestCase):
                 f"[small]({PROJECT}/sql?open_query=SELECT%20value%20%3C%203&unfurl=false)",
             ),
             (
+                "html_entities_that_are_not_xml_stay_in_the_sql",
+                "<hogql label=\"mark\">SELECT '&copy;'</hogql>",
+                f"[mark]({PROJECT}/sql?open_query=SELECT%20%27%26copy%3B%27&unfurl=false)",
+            ),
+            (
+                "inline_tag_right_after_a_block_starts_its_own_paragraph",
+                '<hogql display="block" title="T">SELECT 1</hogql><insight id="1">x</insight>',
+                f"**[T]({PROJECT}/sql?open_query=SELECT%201&unfurl=false)**\n```\nSELECT 1\n```\n\n[x]({PROJECT}/insights/1?unfurl=false)",
+            ),
+            (
                 "backtick_identifiers_in_sql_do_not_hide_the_tag",
                 '<hogql display="block" title="Events">SELECT `event` FROM events</hogql>',
                 f"**[Events]({PROJECT}/sql?open_query=SELECT%20%60event%60%20FROM%20events&unfurl=false)**\n```\nSELECT `event` FROM events\n```",
@@ -115,6 +125,7 @@ class TestRewriteObjectTagsForSlack(unittest.TestCase):
             ("unterminated_tag", 'The <insight id="9pQx3">checkout funnel dropped.'),
             ("tag_missing_id", "<insight>checkout funnel</insight>"),
             ("tag_inside_inline_code", 'Write `<insight id="1">x</insight>` to cite.'),
+            ("tag_inside_double_backtick_code", 'Write ``<insight id="1">x</insight>`` to cite.'),
             ("tag_inside_fenced_code", '```xml\n<insight id="1">x</insight>\n```'),
             ("text_without_tags", "plain **bold** text"),
         ]
@@ -149,6 +160,12 @@ class TestRewriteObjectTagsForSlack(unittest.TestCase):
         rendered = rewrite(text)
         assert "<insight" not in rendered
         assert rendered.count("](") == 500
+
+    def test_code_spans_interleaved_with_tags_only_skip_the_code(self) -> None:
+        text = " ".join('`<flag id="1"/>` <flag id="2">live</flag>' for _ in range(200))
+        rendered = rewrite(text)
+        assert rendered.count('`<flag id="1"/>`') == 200
+        assert rendered.count(f"[live]({PROJECT}/feature_flags/2?unfurl=false)") == 200
 
     def test_unmatched_openers_do_not_stop_later_tags_rewriting(self) -> None:
         text = ('<insight id="open"> ' * 300) + '<flag id="42">beta</flag>'

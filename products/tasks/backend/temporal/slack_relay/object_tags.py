@@ -11,7 +11,6 @@ Keep the two in sync when a kind or path changes.
 """
 
 import re
-import html
 from collections.abc import Callable
 from urllib.parse import quote
 
@@ -29,7 +28,9 @@ _UNFURL_OPT_OUT_QUERY = "unfurl=false"
 _RE_OPEN_TAG = re.compile(r"<([a-z][\w-]*)((?:\s+[a-z][\w-]*\s*=\s*\"[^\"]*\")*)\s*(/>|>)")
 _RE_CLOSE_TAG = re.compile(r"</([a-z][\w-]*)\s*>")
 _RE_ATTR = re.compile(r"([a-z][\w-]*)\s*=\s*\"([^\"]*)\"")
-_RE_CODE_SEGMENT = re.compile(r"(```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]*`)")
+# Fences of three or more, then inline code: a run of backticks closed by a run of the same length,
+# so ````x```` and ``x`` are one span each instead of two empty ones around a live tag.
+_RE_CODE_SEGMENT = re.compile(r"(?<!`)(`{3,}|~{3,})[\s\S]*?\1(?!`)|(?<!`)(`+)[^`\n]*?\2(?!`)")
 _RE_UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f-]{27,}$", re.IGNORECASE)
 _RE_LABEL_UNSAFE = re.compile(r"[\[\]<>|]")
 _RE_NUMERIC = re.compile(r"^\d+$")
@@ -90,6 +91,16 @@ _OBJECT_KIND_ALIASES: dict[str, str] = {
 }
 
 
+# Only the five entities the desktop composer's XML serializer emits (``escapeXmlAttr``); the full
+# HTML entity table would rewrite SQL literals such as ``'&copy;'``.
+_XML_ENTITIES = {"&quot;": '"', "&apos;": "'", "&lt;": "<", "&gt;": ">", "&amp;": "&"}
+_RE_XML_ENTITY = re.compile("|".join(re.escape(entity) for entity in _XML_ENTITIES))
+
+
+def _unescape_xml(value: str) -> str:
+    return _RE_XML_ENTITY.sub(lambda match: _XML_ENTITIES[match.group(0)], value)
+
+
 @frozen
 class _Span:
     start: int
@@ -113,7 +124,7 @@ def _resolve_kind(name: str) -> _ObjectKind | None:
 
 
 def _parse_attrs(raw: str) -> dict[str, str]:
-    return {match.group(1): html.unescape(match.group(2)) for match in _RE_ATTR.finditer(raw)}
+    return {match.group(1): _unescape_xml(match.group(2)) for match in _RE_ATTR.finditer(raw)}
 
 
 def _code_spans(text: str) -> list[_Span]:
@@ -134,9 +145,13 @@ def _scan_tags(text: str, skip_spans: list[_Span]) -> list[_Tag]:
     cursors: dict[str, int] = {}
     tags: list[_Tag] = []
     next_allowed = 0
+    span_cursor = 0
     for match in _RE_OPEN_TAG.finditer(text):
         start = match.start()
-        if start < next_allowed or any(span.contains(start) for span in skip_spans):
+        # Openers and spans are both in text order, so the span cursor only moves forward.
+        while span_cursor < len(skip_spans) and skip_spans[span_cursor].end <= start:
+            span_cursor += 1
+        if start < next_allowed or (span_cursor < len(skip_spans) and skip_spans[span_cursor].contains(start)):
             continue
         name = match.group(1)
         attrs = _parse_attrs(match.group(2))
@@ -182,7 +197,7 @@ def _object_url(project_url: str, kind: _ObjectKind, object_id: str, *, unfurl: 
 
 def _render_hogql(tag: _Tag, project_url: str) -> str | None:
     # A body written by the desktop composer is XML-escaped, so ``&lt;`` is a ``<`` in the SQL.
-    sql = html.unescape(tag.body).strip()
+    sql = _unescape_xml(tag.body).strip()
     if not sql:
         return None
     url = _object_url(project_url, _HOGQL_KIND, sql, unfurl=False)
@@ -240,7 +255,8 @@ def rewrite_object_tags_for_slack(text: str, *, project_url: str) -> str:
         if rendered is None:
             continue
         before = text[position : tag.start]
-        if needs_paragraph_break and before.strip():
+        if needs_paragraph_break:
+            # The fence must end its line, so anything after it starts a new paragraph.
             before = "\n\n" + before.lstrip("\n")
         needs_paragraph_break = False
         output += before
