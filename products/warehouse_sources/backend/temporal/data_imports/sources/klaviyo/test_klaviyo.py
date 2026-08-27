@@ -693,6 +693,38 @@ class TestGeneralizedFanOut:
             }
         ]
 
+    def test_custom_object_records_fan_out_over_object_types_without_a_parent_page_size(self, monkeypatch: Any) -> None:
+        # /object-types rejects page[size], so the parent must be enumerated by cursor links alone
+        # (no ?page[size] on its URL); each record carries its object_type_id and flattens
+        # record_properties onto the row. Fixtures key by exact URL, so a stray page[size] KeyErrors.
+        pages = {
+            "https://a.klaviyo.com/api/object-types": {
+                "data": [{"id": "OT1"}],
+                "links": {"next": None},
+            },
+            "https://a.klaviyo.com/api/object-types/OT1/object-records?page[size]=100": {
+                "data": [
+                    {
+                        "type": "object-record",
+                        "id": "OT1:::rec-1",
+                        "attributes": {"record_properties": {"name": "Fluffy"}},
+                    }
+                ],
+                "links": {"next": None},
+            },
+        }
+        rows = _collect_rows("custom_object_records", monkeypatch, pages)
+        # The batcher serializes the nested record_properties object to a JSON string in the arrow
+        # table, which is how it lands in the warehouse column.
+        assert rows == [
+            {
+                "type": "object-record",
+                "id": "OT1:::rec-1",
+                "record_properties": '{"name":"Fluffy"}',
+                "object_type_id": "OT1",
+            }
+        ]
+
     def test_flow_messages_walk_flows_then_actions_and_carry_both_ancestors(self, monkeypatch: Any) -> None:
         # Two-level fan-out: the intermediate path must be formatted with the grandparent id, and
         # each row must carry both ancestors or the flow -> action -> message chain can't be rebuilt.
