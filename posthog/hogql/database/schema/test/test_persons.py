@@ -250,6 +250,8 @@ class TestPersonsV2LimitPushDown(ClickhouseTestMixin, APIBaseTest):
             ("aggregate", "SELECT count() FROM persons", "LIMIT 101"),
             ("distinct", "SELECT DISTINCT is_identified FROM persons LIMIT 2", "LIMIT 3"),
             ("window", "SELECT id, count() OVER () FROM persons LIMIT 10", "LIMIT 11"),
+            # HAVING acts as a post-dedup filter, like the WHERE case test_v2_cohort_where covers.
+            ("having", "SELECT id FROM persons HAVING is_identified = 0 LIMIT 5", "LIMIT 6"),
         ]
     )
     @snapshot_clickhouse_queries
