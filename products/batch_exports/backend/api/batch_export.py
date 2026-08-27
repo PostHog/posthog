@@ -162,11 +162,58 @@ class BatchExportRunSerializer(serializers.ModelSerializer):
         read_only_fields = ["batch_export"]
 
 
+class BatchExportRunListQuerySerializer(serializers.Serializer):
+    """Query parameters accepted when listing the runs of a batch export."""
+
+    status = serializers.ListField(
+        required=False,
+        child=serializers.ChoiceField(choices=BatchExportRun.Status.choices),
+        help_text="Only return runs in these statuses. Repeat the parameter to pass more than one status.",
+    )
+    after = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text=(
+            "Only return runs created at or after this point. "
+            "Accepts an ISO-8601 datetime or a relative value like `-7d`. Defaults to `-7d`. "
+            "Ignored when ordering by `data_interval_start`."
+        ),
+    )
+    before = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text=(
+            "Only return runs created at or before this point. "
+            "Accepts an ISO-8601 datetime or a relative value like `-1d`. Defaults to now. "
+            "Ignored when ordering by `data_interval_start`."
+        ),
+    )
+    start = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text=(
+            "Only return runs whose data interval starts at or after this point. "
+            "Accepts an ISO-8601 datetime or a relative value like `-7d`. Defaults to `-7d`. "
+            "Only applies when ordering by `data_interval_start`."
+        ),
+    )
+    end = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text=(
+            "Only return runs whose data interval ends at or before this point. "
+            "Accepts an ISO-8601 datetime or a relative value like `-1d`. Defaults to now. "
+            "Only applies when ordering by `data_interval_start`."
+        ),
+    )
+
+
 class RunsCursorPagination(CursorPagination):
     page_size = 100
 
 
 @extend_schema(tags=["batch_exports"])
+@extend_schema_view(list=extend_schema(parameters=[BatchExportRunListQuerySerializer]))
 class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ReadOnlyModelViewSet):
     scope_object = "batch_export"
     queryset = BatchExportRun.objects.select_related("batch_export__destination").all()
@@ -182,12 +229,17 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Read
         return cast(str, self.parents_query_dict["run_id"])
 
     def safely_get_queryset(self, queryset):
-        after = self.request.GET.get("after", None)
-        before = self.request.GET.get("before", None)
-        start = self.request.GET.get("start", None)
-        end = self.request.GET.get("end", None)
-        ordering = self.request.GET.get("ordering", None)
+        query = BatchExportRunListQuerySerializer(data=self.request.GET)
+        query.is_valid(raise_exception=True)
+        params = query.validated_data
 
+        after = params.get("after")
+        before = params.get("before")
+        start = params.get("start")
+        end = params.get("end")
+
+        # OrderingFilter applies the sort and declares this parameter, so it is not on the serializer.
+        ordering = self.request.GET.get("ordering", None)
         # If we're ordering by data_interval_start, we need to filter by that otherwise we're ordering by created_at
         if ordering == "data_interval_start" or ordering == "-data_interval_start":
             start_timestamp = relative_date_parse(start if start else "-7d", self.team.timezone_info)
@@ -198,6 +250,9 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Read
             before_datetime = relative_date_parse(before, self.team.timezone_info) if before else now()
             date_range = (after_datetime, before_datetime)
             queryset = queryset.filter(created_at__range=date_range)
+
+        if statuses := params.get("status"):
+            queryset = queryset.filter(status__in=statuses)
 
         queryset = queryset.filter(batch_export_id=self.kwargs["parent_lookup_batch_export_id"])
         return queryset

@@ -1,19 +1,35 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from parameterized import parameterized
+
 from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counter import (
+    _KILLED_WORKER_TTL_SECONDS,
     _STUCK_TTL_SECONDS,
+    STUCK_SESSION_THRESHOLD,
     BumpStuckCounterInput,
     bump_stuck_counter_activity,
     read_stuck_session_ids,
 )
 
 
+@parameterized.expand(
+    [
+        # (killed_worker, remaining_ttl, expected_amount, expected_ttl)
+        (False, -2, 1, _STUCK_TTL_SECONDS),
+        (True, -2, STUCK_SESSION_THRESHOLD, _KILLED_WORKER_TTL_SECONDS),
+        # An ordinary bump inside a killed-worker quarantine must not downgrade the longer TTL.
+        (False, _KILLED_WORKER_TTL_SECONDS - 60, 1, _KILLED_WORKER_TTL_SECONDS - 60),
+    ]
+)
 @pytest.mark.asyncio
-async def test_bump_stuck_counter_pipelines_incr_and_expire():
+async def test_bump_stuck_counter_pipelines_incrby_and_expire(
+    killed_worker, remaining_ttl, expected_amount, expected_ttl
+):
     redis_client = MagicMock()
+    redis_client.ttl = AsyncMock(return_value=remaining_ttl)
     pipeline = MagicMock()
-    pipeline.incr = MagicMock()
+    pipeline.incrby = MagicMock()
     pipeline.expire = MagicMock()
     pipeline.execute = AsyncMock(return_value=[1, True])
     pipeline.__aenter__ = AsyncMock(return_value=pipeline)
@@ -24,10 +40,12 @@ async def test_bump_stuck_counter_pipelines_incr_and_expire():
         "posthog.temporal.session_replay.rasterize_recording.activities.stuck_counter.get_async_client",
         return_value=redis_client,
     ):
-        await bump_stuck_counter_activity(BumpStuckCounterInput(team_id=42, session_id="abc"))
+        await bump_stuck_counter_activity(
+            BumpStuckCounterInput(team_id=42, session_id="abc", killed_worker=killed_worker)
+        )
 
-    pipeline.incr.assert_called_once_with("replay:rasterize:stuck:42:abc")
-    pipeline.expire.assert_called_once_with("replay:rasterize:stuck:42:abc", _STUCK_TTL_SECONDS)
+    pipeline.incrby.assert_called_once_with("replay:rasterize:stuck:42:abc", expected_amount)
+    pipeline.expire.assert_called_once_with("replay:rasterize:stuck:42:abc", expected_ttl)
     pipeline.execute.assert_awaited_once()
 
 

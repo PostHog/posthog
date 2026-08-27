@@ -20,6 +20,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { pluralize } from 'lib/utils/strings'
+import { isLaunched } from 'scenes/experiments/experimentStatus'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { urls } from 'scenes/urls'
@@ -29,8 +30,6 @@ import { Experiment } from '~/types'
 import { experimentScannerParams } from 'products/replay_vision/frontend/replay_scanners/experimentTargeting'
 import { scannerTypeLabel } from 'products/replay_vision/frontend/replay_scanners/types'
 
-import { SummarizeSessionReplaysButton } from '../components/SummarizeSessionReplaysButton'
-import { isLaunched } from '../experimentStatus'
 import { NOT_A_FUNNEL_REASON } from '../utils'
 import { ExperimentBehaviorComparison, ExperimentBehaviorComparisonToggle } from './ExperimentBehaviorComparison'
 import {
@@ -46,6 +45,10 @@ import { VariantTag } from './VariantTag'
 // allowed character in variant keys, so the '$' prefix guarantees no collision with a real
 // variant — a variant literally named "all" just renders as its own option after the built-in "All".
 const ALL_VARIANTS = '$all'
+
+// Unchanged from the earlier cross-sell wording, so a dismissal there still holds. Someone who
+// turned down scanners for this experiment did not ask to be told again in purple.
+const SCANNER_CROSS_SELL_DISMISS_KEY = 'experiment-replay-vision-scanner-cross-sell'
 
 // What the unfiltered list is, said once above it. The second sentence carries the part that
 // isn't guessable: exposure is resolved per person, matching who the analysis counts, so
@@ -317,18 +320,17 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
                     />
                 ) : (
                     <LemonBanner
-                        type="info"
+                        type="ai"
                         className="mb-2"
-                        dismissKey="experiment-replay-vision-scanner-cross-sell"
+                        dismissKey={SCANNER_CROSS_SELL_DISMISS_KEY}
                         action={{
-                            children: 'Set up a scanner',
+                            children: 'Set up scanner for this experiment',
                             to: scannerSetupUrl,
                             onClick: () => scannerCrossSellClicked(),
                             'data-attr': 'experiment-recordings-scanner-cross-sell',
                         }}
                     >
-                        Replay vision can watch new recordings from this experiment for you. Scanners check each session
-                        and report what they find.
+                        Replay vision is here. Scanners watch your recordings for you and surface what matters.
                     </LemonBanner>
                 ))}
             <div className="mb-2 flex flex-wrap gap-2">
@@ -413,9 +415,6 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
                     </DropdownMenu>
                 )}
                 <ExperimentBehaviorComparisonToggle experiment={experiment} />
-                <div className="ml-auto">
-                    <SummarizeSessionReplaysButton experiment={experiment} />
-                </div>
             </div>
             {/* The default mode also uses the endpoint for a single multi-source metric, so the
                 caption follows the request, not the mode. */}

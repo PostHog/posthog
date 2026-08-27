@@ -31,10 +31,10 @@ import { Experiment, FilterLogicalOperator, RecordingUniversalFilters } from '~/
 import {
     ExperimentVariantResult,
     formatChanceToWinForGoal,
+    formatIntervalPercent,
     formatMetricValue,
     formatPValue,
     getIntervalLabel,
-    getVariantInterval,
     isBayesianResult,
     isFrequentistResult,
 } from '../shared/utils'
@@ -174,11 +174,7 @@ export function ResultDetails({
                 if (item.key === baselineKey) {
                     return '—'
                 }
-                const interval = getVariantInterval(item)
-                if (!interval) {
-                    return '—'
-                }
-                return `[${(interval[0] * 100).toFixed(2)}%, ${(interval[1] * 100).toFixed(2)}%]`
+                return formatIntervalPercent(item)
             },
         },
         {

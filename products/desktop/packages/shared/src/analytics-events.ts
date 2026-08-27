@@ -66,6 +66,7 @@ export type CommandMenuAction =
   | "open-archived"
   | "open-loops"
   | "open-usage"
+  | "open-cost-management"
   | "search-files"
   | "open-file"
   | "reload-window"
@@ -274,10 +275,10 @@ export type SidebarNavItem =
   | "command_center"
   | "contexts"
   | "activity"
+  | "canvases"
   | "configure"
   | "loops"
-  | "more"
-  | "customize_sidebar";
+  | "more";
 
 /** Which sidebar shell the click came from, so the two can be compared. */
 export type SidebarLayout = "code" | "channels";
@@ -292,18 +293,6 @@ export interface SidebarNavItemClickedProperties {
    * them is the whole point of running one behind a flag.
    */
   layout?: SidebarLayout;
-}
-
-export interface SidebarCustomizedProperties {
-  item: SidebarNavItem;
-  /** True when the item was promoted to the top level, false when moved under More. */
-  visible: boolean;
-}
-
-export interface SidebarReorderedProperties {
-  item: SidebarNavItem;
-  /** Zero-based position of the item in the nav after the drag. */
-  to_index: number;
 }
 
 export interface TaskListGroupingChangedProperties {
@@ -491,7 +480,6 @@ export interface TaskFeedbackProperties {
 // Onboarding events
 export type OnboardingStepId =
   | "project-select"
-  | "invite-code"
   | "consent"
   | "connect-github"
   | "install-cli"
@@ -529,11 +517,6 @@ export interface OnboardingSignInInitiatedProperties {
 export interface OnboardingProjectSelectedProperties {
   had_multiple_orgs: boolean;
   had_multiple_projects: boolean;
-}
-
-export interface OnboardingInviteCodeSubmittedProperties {
-  success: boolean;
-  error_type?: string;
 }
 
 export interface OnboardingFolderSelectedProperties {
@@ -994,7 +977,8 @@ export type ChannelsSurface =
   | "context"
   | "thread_panel"
   | "activity_panel"
-  | "activity";
+  | "activity"
+  | "canvases_pane";
 
 export type ChannelActionType =
   | "enter_space"
@@ -1438,8 +1422,6 @@ export const ANALYTICS_EVENTS = {
   BRAINROT_PLAYER_ERROR: "Brainrot player error",
   POSTHOG_WEB_OPENED: "PostHog web opened",
   SIDEBAR_NAV_ITEM_CLICKED: "Sidebar nav item clicked",
-  SIDEBAR_CUSTOMIZED: "Sidebar customized",
-  SIDEBAR_REORDERED: "Sidebar reordered",
   TASK_LIST_GROUPING_CHANGED: "Task list grouping changed",
   TASK_LIST_APPEARANCE_CHANGED: "Task list appearance changed",
 
@@ -1472,7 +1454,6 @@ export const ANALYTICS_EVENTS = {
   ONBOARDING_STEP_SKIPPED: "Onboarding step skipped",
   ONBOARDING_SIGN_IN_INITIATED: "Onboarding sign in initiated",
   ONBOARDING_PROJECT_SELECTED: "Onboarding project selected",
-  ONBOARDING_INVITE_CODE_SUBMITTED: "Onboarding invite code submitted",
   ONBOARDING_FOLDER_SELECTED: "Onboarding folder selected",
   ONBOARDING_GITHUB_CONNECT_STARTED: "Onboarding github connect started",
   ONBOARDING_GITHUB_CONNECT_FAILED: "Onboarding github connect failed",
@@ -1632,8 +1613,6 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.BRAINROT_PLAYER_ERROR]: BrainrotPlayerErrorProperties;
   [ANALYTICS_EVENTS.POSTHOG_WEB_OPENED]: never;
   [ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED]: SidebarNavItemClickedProperties;
-  [ANALYTICS_EVENTS.SIDEBAR_CUSTOMIZED]: SidebarCustomizedProperties;
-  [ANALYTICS_EVENTS.SIDEBAR_REORDERED]: SidebarReorderedProperties;
   [ANALYTICS_EVENTS.TASK_LIST_GROUPING_CHANGED]: TaskListGroupingChangedProperties;
   [ANALYTICS_EVENTS.TASK_LIST_APPEARANCE_CHANGED]: TaskListAppearanceChangedProperties;
 
@@ -1666,7 +1645,6 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.ONBOARDING_STEP_SKIPPED]: OnboardingStepSkippedProperties;
   [ANALYTICS_EVENTS.ONBOARDING_SIGN_IN_INITIATED]: OnboardingSignInInitiatedProperties;
   [ANALYTICS_EVENTS.ONBOARDING_PROJECT_SELECTED]: OnboardingProjectSelectedProperties;
-  [ANALYTICS_EVENTS.ONBOARDING_INVITE_CODE_SUBMITTED]: OnboardingInviteCodeSubmittedProperties;
   [ANALYTICS_EVENTS.ONBOARDING_FOLDER_SELECTED]: OnboardingFolderSelectedProperties;
   [ANALYTICS_EVENTS.ONBOARDING_GITHUB_CONNECT_STARTED]: OnboardingGithubConnectStartedProperties;
   [ANALYTICS_EVENTS.ONBOARDING_GITHUB_CONNECT_FAILED]: OnboardingGithubConnectFailedProperties;

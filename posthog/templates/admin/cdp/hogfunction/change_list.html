@@ -7,10 +7,5 @@
             <a href="{% url 'admin:rerun-google-ads-failed-invocations' %}">Rerun Google Ads failed invocations</a>
         </li>
     {% endif %}
-    {% if show_masked_secrets_button %}
-        <li>
-            <a href="{% url 'admin:hog-function-masked-secrets' %}">Find masked secrets</a>
-        </li>
-    {% endif %}
     {{ block.super }}
 {% endblock %}

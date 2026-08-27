@@ -1,3 +1,4 @@
+import { isAuthFailureResponse } from "@posthog/api-client/fetcher";
 import { ROOT_LOGGER, type RootLogger } from "@posthog/di/logger";
 import {
   type IPowerManager,
@@ -42,6 +43,11 @@ import {
   type ValidAccessTokenOutput,
 } from "./schemas";
 
+// A refresh failure that is not a rejection is no evidence the token is dead, so
+// pause rather than retire. Sized inside TOKEN_EXPIRY_SKEW_MS so a fast failure
+// still retries on a live token. Retry exhaustion can already outrun the skew on
+// its own, so the sizing buys nothing there.
+const FAILED_REFRESH_COOLDOWN_MS = 15_000;
 const TOKEN_EXPIRY_SKEW_MS = 60_000;
 const AUTH_FETCH_TIMEOUT_MS = 30_000;
 const AUTH_BOOTSTRAP_DEADLINE_MS = 20_000;
@@ -96,6 +102,13 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
   private refreshPromise: Promise<InMemorySession> | null = null;
   private impersonationExpiryTimer: ReturnType<typeof setTimeout> | null = null;
   private sessionGeneration = 0;
+  // A refresh already refused, keyed to the session generation so every teardown
+  // invalidates it. `until: null` is a proven-dead token, a timestamp is a pause.
+  private refusedRefresh: {
+    token: string;
+    generation: number;
+    until: number | null;
+  } | null = null;
   // Serializes session-state commits so overlapping selections can't
   // interleave across async encryption (see commitSessionState).
   private commitChain: Promise<void> = Promise.resolve();
@@ -239,7 +252,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       return response;
     }
 
-    if (response.status === 401 || response.status === 403) {
+    if (await isAuthFailureResponse(response)) {
       const refreshedAuth = await this.refreshAccessToken();
       response = await this.executeAuthenticatedFetch(
         fetchImpl,
@@ -250,29 +263,6 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     }
 
     return response;
-  }
-  async redeemInviteCode(code: string): Promise<AuthState> {
-    const { apiHost } = await this.getValidAccessToken();
-    const response = await this.authenticatedFetch(
-      fetch,
-      `${apiHost}/api/code/invites/redeem/`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code }),
-      },
-    );
-
-    const data = (await response.json().catch(() => ({}))) as {
-      success?: boolean;
-      error?: string;
-    };
-
-    if (!response.ok || !data.success) {
-      throw new Error(data.error || "Failed to redeem invite code");
-    }
-
-    return this.retryDesktopAccess();
   }
   async retryDesktopAccess(): Promise<AuthState> {
     await this.initialize();
@@ -441,17 +431,14 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     if (this.sessionGeneration !== sessionGeneration) {
       return;
     }
+    const desktopAccess = this.carryDesktopAccessInto(nextSession);
     this.session = nextSession;
     this.persistProjectPreference(nextSession);
     this.updateState({
       orgProjectsMap: next.orgProjectsMap,
       currentOrgId: next.currentOrgId,
       currentProjectId: next.currentProjectId,
-      desktopAccess: {
-        projectId: next.currentProjectId,
-        status: "checking",
-        reason: null,
-      },
+      desktopAccess,
     });
     await this.updateDesktopAccessFromSession(nextSession);
   }
@@ -499,6 +486,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     this.authSession.clearCurrent();
     this.clearImpersonationExpiryTimer();
     this.session = null;
+    this.refusedRefresh = null;
     this.setAnonymousState({ cloudRegion, currentProjectId });
     return this.getState();
   }
@@ -700,11 +688,36 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
 
     return storedSession;
   }
+  private pauseRefresh(token: string, errorCode: string | undefined): void {
+    this.refusedRefresh = {
+      token,
+      generation: this.sessionGeneration,
+      until: Date.now() + FAILED_REFRESH_COOLDOWN_MS,
+    };
+    this.logger.warn("Refresh failed, pausing this token", { errorCode });
+  }
+
   private async refreshSession(
     input: StoredSessionInput,
   ): Promise<InMemorySession> {
     if (!this.connectivity.getStatus().isOnline) {
       throw new Error("Offline");
+    }
+
+    const refused = this.refusedRefresh;
+    if (
+      refused &&
+      refused.token === input.refreshToken &&
+      refused.generation === this.sessionGeneration
+    ) {
+      if (refused.until === null) {
+        throw new NotAuthenticatedError(
+          "Your session has expired. Sign in again to continue.",
+        );
+      }
+      if (Date.now() < refused.until) {
+        throw new Error("Token refresh paused after an unclassified failure");
+      }
     }
 
     let lastError = "Token refresh failed";
@@ -737,7 +750,15 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
           cloudRegion: input.cloudRegion,
           currentProjectId: input.selectedProjectId,
         });
-        throw new Error(lastError);
+        // Last, so a throwing teardown leaves no refusal over a live-looking session.
+        this.refusedRefresh = {
+          token: input.refreshToken,
+          generation: this.sessionGeneration,
+          until: null,
+        };
+        // The session is already anonymous, so callers that stop on a dead
+        // session must see that class here rather than a trigger later.
+        throw new NotAuthenticatedError(lastError);
       }
 
       const isRetryable =
@@ -745,6 +766,9 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
         result.errorCode === "server_error";
 
       if (!isRetryable) {
+        // This arm keeps the session and the stored token, so only the pause
+        // stops the caller re-presenting it on the next trigger.
+        this.pauseRefresh(input.refreshToken, result.errorCode);
         throw new Error(lastError);
       }
 
@@ -757,6 +781,10 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       });
       await sleepWithBackoff(attempt, AuthService.REFRESH_BACKOFF);
     }
+
+    // A 5xx endpoint or a captive portal exhausts the budget here, not in the arm
+    // above; unpaused, each later trigger spends the whole budget again.
+    this.pauseRefresh(input.refreshToken, "retries_exhausted");
 
     throw new Error(lastError);
   }
@@ -815,13 +843,21 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     const lastPrefs = accountKey
       ? this.authPreference.get(accountKey, options.cloudRegion)
       : null;
+    const preferredProjectId =
+      options.selectedProjectId ?? lastPrefs?.lastSelectedProjectId ?? null;
     const selection = this.reconcileInitialSelection({
       orgProjectsMap,
       currentOrgId,
-      preferredProjectId:
-        options.selectedProjectId ?? lastPrefs?.lastSelectedProjectId ?? null,
+      preferredProjectId,
       lastSelectedOrgId: lastPrefs?.lastSelectedOrgId ?? null,
     });
+    if (
+      orgProjectsIncomplete &&
+      preferredProjectId !== null &&
+      !flattenProjectIds(orgProjectsMap).includes(preferredProjectId)
+    ) {
+      selection.currentProjectId = null;
+    }
 
     const refreshToken =
       tokenResponse.refresh_token ?? options.fallbackRefreshToken ?? null;
@@ -1066,6 +1102,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       return false;
     }
     this.persistProjectPreference(session);
+    const desktopAccess = this.carryDesktopAccessInto(session);
     this.session = session;
     this.scheduleImpersonationExpiry(session);
     this.updateState({
@@ -1075,11 +1112,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       orgProjectsMap: session.orgProjectsMap,
       currentOrgId: session.currentOrgId,
       currentProjectId: session.currentProjectId,
-      desktopAccess: {
-        projectId: session.currentProjectId,
-        status: "checking",
-        reason: null,
-      },
+      desktopAccess,
       needsScopeReauth: false,
       sessionType: session.sessionType,
       sessionExpiresAt: session.accessTokenExpiresAt,
@@ -1245,6 +1278,32 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       sessionEndReason: partial.sessionEndReason ?? null,
     });
   }
+
+  // Resetting to "checking" on every refresh would unmount the whole app.
+  private carryDesktopAccessInto(session: InMemorySession): DesktopAccess {
+    const previous = this.state.desktopAccess;
+    const previousAccountKey = this.session?.accountKey ?? null;
+    // A failed `/api/users/@me/` lookup leaves accountKey null. That is an
+    // unknown account, not a different one, so it must not flash the loading
+    // screen. A resolved key that differs is a real account change.
+    const sameIdentity =
+      previousAccountKey !== null &&
+      (session.accountKey === null ||
+        session.accountKey === previousAccountKey) &&
+      previous.projectId === session.currentProjectId;
+    if (
+      sameIdentity &&
+      (previous.status === "allowed" || previous.status === "blocked")
+    ) {
+      return previous;
+    }
+    return {
+      projectId: session.currentProjectId,
+      status: "checking",
+      reason: null,
+    };
+  }
+
   private async updateDesktopAccessFromSession(
     session: InMemorySession,
   ): Promise<void> {
@@ -1364,6 +1423,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     this.sessionGeneration += 1;
     this.clearImpersonationExpiryTimer();
     this.session = null;
+    this.refusedRefresh = null;
     this.setAnonymousState({
       cloudRegion: session.cloudRegion,
       currentProjectId: session.currentProjectId,

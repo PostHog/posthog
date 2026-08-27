@@ -778,6 +778,10 @@
                 "id": {
                     "type": "string"
                 },
+                "logoDomain": {
+                    "description": "Bare hostname the row's logo is rendered from. Null when no source resolved one.",
+                    "type": ["string", "null"]
+                },
                 "name": {
                     "type": "string"
                 },
@@ -1598,6 +1602,9 @@
                     "$ref": "#/definitions/WebBotsTableQuery"
                 },
                 {
+                    "$ref": "#/definitions/WebAgentAnalyticsQuery"
+                },
+                {
                     "$ref": "#/definitions/WebGoalsQuery"
                 },
                 {
@@ -1906,6 +1913,9 @@
                 },
                 {
                     "$ref": "#/definitions/WorkflowVariablePropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/BehavioralPropertyFilter"
                 }
             ]
         },
@@ -2198,12 +2208,12 @@
                     "type": "string"
                 },
                 "style": {
-                    "description": "Number formatting style.\n- `none` — no formatting.\n- `number` — thousands separators (e.g. `1,234`).\n- `short` — abbreviated large numbers (e.g. `1.2k`, `3.4M`).\n- `percent` — render the value as a percentage.",
+                    "description": "Number formatting style.\n- `none` — no formatting.\n- `number` — thousands separators (e.g. `1,234`).\n- `short` — abbreviated large numbers (e.g. `1.2k`, `3.4M`).\n- `percent` — multiply the value by 100 and append a `%` sign, so pass a 0-1 ratio (`a / b`, not `100.0 * a / b`). Never pair it with a `%` suffix, which renders `47.3%%`.",
                     "enum": ["none", "number", "short", "percent"],
                     "type": "string"
                 },
                 "suffix": {
-                    "description": "Text appended to each value (e.g. `%` or ` ms`).",
+                    "description": "Text appended to each value (e.g. ` ms`). Leave unset when `style` is `percent`, which already appends the `%` sign.",
                     "type": "string"
                 }
             },
@@ -4784,7 +4794,6 @@
                 "search_error_tracking_issues",
                 "find_error_tracking_impactful_issue_event_list",
                 "experiment_results_summary",
-                "experiment_session_replays_summary",
                 "create_survey",
                 "edit_survey",
                 "analyze_survey_responses",
@@ -5890,6 +5899,86 @@
             ],
             "type": "string"
         },
+        "BehavioralEventSource": {
+            "description": "Whether a behavioral filter's `key` refers to an event name or an action id",
+            "enum": ["events", "actions"],
+            "type": "string"
+        },
+        "BehavioralPropertyFilter": {
+            "additionalProperties": false,
+            "description": "Filters persons on whether they performed an event in a time window, without a saved cohort. Event scope only.",
+            "properties": {
+                "event_filters": {
+                    "description": "Extra property filters the matching events must satisfy. Deliberately excludes nested behavioral/cohort filters and groups",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/EventPropertyFilter"
+                            },
+                            {
+                                "$ref": "#/definitions/PersonPropertyFilter"
+                            },
+                            {
+                                "$ref": "#/definitions/ElementPropertyFilter"
+                            },
+                            {
+                                "$ref": "#/definitions/FeaturePropertyFilter"
+                            },
+                            {
+                                "$ref": "#/definitions/HogQLPropertyFilter"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                },
+                "event_type": {
+                    "$ref": "#/definitions/BehavioralEventSource"
+                },
+                "explicit_datetime": {
+                    "description": "Absolute or relative (e.g. -30d) lower date bound — alternative to time_value/time_interval",
+                    "type": "string"
+                },
+                "explicit_datetime_to": {
+                    "type": "string"
+                },
+                "key": {
+                    "description": "Event name, or action id when event_type is 'actions'",
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "negation": {
+                    "description": "Match persons who did NOT satisfy the criterion. Not the same as a low count — zero-occurrence persons never match count operators",
+                    "type": "boolean"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator",
+                    "description": "Count comparison for performed_event_multiple, defaults to exact"
+                },
+                "operator_value": {
+                    "description": "Count threshold for performed_event_multiple",
+                    "type": "integer"
+                },
+                "time_interval": {
+                    "$ref": "#/definitions/TimeUnitType"
+                },
+                "time_value": {
+                    "description": "Relative time window size, paired with time_interval",
+                    "type": "integer"
+                },
+                "type": {
+                    "const": "behavioral",
+                    "description": "Person performed (or didn't perform) an event in a time window. ClickHouse-only — not evaluable by flags or CDP",
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/InlineBehavioralType"
+                }
+            },
+            "required": ["event_type", "key", "type", "value"],
+            "type": "object"
+        },
         "BiasRisk": {
             "additionalProperties": false,
             "description": "Empirically observed multi-variant exclusion bias risk: uneven split + `EXCLUDE` handling + observed `$multiple` share above the threshold. Present on the response only when the experiment is currently at risk.",
@@ -5960,6 +6049,39 @@
                 }
             },
             "required": ["day", "label", "min", "p25", "median", "p75", "max", "mean"],
+            "type": "object"
+        },
+        "BoxPlotSettings": {
+            "additionalProperties": false,
+            "properties": {
+                "excludeOutliers": {
+                    "type": "boolean"
+                },
+                "maxColumn": {
+                    "type": "string"
+                },
+                "meanColumn": {
+                    "type": "string"
+                },
+                "medianColumn": {
+                    "type": "string"
+                },
+                "minColumn": {
+                    "type": "string"
+                },
+                "p25Column": {
+                    "type": "string"
+                },
+                "p75Column": {
+                    "type": "string"
+                },
+                "seriesColumn": {
+                    "type": ["string", "null"]
+                },
+                "xAxisColumn": {
+                    "type": ["string", "null"]
+                }
+            },
             "type": "object"
         },
         "Breakdown": {
@@ -14331,6 +14453,121 @@
             ],
             "type": "object"
         },
+        "CachedWebAgentAnalyticsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "columns": {
+                    "items": {},
+                    "type": "array"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hasMore": {
+                    "type": "boolean"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
+                },
+                "query_metadata": {
+                    "type": "object"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {},
+                    "type": "array"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "types": {
+                    "items": {},
+                    "type": "array"
+                },
+                "used_data_warehouse_sources": {
+                    "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSourceUsage"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/AccessControlFilterWarning"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
         "CachedWebBotsTableQueryResponse": {
             "additionalProperties": false,
             "properties": {
@@ -15606,6 +15843,9 @@
         "ChartSettings": {
             "additionalProperties": false,
             "properties": {
+                "boxPlot": {
+                    "$ref": "#/definitions/BoxPlotSettings"
+                },
                 "chartStyle": {
                     "$ref": "#/definitions/ChartStyle",
                     "description": "Chart rendering style overrides (line shape). Only applies to line and area charts."
@@ -25071,6 +25311,7 @@
                 "Ebay",
                 "Commercetools",
                 "LightspeedRetail",
+                "Shipmail",
                 "ShipStation",
                 "ConstantContact",
                 "Mailgun",
@@ -26152,6 +26393,7 @@
                 "SideShift",
                 "DuckLake",
                 "Starburst",
+                "Trino",
                 "Easybill",
                 "Bexio",
                 "Umami",
@@ -26206,7 +26448,14 @@
                 "Clarify",
                 "DatoCMS",
                 "WPSOffice",
-                "TeraBox"
+                "TeraBox",
+                "SimonData",
+                "CommissionJunction",
+                "Liveblocks",
+                "NationBuilder",
+                "Tana",
+                "Zenchef",
+                "Lovable"
             ],
             "type": "string"
         },
@@ -28386,6 +28635,10 @@
                     "description": "Extra globals for the query",
                     "type": "object"
                 },
+                "indexUsage": {
+                    "description": "Analyze how each property filter reads its data. Costs a second type-resolution pass, so only editors that render the result should ask for it.",
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "HogQLMetadata",
                     "type": "string"
@@ -28439,6 +28692,13 @@
                 "errors": {
                     "items": {
                         "$ref": "#/definitions/HogQLNotice"
+                    },
+                    "type": "array"
+                },
+                "index_usage": {
+                    "description": "One entry per property filter, in query order.",
+                    "items": {
+                        "$ref": "#/definitions/PredicateIndexUsage"
                     },
                     "type": "array"
                 },
@@ -28936,6 +29196,11 @@
         "InfinityValue": {
             "enum": [999999, -999999],
             "type": "number"
+        },
+        "InlineBehavioralType": {
+            "description": "The subset of cohort behavioral criteria supported by the inline `BehavioralPropertyFilter`",
+            "enum": ["performed_event", "performed_event_multiple"],
+            "type": "string"
         },
         "InsightActorsQuery": {
             "additionalProperties": false,
@@ -36799,6 +37064,7 @@
                 "WebStatsTableQuery",
                 "WebExternalClicksTableQuery",
                 "WebBotsTableQuery",
+                "WebAgentAnalyticsQuery",
                 "WebGoalsQuery",
                 "WebVitalsQuery",
                 "WebVitalsPathBreakdownQuery",
@@ -38221,6 +38487,79 @@
             "enum": ["pending", "in_progress", "completed"],
             "type": "string"
         },
+        "PredicateIndexUsage": {
+            "additionalProperties": false,
+            "description": "How one property filter in the query reads its data, decided before the query runs.",
+            "properties": {
+                "column_name": {
+                    "type": "string"
+                },
+                "end": {
+                    "$ref": "#/definitions/integer"
+                },
+                "fix": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "operator": {
+                    "description": "HogQL comparison operator, e.g. `==`, `in`, `ilike`.",
+                    "type": "string"
+                },
+                "physical_type": {
+                    "description": "Type the value is physically stored as.",
+                    "type": "string"
+                },
+                "property_name": {
+                    "type": "string"
+                },
+                "scope": {
+                    "$ref": "#/definitions/PredicateScope"
+                },
+                "semantic_type": {
+                    "description": "Type the property definition declares.",
+                    "type": "string"
+                },
+                "source_label": {
+                    "description": "Where the value is physically read from, e.g. `materialized column` or `JSON blob`.",
+                    "type": "string"
+                },
+                "start": {
+                    "$ref": "#/definitions/integer"
+                },
+                "usable_indexes": {
+                    "description": "Skip indexes this predicate can actually use.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "verdict": {
+                    "$ref": "#/definitions/PredicateIndexVerdict"
+                }
+            },
+            "required": [
+                "property_name",
+                "scope",
+                "operator",
+                "source_label",
+                "semantic_type",
+                "physical_type",
+                "usable_indexes",
+                "verdict",
+                "message"
+            ],
+            "type": "object"
+        },
+        "PredicateIndexVerdict": {
+            "enum": ["indexed", "blocked", "unindexed_column", "unindexed_json", "operator_not_indexable"],
+            "type": "string"
+        },
+        "PredicateScope": {
+            "enum": ["event", "person", "group", "unknown"],
+            "type": "string"
+        },
         "PreprocessingConfig": {
             "additionalProperties": false,
             "description": "Preprocessing transforms applied to the time series before detection",
@@ -38522,6 +38861,7 @@
                 "feature",
                 "session",
                 "cohort",
+                "behavioral",
                 "recording",
                 "log_entry",
                 "group",
@@ -39545,6 +39885,13 @@
                         "errors": {
                             "items": {
                                 "$ref": "#/definitions/HogQLNotice"
+                            },
+                            "type": "array"
+                        },
+                        "index_usage": {
+                            "description": "One entry per property filter, in query order.",
+                            "items": {
+                                "$ref": "#/definitions/PredicateIndexUsage"
                             },
                             "type": "array"
                         },
@@ -40641,6 +40988,86 @@
                         },
                         "samplingRate": {
                             "$ref": "#/definitions/SamplingRate"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "types": {
+                            "items": {},
+                            "type": "array"
+                        },
+                        "used_data_warehouse_sources": {
+                            "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                            "items": {
+                                "$ref": "#/definitions/DataWarehouseSourceUsage"
+                            },
+                            "type": "array"
+                        },
+                        "warnings": {
+                            "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                            "items": {
+                                "anyOf": [
+                                    {
+                                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/AccessControlFilterWarning"
+                                    }
+                                ]
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "columns": {
+                            "items": {},
+                            "type": "array"
+                        },
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hasMore": {
+                            "type": "boolean"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "limit": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "offset": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_compare_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The resolved previous/comparison period date range, when comparing against another period"
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {
+                            "items": {},
+                            "type": "array"
                         },
                         "timings": {
                             "description": "Measured timings for different parts of the query generation process",
@@ -46955,6 +47382,9 @@
                     "$ref": "#/definitions/WebBotsTableQuery"
                 },
                 {
+                    "$ref": "#/definitions/WebAgentAnalyticsQuery"
+                },
+                {
                     "$ref": "#/definitions/WebGoalsQuery"
                 },
                 {
@@ -51797,6 +52227,10 @@
             },
             "type": "object"
         },
+        "TimeUnitType": {
+            "enum": ["day", "week", "month", "year"],
+            "type": "string"
+        },
         "TimelineEntry": {
             "additionalProperties": false,
             "properties": {
@@ -53951,6 +54385,219 @@
                 }
             },
             "type": "object"
+        },
+        "WebAgentAnalyticsQuery": {
+            "additionalProperties": false,
+            "description": "Agent traffic summaries and readiness diagnostics derived from web request events.",
+            "properties": {
+                "aggregation_group_type_index": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Groups aggregation - not used in Web Analytics but required for type compatibility"
+                },
+                "compareFilter": {
+                    "$ref": "#/definitions/CompareFilter"
+                },
+                "contentGrouping": {
+                    "$ref": "#/definitions/WebAgentContentGrouping"
+                },
+                "conversionGoal": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/WebAnalyticsConversionGoal"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility",
+                    "type": ["number", "null"]
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "doPathCleaning": {
+                    "type": "boolean"
+                },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
+                "includeCrawlers": {
+                    "type": "boolean"
+                },
+                "includeRevenue": {
+                    "deprecated": "ignored, always treated as disabled",
+                    "type": "boolean"
+                },
+                "intentKey": {
+                    "type": "string"
+                },
+                "interval": {
+                    "$ref": "#/definitions/IntervalType",
+                    "description": "Interval for date range calculation (affects date_to rounding for hour vs day ranges)"
+                },
+                "journeyKey": {
+                    "description": "Opaque journey identifier returned by the journeys list, used to load one journey's timeline.",
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "WebAgentAnalyticsQuery",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "llmsTxtUrl": {
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
+                },
+                "orderBy": {
+                    "$ref": "#/definitions/WebAnalyticsOrderBy"
+                },
+                "properties": {
+                    "$ref": "#/definitions/WebAnalyticsPropertyFilters"
+                },
+                "queryType": {
+                    "$ref": "#/definitions/WebAgentAnalyticsQueryType"
+                },
+                "response": {
+                    "$ref": "#/definitions/WebAgentAnalyticsQueryResponse"
+                },
+                "sampling": {
+                    "$ref": "#/definitions/WebAnalyticsSampling",
+                    "deprecated": "Use samplingFactor instead"
+                },
+                "samplingFactor": {
+                    "description": "Sampling rate",
+                    "type": ["number", "null"]
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "useSessionsTable": {
+                    "deprecated": "ignored, always treated as enabled *",
+                    "type": "boolean"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["kind", "properties", "queryType"],
+            "type": "object"
+        },
+        "WebAgentAnalyticsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "columns": {
+                    "items": {},
+                    "type": "array"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hasMore": {
+                    "type": "boolean"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {},
+                    "type": "array"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "types": {
+                    "items": {},
+                    "type": "array"
+                },
+                "used_data_warehouse_sources": {
+                    "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSourceUsage"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/AccessControlFilterWarning"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
+        "WebAgentAnalyticsQueryType": {
+            "enum": [
+                "overview",
+                "issues",
+                "page_requests",
+                "transitions",
+                "demand",
+                "issue_variants",
+                "request_anatomy",
+                "journey_summary",
+                "journeys",
+                "journey_detail"
+            ],
+            "type": "string"
+        },
+        "WebAgentContentGrouping": {
+            "enum": ["exact", "normalized"],
+            "type": "string"
         },
         "WebAnalyticsAssistantFilters": {
             "additionalProperties": false,

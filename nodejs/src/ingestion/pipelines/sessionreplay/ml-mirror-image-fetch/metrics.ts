@@ -2,6 +2,7 @@ import { Counter, Gauge, Histogram } from 'prom-client'
 
 import type { RepublishReason, UrlDropReason } from './collected-urls-record'
 import type { AttemptOutcome } from './fetch-runner'
+import type { FrontierDeadLetterReason } from './frontier-dead-letter-sink'
 import type { FetchRefusalReason, RequestScheduleBlockReason, TransientFetchOutcome } from './image-fetcher'
 
 /** What the in-flight gauge reads. Narrower than `ConcurrencyController`, so the metrics do not depend on the whole of it. */
@@ -22,7 +23,10 @@ export type SchedulerWaitScope = 'origin_crawl_delay' | 'registrable_domain_rate
 export type HttpRequestOutcome = '2xx' | '3xx' | '4xx' | '5xx' | 'other' | 'network_error'
 export type RepublishDestination = 'frontier' | 'delay'
 export type RepublishTopic = 'frontier' | 'retry_1m' | 'retry_10m' | 'retry_1h'
+type BatchDiversityScope = 'origin' | 'registrable_domain'
 type PolicyAndBudgetReason = FetchRefusalReason | RequestScheduleBlockReason | 'none'
+
+const BATCH_DIVERSITY_TOP_COUNTS = [1, 5, 10] as const
 
 export class ImageFetchConsumerMetrics {
     private static readonly fetchable = new Counter({
@@ -42,7 +46,17 @@ export class ImageFetchConsumerMetrics {
      */
     private static readonly dropped = new Counter({
         name: 'ml_image_fetch_consumer_dropped_total',
-        help: 'URLs refused before dedup because the versioned record, URL, ref, or registrable-domain key was invalid',
+        help: 'URLs refused before dedup because the versioned record, URL, ref, or registrable-domain key was invalid. When a dead-letter topic is configured, its Kafka acknowledgement precedes this increment and the source commit',
+        labelNames: ['reason'],
+    })
+    private static readonly deadLettered = new Counter({
+        name: 'ml_image_fetch_consumer_dead_lettered_total',
+        help: 'Rejected frontier records acknowledged by the dead-letter topic before the source offset can advance',
+        labelNames: ['reason'],
+    })
+    private static readonly deadLetterFailed = new Counter({
+        name: 'ml_image_fetch_consumer_dead_letter_failed_total',
+        help: 'Rejected frontier records that could not reach the dead-letter topic. The source batch fails so its offsets remain uncommitted',
         labelNames: ['reason'],
     })
     /**
@@ -62,6 +76,18 @@ export class ImageFetchConsumerMetrics {
         name: 'ml_image_fetch_consumer_registrable_domains_per_batch',
         help: 'Distinct registrable domains in one poll batch',
         buckets: [0, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16_384],
+    })
+    private static readonly batchTopShare = new Histogram({
+        name: 'ml_image_fetch_batch_top_share',
+        help: 'Share of deduplicated canonical URL jobs held by the largest fixed number of origins or registrable domains in one poll batch',
+        labelNames: ['scope', 'top_n'],
+        buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 1],
+    })
+    private static readonly batchEffectiveCount = new Histogram({
+        name: 'ml_image_fetch_batch_effective_count',
+        help: 'Inverse Simpson effective count of origins or registrable domains among deduplicated canonical URL jobs in one poll batch',
+        labelNames: ['scope'],
+        buckets: [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16_384, 32_768, 65_536],
     })
     private static readonly urlsPerRecord = new Histogram({
         name: 'ml_image_fetch_consumer_urls_per_record',
@@ -84,12 +110,15 @@ export class ImageFetchConsumerMetrics {
         help: 'Wall time per completed poll batch. Read against Kafka max.poll.interval.ms (300s)',
         buckets: [0.01, 0.05, 0.1, 0.5, 1, 5, 15, 30, 60, 120, 240, 300, 600],
     })
-    private static activeBatchStartedAtMs: number | undefined
+    private static readonly activeBatchStartedAtMs = new Map<symbol, number>()
     private static readonly activeBatchElapsed = new Gauge({
         name: 'ml_image_fetch_consumer_active_batch_elapsed_seconds',
         help: 'Elapsed wall time of the active non-empty poll batch, or zero between batches. This exposes a stuck batch before Kafka max.poll.interval.ms revokes it',
         collect() {
-            const startedAtMs = ImageFetchConsumerMetrics.activeBatchStartedAtMs
+            const startedAtMs =
+                ImageFetchConsumerMetrics.activeBatchStartedAtMs.size > 0
+                    ? Math.min(...ImageFetchConsumerMetrics.activeBatchStartedAtMs.values())
+                    : undefined
             this.set(startedAtMs === undefined ? 0 : Math.max(0, performance.now() - startedAtMs) / 1000)
         },
     })
@@ -115,6 +144,12 @@ export class ImageFetchConsumerMetrics {
     public static incDropped(reason: UrlDropReason, count: number): void {
         this.dropped.labels(reason).inc(count)
     }
+    public static incDeadLettered(reason: FrontierDeadLetterReason): void {
+        this.deadLettered.labels(reason).inc()
+    }
+    public static incDeadLetterFailed(reason: FrontierDeadLetterReason): void {
+        this.deadLetterFailed.labels(reason).inc()
+    }
     public static incStoreError(operation: 'read' | 'write', count: number): void {
         this.storeErrors.labels(operation).inc(count)
     }
@@ -131,11 +166,17 @@ export class ImageFetchConsumerMetrics {
         this.registrableDomainsPerBatch.observe(registrableDomains)
         this.batchDuration.observe(durationSeconds)
     }
-    public static startBatch(nowMs = performance.now()): void {
-        this.activeBatchStartedAtMs = nowMs
+    public static observeBatchDiversity(originCounts: number[], registrableDomainCounts: number[]): void {
+        this.observeBatchDistribution('origin', originCounts)
+        this.observeBatchDistribution('registrable_domain', registrableDomainCounts)
     }
-    public static finishBatch(): void {
-        this.activeBatchStartedAtMs = undefined
+    public static startBatch(nowMs = performance.now()): symbol {
+        const batchId = Symbol()
+        this.activeBatchStartedAtMs.set(batchId, nowMs)
+        return batchId
+    }
+    public static finishBatch(batchId: symbol): void {
+        this.activeBatchStartedAtMs.delete(batchId)
     }
     public static observeRecord(urls: number): void {
         this.urlsPerRecord.observe(urls)
@@ -143,6 +184,40 @@ export class ImageFetchConsumerMetrics {
     public static observeAge(ageSeconds: number): void {
         this.ageSeconds.observe(ageSeconds)
     }
+
+    private static observeBatchDistribution(scope: BatchDiversityScope, counts: number[]): void {
+        const summary = summarizeBatchDistribution(counts)
+        if (!summary) {
+            return
+        }
+        for (const topCount of BATCH_DIVERSITY_TOP_COUNTS) {
+            const topTotal = summary.largestCounts.slice(0, topCount).reduce((total, count) => total + count, 0)
+            this.batchTopShare.labels(scope, String(topCount)).observe(topTotal / summary.total)
+        }
+        this.batchEffectiveCount.labels(scope).observe((summary.total * summary.total) / summary.sumOfSquares)
+    }
+}
+
+function summarizeBatchDistribution(
+    counts: number[]
+): { total: number; sumOfSquares: number; largestCounts: number[] } | undefined {
+    let total = 0
+    let sumOfSquares = 0
+    const largestCounts: number[] = []
+    for (const count of counts) {
+        total += count
+        sumOfSquares += count * count
+        const insertionIndex = largestCounts.findIndex((existing) => count > existing)
+        if (insertionIndex >= 0) {
+            largestCounts.splice(insertionIndex, 0, count)
+        } else if (largestCounts.length < BATCH_DIVERSITY_TOP_COUNTS.at(-1)!) {
+            largestCounts.push(count)
+        }
+        if (largestCounts.length > BATCH_DIVERSITY_TOP_COUNTS.at(-1)!) {
+            largestCounts.pop()
+        }
+    }
+    return total > 0 ? { total, sumOfSquares, largestCounts } : undefined
 }
 
 /**
@@ -176,6 +251,35 @@ export class ImageFetchRequestMetrics {
         name: 'ml_image_fetch_policy_and_budget_decisions_total',
         help: 'Origin-policy and registrable-domain request-control decisions after block state is known',
         labelNames: ['blocked', 'reason'],
+    })
+    private static readonly lowOriginDiversityPasses = new Counter({
+        name: 'ml_image_fetch_low_origin_diversity_passes_total',
+        help: 'Fetch passes that entered low-diversity mode because too few request slots remained',
+    })
+    private static readonly lowOriginDiversityOrigins = new Histogram({
+        name: 'ml_image_fetch_low_origin_diversity_origins',
+        help: 'Origins remaining when a fetch pass entered low-diversity mode',
+        buckets: [1, 2, 4, 8, 16, 32, 64],
+    })
+    private static readonly lowOriginDiversityCandidates = new Histogram({
+        name: 'ml_image_fetch_low_origin_diversity_candidates',
+        help: 'Canonical URL jobs remaining when a fetch pass entered low-diversity mode',
+        buckets: [1, 8, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16_384, 32_768, 65_536],
+    })
+    private static readonly lowOriginDiversityRequestSlots = new Histogram({
+        name: 'ml_image_fetch_low_origin_diversity_request_slots',
+        help: 'Request slots remaining when a fetch pass entered low-diversity mode',
+        buckets: [1, 2, 4, 8, 16, 32, 48, 64, 128, 256, 300],
+    })
+    private static readonly batchSchedulableSlots = new Histogram({
+        name: 'ml_image_fetch_batch_schedulable_slots',
+        help: 'Request slots that the initial fetch queue can use after live pod and registrable-domain concurrency limits',
+        buckets: [1, 2, 4, 8, 16, 32, 64, 128, 256, 300, 512, 1024],
+    })
+    private static readonly batchSchedulableCapacityRatio = new Histogram({
+        name: 'ml_image_fetch_batch_schedulable_capacity_ratio',
+        help: 'Share of the pod request limit that the initial fetch queue can use after live concurrency limits',
+        buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 1],
     })
     /**
      * `ok` against the sum is the yield of the lane.
@@ -295,6 +399,17 @@ export class ImageFetchRequestMetrics {
     public static observePolicyAndBudgetDecision(blocked: boolean, reason: PolicyAndBudgetReason = 'none'): void {
         this.policyAndBudgetDecisions.labels(blocked ? 'true' : 'false', reason).inc()
     }
+    public static observeLowOriginDiversity(origins: number, candidates: number, requestSlots: number): void {
+        this.lowOriginDiversityPasses.inc()
+        this.lowOriginDiversityOrigins.observe(origins)
+        this.lowOriginDiversityCandidates.observe(candidates)
+        this.lowOriginDiversityRequestSlots.observe(requestSlots)
+    }
+    public static observeBatchSchedulableCapacity(slots: number, podRequestLimit: number): void {
+        const boundedSlots = Math.min(slots, podRequestLimit)
+        this.batchSchedulableSlots.observe(boundedSlots)
+        this.batchSchedulableCapacityRatio.observe(boundedSlots / podRequestLimit)
+    }
     public static observeSchedulerWait(scope: SchedulerWaitScope, waitSeconds: number): void {
         this.schedulerWait.labels(scope).observe(waitSeconds)
     }
@@ -339,7 +454,7 @@ export class ImageFetchRequestMetrics {
      */
     private static readonly republished = new Counter({
         name: 'ml_image_fetch_republished_total',
-        help: 'URLs published back to Kafka by bounded reason and destination class. "redirect" left the origin. "retry" hit a transient failure and waits in a delay topic. "not_ready" arrived before its wait ended',
+        help: 'URLs published back to Kafka by bounded reason and destination class. "redirect" left the origin. "retry" hit a transient failure and waits in a delay topic. "not_ready" arrived before its wait ended. "low_origin_diversity" returns queued work to the frontier so a later batch can add origins',
         labelNames: ['reason', 'topic'],
     })
     private static readonly republishFailed = new Counter({
