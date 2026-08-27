@@ -5,15 +5,13 @@ import { useState } from 'react'
 import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 import { MaxMemorySettings } from 'scenes/settings/environment/MaxMemorySettings'
 import { maxSettingsLogic } from 'scenes/settings/environment/maxSettingsLogic'
 
 import { AgentMode } from '~/queries/schema/schema-assistant-messages'
 
-import { capabilitiesForGrouping, capabilityGroupingFromVariant } from '../maxCapabilities'
+import { HOMEPAGE_CAPABILITIES } from '../maxCapabilities'
 import { QUESTION_SUGGESTIONS_DATA, RESEARCH_SUGGESTIONS_DATA, maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
 import { CAPABILITY_CARDS_HEIGHT_PX, CapabilityBadges, CapabilitySuggestions } from './CapabilityBadges'
@@ -30,7 +28,6 @@ export function SidebarQuestionInputWithSuggestions({
     const { agentMode } = useValues(maxThreadLogic)
     const { askMax } = useActions(maxThreadLogic)
     const { coreMemory, coreMemoryLoading } = useValues(maxSettingsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const [settingsModalOpen, setSettingsModalOpen] = useState(false)
     const [selectedCapability, setSelectedCapability] = useState<string | null>(null)
@@ -39,12 +36,10 @@ export function SidebarQuestionInputWithSuggestions({
         setSettingsModalOpen(true)
     }
 
-    // Capability badges (same experiment as the homepage) replace the pills — except in Research
-    // mode, which keeps its own tailored suggestions.
-    const grouping = capabilityGroupingFromVariant(featureFlags[FEATURE_FLAGS.MAX_HOMEPAGE_CAPABILITIES])
-    const showBadges = !!grouping && agentMode !== AgentMode.Research
-    const capabilities = grouping ? capabilitiesForGrouping(grouping) : []
-    const selectedCapabilityData = capabilities.find((capability) => capability.key === selectedCapability) ?? null
+    // Capability badges replace the pills — except in Research mode, which keeps its own tailored suggestions.
+    const showBadges = agentMode !== AgentMode.Research
+    const selectedCapabilityData =
+        HOMEPAGE_CAPABILITIES.find((capability) => capability.key === selectedCapability) ?? null
 
     const tip =
         !coreMemoryLoading && !coreMemory?.text
@@ -75,7 +70,7 @@ export function SidebarQuestionInputWithSuggestions({
                 {showBadges ? (
                     <div className="flex flex-col items-center gap-6 w-full">
                         <CapabilityBadges
-                            capabilities={capabilities}
+                            capabilities={HOMEPAGE_CAPABILITIES}
                             selectedKey={selectedCapability}
                             onSelect={(key) => {
                                 setFillInHint(null)
