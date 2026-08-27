@@ -499,7 +499,15 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                     statusReceived: () => null,
                 },
             ],
-            statusLoading: [false, { loadStatus: () => true, statusFailed: () => false, statusReceived: () => false }],
+            statusLoading: [
+                false,
+                {
+                    loadStatus: () => true,
+                    refreshData: () => true,
+                    statusFailed: () => false,
+                    statusReceived: () => false,
+                },
+            ],
             versions: [
                 [] as WidgetVersionApi[],
                 {
@@ -730,6 +738,10 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                         actions.statusFailed('The current project is unavailable. Refresh and try again.')
                         return
                     }
+                    if (cache.refreshDataRequestInFlight) {
+                        return
+                    }
+                    cache.refreshDataRequestInFlight = true
                     try {
                         actions.statusReceived(
                             await notebooksWidgetStatus(String(props.projectId), props.notebookShortId, props.nodeId)
@@ -737,6 +749,8 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                         actions.artifactRefreshReady()
                     } catch (error) {
                         actions.statusFailed(errorMessage(error))
+                    } finally {
+                        cache.refreshDataRequestInFlight = false
                     }
                 },
                 loadStatus: async () => {

@@ -148,6 +148,17 @@ describe('NotebookNodeGeneratedWidget', () => {
             </BindLogic>
         )
 
+        const actionLabels = ['Improve...', 'Regenerate…', 'View source', 'Reload']
+        const actionButtons = await Promise.all(actionLabels.map((label) => screen.findByText(label)))
+        actionButtons.slice(0, -1).forEach((button, index) => {
+            expect(
+                button.compareDocumentPosition(actionButtons[index + 1]) & Node.DOCUMENT_POSITION_FOLLOWING
+            ).toBeTruthy()
+        })
+        jest.mocked(notebooksWidgetStatus).mockClear()
+        fireEvent.click(actionButtons[3])
+        await waitFor(() => expect(notebooksWidgetStatus).toHaveBeenCalledWith(String(MOCK_TEAM_ID), SHORT_ID, 'globe'))
+
         fireEvent.click(await screen.findByText('View source'))
 
         await waitFor(() => expect(notebooksWidgetSource).toHaveBeenCalledWith(String(MOCK_TEAM_ID), SHORT_ID, 'globe'))

@@ -55,6 +55,7 @@ export function NotebookNodeGeneratedWidgetSettings({
         selectedVersion,
         selectedVersionId,
         status,
+        statusLoading,
         versions,
         versionsCount,
         versionsLoading,
@@ -68,6 +69,7 @@ export function NotebookNodeGeneratedWidgetSettings({
         loadMoreVersions,
         openGenerationModal,
         openSourceModal,
+        refreshData,
         restoreSelectedVersion,
         selectVersion,
         setGenerationDraftModel,
@@ -214,15 +216,23 @@ export function NotebookNodeGeneratedWidgetSettings({
                         ) : null}
                         {isCurrentVersion && isEditable ? (
                             <>
-                                <LemonButton onClick={openSourceModal} data-attr="notebook-widget-view-source">
-                                    View source
-                                </LemonButton>
                                 <LemonButton type="primary" onClick={() => openGenerationModal('improve')}>
                                     Improve...
                                 </LemonButton>
+                                <LemonButton onClick={() => openGenerationModal('regenerate')}>Regenerate…</LemonButton>
+                                <LemonButton onClick={openSourceModal} data-attr="notebook-widget-view-source">
+                                    View source
+                                </LemonButton>
+                                <LemonButton
+                                    onClick={refreshData}
+                                    loading={statusLoading}
+                                    data-attr="notebook-widget-reload"
+                                >
+                                    Reload
+                                </LemonButton>
                             </>
                         ) : null}
-                        {isEditable ? (
+                        {!isCurrentVersion && isEditable ? (
                             <LemonButton onClick={() => openGenerationModal('regenerate')}>Regenerate…</LemonButton>
                         ) : null}
                     </>
