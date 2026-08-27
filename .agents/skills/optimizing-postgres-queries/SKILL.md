@@ -1,6 +1,6 @@
 ---
 name: optimizing-postgres-queries
-description: Diagnose and fix slow Postgres queries against the app database (Django ORM, `.raw()`, `RawSQL`, psycopg). Use when an Aurora CPU / connection / replication alert fires, when pganalyze or RDS Performance Insights names an expensive query, when a Django queryset is slow, or when a query "should be cheap" but shows high total time. Covers tracing a pganalyze fingerprint back to the ORM call site, reading the plan with EXPLAIN against a seeded local database, the house anti-patterns (the `COALESCE(project_id, team_id)` OR form, unbounded `IN` lists, per-row queries in a loop, count over a whole table), and choosing between a query rewrite, a new index, caching, and the reader instance. Does NOT cover ClickHouse or HogQL — use `/optimizing-clickhouse-and-hogql-queries` for those.
+description: Diagnose and fix slow Postgres queries against the app database (Django ORM, `.raw()`, `RawSQL`, psycopg). Use when an Aurora CPU / connection / replication alert fires, when pganalyze or RDS Performance Insights names an expensive query, when a Django queryset is slow, or when a query "should be cheap" but shows high total time. Covers tracing a pganalyze fingerprint back to the ORM call site, reading the plan with EXPLAIN against a seeded local database, the house anti-patterns (the `COALESCE(project_id, team_id)` OR form, non-strict quals that stop Postgres demoting an outer join, raw SQL built from an unordered set, unbounded `IN` lists, per-row queries in a loop, count over a whole table), and choosing between a query rewrite, a new index, caching, and the reader instance. Also covers a plan that flips after an auto-ANALYZE, and a query that hides from query statistics by fingerprinting differently per worker. Does NOT cover ClickHouse or HogQL — use `/optimizing-clickhouse-and-hogql-queries` for those.
 ---
 
 # Optimizing Postgres queries
@@ -55,6 +55,7 @@ Read the plan for these, in order:
 | `Rows Removed by Filter` ≫ rows returned | The index found the rows but could not exclude them    |
 | `Index Cond` missing your second column  | The index is being used, but only its leading column   |
 | `loops=N` with a large N                 | A per-row query — batch it, do not tune it             |
+| `Hash Full Join` / `Merge Full Join`     | A full join Postgres could not demote; see below       |
 
 ## Step 3: pick the fix
 
@@ -99,6 +100,18 @@ Two details worth knowing:
 
 A semgrep rule, `project-scope-filter-uses-coalesce`, blocks the `OR` form in CI.
 
+### The catch: `COALESCE` is not strict
+
+Fixing the index match can arm a second problem, in a query that also has an outer join.
+
+Postgres demotes an outer join to a cheaper one when the `WHERE` clause proves the nullable side cannot be null — `reduce_outer_joins`. It proves that from **strict** quals, ones that return null for null input. `project_id = X` is strict. `COALESCE(project_id, team_id) = X` is not, because `COALESCE` returns a value even when its first argument is null.
+
+So a `FULL OUTER JOIN` that Postgres used to demote stays a full join once the scope filter becomes `COALESCE`. A full join can be neither a nested loop nor a filter pushed into the scan, which leaves a sequential scan of the whole table as a plan the planner may pick. It usually will not, until an auto-`ANALYZE` shifts the estimates.
+
+That failure is intermittent and parameter-dependent, which is what makes it hard to recognize. The same query is fine whenever the request happens to add another strict qual on the same table — a `name NOT LIKE`, a search term — because that restores the demotion.
+
+Check for an outer join whenever you rewrite a scope filter into `COALESCE` form. Where the join is over a multi-table-inheritance child, `FULL OUTER JOIN` is almost always wrong anyway: the child's pointer column is its primary key and a NOT NULL foreign key, so a full join adds no rows and only removes plans. Use `LEFT JOIN`.
+
 ## Other house anti-patterns
 
 - **Unbounded `IN` lists.** Cap the list at the call site. Even an index-backed lookup does one descent per element, and an uncapped list from customer data has no ceiling.
@@ -106,6 +119,7 @@ A semgrep rule, `project-scope-filter-uses-coalesce`, blocks the `OR` form in CI
 - **`.count()` on an unfiltered queryset.** Postgres counts by walking rows. Use an estimate, or filter first.
 - **A missing `select_related` / `prefetch_related`** turns one query into one-per-row when the template or serializer touches a relation.
 - **Writing a row that is already correct.** An `UPDATE` that sets a column to the value it already holds still takes a lock and leaves a dead tuple. Guard it in the `WHERE`.
+- **A raw-SQL statement built from an unordered collection.** Iterating a Python `set` to render a column list gives a different order per process, because the hash seed is per process. Query statistics then key on the text and split one query across hundreds of fingerprints, so nothing in pganalyze or Performance Insights looks expensive while the query burns the cluster. Sort anything you interpolate into SQL.
 
 ## Before you call it done
 
