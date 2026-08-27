@@ -1,0 +1,112 @@
+{
+    "LB1": {
+        "cluster": null,
+        "confidence": "medium",
+        "reason": "New: no cluster claims that the server-side stamphog_review_failed event in mark_review_failed omits stamphog_self_driving_review and stamphog_review_run_id. Runner-up cluster 47 is the sandbox's completed event lacking the marker, which LB1 concedes it carries via STAMPHOG_EXTRA_PROPERTIES, and cluster 24 is about logs, gate messages and the posted comment, not the failure analytics event."
+    },
+    "LB2": {
+        "cluster": null,
+        "confidence": "medium",
+        "reason": "New: no cluster claims that excluding FAILED before order_by lets an older COMPLETED run at the same head hide a newer FAILED re-review so the receiver never recreates it. Runner-up cluster 41 (P17/E4) is the same exclude clause with the opposite consequence (a FAILED head is retried on every refire with no cooldown), and its attempt-cap fix would leave LB2 unaddressed."
+    },
+    "LB3": {
+        "cluster": 35,
+        "confidence": "high",
+        "reason": "Identical to LA3/MA3 (cluster 35, KA7/KB2/KC5 precedent): _format_self_driving hard-codes the 'draft on purpose' sentence, so a synchronize or reopen after the PR is marked ready feeds the model a false trusted draft state; runner-up cluster 5 (trusted provenance rendered solely off the flag) is the broader framing, not the stale-draft claim."
+    },
+    "LB4": {
+        "cluster": 7,
+        "confidence": "medium",
+        "reason": "Core claim matches cluster 7 (N4/O3): get_stamphog_connected runs an uncached cross-product-DB read on every GET and PATCH serialization, the outage-latency angle is already in N4's evidence, and the brief-cache remedy is the cluster's own fix. Medium because the second half (logger.exception on every request while the breaker is open, treat availability errors as expected) is runner-up cluster 51's claim, which loses because fixing only the logging would leave the per-request query and the delay in place."
+    },
+    "LB5": {
+        "cluster": 58,
+        "confidence": "medium",
+        "reason": "Same root gap as cluster 58's retry-exhaustion angle (M6/L9; LA6 precedent went here at medium): the one-shot dispatch has no durable pending record or reconciler, so a message lost to worker death between prefetch and completion drops the initial review, and the cluster's durable-record-plus-reconciler fix covers it. Medium because the acks_late/reject_on_worker_lost mechanism appears in no member text; runner-up cluster 32 names a stranded run but via the disproven on_commit-ordering mechanism, which LB5 does not claim."
+    },
+    "LB6": {
+        "cluster": 58,
+        "confidence": "high",
+        "reason": "Identical to LA5/MA4 (cluster 58 stated at the facade publish site, KC4 precedent): the .delay() is the only record of a pending initial review, the caller suppresses the publish failure, and no durable row or sweeper reconciles it; runner-up cluster 54 shares facade/api.py:149 but claims the exception escapes into the save path, whereas LB6 says the caller swallows it."
+    },
+    "LB7": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "Same as MA2 (adjudicated new, refuted because nothing populates Team.parent_team_id in production): the settings endpoint authorizes against the URL team while _get_or_create stores under the canonical parent, so child-only access can flip the parent's stamphog_review_inbox_prs. Runner-up cluster 26 is the missing stamphog_connected precondition on PATCH and cluster 17 the facade trusting acting_user_id; neither is an environment-boundary authorization claim."
+    },
+    "LB8": {
+        "cluster": 2,
+        "confidence": "high",
+        "reason": "Identical to LA11/MA7 (cluster 2, KA10/KB6/KC6 precedent): the receiver forwards caller-writable TaskRun.output.pr_url after only a task-shape and toggle check, and process_inbox_pr_review stamps inbox_review with no task-repository, run-linkage, head-repo, or bot-author verification, so an unrelated PR gets the relaxed gates and a real approval; runner-up cluster 6 is the downstream engine relaxation keyed on the flag, not the missing server-side linkage."
+    },
+    "LB9": {
+        "cluster": 13,
+        "confidence": "high",
+        "reason": "Identical to LA2 (cluster 13): _parse_pr_url is not host-anchored, so an embedded github.com substring such as evil.example/github.com/acme/repo/pull/7 parses as a valid GitHub PR URL; no other cluster is about the regex itself (cluster 34 is the fabricated backslash-s typo claim)."
+    },
+    "LB10": {
+        "cluster": 2,
+        "confidence": "medium",
+        "reason": "Engine-located restatement of cluster 2, same as MA10: the harm path is the receiver leg stamping self_driving_review without verifying author, head repo, or task linkage, and the substantive remedies (reload task_run_id, verify team, report, repository and PR binding, bind provenance to PR number and head SHA) are server-side checks before the flag is written. Runner-up cluster 6 loses because LB10 does not make the engine's coupling to pr.author_is_bot its fix the way LA19 did; the 'exactly true' clause is a cluster 3 aside."
+    },
+    "LB11": {
+        "cluster": 57,
+        "confidence": "high",
+        "reason": "Identical to LA17/MA11 (cluster 57, KA4/KB8/KC7 precedent): the receiver collapses the reviewer set to one canonical user before reading stamphog_review_inbox_prs and the webhook resolver repeats it, so an opted-in secondary assigned reviewer is ignored, contradicting the 'any assigned reviewer opted in' contract; runner-up cluster 11 (resolver identity drift between legs) is a different claim."
+    },
+    "LB12": {
+        "cluster": 2,
+        "confidence": "medium",
+        "reason": "Same claim as MA6 (cluster 2): the initial task stamps inbox_review for any open PR in a connected repo without loading task_run_id or checking head repo or bot identity, and the validator narrows the real defect to the receiver leg's missing PR-side verification. Medium because the webhook-leg 'accepts every bot account' sentence belongs to runner-up cluster 75 and the non-GitHub-host parser ask to cluster 13; a cluster 2 fix alone would not tighten _is_bot_authored."
+    },
+    "LB13": {
+        "cluster": 21,
+        "confidence": "high",
+        "reason": "Identical to MA19 (cluster 21, KA11 precedent): find_signal_implementation_run does not reject FAILED or CANCELLED runs returned by find_task_run, so a later push grants the carve-out to an abandoned task; runner-up cluster 73 is the branch fallback binding a stale run of a different PR, which LB13 does not claim."
+    },
+    "LB14": {
+        "cluster": null,
+        "confidence": "medium",
+        "reason": "New: no cluster claims that non-internal discussion (non-implementation) report-linked tasks satisfy the signal_report_id-plus-not-internal test and inherit the carve-out, with the durable SignalReportTask.relationship == 'implementation' link as the missing check. Runner-up cluster 22 (identification relies on deprecated signal_report without origin_product corroboration) shares the origin_product ask, but its fix would not exclude discussion tasks, which also carry origin_product=SIGNAL_REPORT; cluster 21 is run and task lifetime, not task kind."
+    },
+    "LB15": {
+        "cluster": 58,
+        "confidence": "high",
+        "reason": "Identical to LA1/MA14 (cluster 58, KA13/KB3/KC3 precedent): the receiver's on_commit callback catches the broker publish failure and only logs it, no durable record marks the pending dispatch, and no worker retries it, so an outage drops the initial review; runner-up cluster 54 is the unguarded .delay raising into the caller, which LB15 does not claim."
+    },
+    "LB16": {
+        "cluster": 39,
+        "confidence": "high",
+        "reason": "Identical to LA16/MA12 (cluster 39, KA5/KB1/KC2 precedent): find_task_run selects one row before the facade applies the team, signal_report and internal filters, so another matching run shadows the valid signal run and the facade returns None, skipping later re-reviews; runner-up cluster 73 is the opposite direction (branch fallback mis-binds an unrelated run) and cluster 23 the performance angle."
+    },
+    "LB17": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "New: no cluster claims that review_local.py's in-flight bot-review WAIT return skips _capture_review_completed for self-driving runs, so hosted completion analytics omit those waits. Runner-up cluster 47 (completed event lacks a self-driving marker) and cluster 24 (no trace of the carve-out in logs or the posted comment) are about the marker on emitted events, not an event that is never emitted."
+    },
+    "LB18": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "Same as LA23/MA17 (new claim, refuted as unreachable because nothing populates Team.parent_team_id in production): StamphogRepoConfig canonicalizes to the parent team while TaskRun and SignalReport keep the child-environment id, so the facade's raw comparison misses and later pushes dismiss the approval without a replacement. Runner-up cluster 39 shares the comparison lines but claims cross-tenant shadowing from an unscoped lookup."
+    },
+    "LB19": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "Same as LA12 (new claim, refuted): resolve_org_github_login_to_users checks org membership only, ignoring User.is_active and private-project access, so a departed or deactivated user's enabled toggle keeps authorizing approvals. Runner-up cluster 17 is the facade trusting caller-supplied acting_user_id and cluster 31 is re-checking the toggle at execution time; neither is about who is allowed to hold the toggle."
+    },
+    "LB20": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "New: no cluster claims that the head-changing skip path (_retract_stale_approvals_on_skip) dismisses stored approvals but never supersedes non-terminal ReviewRuns, so an in-flight workflow that fetched the head before the push can still post an approval. Runner-up cluster 36 is the webhook supersede-and-create path lacking head dedupe against receiver-leg runs, and cluster 29 is a carve-out failure blocking the retraction; neither concerns the orphaned live run."
+    },
+    "LB21": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "New: no cluster claims that dismiss_stale_approvals_for_head only finds approvals with a saved posted_review_id, so a GitHub-posted approval whose id was never persisted survives the skip path because no workflow runs the GitHub-side orphan sweep. Runner-up cluster 29 (carve-out failure blocks retraction) is about the retraction not running at all, not about what it can find."
+    },
+    "LB22": {
+        "cluster": null,
+        "confidence": "high",
+        "reason": "New: no cluster claims the hosted _is_bot_authored predicate misses the posthog-bot machine user (type User, no [bot] suffix) that github.py's is_bot_author and the Action gates refuse, making AGENTS.md's 'refused at every layer' sentence inaccurate. Runner-up cluster 75 (E1) is the same predicate with the opposite claim (it accepts too many bots), and cluster 37 is a different AGENTS.md enumeration gap."
+    }
+}

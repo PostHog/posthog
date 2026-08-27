@@ -352,12 +352,12 @@ const logsAlertsPartialUpdate = (): ToolBase<typeof LogsAlertsPartialUpdateSchem
 
 const LogsAlertsRetrieveSchema = LogsAlertsRetrieveParams.omit({ project_id: true })
 
-const logsAlertsRetrieve = (): ToolBase<typeof LogsAlertsRetrieveSchema, Schemas.LogsAlertConfiguration> => ({
+const logsAlertsRetrieve = (): ToolBase<typeof LogsAlertsRetrieveSchema, Schemas.LogsAlertConfigurationDetail> => ({
     name: 'logs-alerts-retrieve',
     schema: LogsAlertsRetrieveSchema,
     handler: async (context: Context, params: z.infer<typeof LogsAlertsRetrieveSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.LogsAlertConfiguration>({
+        const result = await context.api.request<Schemas.LogsAlertConfigurationDetail>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/alerts/${encodeURIComponent(String(params.id))}/`,
         })

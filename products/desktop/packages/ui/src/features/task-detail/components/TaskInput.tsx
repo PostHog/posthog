@@ -16,6 +16,10 @@ import { ButtonGroup } from "@posthog/quill";
 import { type AgentRuntime, ANALYTICS_EVENTS } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import {
+  spendStopMessage,
+  useSpendStop,
+} from "@posthog/ui/features/billing/useSpendStop";
+import {
   TaskRepositoryChip,
   TaskRepositoryDialog,
 } from "@posthog/ui/features/canvas/components/TaskRepositoryDialog";
@@ -24,6 +28,8 @@ import {
   resolveTaskRepositoryDraft,
   useTaskRepositoryDraftStore,
 } from "@posthog/ui/features/canvas/stores/taskRepositoryDraftStore";
+import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
+import { useOpenInboxReport } from "@posthog/ui/features/inbox/hooks/useOpenInboxReport";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import { NEW_TASK_COMPOSER_FADE_MS } from "@posthog/ui/features/task-detail/newTaskComposerTransition";
 import type { TaskInputReportAssociation } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
@@ -46,7 +52,6 @@ import { useConnectivity } from "../../../hooks/useConnectivity";
 import { DotPatternBackground } from "../../../primitives/DotPatternBackground";
 import { toast } from "../../../primitives/toast";
 import { useActiveRepoStore } from "../../../shell/activeRepoStore";
-import { useHostCapabilities } from "../../../shell/useHostCapabilities";
 import { FOCUSABLE_SELECTOR } from "../../../utils/overlay";
 import { useAuthStateValue } from "../../auth/store";
 import { AutoresearchComposerControls } from "../../autoresearch/AutoresearchComposerControls";
@@ -98,19 +103,17 @@ import { ReasoningLevelSelector } from "../../sessions/components/ReasoningLevel
 import { getCurrentModeFromConfigOptions } from "../../sessions/sessionStore";
 import {
   type AgentAdapter,
-  DEFAULT_WORKSPACE_MODE,
   useSettingsStore,
 } from "../../settings/settingsStore";
 import { useSkills } from "../../skills/useSkills";
-import { useCloudModeEnabled } from "../hooks/useCloudModeEnabled";
 import {
   areReposReady,
   useInitialRepoSelectionFromFolderId,
 } from "../hooks/useInitialRepoSelectionFromFolderId";
 import { usePreviewConfig } from "../hooks/usePreviewConfig";
+import { useResolvedWorkspaceMode } from "../hooks/useResolvedWorkspaceMode";
 import { useTaskCreation } from "../hooks/useTaskCreation";
 import { useWarmTask } from "../hooks/useWarmTask";
-import { resolveWorkspaceModePreference } from "../hooks/workspaceModePreference";
 import { ChannelContextChip } from "./ChannelContextChip";
 import { CloudGithubMissingNotice } from "./CloudGithubMissingNotice";
 import { NewTaskSuggestions } from "./ContinueCliSessions";
@@ -118,11 +121,12 @@ import {
   type SuggestedPrompt,
   SuggestedPromptCard,
 } from "./SuggestedPromptCard";
-import { type WorkspaceMode, WorkspaceModeSelect } from "./WorkspaceModeSelect";
+import { WorkspaceModeSelect } from "./WorkspaceModeSelect";
 
 interface TaskInputProps {
   sessionId?: string;
   onTaskCreated?: (task: Task) => void;
+  onTaskCreatedEffect?: (task: Task) => void;
   initialPrompt?: string;
   initialPromptKey?: string;
   initialCloudRepository?: string;
@@ -131,6 +135,15 @@ interface TaskInputProps {
   reportAssociation?: TaskInputReportAssociation;
   /** Optional channel CONTEXT.md, appended to the initial prompt as background. */
   channelContext?: string;
+  /** Repo-relative context wiki page used instead of injecting the legacy body. */
+  channelContextPath?: string;
+  /** Hold submission while the space's wiki context is unresolved and could still arrive. */
+  channelContextBlocked?: boolean;
+  /** The wiki lookup failed in a way a retry can fix. */
+  channelContextFailed?: boolean;
+  /** The wiki is permanently unavailable, so the task goes without its space context. */
+  channelContextUnavailable?: boolean;
+  onChannelContextRetry?: () => void;
   /** Display name of the channel the CONTEXT.md came from (for the chip). */
   channelName?: string;
   /** Backend channel UUID that owns the created task and feed entry. */
@@ -181,6 +194,7 @@ interface TaskInputProps {
 export function TaskInput({
   sessionId = "task-input",
   onTaskCreated,
+  onTaskCreatedEffect,
   initialPrompt,
   initialPromptKey,
   initialCloudRepository,
@@ -188,6 +202,11 @@ export function TaskInput({
   initialMode,
   reportAssociation,
   channelContext,
+  channelContextPath,
+  channelContextBlocked = false,
+  channelContextFailed = false,
+  channelContextUnavailable = false,
+  onChannelContextRetry,
   channelName,
   channelId,
   channelContextId,
@@ -217,6 +236,8 @@ export function TaskInput({
   const setSelectedReportIds = useInboxReportSelectionStore(
     (s) => s.setSelectedReportIds,
   );
+  const channelReportsEnabled = useChannelReportsEnabled();
+  const openReport = useOpenInboxReport();
   const selectedDirectory = useActiveRepoStore((s) => s.path);
   const setSelectedDirectory = useActiveRepoStore((s) => s.setPath);
   const [repositoryDialogOpen, setRepositoryDialogOpen] = useState(false);
@@ -247,10 +268,7 @@ export function TaskInput({
     trpc.folders.getMostRecentlyAccessedRepository.queryOptions(),
   );
   const {
-    setLastUsedLocalWorkspaceMode,
     lastUsedLocalWorkspaceMode,
-    lastUsedWorkspaceMode,
-    setLastUsedWorkspaceMode,
     lastUsedAgentRuntime,
     setLastUsedAgentRuntime,
     lastUsedAdapter,
@@ -270,6 +288,7 @@ export function TaskInput({
     setLastUsedPiModel,
     _hasHydrated: settingsHydrated,
   } = useSettingsStore();
+  const spendStop = useSpendStop();
   const { data: skills } = useSkills();
 
   const editorRef = useRef<EditorHandle>(null);
@@ -328,14 +347,16 @@ export function TaskInput({
   // from this task's prompt. Re-include whenever the source context changes
   // (e.g. switching channels) so a dismissal doesn't stick across channels.
   const [channelContextDismissed, setChannelContextDismissed] = useState(false);
-  const lastChannelContextRef = useRef(channelContext);
+  const channelContextSource = channelContextPath ?? channelContext;
+  const lastChannelContextRef = useRef(channelContextSource);
   useEffect(() => {
-    if (lastChannelContextRef.current !== channelContext) {
-      lastChannelContextRef.current = channelContext;
+    if (lastChannelContextRef.current !== channelContextSource) {
+      lastChannelContextRef.current = channelContextSource;
       setChannelContextDismissed(false);
     }
-  }, [channelContext]);
-  const includeChannelContext = !!channelContext && !channelContextDismissed;
+  }, [channelContextSource]);
+  const includeChannelContext =
+    !!channelContextSource && !channelContextDismissed;
 
   const adapter = lastUsedAdapter;
   const prefillRequestKey = initialPromptKey ?? initialPrompt;
@@ -387,9 +408,20 @@ export function TaskInput({
 
   const handleOpenAssociatedReport = useCallback(() => {
     if (!activeReportAssociation) return;
+    // With channel reports on there is no inbox list to select in — open the
+    // report's own detail view instead.
+    if (channelReportsEnabled) {
+      void openReport(activeReportAssociation.reportId);
+      return;
+    }
     navigateToInbox();
     setSelectedReportIds([activeReportAssociation.reportId]);
-  }, [activeReportAssociation, setSelectedReportIds]);
+  }, [
+    activeReportAssociation,
+    setSelectedReportIds,
+    channelReportsEnabled,
+    openReport,
+  ]);
 
   useEffect(() => {
     if (!selectedDirectory && mostRecentRepo?.path) {
@@ -409,14 +441,12 @@ export function TaskInput({
     getInstallationIdForRepo,
     getUserIntegrationIdForRepo,
     isLoadingRepos,
+    isLoadingIntegrations,
     isRefreshingRepos,
     refreshRepositories,
     hasGithubIntegration,
   } = useUserRepositoryIntegration();
 
-  // Force cloud mode on cloud-only hosts (web).
-  const { localWorkspaces } = useHostCapabilities();
-  const cloudModeEnabled = useCloudModeEnabled();
   const piHarnessEnabled = useFeatureFlag("pi-harness");
   const flagsLoaded = useFeatureFlagsLoaded();
   const reposReady = areReposReady({
@@ -435,63 +465,13 @@ export function TaskInput({
     );
   }, [flagsLoaded, lastUsedAgentRuntime, piHarnessEnabled, settingsHydrated]);
 
-  const [workspaceMode, setWorkspaceModeState] = useState<WorkspaceMode>(() => {
-    if (initialCloudRepository) return "cloud";
-    if (!localWorkspaces) return "cloud";
-    return resolveWorkspaceModePreference({
-      preferredMode: lastUsedWorkspaceMode || DEFAULT_WORKSPACE_MODE,
-      cloudModeEnabled,
+  const { workspaceMode, setWorkspaceMode, overrideWorkspaceMode } =
+    useResolvedWorkspaceMode({
       hasGithubIntegration,
-      lastUsedLocalWorkspaceMode,
+      isLoadingIntegrations,
+      pinCloud: !!initialCloudRepository,
     });
-  });
 
-  // A positive flag or integration signal is final, but a negative one may
-  // just mean the async flag fetch or integrations query hasn't landed yet, so
-  // a cloud preference only resolves once each negative signal is settled.
-  const cloudSignalsSettled =
-    (cloudModeEnabled || flagsLoaded) &&
-    (hasGithubIntegration || !isLoadingRepos);
-
-  const didResolveWorkspaceModeRef = useRef(false);
-  useEffect(() => {
-    if (didResolveWorkspaceModeRef.current) return;
-    if (!settingsHydrated) return;
-    if (initialCloudRepository) {
-      didResolveWorkspaceModeRef.current = true;
-      return;
-    }
-    const preferredMode = lastUsedWorkspaceMode || DEFAULT_WORKSPACE_MODE;
-    if (preferredMode === "cloud" && !cloudSignalsSettled) return;
-    didResolveWorkspaceModeRef.current = true;
-    if (!localWorkspaces) return;
-    setWorkspaceModeState(
-      resolveWorkspaceModePreference({
-        preferredMode,
-        cloudModeEnabled,
-        hasGithubIntegration,
-        lastUsedLocalWorkspaceMode,
-      }),
-    );
-  }, [
-    settingsHydrated,
-    lastUsedWorkspaceMode,
-    initialCloudRepository,
-    localWorkspaces,
-    cloudSignalsSettled,
-    cloudModeEnabled,
-    hasGithubIntegration,
-    lastUsedLocalWorkspaceMode,
-  ]);
-
-  const setWorkspaceMode = (mode: WorkspaceMode) => {
-    didResolveWorkspaceModeRef.current = true;
-    setWorkspaceModeState(mode);
-    setLastUsedWorkspaceMode(mode);
-    if (mode !== "cloud") {
-      setLastUsedLocalWorkspaceMode(mode);
-    }
-  };
   const {
     repositories: visibleCloudRepositories,
     isPending: cloudRepositoriesLoading,
@@ -620,9 +600,9 @@ export function TaskInput({
 
   useEffect(() => {
     if (!initialCloudRepository) return;
-    setWorkspaceModeState("cloud");
+    overrideWorkspaceMode("cloud");
     setSelectedRepository(initialCloudRepository.toLowerCase());
-  }, [initialCloudRepository]);
+  }, [initialCloudRepository, overrideWorkspaceMode]);
 
   const handleRefreshRepositories = useCallback(() => {
     void refreshRepositories().catch((error) => {
@@ -743,14 +723,6 @@ export function TaskInput({
     setLastUsedCloudRepository,
   ]);
 
-  // Switch mode for a folder-scoped prefill ("+" in the sidebar) without persisting it as
-  // the user's mode preference. Marks the mode as resolved so the last-used resolver above
-  // doesn't override the explicit pick.
-  const switchWorkspaceModeForFolder = useCallback((mode: WorkspaceMode) => {
-    didResolveWorkspaceModeRef.current = true;
-    setWorkspaceModeState(mode);
-  }, []);
-
   useInitialRepoSelectionFromFolderId({
     folderId: view.folderId,
     folderRepository: view.folderRepository,
@@ -764,7 +736,7 @@ export function TaskInput({
     mostRecentEnvironment: view.folderRunEnvironment,
     setSelectedDirectory,
     setSelectedRepository,
-    switchWorkspaceMode: switchWorkspaceModeForFolder,
+    switchWorkspaceMode: overrideWorkspaceMode,
   });
 
   useEffect(() => {
@@ -977,6 +949,14 @@ export function TaskInput({
     [autoresearchService],
   );
 
+  const handleTaskCreatedEffect = useCallback(
+    (task: Task) => {
+      handleAutoresearchTaskCreated(task);
+      onTaskCreatedEffect?.(task);
+    },
+    [handleAutoresearchTaskCreated, onTaskCreatedEffect],
+  );
+
   const {
     isCreatingTask,
     isExitingComposer,
@@ -1005,7 +985,7 @@ export function TaskInput({
     contextWindow: runtime === "pi" ? undefined : currentContextWindow,
     fastMode: runtime === "pi" ? undefined : currentFastMode,
     onTaskCreated,
-    onTaskCreatedEffect: handleAutoresearchTaskCreated,
+    onTaskCreatedEffect: handleTaskCreatedEffect,
     environmentId: selectedEnvironment,
     sandboxEnvironmentId:
       effectiveWorkspaceMode === "cloud" && selectedCloudEnvId
@@ -1017,9 +997,11 @@ export function TaskInput({
         : undefined,
     signalReportId: activeReportAssociation?.reportId,
     channelContext: includeChannelContext ? channelContext : undefined,
+    channelContextPath: includeChannelContext ? channelContextPath : undefined,
     channelName,
     channelId,
     channelContextId,
+    submissionBlocked: channelContextBlocked,
     allowNoRepo: repoOptional,
   });
 
@@ -1282,7 +1264,7 @@ export function TaskInput({
               <Flex
                 gap="2"
                 align="center"
-                className="absolute bottom-full left-0 mb-1 min-w-0 gap-1"
+                className="absolute bottom-full left-0 mb-2 min-w-0 gap-1"
               >
                 {spaceSelector?.({ disabled: isCreatingTask })}
                 <WorkspaceModeSelect
@@ -1464,13 +1446,35 @@ export function TaskInput({
                   submitDisabledExternal={
                     !canSubmit ||
                     isCreatingTask ||
+                    channelContextBlocked ||
                     !isOnline ||
                     (runtime === "pi" ? isPiConfigLoading : isPreviewLoading) ||
-                    (runtime === "pi" && !currentPiModel)
+                    (runtime === "pi" && !currentPiModel) ||
+                    spendStop !== null
+                  }
+                  submitTooltipOverride={
+                    spendStop ? spendStopMessage(spendStop) : undefined
                   }
                   tourTarget="task-input"
                   submitAdornment={
-                    includeChannelContext ? (
+                    channelContextUnavailable || channelContextFailed ? (
+                      // The chip slot is where context status is read, so it is
+                      // also where its absence has to be said.
+                      <span className="flex items-center gap-1.5 text-[12px] text-gray-10">
+                        {channelContextUnavailable
+                          ? "Space context unavailable"
+                          : "Couldn't load space context"}
+                        {channelContextFailed && onChannelContextRetry ? (
+                          <button
+                            type="button"
+                            className="underline"
+                            onClick={onChannelContextRetry}
+                          >
+                            Try again
+                          </button>
+                        ) : null}
+                      </span>
+                    ) : includeChannelContext ? (
                       <ChannelContextChip
                         channelName={channelName}
                         onView={onContextChipClick}
@@ -1566,11 +1570,11 @@ export function TaskInput({
                         {activeReportAssociation.title || "Untitled report"}
                       </button>
                     </span>
-                    <Tooltip content="Exit Inbox mode">
+                    <Tooltip content="Exit Self-driving mode">
                       <button
                         type="button"
                         onClick={handleDismissReportAssociation}
-                        aria-label="Exit Inbox mode"
+                        aria-label="Exit Self-driving mode"
                         className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-blue-10 hover:bg-blue-4 hover:text-blue-12"
                       >
                         <X size={12} />

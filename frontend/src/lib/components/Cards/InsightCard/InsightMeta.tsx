@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 
-import { IconInfo, IconPulse, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
+import { IconInfo, IconPulse, IconThumbsDown, IconThumbsUp, IconWarning } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { CardMeta } from 'lib/components/Cards/CardMeta'
@@ -14,6 +14,7 @@ import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -23,10 +24,15 @@ import { Link } from 'lib/lemon-ui/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Splotch, SplotchColor } from 'lib/lemon-ui/Splotch'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
+import { getEffectiveDateOverride } from 'scenes/dashboard/dashboardUtils'
+import { dataRetentionBannerLogic } from 'scenes/insights/dataRetention/dataRetentionBannerLogic'
+import { exceedsRetention } from 'scenes/insights/dataRetention/exceedsRetention'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -40,7 +46,7 @@ import { urls } from 'scenes/urls'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { useInsightDisplayOptions } from '~/queries/nodes/InsightViz/insightDisplayOptions'
-import { DashboardFilter, Node, ProductKey, TileFilters } from '~/queries/schema/schema-general'
+import { Node, ProductKey } from '~/queries/schema/schema-general'
 import { isDataVisualizationNode } from '~/queries/utils'
 import {
     AccessControlLevel,
@@ -52,7 +58,6 @@ import {
     InsightLogicProps,
     InsightShortId,
     QueryBasedInsightModel,
-    InsightFilterOverrideContext,
 } from '~/types'
 
 import {
@@ -104,24 +109,6 @@ interface InsightMetaProps extends Pick<
     onCreateAlert?: () => void
     onEditAlert?: (alertId: AlertType['id']) => void
     onCreateAnomalyAlert?: () => void
-}
-
-export function getEffectiveDateOverride(
-    filterOverrideContext: InsightFilterOverrideContext | null | undefined,
-    filtersOverride: DashboardFilter | undefined,
-    tileFiltersOverride: TileFilters | undefined
-): { dateFromOverride: string | null | undefined; dateToOverride: string | null | undefined } {
-    // The backend context already resolves the ignore flag into an empty dashboard layer; the raw-props
-    // fallback has to apply it itself.
-    const dashboardFilters = filterOverrideContext
-        ? filterOverrideContext.dashboard
-        : tileFiltersOverride?.ignoreDashboardFilters
-          ? undefined
-          : filtersOverride
-    const tileFilters = filterOverrideContext ? filterOverrideContext.tile : tileFiltersOverride
-    const tileHasDate = tileFilters?.date_from != null || tileFilters?.date_to != null
-    const source = tileHasDate ? tileFilters : dashboardFilters
-    return { dateFromOverride: source?.date_from, dateToOverride: source?.date_to }
 }
 
 export function InsightMeta({
@@ -180,6 +167,7 @@ export function InsightMeta({
         })
     )
     const { samplingFactor, hasDataWarehouseSeries } = useValues(insightVizDataLogic(insightLogicProps))
+    const { retentionApplies, retentionMonths, retentionPeriodLabel } = useValues(dataRetentionBannerLogic)
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const { copyToDestinations } = useValues(
         dashboardWidgetMenusLogic({
@@ -208,6 +196,20 @@ export function InsightMeta({
     // The ignore flag is surfaced by its own notice, so it alone shouldn't trigger the overrides warning.
     const hasTileOverrides = Object.keys(tileFiltersOverride ?? {}).some((key) => key !== 'ignoreDashboardFilters')
     const dateOverride = getEffectiveDateOverride(insight.filter_override_context, filtersOverride, tileFiltersOverride)
+    const showsDataRetentionWarning =
+        retentionApplies &&
+        placement !== DashboardPlacement.Public &&
+        placement !== DashboardPlacement.Export &&
+        exceedsRetention({
+            query: insight.query,
+            dateFromOverride: dateOverride.dateFromOverride,
+            resolvedDateFrom: insightData?.resolved_date_range?.date_from,
+            retentionMonths,
+        })
+    const dataRetentionWarning =
+        showsDataRetentionWarning && retentionPeriodLabel
+            ? `This insight's date range goes beyond your ${retentionPeriodLabel} data retention, so events older than that aren't included.`
+            : null
     const topHeadingProps = {
         query: insight.query,
         lastRefresh: insight.last_refresh,
@@ -385,6 +387,18 @@ export function InsightMeta({
           }
         : undefined
 
+    // Carries the dashboard's filters and variables, so the link opens exactly what the tile shows
+    const insightViewUrl = urls.insightView(
+        short_id,
+        dashboardId,
+        variablesOverride,
+        filtersOverride,
+        tileFiltersOverride
+    )
+    const copyInsightLink = (): void => {
+        void copyToClipboard(urls.absolute(urls.currentProject(insightViewUrl)), 'insight link')
+    }
+
     return (
         <>
             <CardMeta
@@ -400,13 +414,7 @@ export function InsightMeta({
                 popoverTopHeading={popoverTopHeadingEl}
                 content={
                     <InsightMetaContent
-                        link={urls.insightView(
-                            short_id,
-                            dashboardId,
-                            variablesOverride,
-                            filtersOverride,
-                            tileFiltersOverride
-                        )}
+                        link={insightViewUrl}
                         title={name}
                         fallbackTitle={summary}
                         description={insight.description}
@@ -415,6 +423,7 @@ export function InsightMeta({
                         tags={insight.tags}
                         compact={showCompactTile}
                         showDescription={tile?.show_description !== false}
+                        dataRetentionWarning={dataRetentionWarning}
                         infoPopover={
                             showCompactTile ? (
                                 <CompactInfoPopover
@@ -440,14 +449,17 @@ export function InsightMeta({
                         {/* Insight related */}
                         {canViewInsight && (
                             <LemonButton
-                                to={urls.insightView(
-                                    short_id,
-                                    dashboardId,
-                                    variablesOverride,
-                                    filtersOverride,
-                                    tileFiltersOverride
-                                )}
+                                to={insightViewUrl}
                                 fullWidth
+                                sideAction={{
+                                    icon: <IconLink />,
+                                    tooltip: 'Copy link to insight',
+                                    'aria-label': 'Copy link to insight',
+                                    'data-attr': dashboardId
+                                        ? 'copy-insight-link-from-dashboard'
+                                        : 'copy-insight-link-from-card-list-view',
+                                    onClick: copyInsightLink,
+                                }}
                             >
                                 View
                             </LemonButton>
@@ -727,6 +739,7 @@ export function InsightMetaContent({
     compact,
     showDescription,
     infoPopover,
+    dataRetentionWarning,
 }: {
     title: string
     fallbackTitle?: string
@@ -738,10 +751,16 @@ export function InsightMetaContent({
     compact?: boolean
     showDescription?: boolean
     infoPopover?: JSX.Element | null
+    dataRetentionWarning?: string | null
 }): JSX.Element {
+    const dataRetentionIndicator = dataRetentionWarning ? (
+        <Tooltip title={dataRetentionWarning}>
+            <IconWarning className="ml-1.5 text-base shrink-0 text-warning" />
+        </Tooltip>
+    ) : null
     const titleContent = (
         <>
-            <span className={clsx('text-primary', infoPopover && 'truncate')}>
+            <span className={clsx('text-primary', (infoPopover || dataRetentionIndicator) && 'truncate')}>
                 {title || <i>{fallbackTitle || 'Untitled'}</i>}
             </span>
             {(loading || loadingQueued) && (
@@ -757,7 +776,7 @@ export function InsightMetaContent({
         <h4
             title={!compact ? title : undefined}
             data-attr="insight-card-title"
-            className={clsx(infoPopover && 'inline-flex items-center overflow-visible')}
+            className={clsx((infoPopover || dataRetentionIndicator) && 'inline-flex items-center overflow-visible')}
         >
             {link ? (
                 <Link to={link} className="max-w-full truncate">
@@ -766,6 +785,7 @@ export function InsightMetaContent({
             ) : (
                 titleContent
             )}
+            {dataRetentionIndicator}
             {infoPopover}
         </h4>
     )

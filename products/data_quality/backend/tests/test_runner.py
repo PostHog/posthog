@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from posthog.test.base import BaseTest
@@ -6,6 +7,7 @@ from unittest.mock import patch
 from parameterized import parameterized
 
 from posthog.clickhouse.query_tagging import Feature, Product, QueryTags, get_query_tags
+from posthog.models.user import User
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_quality.backend.facade.enums import (
@@ -180,7 +182,7 @@ class TestCheckRunner(BaseTest):
         assert query.call_args.kwargs["bypass_warehouse_access_control"] is expected_bypass
         assert query.call_args.kwargs["user"] == (None if expected_bypass else self.user)
 
-    def _referencing_check(self, check_type: CheckType, created_by) -> DataQualityCheck:
+    def _referencing_check(self, check_type: CheckType, created_by, **overrides) -> DataQualityCheck:
         # Both types read beyond their declared subject: custom_sql over arbitrary SQL, relationships
         # over a target subject. The relationships target must resolve so the check compiles.
         if check_type == CheckType.RELATIONSHIPS:
@@ -188,8 +190,12 @@ class TestCheckRunner(BaseTest):
                 team=self.team, name="customers", query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
             )
             config = {"to_subject_type": SubjectType.VIEW, "to_subject_uuid": str(target.id), "to_column": "id"}
-            return self._check(check_type=check_type, column_name="customer_id", config=config, created_by=created_by)
-        return self._check(check_type=check_type, column_name="", config={"query": "select 1"}, created_by=created_by)
+            return self._check(
+                check_type=check_type, column_name="customer_id", config=config, created_by=created_by, **overrides
+            )
+        return self._check(
+            check_type=check_type, column_name="", config={"query": "select 1"}, created_by=created_by, **overrides
+        )
 
     @parameterized.expand([("custom_sql", CheckType.CUSTOM_SQL), ("relationships", CheckType.RELATIONSHIPS)])
     def test_an_automated_referencing_check_runs_as_its_author(self, _name, check_type: CheckType) -> None:
@@ -205,6 +211,93 @@ class TestCheckRunner(BaseTest):
 
         assert query.call_args.kwargs["bypass_warehouse_access_control"] is False
         assert query.call_args.kwargs["user"] == self.user
+
+    def test_an_edited_referencing_check_runs_as_whoever_last_changed_it(self) -> None:
+        # The creator may never have seen what the check reads now, and may have lost access to it;
+        # the editor is the one whose warehouse ACL was checked against the current definition.
+        editor = User.objects.create_and_join(self.organization, "editor@posthog.com", None)
+        suite_run = DataQualitySuiteRun.objects.for_team(self.team.id).create(
+            team=self.team, trigger=SuiteRunTrigger.MATERIALIZATION
+        )
+        check = self._referencing_check(CheckType.CUSTOM_SQL, created_by=self.user, definition_author=editor)
+
+        with patch(RUNNER_QUERY, return_value=_Response(["failure_count", "observed_value"], [0, 0])) as query:
+            run_check(check, suite_run, self.team)
+
+        assert query.call_args.kwargs["user"] == editor
+
+    @parameterized.expand(
+        [
+            ("passing_run_stamps_it", CheckRunStatus.PASSED, [0, 0], True),
+            ("failing_run_leaves_the_earlier_success", CheckRunStatus.FAILED, [3, 3], False),
+        ]
+    )
+    def test_the_last_success_is_denormalized_onto_the_check(self, _name, expected_status, row, advances) -> None:
+        # "Failing since when" can be older than any page of run history, so it cannot be derived
+        # from the runs a caller fetches.
+        earlier = datetime(2020, 1, 1, tzinfo=UTC)
+        check = self._check(last_succeeded_at=earlier)
+
+        with patch(RUNNER_QUERY, return_value=_Response(["failure_count", "observed_value"], row)):
+            outcome = run_check(check, self.suite_run, self.team)
+
+        assert outcome.status == expected_status
+        check.refresh_from_db()
+        last_succeeded_at = check.last_succeeded_at
+        assert last_succeeded_at is not None
+        assert (last_succeeded_at > earlier) is advances
+
+    def test_a_failing_run_cannot_erase_a_success_recorded_beside_it(self) -> None:
+        # Batches load their checks up front, so a failing run holds whatever last_succeeded_at said
+        # then. Writing the column back would undo a pass another batch committed in between.
+        check = self._check(last_succeeded_at=None)
+        stale = DataQualityCheck.objects.for_team(self.team.id).get(id=check.id)
+        succeeded_at = datetime(2026, 1, 1, tzinfo=UTC)
+        DataQualityCheck.objects.for_team(self.team.id).filter(id=check.id).update(last_succeeded_at=succeeded_at)
+
+        with patch(RUNNER_QUERY, return_value=_Response(["failure_count", "observed_value"], [3, 3])):
+            run_check(stale, self.suite_run, self.team)
+
+        stale.refresh_from_db()
+        assert stale.last_succeeded_at == succeeded_at
+
+    def test_a_run_snapshots_the_definition_it_executed(self) -> None:
+        # History has to keep reading as what actually ran, even after the definition is edited.
+        check = self._check(
+            check_type=CheckType.ROW_COUNT, column_name="", config={"min": 1}, severity=CheckSeverity.WARN
+        )
+        with patch(RUNNER_QUERY, return_value=_Response(["observed_value"], [7])):
+            run_check(check, self.suite_run, self.team)
+
+        run = DataQualityCheckRun.objects.for_team(self.team.id).get(quality_check=check)
+        assert run.check_config == {"min": 1}
+        assert run.check_severity == CheckSeverity.WARN
+        # An empty list, never null: a type that cannot reach past its own subject has to read as
+        # "read nothing" rather than as history nobody can judge.
+        assert run.referenced_subjects == []
+
+    @parameterized.expand([("custom_sql", CheckType.CUSTOM_SQL), ("relationships", CheckType.RELATIONSHIPS)])
+    def test_a_run_pins_the_subjects_it_read_beyond_its_own(self, _name, check_type: CheckType) -> None:
+        # Recording the name would stop naming what the run read the moment the object is deleted and
+        # somebody takes the name back, which is how history over a denied subject gets handed over.
+        target = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="customers", query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
+        )
+        is_custom_sql = check_type == CheckType.CUSTOM_SQL
+        check = self._check(
+            check_type=check_type,
+            column_name="" if is_custom_sql else "customer_id",
+            config=(
+                {"query": "SELECT 1 FROM customers"}
+                if is_custom_sql
+                else {"to_subject_type": SubjectType.VIEW, "to_subject_uuid": str(target.id), "to_column": "id"}
+            ),
+        )
+        with patch(RUNNER_QUERY, return_value=_Response(["failure_count", "observed_value"], [0, 0])):
+            run_check(check, self.suite_run, self.team)
+
+        run = DataQualityCheckRun.objects.for_team(self.team.id).get(quality_check=check)
+        assert run.referenced_subjects == [{"subject_type": SubjectType.VIEW, "subject_uuid": str(target.id)}]
 
     @parameterized.expand([("custom_sql", CheckType.CUSTOM_SQL), ("relationships", CheckType.RELATIONSHIPS)])
     def test_an_automated_referencing_check_without_an_author_errors_without_running(

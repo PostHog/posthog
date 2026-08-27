@@ -601,6 +601,7 @@ const OrganizationEnforce2faSchema = PartialUpdateParams.extend(
         members_can_use_personal_api_keys: true,
         members_can_see_org_members: true,
         allow_publicly_shared_resources: true,
+        read_only_mcp_access: true,
         is_ai_data_processing_approved: true,
         is_ai_training_opted_in: true,
         default_experiment_stats_method: true,

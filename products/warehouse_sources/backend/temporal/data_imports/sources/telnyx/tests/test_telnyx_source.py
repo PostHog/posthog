@@ -3,20 +3,11 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.telnyx import TelnyxSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.telnyx.settings import ENDPOINTS, TELNYX_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.telnyx.source import TelnyxSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.telnyx.telnyx import TelnyxResumeConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 INCREMENTAL_ENDPOINTS = {name for name, endpoint in TELNYX_ENDPOINTS.items() if endpoint.incremental_field}
 FULL_REFRESH_ENDPOINTS = set(ENDPOINTS) - INCREMENTAL_ENDPOINTS
@@ -47,9 +38,6 @@ class TestTelnyxSource:
         self.team_id = 123
         self.config = TelnyxSourceConfig(api_key="test-key")
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.TELNYX
-
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas is a static catalog with no I/O, so the public docs table list can render.
         assert self.source.lists_tables_without_credentials is True
@@ -58,40 +46,6 @@ class TestTelnyxSource:
         assert self.source.supported_versions == ("v2",)
         assert self.source.default_version == "v2"
         assert self.source.api_docs_url.startswith("https://")
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.name.value == "Telnyx"
-        assert config.label == "Telnyx"
-        assert config.category == DataWarehouseSourceCategory.COMMUNICATION
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/telnyx"
-        assert config.iconPath == "/static/services/telnyx.png"
-        assert not config.unreleasedSource
-
-        (api_key_field,) = config.fields
-        assert isinstance(api_key_field, SourceFieldInputConfig)
-        assert api_key_field.name == "api_key"
-        assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert api_key_field.required is True
-        assert api_key_field.secret is True
-
-    @pytest.mark.parametrize("expected_key", ["401 Client Error", "403 Client Error"])
-    def test_non_retryable_errors(self, expected_key: str) -> None:
-        assert any(expected_key in key for key in self.source.get_non_retryable_errors())
-
-    def test_get_schemas_returns_every_endpoint(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-
-    @pytest.mark.parametrize("endpoint", sorted(INCREMENTAL_ENDPOINTS))
-    def test_get_schemas_incremental_endpoints(self, endpoint: str) -> None:
-        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
-        schema = schemas[endpoint]
-        assert schema.supports_incremental is True
-        assert schema.supports_append is True
-        assert [f["field"] for f in schema.incremental_fields] == [TELNYX_ENDPOINTS[endpoint].incremental_field]
 
     @pytest.mark.parametrize("endpoint", sorted(FULL_REFRESH_ENDPOINTS))
     def test_get_schemas_full_refresh_endpoints(self, endpoint: str) -> None:
@@ -102,13 +56,6 @@ class TestTelnyxSource:
         assert schema.supports_incremental is False
         assert schema.supports_append is False
         assert schema.incremental_fields == []
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["VerifyDetailRecords"])
-        assert [s.name for s in schemas] == ["VerifyDetailRecords"]
-
-    def test_get_schemas_unknown_name_returns_empty(self) -> None:
-        assert self.source.get_schemas(self.config, self.team_id, names=["nonexistent"]) == []
 
     def test_canonical_descriptions_cover_every_endpoint(self) -> None:
         # Every advertised endpoint should have a curated description so the docs and the AI
@@ -138,11 +85,6 @@ class TestTelnyxSource:
 
         assert is_valid is expected_valid
         assert error_message == expected_message
-
-    def test_get_resumable_source_manager_bound_to_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(_make_inputs())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is TelnyxResumeConfig
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.telnyx.source.telnyx_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:

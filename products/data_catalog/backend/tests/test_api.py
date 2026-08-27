@@ -17,6 +17,7 @@ from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rate_limit import ClickHouseBurstRateThrottle, HogQLQueryThrottle
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.data_catalog.backend.facade.enums import MetricStatus
 from products.data_catalog.backend.logic.metrics import (
     BULK_SKIP_ALREADY_APPROVED,
@@ -35,8 +36,6 @@ from products.data_catalog.backend.presentation.serializers import (
     MetricSerializer,
 )
 from products.product_analytics.backend.facade.models import Insight
-
-from ee.models.rbac.access_control import AccessControl
 
 _HOGQL = {"kind": "HogQLQuery", "query": "select count() from events"}
 _PROCESS_QUERY = "products.data_catalog.backend.logic.execution.process_query_dict"

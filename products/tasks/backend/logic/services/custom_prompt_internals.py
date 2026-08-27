@@ -104,10 +104,13 @@ class CustomPromptSandboxContext:
     agent server's default when ``None``. Used by evals to pin a specific
     model so cross-run comparisons are stable."""
     runtime_adapter: str | None = None
-    """The agent runtime that serves ``model`` (``"claude"`` → Anthropic, ``"codex"`` → OpenAI).
-    Set it alongside a non-default ``model``: the agent server derives the provider from the runtime,
-    so a model handed over with no runtime can't be routed and falls back to the server default.
-    ``None`` keeps the agent server's default runtime (only valid when ``model`` is also ``None``)."""
+    """The agent harness that serves ``model`` (``"claude"`` → Anthropic, ``"codex"`` → OpenAI).
+    Set it alongside a non-default ``model``: the agent server derives the provider from the
+    adapter, so a model handed over with no adapter can't be routed and falls back to the server
+    default. ``None`` keeps the agent server's default harness (only valid when ``model`` is also
+    ``None``)."""
+    runtime: str = "acp"
+    """The agent protocol driving the task's runs (``Task.Runtime``: ``"acp"`` or ``"pi"``)."""
     reasoning_effort: str | None = None
     """Reasoning-effort tier for ``model`` (e.g. ``"xhigh"``). Only meaningful alongside a pinned
     ``model`` + ``runtime_adapter``; ``None`` keeps the model's default effort. The supported tiers
@@ -237,6 +240,8 @@ async def create_task_and_trigger(
         sandbox_environment_id=context.sandbox_environment_id,
         model=context.model,
         runtime_adapter=context.runtime_adapter,
+        runtime=context.runtime,
+        pending_user_message=description if context.runtime == "pi" else None,
         reasoning_effort=context.reasoning_effort,
         initial_permission_mode=context.initial_permission_mode,
         internal=internal,

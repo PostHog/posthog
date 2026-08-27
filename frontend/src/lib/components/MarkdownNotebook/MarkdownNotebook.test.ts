@@ -3959,6 +3959,54 @@ Current AI paragraph`),
         expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nThinking...`)
     })
 
+    it('keeps the named question above the AI response when enabled', () => {
+        const onAskAI = jest.fn()
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n<Prompt question="What is PostHog?" />`,
+                onAskAI,
+                onChange,
+                aiPromptAuthorName: 'Avery',
+                createAIConversationId: () => TEST_AI_CONVERSATION_ID,
+            })
+        )
+        const keepQuestionButton = container.querySelector(
+            '[data-attr="markdown-notebook-ai-keep-question"]'
+        ) as HTMLButtonElement
+
+        expect(keepQuestionButton).toBeInstanceOf(HTMLButtonElement)
+        expect(keepQuestionButton.getAttribute('aria-pressed')).toEqual('false')
+
+        fireEvent.click(keepQuestionButton)
+
+        expect(keepQuestionButton.getAttribute('aria-pressed')).toEqual('true')
+        expect(keepQuestionButton.classList.contains('LemonButton--active')).toBe(true)
+        expect(onChange).toHaveBeenLastCalledWith(
+            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n<Prompt question="What is PostHog?" keepQuestion />`
+        )
+
+        fireEvent.click(keepQuestionButton)
+
+        expect(keepQuestionButton.getAttribute('aria-pressed')).toEqual('false')
+        expect(onChange).toHaveBeenLastCalledWith(
+            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n<Prompt question="What is PostHog?" />`
+        )
+
+        fireEvent.click(keepQuestionButton)
+        fireEvent.click(container.querySelector('[aria-label="Send prompt"]') as HTMLButtonElement)
+
+        const markdownWithResponse = `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n**Avery:** What is PostHog?\n\nThinking...`
+        expect(onChange).toHaveBeenLastCalledWith(markdownWithResponse)
+        expect(onAskAI).toHaveBeenCalledWith(
+            expect.objectContaining({
+                conversationId: TEST_AI_CONVERSATION_ID,
+                responseNodeIndex: 2,
+                markdownWithResponse,
+            })
+        )
+    })
+
     it('submits a persisted Ask AI prompt from the prompt textarea', () => {
         const onAskAI = jest.fn()
         const onChange = jest.fn()
@@ -4559,6 +4607,56 @@ Body text`)
 <Comment replies={[]} />
 
 <Query query={{"kind":"DataTableNode"}} />`)
+    })
+
+    it('opens a selection-anchored thread with its composer in the edit panel', () => {
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('Numbers look off here'),
+                registry: createDiscussionCommentTestRegistry(),
+            })
+        )
+        const paragraph = getBodyTextBlock(container)
+
+        selectTextAcrossNodes(getFirstTextNode(paragraph), 8, getFirstTextNode(paragraph), 'Numbers look'.length, true)
+        fireEvent.click(container.querySelector('button[aria-label="Comment on selection"]') as HTMLButtonElement)
+
+        // Insertion opens the panel through the transient cache, so the composer lands in the edit
+        // panel (ready to type) rather than the read-only view panel — and no prop is persisted.
+        expect(
+            container.querySelector(
+                '.MarkdownNotebook__component-panel--filters [data-attr="notebook-discussion-comment-input"]'
+            )
+        ).not.toBeNull()
+        expect(
+            container.querySelector(
+                '.MarkdownNotebook__component-panel--results [data-attr="notebook-discussion-comment-input"]'
+            )
+        ).toBeNull()
+    })
+
+    it('opens a gutter-inserted thread with its composer in the edit panel', () => {
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('<Query query={{"kind":"DataTableNode"}} />'),
+                registry: createDiscussionCommentTestRegistry(),
+            })
+        )
+
+        fireEvent.click(
+            container.querySelector('[data-attr="markdown-notebook-block-comment-button"]') as HTMLButtonElement
+        )
+
+        expect(
+            container.querySelector(
+                '.MarkdownNotebook__component-panel--filters [data-attr="notebook-discussion-comment-input"]'
+            )
+        ).not.toBeNull()
+        expect(
+            container.querySelector(
+                '.MarkdownNotebook__component-panel--results [data-attr="notebook-discussion-comment-input"]'
+            )
+        ).toBeNull()
     })
 
     it('reuses an existing block comment thread above a component from the gutter button', async () => {

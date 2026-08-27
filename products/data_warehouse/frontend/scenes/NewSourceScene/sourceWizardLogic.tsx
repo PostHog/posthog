@@ -801,6 +801,7 @@ export interface sourceWizardLogicActions {
             | 'CanvasLms'
             | 'CapsuleCRM'
             | 'CaptainData'
+            | 'Capterra'
             | 'Captivate'
             | 'CareQualityCommission'
             | 'CartCom'
@@ -832,6 +833,7 @@ export interface sourceWizardLogicActions {
             | 'CiscoMeraki'
             | 'Clari'
             | 'Clarifai'
+            | 'Clarify'
             | 'Classy'
             | 'Clay'
             | 'Clazar'
@@ -870,6 +872,7 @@ export interface sourceWizardLogicActions {
             | 'CoinMarketCap'
             | 'Collibra'
             | 'Commercetools'
+            | 'CommissionJunction'
             | 'Companycam'
             | 'Concord'
             | 'Conekta'
@@ -911,6 +914,7 @@ export interface sourceWizardLogicActions {
             | 'DataForSEO'
             | 'Datahub'
             | 'Datascope'
+            | 'DatoCMS'
             | 'Datorama'
             | 'Dayforce'
             | 'Db2'
@@ -1109,6 +1113,7 @@ export interface sourceWizardLogicActions {
             | 'GoogleMerchantCenter'
             | 'GooglePageSpeedInsights'
             | 'GooglePlayConsole'
+            | 'GooglePostmasterTools'
             | 'GoogleSearchConsole'
             | 'GoogleSheets'
             | 'GoogleTasks'
@@ -1121,6 +1126,7 @@ export interface sourceWizardLogicActions {
             | 'GreytHr'
             | 'Gridly'
             | 'Groq'
+            | 'Growi'
             | 'GrowthBook'
             | 'Guardian'
             | 'Guesty'
@@ -1269,6 +1275,7 @@ export interface sourceWizardLogicActions {
             | 'Linkrunner'
             | 'Linnworks'
             | 'Linode'
+            | 'Liveblocks'
             | 'LlamaCloud'
             | 'Lob'
             | 'Lodgify'
@@ -1279,6 +1286,7 @@ export interface sourceWizardLogicActions {
             | 'Looker'
             | 'LoopReturns'
             | 'Loops'
+            | 'Lovable'
             | 'Luma'
             | 'M3ter'
             | 'Mailchimp'
@@ -1362,6 +1370,7 @@ export interface sourceWizardLogicActions {
             | 'N8n'
             | 'NagerDate'
             | 'Nasa'
+            | 'NationBuilder'
             | 'Navan'
             | 'NebiusAI'
             | 'Neon'
@@ -1628,6 +1637,7 @@ export interface sourceWizardLogicActions {
             | 'SFTP'
             | 'SharePoint'
             | 'Sharetribe'
+            | 'Shipmail'
             | 'Shippo'
             | 'ShipStation'
             | 'Shopify'
@@ -1643,6 +1653,7 @@ export interface sourceWizardLogicActions {
             | 'Sim'
             | 'SimFin'
             | 'Similarweb'
+            | 'SimonData'
             | 'SimpleCast'
             | 'Simplesat'
             | 'Simpro'
@@ -1720,6 +1731,7 @@ export interface sourceWizardLogicActions {
             | 'Talkdesk'
             | 'Talkwalker'
             | 'Tally'
+            | 'Tana'
             | 'Tavus'
             | 'TawkTo'
             | 'Teachable'
@@ -1733,6 +1745,7 @@ export interface sourceWizardLogicActions {
             | 'Tempo'
             | 'TemporalIO'
             | 'TenableVulnerabilityManagement'
+            | 'TeraBox'
             | 'Ternary'
             | 'TerraApi'
             | 'TerraformCloud'
@@ -1767,6 +1780,7 @@ export interface sourceWizardLogicActions {
             | 'Trello'
             | 'Tremendous'
             | 'TriggerDev'
+            | 'Trino'
             | 'TripleWhale'
             | 'TrunkIo'
             | 'TrustPilot'
@@ -1850,6 +1864,7 @@ export interface sourceWizardLogicActions {
             | 'WorkOS'
             | 'Workramp'
             | 'WorldBank'
+            | 'WPSOffice'
             | 'Wrike'
             | 'Writesonic'
             | 'Wufoo'
@@ -1870,6 +1885,7 @@ export interface sourceWizardLogicActions {
             | 'ZapierSupportedStorage'
             | 'ZapSign'
             | 'Zellify'
+            | 'Zenchef'
             | 'Zendesk'
             | 'ZendeskSell'
             | 'ZendeskSunshine'
@@ -4003,6 +4019,18 @@ export const getErrorsForFields = (
         // emptiness check or `required` would pass with zero selections.
         const fieldValue = valueObj[field.name]
         const valueMissing = Array.isArray(fieldValue) ? fieldValue.length === 0 : !fieldValue
+
+        // An OAuth field with nothing selected can never produce a working source, but some
+        // backend configs keep it `required=False` so stored configs on the other auth branch
+        // (e.g. GitHub PAT sources) still parse. Enforce it here instead of letting the submit
+        // through to a guaranteed credentials error.
+        if (field.type === 'oauth' && valueMissing) {
+            // Label verbatim: OAuth field labels lead with a brand name ("GitHub account"),
+            // which lowercasing would mangle.
+            errorsObj[field.name] = `Select or connect a ${field.label}`
+            return
+        }
+
         if ('required' in field && field.required && valueMissing) {
             errorsObj[field.name] = Array.isArray(fieldValue)
                 ? `Please enter at least one of your ${field.label.toLowerCase()}`

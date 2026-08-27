@@ -59,6 +59,7 @@ export function ScannerScoutCard({
         scoutConfigs,
         scoutConfigsLoading,
         scoutReportsLoading,
+        scoutReportsFailed,
         scoutConfigsForScanner,
         latestReportRow,
         expanded,
@@ -67,7 +68,7 @@ export function ScannerScoutCard({
         manualRunScoutIds,
         enrolled,
     } = useValues(logic)
-    const { runScoutNow, loadScoutConfigs, toggleExpanded } = useActions(logic)
+    const { runScoutNow, loadScoutConfigs, loadScoutReports, toggleExpanded } = useActions(logic)
     const { ref: digestRef, height: digestHeight } = useResizeObserver()
     const overflows = (digestHeight ?? 0) > DIGEST_CLIP_PX
     const clipped = overflows && !expanded
@@ -164,6 +165,19 @@ export function ScannerScoutCard({
                 // land before the reports do, so without this the card states that verdict on every
                 // cold load, then replaces it once the reports resolve.
                 <LemonSkeleton className="h-16 w-full" />
+            ) : !latestReportRow && scoutReportsFailed ? (
+                // A failed load is not a quiet scanner, and Run now below spends credits.
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-sm text-muted">Couldn't load this scanner's reports.</span>
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        onClick={() => loadScoutReports()}
+                        data-attr="vision-scanner-scout-reports-retry"
+                    >
+                        Try again
+                    </LemonButton>
+                </div>
             ) : latestReportRow ? (
                 <>
                     {/* The surface stays on the outer element: masking it too would fade the panel's

@@ -1,4 +1,4 @@
-import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+import { MOCK_DEFAULT_BASIC_USER, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { Meta, StoryObj } from '@storybook/react'
 import { useActions } from 'kea'
@@ -11,17 +11,26 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
-import { ErrorTrackingQueryResponse, NodeKind } from '~/queries/schema/schema-general'
+import {
+    ErrorTrackingIssueRelease,
+    ErrorTrackingQueryResponse,
+    ErrorTrackingReleasesQueryResponse,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 
 import { errorTrackingQueryResponse, errorTrackingTypeIssue } from './__mocks__/error_tracking_query'
 import { TEST_EVENTS } from './__mocks__/events'
 import { results as stackFrameResults } from './__mocks__/stack_frames/batch_get'
 import { BreakdownPreset } from './components/Breakdowns/consts'
 import { miniBreakdownsLogic } from './components/Breakdowns/miniBreakdownsLogic'
-import { issueFilterPreviewLogic, IssueFilterPreview } from './components/IssueFilterPreview/issueFilterPreviewLogic'
+import {
+    issueFilterPreviewLogic,
+    IssueFilterPreview,
+    IssueReleasesViewMode,
+} from './components/IssueFilterPreview/issueFilterPreviewLogic'
 import { errorTrackingIssueSceneLogic } from './scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 
-const ISSUE_ID = 'issue-id'
+const ISSUE_ID = '01890a1b-2c3d-4e4f-8a9b-0c1d2e3f4a5b'
 const FINGERPRINT = String(TEST_EVENTS.javascript_resolved.properties.$exception_fingerprint)
 const STORY_FINGERPRINTS = [FINGERPRINT, ...Array.from({ length: 11 }, (_, index) => `story-fingerprint-${index + 1}`)]
 const STORY_FINGERPRINT_PROJECTION_RESPONSE = {
@@ -158,6 +167,84 @@ const STORY_BREAKDOWNS_RESPONSE = {
         },
     },
 }
+// Each release is active over a slice of the date range (as fractions), with a volume shape over that slice
+const STORY_RELEASES: {
+    namespace: string | null
+    version: string | null
+    build: string | null
+    from: number
+    to: number
+    peak: number
+    shape: 'flat' | 'decay' | 'ramp' | 'hump'
+}[] = [
+    { namespace: 'com.example.app', version: '3.0.4', build: '398', from: 0, to: 1, peak: 2, shape: 'flat' },
+    { namespace: 'com.example.app', version: '3.1.0', build: '412', from: 0, to: 0.6, peak: 9, shape: 'decay' },
+    { namespace: 'com.example.app', version: '3.1.1', build: '415', from: 0.25, to: 0.85, peak: 14, shape: 'hump' },
+    { namespace: 'com.example.app', version: '3.2.0', build: '420', from: 0.65, to: 1, peak: 34, shape: 'ramp' },
+    { namespace: 'com.example.app', version: '3.2.1', build: '421', from: 0.88, to: 1, peak: 5, shape: 'flat' },
+    { namespace: null, version: null, build: null, from: 0.3, to: 0.5, peak: 1, shape: 'flat' },
+]
+const STORY_RELEASE_BUCKET_SECONDS = (7 * 24 * 60 * 60) / 40
+const STORY_RELEASE_BUCKETS = Array.from({ length: 40 }, (_, index) =>
+    new Date(Date.UTC(2024, 6, 2) + index * STORY_RELEASE_BUCKET_SECONDS * 1000).toISOString()
+)
+function storyReleaseSeries(release: (typeof STORY_RELEASES)[number]): ErrorTrackingIssueRelease {
+    const counts = STORY_RELEASE_BUCKETS.map(() => 0)
+    const start = Math.floor(release.from * counts.length)
+    const end = Math.ceil(release.to * counts.length)
+    for (let index = start; index < end; index++) {
+        const progress = (index - start) / Math.max(1, end - start - 1)
+        const jitter = 0.7 + ((index * 7) % 4) / 10
+        const factor = {
+            flat: 1,
+            decay: 1 - 0.85 * progress,
+            ramp: 0.15 + 0.85 * progress,
+            hump: Math.sin(Math.PI * progress),
+        }[release.shape]
+        counts[index] = Math.round(release.peak * factor * jitter)
+    }
+    const seen = counts.map((count, index) => (count > 0 ? index : -1)).filter((index) => index >= 0)
+    return {
+        namespace: release.namespace,
+        version: release.version,
+        build: release.build,
+        counts,
+        total: counts.reduce((sum, count) => sum + count, 0),
+        first_seen: seen.length ? STORY_RELEASE_BUCKETS[seen[0]] : null,
+        last_seen: seen.length ? STORY_RELEASE_BUCKETS[seen[seen.length - 1]] : null,
+    }
+}
+function storyReleasesResponse(maxReleases: number): ErrorTrackingReleasesQueryResponse {
+    const series = STORY_RELEASES.map(storyReleaseSeries)
+    const releases = series.filter((release) => release.namespace !== null).reverse()
+    const unattributed = series.find((release) => release.namespace === null) ?? null
+    const visible = releases.slice(0, maxReleases)
+    const hidden = releases.slice(maxReleases)
+    const other = hidden.length
+        ? {
+              counts: STORY_RELEASE_BUCKETS.map((_, index) =>
+                  hidden.reduce((sum, release) => sum + release.counts[index], 0)
+              ),
+              total: hidden.reduce((sum, release) => sum + release.total, 0),
+              first_seen: hidden[0].first_seen,
+              last_seen: hidden[0].last_seen,
+          }
+        : null
+    return {
+        date_from: STORY_RELEASE_BUCKETS[0],
+        date_to: new Date(Date.UTC(2024, 6, 9)).toISOString(),
+        buckets: STORY_RELEASE_BUCKETS,
+        bucket_seconds: STORY_RELEASE_BUCKET_SECONDS,
+        results: visible,
+        other,
+        other_release_count: hidden.length,
+        unattributed,
+        release_count: releases.length,
+        release_count_truncated: false,
+        namespaces: ['com.example.app'],
+        total: series.reduce((sum, release) => sum + release.total, 0),
+    }
+}
 const STORY_MANY_CUSTOM_PROPERTIES = Object.fromEntries(
     Array.from({ length: 18 }, (_, index) => [`custom_property_${index + 1}`, `value_${index + 1}`])
 )
@@ -212,6 +299,52 @@ const STORY_POSITION_EVENT = {
     timestamp: STORY_TIMESTAMPS[0],
     properties: STORY_EVENT_PROPERTIES,
 }
+const STORY_ASSIGNEE_MEMBERS = Array.from({ length: 32 }, (_, index) => {
+    const userNumber = index + 1
+    const user =
+        index === 0
+            ? MOCK_DEFAULT_BASIC_USER
+            : {
+                  id: 1000 + index,
+                  uuid: `story-user-${userNumber}`,
+                  distinct_id: `story-user-${userNumber}`,
+                  first_name: `Engineer ${String(userNumber).padStart(2, '0')}`,
+                  email: `engineer-${userNumber}@example.com`,
+              }
+
+    return {
+        id: `story-member-${userNumber}`,
+        user,
+        level: 1,
+        joined_at: '2024-01-01T00:00:00.000Z',
+        updated_at: '2024-01-01T00:00:00.000Z',
+        is_2fa_enabled: false,
+        has_social_auth: false,
+        last_login: '2024-07-08T00:00:00.000Z',
+    }
+})
+const STORY_ASSIGNEE_ROLES = Array.from({ length: 16 }, (_, index) => {
+    const roleId = `story-role-${index + 1}`
+    const includesCurrentUser = index % 5 === 0
+
+    return {
+        id: roleId,
+        name: `Engineering role ${String(index + 1).padStart(2, '0')}`,
+        members: includesCurrentUser
+            ? [
+                  {
+                      id: `story-role-member-${index + 1}`,
+                      user: MOCK_DEFAULT_BASIC_USER,
+                      role_id: roleId,
+                      joined_at: '2024-01-01T00:00:00.000Z',
+                      updated_at: '2024-01-01T00:00:00.000Z',
+                  },
+              ]
+            : [],
+        created_at: '2024-01-01T00:00:00.000Z',
+        created_by: MOCK_DEFAULT_BASIC_USER,
+    }
+})
 const STORY_ISSUE = {
     ...errorTrackingTypeIssue,
     id: ISSUE_ID,
@@ -292,7 +425,9 @@ const meta: Meta = {
             },
             post: {
                 '/api/environments/:team_id/query/:kind/': async ({ request }) => {
-                    const body = (await request.json()) as { query?: { kind?: string; select?: string[] } }
+                    const body = (await request.json()) as {
+                        query?: { kind?: string; select?: string[]; maxReleases?: number }
+                    }
                     if (body.query?.kind === NodeKind.ErrorTrackingBreakdownsQuery) {
                         return [200, STORY_BREAKDOWNS_RESPONSE]
                     }
@@ -303,6 +438,9 @@ const meta: Meta = {
                         return body.query.select?.includes('properties.$exception_list')
                             ? [200, STORY_TIMELINE_RESPONSE]
                             : [200, STORY_EVENTS_RESPONSE]
+                    }
+                    if (body.query?.kind === NodeKind.ErrorTrackingReleasesQuery) {
+                        return [200, storyReleasesResponse(body.query.maxReleases ?? 5)]
                     }
                     return body.query?.kind === NodeKind.HogQLQuery
                         ? [200, { results: [] }]
@@ -363,18 +501,21 @@ function IssueScenePreviewStory({
     selectedEventProperties,
     openBreakdown,
     propertyFilter,
+    releasesViewMode,
 }: {
     activePreview: IssueFilterPreview
     selectedEventProperties?: string
     openBreakdown?: BreakdownPreset
     propertyFilter?: { key: string; value: string }
+    releasesViewMode?: IssueReleasesViewMode
 }): JSX.Element {
-    const { applyPropertyFilter, setActivePreview } = useActions(issueFilterPreviewLogic)
+    const { applyPropertyFilter, setActivePreview, setReleasesViewMode } = useActions(issueFilterPreviewLogic)
     const { selectEvent } = useActions(errorTrackingIssueSceneLogic({ id: ISSUE_ID }))
     const { openBreakdownDetails } = useActions(miniBreakdownsLogic({ issueId: ISSUE_ID }))
 
     useLayoutEffect(() => {
         setActivePreview(activePreview)
+        setReleasesViewMode(releasesViewMode ?? 'list')
         if (selectedEventProperties) {
             selectEvent({
                 event: '$exception',
@@ -401,9 +542,11 @@ function IssueScenePreviewStory({
         openBreakdown,
         openBreakdownDetails,
         propertyFilter,
+        releasesViewMode,
         selectEvent,
         selectedEventProperties,
         setActivePreview,
+        setReleasesViewMode,
     ])
 
     return <App />
@@ -438,6 +581,46 @@ export const GroupPage: Story = {
     parameters: { pageUrl: urls.errorTrackingIssue(ISSUE_ID) },
 }
 
+export const GroupPageManyAssignees: Story = {
+    name: 'Issue scene with many assignees',
+    parameters: { pageUrl: urls.errorTrackingIssue(ISSUE_ID) },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/organizations/:organization_id/members': ({ request }) => {
+                    const search = new URL(request.url).searchParams.get('search')?.toLowerCase()
+                    const members = search
+                        ? STORY_ASSIGNEE_MEMBERS.filter((member) =>
+                              [member.user.first_name, member.user.email].some((value) =>
+                                  value.toLowerCase().includes(search)
+                              )
+                          )
+                        : STORY_ASSIGNEE_MEMBERS
+
+                    return [
+                        200,
+                        {
+                            count: members.length,
+                            results: members,
+                            next: null,
+                            previous: null,
+                        },
+                    ]
+                },
+                '/api/organizations/:organization_id/roles/': [
+                    200,
+                    {
+                        count: STORY_ASSIGNEE_ROLES.length,
+                        results: STORY_ASSIGNEE_ROLES,
+                        next: null,
+                        previous: null,
+                    },
+                ],
+            },
+        }),
+    ],
+}
+
 export const GroupPageContentSizedBreakdownPanel: Story = {
     name: 'Issue scene with content-sized breakdown panel',
     parameters: { pageUrl: urls.errorTrackingIssue(ISSUE_ID) },
@@ -459,6 +642,24 @@ export const GroupPageFingerprintMap: Story = {
         featureFlags: [FEATURE_FLAGS.ERROR_TRACKING_FINGERPRINT_MAP],
     },
     render: () => <IssueScenePreviewStory activePreview="fingerprints" />,
+}
+
+export const GroupPageReleases: Story = {
+    name: 'Issue scene with releases',
+    parameters: {
+        pageUrl: urls.errorTrackingIssue(ISSUE_ID),
+        featureFlags: [FEATURE_FLAGS.ERROR_TRACKING_ISSUE_RELEASES],
+    },
+    render: () => <IssueScenePreviewStory activePreview="releases" />,
+}
+
+export const GroupPageReleasesStacked: Story = {
+    name: 'Issue scene with stacked releases',
+    parameters: {
+        pageUrl: urls.errorTrackingIssue(ISSUE_ID),
+        featureFlags: [FEATURE_FLAGS.ERROR_TRACKING_ISSUE_RELEASES],
+    },
+    render: () => <IssueScenePreviewStory activePreview="releases" releasesViewMode="stacked" />,
 }
 
 export const GroupPageBreakdownLoading: Story = {
