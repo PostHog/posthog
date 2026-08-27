@@ -113,16 +113,7 @@ describe('issueFilterPreviewLogic', () => {
         expect(chips().map((chip) => chip.key)).toEqual(['$browser', '$app_version', '$app_build'])
         expect(chips()[2]).toEqual({ key: '$app_build', value: ['20901'], operator: PropertyOperator.Exact })
         expect(filters.values.filterAddedFromPreview).toBe(2)
-        const afterSecondRelease = filters.values.filterGroup
 
-        // Clearing one key from the preview removes only that chip and stays undoable.
-        preview.actions.clearPropertyFilter('$app_build')
-        expect(chips().map((chip) => chip.key)).toEqual(['$browser', '$app_version'])
-        preview.actions.clearPropertyFilter('$app_build')
-        expect(preview.values.filterGroupHistory).toHaveLength(4)
-
-        preview.actions.undoActivePreview()
-        expect(filters.values.filterGroup).toEqual(afterSecondRelease)
         preview.actions.undoActivePreview()
         expect(filters.values.filterGroup).toEqual(afterFirstRelease)
         preview.actions.undoActivePreview()

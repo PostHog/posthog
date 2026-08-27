@@ -114,28 +114,21 @@ function ReleasesSummary({
             </Skeleton>
         )
     }
-    if (releases === null) {
+    if (releases === null || (releases.release_count === 0 && releases.namespaces.length === 0)) {
         return null
     }
     const count = pluralize(releases.release_count, 'release')
-    // An active `$app_namespace` chip narrows the response to that app, so the picker stays to switch back.
-    if (selectedNamespace === null) {
-        if (releases.release_count === 0 && releases.namespaces.length === 0) {
-            return null
-        }
-        if (releases.namespaces.length <= 1) {
-            const namespace = releases.namespaces[0]
-            return (
-                <Text size="xs" variant="muted" className="truncate">
-                    {namespace ? `${namespace} · ${count}` : count}
-                </Text>
-            )
-        }
+    if (releases.namespaces.length <= 1) {
+        const namespace = releases.namespaces[0]
+        return (
+            <Text size="xs" variant="muted" className="truncate">
+                {namespace ? `${namespace} · ${count}` : count}
+            </Text>
+        )
     }
-    const namespaces = Array.from(new Set([...releases.namespaces, ...(selectedNamespace ? [selectedNamespace] : [])]))
     const appItems: Record<string, string> = {
-        [ALL_APPS]: selectedNamespace ? 'All apps' : pluralize(namespaces.length, 'app'),
-        ...Object.fromEntries(namespaces.map((namespace) => [namespace, namespace])),
+        [ALL_APPS]: pluralize(releases.namespaces.length, 'app'),
+        ...Object.fromEntries(releases.namespaces.map((namespace) => [namespace, namespace])),
     }
     return (
         <div className="flex min-w-0 items-center gap-2">

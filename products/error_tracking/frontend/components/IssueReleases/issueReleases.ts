@@ -1,4 +1,3 @@
-import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { pluralize } from 'lib/utils/strings'
 
 import {
@@ -6,7 +5,7 @@ import {
     ErrorTrackingReleaseSeries,
     ErrorTrackingReleasesQueryResponse,
 } from '~/queries/schema/schema-general'
-import { PropertyFilterType, PropertyOperator, UniversalFiltersGroup } from '~/types'
+import { PropertyOperator } from '~/types'
 
 import { PreviewPropertyFilter } from '../IssueFilterPreview/issueFilterPreviewLogic'
 
@@ -103,29 +102,6 @@ export function releasePropertyFilters(strip: IssueReleaseStrip): PreviewPropert
         propertyFilter('$app_version', strip.release?.version ?? null),
         propertyFilter('$app_build', strip.release?.build ?? null),
     ]
-}
-
-/** The app pinned by an `$app_namespace` chip with one exact value. The app picker mirrors this chip. */
-export function selectedAppNamespace(filterGroup: UniversalFiltersGroup): string | null {
-    const firstGroup = filterGroup.values[0]
-    if (!isUniversalGroupFilterLike(firstGroup)) {
-        return null
-    }
-    const filter = firstGroup.values.find(
-        (candidate) =>
-            !isUniversalGroupFilterLike(candidate) &&
-            candidate.type === PropertyFilterType.Event &&
-            candidate.key === '$app_namespace'
-    )
-    if (!filter || isUniversalGroupFilterLike(filter) || filter.type !== PropertyFilterType.Event) {
-        return null
-    }
-    if ((filter.operator ?? PropertyOperator.Exact) !== PropertyOperator.Exact) {
-        return null
-    }
-    const values = Array.isArray(filter.value) ? filter.value : [filter.value]
-    const value = values.length === 1 ? values[0] : null
-    return typeof value === 'string' && value ? value : null
 }
 
 export function maxBucketValue(strips: IssueReleaseStrip[]): number {
