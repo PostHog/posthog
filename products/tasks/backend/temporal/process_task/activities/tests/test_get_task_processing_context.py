@@ -15,6 +15,7 @@ from products.tasks.backend.constants import (
     AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
     CONTINUE_AS_NEW_FEATURE_FLAG,
     DESKTOP_WORKSPACE_WARM_FEATURE_FLAG,
+    DEV_STACK_IMAGE_NAME,
     MODAL_VM_SANDBOX_FEATURE_FLAG,
     PR_BABYSIT_SNAPSHOT_FEATURE_FLAG,
     RTK_DISABLED_FEATURE_FLAG,
@@ -36,6 +37,7 @@ from products.tasks.backend.temporal.process_task.activities.get_task_processing
     _is_burstable_sandbox_resources_enabled,
     _is_continue_as_new_enabled,
     _is_desktop_workspace_warm_enabled,
+    _is_dev_stack_preview_enabled,
     _is_pr_babysit_snapshot_enabled,
     _is_rtk_enabled,
     _is_sandbox_event_ingest_enabled,
@@ -53,7 +55,7 @@ VM_FLAG_PAYLOAD_TARGET = "products.tasks.backend.constants.posthoganalytics.get_
     [
         ({}, False),
         ({"resume_from_run_id": "previous-run"}, False),
-        ({"handoff_resumed": True}, False),
+        ({"same_run_resume": True}, False),
         ({"snapshot_external_id": "snapshot-id"}, False),
         (
             {
@@ -64,7 +66,7 @@ VM_FLAG_PAYLOAD_TARGET = "products.tasks.backend.constants.posthoganalytics.get_
         ),
         (
             {
-                "handoff_resumed": True,
+                "same_run_resume": True,
                 "snapshot_external_id": "snapshot-id",
             },
             True,
@@ -125,6 +127,54 @@ def test_desktop_workspace_warm_flag_fails_closed():
             )
             is False
         )
+
+
+def _preview_gate(
+    *,
+    origin_product: str = Task.OriginProduct.USER_CREATED,
+    use_modal_vm_sandbox: bool = True,
+    custom_image_name: str | None = DEV_STACK_IMAGE_NAME,
+    repository: str | None = "PostHog/PostHog",
+) -> bool:
+    return _is_dev_stack_preview_enabled(
+        distinct_id="distinct-id",
+        organization_id="organization-id",
+        run_id="run-id",
+        origin_product=origin_product,
+        use_modal_vm_sandbox=use_modal_vm_sandbox,
+        custom_image_name=custom_image_name,
+        repository=repository,
+    )
+
+
+@pytest.mark.parametrize(
+    "flag_value,overrides,expected",
+    [
+        (True, {}, True),
+        (False, {}, False),
+        (None, {}, False),
+        (True, {"origin_product": Task.OriginProduct.ONBOARDING}, False),
+        (True, {"use_modal_vm_sandbox": False}, False),
+        (True, {"custom_image_name": "posthog-sandbox-custom-abc"}, False),
+        (True, {"custom_image_name": None}, False),
+        (True, {"repository": "posthog/posthog-js"}, False),
+        (True, {"repository": None}, False),
+    ],
+)
+def test_dev_stack_preview_needs_the_flag_and_the_right_shape_of_run(flag_value, overrides, expected):
+    with patch(
+        "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+        return_value=flag_value,
+    ):
+        assert _preview_gate(**overrides) is expected
+
+
+def test_dev_stack_preview_flag_fails_closed():
+    with patch(
+        "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+        side_effect=RuntimeError("flag service failed"),
+    ):
+        assert _preview_gate() is False
 
 
 @pytest.mark.requires_secrets
@@ -1421,7 +1471,7 @@ class TestResolveSandboxBackend:
 
     @override_settings(**_HOGLAND_SETTINGS, CLOUD_DEPLOYMENT="EU")
     def test_hogland_override_cannot_defeat_the_eu_guard(self):
-        # A stale/forged hogland override (e.g. surviving a cloud handoff) must not run an
+        # A stale or forged hogland override surviving a cloud resume must not run an
         # EU run on hogland — the capability gates sit ahead of the override.
         assert self._resolve_with_flag(True, state={"sandbox_backend": "hogland"}) == "modal"
 
