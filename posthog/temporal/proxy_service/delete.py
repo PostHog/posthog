@@ -3,7 +3,6 @@ import uuid
 import typing as t
 import asyncio
 import datetime as dt
-from dataclasses import dataclass
 
 from django.db import connection
 
@@ -13,6 +12,7 @@ from asgiref.sync import sync_to_async
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 
+from posthog.dataclasses import frozen
 from posthog.models import ProxyRecord
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_logger
@@ -35,7 +35,7 @@ from posthog.temporal.proxy_service.proto import DeleteRequest
 LOGGER = get_logger(__name__)
 
 
-@dataclass
+@frozen
 class DeleteProxyRecordInputs:
     organization_id: uuid.UUID
     proxy_record_id: uuid.UUID
@@ -48,7 +48,7 @@ class DeleteProxyRecordInputs:
         }
 
 
-@dataclass
+@frozen
 class DeleteManagedProxyInputs:
     """Inputs for the DeleteManagedProxy Workflow and Activity."""
 
