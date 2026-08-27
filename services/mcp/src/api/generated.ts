@@ -39008,6 +39008,11 @@ export namespace Schemas {
       readonly account: FeatureRequestAccount;
       /** Active account links visible to the caller, with account-specific evidence. */
       readonly account_links: readonly FeatureRequestAccountLink[];
+      /**
+         * Total evidence items recorded across visible account links.
+         * @minimum 0
+         */
+      readonly evidence_count: number;
       /** Product areas affected by this request. */
       readonly product_areas: readonly FeatureRequestProductArea[];
       /**
@@ -87192,6 +87197,23 @@ export namespace Schemas {
       groupBy?: _MetricGroupBy[];
     }
 
+    export interface _MetricErrorSpike {
+      /** When the error spike was detected, ISO 8601. */
+      detected_at: string;
+      /** Error Tracking issue that spiked. */
+      issue_id: string;
+      /**
+         * Issue name, if one is set.
+         * @nullable
+         */
+      issue_name: string | null;
+    }
+
+    export interface _MetricErrorSpikesResponse {
+      /** Error Tracking issue spikes detected in the window, newest first. Team-wide: not yet scoped to a specific metric's service. */
+      results: _MetricErrorSpike[];
+    }
+
     /**
      * Per-emission attributes (high-cardinality labels on the data point).
      */
@@ -92551,6 +92573,16 @@ export namespace Schemas {
      * * `priority` - Priority: low to high
      * * `title` - Title: A to Z
      * * `-title` - Title: Z to A
+     * * `account` - Accounts: A to Z
+     * * `-account` - Accounts: Z to A
+     * * `product_area` - Product areas: A to Z
+     * * `-product_area` - Product areas: Z to A
+     * * `status` - Status: A to Z
+     * * `-status` - Status: Z to A
+     * * `created_by` - Created by: A to Z
+     * * `-created_by` - Created by: Z to A
+     * * `evidence_count` - Evidence: low to high
+     * * `-evidence_count` - Evidence: high to low
      * @minLength 1
      */
     request_ordering?: string;
@@ -95614,6 +95646,17 @@ export namespace Schemas {
      * @maxLength 255
      */
     search?: string;
+    };
+
+    export type MetricsErrorSpikesRetrieveParams = {
+    /**
+     * Lower bound (inclusive) for the spike window. ISO 8601.
+     */
+    dateFrom: string;
+    /**
+     * Upper bound (exclusive) for the spike window. Defaults to now if omitted.
+     */
+    dateTo?: string;
     };
 
     export type MetricsValuesRetrieveParams = {
