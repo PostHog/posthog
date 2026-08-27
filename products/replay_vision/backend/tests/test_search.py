@@ -185,4 +185,5 @@ class TestFetchRankedObservations(APIBaseTest):
 
         self.assertEqual(len(rows), 2)
         with self.assertNumQueries(0):
-            self.assertEqual([row.scanner_origin for row in rows], [origin] * 2)
+            # Annotated by `hydrate_for_serialization`, so it is not on the declared row type.
+            self.assertEqual([row.scanner_origin for row in rows], [origin] * 2)  # type: ignore[attr-defined]
