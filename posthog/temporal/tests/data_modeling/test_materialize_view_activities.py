@@ -1,4 +1,5 @@
 import asyncio
+import datetime as dt
 import contextlib
 from collections.abc import AsyncIterator, Collection, Iterable
 from dataclasses import replace
@@ -14,11 +15,13 @@ from django.test import override_settings
 
 import pyarrow as pa
 import deltalake
+import pytest_asyncio
 import pyarrow.parquet as pq
 
 from posthog.hogql.resolver import ResolverFactory
 
 from posthog.models import User
+from posthog.models.event.sql import EVENTS_DATA_TABLE, EVENTS_JSON_DATA_TABLE
 from posthog.sync import database_sync_to_async
 from posthog.temporal.data_modeling.activities import (
     CreateDataModelingJobInputs,
@@ -42,6 +45,7 @@ from posthog.temporal.data_modeling.activities.materialize_view import (
     hogql_table,
 )
 from posthog.temporal.data_modeling.activities.notify_materialization_failure import _SavedQueryViewers
+from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse, truncate_table
 
 from products.customer_analytics.backend.facade.temporal_contracts import StageAccountPropertySyncInput
 from products.customer_analytics.backend.temporal.account_property_sync import (
@@ -1692,6 +1696,65 @@ class TestHogqlTableEmptyResults:
         assert batches[0][0].num_rows == 0
         assert client.arrow_query_calls == 1
         assert client.schema_query_calls == 0
+
+
+@pytest_asyncio.fixture
+async def pageview_events(clickhouse_client, ateam):
+    table = EVENTS_JSON_DATA_TABLE if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else EVENTS_DATA_TABLE()
+    await truncate_table(clickhouse_client, table)
+    end_time = dt.datetime.now(dt.UTC)
+    events, _, _ = await generate_test_events_in_clickhouse(
+        clickhouse_client,
+        ateam.pk,
+        end_time - dt.timedelta(days=1),
+        end_time,
+        event_name="$pageview",
+        count=20,
+        count_outside_range=0,
+        distinct_ids=["a", "b"],
+        table=table,
+    )
+    return events
+
+
+class TestHogqlTableAgainstClickHouse:
+    async def test_subquery_view_keeps_its_types_and_rows(self, ateam, pageview_events):
+        query = """
+        select
+          distinct_id as distinct_id,
+          min(timestamp) as first_seen,
+          count() as pageviews,
+          any(uuid) as any_uuid
+        from events
+        where event = '$pageview'
+          and distinct_id in (select distinct distinct_id from events where event = '$pageview')
+        group by distinct_id
+        """
+
+        batches = [batch async for batch in hogql_table(query, ateam, LOGGER.bind())]
+
+        assert batches[0][1] == [
+            ("distinct_id", "String"),
+            ("first_seen", "DateTime64(6, 'UTC')"),
+            ("pageviews", "UInt64"),
+            ("any_uuid", "UUID"),
+        ]
+        table = pa.Table.from_batches([batch for batch, _ in batches])
+        assert pa.types.is_timestamp(table.schema.field("first_seen").type)
+        assert pa.types.is_string(table.schema.field("any_uuid").type)
+        rows = sorted(table.to_pylist(), key=lambda row: row["distinct_id"])
+        expected_first_seen = {
+            distinct_id: min(
+                dt.datetime.fromisoformat(event["timestamp"]).replace(tzinfo=dt.UTC)
+                for event in pageview_events
+                if event["distinct_id"] == distinct_id
+            )
+            for distinct_id in ("a", "b")
+        }
+        assert [(row["distinct_id"], row["pageviews"], row["first_seen"]) for row in rows] == [
+            ("a", 10, expected_first_seen["a"]),
+            ("b", 10, expected_first_seen["b"]),
+        ]
 
 
 class TestHogqlTableDescribeSettings:
