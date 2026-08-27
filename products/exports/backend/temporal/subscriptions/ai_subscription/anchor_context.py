@@ -116,9 +116,7 @@ def _dashboard_metadata_line(label: str, value: object) -> str | None:
     return f"  {label} (JSON): {serialized}" if serialized else None
 
 
-def _capped_dashboard_tiles(
-    dashboard, viewable_insights: QuerySet[Insight], limit: int
-) -> tuple[list[DashboardTile], bool]:
+def _capped_dashboard_tiles(dashboard: Dashboard, limit: int) -> tuple[list[DashboardTile], bool]:
     """Return only the layout-first tiles needed for one bounded report anchor.
 
     The query returns only the layout-first tiles that fit in the shared report budget. Missing
@@ -126,7 +124,11 @@ def _capped_dashboard_tiles(
     """
     if not limit:
         return [], False
-    tiles = dashboard.tiles.filter(insight_id__in=viewable_insights)
+    # `_build_anchor_context` has already checked every live tile insight on each selected
+    # dashboard in one set-based query. Keeping this query dashboard-local lets PostgreSQL stop
+    # after the shared context budget instead of materializing every selected tile across all
+    # dashboards.
+    tiles = dashboard.tiles.filter(insight__isnull=False, insight__deleted=False)
     selected_tiles = list(
         tiles.select_related("insight")
         .annotate(
@@ -166,9 +168,8 @@ def build_anchor_context(subscription: Subscription) -> AnchorContext | None:
     except Exception as exc:
         # Grounding is an enhancement; losing it must not fail the delivery. But a build failure
         # must not read as "no anchor" either: that would invalidate a valid frozen plan and let
-        # an ungrounded plan replace it. The caller degrades this one run instead. A build failure
-        # is a defect, not a normal user action, so it also reaches error tracking — the delivery
-        # keeps succeeding ungrounded, so the log line alone would go unnoticed.
+        # an ungrounded plan replace it. The caller skips this delivery instead. A build failure
+        # is a defect, not a normal user action, so it also reaches error tracking.
         logger.warning(
             "ai_subscription.anchor_context_failed",
             subscription_id=subscription.id,
@@ -197,9 +198,7 @@ def _build_anchor_context(subscription: Subscription) -> AnchorContext | None:
     def can_view(resource: Dashboard | Insight) -> bool:
         return user_access_control is not None and user_access_control.check_access_level_for_object(resource, "viewer")
 
-    def viewable_dashboard_insights(dashboard: Dashboard) -> QuerySet[Insight]:
-        live_tiles = dashboard.tiles.filter(insight__isnull=False, insight__deleted=False).values("insight_id")
-        tile_insights = Insight.objects.filter(team_id=subscription.team_id, id__in=live_tiles)
+    def viewable_insights(tile_insights: QuerySet[Insight]) -> QuerySet[Insight]:
         if user_access_control is None:
             return tile_insights.none()
         viewable = user_access_control.filter_queryset_by_access_level(
@@ -210,23 +209,30 @@ def _build_anchor_context(subscription: Subscription) -> AnchorContext | None:
         allowed_ids = user_access_control.allowlisted_resource_ids_by_scope.get("insight", frozenset())
         return viewable.filter(Q(id__in=allowed_ids) | Q(created_by=user_access_control.user))
 
-    dashboards = subscription.context_dashboards.filter(deleted=False).order_by("id")
+    dashboards = list(subscription.context_dashboards.filter(deleted=False).order_by("id"))
     insights = subscription.context_insights.filter(deleted=False).order_by("id")
+
+    if any(not can_view(dashboard) for dashboard in dashboards):
+        raise AnchorContextAccessDenied
+
+    if dashboards:
+        # A dashboard anchor exposes its tiles, so access needs to be all-or-nothing: a partially
+        # readable dashboard must never silently omit inaccessible tiles from the LLM's context.
+        # Validate every selected dashboard in one query before retrieving its bounded tile sample.
+        selected_dashboard_tile_ids = DashboardTile.objects.filter(
+            dashboard_id__in=[dashboard.id for dashboard in dashboards], insight__isnull=False, insight__deleted=False
+        ).values("insight_id")
+        selected_tile_insights = Insight.objects.filter(
+            team_id=subscription.team_id, deleted=False, id__in=selected_dashboard_tile_ids
+        )
+        if selected_tile_insights.exclude(id__in=viewable_insights(selected_tile_insights)).exists():
+            raise AnchorContextAccessDenied
 
     for event_name in events:
         name = sanitize_user_text(event_name, ANCHOR_NAME_MAX_LENGTH) or "(unnamed)"
         lines.append(f"- Context event: {name}")
 
     for dashboard in dashboards:
-        if not can_view(dashboard):
-            raise AnchorContextAccessDenied
-        viewable_tile_insights = viewable_dashboard_insights(dashboard)
-        live_tile_insights = Insight.objects.filter(
-            team_id=subscription.team_id,
-            id__in=dashboard.tiles.filter(insight__isnull=False, insight__deleted=False).values("insight_id"),
-        )
-        if live_tile_insights.exclude(id__in=viewable_tile_insights).exists():
-            raise AnchorContextAccessDenied
         name = sanitize_user_text(dashboard.name or "", ANCHOR_NAME_MAX_LENGTH) or "(unnamed)"
         lines.append(f"- Context dashboard: {name}")
         resource_references.append(("dashboard", str(dashboard.id)))
@@ -240,15 +246,14 @@ def _build_anchor_context(subscription: Subscription) -> AnchorContext | None:
         if not remaining_tiles:
             lines.append("  (Tile details not shown because the report context limit was reached)")
             continue
-        capped_tiles, has_more_tiles = _capped_dashboard_tiles(dashboard, viewable_tile_insights, remaining_tiles)
+        capped_tiles, has_more_tiles = _capped_dashboard_tiles(dashboard, remaining_tiles)
         for tile in capped_tiles:
             tile_insight = tile.insight
-            if can_view(tile_insight):
-                lines.extend(_insight_lines(tile_insight, events))
-                resource_references.append(("dashboard_tile_insight", str(tile_insight.id)))
-                tile_filters = _dashboard_metadata_line("Tile filters", tile.filters_overrides)
-                if tile_filters:
-                    lines.append(f"  {tile_filters}")
+            lines.extend(_insight_lines(tile_insight, events))
+            resource_references.append(("dashboard_tile_insight", str(tile_insight.id)))
+            tile_filters = _dashboard_metadata_line("Tile filters", tile.filters_overrides)
+            if tile_filters:
+                lines.append(f"  {tile_filters}")
         remaining_tiles -= len(capped_tiles)
         if has_more_tiles:
             lines.append("  (Additional tiles not shown)")

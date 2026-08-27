@@ -392,9 +392,17 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
 
     try:
         context = await resolve_ai_subscription_context(subscription)
-        context_references = (
-            None if context.anchor_unavailable else context.anchor.resource_references if context.anchor else []
-        )
+        if context.anchor_unavailable:
+            # A report anchored to a dashboard or insight must not silently broaden to project-wide
+            # scope when that anchor cannot be resolved. Skipping this delivery avoids sending an
+            # ungrounded report and leaves the subscription enabled for its next scheduled run.
+            await LOGGER.awarning(
+                "generate_ai_subscription_report.anchor_context_unavailable",
+                subscription_id=subscription.id,
+                team_id=subscription.team_id,
+            )
+            return GenerateAIReportResult(skipped=True, target_type=subscription.target_type)
+        context_references = context.anchor.resource_references if context.anchor else []
         report_result = await build_ai_subscription_report(subscription, context=context)
     except AnchorContextAccessDenied:
         reason = "A selected report context is no longer accessible. Remove it before re-enabling this subscription."

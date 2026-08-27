@@ -266,9 +266,9 @@ class GenerateAIReportResult:
     """Outcome of the generation phase. `aborted` signals a terminal pre-delivery
     failure (consent revoked, prompt invalid) that already auto-disabled the
     subscription; the workflow records `recipient_results` as FAILED and skips delivery.
-    `skipped` signals an over-AI-credit-budget skip: generation rescheduled the sub past
-    the credit reset and notified the owner — the workflow records SKIPPED (not FAILED,
-    the sub isn't broken) and skips delivery.
+    `skipped` signals that no report should be sent this run (for example, the team is over its
+    AI-credit budget or a selected context could not be resolved). The workflow records SKIPPED
+    rather than FAILED and skips delivery; the subscription remains enabled.
 
     The query-failure counts let the workflow flag a fully-degraded report (every query failed →
     FAILED, not COMPLETED) without re-reading the per-query detail from content_snapshot."""

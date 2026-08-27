@@ -77,7 +77,7 @@ async def test_ai_report_delivery_context_references_are_replaced_per_generation
     ]
 
 
-async def test_ai_report_does_not_mark_provenance_when_anchor_is_unavailable(team, user) -> None:
+async def test_ai_report_skips_when_anchor_is_unavailable(team, user) -> None:
     team.organization.is_ai_data_processing_approved = True
     await sync_to_async(team.organization.save)(update_fields=["is_ai_data_processing_approved"])
     subscription = await sync_to_async(create_subscription)(team=team, created_by=user, prompt="Weekly report")
@@ -91,7 +91,7 @@ async def test_ai_report_does_not_mark_provenance_when_anchor_is_unavailable(tea
         patch(
             "products.exports.backend.temporal.subscriptions.ai_subscription.activities.build_ai_subscription_report",
             new=AsyncMock(return_value=report_result),
-        ),
+        ) as build_report,
         patch(
             "products.exports.backend.temporal.subscriptions.ai_subscription.activities._persist_ai_report",
             new=AsyncMock(),
@@ -101,11 +101,13 @@ async def test_ai_report_does_not_mark_provenance_when_anchor_is_unavailable(tea
             return_value=False,
         ),
     ):
-        await generate_ai_subscription_report(
+        result = await generate_ai_subscription_report(
             GenerateAIReportInputs(subscription_id=subscription.id, delivery_id=uuid.uuid4())
         )
 
-    assert persist_ai_report.call_args.args[3] is None
+    assert result.skipped is True
+    build_report.assert_not_awaited()
+    persist_ai_report.assert_not_awaited()
 
 
 # v1 only exists as a Temporal history-compat shim for pre-patch workflows. Both
