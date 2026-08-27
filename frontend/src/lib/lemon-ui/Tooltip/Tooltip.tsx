@@ -108,7 +108,7 @@ export function Tooltip({
     const [shouldRenderPortal, setShouldRenderPortal] = useState(false)
     const floatingContainer = useFloatingContainer()
     const { currentLocation } = useValues(router)
-    const triggerRef = useRef<HTMLElement>(null)
+    const triggerRef = useRef<HTMLButtonElement>(null)
     const lastPathname = useRef(currentLocation.pathname)
 
     const open = controlledOpen ?? uncontrolledOpen
