@@ -1164,19 +1164,35 @@ async def _process_signal_batch(
         # Searching with the signal embedding finds that duplicate directly.
         signal_search_results: list[Optional[RunSignalSemanticSearchOutput]] = [None] * len(batch)
         if workflow.patched("signals-search-with-signal-embedding-2026-08"):
-            signal_search_results = list(
-                await asyncio.gather(
-                    *[
-                        workflow.execute_activity(
-                            run_signal_semantic_search_activity,
-                            RunSignalSemanticSearchInput(team_id=team_id, embedding=se.embedding, limit=10),
-                            start_to_close_timeout=timedelta(minutes=5),
-                            retry_policy=RetryPolicy(maximum_attempts=3),
-                        )
-                        for se in signal_embeddings
-                    ]
-                )
+            # This search only augments the generated-query candidates, so one signal's
+            # search failing must not abort the whole batch. Tolerate per-signal failures
+            # and fall back to None (generated-query candidates only) for those signals.
+            signal_search_outcomes = await asyncio.gather(
+                *[
+                    workflow.execute_activity(
+                        run_signal_semantic_search_activity,
+                        RunSignalSemanticSearchInput(team_id=team_id, embedding=se.embedding, limit=10),
+                        start_to_close_timeout=timedelta(minutes=5),
+                        retry_policy=RetryPolicy(maximum_attempts=3),
+                    )
+                    for se in signal_embeddings
+                ],
+                return_exceptions=True,
             )
+            for i, outcome in enumerate(signal_search_outcomes):
+                if isinstance(outcome, RunSignalSemanticSearchOutput):
+                    signal_search_results[i] = outcome
+                elif isinstance(outcome, Exception):
+                    logger.warning(
+                        "Signal-embedding search failed; continuing with generated-query candidates only",
+                        team_id=team_id,
+                        signal_index=i,
+                        error=str(outcome),
+                    )
+                else:
+                    # Not an Exception (e.g. asyncio.CancelledError) — propagate so
+                    # workflow cancellation is not swallowed.
+                    raise outcome
 
         # Regroup flat results back to per-signal
         # Each query becomes an embedding vector for lookup
