@@ -1,0 +1,147 @@
+import unittest
+
+from parameterized import parameterized
+
+from products.tasks.backend.temporal.slack_relay.activities import _markdown_to_slack_mrkdwn
+from products.tasks.backend.temporal.slack_relay.object_tags import rewrite_object_tags_for_slack
+
+PROJECT = "https://us.posthog.com/project/2"
+UUID = "0190f8a1-7c3e-7b2a-9d4f-2a1b3c4d5e6f"
+
+
+def rewrite(text: str) -> str:
+    return rewrite_object_tags_for_slack(text, project_url=PROJECT)
+
+
+class TestRewriteObjectTagsForSlack(unittest.TestCase):
+    @parameterized.expand(
+        [
+            ("insight", "9pQx3", "/insights/9pQx3"),
+            ("dashboard", "123", "/dashboard/123"),
+            ("error", UUID, f"/error_tracking/{UUID}"),
+            ("replay", "0190f8a1-sess", "/replay/0190f8a1-sess"),
+            ("flag", "42", "/feature_flags/42"),
+            ("experiment", "7", "/experiments/7"),
+            ("survey", UUID, f"/surveys/{UUID}"),
+            ("ticket", UUID, f"/support/tickets/{UUID}"),
+            ("trace", UUID, f"/ai-observability/traces/{UUID}"),
+            ("eval", "5", "/ai-evals/evaluations/5"),
+            ("event", UUID, f"/data-management/events/{UUID}"),
+            ("cohort", "9", "/cohorts/9"),
+            ("action", "11", "/data-management/actions/11"),
+            ("person", UUID, f"/persons/{UUID}"),
+            ("person", "a b", "/persons/a%20b"),
+            ("session-replay", "sess", "/replay/sess"),
+            ("recording", "sess", "/replay/sess"),
+            ("feature-flag", "42", "/feature_flags/42"),
+            ("feature_flag", "42", "/feature_flags/42"),
+            ("sql", "SELECT 1", "/sql?open_query=SELECT%201"),
+        ]
+    )
+    def test_every_kind_and_alias_links_to_its_page(self, tag: str, object_id: str, path: str) -> None:
+        if tag == "sql":
+            text = f'<sql label="label">{object_id}</sql>'
+        else:
+            text = f'<{tag} id="{object_id}">label</{tag}>'
+        separator = "&" if "?" in path else "?"
+        assert rewrite(text) == f"[label]({PROJECT}{path}{separator}unfurl=false)"
+
+    @parameterized.expand(
+        [
+            ("flag_cited_by_key", '<flag id="new-checkout-flow">new-checkout-flow</flag>', "new-checkout-flow"),
+            ("event_cited_by_name", '<event id="$pageview">pageview</event>', "pageview"),
+            ("unknown_kind_with_id", '<inbox id="019f">Split generated PRs</inbox>', "Split generated PRs"),
+        ]
+    )
+    def test_reference_without_a_page_keeps_only_its_label(self, _name: str, text: str, expected: str) -> None:
+        assert rewrite(f"before {text} after") == f"before {expected} after"
+
+    @parameterized.expand(
+        [
+            (
+                "self_closing_inline_uses_kind_and_id_as_label",
+                'Rolled out <flag id="42"/> yesterday.',
+                f"Rolled out [Feature flag 42]({PROJECT}/feature_flags/42?unfurl=false) yesterday.",
+            ),
+            (
+                "block_insight_keeps_unfurl_on",
+                '<insight id="THgiHKou" display="block"/>',
+                f"[Insight THgiHKou]({PROJECT}/insights/THgiHKou)",
+            ),
+            (
+                "block_replay_links_into_player",
+                '<replay id="sess-1" display="block"/>',
+                f"[Session replay sess-1]({PROJECT}/replay/sess-1)",
+            ),
+            (
+                "inline_hogql_links_to_sql_editor",
+                'See <hogql label="signups today">SELECT count() FROM events</hogql>.',
+                f"See [signups today]({PROJECT}/sql?open_query=SELECT%20count%28%29%20FROM%20events&unfurl=false).",
+            ),
+            (
+                "label_characters_that_break_slack_links_are_dropped",
+                '<insight id="1">a | b <c> [d]</insight>',
+                f"[a b c d]({PROJECT}/insights/1?unfurl=false)",
+            ),
+            (
+                "xml_entities_in_attributes_are_unescaped",
+                '<hogql label="a &amp; b">SELECT 1</hogql>',
+                f"[a & b]({PROJECT}/sql?open_query=SELECT%201&unfurl=false)",
+            ),
+        ]
+    )
+    def test_rewrites(self, _name: str, text: str, expected: str) -> None:
+        assert rewrite(text) == expected
+
+    @parameterized.expand(
+        [
+            ("unknown_self_closing_tag", "line one<br/>line two"),
+            ("unterminated_tag", 'The <insight id="9pQx3">checkout funnel dropped.'),
+            ("tag_missing_id", "<insight>checkout funnel</insight>"),
+            ("tag_inside_inline_code", 'Write `<insight id="1">x</insight>` to cite.'),
+            ("tag_inside_fenced_code", '```xml\n<insight id="1">x</insight>\n```'),
+            ("text_without_tags", "plain **bold** text"),
+        ]
+    )
+    def test_leaves_text_alone(self, _name: str, text: str) -> None:
+        assert rewrite(text) == text
+
+    def test_block_hogql_becomes_titled_fenced_sql_in_its_own_paragraph(self) -> None:
+        text = (
+            "Here is the split:\n"
+            '<hogql display="block" title="Unassigned %" caption="Ready-only strips the mix shift">'
+            "SELECT day,\n       count() AS n\nFROM reports\nGROUP BY day</hogql>\n"
+            "Aug 26 is still partial."
+        )
+        assert rewrite(text) == (
+            "Here is the split:\n\n"
+            f"**[Unassigned %]({PROJECT}/sql?open_query=SELECT%20day%2C%0A%20%20%20%20%20%20%20count%28%29%20AS%20n%0AFROM%20reports%0AGROUP%20BY%20day&unfurl=false)**\n"
+            "```\n"
+            "SELECT day,\n       count() AS n\nFROM reports\nGROUP BY day\n"
+            "```\n"
+            "_Ready-only strips the mix shift_\n\n"
+            "Aug 26 is still partial."
+        )
+
+    def test_block_hogql_with_oversized_sql_keeps_the_sql_but_drops_the_link(self) -> None:
+        sql = "SELECT " + ", ".join(f"col_{i}" for i in range(400))
+        rendered = rewrite(f'<hogql display="block" title="Wide">{sql}</hogql>')
+        assert rendered == f"**Wide**\n```\n{sql}\n```"
+
+    def test_many_tags_in_one_message_all_rewrite(self) -> None:
+        text = " ".join(f'<insight id="i{i}">insight {i}</insight>' for i in range(30))
+        rendered = rewrite(text)
+        assert "<insight" not in rendered
+        assert rendered.count("](") == 30
+
+    def test_rewritten_output_survives_mrkdwn_conversion(self) -> None:
+        text = (
+            'Two tiles: <insight id="F6tNdPRe">ready-only</insight> and <insight id="jjF0PSO2" display="block"/>\n\n'
+            '<hogql display="block" title="DAU">SELECT 1</hogql>'
+        )
+        converted = _markdown_to_slack_mrkdwn(rewrite(text))
+        assert f"<{PROJECT}/insights/F6tNdPRe?unfurl=false|ready-only>" in converted
+        assert f"<{PROJECT}/insights/jjF0PSO2|Insight jjF0PSO2>" in converted
+        assert f"*<{PROJECT}/sql?open_query=SELECT%201&unfurl=false|DAU>*" in converted
+        assert "```\nSELECT 1\n```" in converted
+        assert "<hogql" not in converted
