@@ -215,6 +215,10 @@ class Command(BaseCommand):
             purge_buffer_prefix(source.team_id, str(schema.id), logger)
         self._verify_prefixes_empty(source.team_id, eligible)
 
+        # The step-3 wait sees job rows only; a workflow fired just before the pause may not have
+        # created its row yet. By now it has, so one more wait closes the straddle window.
+        self._wait_for_running_sync_jobs(source.team_id, [str(s.id) for s in eligible], drain_timeout)
+
         self.stdout.write("6/7 setting cdc_ingest_mode=buffered")
         source.job_inputs = {**(source.job_inputs or {}), "cdc_ingest_mode": "buffered"}
         source.save(update_fields=["job_inputs"])
@@ -398,17 +402,25 @@ class Command(BaseCommand):
 
         deadline = time.monotonic() + timeout
         while True:
-            running = ExternalDataJob.objects.filter(
-                team_id=team_id, schema_id__in=schema_ids, status=ExternalDataJob.Status.RUNNING
-            ).count()
-            if running == 0:
+            running = list(
+                ExternalDataJob.objects.filter(
+                    team_id=team_id, schema_id__in=schema_ids, status=ExternalDataJob.Status.RUNNING
+                ).values_list("id", "created_at")
+            )
+            if not running:
                 return
             if time.monotonic() >= deadline:
-                raise CommandError(
-                    f"{running} sync job(s) still running after {timeout}s. Schedules are left "
-                    "paused and the mode unchanged — wait for them to finish, then re-run."
+                now = dt.datetime.now(dt.UTC)
+                # Ages let the operator tell a live sync from a stale stuck-RUNNING row, which
+                # never finishes on its own and needs unsticking before the flip can proceed.
+                detail = ", ".join(
+                    f"{job_id} ({(now - created_at).total_seconds():.0f}s old)" for job_id, created_at in running
                 )
-            self.stdout.write(f"    waiting, {running} sync job(s) running")
+                raise CommandError(
+                    f"{len(running)} sync job(s) still running after {timeout}s: {detail}. Schedules "
+                    "are left paused and the mode unchanged — wait for them to finish, then re-run."
+                )
+            self.stdout.write(f"    waiting, {len(running)} sync job(s) running")
             time.sleep(DRAIN_POLL_SECONDS)
 
     def _set_schema_schedules(self, schemas: list[ExternalDataSchema], *, paused: bool) -> None:

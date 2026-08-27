@@ -52,6 +52,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
 from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     get_data_import_finished_metric,
     get_v3_lock_skipped_metric,
+    get_version_check_skipped_metric,
 )
 from products.warehouse_sources.backend.temporal.data_imports.post_import_job import (
     PostImportWorkflow,
@@ -526,6 +527,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     "Failed to check pipeline version, skipping run",
                     extra={"schema_id": str(inputs.external_data_schema_id)},
                 )
+                get_version_check_skipped_metric().add(1)
                 return
             workflow.logger.warning(
                 "Failed to check pipeline version, defaulting to V2",
