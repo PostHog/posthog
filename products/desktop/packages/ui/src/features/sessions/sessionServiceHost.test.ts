@@ -431,6 +431,7 @@ vi.mock("@posthog/core/sessions/sessionEvents", async () => {
     ),
     promptReferencesAbsoluteFolder: actual.promptReferencesAbsoluteFolder,
     selectEchoedOptimisticItemIds: actual.selectEchoedOptimisticItemIds,
+    selectUnseededPendingFollowups: actual.selectUnseededPendingFollowups,
     shellExecutesToContextBlocks: vi.fn(() => []),
   };
 });
