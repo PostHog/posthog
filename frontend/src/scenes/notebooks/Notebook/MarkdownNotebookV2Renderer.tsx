@@ -688,7 +688,7 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
             <NotebookComponentRunStatusContext.Provider value={resolveComponentRunStatus}>
                 <MarkdownNotebook
                     value={markdownEditorValue}
-                    aiPromptAuthorName={user?.first_name || user?.email || 'You'}
+                    aiPromptAuthorName={user?.first_name || 'You'}
                     remoteValue={remoteMarkdown}
                     remoteVersion={notebook?.version}
                     mode={isEditable ? 'edit' : 'view'}
