@@ -2,8 +2,6 @@ import os
 import re
 import json
 import uuid
-import string
-import secrets
 from collections.abc import Callable, Iterable
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal, Optional
@@ -22,7 +20,7 @@ from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex, OpClass
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError, connection, models, transaction
+from django.db import connection, models, transaction
 from django.db.models.fields.json import KeyTransform
 from django.utils import timezone as django_timezone
 
@@ -42,10 +40,11 @@ from posthog.storage import object_storage
 from posthog.temporal.oauth import PosthogMcpScopes
 from posthog.uuidt import uuid7
 
-from products.tasks.backend.constants import DEFAULT_TRUSTED_DOMAINS
+from products.tasks.backend.constants import DEFAULT_TRUSTED_DOMAINS, PR_LOOP_ENABLED_STATE_KEY
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.logic.stream.redis_stream import publish_task_run_stream_event
 from products.tasks.backend.metrics import observe_task_run_created, observe_task_run_dispatch_callback
+from products.tasks.backend.pr_urls import read_pr_urls
 from products.tasks.backend.redis import evaluate_dedicated_stream_flag, run_uses_dedicated_stream
 from products.tasks.backend.storage import append_jsonl_object
 
@@ -97,6 +96,10 @@ def stamp_pending_user_message_id(state: dict[str, Any], *, refresh: bool = Fals
 
 
 class TaskOwnershipChangedError(RuntimeError):
+    pass
+
+
+class InvalidTaskOriginError(ValueError):
     pass
 
 
@@ -504,6 +507,8 @@ class Task(DeletedMetaFields, models.Model):
                 "repository": self.repository,
                 "repositories": self.repositories or ([self.repository] if self.repository else []),
             }
+            if self.origin_key:
+                all_properties["origin_key"] = self.origin_key
             if properties:
                 all_properties.update(properties)
             (capture_fn or posthoganalytics.capture)(
@@ -577,6 +582,15 @@ class Task(DeletedMetaFields, models.Model):
             )
             if task.created_by_id != expected_created_by_id or task.ownership_version != expected_ownership_version:
                 raise TaskOwnershipChangedError("Task ownership changed before the run was created")
+
+            effective_environment = environment or TaskRun.Environment.CLOUD
+            if (
+                effective_environment == TaskRun.Environment.CLOUD
+                and task.origin_product not in Task.OriginProduct.values
+            ):
+                raise InvalidTaskOriginError(
+                    "This task uses an unsupported origin. Start it locally or create a new task to run it in the cloud."
+                )
 
             state: dict = {} if task.runtime == Task.Runtime.PI else {"mode": mode}
             if extra_state:
@@ -2092,6 +2106,11 @@ class TaskRun(models.Model):
         state.pop("sandbox_id", None)
         state.pop("sandbox_url", None)
         state.pop("sandbox_jwt_kid", None)
+        state.pop("sandbox_connect_token", None)
+        # Drop the provider stamp too: the handed-off run re-resolves its backend from
+        # scratch, so a stale `hogland` must not survive to outrank the EU guard, the
+        # Modal-only fallbacks, or the flag kill switch on the next context resolution.
+        state.pop("sandbox_backend", None)
         self.state = state
 
         logger.info(
@@ -2193,7 +2212,7 @@ class TaskRun(models.Model):
             if state.get("sandbox_id") != sandbox_id:
                 return
 
-            for key in ("sandbox_id", "sandbox_url", "sandbox_connect_token", "sandbox_jwt_kid"):
+            for key in ("sandbox_id", "sandbox_url", "sandbox_connect_token", "sandbox_jwt_kid", "sandbox_backend"):
                 state.pop(key, None)
 
         return cls.mutate_state_atomic(run_id, _mutator)
@@ -2692,6 +2711,20 @@ class TaskRun(models.Model):
         self.append_log([event])
         self.publish_stream_event(event)
 
+    def ci_progress_step_announced(self) -> bool:
+        """Whether this run has a "Keeping CI green" step waiting to be closed."""
+        state = self.state if isinstance(self.state, dict) else {}
+        return bool(state.get(PR_LOOP_ENABLED_STATE_KEY)) and bool(read_pr_urls(self.output))
+
+    def close_ci_progress_step(self) -> None:
+        """Complete the "Keeping CI green" step so a finished run shows no spinning CI row."""
+        if not self.ci_progress_step_announced():
+            return
+        try:
+            self.emit_progress_event("ci", "completed", "Keeping CI green", "setup")
+        except Exception:
+            logger.warning("task_run.ci_progress_close_failed", run_id=str(self.id), exc_info=True)
+
     def build_progress_event(
         self,
         step: str,
@@ -3000,6 +3033,12 @@ class SandboxSession(TeamScopedRootMixin, UUIDModel):
     vm_runtime = models.BooleanField(
         default=False, help_text="Modal VM runtime rather than gVisor (billed differently)"
     )
+    sandbox_backend = models.CharField(
+        max_length=32,
+        null=True,
+        blank=True,
+        help_text="Provider backend (e.g. hogland); NULL for Modal. Hogland's TTL is idle, not absolute",
+    )
 
     # Resource shape at creation, already clamped by SandboxConfig. Limits are what the
     # sandbox may consume — raw usage metrics derive from these; the burstable request
@@ -3160,6 +3199,9 @@ class SandboxSnapshot(UUIDModel):
 
             if os.environ.get("MODAL_TOKEN_ID") and os.environ.get("MODAL_TOKEN_SECRET") and not settings.TEST:
                 try:
+                    # Modal-only: hogland runs never create SandboxSnapshot rows today. When
+                    # hogland resume snapshots land, this needs a backend branch keyed on the
+                    # snapshot's provider rather than the MODAL_TOKEN_* env gate above.
                     Sandbox.delete_snapshot(self.external_id)
                 except Exception as e:
                     raise Exception(
@@ -3400,79 +3442,6 @@ class SandboxCustomImage(TeamScopedRootMixin):
     def modal_publish_name(self) -> str:
         # One stable tag per image — Modal has no image-deletion API, so per-version tags would accumulate.
         return f"posthog-sandbox-custom-{self.team_id}-{self.id.hex}:latest"
-
-
-class CodeInviteQuerySet(models.QuerySet["CodeInvite"]):
-    def unexpired(self, at: datetime | None = None) -> "CodeInviteQuerySet":
-        at = at or django_timezone.now()
-        return self.filter(models.Q(expires_at__isnull=True) | models.Q(expires_at__gt=at))
-
-    def expire(self, at: datetime | None = None) -> int:
-        at = at or django_timezone.now()
-        return self.unexpired(at).update(expires_at=at)
-
-
-class CodeInvite(UUIDModel):
-    """Invite codes for PostHog Desktop access."""
-
-    objects = CodeInviteQuerySet.as_manager()
-
-    code = models.CharField(max_length=50, unique=True, db_index=True, blank=True)
-    max_redemptions = models.PositiveIntegerField(default=1, help_text="Maximum number of redemptions. 0 = unlimited.")
-    redemption_count = models.PositiveIntegerField(default=0)
-    is_active = models.BooleanField(default=True)
-    expires_at = models.DateTimeField(null=True, blank=True, help_text="Optional expiration date.")
-    description = models.TextField(blank=True, help_text="Internal admin note.")
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="created_code_invites"
-    )
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        db_table = "posthog_code_invite"
-
-    def __str__(self):
-        return self.code
-
-    def save(self, *args, **kwargs):
-        if not self.code:
-            alphabet = string.ascii_uppercase + string.digits
-            for attempt in range(10):
-                self.code = "".join(secrets.choice(alphabet) for _ in range(8))
-                try:
-                    with transaction.atomic():
-                        return super().save(*args, **kwargs)
-                except IntegrityError:
-                    if attempt == 9:
-                        raise
-            return
-        super().save(*args, **kwargs)
-
-    @property
-    def is_redeemable(self) -> bool:
-        if not self.is_active:
-            return False
-        if self.expires_at and self.expires_at <= django_timezone.now():
-            return False
-        if self.max_redemptions > 0 and self.redemption_count >= self.max_redemptions:
-            return False
-        return True
-
-
-class CodeInviteRedemption(UUIDModel):
-    """Tracks each redemption of a PostHog Desktop invite."""
-
-    invite_code = models.ForeignKey(CodeInvite, on_delete=models.CASCADE, related_name="redemptions")
-    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE)
-    organization = models.ForeignKey("posthog.Organization", on_delete=models.SET_NULL, null=True, blank=True)
-    redeemed_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        db_table = "posthog_code_invite_redemption"
-        unique_together = [("invite_code", "user")]
-
-    def __str__(self):
-        return f"{self.user} redeemed {self.invite_code}"
 
 
 class DesktopBetaTermsAcceptance(models.Model):

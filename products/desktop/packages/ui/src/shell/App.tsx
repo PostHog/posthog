@@ -8,7 +8,6 @@ import { DesktopAccessScreen } from "@posthog/ui/features/auth/components/Deskto
 import { ScopeReauthPrompt } from "@posthog/ui/features/auth/components/ScopeReauthPrompt";
 import {
   useLogoutMutation,
-  useRedeemInviteCodeMutation,
   useRetryDesktopAccessMutation,
   useSelectProjectMutation,
   useSwitchOrgMutation,
@@ -39,6 +38,7 @@ import {
   rememberStartupLocation,
   resolveStartupLocation,
 } from "@posthog/ui/shell/startupLocation";
+import { useAppLoadingGateTelemetry } from "@posthog/ui/shell/useAppLoadingGateTelemetry";
 import { useAppVisibilityWatchdog } from "@posthog/ui/shell/useAppVisibilityWatchdog";
 import { RouterProvider } from "@tanstack/react-router";
 import { AnimatePresence, motion } from "framer-motion";
@@ -62,7 +62,6 @@ function App({ devToolbar }: AppProps) {
   const selectProjectMutation = useSelectProjectMutation();
   const switchOrgMutation = useSwitchOrgMutation();
   const retryDesktopAccessMutation = useRetryDesktopAccessMutation();
-  const redeemInviteCodeMutation = useRedeemInviteCodeMutation();
   const logoutMutation = useLogoutMutation();
   const desktopAccessIsCurrent =
     desktopAccess.projectId === authState.currentProjectId;
@@ -182,6 +181,16 @@ function App({ devToolbar }: AppProps) {
   // Mirrors the "main" branch of renderContent() below; keep the two in sync.
   const showingMainApp = readyForMainApp && initialRouteLoaded;
   useAppVisibilityWatchdog(mainRef, showingMainApp);
+  useAppLoadingGateTelemetry(showingMainApp, {
+    isBootstrapped,
+    isCheckingAccess,
+    readyForMainApp,
+    initialRouteLoaded,
+    authStatus: authState.status,
+    desktopAccessStatus: desktopAccess.status,
+    desktopAccessIsCurrent,
+    consentStatus: consent.status,
+  });
 
   // Single gate for every state where the whole app is still loading.
   if (
@@ -231,18 +240,13 @@ function App({ devToolbar }: AppProps) {
               selectProjectMutation.isPending || switchOrgMutation.isPending
             }
             isRetrying={retryDesktopAccessMutation.isPending}
-            isRedeemingInviteCode={redeemInviteCodeMutation.isPending}
             isLoggingOut={logoutMutation.isPending}
             switchError={switchError}
-            redemptionError={redeemInviteCodeMutation.error?.message ?? null}
             onSelectOrganization={(organizationId) =>
               switchOrgMutation.mutate(organizationId)
             }
             onSelectProject={(projectId) =>
               selectProjectMutation.mutate(projectId)
-            }
-            onRedeemInviteCode={(inviteCode) =>
-              redeemInviteCodeMutation.mutate(inviteCode)
             }
             onRetry={() => retryDesktopAccessMutation.mutate()}
             onLogout={() => logoutMutation.mutate()}

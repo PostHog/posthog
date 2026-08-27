@@ -6,6 +6,8 @@ import { urls } from 'scenes/urls'
 import { tagsModel } from '~/models/tagsModel'
 import { Breadcrumb } from '~/types'
 
+import { VISION_ROOT_BREADCRUMB, scannerBreadcrumb } from '../utils/breadcrumbs'
+
 export type ScannerEditorStep = 'template' | 'details' | 'configure' | 'triggers' | 'budget'
 export const SCANNER_EDITOR_STEPS: readonly ScannerEditorStep[] = [
     'template',
@@ -159,14 +161,7 @@ export const scannerEditorSceneLogic = kea<scannerEditorSceneLogicType>([
                 step: ScannerEditorStep,
                 searchParams: Record<string, any>
             ): Breadcrumb[] => {
-                const crumbs: Breadcrumb[] = [
-                    {
-                        key: 'replay-vision',
-                        name: 'Replay vision',
-                        path: urls.replayVision(),
-                        iconType: 'replay_vision',
-                    },
-                ]
+                const crumbs: Breadcrumb[] = [VISION_ROOT_BREADCRUMB]
                 if (isNew) {
                     // The back arrow targets the second-to-last crumb, so past the template step the
                     // 'New scanner' crumb points at the template picker and the current step trails it.
@@ -182,18 +177,11 @@ export const scannerEditorSceneLogic = kea<scannerEditorSceneLogicType>([
                 }
                 // Editing an existing scanner: surface the detail page (on its Configuration tab, where the
                 // Edit button lives) as an intermediate crumb so the back arrow returns there, not to the list.
-                crumbs.push(
-                    {
-                        key: `scanner-${scannerId}`,
-                        name: 'Scanner',
-                        path: `${urls.replayVision(scannerId)}?tab=configuration`,
-                    },
-                    {
-                        key: `scanner-${scannerId}-edit`,
-                        name: 'Edit',
-                        path: urls.replayVisionScannerConfigure(scannerId),
-                    }
-                )
+                crumbs.push(scannerBreadcrumb(scannerId, null, 'configuration'), {
+                    key: `scanner-${scannerId}-edit`,
+                    name: 'Edit',
+                    path: urls.replayVisionScannerConfigure(scannerId),
+                })
                 return crumbs
             },
         ],

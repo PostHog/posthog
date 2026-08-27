@@ -87,4 +87,6 @@ export interface PropertyFilterInternalProps {
     propertyKeyEditable?: boolean
     /** Keep key, operator, and value controls on one row when the host has enough width. */
     singleLine?: boolean
+    /** Frame each row's controls like a filter group, so a multi-line condition reads as one unit. */
+    framedRows?: boolean
 }

@@ -141,6 +141,7 @@ export enum NodeKind {
     WebStatsTableQuery = 'WebStatsTableQuery',
     WebExternalClicksTableQuery = 'WebExternalClicksTableQuery',
     WebBotsTableQuery = 'WebBotsTableQuery',
+    WebAgentAnalyticsQuery = 'WebAgentAnalyticsQuery',
     WebGoalsQuery = 'WebGoalsQuery',
     WebVitalsQuery = 'WebVitalsQuery',
     WebVitalsPathBreakdownQuery = 'WebVitalsPathBreakdownQuery',
@@ -241,6 +242,7 @@ export type AnyDataNode =
     | WebStatsTableQuery
     | WebExternalClicksTableQuery
     | WebBotsTableQuery
+    | WebAgentAnalyticsQuery
     | WebGoalsQuery
     | WebVitalsQuery
     | WebVitalsPathBreakdownQuery
@@ -332,6 +334,7 @@ export type QuerySchema =
     | WebStatsTableQuery
     | WebExternalClicksTableQuery
     | WebBotsTableQuery
+    | WebAgentAnalyticsQuery
     | WebGoalsQuery
     | WebVitalsQuery
     | WebVitalsPathBreakdownQuery
@@ -760,10 +763,54 @@ export enum QueryIndexUsage {
     Yes = 'yes',
 }
 
+export enum PredicateIndexVerdict {
+    /** A skip index on the source column prunes granules for this predicate. */
+    Indexed = 'indexed',
+    /** The source carries an index this operator could use, but a type mismatch defeats it. */
+    Blocked = 'blocked',
+    /** The property reads from a dedicated column, but no index prunes this operator. */
+    UnindexedColumn = 'unindexed_column',
+    /** The property is parsed out of the JSON blob on every row. */
+    UnindexedJson = 'unindexed_json',
+    /** Negations, regexes and case-sensitive LIKE cannot be pruned by any skip index. */
+    OperatorNotIndexable = 'operator_not_indexable',
+}
+
+export enum PredicateScope {
+    Event = 'event',
+    Person = 'person',
+    Group = 'group',
+    Unknown = 'unknown',
+}
+
+/** How one property filter in the query reads its data, decided before the query runs. */
+export interface PredicateIndexUsage {
+    property_name: string
+    scope: PredicateScope
+    /** HogQL comparison operator, e.g. `==`, `in`, `ilike`. */
+    operator: string
+    /** Where the value is physically read from, e.g. `materialized column` or `JSON blob`. */
+    source_label: string
+    column_name?: string
+    /** Type the property definition declares. */
+    semantic_type: string
+    /** Type the value is physically stored as. */
+    physical_type: string
+    /** Skip indexes this predicate can actually use. */
+    usable_indexes: string[]
+    verdict: PredicateIndexVerdict
+    message: string
+    fix?: string
+    start?: integer
+    end?: integer
+}
+
 export interface HogQLMetadataResponse {
     query?: string
     isValid?: boolean
     isUsingIndices?: QueryIndexUsage
+    /** One entry per property filter, in query order. */
+    index_usage?: PredicateIndexUsage[]
     errors: HogQLNotice[]
     warnings: HogQLNotice[]
     notices: HogQLNotice[]
@@ -871,6 +918,8 @@ export interface HogQLMetadata extends DataNode<HogQLMetadataResponse> {
     variables?: Record<string, HogQLVariable>
     /** Enable more verbose output, usually run from the /debug page */
     debug?: boolean
+    /** Analyze how each property filter reads its data. Costs a second type-resolution pass, so only editors that render the result should ask for it. */
+    indexUsage?: boolean
 }
 
 export interface HogQLAutocomplete extends DataNode<HogQLAutocompleteResponse> {
@@ -1304,6 +1353,18 @@ export interface ScatterChartSettings {
     showBestFit?: boolean
 }
 
+export interface BoxPlotSettings {
+    xAxisColumn?: string | null
+    seriesColumn?: string | null
+    minColumn?: string
+    p25Column?: string
+    medianColumn?: string
+    meanColumn?: string
+    p75Column?: string
+    maxColumn?: string
+    excludeOutliers?: boolean
+}
+
 export interface YAxisSettings {
     label?: string
     scale?: 'linear' | 'logarithmic'
@@ -1338,6 +1399,7 @@ export interface ChartSettings {
     heatmap?: HeatmapSettings
     pie?: PieChartSettings
     scatter?: ScatterChartSettings
+    boxPlot?: BoxPlotSettings
     /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
     resultCustomizations?: Record<string, ResultCustomizationByValue>
     /** Chart rendering style overrides (line shape). Only applies to line and area charts. */
@@ -3042,6 +3104,8 @@ export interface AccountsTableRow {
     id: string
     name: string
     externalId?: string | null
+    /** Bare hostname the row's logo is rendered from. Null when no source resolved one. */
+    logoDomain?: string | null
     /** Requested direct Account fields, keyed by their typed field reference. */
     accountFields: Record<string, string | null>
     /** Sorted tag names. Omitted when the request does not select tags. */
@@ -3710,6 +3774,48 @@ export interface WebBotsTableQueryResponse extends AnalyticsQueryResponseBase {
     offset?: integer
 }
 export type CachedWebBotsTableQueryResponse = CachedQueryResponse<WebBotsTableQueryResponse>
+
+export enum WebAgentAnalyticsQueryType {
+    Overview = 'overview',
+    Issues = 'issues',
+    PageRequests = 'page_requests',
+    Transitions = 'transitions',
+    Demand = 'demand',
+    IssueVariants = 'issue_variants',
+    RequestAnatomy = 'request_anatomy',
+    JourneySummary = 'journey_summary',
+    Journeys = 'journeys',
+    JourneyDetail = 'journey_detail',
+}
+
+export enum WebAgentContentGrouping {
+    Exact = 'exact',
+    Normalized = 'normalized',
+}
+
+/** Agent traffic summaries and readiness diagnostics derived from web request events. */
+export interface WebAgentAnalyticsQuery extends WebAnalyticsQueryBase<WebAgentAnalyticsQueryResponse> {
+    kind: NodeKind.WebAgentAnalyticsQuery
+    queryType: WebAgentAnalyticsQueryType
+    includeCrawlers?: boolean
+    contentGrouping?: WebAgentContentGrouping
+    llmsTxtUrl?: string
+    limit?: integer
+    offset?: integer
+    intentKey?: string
+    /** Opaque journey identifier returned by the journeys list, used to load one journey's timeline. */
+    journeyKey?: string
+}
+export interface WebAgentAnalyticsQueryResponse extends AnalyticsQueryResponseBase {
+    results: unknown[]
+    types?: unknown[]
+    columns?: unknown[]
+    hogql?: string
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+}
+export type CachedWebAgentAnalyticsQueryResponse = CachedQueryResponse<WebAgentAnalyticsQueryResponse>
 
 export interface WebGoalsQuery extends WebAnalyticsQueryBase<WebGoalsQueryResponse> {
     kind: NodeKind.WebGoalsQuery
@@ -7979,6 +8085,7 @@ export const externalDataSources = [
     'Ebay',
     'Commercetools',
     'LightspeedRetail',
+    'Shipmail',
     'ShipStation',
     'ConstantContact',
     'Mailgun',
@@ -9060,6 +9167,7 @@ export const externalDataSources = [
     'SideShift',
     'DuckLake',
     'Starburst',
+    'Trino',
     'Easybill',
     'Bexio',
     'Umami',
@@ -9115,6 +9223,13 @@ export const externalDataSources = [
     'DatoCMS',
     'WPSOffice',
     'TeraBox',
+    'SimonData',
+    'CommissionJunction',
+    'Liveblocks',
+    'NationBuilder',
+    'Tana',
+    'Zenchef',
+    'Lovable',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

@@ -75,6 +75,12 @@ jobs:
             # ./.github/actions/paths-filter steps, which must exist on disk (on
             # pull_request events they still diff via the API, not the checkout).
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      .github/actions/paths-filter
+                      bin/frontend-exclude-filter
+                      pnpm-workspace.yaml
+                  sparse-checkout-cone-mode: false
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
@@ -792,21 +798,26 @@ jobs:
               # Pass the same --purpose vr-setup created the run with. The backend reports zero
               # unresolved on an observe run however many snapshots drifted, so without the flag
               # the CLI cannot tell a clean tracking run from a drifting one and reports neither.
-              # With it, drift becomes a warning annotation naming the identifiers and the command
-              # still exits 0, so the run stays non-gating without the finding being dropped.
-              # That signal matters because an identifier drifting on master without being approved
-              # or quarantined reds the next PR that renders it.
               #
-              # No exit-code branching: an observe run cannot exit 1, so every non-zero exit here
-              # is a real failure (exit 1 unresolved on a review run, exit 2 CLI error) and reds CI.
+              # An observe run fails on drift. The merge-queue leg renders the merged tree that is
+              # about to land, and it is the only leg that renders every story, so drift there is
+              # the merge itself moving pictures that no reviewer approved. Quarantine an
+              # identifier that flips between runs; that excludes it from these counts.
+              #
+              # --tolerate-drift exempts master: no merge is left to stop there, and a red job
+              # would block the repair as well. Exit 2 is a CLI failure and reds CI everywhere.
               env:
                   VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
                   RUN_ID: ${{ needs.vr-setup.outputs.run_id }}
                   VR_OBSERVE: ${{ github.event_name == 'push' || needs.changes.outputs.merge_queue == 'true' }}
+                  VR_TOLERATE_DRIFT: ${{ github.event_name == 'push' }}
               run: |
                   args=(--run-id "$RUN_ID" --baseline frontend/snapshots.yml --token "$VR_TOKEN")
                   if [ "$VR_OBSERVE" = 'true' ]; then
                       args+=(--purpose observe)
+                  fi
+                  if [ "$VR_TOLERATE_DRIFT" = 'true' ]; then
+                      args+=(--tolerate-drift)
                   fi
                   node vr-cli/products/visual_review/cli/dist/cli/src/index.js run complete "${args[@]}"
 
