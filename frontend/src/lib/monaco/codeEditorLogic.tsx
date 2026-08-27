@@ -31,6 +31,22 @@ import { getContextSourceQuery } from './sourceQueryUtils'
 const METADATA_LANGUAGES = [HogLanguage.hog, HogLanguage.hogQL, HogLanguage.hogQLExpr, HogLanguage.hogTemplate]
 const VIM_COMMAND_HISTORY_LIMIT = 50
 
+/**
+ * Translate a backend offset into a Monaco offset.
+ *
+ * Parser offsets count Unicode code points; Monaco counts UTF-16 code units. Any character outside the
+ * BMP, such as an emoji in a string literal, makes the two diverge and lands an edit mid-token.
+ */
+export function codePointOffsetToUtf16(text: string, codePointOffset: number): number {
+    let utf16 = 0
+    let codePoints = 0
+    while (codePoints < codePointOffset && utf16 < text.length) {
+        utf16 += (text.codePointAt(utf16) ?? 0) > 0xffff ? 2 : 1
+        codePoints += 1
+    }
+    return utf16
+}
+
 export interface ModelMarkerFixAction {
     title: string
     /** Ranges are resolved against the editor model, so they already carry the metadata query offset. */
@@ -222,7 +238,9 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                     // The metadata query is one statement of the script, and a query-level fix applies
                     // to all of it, so the caret only has to be somewhere inside these bounds.
                     const scopeStartPosition = model.getPositionAt(markerOffset)
-                    const scopeEndPosition = model.getPositionAt(markerOffset + query.length)
+                    const scopeEndPosition = model.getPositionAt(
+                        markerOffset + codePointOffsetToUtf16(query, query.length)
+                    )
                     const statementScope = {
                         startLineNumber: scopeStartPosition.lineNumber,
                         startColumn: scopeStartPosition.column,
@@ -231,8 +249,12 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                     }
 
                     function noticeToMarker(error: HogQLNotice, severity: MarkerSeverity): ModelMarker {
-                        const start = model!.getPositionAt((error.start ?? 0) + markerOffset)
-                        const end = model!.getPositionAt((error.end ?? query.length) + markerOffset)
+                        const start = model!.getPositionAt(
+                            codePointOffsetToUtf16(query, error.start ?? 0) + markerOffset
+                        )
+                        const end = model!.getPositionAt(
+                            codePointOffsetToUtf16(query, error.end ?? query.length) + markerOffset
+                        )
                         return {
                             start: error.start ?? 0,
                             startLineNumber: start.lineNumber,
@@ -251,8 +273,12 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                                 ? {
                                       title: error.fix_action.title,
                                       edits: error.fix_action.edits.map((edit) => {
-                                          const editStart = model!.getPositionAt(edit.start + markerOffset)
-                                          const editEnd = model!.getPositionAt(edit.end + markerOffset)
+                                          const editStart = model!.getPositionAt(
+                                              codePointOffsetToUtf16(query, edit.start) + markerOffset
+                                          )
+                                          const editEnd = model!.getPositionAt(
+                                              codePointOffsetToUtf16(query, edit.end) + markerOffset
+                                          )
                                           return {
                                               range: {
                                                   startLineNumber: editStart.lineNumber,

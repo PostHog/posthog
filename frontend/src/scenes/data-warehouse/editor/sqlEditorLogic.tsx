@@ -41,6 +41,7 @@ import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { clearLogicReference, initModel } from 'lib/monaco/CodeEditor'
+import { codePointOffsetToUtf16 } from 'lib/monaco/codeEditorLogic'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { findQueryAtCursor, type QueryRange, splitQueries } from 'lib/monaco/multiQueryUtils'
 import { objectsEqual } from 'lib/utils/objects'
@@ -521,7 +522,8 @@ function applyUndoableRangedEdits(
     monaco: Monaco | null | undefined,
     uri: Uri | undefined,
     edits: HogQLFixEdit[],
-    offset: number
+    offset: number,
+    queryText: string
 ): void {
     if (!monaco || !uri || edits.length === 0) {
         return
@@ -535,8 +537,8 @@ function applyUndoableRangedEdits(
         [],
         edits.map((edit) => {
             // Offsets index the metadata query, which is one statement of a multi-statement script.
-            const start = model.getPositionAt(edit.start + offset)
-            const end = model.getPositionAt(edit.end + offset)
+            const start = model.getPositionAt(codePointOffsetToUtf16(queryText, edit.start) + offset)
+            const end = model.getPositionAt(codePointOffsetToUtf16(queryText, edit.end) + offset)
             return {
                 range: {
                     startLineNumber: start.lineNumber,
@@ -1919,7 +1921,13 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 actions._setSuggestionPayload(null)
             },
             applyQueryFix: ({ edits }) => {
-                applyUndoableRangedEdits(props.monaco, values.activeTab?.uri, edits, values.activeQueryOffset)
+                applyUndoableRangedEdits(
+                    props.monaco,
+                    values.activeTab?.uri,
+                    edits,
+                    values.activeQueryOffset,
+                    values.activeQueryText ?? values.queryInput ?? ''
+                )
             },
             onRejectSuggestedQueryInput: () => {
                 values.suggestionPayload?.onReject(actions, values, props)

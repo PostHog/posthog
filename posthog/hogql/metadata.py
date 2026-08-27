@@ -136,7 +136,7 @@ def get_hogql_metadata(
                     )
                     hogql_ast = cast(ast.SelectQuery, replace_placeholders(hogql_ast, query.globals))
 
-            heuristic_warnings.extend(run_metadata_heuristics(hogql_ast))
+            heuristic_warnings.extend(run_metadata_heuristics(hogql_ast, is_posthog_source=source is None))
             hogql_table_names = get_table_names(hogql_ast)
             heuristic_warnings.extend(validate_taxonomy_references(hogql_ast, team, hogql_table_names))
             response.table_names = hogql_table_names

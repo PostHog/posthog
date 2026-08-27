@@ -53867,7 +53867,7 @@
                     "$ref": "#/definitions/integer"
                 },
                 "fix": {
-                    "description": "A predicate that would bound the partition key, ready to paste into the query.",
+                    "description": "Advice naming a predicate that would bound the partition key. Prose, not replacement text.",
                     "type": "string"
                 },
                 "fix_action": {

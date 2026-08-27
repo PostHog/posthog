@@ -23285,7 +23285,7 @@ class UnprunedTableScan(BaseModel):
     end: int | None = None
     fix: str = Field(
         ...,
-        description=("A predicate that would bound the partition key, ready to paste into the query."),
+        description=("Advice naming a predicate that would bound the partition key. Prose, not replacement text."),
     )
     fix_action: HogQLFixAction | None = Field(
         default=None,

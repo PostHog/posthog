@@ -11,6 +11,12 @@ scan only when no bound it recognizes can reach that scan. An enclosing bound an
 both carry down into subqueries, because a wrong warning in the editor costs more than a missed one.
 Recognizing a bound works off an allowlist of order-preserving wrappers, so a monotonic function missing
 from that list warns about a query that does in fact prune.
+
+Matching by name means a bound cannot be attributed to the table it constrains, which under-reports in
+two known shapes. A query joining two events sources and bounding only one counts as bounded for both.
+An outer bound counts for an independent subquery that the outer predicate cannot reach. Both stay
+silent rather than warn. Attributing bounds to tables needs the analysis to run after type resolution,
+which would cost it the cheap pre-resolution property this relies on.
 """
 
 from posthog.hogql import ast
@@ -127,9 +133,9 @@ def _collect_scans(
         shadowed = shadowed | set(node.ctes)
 
     bounded_here = bounded or _query_bounds_timestamp(node)
-    # A row limit only caps the read when the query streams rows. The enclosing limit carries into a
-    # streaming query because ClickHouse stops reading the source once the outer limit is satisfied.
-    capped_here = _streams_rows(node) and (capped or node.limit is not None)
+    # A row limit only caps the read when the scan can stop early. The enclosing limit carries into such
+    # a query because ClickHouse stops reading the source once the outer limit is satisfied.
+    capped_here = _terminates_early(node) and (capped or node.limit is not None)
 
     for cte in (node.ctes or {}).values():
         _collect_scans(cte.expr, bounded=bounded_here, capped=capped_here, shadowed=shadowed, scans=scans)
@@ -302,18 +308,28 @@ def _is_time_constant(expr: ast.Expr) -> bool:
         return False
 
 
-def _streams_rows(query: ast.SelectQuery) -> bool:
-    """True when the query emits matching rows as it finds them, so a row limit caps how much it reads."""
+def _terminates_early(query: ast.SelectQuery) -> bool:
+    """True when a row limit really does cap the read, so an unbounded scan stays cheap.
+
+    Early termination needs every row to qualify. A filter breaks that: to return one row of
+    `WHERE event = 'never_matches' LIMIT 1`, ClickHouse reads every partition to prove no row matches,
+    and the rarer the value the more it reads. An ORDER BY breaks it too, because `timestamp` is not a
+    prefix of either physical sort key: the JSON table orders by
+    `(team_id, toDate(timestamp), event, timestamp, ...)` and the distributed table has no raw timestamp
+    in its key at all, so `event` intervenes and the sort sees full history before the limit applies.
+    """
     if query.distinct or query.group_by or query.having or query.array_join_list:
         return False
-    # A window function or a LIMIT ... BY has to see the whole partition before it emits its first row.
     if query.qualify or query.window_exprs or query.limit_by:
         return False
-    if any(_contains_aggregation(expr) for expr in query.select):
+    if query.where is not None or query.prewhere is not None:
         return False
-    # Ordering by the timestamp follows the table's sort key, so ClickHouse reads parts in key order and
-    # stops at the limit. Any other ordering has to see every row before it can emit the first one.
-    return all(_is_timestamp_expression(order.expr) for order in query.order_by or [])
+    if query.order_by:
+        return False
+    # An offset still has to read and discard the rows it skips.
+    if query.offset is not None:
+        return False
+    return not any(_contains_aggregation(expr) for expr in query.select)
 
 
 class _AggregationFinder(TraversingVisitor):

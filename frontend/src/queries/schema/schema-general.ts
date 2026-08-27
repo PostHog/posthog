@@ -827,7 +827,7 @@ export interface UnprunedTableScan {
     /** Partition key the scan does not bound, e.g. `toYYYYMM(timestamp)`. */
     partition_key: string
     message: string
-    /** A predicate that would bound the partition key, ready to paste into the query. */
+    /** Advice naming a predicate that would bound the partition key. Prose, not replacement text. */
     fix: string
     /** Absent when the query shape has no unambiguous place to write the bound. */
     fix_action?: HogQLFixAction

@@ -86,8 +86,18 @@ class UnprunedEventsScanHeuristic(MetadataHeuristic):
         return warnings
 
 
-def run_metadata_heuristics(query: ast.SelectQuery | ast.SelectSetQuery) -> list[HogQLNotice]:
-    heuristics: list[MetadataHeuristic] = [SimilarSubqueryHeuristic(), UnprunedEventsScanHeuristic()]
+def run_metadata_heuristics(
+    query: ast.SelectQuery | ast.SelectSetQuery, *, is_posthog_source: bool = True
+) -> list[HogQLNotice]:
+    """Run the metadata heuristics over `query`.
+
+    `is_posthog_source` is False for a direct external connection, where a table named `events` is the
+    customer's own Postgres or Snowflake table. The partition heuristic reasons about PostHog's
+    `sharded_events` schema, so it would describe a partition key that table does not have.
+    """
+    heuristics: list[MetadataHeuristic] = [SimilarSubqueryHeuristic()]
+    if is_posthog_source:
+        heuristics.append(UnprunedEventsScanHeuristic())
     warnings: list[HogQLNotice] = []
 
     for heuristic in heuristics:
