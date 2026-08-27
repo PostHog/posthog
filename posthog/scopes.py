@@ -19,7 +19,6 @@ APIScopeObject = Literal[
     "access_control",
     "account",
     "activity_log",
-    "ai_gateway",
     "alert",
     "annotation",
     "approvals",
@@ -241,10 +240,7 @@ ALL_SCOPES: frozenset[str] = frozenset(
 # Filtered out of partner-facing self-serve registration (CIMD, DCR per
 # RFC 7591), so a partner cannot programmatically grant themselves
 # `llm_gateway:read`.
-# ai_gateway: spend-limit config on the Go gateway. llm_gateway: inference access on the Python gateway.
-PRIVILEGED_SCOPES: frozenset[str] = frozenset(
-    {"llm_gateway:read", "llm_gateway:write", "ai_gateway:read", "ai_gateway:write"}
-)
+PRIVILEGED_SCOPES: frozenset[str] = frozenset({"llm_gateway:read", "llm_gateway:write"})
 
 # String form of `OAUTH_HIDDEN_SCOPE_OBJECTS`. PAT-grantable but never
 # advertised via OAuth metadata; excluded from `UNPRIVILEGED_SCOPES` so an

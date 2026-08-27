@@ -48,14 +48,10 @@ class SingletonSchema(AutoSchema):
 
 
 class UserSpendLimitViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
-    # Product-scoped rather than riding `user`: a write moves a money control, so
-    # it must not come for free with a broad `user:write` key. A named scope also
-    # keeps the platform's team/org token scoping and the org's personal-API-key
-    # ban in force, both of which `scope_object = "user"` is exempt from.
-    scope_object = "ai_gateway"
-    # `list` on a plain ViewSet and a custom @action match none of
-    # ScopeBasePermission's default action lists, so personal-API-key requests
-    # 403 without these spelled out.
+    # The user scope bypasses project and organization token restrictions, so this
+    # project-nested resource uses the gateway product scope.
+    scope_object = "llm_gateway"
+    # Plain ViewSet list and custom actions need explicit scope action mappings.
     scope_object_read_actions = ["list"]
     scope_object_write_actions = ["create", "clear"]
     serializer_class = SpendLimitSerializer

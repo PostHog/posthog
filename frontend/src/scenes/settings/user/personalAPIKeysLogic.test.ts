@@ -60,7 +60,7 @@ describe('personalAPIKeysLogic', () => {
         logic.actions.setEditingKeyValues({
             label: 'Test key',
             access_type: 'all',
-            scopes: ['feature_flag:read', 'llm_gateway:read', 'insight:write'],
+            scopes: ['feature_flag:read', 'llm_gateway:read', 'llm_gateway:write', 'insight:write'],
         })
 
         await logic.asyncActions.submitEditingKey()
@@ -70,6 +70,7 @@ describe('personalAPIKeysLogic', () => {
         expect(capturedCreatePayload).not.toBeNull()
         expect(capturedCreatePayload.scopes).toEqual(['feature_flag:read', 'insight:write'])
         expect(capturedCreatePayload.scopes).not.toContain('llm_gateway:read')
+        expect(capturedCreatePayload.scopes).not.toContain('llm_gateway:write')
     })
 
     it('preserves llm_gateway scopes from create payload when GATEWAY_PERSONAL_API_KEY flag is enabled', async () => {
@@ -81,7 +82,7 @@ describe('personalAPIKeysLogic', () => {
         logic.actions.setEditingKeyValues({
             label: 'Test key',
             access_type: 'all',
-            scopes: ['feature_flag:read', 'llm_gateway:read'],
+            scopes: ['feature_flag:read', 'llm_gateway:read', 'llm_gateway:write'],
         })
 
         await logic.asyncActions.submitEditingKey()
@@ -89,7 +90,7 @@ describe('personalAPIKeysLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(capturedCreatePayload).not.toBeNull()
-        expect(capturedCreatePayload.scopes).toEqual(['feature_flag:read', 'llm_gateway:read'])
+        expect(capturedCreatePayload.scopes).toEqual(['feature_flag:read', 'llm_gateway:read', 'llm_gateway:write'])
     })
 
     it('preserves the `*` (all access) scope regardless of flag state', async () => {

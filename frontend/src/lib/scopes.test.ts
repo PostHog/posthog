@@ -112,6 +112,12 @@ describe('API_KEY_SCOPE_PRESETS', () => {
         })
     })
 
+    describe('mcp_server', () => {
+        it('does not grant privileged gateway write access', () => {
+            expect(findPreset('mcp_server').scopes).not.toContain('llm_gateway:write')
+        })
+    })
+
     describe('all_access', () => {
         it('still uses the wildcard scope', () => {
             const preset = findPreset('all_access')

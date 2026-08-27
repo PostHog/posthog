@@ -5799,7 +5799,6 @@ export const API_SCOPE_OBJECTS = [
     'access_control',
     'account',
     'activity_log',
-    'ai_gateway',
     'alert',
     'annotation',
     'approvals',

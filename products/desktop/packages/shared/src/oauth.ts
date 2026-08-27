@@ -6,10 +6,11 @@ export const POSTHOG_DEV_CLIENT_ID = "DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ";
 
 // Explicit scopes instead of "*". Mirrors scopes_supported at
 // /.well-known/oauth-authorization-server (OAUTH_SCOPES_SUPPORTED in the API's
-// services/mcp/src/lib/oauth-scopes.generated.ts), plus privileged llm_gateway:read
-// which the advertised set excludes. The LLM gateway requires that scope; it is
-// granted only because this app's OAuth ceiling is seeded to
-// ["@default", "llm_gateway:read"] in US + EU.
+// services/mcp/src/lib/oauth-scopes.generated.ts), plus the privileged
+// llm_gateway:read/write scopes, which the advertised set excludes. The gateway
+// requires read access for inference, and spend limit changes require write access.
+// Before a build requests both, this app's OAuth ceiling must be seeded in US + EU to
+// ["@default", "llm_gateway:read", "llm_gateway:write"].
 //
 // That generated file also exports OAUTH_SCOPES_HIDDEN (batch_import_support,
 // query_performance, wizard_session). Never copy those in: they are staff-only
@@ -19,11 +20,11 @@ export const POSTHOG_DEV_CLIENT_ID = "DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ";
 // Deploy-order guardrail: NEVER ship a non-"*" OAUTH_SCOPES set (or bump
 // OAUTH_SCOPE_VERSION off a build that still requests "*") until that ceiling is
 // seeded in both regions. A non-empty ceiling rejects scope=* at /authorize, and
-// an empty/unseeded ceiling rejects privileged llm_gateway:read. #3411 shipped
+// an empty/unseeded ceiling rejects the privileged gateway scopes. #3411 shipped
 // the explicit list bundled with loops without seeding; prod login broke and was
 // reverted in #3668. Keep this comment when regenerating the list.
 //
-// Regenerate from the live advertised list + llm_gateway:read last; bump
+// Regenerate from the live advertised list + llm_gateway:read/write last; bump
 // OAUTH_SCOPE_VERSION whenever the set changes so installs re-authorize.
 export const OAUTH_SCOPES = [
   "openid",
@@ -231,10 +232,11 @@ export const OAUTH_SCOPES = [
   "web_analytics:write",
   "webhook:read",
   "webhook:write",
-  // Privileged: embedded agent model calls go through PostHog's LLM gateway
-  // (gateway.{region}.posthog.com), which requires this scope. Not in the
-  // advertised set above; granted via this app's seeded ceiling.
+  // Privileged: model calls need read access, and spend limit changes need write
+  // access. Neither appears in the advertised set above. The app ceiling must
+  // grant both before this scope list ships.
   "llm_gateway:read",
+  "llm_gateway:write",
 ];
 
 // v6: the server grew the `canvas` scope (PostHog/posthog#73874). On apps with a seeded
@@ -244,7 +246,8 @@ export const OAUTH_SCOPES = [
 // applies to every future server-side scope addition the app relies on, even when
 // OAUTH_SCOPES itself is unchanged.
 // v7: "*" replaced with the explicit list above.
-export const OAUTH_SCOPE_VERSION = 7;
+// v8: added llm_gateway:write so spend limit changes can use a separate write permission.
+export const OAUTH_SCOPE_VERSION = 8;
 
 // Token refresh settings
 export const TOKEN_REFRESH_BUFFER_MS = 30 * 60 * 1000; // 30 minutes before expiry

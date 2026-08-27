@@ -14,6 +14,7 @@ from posthog.llm.gateway_internal_client import AIGatewayInternalError, AIGatewa
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization
 from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 LOGIC = "products.ai_gateway.backend.logic"
@@ -34,6 +35,37 @@ class TestUserSpendLimit(APIBaseTest):
     @property
     def _node(self) -> str:
         return self.user.distinct_id or f"user_{self.user.id}"
+
+    def _personal_api_key_headers(self, scopes: list[str]) -> dict[str, str]:
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Spend limit key",
+            user=self.user,
+            secure_value=hash_key_value(token),
+            scopes=scopes,
+        )
+        return {"authorization": f"Bearer {token}"}
+
+    def _oauth_headers(self, scope: str, *, scoped_organizations: list[str] | None = None) -> dict[str, str]:
+        application = OAuthApplication.objects.create(
+            name="Test OAuth app",
+            client_id=f"test_client_{scope.replace(':', '_')}",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            user=self.user,
+            scopes=["@default", "llm_gateway:read", "llm_gateway:write"],
+        )
+        access_token = OAuthAccessToken.objects.create(
+            application=application,
+            user=self.user,
+            token=f"pha_test_oauth_{scope.replace(':', '_')}",
+            scope=scope,
+            expires=timezone.now() + timedelta(hours=1),
+            scoped_organizations=scoped_organizations or [],
+        )
+        return {"authorization": f"Bearer {access_token.token}"}
 
     @patch(f"{LOGIC}.get_user_budget", return_value=None)
     def test_reports_no_limit_where_limits_are_available(self, get_user_budget):
@@ -134,39 +166,78 @@ class TestUserSpendLimit(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    @patch(f"{LOGIC}.get_user_budget", return_value=None)
-    def test_writes_need_the_ai_gateway_write_scope(self, _get_user_budget):
-        token = generate_random_token_personal()
-        PersonalAPIKey.objects.create(
-            label="Read key", user=self.user, secure_value=hash_key_value(token), scopes=["ai_gateway:read"]
-        )
-        headers = {"authorization": f"Bearer {token}"}
+    def test_gateway_read_scope_can_read_but_not_mutate(self) -> None:
+        headers = self._personal_api_key_headers(["llm_gateway:read"])
+        with (
+            patch(f"{LOGIC}.get_user_budget", return_value=None),
+            patch(f"{LOGIC}.set_user_budget", return_value=BUDGET),
+            patch(f"{LOGIC}.clear_user_budget", return_value=None),
+        ):
+            read_response = self.client.get(self._url(), headers=headers)
+            write_response = self.client.post(
+                self._url(), {"limit_usd": "500", "window_seconds": 2592000}, headers=headers
+            )
+            clear_response = self.client.delete(self._url("clear/"), headers=headers)
 
-        self.assertEqual(self.client.get(self._url(), headers=headers).status_code, status.HTTP_200_OK)
-        response = self.client.post(self._url(), {"limit_usd": "500", "window_seconds": 2592000}, headers=headers)
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(read_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(write_response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(clear_response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_gateway_write_scope_can_read_and_mutate(self) -> None:
+        headers = self._personal_api_key_headers(["llm_gateway:write"])
+        with (
+            patch(f"{LOGIC}.get_user_budget", return_value=None),
+            patch(f"{LOGIC}.set_user_budget", return_value=BUDGET),
+            patch(f"{LOGIC}.clear_user_budget", return_value=None),
+        ):
+            read_response = self.client.get(self._url(), headers=headers)
+            write_response = self.client.post(
+                self._url(), {"limit_usd": "500", "window_seconds": 2592000}, headers=headers
+            )
+            clear_response = self.client.delete(self._url("clear/"), headers=headers)
+
+        self.assertEqual(read_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(write_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(clear_response.status_code, status.HTTP_200_OK)
+
+    @patch(f"{LOGIC}.set_user_budget", return_value=BUDGET)
+    def test_oauth_write_scope_is_required_to_set_a_limit(self, _set_user_budget) -> None:
+        read_response = self.client.post(
+            self._url(),
+            {"limit_usd": "500", "window_seconds": 2592000},
+            headers=self._oauth_headers("llm_gateway:read"),
+        )
+        write_response = self.client.post(
+            self._url(),
+            {"limit_usd": "500", "window_seconds": 2592000},
+            headers=self._oauth_headers("llm_gateway:write"),
+        )
+
+        self.assertEqual(read_response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(write_response.status_code, status.HTTP_200_OK)
+
+    def test_project_secret_key_cannot_access_a_user_limit(self) -> None:
+        token = "phs_" + "a" * 40
+        ProjectSecretAPIKey.objects.create(
+            team=self.team,
+            label="Project gateway key",
+            mask_value="phs_...aaaa",
+            secure_value=hash_key_value(token),
+            scopes=["llm_gateway:read"],
+        )
+        self.client.logout()
+
+        response = self.client.get(self._url(), headers={"authorization": f"Bearer {token}"})
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_rejects_an_oauth_token_scoped_to_another_organization(self):
         other_organization = Organization.objects.create(name="Other organization")
-        application = OAuthApplication.objects.create(
-            name="Test OAuth app",
-            client_id="test_client_id",
-            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris="https://example.com/callback",
-            algorithm="RS256",
-            user=self.user,
-        )
-        access_token = OAuthAccessToken.objects.create(
-            application=application,
-            user=self.user,
-            token="pha_test_oauth_token",
-            scope="*",
-            expires=timezone.now() + timedelta(hours=1),
-            scoped_organizations=[str(other_organization.id)],
-        )
 
-        response = self.client.get(self._url(), headers={"authorization": f"Bearer {access_token.token}"})
+        response = self.client.get(
+            self._url(),
+            headers=self._oauth_headers("*", scoped_organizations=[str(other_organization.id)]),
+        )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
