@@ -30,7 +30,8 @@ class FeatureFlagRolloutSummary:
     # Whether any release condition has property filters (conditionally targeted vs. blanket rollout).
     has_targeting_conditions: bool
     # Highest rollout percentage across release conditions, or None when there are no conditions.
-    max_rollout_percentage: int | None
+    # A fractional rollout (e.g. 0.5) stays a float, matching how conditions store the value.
+    max_rollout_percentage: int | float | None
     # Whether the flag serves multiple variants.
     is_multivariate: bool
 
@@ -221,7 +222,7 @@ class FeatureFlagStatusChecker:
         multivariate = filters.get("multivariate")
 
         has_targeting_conditions = False
-        max_rollout_percentage: int | None = None
+        max_rollout_percentage: int | float | None = None
         for group in groups:
             if group.get("properties"):
                 has_targeting_conditions = True

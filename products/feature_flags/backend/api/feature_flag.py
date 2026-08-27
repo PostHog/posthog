@@ -2618,7 +2618,7 @@ class FeatureFlagRolloutSummarySerializer(serializers.Serializer):
             "targeted segment, not of the whole user base."
         )
     )
-    max_rollout_percentage = serializers.IntegerField(
+    max_rollout_percentage = serializers.FloatField(
         allow_null=True,
         help_text=(
             "Highest rollout percentage (0-100) across the flag's release conditions, treating a missing "

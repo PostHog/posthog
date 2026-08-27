@@ -17,7 +17,7 @@ from unittest.mock import ANY, MagicMock, patch
 
 from django.core.cache import cache
 from django.db import IntegrityError
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils.timezone import now
 
 import grpc
@@ -60,6 +60,7 @@ from products.feature_flags.backend.api.feature_flag import (
     FLAG_FILTERS_VIOLATION_COUNTER,
     FLAG_FILTERS_WRITE_COUNTER,
     FeatureFlagSerializer,
+    FeatureFlagStatusResponseSerializer,
     parse_created_by_ids,
 )
 from products.feature_flags.backend.encrypted_flag_payloads import (
@@ -11658,6 +11659,25 @@ class TestFeatureFlagEvaluationContexts(APIBaseTest):
         # Only 1 from the initial set, none from the no-op update
         entries = self._get_eval_context_activity_entries(flag.id)
         self.assertEqual(len(entries), 1)
+
+
+class TestFeatureFlagStatusResponseSerializer(SimpleTestCase):
+    def test_fractional_rollout_percentage_is_not_truncated(self):
+        # Release conditions accept decimals, so a rollout can be 0.5. IntegerField dropped that
+        # to 0, which made the stale banner read "0% of all users" for a flag still gating users.
+        serialized = FeatureFlagStatusResponseSerializer(
+            {
+                "status": FeatureFlagStatus.STALE,
+                "reason": "Flag has not been called in 45 days",
+                "rollout": {
+                    "effectively_full_rollout": False,
+                    "has_targeting_conditions": False,
+                    "max_rollout_percentage": 0.5,
+                    "is_multivariate": False,
+                },
+            }
+        ).data
+        assert serialized["rollout"]["max_rollout_percentage"] == 0.5
 
 
 class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
