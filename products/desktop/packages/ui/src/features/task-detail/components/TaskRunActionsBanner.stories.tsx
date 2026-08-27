@@ -75,7 +75,7 @@ function TaskRunActionsBannerStory({
         sessionId={`task-actions-${scenario}`}
         initialContent="Move the task actions next to the prompt"
         onSubmit={() => {}}
-        footerAddon={<TaskRunActionsPreview scenario={scenario} />}
+        headerStrip={<TaskRunActionsPreview scenario={scenario} />}
       />
     </div>
   );

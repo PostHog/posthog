@@ -47,6 +47,7 @@ import { ChatThread } from "@posthog/ui/features/sessions/components/chat-thread
 import type { PromptRecallHandler } from "@posthog/ui/features/sessions/components/chat-thread/composerPromptRecall";
 import { CHAT_CONTENT_MAX_WIDTH } from "@posthog/ui/features/sessions/constants";
 import { useMessagingModeStore } from "@posthog/ui/features/sessions/messagingModeStore";
+import { TaskRunActions } from "@posthog/ui/features/task-detail/components/TaskRunActions";
 import { useWorkspace } from "@posthog/ui/features/workspace/useWorkspace";
 import { useConnectivity } from "@posthog/ui/hooks/useConnectivity";
 import { toast } from "@posthog/ui/primitives/toast";
@@ -747,6 +748,7 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
         ) : (
           <PromptInput
             sessionId={taskId}
+            headerStrip={<TaskRunActions task={task} />}
             toolbarEndSlot={
               <ContextUsageIndicator usage={contextUsage} taskId={taskId} />
             }

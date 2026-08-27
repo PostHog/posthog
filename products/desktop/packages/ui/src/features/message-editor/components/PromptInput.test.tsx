@@ -107,7 +107,7 @@ function renderInput(props: Partial<React.ComponentProps<typeof PromptInput>>) {
   );
 }
 
-describe("PromptInput submit/stop affordance", () => {
+describe("PromptInput", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     editorState.isEmpty = false;
@@ -171,13 +171,16 @@ describe("PromptInput submit/stop affordance", () => {
     const send = screen.getByRole("button", { name: "Send message" });
     expect(send).toHaveAttribute("aria-busy", "true");
   });
-});
 
-describe("PromptInput escape handling", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    editorState.isEmpty = false;
-    settingsState.slotMachineMode = false;
+  it("renders the header strip before the composer controls", () => {
+    renderInput({ headerStrip: <div>Task actions</div> });
+
+    const headerStrip = screen.getByText("Task actions");
+    const send = screen.getByRole("button", { name: "Send message" });
+
+    expect(headerStrip.compareDocumentPosition(send)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
   });
 
   it("cancels the queued-message edit on Escape", async () => {

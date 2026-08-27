@@ -864,7 +864,7 @@ export function SessionView({
                               focused={isActiveSession !== false}
                             />
                           }
-                          footerAddon={
+                          headerStrip={
                             task ? <TaskRunActions task={task} /> : undefined
                           }
                           onToggleMessagingMode={toggleMessagingMode}
