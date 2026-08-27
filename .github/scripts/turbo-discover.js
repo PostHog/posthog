@@ -14,11 +14,23 @@
 // Durations come from .test_durations (maintained by pytest-split).
 // DEDICATED_BUCKET_PRODUCTS opt out of grouping and always run alone.
 //
+// Backend test selection: the selector's output (SELECTION_JSON) decides which
+// Django tests run and, on a legacy diff, which products stay in the matrix. One
+// verdict feeds both, so the two matrices can never disagree about whether the
+// selection is trustworthy.
+//
 // Input:  LEGACY_CHANGED env var ("true"/"false")
 //         SCHEMA_CHANGED env var ("true"/"false") — when set and LEGACY_CHANGED
 //         is false, schema-impact.js narrows the matrix to products that
 //         depend on the affected posthog.schema types.
-// Output: JSON on stdout: { matrix, run_legacy, django_shards }
+//         SELECTION_JSON — path to the backend test selector's output, empty when
+//         it did not run or failed.
+//         SELECTION_APPLIES ("true"/"false") — whether this run is one that selects
+//         at all; false leaves the Django matrix alone.
+//         SELECTION_DISABLED ("true"/"false") — the DISABLE_BACKEND_TEST_SELECTION
+//         kill switch.
+//         PR_DRAFT ("true"/"false") — what an untrusted selection falls back to.
+// Output: JSON on stdout: { matrix, run_legacy, django_shards, selection }
 //         Diagnostics on stderr
 
 const { execFileSync } = require('child_process')
@@ -28,36 +40,73 @@ const { analyzeSchemaImpact, readBaseSchema } = require('./schema-impact')
 const { loadContractSurfaces } = require('./trunk-impacted-targets')
 
 // --- Product shard sizing (same Amdahl shape as Django below) ---
-// Each product is atomic for packing, but unlike Django the test pool isn't
-// fungible across products — bin-pack products into target-sized shards, and
-// multi-shard split any single product that overflows on its own.
-// The target is a per-shard test-WORK budget, not a wall-clock promise: the fixed
-// per-shard setup (docker stack + temporal boot, deps, collection, ~3-4 min) is paid
-// identically by every shard, so it can't skew the split and deliberately stays out
-// of the shard-count math — folding it in only inflates counts (see #54280). Walls
-// land at target + setup, evenly across shards. JUnit de-taxing in
-// optimize_test_durations.py keeps that setup cost out of the timings themselves.
-const PRODUCT_TARGET_WALL_SECONDS = 10 * 60
+// The test pool is not fungible across products, so a product is the unit of
+// work: bin-pack products into target-sized jobs, and multi-shard split any
+// single product that overflows on its own. A job runs what it holds
+// sequentially, so its wall is the sum of its parts, not the max.
+// One flat wall-clock target for every test shard, Django and products alike.
+// Predictability is the point: a dev who kicks off CI knows what a shard costs
+// without knowing which segment it is. Sizing solves wall = overhead + work/n
+// for n, so the target is a promise about the PR lane (where the overheads below
+// are fitted); master pays extra overhead (full migration replay) on top.
+// A full run's wall is the pre-shard preamble plus the slowest of its shards.
+// The preamble (discovery, matrix build, runner start) measures ~5.5 min, and
+// sizing bounds the slowest shard at the target rather than the average, so a
+// 12-minute shard target puts a full PR run near 18 minutes end to end.
+const TARGET_WALL_SECONDS = 12 * 60
 // Per-product cost within a runner: turbo dispatch, pytest collection, Django
 // init. First product pays ~45s, subsequent ~15s; use 60s as a conservative
 // average that also absorbs the amortized portion of runner startup.
 const PRODUCT_PER_PRODUCT_OVERHEAD_SECONDS = 60
-// Aligned with DJANGO_SAFETY_FACTOR below. Was 2x originally because pytest-
-// split data was noisy under Django Core's shared session; the outlier-based
-// merge produces cleaner numbers now.
-const PRODUCT_SAFETY_FACTOR = 1.3
-// Tests under these paths need special infrastructure (Temporal server, etc.)
-// and are handled by Django CI's dedicated segments — exclude from duration estimates
+// Headroom on a packed bucket, covering error in the recorded durations alone.
+// A bucket runs its products sequentially, so its wall is the sum of its parts
+// and it needs no allowance for an uneven split. That allowance belongs to the
+// split path, which derives its own in productSplitShards.
+const PRODUCT_BUCKET_SAFETY_FACTOR = 1.1
+// No headroom constant for a split product: the gap between the mean shard that
+// sizing solves for and the max shard that sets the wall is derived per product
+// in productSplitShards below.
+// Fitted per-shard overhead for a split product job. Two measured parts, from
+// run 32717208712: the job base (docker stack, deps, turbo dispatch) is
+// mean(job wall - JUnit suite time), 247-413s across 12 bucket jobs (median
+// 282s, 263s over the 17 warehouse-sources shards); the session cost
+// (collection, session fixtures) is re-paid in full by every shard of a split
+// and grows with suite size (128s/shard on warehouse-sources, ~15s on small
+// products). Only large products split, so the constant carries a large
+// product's session: ~270 base + ~130 session.
+const PRODUCT_JOB_OVERHEAD_SECONDS = 400
+// The base alone, for packed buckets: their products are small, so the session
+// share is the per-product overhead below rather than a large suite's collection.
+const PRODUCT_JOB_BASE_OVERHEAD_SECONDS = 270
+// Sentinel entry the timing workflow writes into .test_durations after it scales
+// the product entries to their JUnit-measured totals (see
+// optimize_test_durations.py). Product jobs record call-only durations, which
+// under-report fixture-heavy suites several-fold (warehouse-sources: 16 min
+// recorded vs 38 min real), so unscaled sums must not be trusted as magnitudes.
+// The key is not a real file, so pruning drops it: read it before pruning. It
+// survives the --store-durations round trip like any restored entry.
+const PRODUCTS_SCALED_MARKER = 'products/.junit-scaled'
+// Temporal tests of products NOT listed below run in Django CI's Temporal segment,
+// so they must not also count toward that product's own size.
 const EXCLUDED_PATH_SEGMENTS = ['/temporal/']
-// Products that run their OWN temporal suite inside the product test job (backend:test covers
-// backend/temporal, and the turbo-tests runner already provisions the temporal profile). For these,
-// the temporal durations must count toward product sizing so the product is sharded for that load —
-// otherwise a huge suite lands in one unsharded bucket and times out.
-const PRODUCTS_RUNNING_TEMPORAL_IN_JOB = new Set(['managed-warehouse', 'warehouse-sources'])
-// Products that always get their own matrix entry instead of being packed with
-// others — isolates a flaky/hang-prone product so it can't cancel bucket-mates
-// at the job timeout. Trade-off: a dedicated runner.
-const DEDICATED_BUCKET_PRODUCTS = new Set(['batch-exports'])
+// Products that run their OWN temporal suite inside the product test job, so their
+// temporal durations count toward product sizing, otherwise a big suite lands in
+// one unsharded bucket and times out.
+//
+// Every shard in backend CI already starts COMPOSE_PROFILES=temporal, in the django
+// job and in turbo-tests alike, so running a temporal suite here costs no extra
+// infrastructure. The product's backend:test must name its temporal path.
+const PRODUCTS_RUNNING_TEMPORAL_IN_JOB = new Set([
+    'batch-exports',
+    'managed-warehouse',
+    'tasks',
+    'warehouse-sources',
+])
+// Products that always get their own matrix entry instead of sharing one, so a
+// hang cannot cancel job-mates when the job timeout fires. The cost is a
+// dedicated runner, so a product belongs here only while its wall runs close
+// enough to the job timeout that a hang is a realistic outcome.
+const DEDICATED_BUCKET_PRODUCTS = new Set()
 
 // --- Staleness detection for .test_durations ---
 // When a product's test files on disk significantly outnumber what .test_durations
@@ -93,19 +142,23 @@ const STALENESS_FALLBACK_SECONDS_PER_FILE = 5
 //   Temporal: median ~4 min                → 6 min has headroom for temporal-server boot
 //
 // Master pushes SKIP the schema-cache restore and walk migrations fresh
-// (~7 min), so master shards run ~11 min overhead and blow past the 20 min
-// target. That is accepted: master runs are rare, happen uniformly across
-// shards, and are where .test_durations is collected anyway. Calibrating up
-// to protect them would over-shard every PR. Note the consequence: a PR with
-// a schema-cache MISS (stale branch, key drift) falls back to the full walk
-// and its shards will also overrun — uniformly, same as master.
+// (~7 min), so master shards carry a much larger overhead. Sizing at a fixed
+// efficiency handles that on its own: a bigger O means fewer shards, each
+// doing more work, which is the correct response. A fixed wall target could
+// not express it, because the same number meant two different things per lane.
+//
+// Refitted from run 32713377568 as mean(shard wall) - work/shards. The mean is
+// exact whatever the split quality was, because the shards partition the work.
+//   Core     6 shards, mean 16.32 min, work 68.3 min -> 4.93
+//   CorePOE  3 shards, mean  6.67 min, work  6.0 min -> 4.67
+//   Temporal 6 shards, mean 12.17 min, work 54.8 min -> 3.03
+// Temporal was previously the highest of the three and is in fact the lowest,
+// which is what left it under-sharded relative to Core.
 const DJANGO_OVERHEAD_SECONDS_BY_SEGMENT = {
-    Core: 4 * 60,
-    CorePOE: 4 * 60,
-    Temporal: 6 * 60,
+    Core: 295,
+    CorePOE: 280,
+    Temporal: 182,
 }
-const DJANGO_TARGET_WALL_SECONDS = 20 * 60
-const DJANGO_SAFETY_FACTOR = 1.3
 const DJANGO_MIN_SHARDS = 3
 const DJANGO_MAX_SHARDS = 50
 
@@ -160,6 +213,21 @@ function affectedArgs(taskName) {
         args.push('--head', process.env.TURBO_SCM_HEAD)
     }
     return args
+}
+
+// Turbo's affected query for one task, null when it fails. The caller decides whether
+// that is fatal (a products-only diff has nothing else to go on) or only disables the
+// narrowed product matrix on a legacy diff.
+function queryAffectedTasks(taskName) {
+    try {
+        return parseAffectedTasks(runTurbo(affectedArgs(taskName)))
+    } catch (e) {
+        console.error(`::warning::turbo affected query for ${taskName} failed: ${e.message}`)
+        if (e.stderr) {
+            console.error(e.stderr.toString().slice(0, 1000))
+        }
+        return null
+    }
 }
 
 function logAffectedReasons(label, tasks) {
@@ -399,21 +467,93 @@ function loadTachModuleGraph() {
     }
 }
 
-function loadTestDurations() {
+// Products that transitively depend on `products` per tach.toml, or null when the
+// graph cannot be read. Callers treat null as "unknown dependents" and widen.
+function tachDependentProducts(products, allProductSet) {
+    const tachGraph = loadTachModuleGraph()
+    if (tachGraph === null) {
+        return null
+    }
+    return tachDependents(products, tachGraph).filter((p) => allProductSet.has(p))
+}
+
+// Products a schema change reaches, [] for a purely additive change, or null when
+// the schema diff is unavailable and every product has to run.
+function schemaAffectedProducts() {
+    const impact = analyzeSchemaImpact({ scmBase: process.env.TURBO_SCM_BASE })
+    console.error(`Schema impact: ${JSON.stringify({ kind: impact.kind, counts: impact.counts, reason: impact.reason })}`)
+    if (impact.kind === 'fallback') {
+        return null
+    }
+    if (impact.kind !== 'impacting') {
+        console.error('Schema change is purely additive — no extra products needed')
+        return []
+    }
+    console.error(`Schema-affected products: ${JSON.stringify(impact.affectedProducts)}`)
+    if (impact.wildcardProducts && impact.wildcardProducts.length > 0) {
+        console.error(
+            `Products with unresolved schema module imports (always tested): ${JSON.stringify(impact.wildcardProducts)}`
+        )
+    }
+    return impact.affectedProducts
+}
+
+// The products a legacy diff must test whatever the backend test selector reached: the
+// ones Turbo saw change, their tach dependents, and the ones a schema change reaches.
+// Null when any of that is unknowable, which callers must treat as "do not narrow".
+function legacyMustRunProducts(affectedTasks, allProductSet, schemaChanged) {
+    const affected = getAffectedTaskProducts(affectedTasks)
+    const dependents = tachDependentProducts(affected, allProductSet)
+    if (dependents === null) {
+        return null
+    }
+    const schemaProducts = schemaChanged ? schemaAffectedProducts() : []
+    if (schemaProducts === null) {
+        return null
+    }
+    return [...new Set([...affected, ...dependents, ...schemaProducts])]
+}
+
+// The backend test selector's output (tools/snob_backend_test_selection_shadow.py), or
+// null when it is absent or unreadable.
+function loadSelection(path) {
+    if (!path) {
+        return null
+    }
+    try {
+        return JSON.parse(fs.readFileSync(path, 'utf-8'))
+    } catch (e) {
+        console.error(`::warning::Could not read the backend test selection at ${path} (${e.message}) — the full matrices will run`)
+        return null
+    }
+}
+
+// Products to test on a legacy diff once the selection is trusted: the must-run set
+// plus the products the selector reached through the import graph. Callers narrow only
+// on a `selected` verdict, so the trust rules live in decideSelection, not here.
+function narrowedProducts(products, mustRunProducts, selection) {
+    const selected = ((selection.combined && selection.combined.products) || []).map(moduleToProduct)
+    const keep = new Set([...mustRunProducts, ...selected])
+    console.error(`Products reached by the backend test selector: ${JSON.stringify(selected)}`)
+    return products.filter((p) => keep.has(p))
+}
+
+// Strips non-finite values so a single corrupted entry can't NaN-poison the
+// matrix (Math.ceil(NaN) silently propagates through sort/compare, making a
+// product vanish from packing without an error). Returns null when the file is
+// absent or is not a JSON object.
+
+function loadDurationsFile(file) {
     let parsed
     try {
-        parsed = JSON.parse(fs.readFileSync('.test_durations', 'utf-8'))
+        parsed = JSON.parse(fs.readFileSync(file, 'utf-8'))
     } catch {
-        console.error('Warning: .test_durations not found, sharding disabled')
         return null
     }
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-        console.error('Warning: .test_durations is not a JSON object, sharding disabled')
+        console.error(`Warning: ${file} is not a JSON object, ignoring it`)
         return null
     }
-    // Strip non-finite values so a single corrupted entry can't NaN-poison the
-    // matrix (Math.ceil(NaN) silently propagates through sort/compare, making
-    // a product vanish from packing without an error).
     let dropped = 0
     for (const [k, v] of Object.entries(parsed)) {
         if (typeof v !== 'number' || !Number.isFinite(v)) {
@@ -422,9 +562,71 @@ function loadTestDurations() {
         }
     }
     if (dropped > 0) {
-        console.error(`Warning: dropped ${dropped} non-numeric entries from .test_durations`)
+        console.error(`Warning: dropped ${dropped} non-numeric entries from ${file}`)
     }
     return parsed
+}
+
+function loadTestDurations() {
+    const parsed = loadDurationsFile('.test_durations')
+    if (!parsed) {
+        console.error('Warning: .test_durations not usable, sharding disabled')
+    }
+    return parsed
+}
+
+// The per-segment plan files are scoped to the node ids one run's JUnit
+// actually recorded. Used here only as an allowlist: DJANGO_SEGMENTS stays the
+// definition of what a segment runs, and JUnit removes what did not run.
+const SEGMENT_PLAN_FILES = { Core: '.test_durations.core', Temporal: '.test_durations.temporal' }
+
+function loadRanNodeIds() {
+    const ran = {}
+    for (const [segment, file] of Object.entries(SEGMENT_PLAN_FILES)) {
+        // Cache-only files. Absent on a miss, and the pruned union covers that.
+        const parsed = loadDurationsFile(file)
+        if (parsed) {
+            ran[segment] = new Set(Object.keys(parsed))
+        }
+    }
+    return ran
+}
+
+const fileExistsCache = new Map()
+
+function nodeIdFileExists(nodeId) {
+    const file = nodeId.split('::')[0]
+    let exists = fileExistsCache.get(file)
+    if (exists === undefined) {
+        exists = fs.existsSync(file)
+        fileExistsCache.set(file, exists)
+    }
+    return exists
+}
+
+// Splitting is immune to dead entries, because pytest-split drops unknown node ids
+// before it weights anything. Sizing is not: every total here is a raw sum
+// over the union, so dead seconds inflate the shard count with no symptom
+// other than fast green shards.
+function pruneDeadDurations(durations) {
+    if (!durations) {return durations}
+    const live = {}
+    let deadIds = 0
+    let deadSeconds = 0
+    for (const [nodeId, dur] of Object.entries(durations)) {
+        if (nodeIdFileExists(nodeId)) {
+            live[nodeId] = dur
+        } else {
+            deadIds++
+            deadSeconds += dur
+        }
+    }
+    if (deadIds > 0) {
+        console.error(
+            `  .test_durations: dropped ${deadIds} entries (${(deadSeconds / 60).toFixed(1)} min) for files no longer on disk`
+        )
+    }
+    return live
 }
 
 // Recursively collect test files (test_*.py / *_test.py) under a directory.
@@ -501,28 +703,104 @@ function getProductDuration(product, durations) {
     return total
 }
 
-function productEffectiveCost(product, durations) {
-    let base = getProductDuration(product, durations)
-    const staleness = checkProductStaleness(product, durations)
-    if (staleness.stale && staleness.fileCount > 0) {
-        base = Math.max(base, staleness.fileCount * STALENESS_FALLBACK_SECONDS_PER_FILE)
-    }
-    return base * PRODUCT_SAFETY_FACTOR + PRODUCT_PER_PRODUCT_OVERHEAD_SECONDS
+// The longest single test in a product. pytest-split cuts between tests, never
+// inside one, so this is the irreducible grain of any split and it bounds how
+// far the worst chunk can run past the mean.
+// Budget of test work one product shard can hold, mirroring calculateShards.
+function productShardBudget() {
+    return Math.max(TARGET_WALL_SECONDS - PRODUCT_JOB_OVERHEAD_SECONDS, PRODUCT_JOB_OVERHEAD_SECONDS / 2, 1)
 }
 
-// First-fit-decreasing bin packing into TARGET-sized shards. Sorts products by
+// The parts of a product's duration distribution that sizing needs. Two tests
+// longer than half a shard's budget can never share a shard, so those are counted
+// rather than summed; the rest are summed, with their own longest, because a
+// contiguous chunk of them runs at most one of them past the mean.
+function getProductShape(product, durations) {
+    const shape = { work: 0, maxTest: 0, heavyCount: 0, lightWork: 0, maxLight: 0, testCount: 0 }
+    if (!durations) {
+        return shape
+    }
+    const prefix = productPrefix(product)
+    const excluded = PRODUCTS_RUNNING_TEMPORAL_IN_JOB.has(product) ? [] : EXCLUDED_PATH_SEGMENTS
+    const heavyThreshold = productShardBudget() / 2
+    for (const [test, dur] of Object.entries(durations)) {
+        if (!test.startsWith(prefix) || excluded.some((seg) => test.includes(seg))) {
+            continue
+        }
+        shape.work += dur
+        shape.testCount += 1
+        shape.maxTest = Math.max(shape.maxTest, dur)
+        if (dur > heavyThreshold) {
+            shape.heavyCount += 1
+        } else {
+            shape.lightWork += dur
+            shape.maxLight = Math.max(shape.maxLight, dur)
+        }
+    }
+    return shape
+}
+
+// One definition of a product's work estimate, shared by the split decision
+// (buildMatrix) and the bucket cost (packProducts), so they cannot disagree.
+//
+// When the union carries the scaled marker, its product sums equal the
+// JUnit-measured totals and are trusted as magnitudes; the file-count guess then
+// only covers products with no entries at all (a brand-new product). Without the
+// marker the sums are call-only undercounts, so the legacy staleness guard
+// applies: with poor coverage, guess work from file counts to avoid
+// under-sharding. `staleUnionWork` is non-null exactly when the guess replaced
+// the recorded sum, so the caller can log it once.
+function resolveProductSizing(product, durations, productsScaled = false) {
+    const shape = getProductShape(product, durations)
+    if (productsScaled && shape.work > 0) {
+        return { ...shape, staleUnionWork: null, staleness: null }
+    }
+    const staleness = checkProductStaleness(product, durations)
+    if (staleness.stale && staleness.fileCount > 0) {
+        const fallbackWork = staleness.fileCount * STALENESS_FALLBACK_SECONDS_PER_FILE
+        if (fallbackWork > shape.work) {
+            // The tests the map does record are still measurements, and a heavy one
+            // holds a shard whatever the coverage. Keep those and treat only the
+            // guessed remainder as light, at one file's worth per test.
+            const recordedHeavyWork = shape.work - shape.lightWork
+            return {
+                work: fallbackWork,
+                maxTest: Math.max(shape.maxTest, STALENESS_FALLBACK_SECONDS_PER_FILE),
+                heavyCount: shape.heavyCount,
+                lightWork: Math.max(fallbackWork - recordedHeavyWork, 0),
+                maxLight: Math.max(shape.maxLight, STALENESS_FALLBACK_SECONDS_PER_FILE),
+                testCount: Math.max(shape.testCount, staleness.fileCount),
+                staleUnionWork: shape.work,
+                staleness,
+            }
+        }
+    }
+    return { ...shape, staleUnionWork: null, staleness: null }
+}
+
+function productEffectiveCost(product, durations, productsScaled = false) {
+    const { work } = resolveProductSizing(product, durations, productsScaled)
+    return work * PRODUCT_BUCKET_SAFETY_FACTOR + PRODUCT_PER_PRODUCT_OVERHEAD_SECONDS
+}
+
+// First-fit-decreasing bin packing into TARGET-sized jobs. Sorts products by
 // effective cost descending so the largest products land first and small ones
-// fill the gaps. Each bucket caps at PRODUCT_TARGET_WALL_SECONDS total.
-function packProducts(products, durations) {
+// fill the gaps. Each job caps at the wall target minus the base overhead it
+// pays once, so the effective costs only compete for the remaining budget.
+// `seedJobs` are jobs that already hold work — a split product's last shard —
+// and they sit first so their leftover budget is used before a new runner is
+// started. A seed carries its own base overhead, which is a large product's
+// session cost rather than the packed-bucket base.
+function packProducts(products, durations, productsScaled = false, seedJobs = []) {
     const items = products
-        .map((product) => ({ product, cost: productEffectiveCost(product, durations) }))
+        .map((product) => ({ product, cost: productEffectiveCost(product, durations, productsScaled) }))
         .sort((a, b) => b.cost - a.cost)
 
-    const buckets = []
+    const buckets = [...seedJobs]
     for (const { product, cost } of items) {
         let placed = false
         for (const bucket of buckets) {
-            if (bucket.cost + cost <= PRODUCT_TARGET_WALL_SECONDS) {
+            if (bucket.cost + cost <= TARGET_WALL_SECONDS - bucket.baseOverhead) {
                 bucket.products.push(product)
                 bucket.cost += cost
                 placed = true
@@ -530,7 +808,13 @@ function packProducts(products, durations) {
             }
         }
         if (!placed) {
-            buckets.push({ products: [product], cost })
+            buckets.push({
+                label: null,
+                legs: [],
+                products: [product],
+                cost,
+                baseOverhead: PRODUCT_JOB_BASE_OVERHEAD_SECONDS,
+            })
         }
     }
     return buckets
@@ -540,7 +824,7 @@ function packProducts(products, durations) {
 // drifts from its pytest targets sizes shards for a run that never happens, so
 // turbo-discover.test.js asserts these against ci-backend.yml itself.
 // Core: posthog/ + ee/ minus the paths the Core invocation --ignore's
-// Core POE: subset of Core (ignores hogql, hogql_queries) — same pool, fewer tests
+// CorePOE: the POE-off safeguard allowlist, a subset of Core's pool run under the legacy joined mode
 // Temporal: posthog/temporal + the product temporal/emission suites it runs alongside
 const DJANGO_SEGMENTS = {
     Core: {
@@ -566,24 +850,27 @@ const DJANGO_SEGMENTS = {
             'posthog/hogql/',
         ],
     },
+    // batch-exports and tasks used to run their temporal suites here. They now run
+    // them in their own product jobs, which cost no extra infrastructure because
+    // every shard already starts the temporal profile. signals/emission is listed
+    // because select-tests routes it here; leaving it out under-counted the segment.
     Temporal: {
-        include: [
-            'posthog/temporal/',
-            'products/batch_exports/backend/tests/temporal/',
-            'products/tasks/backend/temporal/',
-            'products/signals/backend/emission/',
-        ],
+        include: ['posthog/temporal/', 'products/signals/backend/emission/'],
         exclude: [],
     },
 }
 
-function getSegmentDuration(segment, durations) {
+// ranNodeIds, when given, restricts the sum to node ids a real run recorded.
+// The union keeps entries for tests another segment ran, so the prefix rules
+// alone over-count a segment by more than dead entries do.
+function getSegmentDuration(segment, durations, ranNodeIds = null) {
     if (!durations) {return 0}
     const { include, exclude } = DJANGO_SEGMENTS[segment]
     let total = 0
     for (const [test, dur] of Object.entries(durations)) {
         if (!include.some((p) => test.startsWith(p))) {continue}
         if (exclude.some((p) => test.startsWith(p))) {continue}
+        if (ranNodeIds && !ranNodeIds.has(test)) {continue}
         total += dur
     }
     return total
@@ -592,27 +879,214 @@ function getSegmentDuration(segment, durations) {
 // Fallback shard counts used when .test_durations is missing.
 const DJANGO_FALLBACK_SHARDS = { Core: 38, CorePOE: 7, Temporal: 7 }
 
+// A shard's wall is overhead + work/shards. Sizing solves that for the shared
+// TARGET_WALL_SECONDS: each shard carries (target - overhead) of work, so
+// shards = ceil(work / (target - overhead)) and every shard in every lane lands
+// near the same, predictable duration. Ceil, so the target is a ceiling, not an
+// average.
+//
+// The floor on the work budget covers a pathological overhead at or above the
+// target: the budget stops at half the overhead instead of going to zero or
+// negative, so the shard count stays bounded.
+//
 // minShards: full runs keep the DJANGO_MIN_SHARDS floor, but a narrowed
 // (test-selection) run may legitimately fit one shard.
 function calculateShards(totalWorkSeconds, overheadSeconds, minShards = DJANGO_MIN_SHARDS) {
-    const testBudget = DJANGO_TARGET_WALL_SECONDS - overheadSeconds
-    if (testBudget <= 0) {return DJANGO_MAX_SHARDS}
-    const shards = Math.ceil((totalWorkSeconds * DJANGO_SAFETY_FACTOR) / testBudget)
+    // The floor stops an overhead near the target from exploding the shard
+    // count. It sits at half the overhead: a floor at the full overhead pinned
+    // split product shards at twice their overhead, above any target below it.
+    const budget = Math.max(TARGET_WALL_SECONDS - overheadSeconds, overheadSeconds / 2, 1)
+    const shards = Math.ceil(totalWorkSeconds / budget)
     return Math.max(minShards, Math.min(DJANGO_MAX_SHARDS, shards))
 }
 
-function buildDjangoShards(durations) {
+// Shards for one product. Sizing a split by work/n sizes the MEAN shard, but the
+// run's wall is the MAX shard, and pytest-split cuts between tests rather than
+// inside one, so size the worst chunk instead.
+//
+// Split the suite at half the budget. Two tests above that cannot share a shard
+// at all, so each takes one and they set a floor no packing goes below. What is
+// left is at most half a budget per test, so a contiguous chunk of it runs at
+// most one such test past its mean, giving lightWork/n + maxLight <= budget and
+// so n = ceil(lightWork / (budget - maxLight)). That denominator is at least
+// half the budget, so it cannot collapse.
+//
+// The cuts are contiguous, so a heavy test sitting between light ones divides
+// the light run rather than lifting out of it. H heavy tests leave at most H + 1
+// light runs, and each run rounds up on its own, so the light side can cost H
+// shards beyond its own bound. Charge that whenever any light work exists.
+//
+// That charge assumes a fragmentation the suite may not have, so cap the count
+// at the number of tests. Past it a shard is guaranteed to collect nothing
+// (pytest exit 5) and spends a runner without shortening the critical path.
+//
+// Reading the distribution rather than a fitted ratio ties the sizing to the
+// map: a suite of heavy tests gets the shards they force, an evenly grained one
+// gets none it does not need, and no constant carries a past map's error.
+//
+// A product whose whole suite fits one shard is not split, and the bound does
+// not apply to it -- an unsplit chunk is the work itself, with nothing on top.
+function productSplitShards(shape) {
+    const budget = productShardBudget()
+    const { work = 0, heavyCount = 0, lightWork = 0, maxLight = 0, testCount = Infinity } = shape ?? {}
+    if (work <= budget) {
+        return 1
+    }
+    const lightShards = lightWork > 0 ? Math.ceil(lightWork / (budget - maxLight)) : 0
+    const fragmentation = lightWork > 0 ? heavyCount : 0
+    const wanted = Math.min(heavyCount + lightShards + fragmentation, testCount)
+    // The two-shard floor cannot outrank the test count: a product holding one
+    // test that overruns the budget still gets one job, because the second would
+    // collect nothing and splitting cannot shorten the first.
+    return Math.max(Math.min(2, testCount), Math.min(DJANGO_MAX_SHARDS, wanted))
+}
+
+// Selector segment key -> Django matrix segment name.
+const MATRIX_NAME_BY_SEGMENT = { core: 'Core', poe: 'CorePOE', temporal: 'Temporal' }
+
+// Shards per segment for a narrowed run: the full matrix's per-shard budget applied to
+// the selected tests' recorded seconds, so a wide selection spreads over several jobs
+// instead of running to the job timeout in one. Sizing from the selection's own seconds
+// keeps a skewed selection honest — picking the heavy half of a segment costs more
+// shards than picking the light half. The floor is 1 rather than DJANGO_MIN_SHARDS: a
+// narrow selection should stay a single job. Anything missing degrades to 1.
+function selectedShards(selection) {
+    const seconds = selection?.durations?.selected_seconds_by_segment ?? {}
+    const shards = {}
+    for (const [segment, matrixName] of Object.entries(MATRIX_NAME_BY_SEGMENT)) {
+        const overhead = DJANGO_OVERHEAD_SECONDS_BY_SEGMENT[matrixName]
+        shards[segment] = calculateShards(Number(seconds[segment]) || 0, overhead, 1)
+    }
+    return shards
+}
+
+// Counts the telemetry reports, whether or not the selection was used. Null throughout
+// when the selector produced nothing to read.
+function selectionMetrics(selection) {
+    return {
+        changed_file_count: selection?.changed_file_count ?? null,
+        selected_test_count: selection?.combined?.count ?? null,
+        full_run_reasons_count: selection ? (selection.ast?.full_run_reasons ?? []).length : null,
+        selected_test_seconds: selection?.durations?.selected_seconds ?? null,
+        skipped_test_seconds: selection?.durations?.skipped_seconds ?? null,
+    }
+}
+
+// What a run with nothing selected hands each matrix leg.
+function emptySegments() {
+    return {
+        core_files: '',
+        poe_files: '',
+        temporal_files: '',
+        compat_files: '',
+        run_poe: false,
+        run_temporal: false,
+        segment_shards: null,
+    }
+}
+
+// An untrusted selection runs the full matrices on a ready PR and skips them on a draft,
+// which is the pre-selection draft behavior: a draft has a later ready run to defer to,
+// and skipping is the cheaper of the two mistakes.
+function fallbackSelection(fallbackMode, reason, selection) {
+    console.error(`Backend test selection not used (${reason}) — Django matrix mode=${fallbackMode}`)
+    return { mode: fallbackMode, narrowed: false, skip_reason: reason, ...emptySegments(), ...selectionMetrics(selection) }
+}
+
+// Which Django tests this run should execute, and whether the product matrix may narrow.
+// Pure: every input is an argument, so each branch is unit-tested rather than inferred
+// from a workflow run.
+//   applies        this run selects at all (a PR, off the merge queue, no force label)
+//   disabled       the DISABLE_BACKEND_TEST_SELECTION kill switch
+//   draft          fall back by skipping rather than by running everything
+//   legacyChanged  the paths filter saw an edit under posthog/ or ee/
+//   runLegacy      whether the Django suite runs, and why
+//   selection      the selector's parsed output, null when it did not produce one
+function decideSelection({ applies, disabled, draft, legacyChanged, runLegacy, runLegacyReason, selection }) {
+    if (!applies || runLegacy === false) {
+        // Nothing to narrow: either the event never selects, or the Django suite is
+        // skipped outright. An empty mode leaves every consumer on its own default.
+        return { mode: '', narrowed: null, skip_reason: '', ...emptySegments(), ...selectionMetrics(null) }
+    }
+    const fallbackMode = draft ? 'skip' : 'full'
+    if (disabled) {
+        // Its own reason string, so flipping the kill switch during an incident stays
+        // distinguishable from a genuine cascade in the selection telemetry.
+        return fallbackSelection(fallbackMode, 'disabled', selection)
+    }
+    if (runLegacy && runLegacyReason !== 'legacy_changed') {
+        // Legacy impact was inferred from a product, contract, or schema change rather
+        // than seen as a direct edit. The diff-based selector cannot see that cascade, so
+        // its subset would be incomplete. A direct legacy edit is the selector's home
+        // turf and is deliberately trusted — its own FULL_RUN_PATTERNS decide when a
+        // legacy change is too broad to narrow.
+        return fallbackSelection(fallbackMode, 'untrusted', selection)
+    }
+    if (!selection) {
+        return fallbackSelection(fallbackMode, 'selector_error', selection)
+    }
+    const fullRunReasons = selection.ast?.full_run_reasons ?? []
+    if (fullRunReasons.length > 0) {
+        console.error(`Selector requested a full run:\n  ${fullRunReasons.join('\n  ')}`)
+        return fallbackSelection(fallbackMode, 'full_run_requested', selection)
+    }
+    const segments = selection.combined?.segments ?? {}
+    const core = segments.core ?? []
+    const poe = segments.poe ?? []
+    const temporal = segments.temporal ?? []
+    const compat = segments.compat ?? []
+    if (legacyChanged && core.length === 0 && temporal.length === 0) {
+        // A diff that touched legacy code but selected no Django test at all means the
+        // selector had no rule for it, not that there is nothing to run — a non-Python
+        // legacy file (C++ parser sources, a JSON config) reaches no import edge.
+        // Narrowing to zero would silently gate on nothing. FULL_RUN_PATTERNS covers the
+        // known cases; this catches the ones added to the `legacy` paths filter and
+        // forgotten there. Products-only diffs legitimately select nothing and are not legacy.
+        return fallbackSelection(fallbackMode, 'empty_selection', selection)
+    }
+    console.error(`Selected: ${core.length} core, ${poe.length} POE-eligible, ${temporal.length} temporal, ${compat.length} compat`)
+    return {
+        mode: 'selected',
+        narrowed: true,
+        skip_reason: '',
+        core_files: core.join(' '),
+        poe_files: poe.join(' '),
+        temporal_files: temporal.join(' '),
+        compat_files: compat.join(' '),
+        run_poe: poe.length > 0,
+        run_temporal: temporal.length > 0,
+        segment_shards: selectedShards(selection),
+        ...selectionMetrics(selection),
+    }
+}
+
+// The run identity the selection telemetry event carries, from the runner's own env.
+function runContext() {
+    let prNumber = null
+    try {
+        prNumber = JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, 'utf-8')).pull_request?.number ?? null
+    } catch {
+        // Not a GitHub run, or no event payload: the fields stay null.
+    }
+    return {
+        event_type: process.env.GITHUB_EVENT_NAME ?? null,
+        branch: process.env.GITHUB_HEAD_REF || process.env.GITHUB_REF_NAME || null,
+        sha: process.env.GITHUB_SHA ?? null,
+        pr_number: prNumber,
+        run_id: process.env.GITHUB_RUN_ID ?? null,
+    }
+}
+
+function buildDjangoShards(durations, ranNodeIds = {}) {
     const result = {}
     for (const [segment] of Object.entries(DJANGO_SEGMENTS)) {
         const overhead = DJANGO_OVERHEAD_SECONDS_BY_SEGMENT[segment]
-        const duration = getSegmentDuration(segment, durations)
+        const ran = ranNodeIds[segment] || null
+        const duration = getSegmentDuration(segment, durations, ran)
         const shards = durations ? calculateShards(duration, overhead) : DJANGO_FALLBACK_SHARDS[segment]
-        // calculateShards applies DJANGO_SAFETY_FACTOR — mirror it in the
-        // wall estimate so the diagnostic matches the budget the shard count
-        // actually targets (was previously under-reporting by ~30%).
-        const wall = overhead + (duration * DJANGO_SAFETY_FACTOR) / shards
+        const wall = overhead + duration / shards
         result[segment] = { duration_seconds: duration, shards, estimated_wall_seconds: wall }
-        const source = durations ? 'auto' : 'fallback'
+        const source = durations ? (ran ? 'auto, junit-scoped' : 'auto, union') : 'fallback'
         console.error(
             `  Django ${segment}: ${(duration / 60).toFixed(1)} min total, ${shards} shards (${source}), ~${(wall / 60).toFixed(1)} min est. wall`
         )
@@ -620,85 +1094,117 @@ function buildDjangoShards(durations) {
     return result
 }
 
-function buildMatrix(products, durations) {
+// A workflow edit reaches an open PR before this script does, so an entry a
+// single turbo invocation can express keeps the pre-legs {filters, pytest_args}
+// keys beside its leg. An entry with several legs has no such expression and
+// carries legs alone, by which point the workflow reading it is the new one.
+function matrixEntry(group, legs) {
+    const entry = { group, legs }
+    if (legs.length === 1) {
+        entry.filters = legs[0].filters
+        entry.pytest_args = legs[0].pytest_args
+    }
+    return entry
+}
+
+function buildMatrix(products, durations, productsScaled = false) {
     const matrix = []
     const packable = []
+    const fillableJobs = []
 
-    // Split a product across multiple shards only when its raw duration plus
-    // one per-product overhead exceeds the target wall clock. Don't apply the
-    // safety factor here — that inflation is for packing-capacity decisions
-    // (avoid stuffing a bucket beyond budget under variance), not for the
-    // "must we split?" check. Using the inflated cost for splitting causes
-    // borderline products to fragment into uneven sub-shards (pytest-split
-    // can't balance well when many tests have flat-default 0.01s values),
-    // paying duplicate Docker setup for little parallel work gained.
+    // Split a product across multiple shards with the same rule Django uses:
+    // enough shards that each lands at the shared wall target. Unlike packing,
+    // the split carries no safety factor -- productSplitShards derives its own
+    // headroom from the product's longest test instead. That leaves it trusting
+    // the recorded sum, which holds only while the map carries
+    // PRODUCTS_SCALED_MARKER: call-only durations undercount a fixture-heavy
+    // suite several-fold, and sizing an unscaled sum under-shards it.
     for (const product of products) {
-        const staleness = checkProductStaleness(product, durations)
-        let raw = getProductDuration(product, durations) + PRODUCT_PER_PRODUCT_OVERHEAD_SECONDS
-
-        // Staleness guard: if .test_durations has poor coverage for this product,
-        // use a file-count-based fallback to avoid under-sharding.
-        if (staleness.stale && staleness.fileCount > 0) {
-            const fallbackRaw = staleness.fileCount * STALENESS_FALLBACK_SECONDS_PER_FILE + PRODUCT_PER_PRODUCT_OVERHEAD_SECONDS
-            if (fallbackRaw > raw) {
-                console.error(
-                    `  ${product}: .test_durations stale — ${staleness.coveredCount}/${staleness.fileCount} test files covered ` +
-                    `(${(staleness.coverage * 100).toFixed(0)}%). Using fallback estimate: ${(fallbackRaw / 60).toFixed(1)} min (was ${(raw / 60).toFixed(1)} min)`
-                )
-                console.error(
-                    `::warning title=Stale .test_durations::Product '${product}' has only ${staleness.coveredCount}/${staleness.fileCount} ` +
-                    `test files covered in .test_durations. Duration estimates are unreliable — using fallback sharding.`
-                )
-                raw = fallbackRaw
-            }
+        const sizing = resolveProductSizing(product, durations, productsScaled)
+        const { work, maxTest, staleUnionWork, staleness } = sizing
+        if (staleUnionWork !== null) {
+            console.error(
+                `  ${product}: .test_durations stale, ${staleness.coveredCount}/${staleness.fileCount} test files covered ` +
+                `(${(staleness.coverage * 100).toFixed(0)}%). Using fallback estimate: ${(work / 60).toFixed(1)} min (was ${(staleUnionWork / 60).toFixed(1)} min)`
+            )
+            console.error(
+                `::warning title=Stale .test_durations::Product '${product}' has only ${staleness.coveredCount}/${staleness.fileCount} ` +
+                `test files covered in .test_durations. Duration estimates are unreliable, using fallback sharding.`
+            )
         }
 
-        if (raw > PRODUCT_TARGET_WALL_SECONDS) {
-            const shards = Math.ceil(raw / PRODUCT_TARGET_WALL_SECONDS)
-            console.error(`  ${product}: ${(raw / 60).toFixed(1)} min raw → split across ${shards} shards`)
+        const shards = productSplitShards(sizing)
+        if (shards > 1) {
+            console.error(`  ${product}: ${(work / 60).toFixed(1)} min work → split across ${shards} shards`)
             const filters = `--filter=@posthog/products-${product}`
             // optimal_chunks (PostHog pytest-split fork) makes the same contiguous,
             // order-preserving cuts as duration_based_chunks but balances them
             // optimally. The greedy rule in duration_based_chunks lets every shard
             // overrun the per-shard average, which on skewed suites starves trailing
             // shards down to zero tests (pytest exit 5, "no tests collected").
+            const shardCost = work / shards + maxTest
             for (let i = 1; i <= shards; i++) {
-                matrix.push({
-                    group: `${product} (${i}/${shards})`,
+                const leg = {
                     filters,
                     pytest_args: `-- --splits ${shards} --group ${i} --splitting-algorithm optimal_chunks`,
-                })
+                }
+                // work/shards + maxTest bounds every shard, whichever one
+                // optimal_chunks leaves lightest, so one shard can be offered to the
+                // packer without knowing which. Do not tighten this to work/shards:
+                // the bound is what keeps a filled shard inside the job budget.
+                if (i === shards && !DEDICATED_BUCKET_PRODUCTS.has(product)) {
+                    fillableJobs.push({
+                        label: `${product} (${i}/${shards})`,
+                        legs: [leg],
+                        products: [],
+                        cost: shardCost,
+                        baseOverhead: PRODUCT_JOB_OVERHEAD_SECONDS,
+                    })
+                } else {
+                    matrix.push(matrixEntry(`${product} (${i}/${shards})`, [leg]))
+                }
             }
         } else if (DEDICATED_BUCKET_PRODUCTS.has(product)) {
-            console.error(`  ${product}: ${(raw / 60).toFixed(1)} min raw → dedicated bucket (never packed)`)
-            matrix.push({
-                group: product,
-                filters: `--filter=@posthog/products-${product}`,
-                pytest_args: '',
-            })
+            console.error(`  ${product}: ${(work / 60).toFixed(1)} min work → dedicated job (never shared)`)
+            matrix.push(matrixEntry(product, [{ filters: `--filter=@posthog/products-${product}`, pytest_args: '' }]))
         } else {
             packable.push(product)
         }
     }
 
-    for (const bucket of packProducts(packable, durations)) {
-        console.error(
-            `  bucket (${(bucket.cost / 60).toFixed(1)} min effective): ${bucket.products.join(', ')}`
-        )
-        matrix.push({
-            group: bucket.products.join(', '),
-            filters: bucket.products.map((p) => `--filter=@posthog/products-${p}`).join(' '),
-            pytest_args: '',
-        })
+    for (const bucket of packProducts(packable, durations, productsScaled, fillableJobs)) {
+        const group = [bucket.label, ...bucket.products].filter(Boolean).join(', ')
+        console.error(`  job (${(bucket.cost / 60).toFixed(1)} min effective): ${group}`)
+        const legs = [...bucket.legs]
+        if (bucket.products.length > 0) {
+            legs.push({
+                filters: bucket.products.map((p) => `--filter=@posthog/products-${p}`).join(' '),
+                pytest_args: '',
+            })
+        }
+        matrix.push(matrixEntry(group, legs))
     }
 
     return matrix
 }
 
-// Exported for unit tests, plus the Django sizing pieces that
-// selected-django-shards.js reuses so narrowed runs share one budget.
+// Exported for unit tests.
 module.exports = {
+    narrowedProducts,
+    decideSelection,
+    selectedShards,
     calculateShards,
+    pruneDeadDurations,
+    getSegmentDuration,
+    getProductDuration,
+    resolveProductSizing,
+    buildMatrix,
+    PRODUCT_JOB_OVERHEAD_SECONDS,
+    PRODUCT_BUCKET_SAFETY_FACTOR,
+    productSplitShards,
+    getProductShape,
+    PRODUCTS_SCALED_MARKER,
+    TARGET_WALL_SECONDS,
     DJANGO_OVERHEAD_SECONDS_BY_SEGMENT,
     DJANGO_SEGMENTS,
     getIsolatedProducts,
@@ -717,15 +1223,12 @@ if (require.main === module) {
 
 const legacyChanged = process.env.LEGACY_CHANGED === 'true'
 const schemaChanged = process.env.SCHEMA_CHANGED === 'true'
+const selection = loadSelection(process.env.SELECTION_JSON)
 
 let allTestTasks, affectedTestTasks, affectedContractTasks, contractTasks
 try {
     allTestTasks = parseTurboTasks(runTurbo(['run', 'backend:test', '--dry-run=json']))
     if (!legacyChanged) {
-        console.error(`Turbo affected base: ${process.env.TURBO_SCM_BASE || '(default)'}`)
-        console.error(`Turbo affected head: ${process.env.TURBO_SCM_HEAD || '(default)'}`)
-        affectedTestTasks = parseAffectedTasks(runTurbo(affectedArgs('backend:test')))
-        affectedContractTasks = parseAffectedTasks(runTurbo(affectedArgs('backend:contract-check')))
         contractTasks = parseTurboTasks(runTurbo(['run', 'backend:contract-check', '--dry-run=json']))
     }
 } catch (e) {
@@ -734,6 +1237,20 @@ try {
         console.error(e.stderr.toString().slice(0, 1000))
     }
     process.exit(1)
+}
+console.error(`Turbo affected base: ${process.env.TURBO_SCM_BASE || '(default)'}`)
+console.error(`Turbo affected head: ${process.env.TURBO_SCM_HEAD || '(default)'}`)
+if (!legacyChanged) {
+    affectedTestTasks = queryAffectedTasks('backend:test')
+    affectedContractTasks = queryAffectedTasks('backend:contract-check')
+    if (affectedTestTasks === null || affectedContractTasks === null) {
+        console.error('turbo discovery failed')
+        process.exit(1)
+    }
+} else if (process.env.SELECTION_JSON) {
+    // A legacy diff with a backend test selection still asks which products changed:
+    // that set seeds the narrowed product matrix. A failed query only disables it.
+    affectedTestTasks = queryAffectedTasks('backend:test')
 }
 const allProducts = getAllProducts(allTestTasks)
 const allProductSet = new Set(allProducts)
@@ -744,12 +1261,19 @@ let runLegacy
 // (which the diff-based selector handles) from an inferred product->legacy cascade
 // (which it cannot see). Empty when runLegacy is false.
 let runLegacyReason = ''
+// On a legacy diff the full product matrix is the fallback. Given a backend test
+// selection, the matrix narrows to these products plus the ones the selector reached
+// through the import graph. Null when that narrowing is not safe.
+let mustRunProducts = null
 
 if (legacyChanged) {
     console.error('Legacy code changed — testing all products')
     products = allProducts
     runLegacy = true
     runLegacyReason = 'legacy_changed'
+    if (affectedTestTasks) {
+        mustRunProducts = legacyMustRunProducts(affectedTestTasks, allProductSet, schemaChanged)
+    }
 } else {
     const isolatedProducts = getIsolatedProducts(contractTasks)
     const affectedProducts = getAffectedTaskProducts(affectedTestTasks)
@@ -777,15 +1301,14 @@ if (legacyChanged) {
             console.error(`Isolated product contracts changed: ${JSON.stringify(affectedContracts)} — Django will run`)
             runLegacy = true
             runLegacyReason = 'contract_cascade'
-            const tachGraph = loadTachModuleGraph()
-            if (tachGraph === null) {
+            const dependents = tachDependentProducts(affectedContracts, allProductSet)
+            if (dependents === null) {
                 // Fail toward over-testing, like the quarantine loaders above: without the
                 // graph we cannot know which products depend on the changed contract, and
                 // guessing "none" silently recreates the gap this cascade exists to close.
                 console.error('Dependent cascade unavailable — testing all products rather than risk skipping a dependent')
                 products = allProducts
             } else {
-                const dependents = tachDependents(affectedContracts, tachGraph).filter((p) => allProductSet.has(p))
                 if (dependents.length > 0) {
                     console.error(
                         `Dependent products cascaded in via tach.toml: ${JSON.stringify(dependents)} (transitively depend on ${JSON.stringify(affectedContracts)})`
@@ -805,29 +1328,16 @@ if (legacyChanged) {
     }
 
     if (schemaChanged) {
-        const impact = analyzeSchemaImpact({ scmBase: process.env.TURBO_SCM_BASE })
-        console.error(`Schema impact: ${JSON.stringify({ kind: impact.kind, counts: impact.counts, reason: impact.reason })}`)
-        if (impact.kind === 'fallback') {
-            console.error(`Schema diff unavailable (${impact.reason}) — falling back to all products + Django`)
+        const schemaProducts = schemaAffectedProducts()
+        if (schemaProducts === null) {
+            console.error('Schema diff unavailable — falling back to all products + Django')
             products = allProducts
-            runLegacy = true
-            runLegacyReason = 'schema'
         } else {
-            if (impact.kind === 'impacting') {
-                console.error(`Schema-affected products: ${JSON.stringify(impact.affectedProducts)}`)
-                if (impact.wildcardProducts && impact.wildcardProducts.length > 0) {
-                    console.error(
-                        `Products with unresolved schema module imports (always tested): ${JSON.stringify(impact.wildcardProducts)}`
-                    )
-                }
-                products = [...new Set([...products, ...impact.affectedProducts])].sort()
-            } else {
-                console.error('Schema change is purely additive — no extra products needed')
-            }
-            // Core (posthog/, ee/, etc.) imports schema heavily; always run Django on schema changes.
-            runLegacy = true
-            runLegacyReason = 'schema'
+            products = [...new Set([...products, ...schemaProducts])].sort()
         }
+        // Core (posthog/, ee/, etc.) imports schema heavily; always run Django on schema changes.
+        runLegacy = true
+        runLegacyReason = 'schema'
     }
 }
 
@@ -852,6 +1362,7 @@ if (quarantinedProducts.size > 0) {
 // never sees .test_quarantine.json as a product input). Django's side of the same
 // invariant is carried by FULL_RUN_PATTERNS in the backend test selector, since a
 // legacy diff no longer implies a full Django run on its own.
+const liftedProducts = []
 if (process.env.TURBO_SCM_BASE) {
     const baseQuarantined = loadBaseQuarantinedSkipProducts(process.env.TURBO_SCM_BASE, todayISO)
     const allProductSet = new Set(allProducts)
@@ -861,23 +1372,80 @@ if (process.env.TURBO_SCM_BASE) {
         if (!allProductSet.has(name) || productSet.has(name)) {continue}
         console.error(`Quarantine lifted for '${name}' since ${process.env.TURBO_SCM_BASE} — forced into matrix`)
         products.push(name)
+        liftedProducts.push(name)
     }
     products.sort()
+}
+
+const selectionDecision = decideSelection({
+    applies: process.env.SELECTION_APPLIES === 'true',
+    disabled: process.env.SELECTION_DISABLED === 'true',
+    draft: process.env.PR_DRAFT === 'true',
+    legacyChanged,
+    runLegacy,
+    runLegacyReason,
+    selection,
+})
+
+// Narrow the legacy-diff matrix after every drop and lift above, so narrowing can only
+// remove products. The matrix is then packed from the narrowed list.
+const productCountBeforeNarrowing = products.length
+let productMatrixNarrowed = false
+if (mustRunProducts !== null && selectionDecision.mode === 'selected') {
+    const mustRun = [...new Set([...mustRunProducts, ...liftedProducts])].sort()
+    console.error(`Products that must run if the matrix is narrowed: ${JSON.stringify(mustRun)}`)
+    products = narrowedProducts(products, mustRun, selection)
+    productMatrixNarrowed = true
 }
 
 console.error(`Products to test: ${JSON.stringify(products)}`)
 console.error(`Run legacy (Django): ${runLegacy}${runLegacyReason ? ` (${runLegacyReason})` : ''}`)
 
-const durations = loadTestDurations()
+const rawDurations = loadTestDurations()
+// Read before pruning: the marker's key is not a real file, so pruning drops it.
+const productsScaled = Boolean(rawDurations && rawDurations[PRODUCTS_SCALED_MARKER])
+if (productsScaled) {
+    console.error('Product entries in .test_durations are junit-scaled, trusting their magnitudes')
+}
+const durations = pruneDeadDurations(rawDurations)
+const ranNodeIds = loadRanNodeIds()
 
 console.error('\nDjango shard calculation:')
-const djangoShards = buildDjangoShards(durations)
+const djangoShards = buildDjangoShards(durations, ranNodeIds)
 
+const { mode, core_files, poe_files, temporal_files, compat_files, run_poe, run_temporal, segment_shards, ...metrics } =
+    selectionDecision
 const result = {
-    matrix: buildMatrix(products, durations),
+    matrix: buildMatrix(products, durations, productsScaled),
     run_legacy: runLegacy,
     run_legacy_reason: runLegacyReason,
     django_shards: djangoShards,
+    // What the Django matrix jobs read, as one job output; segment_shards stays a JSON
+    // string because build_django_matrix parses it itself.
+    selection: {
+        mode,
+        core_files,
+        poe_files,
+        temporal_files,
+        compat_files,
+        run_poe,
+        run_temporal,
+        segment_shards: segment_shards ? JSON.stringify(segment_shards) : '',
+    },
+    // The posthog-ci-test-selection event, ready for the capture-test-selection job.
+    telemetry: {
+        suite: 'backend',
+        mode,
+        run_poe,
+        run_temporal,
+        ...metrics,
+        run_legacy: runLegacy,
+        run_legacy_reason: runLegacyReason,
+        product_matrix_narrowed: productMatrixNarrowed,
+        product_count: products.length,
+        product_count_full: productCountBeforeNarrowing,
+        ...runContext(),
+    },
 }
 // eslint-disable-next-line no-console
 process.stdout.write(JSON.stringify(result) + '\n')

@@ -135,11 +135,6 @@ export type CdpConfig = ClickhouseConfig & {
     // Comma-separated allowlist of SNS Topic ARNs the SES webhook accepts events from. Empty string
     // means no restriction (dev/test); production should set this to the workflow SES topic ARN(s).
     SES_ALLOWED_SNS_TOPIC_ARNS: string
-    // When true, sends carry TenantName (team-<team_id>) so SES attributes reputation per team
-    // and its Standard reputation policy can pause a single tenant instead of the shared account.
-    // Off by default: a send naming a tenant whose identity association is missing fails, so this
-    // flips on only after tenant coverage is verified (migrate_ses_tenants --dry-run comes back empty).
-    EMAIL_SES_TENANT_ATTRIBUTION_ENABLED: boolean
 
     // Consecutive soft bounces before an address is auto-suppressed. Tunable without a deploy.
     EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD: number
@@ -251,8 +246,10 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_VALKEY_TLS: false,
         CDP_VALKEY_READ_FEATURES: '',
 
-        SES_RATE_LIMITER_VALKEY_HOST: '',
-        SES_RATE_LIMITER_VALKEY_PORT: 6379,
+        // Dev points at the compose stack's Valkey (same instance as CDP_VALKEY) so the SES gate,
+        // per-workflow email rate limits, and the MX-validation cache are exercisable locally.
+        SES_RATE_LIMITER_VALKEY_HOST: isDevEnv() ? '127.0.0.1' : '',
+        SES_RATE_LIMITER_VALKEY_PORT: isDevEnv() ? 6390 : 6379,
         SES_RATE_LIMITER_VALKEY_PASSWORD: '',
         SES_RATE_LIMITER_VALKEY_TLS: false,
 
@@ -309,7 +306,6 @@ export function getDefaultCdpConfig(): CdpConfig {
         SES_TRACKED_CONFIGURATION_SET: 'posthog-messaging',
         SES_UNTRACKED_CONFIGURATION_SET: '',
         SES_ALLOWED_SNS_TOPIC_ARNS: '',
-        EMAIL_SES_TENANT_ATTRIBUTION_ENABLED: false,
         EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD: 5,
 
         // Destination migration diffing

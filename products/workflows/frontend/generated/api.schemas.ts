@@ -308,6 +308,7 @@ export interface HogFlowMinimalApi {
     readonly trigger_masking: unknown
     readonly conversion: unknown
     readonly exit_condition: ExitConditionEnumApi
+    readonly email_sending_rate_limit: unknown
     readonly edges: unknown
     readonly actions: unknown
     /** @nullable */
@@ -360,6 +361,31 @@ export interface HogFlowConversionApi {
     window_minutes?: number | null
     /** Compiled server-side from 'filters'. Do not set; ignored if sent. */
     bytecode?: unknown
+}
+
+/**
+ * * `minute` - minute
+ * * `hour` - hour
+ */
+export type PeriodEnumApi = (typeof PeriodEnumApi)[keyof typeof PeriodEnumApi]
+
+export const PeriodEnumApi = {
+    Minute: 'minute',
+    Hour: 'hour',
+} as const
+
+export interface HogFlowEmailSendingRateLimitApi {
+    /**
+     * Maximum number of emails this workflow sends per period.
+     * @minimum 1
+     * @maximum 1000000
+     */
+    count: number
+    /** Window the count applies to. Sends over the limit are delayed until capacity frees up, not dropped.
+     *
+     * * `minute` - minute
+     * * `hour` - hour */
+    period: PeriodEnumApi
 }
 
 /**
@@ -561,6 +587,8 @@ export interface HogFlowApi {
      * * `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion
      * * `exit_only_at_end` - Only At End */
     exit_condition?: ExitConditionEnumApi
+    /** Optional email pacing for deliverability: {count, period: 'minute' | 'hour'}. The email worker spreads this workflow's sends to stay under the limit; over-limit sends wait for capacity instead of failing. Null disables pacing. */
+    email_sending_rate_limit?: HogFlowEmailSendingRateLimitApi | null
     /** Graph edges: [{from, to, type: 'continue'|'branch', index?}]. 'continue' = fall-through (sequential, or no-match path of conditional_branch). 'branch' requires 'index': matches config.conditions[index] on conditional_branch / wait_until_condition. Every non-exit action needs a reachable next action ('No next action found' otherwise). */
     edges?: HogFlowEdgeApi[]
     /** Ordered action nodes. Exactly one type='trigger' required. Typically one type='exit' too. */
@@ -637,6 +665,8 @@ export interface PatchedHogFlowApi {
      * * `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion
      * * `exit_only_at_end` - Only At End */
     exit_condition?: ExitConditionEnumApi
+    /** Optional email pacing for deliverability: {count, period: 'minute' | 'hour'}. The email worker spreads this workflow's sends to stay under the limit; over-limit sends wait for capacity instead of failing. Null disables pacing. */
+    email_sending_rate_limit?: HogFlowEmailSendingRateLimitApi | null
     /** Graph edges: [{from, to, type: 'continue'|'branch', index?}]. 'continue' = fall-through (sequential, or no-match path of conditional_branch). 'branch' requires 'index': matches config.conditions[index] on conditional_branch / wait_until_condition. Every non-exit action needs a reachable next action ('No next action found' otherwise). */
     edges?: HogFlowEdgeApi[]
     /** Ordered action nodes. Exactly one type='trigger' required. Typically one type='exit' too. */

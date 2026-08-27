@@ -191,6 +191,7 @@ export type HogFunctionFilterGlobals = {
     }
 
     variables: Record<string, any> | undefined // For HogFlows, workflow-level variables
+    cohort_ids?: number[] // Cohorts the person is a member of, read by the inCohort/notInCohort STL functions
 }
 
 export type MetricLogSource = 'hog_function' | 'hog_flow' | 'legacy_plugin'

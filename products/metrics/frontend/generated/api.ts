@@ -26,6 +26,7 @@ import type {
     _MetricQueryResponseApi,
     _MetricSamplesRequestApi,
     _MetricSamplesResponseApi,
+    _MetricsOverviewResponseApi,
 } from './api.schemas'
 
 export const getEventFilterMetricsRetrieveUrl = (projectId: string) => {
@@ -188,6 +189,24 @@ export const metricsHasMetricsRetrieve = async (
     options?: RequestInit
 ): Promise<_HasMetricsResponseApi> => {
     return apiMutator<_HasMetricsResponseApi>(getMetricsHasMetricsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMetricsOverviewRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/metrics/overview/`
+}
+
+/**
+ * Ingestion rollup for the overview page: freshness of the newest
+ * datapoint plus per-service metric/series counts over the last day.
+ */
+export const metricsOverviewRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<_MetricsOverviewResponseApi> => {
+    return apiMutator<_MetricsOverviewResponseApi>(getMetricsOverviewRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

@@ -1862,6 +1862,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     await visionScannersPartialUpdate(String(teamId), props.id, { enabled: next })
                     actions.toggleEnabledSuccess(next)
                     refreshVisionQuota()
+                    lemonToast.success(`Scanner ${next ? 'enabled' : 'disabled'}`)
                 } catch (error: any) {
                     actions.setScannerValue('enabled', !next)
                     const verb = next ? 'enable' : 'disable'

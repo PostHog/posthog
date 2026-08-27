@@ -18,7 +18,10 @@ from dataclasses import asdict
 from typing import Any, cast
 from uuid import UUID
 
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.validators import DomainNameValidator
 from django.db import transaction
+from django.http import HttpResponse
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
@@ -33,6 +36,7 @@ from rest_framework.throttling import UserRateThrottle
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemViewSetMixin
+from posthog.cdp.services.icons import CDPIconsService
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
 from posthog.helpers.impersonation import is_impersonated
@@ -45,9 +49,9 @@ from posthog.permissions import (
     is_service_auth,
 )
 from posthog.rate_limit import RunSavedQueryRateThrottle
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControl, model_to_resource
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl, model_to_resource
+from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.customer_analytics.backend.facade import api, contracts
 from products.customer_analytics.backend.facade.constants import (
     CUSTOMER_ANALYTICS_FEATURE_REQUESTS_FLAG,
@@ -75,6 +79,7 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     CustomPropertyDefinitionSerializer,
     CustomPropertySourceSerializer,
     CustomPropertySourceUpdateSerializer,
+    CustomPropertySyncRunListQuerySerializer,
     CustomPropertySyncRunSerializer,
     CustomPropertySyncTriggerResponseSerializer,
     CustomPropertyValueSerializer,
@@ -108,6 +113,8 @@ from ee.hogai.tools.create_notebook.tiptap import markdown_to_tiptap_nodes
 # reads need "viewer", writes need "editor".
 _OBJECT_READ_LEVEL = "viewer"
 _OBJECT_WRITE_LEVEL = "editor"
+
+_ICON_DOMAIN_VALIDATOR = DomainNameValidator(accept_idna=False)
 
 
 # The warehouse resources a person/group-property source can bind to: the import source behind a
@@ -600,7 +607,7 @@ class FeatureRequestViewSet(
         return self.update(request, *args, **kwargs)
 
     @extend_schema(request=FeatureRequestAddAccountSerializer, responses={200: FeatureRequestSerializer})
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, required_scopes=["customer_analytics:write"])
     def add_account(self, request: Request, *args, **kwargs) -> Response:
         serializer = FeatureRequestAddAccountSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -627,7 +634,7 @@ class FeatureRequestViewSet(
         return Response(FeatureRequestSerializer(instance=feature_request).data)
 
     @extend_schema(request=FeatureRequestEvidenceCreateSerializer, responses={200: FeatureRequestSerializer})
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, required_scopes=["customer_analytics:write"])
     def add_evidence(self, request: Request, *args, **kwargs) -> Response:
         serializer = FeatureRequestEvidenceCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -658,7 +665,7 @@ class FeatureRequestViewSet(
         return Response(FeatureRequestSerializer(instance=feature_request).data)
 
     @extend_schema(request=FeatureRequestEvidenceUpdateSerializer, responses={200: FeatureRequestSerializer})
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, required_scopes=["customer_analytics:write"])
     def update_evidence(self, request: Request, *args, **kwargs) -> Response:
         serializer = FeatureRequestEvidenceUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -689,7 +696,7 @@ class FeatureRequestViewSet(
         return Response(FeatureRequestSerializer(instance=feature_request).data)
 
     @extend_schema(request=FeatureRequestEvidenceDeleteSerializer, responses={200: FeatureRequestSerializer})
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, required_scopes=["customer_analytics:write"])
     def remove_evidence(self, request: Request, *args, **kwargs) -> Response:
         serializer = FeatureRequestEvidenceDeleteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -732,17 +739,17 @@ class FeatureRequestViewSet(
         return Response(FeatureRequestSerializer(instance=feature_request).data)
 
     @extend_schema(request=FeatureRequestVersionSerializer, responses={200: FeatureRequestSerializer})
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, required_scopes=["customer_analytics:write"])
     def archive(self, request: Request, *args, **kwargs) -> Response:
         return self._set_archived(request, archived=True)
 
     @extend_schema(request=FeatureRequestVersionSerializer, responses={200: FeatureRequestSerializer})
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, required_scopes=["customer_analytics:write"])
     def restore(self, request: Request, *args, **kwargs) -> Response:
         return self._set_archived(request, archived=False)
 
     @extend_schema(responses={200: FeatureRequestHistorySerializer(many=True)})
-    @action(methods=["GET"], detail=True, pagination_class=None)
+    @action(methods=["GET"], detail=True, pagination_class=None, required_scopes=["customer_analytics:read"])
     def history(self, request: Request, *args, **kwargs) -> Response:
         history = api.list_feature_request_history(
             team_id=self.team_id,
@@ -754,7 +761,7 @@ class FeatureRequestViewSet(
         return Response(FeatureRequestHistorySerializer(instance=history, many=True).data)
 
     @extend_schema(responses={200: FeatureRequestStatusHistorySerializer(many=True)})
-    @action(methods=["GET"], detail=True, pagination_class=None)
+    @action(methods=["GET"], detail=True, pagination_class=None, required_scopes=["customer_analytics:read"])
     def status_history(self, request: Request, *args, **kwargs) -> Response:
         history = api.list_feature_request_status_history(
             team_id=self.team_id,
@@ -1329,13 +1336,13 @@ class CustomPropertySourceViewSet(
 
     @extend_schema(
         operation_id="custom_property_sources_runs_list",
+        parameters=[CustomPropertySyncRunListQuerySerializer],
         responses={200: CustomPropertySyncRunSerializer(many=True)},
     )
     @action(methods=["GET"], detail=True)
     def runs(self, request: Request, *args, **kwargs) -> Response:
-        """Person and group sources only: the source's sync/backfill run history, newest first. Gated
-        on the caller's warehouse-source viewer access, since the runs expose its row counts and sync
-        errors."""
+        """The source's sync history, newest first. Person and group runs require viewer access to
+        their warehouse source because the response includes row counts and sync errors."""
         # Hide the run history of a group-target source from callers without group read authorization.
         source = api.get_custom_property_source(self.team_id, self.kwargs["pk"])
         if (
@@ -1344,6 +1351,11 @@ class CustomPropertySourceViewSet(
             and not _has_group_scope(request, write=False)
         ):
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        if source is not None and self._definition_target_type(source.definition) == "account":
+            self._report_usage(request, "account property sync history viewed")
+        query = CustomPropertySyncRunListQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        search = query.validated_data.get("search", "").strip() or None
         try:
             return self._paginate_via_facade(
                 request,
@@ -1353,6 +1365,8 @@ class CustomPropertySourceViewSet(
                     offset=offset,
                     limit=limit,
                     user_access_control=_warehouse_scoped_uac(self),
+                    include_temporal_urls=bool(request.user.is_staff or is_impersonated(request)),
+                    search=search,
                 ),
                 CustomPropertySyncRunSerializer,
             )
@@ -1763,6 +1777,25 @@ class AccountViewSet(
         if view.action in {"support_tickets", "support_ticket", "email_threads", "email_thread"}:
             return ["account:read", "ticket:read"]
         return None
+
+    # Image bytes for <img src>; deliberately outside the typed client surface.
+    @extend_schema(exclude=True)
+    @action(methods=["GET"], detail=False, required_scopes=["account:read"])
+    def icon(self, request: Request, *args, **kwargs) -> HttpResponse:
+        domain = request.query_params.get("domain", "").strip().lower().rstrip(".")
+        try:
+            _ICON_DOMAIN_VALIDATOR(domain)
+        except DjangoValidationError:
+            raise ValidationError("domain must be a bare hostname, e.g. posthog.com")
+        theme = request.query_params.get("theme")
+        return CDPIconsService().get_icon_http_response(
+            domain,
+            # Bound cache keys to the themes logo.dev supports.
+            theme=theme if theme in ("light", "dark") else None,
+            # AccountLogo renders its own lettermark on 404 instead of logo.dev's monogram.
+            fallback="404",
+            team_id=self.team_id,
+        )
 
     def create(self, request: Request, *args, **kwargs) -> Response:
         serializer = AccountSerializer(data=request.data)

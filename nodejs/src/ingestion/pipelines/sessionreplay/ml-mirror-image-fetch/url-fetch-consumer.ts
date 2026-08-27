@@ -1,9 +1,11 @@
 import { Message } from 'node-rdkafka'
+import pLimit from 'p-limit'
 
 import { logger } from '~/common/utils/logger'
 
 import { FetchCandidate, MAX_HOPS, UrlDropReason, parseCollectedUrlsRecord } from './collected-urls-record'
 import { CrawlHistoryItem, CrawlHistoryStore, UrlCrawlHistoryItem, configurationCacheKey } from './crawl-history'
+import { mergeDuplicateFetchCandidates } from './fetch-candidate-queue'
 import {
     AttemptOutcome,
     DELAY_TOO_LONG,
@@ -12,11 +14,19 @@ import {
     HOPS_EXHAUSTED,
     isTransientOutcome,
 } from './fetch-runner'
+import { FrontierDeadLetterReason, FrontierDeadLetterSink } from './frontier-dead-letter-sink'
 import { FrontierPublisher, RepublishBatch } from './frontier-publisher'
 import { ImageFetchConsumerMetrics, ImageFetchRequestMetrics } from './metrics'
 
 const ONE_HOUR_MS = 60 * 60 * 1000
 const REPUBLISH_DEADLINE_FROM_BATCH_START_MS = 200_000
+const DEAD_LETTER_BATCH_BUDGET_MS = 50_000
+const DEAD_LETTER_PUBLISH_CONCURRENCY = 8
+
+type RejectedFrontierRecord = {
+    message: Message
+    reasons: UrlDropReason[]
+}
 
 export interface UrlFetchConsumerOptions {
     seenTtlSeconds: number
@@ -28,7 +38,8 @@ export class UrlFetchConsumer {
         private readonly crawlHistory: CrawlHistoryStore,
         private readonly publisher: FrontierPublisher,
         private readonly options: UrlFetchConsumerOptions,
-        private readonly runner?: FetchPass
+        private readonly runner?: FetchPass,
+        private readonly deadLetters: FrontierDeadLetterSink | null = null
     ) {
         if (!Number.isInteger(options.seenTtlSeconds) || options.seenTtlSeconds < 60 * 60) {
             throw new Error('AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS must be at least 3600')
@@ -43,51 +54,64 @@ export class UrlFetchConsumer {
         const startedAt = process.hrtime.bigint()
         const republishDeadlineAtMonotonicMs = performance.now() + REPUBLISH_DEADLINE_FROM_BATCH_START_MS
         const drops = new Map<UrlDropReason, number>()
+        const rejectedRecords: RejectedFrontierRecord[] = []
         const candidatesByRef = new Map<string, FetchCandidate>()
         let dedupedInBatch = 0
         let originCount = 0
         let registrableDomainCount = 0
-        ImageFetchConsumerMetrics.startBatch()
+        let originCandidateCounts: number[] = []
+        let registrableDomainCandidateCounts: number[] = []
+        const activeBatchId = ImageFetchConsumerMetrics.startBatch()
 
         try {
             for (const message of messages) {
                 const parsed = this.parse(message)
                 if (!parsed.ok) {
-                    drops.set(parsed.reason, (drops.get(parsed.reason) ?? 0) + 1)
+                    rejectedRecords.push({ message, reasons: [parsed.reason] })
                     continue
                 }
                 ImageFetchConsumerMetrics.observeRecord(parsed.urlCount)
-                for (const rejected of parsed.rejected) {
-                    drops.set(rejected.reason, (drops.get(rejected.reason) ?? 0) + 1)
+                if (parsed.rejected.length > 0) {
+                    rejectedRecords.push({
+                        message,
+                        reasons: parsed.rejected.map((rejected) => rejected.reason),
+                    })
                 }
                 for (const candidate of parsed.candidates) {
                     const existing = candidatesByRef.get(candidate.originalRef)
                     if (existing) {
                         dedupedInBatch += 1
-                        candidatesByRef.set(candidate.originalRef, foldDuplicateCandidate(existing, candidate))
-                        continue
+                        candidatesByRef.set(candidate.originalRef, mergeDuplicateFetchCandidates(existing, candidate))
+                    } else {
+                        candidatesByRef.set(candidate.originalRef, candidate)
                     }
-                    ImageFetchConsumerMetrics.observeAge(Math.max(0, nowMs - candidate.firstSeenAtMs) / 1000)
-                    candidatesByRef.set(candidate.originalRef, candidate)
                 }
             }
             const candidates = [...candidatesByRef.values()]
-            const origins = new Set<string>()
-            const registrableDomains = new Set<string>()
+            candidatesByRef.clear()
+            const origins = new Map<string, number>()
+            const registrableDomains = new Map<string, number>()
             for (const candidate of candidates) {
-                origins.add(candidate.origin)
-                registrableDomains.add(candidate.registrableDomain)
+                ImageFetchConsumerMetrics.observeAge(Math.max(0, nowMs - candidate.firstSeenAtMs) / 1000)
+                origins.set(candidate.origin, (origins.get(candidate.origin) ?? 0) + 1)
+                registrableDomains.set(
+                    candidate.registrableDomain,
+                    (registrableDomains.get(candidate.registrableDomain) ?? 0) + 1
+                )
             }
             originCount = origins.size
             registrableDomainCount = registrableDomains.size
+            originCandidateCounts = [...origins.values()]
+            registrableDomainCandidateCounts = [...registrableDomains.values()]
 
             if (this.options.dryRun || candidates.length === 0) {
+                await this.parkRejectedRecords(rejectedRecords, drops)
                 return
             }
 
             const keys = [
                 ...candidates.map((candidate) => candidate.originalRef),
-                ...[...origins].flatMap((origin) => [
+                ...[...origins.keys()].flatMap((origin) => [
                     configurationCacheKey(origin, 'robots'),
                     configurationCacheKey(origin, 'tdmrep'),
                 ]),
@@ -117,7 +141,6 @@ export class UrlFetchConsumer {
                     notReady.map((candidate) => this.republishNotReady(republishBatch, candidate, nowMs))
                 ))
             )
-            const republishResult = await republishBatch.flush()
             const updates: CrawlHistoryItem[] = []
             for (const attempt of attempts) {
                 updates.push(...attempt.configurationUpdates)
@@ -128,6 +151,7 @@ export class UrlFetchConsumer {
             if (updates.length > 0) {
                 await this.runCrawlHistoryOperation('write', updates.length, () => this.crawlHistory.write(updates))
             }
+            const republishResult = await republishBatch.flush()
             const lost = attempts.filter((attempt) => attempt.lost).length + republishResult.failedUrls
             if (lost > 0) {
                 throw new Error(`the image fetch lane could not account for ${lost} URLs`)
@@ -137,9 +161,18 @@ export class UrlFetchConsumer {
                     ImageFetchRequestMetrics.incRetryCause(attempt.outcome)
                 }
             }
+            await this.parkRejectedRecords(rejectedRecords, drops)
         } finally {
-            ImageFetchConsumerMetrics.finishBatch()
-            this.recordMetrics(drops, dedupedInBatch, originCount, registrableDomainCount, startedAt)
+            ImageFetchConsumerMetrics.finishBatch(activeBatchId)
+            this.recordMetrics(
+                drops,
+                dedupedInBatch,
+                originCount,
+                registrableDomainCount,
+                originCandidateCounts,
+                registrableDomainCandidateCounts,
+                startedAt
+            )
         }
     }
 
@@ -152,6 +185,87 @@ export class UrlFetchConsumer {
             })
             return { ok: false, reason: 'malformed' }
         }
+    }
+
+    private async parkRejectedRecords(
+        records: RejectedFrontierRecord[],
+        drops: Map<UrlDropReason, number>
+    ): Promise<void> {
+        const deadlineAtMonotonicMs = performance.now() + DEAD_LETTER_BATCH_BUDGET_MS
+        const limit = pLimit(DEAD_LETTER_PUBLISH_CONCURRENCY)
+        let firstFailure: unknown
+        const outcomes = await Promise.allSettled(
+            records.map(({ message, reasons }) =>
+                limit(async () => {
+                    if (firstFailure) {
+                        throw firstFailure
+                    }
+                    try {
+                        await this.parkRejectedRecord(message, reasons, deadlineAtMonotonicMs)
+                    } catch (error) {
+                        firstFailure = error
+                        throw error
+                    }
+                })
+            )
+        )
+        for (const outcome of outcomes) {
+            if (outcome.status === 'rejected') {
+                throw outcome.reason
+            }
+        }
+        for (const { reasons } of records) {
+            for (const reason of reasons) {
+                drops.set(reason, (drops.get(reason) ?? 0) + 1)
+            }
+        }
+    }
+
+    private async parkRejectedRecord(
+        message: Message,
+        reasons: UrlDropReason[],
+        deadlineAtMonotonicMs: number
+    ): Promise<void> {
+        if (!this.deadLetters) {
+            return
+        }
+        const reason = this.deadLetterReason(reasons)
+        const remainingMs = deadlineAtMonotonicMs - performance.now()
+        if (remainingMs <= 0) {
+            const error = new Error('image-fetch dead-letter batch exceeded its publish budget')
+            ImageFetchConsumerMetrics.incDeadLetterFailed(reason)
+            logger.error('🌐', 'ml_image_fetch_dead_letter_publish_failed', { reason, error: error.name })
+            throw error
+        }
+        let timeout: NodeJS.Timeout | undefined
+        try {
+            await Promise.race([
+                this.deadLetters.park(message, reason),
+                new Promise<never>((_, reject) => {
+                    timeout = setTimeout(
+                        () => reject(new Error('image-fetch dead-letter batch exceeded its publish budget')),
+                        remainingMs
+                    )
+                }),
+            ])
+        } catch (error) {
+            ImageFetchConsumerMetrics.incDeadLetterFailed(reason)
+            logger.error('🌐', 'ml_image_fetch_dead_letter_publish_failed', {
+                reason,
+                error: error instanceof Error ? error.name : 'unknown',
+            })
+            throw error
+        } finally {
+            if (timeout) {
+                clearTimeout(timeout)
+            }
+        }
+        ImageFetchConsumerMetrics.incDeadLettered(reason)
+    }
+
+    private deadLetterReason(reasons: UrlDropReason[]): FrontierDeadLetterReason {
+        const distinctReasons = new Set(reasons)
+        return distinctReasons.size === 1 ? reasons[0] : 'multiple'
     }
 
     private async runCrawlHistoryOperation<T>(
@@ -243,6 +357,8 @@ export class UrlFetchConsumer {
         dedupedInBatch: number,
         origins: number,
         registrableDomains: number,
+        originCandidateCounts: number[],
+        registrableDomainCandidateCounts: number[],
         startedAt: bigint
     ): void {
         if (dedupedInBatch > 0) {
@@ -251,33 +367,11 @@ export class UrlFetchConsumer {
         for (const [reason, count] of drops) {
             ImageFetchConsumerMetrics.incDropped(reason, count)
         }
+        ImageFetchConsumerMetrics.observeBatchDiversity(originCandidateCounts, registrableDomainCandidateCounts)
         ImageFetchConsumerMetrics.observeBatch(
             origins,
             registrableDomains,
             Number(process.hrtime.bigint() - startedAt) / 1e9
         )
-    }
-}
-
-function foldDuplicateCandidate(left: FetchCandidate, right: FetchCandidate): FetchCandidate {
-    let preferredRoute = left
-    if (
-        right.remainingHops < left.remainingHops ||
-        (right.remainingHops === left.remainingHops && right.republishCount > left.republishCount) ||
-        (right.remainingHops === left.remainingHops &&
-            right.republishCount === left.republishCount &&
-            right.fetchCount > left.fetchCount)
-    ) {
-        preferredRoute = right
-    }
-    const latestState = left.republishCount >= right.republishCount ? left : right
-    return {
-        ...preferredRoute,
-        remainingHops: Math.min(left.remainingHops, right.remainingHops),
-        notBeforeMs: Math.max(left.notBeforeMs, right.notBeforeMs),
-        firstSeenAtMs: Math.min(left.firstSeenAtMs, right.firstSeenAtMs),
-        fetchCount: Math.max(left.fetchCount, right.fetchCount),
-        republishCount: Math.max(left.republishCount, right.republishCount),
-        lastRepublishReason: latestState.lastRepublishReason,
     }
 }

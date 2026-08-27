@@ -18,6 +18,7 @@ import math
 import datetime as dt
 from collections.abc import Sequence
 from typing import Any, Literal
+from zoneinfo import ZoneInfo
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
@@ -42,10 +43,12 @@ _ROW_LIMIT = 10000
 
 # Widest queryable range. Counter/histogram queries scan raw samples within
 # the range on the ClickHouse cluster shared with the live logs/traces
-# products, so the span has to be bounded. Those two also scan
-# `counter_lookback(interval)` before `date_from` for a predecessor sample;
-# the bound stays on the requested range, since the extra reach costs at most
-# one more daily partition and returns no extra rows.
+# products, so the span has to be bounded. The bound stays on the requested
+# range: `date_from` snaps back to its bucket boundary and the counter and
+# histogram scans reach a further `counter_lookback(interval)` for a
+# predecessor sample, so the scan exceeds the request by under one interval
+# step plus the lookback (up to two weeks of extra daily partitions at the
+# `week` interval, a single one on the common sub-day charts).
 MAX_QUERY_SPAN = dt.timedelta(days=31)
 
 # These run on the shared logs cluster; cap how much one query may read.
@@ -260,6 +263,48 @@ def _interval_step(name: str) -> dt.timedelta:
     raise ValueError(f"Unknown interval: {name!r}")
 
 
+def _align_to_interval(timestamp: dt.datetime, interval: str, *, tzinfo: ZoneInfo) -> dt.datetime:
+    """Floor `timestamp` onto the bucket grid `toStartOfInterval` uses.
+
+    The bucket labels come from `toStartOfInterval(sample_timestamp)`, so a
+    `date_from` inside a bucket would make that first bucket partial: labelled
+    as the whole interval but covering only the slice after `date_from`. Every
+    query scans and clips from this floor instead, so the first bucket holds
+    its full interval. Relative ranges like "-1h" resolve to now-minus-offset
+    with second precision, which makes the unaligned case the normal one.
+
+    The grid lives in `tzinfo`, the project's timezone, not in UTC. HogQL
+    rewrites a `DateTime` column read into `toTimeZone(<column>, <project
+    timezone>)` (`PropertySwapper.visit_field`), so `toStartOfInterval` sees a
+    local-time value and counts every step from local midnight. Flooring in UTC
+    instead lands on the same instant for the sub-hour steps, but drifts for
+    `hour_6`, `day` and `week`, and for `hour` in a zone whose offset is not a
+    whole number of hours (Asia/Kolkata is +05:30, so its hour boundaries sit
+    at :30 past each UTC hour).
+
+    Not `posthog.interval_specs.align`: that grid honors the team's
+    `week_start_day` and lacks the sub-hour steps, where `toStartOfInterval`
+    always counts weeks from Monday — the two would disagree exactly where
+    agreement with the SQL is the point.
+    """
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.replace(tzinfo=dt.UTC)
+    local = timestamp.astimezone(tzinfo)
+    midnight = local.replace(hour=0, minute=0, second=0, microsecond=0)
+    if interval == "week":
+        # ClickHouse's week interval starts on Monday, unlike its own
+        # `toStartOfWeek`, which defaults to Sunday.
+        return (midnight - dt.timedelta(days=midnight.weekday())).astimezone(dt.UTC)
+    if interval == "day":
+        return midnight.astimezone(dt.UTC)
+    # ClickHouse counts elapsed seconds from the midnight instant, so this adds
+    # a real duration rather than doing wall-clock arithmetic. A day shortened
+    # or lengthened by a DST transition then keeps both grids on the same
+    # boundaries.
+    step = _interval_step(interval)
+    return midnight.astimezone(dt.UTC) + (local.astimezone(dt.UTC) - midnight.astimezone(dt.UTC)) // step * step
+
+
 # Prometheus's default lookback delta. One interval step on its own is not
 # enough when the scrape interval is coarser than the bucket — a 60s scrape on
 # a `second` or `minute` chart — and `metrics1` is partitioned by day with
@@ -273,9 +318,9 @@ def counter_lookback(interval: str) -> dt.timedelta:
 
     Those aggregations diff each sample against the one before it, so the last
     sample *outside* the requested range is an input to the first bucket inside
-    it. Without it the first bucket diffs against nothing and plots 0
-    (histograms drop the point instead). The pre-range rows are cut again
-    before bucketing, so the returned grid is exactly the requested range.
+    it. Without it the first bucket diffs against nothing and is dropped as
+    uncomputable. The pre-range rows are cut again before bucketing, so the
+    returned grid is exactly the requested range.
 
     `diagnostics.decompose_bucket` reads its raw samples over the same window
     through this helper: a shorter reach there would find a different
@@ -358,7 +403,7 @@ class MetricQueryRunner:
         if interval is not None and interval not in {name for name, _, _ in _INTERVAL_LADDER}:
             raise ValueError(f"Unknown interval: {interval!r}")
         if interval is not None:
-            step = next(step for name, step, _ in _INTERVAL_LADDER if name == interval)
+            step = _interval_step(interval)
             if (date_to - date_from) / step > _ROW_LIMIT:
                 raise ValueError(
                     f"interval {interval!r} produces more than {_ROW_LIMIT} buckets over this range; "
@@ -371,11 +416,13 @@ class MetricQueryRunner:
         self.team = team
         self.metric_name = metric_name
         self.aggregation = aggregation
-        self.date_from = date_from
+        self.interval = interval or _pick_interval(date_from, date_to)
+        # Validation above bounds the requested range; the scan then starts at
+        # the bucket boundary so the first bucket covers its whole interval.
+        self.date_from = _align_to_interval(date_from, self.interval, tzinfo=team.timezone_info)
         self.date_to = date_to
         self.filters = tuple(filters)
         self.group_by = tuple(group_by)
-        self.interval = interval or _pick_interval(date_from, date_to)
         self.quantile = quantile
         self.metric_type = metric_type
 
@@ -559,8 +606,10 @@ class MetricQueryRunner:
         - cumulative temporality: contribution = value - prev, clamped for
           counter resets (value < prev means the counter restarted, so the
           post-reset absolute value IS the increase); a sample with no
-          predecessor within `counter_lookback` contributes 0 (its history is
-          unknown).
+          predecessor within `counter_lookback` has an unknowable increase, so
+          it contributes NULL, and a bucket where nothing was computable is
+          dropped rather than plotted as 0 (the histogram path drops such
+          buckets too).
         - delta temporality: each sample already is the increase, so it
           contributes its own value.
 
@@ -586,7 +635,7 @@ class MetricQueryRunner:
                         resource_attributes AS resource_attributes,
                         multiIf(
                             aggregation_temporality = 'delta', value,
-                            isNull(prev_value), 0.0,
+                            isNull(prev_value), NULL,
                             value >= assumeNotNull(prev_value), value - assumeNotNull(prev_value),
                             value
                         ) AS contribution
@@ -613,6 +662,7 @@ class MetricQueryRunner:
                 )
                 WHERE sample_timestamp >= {date_from}
                 GROUP BY time
+                HAVING isNotNull(value)
                 ORDER BY time ASC
                 LIMIT {row_limit}
             """,

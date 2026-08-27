@@ -40,6 +40,17 @@ describe('computeTurnTrailers', () => {
         expect(trailers.get('turn-0')).toEqual({ turnIndex: 0, isLastTurn: true, turnText: 'clean answer' })
     })
 
+    it('ignores a duplicate turn-end marker with no answer behind it', () => {
+        const trailers = computeTurnTrailers([
+            item('human_message', 'h0', 'q1'),
+            item('assistant_message', 'a0', 'answer'),
+            item('turn_separator', 'turn-0'),
+            item('turn_separator', 'turn-1'),
+        ])
+        expect([...trailers.keys()]).toEqual(['turn-0'])
+        expect(trailers.get('turn-0')?.isLastTurn).toBe(true)
+    })
+
     it('returns an empty map for a thread with no completed turns', () => {
         const trailers = computeTurnTrailers([
             item('human_message', 'h0', 'q1'),

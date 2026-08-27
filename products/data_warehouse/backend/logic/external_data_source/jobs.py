@@ -16,6 +16,11 @@ from products.warehouse_sources.backend.facade.pipelines import (
     TERMINAL_JOB_STATUSES,
     emit_data_import_app_metrics,
 )
+from products.warehouse_sources.backend.facade.types import (
+    ExternalDataJobPipelineVersion,
+    ExternalDataJobStatus,
+    ExternalDataSchemaStatus,
+)
 
 JOB_STATUS_TRANSITION_REJECTED = Counter(
     "dwh_job_status_transition_rejected",
@@ -34,7 +39,7 @@ FINALIZE_QUEUE_SWEEP_ERRORS = Counter(
 
 
 def update_external_job_status(
-    job_id: str, team_id: int, status: ExternalDataJob.Status, logger: FilteringBoundLogger, latest_error: str | None
+    job_id: str, team_id: int, status: ExternalDataJobStatus, logger: FilteringBoundLogger, latest_error: str | None
 ) -> ExternalDataJob:
     is_first_terminal_transition = False
     with transaction.atomic():
@@ -46,8 +51,8 @@ def update_external_job_status(
         # The loader may finish a run after lock takeover force-failed its job; only the
         # exact takeover sentinel unseals Failed -> Completed — genuine failures stay absorbing.
         is_takeover_recovery = (
-            model.status == ExternalDataJob.Status.FAILED
-            and status == ExternalDataJob.Status.COMPLETED
+            model.status == ExternalDataJobStatus.FAILED
+            and status == ExternalDataJobStatus.COMPLETED
             and model.latest_error == LOCK_TAKEOVER_LATEST_ERROR
         )
 
@@ -93,8 +98,8 @@ def update_external_job_status(
         # Scoped save so concurrent F-updates to rows_synced aren't clobbered.
         model.save(update_fields=update_fields)
 
-        if status == ExternalDataJob.Status.FAILED:
-            schema_status: ExternalDataSchema.Status = ExternalDataSchema.Status.FAILED
+        if status == ExternalDataJobStatus.FAILED:
+            schema_status: ExternalDataSchemaStatus = ExternalDataSchemaStatus.FAILED
         else:
             schema_status = status  # type: ignore
 
@@ -125,9 +130,9 @@ def update_external_job_status(
         # has drained the queue by construction, so the common completion path stays queue-free.
         # on_commit: the queue is a separate Postgres; never call it holding these row locks.
         should_sweep_queue = (
-            model.pipeline_version == ExternalDataJob.PipelineVersion.V3
+            model.pipeline_version == ExternalDataJobPipelineVersion.V3
             and status in TERMINAL_JOB_STATUSES
-            and (status != ExternalDataJob.Status.COMPLETED or is_takeover_recovery)
+            and (status != ExternalDataJobStatus.COMPLETED or is_takeover_recovery)
         )
         if should_sweep_queue:
             transaction.on_commit(
@@ -140,7 +145,7 @@ def update_external_job_status(
         logger.debug("Emitting app metrics")
         emit_data_import_app_metrics(model)
 
-        if status == ExternalDataJob.Status.FAILED:
+        if status == ExternalDataJobStatus.FAILED:
             try:
                 schedule_external_data_failure_digest(team_id)
             except Exception:
@@ -160,7 +165,7 @@ def _is_cancellation(error: BaseException) -> bool:
 
 
 def _sweep_v3_queue_batches_swallowing_errors(
-    *, job_id: str, status: ExternalDataJob.Status, logger: FilteringBoundLogger
+    *, job_id: str, status: ExternalDataJobStatus, logger: FilteringBoundLogger
 ) -> None:
     # A queue-DB error must never surface into the caller that just committed the status write.
     # The stale-stranded reconcile sweep on the loader retries what this misses.
@@ -176,7 +181,7 @@ def _sweep_v3_queue_batches_swallowing_errors(
         capture_exception(e)
 
 
-def _sweep_v3_queue_batches(*, job_id: str, status: ExternalDataJob.Status, logger: FilteringBoundLogger) -> None:
+def _sweep_v3_queue_batches(*, job_id: str, status: ExternalDataJobStatus, logger: FilteringBoundLogger) -> None:
     """Fail any still-non-terminal queue batches of a v3 job that just went terminal."""
     # Deferred: the queue package imports back through this module (see postgres_queue.consumer),
     # so a top-level import would cycle.

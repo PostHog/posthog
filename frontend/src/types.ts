@@ -8,7 +8,6 @@ import { LayoutItem } from 'react-grid-layout'
 import { LemonTableColumns } from '@posthog/lemon-ui'
 
 import { PaginatedResponse } from 'lib/api'
-import { ChartDataset, ChartType, InteractionItem } from 'lib/Chart'
 import { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import { HedgehogActorOptions } from 'lib/components/HedgehogMode/types'
 import { SessionRecordingTriggerGroupsConfig, UrlTriggerConfig } from 'lib/components/IngestionControls/types'
@@ -72,6 +71,7 @@ import type {
     QuickFilterType,
     RecordingOrder,
     RecordingsQuery,
+    ResolvedDateRangeResponse,
     RevenueAnalyticsConfig,
     SharingConfigurationSettings,
     TileFilters,
@@ -593,6 +593,7 @@ export interface OrganizationType extends OrganizationBasicType {
     members_can_create_projects?: boolean
     members_can_use_personal_api_keys: boolean
     members_can_see_org_members?: boolean
+    read_only_mcp_access?: boolean
     allow_publicly_shared_resources: boolean
     metadata?: OrganizationMetadata
     member_count: number
@@ -1165,6 +1166,8 @@ export enum PropertyFilterType {
     Feature = 'feature',
     Session = 'session',
     Cohort = 'cohort',
+    /** Person performed (or didn't perform) an event in a time window. ClickHouse-only — not evaluable by flags or CDP */
+    Behavioral = 'behavioral',
     Recording = 'recording',
     LogEntry = 'log_entry',
     Group = 'group',
@@ -1275,6 +1278,47 @@ export interface GroupPropertyFilter extends BasePropertyFilter {
     group_key_names?: Record<string, string>
 }
 
+/** The subset of cohort behavioral criteria supported by the inline `BehavioralPropertyFilter` */
+export type InlineBehavioralType = BehavioralEventType.PerformEvent | BehavioralEventType.PerformMultipleEvents
+
+/** Whether a behavioral filter's `key` refers to an event name or an action id */
+export type BehavioralEventSource = 'events' | 'actions'
+
+/** Filters persons on whether they performed an event in a time window, without a saved cohort. Event scope only. */
+export interface BehavioralPropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.Behavioral
+    value: InlineBehavioralType
+    /** Event name, or action id when event_type is 'actions' */
+    key: string
+    event_type: BehavioralEventSource
+    /** Match persons who did NOT satisfy the criterion. Not the same as a low count — zero-occurrence persons never match count operators */
+    negation?: boolean
+    /** Count comparison for performed_event_multiple, defaults to exact */
+    operator?: PropertyOperator
+    /**
+     * Count threshold for performed_event_multiple
+     * @asType integer
+     */
+    operator_value?: number
+    /**
+     * Relative time window size, paired with time_interval
+     * @asType integer
+     */
+    time_value?: number
+    time_interval?: TimeUnitType
+    /** Absolute or relative (e.g. -30d) lower date bound — alternative to time_value/time_interval */
+    explicit_datetime?: string
+    explicit_datetime_to?: string
+    /** Extra property filters the matching events must satisfy. Deliberately excludes nested behavioral/cohort filters and groups */
+    event_filters?: (
+        | EventPropertyFilter
+        | PersonPropertyFilter
+        | ElementPropertyFilter
+        | FeaturePropertyFilter
+        | HogQLPropertyFilter
+    )[]
+}
+
 export type LogPropertyFilterType =
     | PropertyFilterType.Log
     | PropertyFilterType.LogAttribute
@@ -1356,6 +1400,7 @@ export type AnyPropertyFilter =
     | RevenueAnalyticsPropertyFilter
     | AccountCustomPropertyFilter
     | WorkflowVariablePropertyFilter
+    | BehavioralPropertyFilter
 
 /** Any filter type supported by `property_to_expr(scope="person", ...)`. */
 export type AnyPersonScopeFilter =
@@ -1690,6 +1735,8 @@ export interface PersonListParams {
     distinct_id?: string
     include_total?: boolean // PostHog 3000-only
     limit?: number
+    /** Names the ClickHouse query so `api.cancelQuery` can stop it. Up to 128 characters. */
+    client_query_id?: string
 }
 
 export type SearchableEntity =
@@ -2596,6 +2643,7 @@ export interface InsightModel extends Cacheable, WithAccessControl {
     query_status?: QueryStatus
     is_cached?: boolean
     filter_override_context?: InsightFilterOverrideContextApi | null
+    resolved_date_range?: ResolvedDateRangeResponse | null
     /** Only used when creating objects */
     _create_in_folder?: string | null
 }
@@ -4568,6 +4616,22 @@ export type ScheduledChangePayload =
           }
       }
 
+// Keep in sync with products/approvals/backend/models.py ChangeRequestState
+export enum ScheduledChangeRequestState {
+    Pending = 'pending',
+    Approved = 'approved',
+    Applied = 'applied',
+    Rejected = 'rejected',
+    Expired = 'expired',
+    Failed = 'failed',
+}
+
+/** Summary of the approval change request gating a scheduled change. */
+export interface ScheduledChangeRequestSummary {
+    id: string
+    state: ScheduledChangeRequestState
+}
+
 export interface ScheduledChangeType {
     id: number
     team_id: number
@@ -4584,6 +4648,8 @@ export interface ScheduledChangeType {
     cron_expression: string | null
     last_executed_at: string | null
     end_date: string | null
+    /** Null when the change is not gated on approval. */
+    change_request: ScheduledChangeRequestSummary | null
 }
 
 export interface PrevalidatedInvite {
@@ -5227,65 +5293,45 @@ export interface ProjectTreeBreadcrumb extends BreadcrumbBase {
 }
 export type Breadcrumb = LinkBreadcrumb | RenamableBreadcrumb | SymbolBreadcrumb | ProjectTreeBreadcrumb
 
-export type GraphDataset = ChartDataset<ChartType> &
-    Partial<
-        Pick<
-            TrendResult,
-            | 'count'
-            | 'label'
-            | 'days'
-            | 'labels'
-            | 'data'
-            | 'compare'
-            | 'compare_label'
-            | 'status'
-            | 'action'
-            | 'actions'
-            | 'breakdown_value'
-            | 'persons_urls'
-            | 'persons'
-            | 'filter'
-        >
-    > & {
-        /** Used in filtering out visibility of datasets. Set internally by chart.js */
-        id: number
-        /** Toggled on to draw incompleteness lines in LineGraph.tsx */
-        dotted?: boolean
-        /** Array of breakdown values used only in ActionsHorizontalBar/ActionsPie.tsx data */
-        breakdownValues?: (string | number | string[] | undefined)[]
-        /** Array of breakdown labels used only in ActionsHorizontalBar/ActionsPie.tsx data */
-        breakdownLabels?: (string | number | undefined)[]
-        /** Array of compare labels used only in ActionsHorizontalBar/ActionsPie.tsx data */
-        compareLabels?: (CompareLabelType | undefined | null)[]
-        /** Array of persons used only in (ActionsHorizontalBar|ActionsPie).tsx */
-        personsValues?: (Person | undefined | null)[]
-        index?: number
-        /** Value (count) for specific data point; only valid in the context of an xy intercept */
-        pointValue?: number
-        /** Value (count) for specific data point; only valid in the context of an xy intercept */
-        personUrl?: string
-        /** Action/event filter defition */
-        action?: ActionFilter | null
-        yAxisID?: string
-    }
-
-export type GraphPoint = InteractionItem & { dataset: GraphDataset }
-
-interface PointsPayload {
-    pointsIntersectingLine: GraphPoint[]
-    pointsIntersectingClick: GraphPoint[]
-    clickedPointNotLine: boolean
-    referencePoint: GraphPoint
-}
-
-export interface GraphPointPayload {
-    points: PointsPayload
-    index: number
-    value?: number
-    /** Contains the dataset for all the points in the same x-axis point; allows switching between matching points in the x-axis */
-    crossDataset?: GraphDataset[]
-    /** ID for the currently selected series */
-    seriesId?: number
+export type GraphDataset = Partial<
+    Pick<
+        TrendResult,
+        | 'count'
+        | 'label'
+        | 'days'
+        | 'labels'
+        | 'data'
+        | 'compare'
+        | 'compare_label'
+        | 'status'
+        | 'action'
+        | 'actions'
+        | 'breakdown_value'
+        | 'persons_urls'
+        | 'persons'
+        | 'filter'
+    >
+> & {
+    /** Used in filtering out visibility of datasets. Set internally by chart.js */
+    id: number
+    /** Toggled on to draw incompleteness lines in LineGraph.tsx */
+    dotted?: boolean
+    /** Array of breakdown values used only in ActionsHorizontalBar/ActionsPie.tsx data */
+    breakdownValues?: (string | number | string[] | undefined)[]
+    /** Array of breakdown labels used only in ActionsHorizontalBar/ActionsPie.tsx data */
+    breakdownLabels?: (string | number | undefined)[]
+    /** Array of compare labels used only in ActionsHorizontalBar/ActionsPie.tsx data */
+    compareLabels?: (CompareLabelType | undefined | null)[]
+    /** Array of persons used only in (ActionsHorizontalBar|ActionsPie).tsx */
+    personsValues?: (Person | undefined | null)[]
+    index?: number
+    /** Value (count) for specific data point; only valid in the context of an xy intercept */
+    pointValue?: number
+    /** Value (count) for specific data point; only valid in the context of an xy intercept */
+    personUrl?: string
+    /** Action/event filter defition */
+    action?: ActionFilter | null
+    yAxisID?: string
 }
 
 export enum CompareLabelType {
@@ -5874,6 +5920,7 @@ export const API_SCOPE_OBJECTS = [
     'user',
     'user_interview',
     'vision_action',
+    'vision_alert',
     'visual_review',
     'warehouse_objects',
     'warehouse_table',
@@ -6594,6 +6641,8 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
      */
     enabled_columns?: string[] | null
     available_columns?: { name: string; data_type?: string; is_nullable?: boolean }[]
+    /** Exact source identifiers are available for sources that project columns upstream. */
+    source_column_metadata_available?: boolean
     /**
      * Predicates ANDed onto the source query so only matching rows sync.
      * `null` means "sync all rows". Applied on the next sync — not retroactive.
@@ -6614,6 +6663,7 @@ export interface ExternalDataSchemaSourceSummary {
     access_method?: ExternalDataSource['access_method']
     supports_column_selection?: boolean
     supports_row_filters?: boolean
+    requires_exact_column_metadata?: boolean
     user_access_level: AccessControlLevel | null
     /** The source's effective vendor API version — what schemas without an override sync on */
     api_version?: string | null
@@ -6912,6 +6962,7 @@ export type RawBatchExportRun = {
         | 'ContinuedAsNew'
         | 'Failed'
         | 'FailedRetryable'
+        | 'FailedBilling'
         | 'Terminated'
         | 'TimedOut'
         | 'Running'
@@ -6934,6 +6985,7 @@ export type BatchExportRun = {
         | 'ContinuedAsNew'
         | 'Failed'
         | 'FailedRetryable'
+        | 'FailedBilling'
         | 'Terminated'
         | 'TimedOut'
         | 'Running'

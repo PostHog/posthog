@@ -83,12 +83,6 @@ role "sessions" {
   env "prod-eu" { layers = ["roles/shared", "roles/coshared/sessions_data", "roles/sessions/shared", "roles/sessions/prod-eu"] }
 }
 
-# SESSIONSV3 satellite: US-only node hosting the v3 session tables (events replica,
-# raw_sessions_v3) plus the query_log_archive path. Dump-baselined.
-role "sessionsv3" {
-  env "prod-us" { layers = ["roles/shared", "roles/sessionsv3/prod-us"] }
-}
-
 # BATCH_EXPORTS satellite: hosts the sharded_events_recent data table (the recent-events
 # store the export workers read; data/ops reach it via Distributed proxies) plus the
 # query_log_archive path. Env-specific — prod-eu carries an extra historical_migration
@@ -132,7 +126,7 @@ role "medium" {
 # and not MULTINODE_CLICKHOUSE. Composed as the deduped union of the local-multi stacks it
 # hosts, so any name two of those roles declare fails this load instead of drifting.
 role "all" {
-  env "local-single" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/ops/shared", "roles/ops/local", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/logs/local", "roles/coshared/ai_events_data", "roles/ai_events/shared", "roles/ai_events/local", "roles/coshared/aux_data", "roles/auxiliary/shared", "roles/auxiliary/local", "roles/coshared/sessions_data", "roles/coshared/tophog", "roles/coshared/events_recent", "roles/coshared/events_recent_write", "roles/coshared/batch_exports_data", "roles/coshared/ingestion_warnings_store", "roles/coshared/events_json_write", "roles/coshared/log_entries_write", "roles/coshared/session_replay_write", "roles/data/shared", "roles/data/local", "roles/ingestion_events/local", "roles/ingestion_small/local", "roles/ingestion_medium/local"] }
+  env "local-single" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/ops/shared", "roles/ops/local", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/logs/local", "roles/coshared/ai_events_data", "roles/ai_events/shared", "roles/ai_events/local", "roles/coshared/aux_data", "roles/auxiliary/shared", "roles/auxiliary/local", "roles/coshared/sessions_data", "roles/coshared/tophog", "roles/coshared/events_recent", "roles/coshared/events_recent_write", "roles/coshared/batch_exports_data", "roles/coshared/ingestion_warnings_store", "roles/coshared/events_json_write", "roles/coshared/log_entries_write", "roles/coshared/session_replay_write", "roles/data/shared", "roles/data/local", "roles/ingestion_events/local", "roles/ingestion_events/local-single", "roles/ingestion_small/local", "roles/ingestion_medium/local"] }
 }
 
 # role "endpoints" {

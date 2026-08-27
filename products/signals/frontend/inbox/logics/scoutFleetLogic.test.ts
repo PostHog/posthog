@@ -4,8 +4,10 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { ApiError } from 'lib/api-error'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 
@@ -228,6 +230,36 @@ describe('scoutFleetLogic', () => {
         expect(logic.values.scoutConfigs).toBeNull()
     })
 
+    // The roster mounts from short-lived components, so an unmount mid-request is routine. The
+    // loader reconciles against `values.scoutConfigs`, and that read throws once the reducer branch
+    // leaves the store — a silent error report from a page the user has already left.
+    it('reports nothing when the roster unmounts while its config request is in flight', async () => {
+        const request = deferred<SignalScoutConfigApi[]>()
+        mockSignalsScoutConfigList.mockReturnValueOnce(request.promise)
+
+        logic.actions.loadScoutConfigs()
+        logic.unmount()
+        request.resolve([BASE_CONFIG])
+        // Drain the microtasks the loader resumes on, so the assertion sees its full continuation.
+        await new Promise(setImmediate)
+
+        expect(posthog.captureException).not.toHaveBeenCalled()
+    })
+
+    // The 500 row is the point of this case: a guard wide enough to swallow it would leave a real
+    // scout-configs outage looking identical to a project the user simply cannot reach.
+    it.each([
+        [403, 'loadScoutConfigsSuccess'],
+        [404, 'loadScoutConfigsSuccess'],
+        [500, 'loadScoutConfigsFailure'],
+    ])('resolves a %s from the config list to %s', async (status, expectedAction) => {
+        mockSignalsScoutConfigList.mockRejectedValueOnce(new ApiError('nope', status))
+
+        logic.actions.loadScoutConfigs()
+
+        await expectLogic(logic).toDispatchActions([expectedAction])
+    })
+
     it('sends newer queued updates after an earlier request fails', async () => {
         const firstRequest = deferred<SignalScoutConfigApi>()
         const failingRequest = deferred<SignalScoutConfigApi>()
@@ -291,7 +323,7 @@ describe('scoutFleetLogic', () => {
         expect(mockSignalsScoutChatTasksCreate).not.toHaveBeenCalled()
     })
 
-    it('reports roster filtering without leaking the search term', async () => {
+    it('reports roster filtering with the search length, not the term', async () => {
         jest.useFakeTimers()
         try {
             const capture = posthog.capture as jest.Mock
@@ -316,6 +348,181 @@ describe('scoutFleetLogic', () => {
                 expect.objectContaining({ action_type: 'search_scouts', search_length: 4, filter_match_count: 1 }),
             ])
             expect(JSON.stringify(scoutActions)).not.toContain('reve')
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('drops the delayed search write when the user navigates before the debounce settles', async () => {
+        jest.useFakeTimers()
+        try {
+            router.actions.push(urls.inbox('scouts'))
+            logic.actions.setScoutSearch('rev')
+            // Open a scout's detail before the debounce elapses; the roster logic stays mounted beside it.
+            router.actions.push(urls.inboxScout('signals-scout-revenue'))
+            await jest.advanceTimersByTimeAsync(600)
+
+            // The stale roster filter must not land on the detail route it does not own.
+            expect(router.values.location.pathname).toContain('signals-scout-revenue')
+            expect(router.values.searchParams.scoutSearch).toBeUndefined()
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('writes non-default roster filters to the URL and keeps the bare view clean', async () => {
+        jest.useFakeTimers()
+        try {
+            // The URL only carries tags the fleet still uses, so the roster needs a scout wearing one.
+            logic.actions.loadScoutConfigsSuccess([{ ...BASE_CONFIG, tags: ['revenue'] }])
+            logic.actions.setScoutEnabledFilter('disabled')
+            logic.actions.setScoutTagFilter(['revenue'])
+            logic.actions.setScoutSearch('rev')
+            // The search param is written on a debounce, so let its pause elapse.
+            await jest.advanceTimersByTimeAsync(600)
+
+            expect(router.values.searchParams).toMatchObject({
+                scoutEnabled: 'disabled',
+                scoutTags: 'revenue',
+                scoutSearch: 'rev',
+            })
+
+            logic.actions.setScoutEnabledFilter('all')
+            logic.actions.setScoutTagFilter([])
+            logic.actions.setScoutSearch('')
+            await jest.advanceTimersByTimeAsync(600)
+
+            expect(router.values.searchParams.scoutEnabled).toBeUndefined()
+            expect(router.values.searchParams.scoutTags).toBeUndefined()
+            expect(router.values.searchParams.scoutSearch).toBeUndefined()
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('restores roster filters from a shared URL', async () => {
+        router.actions.push(urls.inbox('scouts'), {
+            scoutEnabled: 'enabled',
+            scoutTags: 'revenue,on-call',
+            scoutSearch: 'rev',
+        })
+        await expectLogic(logic).toDispatchActions(['hydrateRosterFilters'])
+
+        expect(logic.values.scoutEnabledFilter).toEqual('enabled')
+        expect(logic.values.selectedScoutTags).toEqual(['revenue', 'on-call'])
+        expect(logic.values.scoutSearch).toEqual('rev')
+    })
+
+    it('resets the roster filters when Back or Forward reaches a bare URL', async () => {
+        // A filtered roster, reached by a shared link or by toggling the controls.
+        router.actions.push(urls.inbox('scouts'), { scoutEnabled: 'enabled', scoutTags: 'revenue' })
+        await expectLogic(logic).toDispatchActions(['hydrateRosterFilters'])
+        expect(logic.values.scoutEnabledFilter).toEqual('enabled')
+        expect(logic.values.selectedScoutTags).toEqual(['revenue'])
+
+        // Back or Forward onto the bare entry arrives as a POP carrying no roster params.
+        await expectLogic(logic, () => {
+            router.actions.locationChanged({
+                method: 'POP',
+                pathname: urls.inbox('scouts'),
+                search: '',
+                searchParams: {},
+                hash: '',
+                hashParams: {},
+                url: urls.inbox('scouts'),
+            })
+        }).toDispatchActions(['hydrateRosterFilters'])
+
+        expect(logic.values.scoutEnabledFilter).toEqual('all')
+        expect(logic.values.selectedScoutTags).toEqual([])
+        expect(logic.values.scoutSearch).toEqual('')
+        // The bare entry is left as-is, so a second Back still reaches the entries beneath it.
+        expect(router.values.searchParams.scoutEnabled).toBeUndefined()
+        expect(router.values.searchParams.scoutTags).toBeUndefined()
+    })
+
+    it('reflects a persisted filter back into a bare roster URL on fresh navigation', async () => {
+        // The user filtered the roster, then opened the bare roster URL afresh (a PUSH, not Back).
+        router.actions.push(urls.inbox('scouts'), { scoutEnabled: 'enabled' })
+        await expectLogic(logic).toDispatchActions(['hydrateRosterFilters'])
+        expect(logic.values.scoutEnabledFilter).toEqual('enabled')
+
+        router.actions.push(urls.inbox('scouts'))
+        await expectLogic(logic).toFinishAllListeners()
+
+        // The filter persists and is written back so the restored view stays shareable.
+        expect(logic.values.scoutEnabledFilter).toEqual('enabled')
+        expect(router.values.searchParams.scoutEnabled).toEqual('enabled')
+    })
+
+    it('drops a typed search that a URL hydration has already replaced', async () => {
+        jest.useFakeTimers()
+        try {
+            const capture = posthog.capture as jest.Mock
+            router.actions.push(urls.inbox('scouts'))
+            logic.actions.setScoutSearch('reve')
+            capture.mockClear()
+
+            // A shared link or Back reaches the same route with a different search before the
+            // debounce settles. Hydration does not abort the breakpoint, so the stale query must
+            // not report itself or write itself back over the hydrated URL.
+            router.actions.push(urls.inbox('scouts'), { scoutSearch: 'rev' })
+            await jest.advanceTimersByTimeAsync(600)
+
+            expect(capture.mock.calls.filter(([event]) => event === 'Scout action')).toEqual([])
+            expect(router.values.searchParams.scoutSearch).toEqual('rev')
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('keeps the roster filters out of a bare URL that a sibling logic replaces', async () => {
+        router.actions.push(urls.inbox('scouts'), { scoutEnabled: 'enabled' })
+        await expectLogic(logic).toDispatchActions(['hydrateRosterFilters'])
+
+        // A sibling inbox logic restores its own params by replacing the bare URL, which happens
+        // while a Back onto that bare entry is still being handled.
+        await expectLogic(logic, () => {
+            router.actions.locationChanged({
+                method: 'REPLACE',
+                pathname: urls.inbox('scouts'),
+                search: '?scope=all',
+                searchParams: { scope: 'all' },
+                hash: '',
+                hashParams: {},
+                url: `${urls.inbox('scouts')}?scope=all`,
+            })
+        }).toFinishAllListeners()
+
+        // Riding along here would leave the URL filtered once the Back resets the controls.
+        expect(router.values.searchParams.scoutEnabled).toBeUndefined()
+    })
+
+    it('restores a search that the router parsed as a number', async () => {
+        // Opening the link parses the query string, and kea-router turns `scoutSearch=123` into the
+        // number 123, which a string-only read drops.
+        router.actions.push(`${urls.inbox('scouts')}?scoutSearch=123`)
+        await expectLogic(logic).toDispatchActions(['hydrateRosterFilters'])
+
+        expect(logic.values.scoutSearch).toEqual('123')
+    })
+
+    it('drops a tag from the URL once no scout uses it', async () => {
+        jest.useFakeTimers()
+        try {
+            const revenueScout = { ...BASE_CONFIG, tags: ['revenue'] }
+            logic.actions.loadScoutConfigsSuccess([revenueScout])
+            logic.actions.setScoutTagFilter(['revenue'])
+            expect(router.values.searchParams.scoutTags).toEqual('revenue')
+
+            // Retagging the last scout empties the tag control, so the roster is visibly unfiltered.
+            // A URL that still carries the tag would re-filter on refresh if the tag came back.
+            logic.actions.patchScoutConfigLocally(revenueScout.id, { tags: [] })
+            logic.actions.setScoutSearch('rev')
+            await jest.advanceTimersByTimeAsync(600)
+
+            expect(logic.values.activeScoutTags).toEqual([])
+            expect(router.values.searchParams.scoutTags).toBeUndefined()
         } finally {
             jest.useRealTimers()
         }
