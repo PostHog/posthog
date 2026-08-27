@@ -13,7 +13,7 @@ import { MessageTemplate } from '../messages/MessageTemplate'
 import { RunRef, captureTurnFeedbackText, captureTurnRating } from '../utils/feedbackEvents'
 
 export interface TurnFeedbackActionsProps {
-    /** Conversation id where one exists (Max chats), else the task id. Lands in `$ai_session_id`. */
+    /** Task id backing the sandbox conversation. Lands in `$ai_session_id`. */
     sessionId: string
     /** Ordinal of the completed turn — the rating's identity, stable across reloads. */
     turnIndex: number

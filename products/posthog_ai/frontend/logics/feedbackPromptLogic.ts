@@ -19,7 +19,7 @@ export interface FeedbackPromptConfig {
 const LAST_SHOWN_STORAGE_KEY = 'posthog_ai_feedback_last_shown'
 
 export interface FeedbackPromptLogicProps {
-    /** Conversation id where one exists, else the task id. Lands in `$ai_session_id`. */
+    /** Task id backing the sandbox conversation. Lands in `$ai_session_id`. */
     sessionId: string
     /** Key of the live `runStreamLogic` instance this prompt observes. */
     streamKey: string

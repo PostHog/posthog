@@ -198,22 +198,18 @@ function RunSurfaceThread({
     listClassName,
     rowClassName,
 }: { className?: string; listClassName?: string; rowClassName?: string } = {}): JSX.Element {
-    const { interaction, isScout, taskId, conversationId, runId } = useRunSurfaceContext()
+    const { interaction, isScout, taskId, runId } = useRunSurfaceContext()
     const { bootstrapLoading, threadItems } = useValues(runStreamLogic)
-    // Feedback identity: the conversation where one exists (Max chats), else the task.
-    const feedbackSessionId = conversationId ?? taskId
+    // Feedback identity: always the task, matching `$ai_session_id` on other surfaces.
+    const feedbackSessionId = taskId
     const collectsFeedback = interaction === 'live' && !isScout && !!feedbackSessionId
     // Memoized so the footer keeps a stable element identity across streamed frames.
     const feedbackPrompt = useMemo(
         () =>
             collectsFeedback ? (
-                <FeedbackPromptTrailer
-                    sessionId={feedbackSessionId}
-                    sessionKind={conversationId ? 'conversation' : 'task'}
-                    streamKey={runId}
-                />
+                <FeedbackPromptTrailer sessionId={feedbackSessionId} sessionKind="task" streamKey={runId} />
             ) : undefined,
-        [collectsFeedback, feedbackSessionId, conversationId, runId]
+        [collectsFeedback, feedbackSessionId, runId]
     )
     const renderTurnTrailer = useCallback(
         (trailer: TurnTrailer): JSX.Element | null =>

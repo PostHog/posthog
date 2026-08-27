@@ -479,14 +479,33 @@ export interface DeepLinkChannelProperties {
   task_id?: string;
 }
 
-// Feedback events
-export interface TaskFeedbackProperties {
-  task_id: string;
+// PostHog's reserved LLM analytics feedback events, same shape as the PostHog AI
+// web client (products/posthog_ai/frontend/utils/feedbackEvents.ts).
+// `$ai_session_id` is the task id because every `$ai_generation` of a run
+// carries it as `task_id`; `$ai_trace_id` is null until the sandbox exposes
+// per-turn trace ids.
+export type AiFeedbackProduct = "posthog_code";
+export type AiQualityRating = "good" | "bad";
+
+export interface AiFeedbackContextProperties {
+  $ai_session_id: string | null;
+  $ai_trace_id: null;
+  ai_product: AiFeedbackProduct;
+  task_id: string | null;
   task_run_id?: string;
+  turn_id?: string;
+  feedback_type?: FeedbackType;
   log_url?: string;
-  event_count: number;
-  feedback_type: FeedbackType;
-  feedback_comment?: string;
+  event_count?: number;
+}
+
+export interface AiMetricProperties extends AiFeedbackContextProperties {
+  $ai_metric_name: "quality";
+  $ai_metric_value: AiQualityRating;
+}
+
+export interface AiFeedbackProperties extends AiFeedbackContextProperties {
+  $ai_feedback_text: string;
 }
 
 // Onboarding events
@@ -1457,7 +1476,8 @@ export const ANALYTICS_EVENTS = {
   CUSTOM_SOUND_RECORDING_SILENT: "Custom sound recording silent",
 
   // Feedback events
-  TASK_FEEDBACK: "Task feedback",
+  AI_METRIC: "$ai_metric",
+  AI_FEEDBACK: "$ai_feedback",
 
   // Branch mismatch events
   BRANCH_MISMATCH_WARNING_SHOWN: "Branch mismatch warning shown",
@@ -1651,7 +1671,8 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.CUSTOM_SOUND_RECORDING_SILENT]: never;
 
   // Feedback events
-  [ANALYTICS_EVENTS.TASK_FEEDBACK]: TaskFeedbackProperties;
+  [ANALYTICS_EVENTS.AI_METRIC]: AiMetricProperties;
+  [ANALYTICS_EVENTS.AI_FEEDBACK]: AiFeedbackProperties;
 
   // Branch mismatch events
   [ANALYTICS_EVENTS.BRANCH_MISMATCH_WARNING_SHOWN]: BranchMismatchWarningShownProperties;

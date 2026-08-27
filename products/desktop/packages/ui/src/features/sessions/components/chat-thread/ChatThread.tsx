@@ -9,6 +9,7 @@ import {
   ThumbsUp,
 } from "@phosphor-icons/react";
 import { WorkerPoolContextProvider } from "@pierre/diffs/react";
+import { buildTurnRatingMetric } from "@posthog/core/analytics/aiFeedback";
 import { channelDisplayLabel } from "@posthog/core/canvas/channelName";
 import { useService } from "@posthog/di/react";
 import {
@@ -123,6 +124,7 @@ import { useConversationItems } from "@posthog/ui/features/sessions/hooks/useCon
 import {
   useOptimisticItemsForTask,
   useSessionIsCloud,
+  useSessionSelector,
 } from "@posthog/ui/features/sessions/sessionStore";
 import {
   useSessionViewActions,
@@ -394,16 +396,23 @@ function TurnFeedback({
   sentiment: AgentTurnFeedbackSentiment | null;
 }) {
   const taskId = useSessionTaskId();
+  const taskRunId = useSessionSelector(
+    taskId ?? undefined,
+    (session) => session?.taskRunId,
+  );
   const { setTurnFeedback } = useSessionViewActions();
 
   const rate = (next: AgentTurnFeedbackSentiment) => {
     if (sentiment === next) return;
     setTurnFeedback(turnId, next);
-    track(ANALYTICS_EVENTS.AGENT_TURN_FEEDBACK, {
-      task_id: taskId,
-      turn_id: turnId,
-      sentiment: next,
-    });
+    track(
+      ANALYTICS_EVENTS.AI_METRIC,
+      buildTurnRatingMetric({
+        run: { taskId, taskRunId },
+        turnId,
+        sentiment: next,
+      }),
+    );
   };
 
   return (

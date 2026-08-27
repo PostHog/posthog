@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  getCodeCommandInputError,
   rewriteLocalSkillCommandPrompt,
   tryExecuteCodeCommand,
 } from "./commands";
@@ -9,6 +10,9 @@ const toastError = vi.hoisted(() => vi.fn());
 vi.mock("@posthog/ui/primitives/toast", () => ({
   toast: { error: toastError, success: vi.fn() },
 }));
+
+const track = vi.hoisted(() => vi.fn());
+vi.mock("../../shell/analytics", () => ({ track }));
 
 const commands: EditorAvailableCommand[] = [
   {
@@ -44,6 +48,72 @@ describe("message editor commands", () => {
     expect(
       rewriteLocalSkillCommandPrompt("/feedback looks good", commands),
     ).toBe(null);
+  });
+});
+
+describe("feedback commands", () => {
+  const context = {
+    taskId: "task-1",
+    repoPath: null,
+    session: {
+      taskRunId: "run-1",
+      logUrl: "https://example.com/log",
+      events: [{}, {}],
+    },
+    taskRun: null,
+  };
+  const expectedContext = {
+    $ai_session_id: "task-1",
+    $ai_trace_id: null,
+    ai_product: "posthog_code",
+    task_id: "task-1",
+    task_run_id: "run-1",
+  };
+
+  it("captures /bad with a comment as a quality metric plus feedback text", async () => {
+    track.mockClear();
+    expect(await tryExecuteCodeCommand("/bad wrong file", context)).toBe(true);
+    expect(track).toHaveBeenCalledWith(
+      "$ai_metric",
+      expect.objectContaining({
+        ...expectedContext,
+        $ai_metric_name: "quality",
+        $ai_metric_value: "bad",
+      }),
+    );
+    expect(track).toHaveBeenCalledWith(
+      "$ai_feedback",
+      expect.objectContaining({
+        ...expectedContext,
+        $ai_feedback_text: "wrong file",
+        log_url: "https://example.com/log",
+        event_count: 2,
+      }),
+    );
+    expect(track).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects /feedback without a comment and captures nothing", async () => {
+    track.mockClear();
+    toastError.mockClear();
+    expect(await tryExecuteCodeCommand("/feedback", context)).toBe(true);
+    expect(track).not.toHaveBeenCalled();
+    expect(toastError).toHaveBeenCalledWith(
+      expect.stringContaining("Add a comment after /feedback"),
+    );
+  });
+
+  it.each([
+    ["/feedback", true],
+    ["/feedback  ", true],
+    ["/btw", true],
+    ["/feedback add a diff view", false],
+    ["/good", false],
+    ["/bad no comment needed", false],
+    ["plain message", false],
+  ])("pre-submit input check for %j blocks=%s", (text, blocks) => {
+    const error = getCodeCommandInputError(text);
+    expect(error !== null).toBe(blocks);
   });
 });
 
