@@ -363,6 +363,10 @@ export function QueryWindow({
                         keepCurrentModel: true,
                         metadataQuery: activeQueryText ?? undefined,
                         metadataQueryOffset: activeQueryOffset,
+                        // Set here rather than only where the tab's Monaco model is created: an editor
+                        // that mounts against an existing model never runs that path, and would then
+                        // ask for metadata without the index report.
+                        indexUsage: true,
                         onChange: (v) => {
                             setQueryInput(v ?? '')
                         },
@@ -460,7 +464,6 @@ function RunButton({
     const { responseLoading } = useValues(dataNodeLogic)
     const { metadata, queryInput, isSourceQueryLastRun } = useValues(sqlEditorLogic)
 
-    const isUsingIndices = metadata?.isUsingIndices === 'yes'
     const isRunning = onRunQuery ? !!runQueryLoading : responseLoading
     // The external-run path shows a cancel affordance only when a canceller is provided.
     const showCancel = isRunning && (!onRunQuery || !!onCancelQuery)
@@ -477,25 +480,11 @@ function RunButton({
             return ['var(--primary)', 'No changes to run']
         }
 
-        if (!metadata || isUsingIndices || queryInput?.trim().length === 0) {
-            return ['var(--success)', 'New changes to run']
-        }
-
-        const tooltip = !isUsingIndices
-            ? 'This query is not using indices optimally, which may result in slower performance.'
-            : undefined
-
-        return ['var(--warning)', tooltip]
-    }, [
-        metadata,
-        isUsingIndices,
-        queryInput,
-        isSourceQueryLastRun,
-        onRunQuery,
-        runQueryTooltip,
-        isRunning,
-        onCancelQuery,
-    ])
+        // No index verdict colors this button. The per-filter report counts filters, and a count does
+        // not track what a query costs: one selective filter bounds the read however many others scan,
+        // and nothing here yet looks at the time range, which is what really decides how much is read.
+        return ['var(--success)', 'New changes to run']
+    }, [metadata, queryInput, isSourceQueryLastRun, onRunQuery, runQueryTooltip, isRunning, onCancelQuery])
 
     const sideAction = useMemo(
         () =>
