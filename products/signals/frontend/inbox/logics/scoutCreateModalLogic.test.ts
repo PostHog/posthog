@@ -1,11 +1,16 @@
-import { MOCK_TEAM_ID } from 'lib/api.mock'
+import { MOCK_DEFAULT_USER, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
 import { ApiError } from 'lib/api-error'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import type {
+    MCPServiceAccountApi,
+    MCPServiceAccountServerApi,
+} from 'products/mcp_store/frontend/generated/api.schemas'
 import { signalsScoutCreate } from 'products/signals/frontend/generated/api'
 import type { SignalScoutCreateResponseApi } from 'products/signals/frontend/generated/api.schemas'
 
@@ -51,6 +56,41 @@ const CREATED_SCOUT: SignalScoutCreateResponseApi = {
         source_id: null,
         created_at: '2026-07-24T00:00:00Z',
     },
+}
+
+function teamServer(id: string, name: string): MCPServiceAccountServerApi {
+    return {
+        id,
+        shared_by: {
+            id: MOCK_DEFAULT_USER.id,
+            uuid: MOCK_DEFAULT_USER.uuid,
+            email: MOCK_DEFAULT_USER.email,
+            hedgehog_config: null,
+        },
+        scope: 'team',
+        name,
+        description: `${name} workspace`,
+        icon_key: name.toLowerCase(),
+        icon_domain: `${name.toLowerCase()}.com`,
+        connection_state: 'ready',
+    }
+}
+
+function scoutAccountResponse(servers: MCPServiceAccountServerApi[]): [number, Record<string, unknown>] {
+    const account: MCPServiceAccountApi = {
+        id: 'scout-id',
+        name: 'scout',
+        description: 'scout agent',
+        handle: 'svc-scout',
+        agent_key: 'scout',
+        status: 'active',
+        server_ids: servers.map(({ id }) => id),
+        servers,
+        last_active_at: null,
+        created_at: '2026-07-22T00:00:00Z',
+        updated_at: '2026-07-22T00:00:00Z',
+    }
+    return [200, { count: 1, next: null, previous: null, results: [account] }]
 }
 
 describe('scoutCreateModalLogic', () => {
@@ -139,6 +179,31 @@ describe('scoutCreateModalLogic', () => {
         })
         expect(onCreated).toHaveBeenCalledWith(CREATED_SCOUT)
         expect(onClose).toHaveBeenCalledTimes(1)
+    })
+
+    it('selects every team MCP server by default, unless the opener passed its own selection', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/mcp_gateway/service_accounts/': () =>
+                    scoutAccountResponse([teamServer('github-id', 'GitHub'), teamServer('linear-id', 'Linear')]),
+            },
+        })
+
+        logic = scoutCreateModalLogic({ logicKey: 'default-servers', onClose })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.scoutCreateForm.config.mcp_gateway_server_ids).toEqual(['github-id', 'linear-id'])
+
+        // A caller that chose specific servers keeps that choice.
+        const prefilled = scoutCreateModalLogic({
+            logicKey: 'prefilled-servers',
+            initialValues: { config: { mcp_gateway_server_ids: ['linear-id'] } },
+            onClose,
+        })
+        prefilled.mount()
+        await expectLogic(prefilled).toFinishAllListeners()
+        expect(prefilled.values.scoutCreateForm.config.mcp_gateway_server_ids).toEqual(['linear-id'])
+        prefilled.unmount()
     })
 
     it('submits a daily run time as a project-timezone cron schedule', async () => {
