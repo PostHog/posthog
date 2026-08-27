@@ -1055,23 +1055,53 @@ class ClickHousePrinter(BasePrinter):
     def _postgres_retention_start(self, table: "PostgresTable") -> Optional[datetime]:
         """Oldest row timestamp the organization may read from a retention-bearing federated table.
 
-        Resolved once per query and only when such a table is actually printed, so ordinary queries
-        never pay the organization load. Emitted as a literal rather than `now() - interval` so the
-        comparison survives the trip into Postgres and can use the index there.
+        Resolved once per table per query, and only when that table is actually printed, so ordinary
+        queries never pay the organization load. Each table computes its own window, so the memo is
+        keyed by Postgres table name rather than shared.
         """
         if table.retention_field is None:
             return None
 
-        if not self.context.activity_log_retention_resolved:
-            # Deferred: Django-side load, kept off the printer's import path.
-            from posthog.models.activity_logging.retention import activity_log_retention_start_for_team  # noqa: PLC0415
+        memo = self.context.postgres_retention_starts
+        if table.postgres_table_name not in memo:
+            memo[table.postgres_table_name] = table.retention_start(self.context.team, self.context.team_id)
 
-            self.context.activity_log_retention_start = activity_log_retention_start_for_team(
-                self.context.team, self.context.team_id
-            )
-            self.context.activity_log_retention_resolved = True
+        return memo[table.postgres_table_name]
 
-        return self.context.activity_log_retention_start
+    def _postgres_retention_floor(
+        self,
+        table_type: ast.TableType | ast.LazyTableType,
+        node_type: ast.TableOrSelectType | None,
+    ) -> ast.Expr | None:
+        """Floor a retention-bearing federated scan, as a predicate in the enclosing select.
+
+        The wrap in `_print_table_ref` repeats this so Postgres prunes on its own index, but that
+        wrap is an optimization with its own preconditions. Enforcement cannot ride on it, so the
+        floor is emitted here too and survives when the wrap does not apply. Prints as a literal
+        rather than `now() - interval`, which would not survive the trip into Postgres.
+        """
+        from posthog.hogql.database.postgres_table import PostgresTable  # noqa: PLC0415
+
+        if node_type is None or not isinstance(table_type, ast.TableType):
+            return None
+        table = table_type.table
+        if not isinstance(table, PostgresTable) or table.retention_field is None:
+            return None
+
+        retention_start = self._postgres_retention_start(table)
+        if retention_start is None:
+            return None
+
+        field_table_type = _table_filter_type(node_type)
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.GtEq,
+            left=ast.Field(
+                chain=[table.retention_field],
+                type=ast.FieldType(name=table.retention_field, table_type=field_table_type),
+            ),
+            right=ast.Constant(value=retention_start),
+            type=ast.BooleanType(),
+        )
 
     def _print_select_columns(self, columns):
         def _alias_from_column_type(column: ast.Expr) -> str | None:

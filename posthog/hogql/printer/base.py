@@ -536,6 +536,15 @@ class BasePrinter(Visitor[str]):
         default no-op — the HogQL and warehouse dialects don't enforce events retention."""
         return None
 
+    def _postgres_retention_floor(
+        self,
+        table_type: ast.TableType | ast.LazyTableType,
+        node_type: ast.TableOrSelectType | None,
+    ) -> ast.Expr | None:
+        """Floor a federated table declaring a `retention_field` to its entitlement window. Overridden
+        by the ClickHouse dialect; default no-op — only that dialect reads these tables."""
+        return None
+
     def _print_table_ref(self, table_type: ast.TableType | ast.LazyTableType, node: ast.JoinExpr) -> str:
         """Print a table reference. Fail-fast by default: each dialect must override.
 
@@ -607,6 +616,9 @@ class BasePrinter(Visitor[str]):
             retention_floor = self._events_retention_floor(table_type, node.type)
             if retention_floor is not None:
                 predicate_exprs = [*predicate_exprs, retention_floor]
+            postgres_floor = self._postgres_retention_floor(table_type, node.type)
+            if postgres_floor is not None:
+                predicate_exprs = [*predicate_exprs, postgres_floor]
             for pred in predicate_exprs:
                 if is_left_join and node.constraint is not None:
                     if on_clause_guard is None:

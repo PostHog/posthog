@@ -150,12 +150,12 @@ class HogQLContext:
     # HogQLQueryModifier, so a query can't disable enforcement.
     apply_events_retention_floor: bool = True
 
-    # Entitlement-derived floor for federated tables that declare a `retention_field` (today only
-    # system.activity_logs). Resolved lazily by the ClickHouse printer the first time such a table is
-    # printed, so a query that never reads one doesn't pay the organization load; `resolved` tracks
-    # that the lookup already happened, since None is itself a meaningful answer (no restriction).
-    activity_log_retention_start: Optional[datetime] = None
-    activity_log_retention_resolved: bool = False
+    # Entitlement-derived floors for federated tables that declare a `retention_field`, keyed by
+    # Postgres table name so two such tables can never share one window. Resolved lazily by the
+    # ClickHouse printer the first time each table is printed, so a query that reads none of them
+    # never pays the organization load. A stored None means "resolved, no restriction", which is why
+    # membership rather than truthiness decides whether the lookup already ran.
+    postgres_retention_starts: dict[str, Optional[datetime]] = field(default_factory=dict, compare=False, repr=False)
 
     def __post_init__(self):
         if self.team:

@@ -1,4 +1,6 @@
+from datetime import datetime
 from functools import lru_cache
+from typing import TYPE_CHECKING, Optional
 
 from posthog.hogql import ast
 from posthog.hogql.base import Expr
@@ -32,6 +34,9 @@ from posthog.hogql.parser import parse_expr, parse_select
 
 from posthog.constants import AvailableFeature
 from posthog.scopes import APIScopeObject
+
+if TYPE_CHECKING:
+    from posthog.models.team.team import Team
 
 from products.customer_analytics.backend.facade.hogql import (
     account_channel_summaries,
@@ -1326,6 +1331,11 @@ class _ActivityLogsTable(PostgresTable):
 
     def get_predicates(self) -> list[Expr]:
         return list(activity_visibility_predicates())
+
+    def retention_start(self, team: Optional["Team"], team_id: Optional[int]) -> Optional[datetime]:
+        from posthog.models.activity_logging.retention import activity_log_retention_start_for_team  # noqa: PLC0415
+
+        return activity_log_retention_start_for_team(team, team_id)
 
 
 activity_logs: _ActivityLogsTable = _ActivityLogsTable(

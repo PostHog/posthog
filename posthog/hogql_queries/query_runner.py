@@ -145,6 +145,7 @@ from posthog.hogql_queries.validation.validation import (
     run_validation_rules,
 )
 from posthog.models import Team, User
+from posthog.models.activity_logging.retention import get_activity_log_lookback_window
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.team import WeekStartDay
 from posthog.models.team.event_retention import events_retention_months_for_team
@@ -2564,6 +2565,13 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         retention_months = events_retention_months_for_team(self.team, self.team.pk)
         if retention_months is not None:
             payload["events_retention_floor_months"] = retention_months
+
+        # Same reasoning for the activity-log floor, which the printer applies after a cache hit has
+        # already returned. Vary on the window rather than on the floor timestamp: a downgrade must
+        # change the key, but the clock moving must not, or these queries would never cache at all.
+        activity_log_window = get_activity_log_lookback_window(self.team.organization)
+        if activity_log_window is not None:
+            payload["activity_log_retention_window_days"] = activity_log_window.days
 
         return payload
 
