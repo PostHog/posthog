@@ -316,6 +316,10 @@ class TestFetchItemSummaries:
         [
             (datetime(2025, 1, 5, 10, 30, 45), datetime(2025, 1, 5, 10, 30, 45).isoformat()),
             ("2025-01-05T10:30:45", "2025-01-05T10:30:45"),
+            # The summarizer writes the property with str(datetime), so a space separates the date.
+            ("2025-01-05 10:30:45+00:00", "2025-01-05T10:30:45+00:00"),
+            ("not a timestamp", "not a timestamp"),
+            (None, ""),
         ],
     )
     @patch("posthog.temporal.ai_observability.trace_clustering.data.execute_hogql_query")
