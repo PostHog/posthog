@@ -191,6 +191,21 @@ const APP_IMAGE = 'app-image'
 // against merge in parallel.
 const PROSE_SUITE = 'prose-suite'
 
+// The ownership data and the suite that validates it. No other suite's outcome
+// depends on ownership jointly with a second PR's changes: the root owners.yaml
+// is a fallback, so nothing can become unowned, and the readers outside the
+// validation suite are review-routing bots. Two ownership edits can conflict
+// with each other (a team renamed under a reference), which one shared lane
+// serializes. A product's own owners.yaml keeps its product lane.
+const OWNERSHIP = 'ownership'
+
+// The vendored paths-filter action and its CI. It decides which jobs run
+// inside a single run's own diff, so no run's outcome depends on it jointly
+// with another queue entry: parallel entries never share a run, and master
+// pushes skip the filters and run the suites in full. Its own tests pair with
+// it in the lane.
+const CI_TOOLING = 'ci-tooling'
+
 const TRIPWIRE_RULES = [
     // Markdown in these trees compiles into nothing and no suite reads it, so
     // it is prose like any other. Ahead of the trees themselves, which would
@@ -456,6 +471,23 @@ const TRIPWIRE_RULES = [
     ['.github/ISSUE_TEMPLATE/**', 'repo-config-lane'],
     // Deployment templates with no in-repo reader; nothing tests them.
     ['.github/pr-deploy/**', DEPLOY],
+    // Ownership data on the shared ownership lane (see OWNERSHIP): the
+    // CODEOWNERS the review bots read, and .github/'s own tree ownership.
+    ['.github/CODEOWNERS', OWNERSHIP],
+    ['.github/owners.yaml', OWNERSHIP],
+    // The vendored paths-filter action and its CI (see CI_TOOLING). The
+    // .depot/ shadow of the action follows through canonicalPath.
+    ['.github/actions/paths-filter/**', CI_TOOLING],
+    ['.github/workflows/ci-paths-filter.yml', CI_TOOLING],
+    // Feed turbo-discover's backend product selection, so they take the
+    // python lanes the same way the snob selector does.
+    ['.github/scripts/schema-impact.js', PYTHON],
+    ['.github/scripts/schema-impact.test.js', PYTHON],
+    ['.github/scripts/schema_usage_scan.py', PYTHON],
+    ['.github/scripts/test_schema_usage_scan.py', PYTHON],
+    // Reusable image builder called by ci-frontend, the rust smoke build, and
+    // the rust image CD, so it spans exactly those three radii.
+    ['.github/workflows/_rust-build-images.yml', [RUST, JAVASCRIPT, DEPLOY]],
 
     // Lint rules that run repo-wide: a new rule fails code that merged in a
     // parallel lane, which is the same conflict .oxlintrc.json is here for. The
@@ -545,22 +577,21 @@ const TRIPWIRE_RULES = [
     ['hogli.yaml', UNIVERSAL],
     ['.github/**', UNIVERSAL],
     ['docker-compose*.yml', UNIVERSAL],
-    // Single-purpose images ahead of the blanket: each is read by exactly one
+    // Single-purpose images ahead of the fallback: each is read by exactly one
     // workflow or suite, whose rule above already carries the radius.
     // Dockerfile.llm-analytics is built only by its master-push CD workflow,
     // Dockerfile.ml-mirror-image-scrub only from nodejs/ sources, and the
     // playwright and sandbox images host suites that run both language
-    // families. Dockerfile itself and Dockerfile.node stay on the blanket:
-    // the app image backs hobby and E2E alike, and the node image is mounted
-    // into the shared dev stack.
+    // families. Everything else at the root, the unified app image included,
+    // backs E2E, hobby, and production, which is the app-image radius; no
+    // rust suite builds from a root Dockerfile. The build-context ignore file
+    // belongs with them.
     ['Dockerfile.llm-analytics', DEPLOY],
     ['Dockerfile.ml-mirror-image-scrub', NODE],
     ['Dockerfile.playwright', FULLSTACK],
     ['Dockerfile.sandbox', FULLSTACK],
-    ['Dockerfile*', UNIVERSAL],
-    // Decides what lands in the build context of every image built from the
-    // repository root, so it belongs with the Dockerfiles above.
-    ['.dockerignore', UNIVERSAL],
+    ['Dockerfile*', APP_IMAGE],
+    ['.dockerignore', APP_IMAGE],
     ['proto/**', PROTO],
     ['frontend/src/queries/schema.json', PRODUCT_SURFACE],
     ['posthog/schema.py', PRODUCT_SURFACE],
@@ -598,17 +629,18 @@ const TRIPWIRE_RULES = [
     ['tools/playwright_spec_selection.py', FULLSTACK],
     ['tools/test_playwright_spec_selection.py', FULLSTACK],
     ['tools/playwright_area_map.json', FULLSTACK],
-    // Ownership data read by the backend, frontend, and script suites alike.
-    // The root owners.yaml is the fallback every path resolves through when no
-    // nearer file claims it, so it has the same readers as the tooling. A
-    // product's own owners.yaml is not here: it keeps its product lane.
-    ['tools/owners/**', UNIVERSAL],
-    ['owners.yaml', UNIVERSAL],
-    // Left universal: the quarantine list covers all three suites at once, and
-    // playwright.quarantine.ts and replay-shared's jest.config.js read it
-    // alongside pytest, so an entry for a flaky frontend test moves a
-    // frontend lane.
-    ['.test_quarantine.json', UNIVERSAL],
+    // The ownership data and its validation tooling share one lane. The root
+    // owners.yaml is the fallback every path resolves through when no nearer
+    // file claims it. A product's own owners.yaml is not here: it keeps its
+    // product lane.
+    ['tools/owners/**', OWNERSHIP],
+    ['owners.yaml', OWNERSHIP],
+    // The quarantine list covers the pytest, jest, and playwright suites at
+    // once, and turbo-discover reads it to drop products from the backend
+    // matrix. Every reader sits inside the two language families; no rust
+    // suite consumes it. A schema change and an entry in the old format meet
+    // in the same file, which git serializes as a textual conflict.
+    ['.test_quarantine.json', FULLSTACK],
     // The hobby install scripts, ahead of the bin/ blanket. Only the hobby
     // smoke test and the installer CI read them, and both workflows sit on the
     // same lane above, so a hobby change and the workflow change that runs it
@@ -707,11 +739,16 @@ const TRIPWIRE_RULES = [
     // suites, bin/docker is the image entrypoint, and download-mmdb and the
     // wait-for-docker pair run in backend, frontend, nodejs, and rust CI.
     ['bin/**', UNIVERSAL],
-    ['patches/**', UNIVERSAL],
+    // pnpm patches resolve inside the JS workspace the same way pnpm-lock.yaml
+    // does, and the python suites never execute the patched packages.
+    ['patches/**', JAVASCRIPT],
     // Names the Depot project every container build and runner is billed and
-    // cached against. rust/depot.json is deliberately not here: it configures
-    // builds of that workspace only, and the rust rules below hold it to them.
-    ['depot.json', UNIVERSAL],
+    // cached against, which is infrastructure routing rather than anything a
+    // suite reads: a wrong project fails its own PR's builds alone, never
+    // jointly with another PR. rust/depot.json is deliberately not here: it
+    // configures builds of that workspace only, and the rust rules below hold
+    // it to them.
+    ['depot.json', 'repo-config-lane'],
     // The toolchain every suite runs inside. ci-python.yml gates on
     // .flox/env/manifest.toml for that reason.
     ['.flox/**', UNIVERSAL],
@@ -1604,6 +1641,8 @@ function allKnownTargets(context) {
         'hobby',
         'repo-automation',
         'dev-env',
+        'ownership',
+        'ci-tooling',
     ])
     for (const product of products) {
         targets.add(pyProduct(product))
@@ -1901,6 +1940,8 @@ const DOMAIN_LANES = new Map([
     [DESKTOP, addDesktopLanes],
     [REPO_AUTOMATION, laneOf('repo-automation')],
     [DEV_ENV, laneOf('dev-env')],
+    [OWNERSHIP, laneOf('ownership')],
+    [CI_TOOLING, laneOf('ci-tooling')],
     [APP_IMAGE, addAppImageLanes],
     [PROSE_SUITE, laneOf('prose')],
     ['livestream-suite', laneOf('livestream')],

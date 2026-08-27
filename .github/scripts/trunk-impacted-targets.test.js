@@ -151,8 +151,9 @@ test('a universal tripwire claims every known target', () => {
     const tripwireFiles = [
         // Runs in backend, frontend, nodejs, and rust CI alike.
         'bin/download-mmdb',
-        // Read by pytest, jest, and playwright alike, so no one domain holds it.
-        '.test_quarantine.json',
+        // The stack every suite tests against, the rust integration suites
+        // included.
+        'docker-compose.base.yml',
         // Trees that steer what every suite runs or what it runs against: the
         // Depot shadow of an action every workflow uses, the toolchain, the
         // service configs the stack mounts, and the markdownlint config every
@@ -465,20 +466,83 @@ test('single-language root configuration claims that language', () => {
 // suite runs on. The narrowing above stops here: these keep the full set, but
 // by decision rather than for want of a rule.
 test('stack and image configuration at the root stays universal', () => {
-    for (const file of [
-        '.env.development',
-        '.env.services',
-        '.envrc',
-        '.dockerignore',
-        'depot.json',
-        'owners.yaml',
-        'otel-collector-config.dev.yaml',
-    ]) {
+    for (const file of ['.env.development', '.env.services', '.envrc', 'otel-collector-config.dev.yaml']) {
         assert.equal(tripwireDomain(file), UNIVERSAL, file)
         assert.deepEqual(computeTargets([file], CONTEXT), EVERYTHING, file)
     }
-    // A product's own ownership file is not the root one and keeps its lane.
-    assert.notDeepEqual(computeTargets(['products/alpha/owners.yaml'], CONTEXT), EVERYTHING)
+})
+
+// No suite's outcome depends on ownership data jointly with a second PR: the
+// root owners.yaml is a fallback, so nothing can become unowned, and the other
+// readers are review-routing bots. Two ownership edits still serialize against
+// each other on the shared lane.
+test('ownership data shares one lane instead of every lane', () => {
+    for (const file of [
+        'owners.yaml',
+        'tools/owners/posthog_owners/matcher.py',
+        '.github/CODEOWNERS',
+        '.github/owners.yaml',
+    ]) {
+        assert.deepEqual(computeTargets([file], CONTEXT), ['ownership'], file)
+    }
+    // A product's own ownership file keeps its product lane.
+    assert.notDeepEqual(computeTargets(['products/alpha/owners.yaml'], CONTEXT), ['ownership'])
+})
+
+// Every quarantine reader (pytest, jest, playwright, and turbo-discover's
+// product-skip input) sits inside the two language families; no rust suite
+// consumes the list, so a flaky-test quarantine no longer serializes rust PRs.
+test('the quarantine list claims the fullstack lanes and no rust crate', () => {
+    const targets = computeTargets(['.test_quarantine.json'], CONTEXT)
+    assert.equal(targets.includes('py:core'), true)
+    assert.equal(targets.includes('fe:core'), true)
+    assert.equal(
+        targets.some((target) => target.startsWith('rust:crate:')),
+        false
+    )
+    assert.notDeepEqual(targets, EVERYTHING)
+})
+
+// paths-filter decides which jobs run inside a single run's own diff, so no
+// run's outcome depends on it jointly with another queue entry. Its own CI and
+// its .depot shadow share the lane.
+test('the paths-filter action and its CI share the ci-tooling lane', () => {
+    for (const file of [
+        '.github/actions/paths-filter/src/filter.ts',
+        '.github/actions/paths-filter/dist/index.js',
+        '.github/workflows/ci-paths-filter.yml',
+        '.depot/actions/paths-filter/src/filter.ts',
+    ]) {
+        assert.deepEqual(computeTargets([file], CONTEXT), ['ci-tooling'], file)
+    }
+})
+
+// pnpm patches resolve inside the JS workspace the way pnpm-lock.yaml does,
+// and depot.json is billing and cache routing that fails its own PR's builds
+// alone.
+test('pnpm patches take the JS lanes and depot.json the repo-config lane', () => {
+    assert.deepEqual(computeTargets(['patches/dayjs@1.11.11.patch'], CONTEXT), computeTargets(['.oxlintrc.json'], CONTEXT))
+    assert.deepEqual(computeTargets(['depot.json'], CONTEXT), ['repo-config'])
+})
+
+// The schema-impact pair feeds turbo-discover's backend product selection, the
+// same radius the snob selector holds.
+test('the schema selection scripts claim the python lanes', () => {
+    for (const file of ['.github/scripts/schema-impact.js', '.github/scripts/schema_usage_scan.py']) {
+        assert.deepEqual(computeTargets([file], CONTEXT), computeTargets(['mypy.ini'], CONTEXT), file)
+    }
+})
+
+// Called by ci-frontend, the rust smoke build, and the rust image CD.
+test('the reusable rust image builder spans its three callers', () => {
+    const targets = computeTargets(['.github/workflows/_rust-build-images.yml'], CONTEXT)
+    assert.equal(targets.includes('fe:core'), true)
+    assert.equal(targets.includes('deploy'), true)
+    assert.equal(
+        targets.some((target) => target.startsWith('rust:crate:')),
+        true
+    )
+    assert.equal(targets.includes('py:core'), false)
 })
 
 // cargo-dist packages the CLI, which ci-cli.yml builds from services/mcp
@@ -609,7 +673,15 @@ test('the dev stack and its selftests share the dev-env lane', () => {
 // The unified app image backs E2E, hobby, and production, so its baked-in
 // entrypoints claim all three radii and stay clear of the rust crates.
 test('app-image entrypoints claim the fullstack, hobby, and deploy lanes', () => {
-    for (const file of ['bin/docker-server', 'bin/migrate', 'bin/celery-queues.env', 'bin/start-backend']) {
+    for (const file of [
+        'bin/docker-server',
+        'bin/migrate',
+        'bin/celery-queues.env',
+        'bin/start-backend',
+        'Dockerfile',
+        'Dockerfile.node',
+        '.dockerignore',
+    ]) {
         const targets = computeTargets([file], CONTEXT)
         for (const target of ['py:core', 'fe:core', 'node:ingestion', 'hobby', 'deploy']) {
             assert.equal(targets.includes(target), true, `${target} (from ${file})`)
@@ -671,7 +743,7 @@ test('a depot shadow resolves through its canonical workflow rules', () => {
         computeTargets(['.depot/workflows/ci-backend-update-test-timing.yml'], CONTEXT),
         computeTargets(['mypy.ini'], CONTEXT)
     )
-    assert.deepEqual(computeTargets(['.depot/actions/paths-filter/src/filter.ts'], CONTEXT), EVERYTHING)
+    assert.deepEqual(computeTargets(['.depot/actions/pnpm-install/action.yml'], CONTEXT), EVERYTHING)
     assert.deepEqual(computeTargets(['.depot/workflows/some-new-shadow.yml'], CONTEXT), EVERYTHING)
     // Shadow markdown is prose like any other.
     assert.deepEqual(computeTargets(['.depot/actions/paths-filter/README.md'], CONTEXT), ['prose'])
@@ -870,6 +942,15 @@ test('every target the rules can emit appears in the enumerated universe', () =>
         'tools/playwright_area_map.json',
         '.prettierignore',
         '.trunk/trunk.yaml',
+        'owners.yaml',
+        '.github/CODEOWNERS',
+        '.test_quarantine.json',
+        '.github/actions/paths-filter/src/filter.ts',
+        'Dockerfile',
+        '.dockerignore',
+        'patches/dayjs@1.11.11.patch',
+        'depot.json',
+        '.github/workflows/_rust-build-images.yml',
     ]
     for (const file of everyRule) {
         const targets = computeTargets([file], CONTEXT)
@@ -1789,13 +1870,13 @@ test('test-selection scripts claim the lanes of the suite they select for', () =
 // Both are tripwires rather than falling through to the tools/ rule, which
 // would give them the python product lanes and nothing else. openapi-codegen
 // generates the frontend types from the backend serializers, so it claims both
-// sides of the fe/py split, and owners is read by both suites.
+// sides of the fe/py split, and owners sits on the shared ownership lane.
 test('cross-domain tools are tripwires rather than backend-only', () => {
     assert.deepEqual(
         computeTargets(['tools/openapi-codegen/config.ts'], CONTEXT),
         computeTargets(['frontend/src/products.json'], CONTEXT)
     )
-    assert.deepEqual(computeTargets(['tools/owners/posthog_owners/__init__.py'], CONTEXT), EVERYTHING)
+    assert.deepEqual(computeTargets(['tools/owners/posthog_owners/__init__.py'], CONTEXT), ['ownership'])
 })
 
 // Prose overlaps only other prose, and has to reach that lane through the
