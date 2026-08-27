@@ -32,7 +32,11 @@ import type {
     TraceSpansAttributeBreakdownQueryResponse,
     TraceSpansQueryResponse,
 } from '../../../frontend/src/queries/schema/schema-general'
-import { type TraceGitMetadata, aiObservabilityTraceLogic } from './aiObservabilityTraceLogic'
+import {
+    TRACE_FALLBACK_LOOKBACK_DAYS,
+    type TraceGitMetadata,
+    aiObservabilityTraceLogic,
+} from './aiObservabilityTraceLogic'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { captureNormalizationFailure, normalizeMessages } from './messageNormalization'
 import {
@@ -51,14 +55,15 @@ export interface TraceDataLogicProps {
     searchQuery: string
 }
 
-function getDataNodeLogicProps({ traceId, query, cachedResults }: TraceDataLogicProps): DataNodeLogicProps {
+export function getDataNodeLogicProps({ traceId, query, cachedResults }: TraceDataLogicProps): DataNodeLogicProps {
     const fallbackTraceQuery: TraceQuery = {
         kind: NodeKind.TraceQuery,
         traceId,
         includeSentiment: true,
-        // Match trace logic defaults so we still fetch data if query is briefly undefined.
+        // No query passed (e.g. a notebook trace node) or the query is briefly undefined: bound the
+        // lookback so a single-trace read cannot scan all history and time out at the gateway.
         dateRange: {
-            date_from: dayjs.utc().subtract(1, 'year').startOf('day').toISOString(),
+            date_from: `-${TRACE_FALLBACK_LOOKBACK_DAYS}d`,
         },
     }
 

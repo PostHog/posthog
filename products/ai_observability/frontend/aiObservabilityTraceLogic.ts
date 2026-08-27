@@ -62,7 +62,7 @@ export interface AIObservabilityTraceDataNodeLogicParams {
 const EXCEPTION_LOOKUP_WINDOW_MINUTES = 20
 // Fallback lookback for a trace opened without a timestamp. Bounds the shared-events scan so a
 // link that carries no timestamp cannot trigger a full-history query that times out at the gateway.
-const TRACE_FALLBACK_LOOKBACK_DAYS = 30
+export const TRACE_FALLBACK_LOOKBACK_DAYS = 30
 
 export function getDataNodeLogicProps({
     traceId,
