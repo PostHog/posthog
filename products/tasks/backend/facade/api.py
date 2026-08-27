@@ -640,6 +640,10 @@ def _task_detail_to_dto(
 
 
 def _sandbox_env_to_dto(env: SandboxEnvironment) -> contracts.SandboxEnvironmentDTO:
+    # The names are reported back so a caller can tell which variables are set; the values
+    # stay server-side. A value that failed to decrypt comes back as its ciphertext string
+    # rather than a dict, and that is not a variable set, so it reports as none.
+    env_vars = env.environment_variables if isinstance(env.environment_variables, dict) else {}
     return contracts.SandboxEnvironmentDTO(
         id=env.id,
         team_id=env.team_id,
@@ -651,7 +655,8 @@ def _sandbox_env_to_dto(env: SandboxEnvironment) -> contracts.SandboxEnvironment
         allowed_domains=list(env.allowed_domains or []),
         repositories=list(env.repositories or []),
         effective_domains=env.get_effective_domains(),
-        has_environment_variables=bool(env.environment_variables),
+        has_environment_variables=bool(env_vars),
+        environment_variable_keys=sorted(env_vars),
         created_by=_user_basic_info(env.created_by if env.created_by_id else None),
         created_at=env.created_at,
         updated_at=env.updated_at,
