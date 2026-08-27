@@ -1,0 +1,12 @@
+{
+    "id": "LB21",
+    "file": "products/stamphog/backend/tasks/tasks.py",
+    "lines": "894-898",
+    "priority": "must_fix",
+    "title": "The opt-out dismissal misses GitHub-only approvals",
+    "problem": "The dismissal helper only finds approvals with a saved posted_review_id. A worker can post an approval and stop before saving that ID. This path starts no workflow, so the GitHub-side orphan sweep never runs. The approval remains active after the push.",
+    "suggestion": "Move the GitHub approval sweep into shared approval logic. On every skipped head change, dismiss this App's active approvals whose commit_id differs from the current head.",
+    "cluster": null,
+    "cluster_issue": null,
+    "cluster_verified": null
+}
