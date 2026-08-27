@@ -113,17 +113,16 @@ class ClickHouseCredentials:
     password_file: str | None = None
 
     def read_password(self) -> str:
-        if self.password_file:
+        path = self.password_file
+        if path:
             try:
-                token = Path(self.password_file).read_text().strip()
+                token = Path(path).read_text().strip()
             except OSError:
-                logging.warning(
-                    "could not read clickhouse password file %s; using fallback password", self.password_file
-                )
+                logging.warning("clickhouse: %s is not readable, using the static fallback", path)
                 return self.password
             if token:
                 return token
-            logging.warning("clickhouse password file %s is empty; using fallback password", self.password_file)
+            logging.warning("clickhouse: %s is empty, using the static fallback", path)
         return self.password
 
 
