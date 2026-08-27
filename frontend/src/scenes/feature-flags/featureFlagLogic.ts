@@ -3303,6 +3303,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             projectFlagActiveUpdated: (state, { teamId, flagId, active }) =>
                 state.map((p) => (p.team_id === teamId && p.flag_id === flagId ? { ...p, active } : p)),
         },
+        // kea-loaders keeps the prior value when a refetch fails, so a failed status refresh after a
+        // mutation would leave the banner rendering a verdict for a flag that no longer has it. Drop
+        // the verdict when a refetch starts or fails; only a successful load may show the banner.
+        flagStatus: {
+            loadFeatureFlagStatus: () => null,
+            loadFeatureFlagStatusFailure: () => null,
+        },
     }),
     listeners(({ actions, values, props, sharedListeners }) => ({
         loadCopyDependencyRequirements: async (_, breakpoint): Promise<void> => {
