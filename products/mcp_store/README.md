@@ -98,9 +98,9 @@ Can't be added:
 ### Internal endpoint escape hatch
 
 Cloud operators can allow a small number of private Streamable HTTP endpoints
-for internal dogfooding with the comma-separated
-`MCP_STORE_INTERNAL_ALLOWED_URLS_BY_TEAM` environment variable. Its value is a
-JSON object keyed by team ID; every entry must be a complete MCP URL, for example:
+for internal dogfooding with the `MCP_STORE_INTERNAL_ALLOWED_URLS_BY_TEAM`
+environment variable. Its value is a JSON object keyed by team ID; every entry
+must be a complete MCP URL, for example:
 
 ```text
 MCP_STORE_INTERNAL_ALLOWED_URLS_BY_TEAM={"2":["http://grafana-mcp.monitoring.svc.cluster.local/mcp"]}
