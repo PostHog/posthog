@@ -41,6 +41,8 @@ export interface ModelMarker extends editor.IMarkerData {
     hogQLFix?: string
     hogQLAIFixPrompt?: string
     hogQLFixAction?: ModelMarkerFixAction
+    /** Where the fix action is offered. A query-level fix should not need the caret on its marker. */
+    hogQLFixScope?: IRange
     start: number
     end: number
 }
@@ -217,6 +219,16 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                     const [query, metadataResponse] = metadata
 
                     const markerOffset = props.metadataQueryOffset ?? 0
+                    // The metadata query is one statement of the script, and a query-level fix applies
+                    // to all of it, so the caret only has to be somewhere inside these bounds.
+                    const scopeStartPosition = model.getPositionAt(markerOffset)
+                    const scopeEndPosition = model.getPositionAt(markerOffset + query.length)
+                    const statementScope = {
+                        startLineNumber: scopeStartPosition.lineNumber,
+                        startColumn: scopeStartPosition.column,
+                        endLineNumber: scopeEndPosition.lineNumber,
+                        endColumn: scopeEndPosition.column,
+                    }
 
                     function noticeToMarker(error: HogQLNotice, severity: MarkerSeverity): ModelMarker {
                         const start = model!.getPositionAt((error.start ?? 0) + markerOffset)
@@ -234,6 +246,7 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                             hogQLAIFixPrompt: error.fix?.startsWith('ai_prompt:')
                                 ? error.fix.slice('ai_prompt:'.length)
                                 : undefined,
+                            hogQLFixScope: error.fix_action ? statementScope : undefined,
                             hogQLFixAction: error.fix_action
                                 ? {
                                       title: error.fix_action.title,

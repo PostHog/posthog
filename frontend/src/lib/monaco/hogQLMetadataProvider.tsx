@@ -4,7 +4,7 @@ import { languages } from 'monaco-editor'
 import type { codeEditorLogicType } from './codeEditorLogic'
 
 export const hogQLMetadataProvider: () => languages.CodeActionProvider = () => ({
-    provideCodeActions: (model, _range, context) => {
+    provideCodeActions: (model, range, context) => {
         const logic: BuiltLogic<codeEditorLogicType> | undefined = (model as any).codeEditorLogic
         if (logic?.isMounted()) {
             // Monaco gives us a list of markers that we're looking at, but without the quick fixes.
@@ -50,26 +50,6 @@ export const hogQLMetadataProvider: () => languages.CodeActionProvider = () => (
                         })
                     }
                     if (
-                        rawMarker.hogQLFixAction &&
-                        // if ranges overlap
-                        rawMarker.start <= end &&
-                        rawMarker.end >= start
-                    ) {
-                        quickFixes.push({
-                            title: rawMarker.hogQLFixAction.title,
-                            diagnostics: [rawMarker],
-                            kind: 'quickfix',
-                            edit: {
-                                edits: rawMarker.hogQLFixAction.edits.map((fixEdit) => ({
-                                    resource: model.uri,
-                                    textEdit: { range: fixEdit.range, text: fixEdit.text },
-                                    versionId: undefined,
-                                })),
-                            },
-                            isPreferred: true,
-                        })
-                    }
-                    if (
                         rawMarker.hogQLAIFixPrompt &&
                         // if ranges overlap
                         rawMarker.start <= end &&
@@ -89,6 +69,46 @@ export const hogQLMetadataProvider: () => languages.CodeActionProvider = () => (
                     }
                 }
             }
+            // A query-level fix is offered from anywhere in its statement. Requiring the caret on the
+            // marker hides it from a reader who is not looking at the flagged token.
+            const caretOffset = model.getOffsetAt({
+                lineNumber: range.startLineNumber,
+                column: range.startColumn,
+            })
+            const seenEdits = new Set<string>()
+            for (const rawMarker of markersFromMetadata) {
+                const scope = rawMarker.hogQLFixScope
+                if (!rawMarker.hogQLFixAction || !scope) {
+                    continue
+                }
+                const scopeStart = model.getOffsetAt({
+                    lineNumber: scope.startLineNumber,
+                    column: scope.startColumn,
+                })
+                const scopeEnd = model.getOffsetAt({ lineNumber: scope.endLineNumber, column: scope.endColumn })
+                if (caretOffset < scopeStart || caretOffset > scopeEnd) {
+                    continue
+                }
+                const key = JSON.stringify(rawMarker.hogQLFixAction.edits)
+                if (seenEdits.has(key)) {
+                    continue
+                }
+                seenEdits.add(key)
+                quickFixes.push({
+                    title: rawMarker.hogQLFixAction.title,
+                    diagnostics: [rawMarker],
+                    kind: 'quickfix',
+                    edit: {
+                        edits: rawMarker.hogQLFixAction.edits.map((fixEdit) => ({
+                            resource: model.uri,
+                            textEdit: { range: fixEdit.range, text: fixEdit.text },
+                            versionId: undefined,
+                        })),
+                    },
+                    isPreferred: true,
+                })
+            }
+
             return {
                 actions: quickFixes,
                 dispose: () => {},
