@@ -9,6 +9,14 @@ const QUOTE_RE = /^ {0,3}>\s?/
 const BULLET_RE = /^\s*(?:[-*+]|\d{1,9}[.)])\s+/
 const IMAGE_RE = /!\[([^\]]*)\]\([^)]*\)/g
 const LINK_RE = /\[([^\]]*)\]\([^)]*\)/g
+// A link reference definition is a whole line of pure syntax, so the line goes. Its `[text][ref]` and
+// `[text][]` usages keep their label. Bare `[text]` is left alone: in prose it is far more often a real
+// bracket ("clicked [Save]") than a shortcut reference.
+// The definition has to be the entire line — a space-free destination and an optional title, nothing
+// after. Matching just the prefix would eat a sentence that merely opens the same way, such as
+// "[Save]: clicked twice before it took".
+const LINK_DEFINITION_RE = /^ {0,3}\[[^\]]+\]:\s*\S+(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\s*$/
+const REFERENCE_RE = /!?\[([^\]]*)\]\[[^\]]*\]/g
 const CODE_SPAN_RE = /`+([^`]*)`+/g
 const STRONG_RE = /(\*\*|__)(\S(?:.*?\S)?)\1/g
 const STRIKE_RE = /~~(\S(?:.*?\S)?)~~/g
@@ -20,27 +28,6 @@ const ESCAPE_RE = /\\([\\`*_{}[\]()#+\-.!>~|])/g
 // Terminal punctuation, after which one flattened block runs into the next without a sentence break.
 const SENTENCE_ENDINGS = '.!?:;,'
 
-const AUTOLINK_RE = /<(https?:\/\/[^\s>]+)>/gi
-// The final character class holds the sentence's own punctuation out of the URL, so `at https://x.` does
-// not read the period as part of the address.
-const BARE_URL_RE = /(^|[^`\w])((?:https?:\/\/|www\.)[^\s<>)\]`]*[^\s<>)\]`.,;:!?])/gi
-
-/**
- * Model text with every link target removed, keeping the words around it.
- *
- * A scanner describes a recording; it has no reason to link anywhere, and what it writes is derived from
- * pages a stranger controls. Rendering that as markdown is what would turn a URL the model picked up off
- * a page — or was talked into writing — into something a reader can click. Labels survive and bare URLs
- * become code spans, so the reader still sees what was written; it just isn't a link.
- */
-export function defangMarkdownLinks(text: string): string {
-    return text
-        .replace(IMAGE_RE, '$1')
-        .replace(LINK_RE, '$1')
-        .replace(AUTOLINK_RE, '`$1`')
-        .replace(BARE_URL_RE, '$1`$2`')
-}
-
 /**
  * Markdown-bearing model text folded onto a single line of readable plain prose.
  *
@@ -51,7 +38,7 @@ export function defangMarkdownLinks(text: string): string {
 export function flattenMarkdownToLine(text: string): string {
     let out = ''
     for (const raw of text.split('\n')) {
-        if (FENCE_RE.test(raw) || RULE_RE.test(raw)) {
+        if (FENCE_RE.test(raw) || RULE_RE.test(raw) || LINK_DEFINITION_RE.test(raw)) {
             continue
         }
         const block = raw
@@ -60,6 +47,7 @@ export function flattenMarkdownToLine(text: string): string {
             .replace(BULLET_RE, '')
             .replace(IMAGE_RE, '$1')
             .replace(LINK_RE, '$1')
+            .replace(REFERENCE_RE, '$1')
             .replace(CODE_SPAN_RE, '$1')
             .replace(STRONG_RE, '$2')
             .replace(STRIKE_RE, '$1')

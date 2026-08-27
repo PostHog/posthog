@@ -89,6 +89,19 @@ export interface LemonMarkdownProps {
      * as <img>; every other image is rendered as a plain click-to-open link instead.
      */
     disableImages?: boolean
+    /**
+     * Whether to render every link as plain text rather than an anchor, keeping its label. Use for
+     * content we don't control (e.g. LLM/agent output derived from a page a stranger wrote), where a
+     * link the reader can click is a phishing vector and the content has no reason to carry one.
+     *
+     * Set this rather than stripping link syntax from the source: markdown reaches a link through
+     * inline `[x](url)`, reference `[x][ref]` with a definition elsewhere in the document, a bare URL
+     * autolinked by remark-gfm, or an image that falls back to a link — so a sanitizer upstream of the
+     * parser has to out-guess every one of those forms, while this simply never emits an anchor.
+     * `renderChartRef` / `renderTimestampRef` targets are unaffected: those are rendered by the
+     * caller, not linked.
+     */
+    disableLinks?: boolean
     className?: string
     wrapCode?: boolean
     /** Whether to generate id attributes on heading elements for anchor linking. */
@@ -150,6 +163,7 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
     lowKeyHeadings = false,
     disableDocsRedirect = false,
     disableImages = false,
+    disableLinks = false,
     wrapCode = false,
     generateHeadingIds = false,
     renderMermaid,
@@ -172,6 +186,9 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
                     // the summary was written, a repeat of a reference already drawn). Linking it
                     // instead would point the reader at a scheme no browser can follow.
                     return <>{renderChartRef?.(chartId, node?.position?.start?.offset) ?? children}</>
+                }
+                if (disableLinks) {
+                    return <>{children}</>
                 }
                 return (
                     <Link to={href} target="_blank" targetBlankIcon disableDocsPanel={disableDocsRedirect}>
@@ -247,14 +264,20 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
             },
             ...(disableImages
                 ? {
-                      img: ({ src, alt }: any): JSX.Element =>
-                          isTrustedPostHogUrl(src) ? (
-                              <img src={src} alt={alt} loading="lazy" />
+                      img: ({ src, alt }: any): JSX.Element => {
+                          if (isTrustedPostHogUrl(src)) {
+                              return <img src={src} alt={alt} loading="lazy" />
+                          }
+                          // The click-to-open fallback is itself an anchor, so it has to answer to
+                          // `disableLinks` too — otherwise an image is a way to reach a live link.
+                          return disableLinks ? (
+                              <>{alt || src}</>
                           ) : (
                               <Link to={src} target="_blank" targetBlankIcon disableDocsPanel>
                                   {alt || src}
                               </Link>
-                          ),
+                          )
+                      },
                   }
                 : {}),
             li: ({ children, node }: any): JSX.Element => {
@@ -303,6 +326,7 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
         [
             disableDocsRedirect,
             disableImages,
+            disableLinks,
             lowKeyHeadings,
             wrapCode,
             generateHeadingIds,
@@ -349,6 +373,7 @@ function LemonMarkdownComponent({
     lowKeyHeadings = false,
     disableDocsRedirect = false,
     disableImages = false,
+    disableLinks = false,
     wrapCode = false,
     generateHeadingIds = false,
     renderMermaid,
@@ -362,6 +387,7 @@ function LemonMarkdownComponent({
                 lowKeyHeadings={lowKeyHeadings}
                 disableDocsRedirect={disableDocsRedirect}
                 disableImages={disableImages}
+                disableLinks={disableLinks}
                 wrapCode={wrapCode}
                 generateHeadingIds={generateHeadingIds}
                 renderMermaid={renderMermaid}

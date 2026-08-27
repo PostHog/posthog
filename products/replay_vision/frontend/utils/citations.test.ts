@@ -108,15 +108,15 @@ describe('citedMarkdown', () => {
             expected: 'Something broke! [00:05](t:5000)',
         },
         {
-            // Recording-derived text: a page that talked the model into writing a URL must not get a
-            // clickable link out of it. The citation's own `t:` target is the one link that survives.
-            name: 'leaves the model no way to write a link the reader can click',
+            // Sanitizing is the renderer's job (`CitedMarkdown` sets `disableLinks`), so the prose is
+            // passed through whole — a link here must arrive intact rather than half-stripped.
+            name: 'passes the prose through untouched, including anything link-shaped',
             text: '',
             segments: [
-                { kind: 'text', value: 'Saw [an offer](https://evil.example) and https://evil.example/x' },
+                { kind: 'text', value: 'Saw [an offer](https://evil.example)' },
                 { kind: 'chip', timestamp_ms: 5_000 },
             ],
-            expected: 'Saw an offer and `https://evil.example/x`[00:05](t:5000)',
+            expected: 'Saw [an offer](https://evil.example)[00:05](t:5000)',
         },
         {
             name: 'keeps text without citations untouched',
