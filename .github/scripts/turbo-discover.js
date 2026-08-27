@@ -759,13 +759,16 @@ function resolveProductSizing(product, durations, productsScaled = false) {
     if (staleness.stale && staleness.fileCount > 0) {
         const fallbackWork = staleness.fileCount * STALENESS_FALLBACK_SECONDS_PER_FILE
         if (fallbackWork > shape.work) {
-            // The guess carries no distribution, so treat it as one file's worth per test.
+            // The tests the map does record are still measurements, and a heavy one
+            // holds a shard whatever the coverage. Keep those and treat only the
+            // guessed remainder as light, at one file's worth per test.
+            const recordedHeavyWork = shape.work - shape.lightWork
             return {
                 work: fallbackWork,
                 maxTest: Math.max(shape.maxTest, STALENESS_FALLBACK_SECONDS_PER_FILE),
-                heavyCount: 0,
-                lightWork: fallbackWork,
-                maxLight: STALENESS_FALLBACK_SECONDS_PER_FILE,
+                heavyCount: shape.heavyCount,
+                lightWork: Math.max(fallbackWork - recordedHeavyWork, 0),
+                maxLight: Math.max(shape.maxLight, STALENESS_FALLBACK_SECONDS_PER_FILE),
                 testCount: Math.max(shape.testCount, staleness.fileCount),
                 staleUnionWork: shape.work,
                 staleness,
@@ -932,7 +935,10 @@ function productSplitShards(shape) {
     const lightShards = lightWork > 0 ? Math.ceil(lightWork / (budget - maxLight)) : 0
     const fragmentation = lightWork > 0 ? heavyCount : 0
     const wanted = Math.min(heavyCount + lightShards + fragmentation, testCount)
-    return Math.max(2, Math.min(DJANGO_MAX_SHARDS, wanted))
+    // The two-shard floor cannot outrank the test count: a product holding one
+    // test that overruns the budget still gets one job, because the second would
+    // collect nothing and splitting cannot shorten the first.
+    return Math.max(Math.min(2, testCount), Math.min(DJANGO_MAX_SHARDS, wanted))
 }
 
 // Selector segment key -> Django matrix segment name.

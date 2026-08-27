@@ -157,6 +157,17 @@ test('the count never exceeds the tests there are to place', () => {
     assert.equal(productSplitShards(many), 5)
 })
 
+test('a product holding one test is never split', () => {
+    const budget = TARGET_WALL_SECONDS - PRODUCT_JOB_OVERHEAD_SECONDS
+
+    // One test over the budget still gets one job: a second would collect nothing,
+    // and no split shortens the first.
+    assert.equal(
+        productSplitShards({ work: budget + 1, heavyCount: 1, lightWork: 0, maxLight: 0, testCount: 1 }),
+        1
+    )
+})
+
 test('a heavy test between light ones splits the light run', () => {
     // Ordered [53, 301, 133] against a 320s budget: either contiguous cut leaves a
     // 354s or 434s chunk, so two shards cannot hold the budget however it is cut.
