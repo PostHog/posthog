@@ -3,7 +3,7 @@ import { MakeLogicType, actions, kea, listeners, path, reducers } from 'kea'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { NetworkError } from 'lib/api-error'
+import { NetworkError, isBrowserFetchFailure } from 'lib/api-error'
 import { twoFactorLogic } from 'scenes/authentication/two-factor-setup/twoFactorLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -107,8 +107,9 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
                 await breakpoint(50)
                 if (
                     (error instanceof NetworkError && (error.reason === 'network' || error.reason === 'offline')) ||
-                    // Fallback for callers that pass the raw browser error (e.g. CORS failures before Django).
-                    error?.message === 'Failed to fetch'
+                    // Fallback for callers that pass the raw browser error (e.g. streamTiles, CORS failures
+                    // before Django). Each engine words a dropped fetch differently, so match every message.
+                    isBrowserFetchFailure(error)
                 ) {
                     actions.setInternetConnectionIssue(true)
                 }

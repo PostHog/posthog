@@ -174,5 +174,31 @@ describe('apiStatusLogic', () => {
             expect(logic.values.internetConnectionIssue).toBe(raised)
             errorSpy.mockRestore()
         })
+
+        // streamTiles hands this listener the raw browser error, unclassified. Each engine words a
+        // dropped fetch differently, so a strict compare against Chromium's 'Failed to fetch' left
+        // Safari and Firefox stream drops without a banner. A non-fetch stream error must stay silent.
+        it.each([
+            ['Safari', new TypeError('Load failed'), true],
+            ['Firefox', new TypeError('NetworkError when attempting to fetch resource.'), true],
+            ['non-fetch stream end', new Error('Dashboard stream ended before loading finished.'), false],
+        ] as const)('given a raw %s error, raises the banner: %s', async (_engine, error, raised) => {
+            initKeaTests()
+            logic = apiStatusLogic()
+            logic.mount()
+
+            const errorSpy = jest.spyOn(lemonToast, 'error').mockReturnValue('toast-id')
+
+            await expectLogic(logic).toDispatchActions(['onApiResponse'])
+
+            await expectLogic(logic, () => {
+                logic.actions.onApiResponse(undefined, error)
+            })
+                .delay(100)
+                .toFinishAllListeners()
+
+            expect(logic.values.internetConnectionIssue).toBe(raised)
+            errorSpy.mockRestore()
+        })
     })
 })

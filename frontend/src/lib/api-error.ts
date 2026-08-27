@@ -200,3 +200,34 @@ export class NetworkError extends ApiError {
         this.cause = cause
     }
 }
+
+/**
+ * Every engine words a fetch that never reached the server differently, so a single string compare
+ * misses two of the three. Chromium says "Failed to fetch", Safari "Load failed", and Firefox
+ * "NetworkError when attempting to fetch resource." (with a trailing period), so we match on a
+ * substring rather than equality. Kept beside `NETWORK_ERROR_MESSAGES` so both callers — the
+ * classifier in `api.ts` and the connectivity-banner fallback in `apiStatusLogic` — share one list.
+ */
+const BROWSER_FETCH_FAILURE_MESSAGES = [
+    'Failed to fetch',
+    'Load failed',
+    'NetworkError when attempting to fetch resource',
+]
+
+/**
+ * Whether a raw browser error is a fetch that never reached the server. `instanceof TypeError` alone
+ * misses two real cases: an error thrown in another realm (an iframe, a worker) carries that realm's
+ * `TypeError`, and a `fetch` replaced by a browser extension can reject with its own error shape.
+ * Both keep the class name and the engine-specific message, so we match those as well.
+ */
+export function isBrowserFetchFailure(error: unknown): boolean {
+    if (error instanceof TypeError) {
+        return true
+    }
+    const candidate = error as { name?: unknown; message?: unknown } | null
+    if (candidate?.name === 'TypeError') {
+        return true
+    }
+    const message = candidate?.message
+    return typeof message === 'string' && BROWSER_FETCH_FAILURE_MESSAGES.some((known) => message.includes(known))
+}
