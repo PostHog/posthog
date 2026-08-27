@@ -127,9 +127,25 @@ Two results have more importance than these numbers.
 First, there were no stale tests with high confidence. Thus a cleanup from this data had nothing to delete.
 Second, 1,020 tests appeared to touch no production code. Almost all of these results are false. They come from code with many mocks, from property-based tests, and from tests of migration rules. Testmon cannot trace these paths.
 
-Backend test selection came later from a different mechanism. Read [#85530](https://github.com/PostHog/posthog/pull/85530) and [#88265](https://github.com/PostHog/posthog/pull/88265).
+Backend test selection came later from a different mechanism. It uses the Snob import graph. Read the next entry.
 
 _Also asked as:_ coverage-based test selection, testmon, find stale tests from coverage, only run affected tests
+
+### Snob is in CI, but CI does not use it
+
+**Verdict: CI does use it.** The scope was narrow on purpose.
+
+`tools/snob_backend_test_selection_shadow.py` selects the Django test subset for a PR. It combines the Snob import graph with Django-aware heuristics.
+
+Two things make this look inactive:
+
+`pytest-snob` is an inline PEP 723 dependency of that script. It is not in `pyproject.toml`. Thus a search of the dependency file finds nothing.
+The selection was also active for draft PRs only for some time. The team wanted a stable merge queue first.
+
+[#85530](https://github.com/PostHog/posthog/pull/85530) then extended the selection to PRs that are ready for review. [#88265](https://github.com/PostHog/posthog/pull/88265) put the Django selection and the product selection in one job.
+Read the comment at the top of `.github/workflows/ci-backend.yml` for the current rules.
+
+_Also asked as:_ snob, is test selection on, why does CI run all the tests, do we select tests on PRs
 
 ### Disable the pytest `unraisableexception` and `threadexception` plugins
 
