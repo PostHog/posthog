@@ -67,9 +67,14 @@ jobs:
                       posthog-test-durations-
 
             - name: Set the previous map aside
+              # .test_durations is not tracked, so there is nothing to restore it from
+              # and a cache miss leaves no file at all.
               run: |
-                  cp .test_durations /tmp/previous_durations
-                  git checkout -- .test_durations
+                  if [ -f .test_durations ]; then
+                      mv .test_durations /tmp/previous_durations
+                  else
+                      echo "::warning::No cached map restored; a drifting Products slice has no stand-in"
+                  fi
 
             - name: Download timing artifacts
               env:
