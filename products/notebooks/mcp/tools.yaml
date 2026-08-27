@@ -296,6 +296,9 @@ tools:
     notebooks-widget-revert:
         operation: notebooks_widget_revert
         enabled: false
+    notebooks-widget-source:
+        operation: notebooks_widget_source
+        enabled: false
     notebooks-widget-status:
         operation: notebooks_widget_status
         enabled: false
