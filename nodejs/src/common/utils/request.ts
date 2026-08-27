@@ -269,7 +269,7 @@ class InsecureAgent extends Agent {
 // When a proxy URL is available, external requests go through a CONNECT tunnel.
 // The proxy handles SSRF blocking (private IP rejection) at the network level,
 // so we skip the DNS lookup (httpStaticLookup) which would be redundant.
-function makeSecureDispatcher(allowH2: boolean = false): Dispatcher {
+function makeSecureDispatcher({ allowH2 }: { allowH2: boolean }): Dispatcher {
     const proxyUrl =
         process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.https_proxy || process.env.http_proxy
 
@@ -293,8 +293,8 @@ function makeSecureDispatcher(allowH2: boolean = false): Dispatcher {
     })
 }
 
-const sharedSecureAgent = makeSecureDispatcher()
-const sharedSecureH2Agent = makeSecureDispatcher(true)
+const sharedSecureAgent = makeSecureDispatcher({ allowH2: false })
+const sharedSecureH2Agent = makeSecureDispatcher({ allowH2: true })
 const sharedInsecureAgent = new InsecureAgent()
 
 function destroyBody(body: Dispatcher.ResponseData['body']): void {
