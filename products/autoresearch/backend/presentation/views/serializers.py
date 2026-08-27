@@ -10,13 +10,25 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 from posthog.api.shared import UserBasicSerializer
 
 from products.autoresearch.backend.facade import api
-from products.autoresearch.backend.facade.contracts import Pipeline, PipelineWrite
+from products.autoresearch.backend.facade.contracts import (
+    IterationTrailEntry,
+    Model,
+    Pipeline,
+    PipelineWrite,
+    Run,
+    TrainingRun,
+)
 
 POPULATION_KINDS = api.POPULATION_KINDS
 
 # (value, label) pairs, not bare values: drf-spectacular builds each enum component's name and
 # its label list from them, and `ENUM_NAME_OVERRIDES` matches on the value set.
 PIPELINE_STATUS_CHOICES = api.PIPELINE_STATUS_CHOICES
+MODEL_ROLE_CHOICES = api.MODEL_ROLE_CHOICES
+RUN_STATUS_CHOICES = api.RUN_STATUS_CHOICES
+RUN_TYPE_CHOICES = api.RUN_TYPE_CHOICES
+TRAINING_RUN_STATUS_CHOICES = api.TRAINING_RUN_STATUS_CHOICES
+ITERATION_STATUS_CHOICES = api.ITERATION_STATUS_CHOICES
 
 TARGET_EVENT_MAX_LENGTH = 255
 OUTPUT_PERSON_PROPERTY_MAX_LENGTH = 255
@@ -175,6 +187,43 @@ class PopulationDefinitionField(serializers.JSONField):
                     f"Population kind '{kind}' needs an 'event' naming the event it applies to."
                 )
         return value
+
+
+@extend_schema_field(
+    {
+        "type": "object",
+        "description": (
+            "Portable recipe artifact. Contains feature_sql (HogQL), feature_transforms, "
+            "model_class, model_params, fit_signature, trained_on, holdout_score, and agent_description."
+        ),
+        "example": {
+            "feature_sql": "SELECT a.person_id AS distinct_id, countIf(e.event='$pageview') AS pageviews_30d FROM {anchors} a LEFT JOIN events e ON e.person_id = a.person_id AND e.timestamp < fromUnixTimestamp(a.cutoff_ts) GROUP BY a.person_id",
+            "feature_transforms": [],
+            "model_class": "sklearn.linear_model.LogisticRegression",
+            "model_params": {"C": 1.0, "max_iter": 200},
+            "fit_signature": "abc123",
+            "trained_on": "2026-04-01 to 2026-05-01",
+            "holdout_score": 0.72,
+            "agent_description": "Stub recipe: universal engagement features",
+        },
+    }
+)
+class ModelRecipeField(serializers.JSONField):
+    pass
+
+
+@extend_schema_field(
+    {
+        "type": "object",
+        "description": (
+            "Global feature importance bundle: top features by gain, directionality "
+            "(positive/negative impact on predicted probability), stability across runs, "
+            "and leakage warning annotations."
+        ),
+    }
+)
+class ModelExplanationField(serializers.JSONField):
+    pass
 
 
 # ── Core serializers ------------------------------------------------------
@@ -505,6 +554,301 @@ class AutoresearchPipelineCreateSerializer(DataclassSerializer):
         if not is_update and not self._value(data, "inference_population"):
             updates["inference_population"] = self._value(data, "training_population", {})
         return replace(data, **updates) if updates else data
+
+
+@extend_schema_serializer(component_name="AutoresearchModel")
+class AutoresearchModelSerializer(DataclassSerializer):
+    id = serializers.UUIDField(read_only=True, help_text="Unique UUID of this model version.")
+    pipeline = serializers.UUIDField(help_text="Pipeline this model belongs to.")
+    role = serializers.ChoiceField(
+        choices=MODEL_ROLE_CHOICES,
+        required=False,
+        help_text="Model role: 'champion' (active scoring model), 'challenger' (shadow model), or 'archived'.",
+    )
+    recipe_hash = serializers.CharField(
+        read_only=True,
+        help_text="SHA-256 of the serialized recipe. Used to deduplicate identical recipes across runs.",
+    )
+    model_recipe = ModelRecipeField(
+        help_text="Portable recipe artifact. Feature SQL, transforms, model class, params, and metadata."
+    )
+    model_explanation = ModelExplanationField(
+        help_text="Global feature importance and directionality. Used to explain top drivers on the model card."
+    )
+    holdout_score = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        help_text="AUC on the held-out test split at training time. Preliminary signal before online labels mature.",
+    )
+    realized_score = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        help_text="Online AUC computed from actual realized outcomes. Authoritative once enough labels have matured.",
+    )
+    calibration_error = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        help_text="Expected calibration error (ECE). Lower is better; well-calibrated models have ECE < 0.05.",
+    )
+    metrics = serializers.JSONField(
+        required=False,
+        help_text="Extended metrics bundle: Brier score, precision/recall at thresholds, lift@k, base rate, row counts.",
+    )
+    source_training_run = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Training run that produced this model. Read that run's artifact bundle to reuse the "
+            "champion's train.py and features.sql as a starting point. Null for legacy models."
+        ),
+    )
+    agent_description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="The agent's own plain-English description of what this recipe does and why it was chosen.",
+    )
+    trained_on_start = serializers.DateField(
+        required=False, allow_null=True, help_text="Start of the training data window (inclusive)."
+    )
+    trained_on_end = serializers.DateField(
+        required=False, allow_null=True, help_text="End of the training data window (exclusive)."
+    )
+    is_preliminary = serializers.BooleanField(
+        required=False,
+        help_text="True if this model has not yet been validated against realized online outcomes.",
+    )
+    promoted_at = serializers.DateTimeField(
+        required=False, allow_null=True, help_text="Timestamp when this model was promoted to champion."
+    )
+    archived_at = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        help_text="Timestamp when this model was archived (superseded or retired).",
+    )
+    created_at = serializers.DateTimeField(read_only=True)
+    updated_at = serializers.DateTimeField(read_only=True)
+
+    class Meta:
+        dataclass = Model
+        fields = [
+            "id",
+            "pipeline",
+            "role",
+            "recipe_hash",
+            "model_recipe",
+            "model_explanation",
+            "holdout_score",
+            "realized_score",
+            "calibration_error",
+            "metrics",
+            "source_training_run",
+            "agent_description",
+            "trained_on_start",
+            "trained_on_end",
+            "is_preliminary",
+            "promoted_at",
+            "archived_at",
+            "created_at",
+            "updated_at",
+        ]
+
+
+class TrainingRunSummaryLadderItemSerializer(serializers.Serializer):
+    """One iteration referenced from a run summary's ladder or dead-ends list."""
+
+    iteration_number = serializers.IntegerField(help_text="Iteration index this entry refers to.")
+    holdout_score = serializers.FloatField(allow_null=True, help_text="Holdout AUC for this iteration.")
+    model_class = serializers.CharField(allow_blank=True, help_text="Model class tried in this iteration.")
+    agent_description = serializers.CharField(allow_blank=True, help_text="The agent's rationale for this attempt.")
+
+
+class TrainingRunSummarySerializer(serializers.Serializer):
+    """Tier-1 distilled summary of a completed run — the orientation memory a new run reads first."""
+
+    target_event = serializers.CharField(help_text="Target event the run's pipeline predicts.")
+    horizon_days = serializers.IntegerField(help_text="Prediction horizon, in days.")
+    best_holdout_score = serializers.FloatField(allow_null=True, help_text="Best holdout AUC achieved in the run.")
+    champion_promoted = serializers.BooleanField(
+        help_text="Whether this run's best model was promoted to champion (vs kept as challenger)."
+    )
+    champion_model_class = serializers.CharField(allow_blank=True, help_text="Model class of the run's best model.")
+    kept_ladder = TrainingRunSummaryLadderItemSerializer(
+        many=True,
+        help_text="Kept iterations, highest holdout AUC first — the winning approaches worth reusing.",
+    )
+    dead_ends = TrainingRunSummaryLadderItemSerializer(
+        many=True,
+        help_text="Discarded or crashed iterations — approaches already tried that did not help; avoid repeating.",
+    )
+    recommended_next = serializers.CharField(
+        allow_blank=True, help_text="Agent's suggested next experiments for a future run. Empty if not provided."
+    )
+    distillation = serializers.CharField(
+        allow_blank=True, help_text="Agent's 1–2 sentence distillation of what this run learned. Empty if not provided."
+    )
+
+
+@extend_schema_serializer(component_name="IterationTrail")
+class IterationTrailSerializer(DataclassSerializer):
+    """Compact, read-only view of one iteration for the cross-run history feed and the Training tab."""
+
+    iteration_number = serializers.IntegerField(
+        min_value=-2147483648, max_value=2147483647, help_text="Order of this attempt within its run (0-based)."
+    )
+    status = serializers.ChoiceField(
+        choices=ITERATION_STATUS_CHOICES,
+        help_text="Whether this recipe was kept (improved the best score), discarded, or crashed.",
+    )
+    holdout_score = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        help_text="Holdout AUC this iteration achieved. Null if it was skipped/degenerate.",
+    )
+    train_score = serializers.FloatField(
+        required=False, allow_null=True, help_text="Train-fold AUC for this iteration, if recorded."
+    )
+    agent_description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="The agent's one-line rationale for what it tried and why.",
+    )
+    model_spec = serializers.JSONField(help_text="Model class and hyperparameters tried in this iteration.")
+
+    class Meta:
+        dataclass = IterationTrailEntry
+        fields = [
+            "iteration_number",
+            "status",
+            "holdout_score",
+            "train_score",
+            "agent_description",
+            "model_spec",
+        ]
+
+
+@extend_schema_serializer(component_name="AutoresearchTrainingRun")
+class AutoresearchTrainingRunSerializer(DataclassSerializer):
+    id = serializers.UUIDField(read_only=True, help_text="Unique UUID of this training run.")
+    pipeline = serializers.UUIDField(help_text="Pipeline this training run belongs to.")
+    task_id = serializers.UUIDField(
+        required=False, allow_null=True, help_text="Parent Task ID in the tasks sandbox. Null for stub runs."
+    )
+    task_run_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text="Task sandbox run ID. Null for stub/synchronous training runs.",
+    )
+    task_url = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Relative URL to the underlying sandbox Task detail page. Null for stub/synchronous training runs.",
+    )
+    status = serializers.ChoiceField(
+        choices=TRAINING_RUN_STATUS_CHOICES,
+        read_only=True,
+        help_text="Run status: pending, running, completed, or failed.",
+    )
+    iteration_budget = serializers.IntegerField(
+        min_value=-2147483648,
+        max_value=2147483647,
+        required=False,
+        help_text="Maximum iterations allowed for this run.",
+    )
+    iteration_count = serializers.IntegerField(read_only=True, help_text="Number of iterations completed.")
+    best_holdout_score = serializers.FloatField(
+        read_only=True,
+        allow_null=True,
+        help_text="Best holdout AUC achieved across all iterations in this run.",
+    )
+    summary = TrainingRunSummarySerializer(
+        read_only=True,
+        allow_null=True,
+        help_text="Distilled cross-run learning summary written on completion. Null until the run completes.",
+    )
+    iterations = IterationTrailSerializer(
+        many=True,
+        read_only=True,
+        help_text="Per-iteration breakdown — every recipe the agent tried this run, kept or discarded, "
+        "with its model spec, holdout/train AUC, and one-line rationale. Ordered by iteration_number.",
+    )
+    error = serializers.CharField(read_only=True, allow_blank=True, help_text="Error message if the run failed.")
+    started_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="Timestamp when the training run started."
+    )
+    completed_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="Timestamp when the training run completed or failed."
+    )
+    created_at = serializers.DateTimeField(read_only=True)
+
+    class Meta:
+        dataclass = TrainingRun
+        fields = [
+            "id",
+            "pipeline",
+            "task_id",
+            "task_run_id",
+            "task_url",
+            "status",
+            "iteration_budget",
+            "iteration_count",
+            "best_holdout_score",
+            "summary",
+            "iterations",
+            "error",
+            "started_at",
+            "completed_at",
+            "created_at",
+        ]
+
+
+@extend_schema_serializer(component_name="AutoresearchRun")
+class AutoresearchRunSerializer(DataclassSerializer):
+    id = serializers.UUIDField(read_only=True, help_text="Unique UUID of this run.")
+    pipeline = serializers.UUIDField(help_text="Pipeline this run belongs to.")
+    model = serializers.UUIDField(
+        required=False, allow_null=True, help_text="Model used for scoring. Null for validation runs."
+    )
+    run_type = serializers.ChoiceField(
+        choices=RUN_TYPE_CHOICES,
+        help_text="Type of run: 'inference' (daily scoring) or 'validation' (outcome evaluation).",
+    )
+    status = serializers.ChoiceField(
+        choices=RUN_STATUS_CHOICES,
+        required=False,
+        help_text="Run status: pending, running, completed, or failed.",
+    )
+    rows_scored = serializers.IntegerField(
+        min_value=-2147483648,
+        max_value=2147483647,
+        required=False,
+        allow_null=True,
+        help_text="Number of users scored in this inference run.",
+    )
+    metrics = serializers.JSONField(
+        help_text="Run metrics: rows scored, score distribution summary, validation AUC, etc."
+    )
+    error = serializers.CharField(required=False, allow_blank=True, help_text="Error message if the run failed.")
+    started_at = serializers.DateTimeField(required=False, allow_null=True, help_text="Timestamp when the run started.")
+    completed_at = serializers.DateTimeField(
+        required=False, allow_null=True, help_text="Timestamp when the run completed or failed."
+    )
+    created_at = serializers.DateTimeField(read_only=True)
+
+    class Meta:
+        dataclass = Run
+        fields = [
+            "id",
+            "pipeline",
+            "model",
+            "run_type",
+            "status",
+            "rows_scored",
+            "metrics",
+            "error",
+            "started_at",
+            "completed_at",
+            "created_at",
+        ]
 
 
 # ── Validation serializers -------------------------------------------------

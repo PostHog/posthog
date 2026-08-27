@@ -13,7 +13,12 @@ from posthog.models import Organization, Team
 
 from products.actions.backend.models.action import Action
 from products.autoresearch.backend.dataset.validation import ValidationResult, ValidationWarning
-from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline
+from products.autoresearch.backend.models import (
+    AutoresearchModel,
+    AutoresearchPipeline,
+    AutoresearchRun,
+    AutoresearchTrainingRun,
+)
 from products.autoresearch.backend.presentation.views.serializers import (
     AutoresearchPipelineCreateSerializer,
     PopulationDefinitionField,
@@ -283,6 +288,59 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
 
     # ─────────────────────────────────── nested resources ─────────────────────────────────────────
+
+    def test_list_models_for_pipeline(self):
+        pipeline = self._make_pipeline()
+        training_run = AutoresearchTrainingRun.objects.create(pipeline=pipeline, status="completed")
+        AutoresearchModel.objects.create(
+            pipeline=pipeline,
+            role=AutoresearchModel.Role.CHAMPION,
+            model_recipe={"stub": True},
+            recipe_hash="abc123",
+            holdout_score=0.7,
+            source_training_run=training_run,
+        )
+        resp = self.client.get(f"{self.base_url}/{pipeline.id}/models/")
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json()["count"] == 1
+        assert resp.json()["results"][0]["role"] == "champion"
+        # The agent brief tells agents to look up a champion's bundle via source_training_run.
+        assert resp.json()["results"][0]["source_training_run"] == str(training_run.id)
+
+    def test_list_training_runs_for_pipeline(self):
+        pipeline = self._make_pipeline()
+        AutoresearchTrainingRun.objects.create(pipeline=pipeline, status="completed", iteration_count=1)
+        resp = self.client.get(f"{self.base_url}/{pipeline.id}/training_runs/")
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json()["count"] == 1
+
+    def test_list_runs_for_pipeline(self):
+        pipeline = self._make_pipeline()
+        model = AutoresearchModel.objects.create(
+            pipeline=pipeline,
+            role=AutoresearchModel.Role.CHAMPION,
+            model_recipe={"stub": True},
+            recipe_hash="def456",
+            holdout_score=0.6,
+        )
+        AutoresearchRun.objects.create(pipeline=pipeline, model=model, status="completed", rows_scored=100)
+        resp = self.client.get(f"{self.base_url}/{pipeline.id}/runs/")
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json()["count"] == 1
+
+    def test_models_not_leaked_across_pipelines(self):
+        pipeline_a = self._make_pipeline(name="Pipeline A")
+        pipeline_b = self._make_pipeline(name="Pipeline B")
+        AutoresearchModel.objects.create(
+            pipeline=pipeline_a,
+            role=AutoresearchModel.Role.CHAMPION,
+            model_recipe={"stub": True},
+            recipe_hash="aaa",
+            holdout_score=0.7,
+        )
+        resp = self.client.get(f"{self.base_url}/{pipeline_b.id}/models/")
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json()["count"] == 0
 
 
 class TestPipelineCreateSerializerValidation(SimpleTestCase):

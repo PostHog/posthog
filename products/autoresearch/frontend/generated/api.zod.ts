@@ -106,6 +106,28 @@ export const AutoresearchCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * List, retrieve, open, record iterations into, and complete training runs for a pipeline.
+ *
+ * The write endpoints let an external (bring-your-own) agent or a scheduled job drive a
+ * training run directly — recording each iteration as it completes rather than via a single
+ * terminal sandbox output. Recipe validation and champion promotion stay server-side.
+ */
+export const autoresearchTrainingRunsCreateBodyIterationBudgetMin = -2147483648
+export const autoresearchTrainingRunsCreateBodyIterationBudgetMax = 2147483647
+
+export const AutoresearchTrainingRunsCreateBody = /* @__PURE__ */ zod.object({
+    pipeline: zod.uuid().describe('Pipeline this training run belongs to.'),
+    task_id: zod.uuid().nullish().describe('Parent Task ID in the tasks sandbox. Null for stub runs.'),
+    task_run_id: zod.uuid().nullish().describe('Task sandbox run ID. Null for stub\/synchronous training runs.'),
+    iteration_budget: zod
+        .number()
+        .min(autoresearchTrainingRunsCreateBodyIterationBudgetMin)
+        .max(autoresearchTrainingRunsCreateBodyIterationBudgetMax)
+        .optional()
+        .describe('Maximum iterations allowed for this run.'),
+})
+
+/**
  * Manage autoresearch prediction pipelines.
  *
  * A pipeline defines a target event, population, and horizon. The autoresearch
