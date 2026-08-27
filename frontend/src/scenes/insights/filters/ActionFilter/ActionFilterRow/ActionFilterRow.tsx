@@ -745,7 +745,6 @@ export function ActionFilterRow({
                         operatorAllowlist={operatorAllowlist}
                         triggerVariant="input"
                         framedRows={behavioralFiltersEnabled}
-                        // Shortened to sit beside "Performed" as a matching pair
                         addText={behavioralFiltersEnabled ? 'Filter' : undefined}
                         addFilterSuffix={
                             behavioralFiltersEnabled

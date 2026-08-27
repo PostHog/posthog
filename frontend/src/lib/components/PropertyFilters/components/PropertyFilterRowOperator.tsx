@@ -8,12 +8,9 @@ export interface PropertyFilterRowOperatorProps {
     index: number
     orFiltering?: boolean
     propertyGroupType?: FilterLogicalOperator | null
-    /** Or-filtering leaves the gutter empty until the row has a key. */
     hasKey?: boolean
 }
 
-/** The fixed-width left gutter every filter row shares, holding "where" or the AND/OR tag.
- * Reserving it for each row is what keeps the rows' controls in one column. */
 export function PropertyFilterRowOperator({
     index,
     orFiltering,
@@ -33,9 +30,6 @@ export function PropertyFilterRowOperator({
         <OperandTag operand="and" />
     ) : null
 
-    // Still occupies the gutter when empty, so every row's controls stay in one column. The
-    // modifier lets the narrow layout drop it instead, where it would otherwise take a whole
-    // wrapped line and push the row's own controls down.
     return (
         <div
             className={clsx(

@@ -40,6 +40,7 @@ import { AnyPropertyFilter, GroupTypeIndex, PropertyDefinitionType, PropertyFilt
 
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 
+import { FILTER_ROW_FRAME_CLASSES } from './filterRowFrame'
 import { PropertyFilterRowOperator } from './PropertyFilterRowOperator'
 import { taxonomicPropertyFilterLogic } from './taxonomicPropertyFilterLogic'
 
@@ -89,6 +90,7 @@ export function TaxonomicPropertyFilter({
     propertyDefinitionsOverride,
     propertyKeyEditable = true,
     singleLine,
+    framedRows,
 }: PropertyFilterInternalProps): JSX.Element {
     const generatedKey = useId()
     const pageKey = pageKeyInput || `filter-${generatedKey}`
@@ -363,7 +365,6 @@ export function TaxonomicPropertyFilter({
                         'TaxonomicPropertyFilter__row--or-filtering': orFiltering,
                         'TaxonomicPropertyFilter__row--showing-operators': showOperatorValueSelect,
                         'TaxonomicPropertyFilter__row--editable': editable,
-                        'TaxonomicPropertyFilter__row--empty': !filter?.key,
                     })}
                 >
                     {hasRowOperator && (
@@ -375,9 +376,11 @@ export function TaxonomicPropertyFilter({
                         />
                     )}
                     <div
-                        className={clsx('TaxonomicPropertyFilter__row-items', {
-                            'TaxonomicPropertyFilter__row-items--single-line': singleLine,
-                        })}
+                        className={clsx(
+                            'TaxonomicPropertyFilter__row-items',
+                            { 'TaxonomicPropertyFilter__row-items--single-line': singleLine },
+                            framedRows && filter?.key && FILTER_ROW_FRAME_CLASSES
+                        )}
                     >
                         {showOperatorValueSelect && placeOperatorValueSelectOnLeft && operatorValueSelect}
                         {editable && propertyKeyEditable ? editablePicker : filterContent}

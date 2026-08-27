@@ -5,6 +5,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import React, { useState } from 'react'
 
 import { BehavioralPropertyFilterRow } from 'lib/components/PropertyFilters/components/BehavioralPropertyFilterRow'
+import { FILTER_ROW_FRAME_CLASSES } from 'lib/components/PropertyFilters/components/filterRowFrame'
 import { PropertyFilterRowOperator } from 'lib/components/PropertyFilters/components/PropertyFilterRowOperator'
 import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
 import { isBehavioralPropertyFilter } from 'lib/components/PropertyFilters/utils'
@@ -82,7 +83,6 @@ export interface PropertyFiltersProps {
      * logic, so the caller doesn't have to rebuild the list from possibly-stale props. */
     addFilterSuffix?: ((addFilter: (property: AnyPropertyFilter) => void) => JSX.Element) | null
     addFilterDivider?: boolean
-    /** Frames each row's controls on a tinted panel, so a filter spanning several lines reads as one unit. */
     framedRows?: boolean
 }
 
@@ -145,7 +145,7 @@ export function PropertyFilters({
     useOnMountEffect(() => setAllowOpenOnInsert(true))
 
     return (
-        <div className={clsx('PropertyFilters', framedRows && 'PropertyFilters--framed-rows')}>
+        <div className="PropertyFilters">
             {showNestedArrow && !disablePopover && (
                 <div className="PropertyFilters__prefix">
                     <>&#8627;</>
@@ -182,9 +182,6 @@ export function PropertyFilters({
                                     editable={editable}
                                     filterComponent={(onComplete) =>
                                         isBehavioralPropertyFilter(item) ? (
-                                            // Same row scaffolding as a taxonomic filter, so both kinds share
-                                            // one gutter and line up. w-full/min-w-0 stands in for the
-                                            // .TaxonomicPropertyFilter wrapper the other branch gets.
                                             <div className="TaxonomicPropertyFilter__row w-full min-w-0">
                                                 {hasRowOperator && (
                                                     <PropertyFilterRowOperator
@@ -194,7 +191,12 @@ export function PropertyFilters({
                                                         hasKey={!!item.key}
                                                     />
                                                 )}
-                                                <div className="TaxonomicPropertyFilter__row-items">
+                                                <div
+                                                    className={clsx(
+                                                        'TaxonomicPropertyFilter__row-items',
+                                                        framedRows && FILTER_ROW_FRAME_CLASSES
+                                                    )}
+                                                >
                                                     <BehavioralPropertyFilterRow
                                                         filter={item}
                                                         onChange={(filter) => setFilter(index, filter)}
@@ -237,6 +239,7 @@ export function PropertyFilters({
                                                 propertyDefinitionsOverride={propertyDefinitionsOverride}
                                                 propertyKeyEditable={propertyKeyEditable}
                                                 singleLine={singleLine}
+                                                framedRows={framedRows}
                                             />
                                         )
                                     }

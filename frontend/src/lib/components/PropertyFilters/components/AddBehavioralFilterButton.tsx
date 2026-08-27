@@ -11,8 +11,6 @@ export interface AddBehavioralFilterButtonProps {
     'data-attr': string
 }
 
-/** Entry point for a "performed event" filter. The button is the event picker itself, so — as with
- * "Add filter" — no row appears until the user has chosen what it targets. */
 export function AddBehavioralFilterButton({
     onAdd,
     'data-attr': dataAttr,
@@ -31,7 +29,6 @@ export function AddBehavioralFilterButton({
                 )
             }
             placeholder="Performed"
-            // The trigger never holds a value, so it should read as a button, not an empty field
             placeholderClass=""
             icon={<IconPlusSmall />}
             sideIcon={null}
