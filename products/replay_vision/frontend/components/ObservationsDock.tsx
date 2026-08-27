@@ -17,7 +17,7 @@ import type { ReplayScannerApi } from '../generated/api.schemas'
 import { observationsDockLogic } from '../logics/observationsDockLogic'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
-import { dockObservations, isUnsuccessfulScan } from '../utils/observation'
+import { BUILT_IN_SUMMARY_LABEL, dockObservations, isUnsuccessfulScan } from '../utils/observation'
 import { quotaUx } from '../utils/quotaProjection'
 import { VisionDocsLink, visionDocsUrl } from './DocsLink'
 import { ObservationDockCard } from './ObservationCard'
@@ -77,7 +77,7 @@ function SummarizeButton({ sessionId }: { sessionId: string }): JSX.Element {
             // carries the logomark and says so, rather than reading as a scanner they cannot find.
             label: (
                 <span className="flex items-center justify-between gap-2 w-full">
-                    <span className="truncate">Quick summary</span>
+                    <span className="truncate">{BUILT_IN_SUMMARY_LABEL}</span>
                     <span className="flex items-center gap-1.5 text-xs shrink-0">
                         <IconLogomark className="text-base text-primary" />
                         <span className="text-muted">Built in</span>

@@ -216,7 +216,7 @@ export function ChannelFilterMenu({
             aria-label="Filter"
             className={cn("relative", cnHeaderButton(active))}
           >
-            <FunnelSimpleIcon size={12} />
+            <FunnelSimpleIcon size={14} />
             {active && (
               <span
                 aria-hidden
