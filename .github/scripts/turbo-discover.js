@@ -58,12 +58,10 @@ const TARGET_WALL_SECONDS = 12 * 60
 // init. First product pays ~45s, subsequent ~15s; use 60s as a conservative
 // average that also absorbs the amortized portion of runner startup.
 const PRODUCT_PER_PRODUCT_OVERHEAD_SECONDS = 60
-// Headroom on a packed bucket. A bucket runs its products sequentially, so its
-// wall is the sum of its parts — there is no mean-versus-max gap to cover here,
-// and this only absorbs error in the recorded durations. Was one shared 1.3 with
-// the split factor below, which marked up every small product by 30% against a
-// budget of TARGET minus PRODUCT_JOB_BASE_OVERHEAD_SECONDS and bought extra
-// buckets, each paying that base overhead again.
+// Headroom on a packed bucket, covering error in the recorded durations alone.
+// A bucket runs its products sequentially, so its wall is the sum of its parts
+// and it needs no allowance for an uneven split. That allowance belongs to the
+// split path, which derives its own in productSplitShards.
 const PRODUCT_BUCKET_SAFETY_FACTOR = 1.1
 // No headroom constant for a split product: the gap between the mean shard that
 // sizing solves for and the max shard that sets the wall is derived per product
@@ -892,7 +890,7 @@ function productShardBudget() {
 //
 // This replaces a fitted margin. A ratio measured off CI describes one map, and
 // a map that misreports test weights (a floor on tiny tests, say) bakes its own
-// error into the constant. Deriving from maxTest tracks the map instead: a
+// error into the constant. Deriving from maxTest ties the sizing to the map: a
 // product carrying one heavy test gets the shards that test forces, an evenly
 // grained one gets none it does not need, and a fixed point is unnecessary.
 //
@@ -908,7 +906,15 @@ function productSplitShards(workSeconds, maxTestSeconds = 0) {
         // target. Size by work alone rather than buying shards that cannot help.
         return Math.max(2, Math.min(DJANGO_MAX_SHARDS, Math.ceil(workSeconds / budget)))
     }
-    return Math.max(2, Math.min(DJANGO_MAX_SHARDS, Math.ceil(workSeconds / (budget - maxTestSeconds))))
+    const headroom = budget - maxTestSeconds
+    if (headroom < budget / 4) {
+        // The mean-plus-one-test bound stops being informative once a single test
+        // eats most of the budget: it asks for a shard per few seconds of the
+        // remainder. Size by work and add the one shard that carries the heavy
+        // test, which is what the split actually needs.
+        return Math.max(2, Math.min(DJANGO_MAX_SHARDS, Math.ceil(workSeconds / budget) + 1))
+    }
+    return Math.max(2, Math.min(DJANGO_MAX_SHARDS, Math.ceil(workSeconds / headroom)))
 }
 
 // Selector segment key -> Django matrix segment name.

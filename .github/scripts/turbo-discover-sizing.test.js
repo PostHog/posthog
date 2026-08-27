@@ -122,6 +122,9 @@ test('productSplitShards sizes the worst chunk, so a heavy test buys shards', ()
     // A test at or above the budget cannot be split out of, so no shard count
     // meets the target; size by work alone rather than buying useless shards.
     assert.equal(productSplitShards(1000, budget * 2), Math.ceil(1000 / budget))
+    // Just under the budget the bound goes uninformative and asks for a shard per
+    // few seconds of remainder. Stay near what the split actually needs.
+    assert.ok(productSplitShards(budget + 1, budget - 1) <= 3)
 })
 
 test('a product that fits one shard is packed, not split by its own margin', () => {
