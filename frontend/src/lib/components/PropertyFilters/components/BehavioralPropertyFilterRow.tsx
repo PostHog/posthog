@@ -128,7 +128,7 @@ export function BehavioralPropertyFilterRow({
                     </div>
                 </div>
                 {!filter.negation && (
-                    <div className="flex items-center gap-2">
+                    <div className="flex min-w-0 flex-wrap items-center gap-2">
                         <LemonSelect
                             size={size}
                             value={countOperator}
@@ -148,7 +148,7 @@ export function BehavioralPropertyFilterRow({
                         <span className="whitespace-nowrap">{countValue === 1 ? 'time' : 'times'}</span>
                     </div>
                 )}
-                <div className="flex items-center gap-2">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
                     <span className="whitespace-nowrap">in the last</span>
                     <LemonInput
                         type="number"

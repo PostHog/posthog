@@ -61,7 +61,11 @@ from posthog.models.activity_logging.activity_log import (
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.data_color_theme import DataColorTheme
-from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
+from posthog.models.event_ingestion_restriction_config import (
+    EventIngestionRestrictionConfig,
+    IngestionPipeline,
+    RestrictionType,
+)
 from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.group_type_mapping import cached_group_types_for_team
 from posthog.models.organization import Organization, OrganizationMembership
@@ -2130,6 +2134,49 @@ class EvaluationContextSuggestionResponseSerializer(serializers.Serializer):
     )
 
 
+class EventIngestionRestrictionSerializer(serializers.Serializer):
+    restriction_type = serializers.ChoiceField(
+        choices=RestrictionType.choices,
+        help_text="What happens to matching events: dropped, sent to the overflow lane, or ingested without person processing.",
+    )
+    distinct_ids = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Distinct IDs the restriction applies to. Empty means it is not filtered by distinct ID.",
+    )
+    session_ids = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Session IDs the restriction applies to. Empty means it is not filtered by session ID.",
+    )
+    event_names = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Event names the restriction applies to. Empty means it is not filtered by event name.",
+    )
+    event_uuids = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Event UUIDs the restriction applies to. Empty means it is not filtered by event UUID.",
+    )
+    pipelines = serializers.ListField(
+        child=serializers.ChoiceField(choices=IngestionPipeline.choices),
+        help_text="Ingestion pipelines the restriction applies to. Filters combine with AND; values within a filter combine with OR.",
+    )
+
+
+def team_event_ingestion_restrictions_view(team: Team, request: request.Request) -> response.Response:
+    restrictions = EventIngestionRestrictionConfig.objects.filter(token=team.api_token)
+    data = [
+        {
+            "restriction_type": restriction.restriction_type,
+            "distinct_ids": restriction.distinct_ids or [],
+            "session_ids": restriction.session_ids or [],
+            "event_names": restriction.event_names or [],
+            "event_uuids": restriction.event_uuids or [],
+            "pipelines": restriction.pipelines or [],
+        }
+        for restriction in restrictions
+    ]
+    return response.Response(EventIngestionRestrictionSerializer(data, many=True).data)
+
+
 class TeamViewSet(
     TeamAndOrgViewSetMixin, AccessControlSettingsViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet
 ):
@@ -2569,18 +2616,16 @@ class TeamViewSet(
 
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
 
-    @action(methods=["GET"], detail=True, required_scopes=["project:read"], url_path="event_ingestion_restrictions")
+    @extend_schema(responses=EventIngestionRestrictionSerializer(many=True))
+    @action(
+        methods=["GET"],
+        detail=True,
+        required_scopes=["project:read"],
+        url_path="event_ingestion_restrictions",
+        pagination_class=None,
+    )
     def event_ingestion_restrictions(self, request, **kwargs):
-        team = self.get_object()
-        restrictions = EventIngestionRestrictionConfig.objects.filter(token=team.api_token)
-        data = [
-            {
-                "restriction_type": restriction.restriction_type,
-                "distinct_ids": restriction.distinct_ids,
-            }
-            for restriction in restrictions
-        ]
-        return response.Response(data)
+        return team_event_ingestion_restrictions_view(self.get_object(), request)
 
     @cached_property
     def user_permissions(self):

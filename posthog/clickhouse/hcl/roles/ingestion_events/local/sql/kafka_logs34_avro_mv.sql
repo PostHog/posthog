@@ -27,5 +27,7 @@ SELECT
   _offset,
   toInt64OrDefault(_headers.value[indexOf(_headers.name, 'record_count')], toInt64(1)) AS _record_count,
   toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_uncompressed')]) / _record_count AS _bytes_uncompressed,
-  toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_compressed')]) / _record_count AS _bytes_compressed
+  toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_compressed')]) / _record_count AS _bytes_compressed,
+  ifNull(pattern, '') AS pattern,
+  toUInt8(ifNull(pattern_version, 0)) AS pattern_version
 FROM posthog.kafka_logs_avro
