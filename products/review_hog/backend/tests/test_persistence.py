@@ -205,6 +205,30 @@ class TestUpsertReviewReport(BaseTest):
             )
             assert self._routing(report_id) == ("human", "P2", "xhigh")
 
+    def test_unknown_persisted_tier_degrades_instead_of_crashing_the_upsert(self) -> None:
+        # `review_tier` is an unconstrained column, so a newer deploy can persist a tier value this
+        # deploy can't parse. The update-path read runs on every turn, before the lift condition, so
+        # a raise would fail the turn and its retries. It must degrade to "no lift", not crash.
+        report_id = upsert_review_report(
+            team_id=self.team.id,
+            repository="o/r",
+            pr_url="u",
+            pr_metadata=_pr_metadata(),
+            trigger_source=TRIGGER_INBOX,
+        )
+        ReviewReport.objects.for_team(self.team.id).filter(id=report_id).update(review_tier="agent_p9_from_the_future")
+
+        upsert_review_report(
+            team_id=self.team.id,
+            repository="o/r",
+            pr_url="u",
+            pr_metadata=_pr_metadata(),
+            trigger_source=TRIGGER_LABEL,
+            lift_tier_on_human_trigger=True,
+        )
+        # The unparseable value is left as-is: the lift is skipped rather than raising or relabeling.
+        assert ReviewReport.objects.for_team(self.team.id).get(id=report_id).review_tier == "agent_p9_from_the_future"
+
     def test_tiered_arms_stay_on_the_default_outside_the_rollout_teams(self) -> None:
         # The tier is recorded for every team (so the label stays truthful and the tiers can be
         # compared on their traffic), but only the dogfood teams run the cheaper arm; a gate that

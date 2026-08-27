@@ -160,7 +160,7 @@ def upsert_review_report(
             updates["author_login"] = pr_metadata.author
         if report.signal_report_id is None and signal_report_id is not None:
             updates["signal_report_id"] = signal_report_id
-        persisted_tier = ReviewTier(report.review_tier) if report.review_tier else None
+        persisted_tier = _parse_persisted_tier(report.review_tier)
         if (
             lift_tier_on_human_trigger
             and trigger_source in HUMAN_TRIGGER_SOURCES
@@ -173,6 +173,25 @@ def upsert_review_report(
             updates.update(_review_tier_fields(team_id, ReviewTier.HUMAN))
         qs.filter(pk=report.pk).update(**updates)
     return str(report.id)
+
+
+def _parse_persisted_tier(value: str | None) -> ReviewTier | None:
+    """The stored tier as a `ReviewTier`, or None if it is empty or a value this deploy doesn't know.
+
+    A tier a newer deploy wrote must not crash an older deploy's upsert, so an unparseable value
+    degrades to None with a warning instead of raising — the same degrade-don't-crash contract the
+    arm read (`resolve_review_arm`) and the artefact reads (`load_chunk_set`, `_load_working_state`)
+    already follow. This read runs on every update-path upsert, so a raise would fail the turn (and
+    its retries) before the review starts. Degrading to None only skips the human-trigger lift for
+    that turn; the persisted tier column is left untouched.
+    """
+    if not value:
+        return None
+    try:
+        return ReviewTier(value)
+    except ValueError:
+        logger.warning("Unknown persisted review tier %r; skipping the human-trigger lift this turn", value)
+        return None
 
 
 def _review_tier_fields(team_id: int, tier: ReviewTier) -> dict[str, object]:
