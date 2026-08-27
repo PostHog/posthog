@@ -99,11 +99,11 @@ export interface issueFilterPreviewLogicActions {
     applyPropertyFilters: (filters: PreviewPropertyFilter[]) => {
         filters: PreviewPropertyFilter[]
     }
-    clearPropertyFilter: (key: string) => {
-        key: string
-    }
     clearNonDateFilters: () => {
         value: true
+    }
+    clearPropertyFilter: (key: string) => {
+        key: string
     }
     popDateRangeHistory: () => {
         value: true
