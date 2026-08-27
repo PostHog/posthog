@@ -56,9 +56,7 @@ export interface workflowsReputationLogicActions {
 export interface workflowsReputationLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         awsReputation: (reputationResponse: TeamEmailReputationResponseApi | null) => AwsTenantReputationApi | null
-        sendingAllowance: (
-            reputationResponse: TeamEmailReputationResponseApi | null
-        ) => EmailSendingAllowanceApi | null
+        sendingAllowance: (reputationResponse: TeamEmailReputationResponseApi | null) => EmailSendingAllowanceApi | null
         teamReputation: (reputationResponse: TeamEmailReputationResponseApi | null) => EmailSendingRatesApi | null
         workflowSnapshots: (
             reputationResponse: TeamEmailReputationResponseApi | null

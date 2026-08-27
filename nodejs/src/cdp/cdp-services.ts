@@ -156,6 +156,10 @@ export type CdpCoreServicesConfig = Pick<
         | 'SES_TRACKED_CONFIGURATION_SET'
         | 'SES_UNTRACKED_CONFIGURATION_SET'
         | 'EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD'
+        | 'EMAIL_TEAM_SENDING_CAP_MODE'
+        | 'EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER'
+        | 'EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER'
+        | 'EMAIL_TEAM_SENDING_CAP_TEAMS_CREATED_AFTER'
         | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN'
         | 'CONVERSATIONS_TICKETS_JWT_SECRET'
         | 'CDP_FETCH_RETRIES'
@@ -433,7 +437,6 @@ export function createCdpCoreServices(
             sesEndpoint: config.SES_ENDPOINT,
             sesTrackedConfigurationSet: config.SES_TRACKED_CONFIGURATION_SET,
             sesUntrackedConfigurationSet: config.SES_UNTRACKED_CONFIGURATION_SET,
-            sesTenantAttributionEnabled: config.EMAIL_SES_TENANT_ATTRIBUTION_ENABLED,
             teamEmailCapMode: parseTeamEmailCapMode(config.EMAIL_TEAM_SENDING_CAP_MODE),
             teamEmailTierHourlyCaps: parseTierCaps(config.EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER),
             teamEmailTierDailyCaps: parseTierCaps(config.EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER),

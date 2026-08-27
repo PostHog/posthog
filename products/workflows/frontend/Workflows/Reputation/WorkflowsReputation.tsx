@@ -231,9 +231,7 @@ function SendingAllowanceCard({ allowance }: { allowance: EmailSendingAllowanceA
                         label="Largest batch audience"
                         tooltip="The biggest audience this tier allows for a single batch send."
                     />
-                    <div className="text-lg font-semibold">
-                        {humanFriendlyNumber(allowance.max_batch_audience)}
-                    </div>
+                    <div className="text-lg font-semibold">{humanFriendlyNumber(allowance.max_batch_audience)}</div>
                 </div>
             </div>
         </div>

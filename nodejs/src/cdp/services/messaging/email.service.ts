@@ -148,8 +148,8 @@ export function parseTierCaps(value: string | undefined): number[] {
 
 // Mirrors WORKFLOWS_EMAIL_TIER_HOURLY_CAPS / _DAILY_CAPS in posthog/settings/web.py. Both sides
 // read the same tier index, so the two tables must stay in step.
-const DEFAULT_TEAM_EMAIL_TIER_HOURLY_CAPS = [200, 2000, 10000, 50000, 200000]
-const DEFAULT_TEAM_EMAIL_TIER_DAILY_CAPS = [1000, 10000, 50000, 250000, 1000000]
+const DEFAULT_TEAM_EMAIL_TIER_HOURLY_CAPS = [200, 600, 2000, 6000, 20000, 60000, 200000]
+const DEFAULT_TEAM_EMAIL_TIER_DAILY_CAPS = [1000, 3000, 10000, 30000, 100000, 300000, 1000000]
 
 // Comfortably longer than the window each bucket paces, so an idle bucket is never reset to full
 // by expiry before it would have refilled on its own. Without that, a team that pauses for a day
@@ -198,9 +198,6 @@ export interface EmailServiceConfig {
     // Configuration set without open/click tracking. Empty means not provisioned: tracking-off
     // sends fall back to the tracked set (with a warning) rather than failing.
     sesUntrackedConfigurationSet: string
-    // When true, sends carry TenantName so SES attributes reputation per team. Requires every
-    // sending identity to have a tenant resource association — see EMAIL_SES_TENANT_ATTRIBUTION_ENABLED.
-    sesTenantAttributionEnabled: boolean
     // Trust-tiered per-team sending caps. Optional and defaulting to off, so every send path that
     // builds an EmailService without them keeps its pre-cap behavior.
     teamEmailCapMode?: TeamEmailCapMode
