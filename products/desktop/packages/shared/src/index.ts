@@ -330,6 +330,12 @@ export {
   type UserShellExecuteResult,
 } from "./session-events";
 export {
+  appendSessionIdIfPostHogUrl,
+  getStitchableOrigins,
+  isUuidV7,
+  POSTHOG_SESSION_ID_URL_PARAM,
+} from "./session-stitching";
+export {
   type AgentSession,
   cycleModeOption,
   flattenSelectOptions,
