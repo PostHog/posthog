@@ -52,6 +52,12 @@ class InsightWriteRejection:
     write_source: WriteSource
 
 
+@frozen
+class _RuleError:
+    message: str
+    code: str
+
+
 def validate_insight_write(
     *,
     query: dict[str, Any] | None,
@@ -147,10 +153,10 @@ def _rejection_for(
     try:
         runner.validate()
     except ValidationError as error:
-        message, code = _first_error(error)
+        rule_error = _first_error(error)
         return InsightWriteRejection(
-            rule_code=code,
-            message=message,
+            rule_code=rule_error.code,
+            message=rule_error.message,
             query_kind=str(getattr(runner.query, "kind", "unknown")),
             write_source=write_source,
         )
@@ -172,13 +178,13 @@ def _runner_or_none(query: dict[str, Any] | BaseModel, *, team: Team, user: Writ
         return None
 
 
-def _first_error(error: ValidationError) -> tuple[str, str]:
+def _first_error(error: ValidationError) -> _RuleError:
     detail: Any = error.detail
     if isinstance(detail, dict):
         detail = next(iter(detail.values()), "")
     if isinstance(detail, list):
         detail = detail[0] if detail else ""
-    return str(detail), str(getattr(detail, "code", "invalid"))
+    return _RuleError(message=str(detail), code=str(getattr(detail, "code", "invalid")))
 
 
 def _record(

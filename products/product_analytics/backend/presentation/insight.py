@@ -180,7 +180,7 @@ from products.product_analytics.backend.facade.api import (
     with_last_viewed_at,
 )
 from products.product_analytics.backend.facade.models import Insight
-from products.product_analytics.backend.insight_write_validation import validate_insight_write
+from products.product_analytics.backend.facade.write_validation import validate_insight_write
 from products.product_analytics.backend.presentation.insight_metadata import (
     InsightMetadataTimeoutError,
     generate_insight_metadata,
