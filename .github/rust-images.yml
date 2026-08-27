@@ -94,6 +94,12 @@
   dockerfile: ./rust/Dockerfile
   project: x5whcmg6rl
 
+# Postgres telemetry collector (pganalyze replacement): scrapes pg_stat_* /
+# Aurora stats / logs from RDS clusters into a stats Postgres. See rust/pgcollector.
+- image: pgcollector
+  dockerfile: ./rust/Dockerfile
+  project: x5whcmg6rl
+
 - image: kafka-deduplicator
   dockerfile: ./rust/Dockerfile
   project: vznmbshh6q
